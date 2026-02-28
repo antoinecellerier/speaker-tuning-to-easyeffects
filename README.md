@@ -252,8 +252,8 @@ The following XML fields are present but deliberately ignored — they are alway
 - `virtual-bass-*` — always disabled
 - `volume-modeler-*` — always disabled
 - `graphic-equalizer-*` — always disabled (user-facing 20-band GEQ)
-- `surround-boost`, `surround-decoder-center-spreading-enable` — surround upmix parameters
-- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry
+- `surround-decoder-center-spreading-enable` — surround upmix sub-parameter
+- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry (stereo-base mapping is simpler)
 - `mi-*-steering-enable` — Media Intelligence auto-steering flags
 - `output-mode` / `mix_matrix` / `processing_mode` — speaker routing
 - `init-info` blocks — DSP buffer/capacity sizing
