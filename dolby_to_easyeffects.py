@@ -921,8 +921,10 @@ def make_regulator(regulator, freqs):
             else:
                 cross_freq = 10.0  # not used for band 0
 
+            # Bands with threshold >= 0 dB never trigger; disable to save CPU
+            is_active = threshold < 0
             band = {
-                "compressor-enable": True,
+                "compressor-enable": is_active,
                 "mute": False,
                 "solo": False,
                 "attack-threshold": round(threshold, 1),
