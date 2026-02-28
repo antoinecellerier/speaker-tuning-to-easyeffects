@@ -275,12 +275,17 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         for f in vlldp.findall(".//speaker-peq-filters/filter"):
             if f.get("enabled") == "0":
                 continue
+            ftype = int(f.get("type"))
+            if ftype not in (1, 4, 7, 9):
+                print(f"  Warning: unknown PEQ filter type {ftype}, skipping")
+                continue
             peq_filters.append({
                 "speaker": int(f.get("speaker")),
-                "type": int(f.get("type")),
+                "type": ftype,
                 "f0": float(f.get("f0")),
                 "gain": float(f.get("gain", "0")),
                 "q": float(f.get("q", "0.707")),
+                "s": float(f.get("s", "1.0")),
                 "order": int(f.get("order", "0")),
             })
 
@@ -468,21 +473,49 @@ def make_hp_band(freq: float, order: int) -> dict:
     }
 
 
+def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
+    """Low-shelf filter band from Dolby PEQ type 4.
+
+    The S (shelf slope) parameter controls the steepness of the transition.
+    S=1.0 gives a Butterworth (maximally flat) response with Q≈0.707.
+    Convert S to Q using the standard audio shelf formula.
+    """
+    # S-to-Q conversion for shelving filters:
+    # Q = 1/sqrt((A + 1/A) * (1/S - 1) + 2) where A = 10^(gain/40)
+    # For S=1.0, this simplifies to Q ≈ 0.707 (Butterworth)
+    a = 10 ** (abs(gain) / 40.0) if gain != 0 else 1.0
+    denom = (a + 1.0 / a) * (1.0 / s - 1.0) + 2.0
+    q = 1.0 / math.sqrt(max(denom, 0.01))
+    return {
+        "frequency": freq,
+        "gain": round(gain, 4),
+        "mode": "RLC (BT)",
+        "mute": False,
+        "q": round(q, 4),
+        "slope": "x1",
+        "solo": False,
+        "type": "Lo-shelf",
+        "width": 4.0,
+    }
+
+
 def make_peq_eq(peq_filters):
     """Parametric EQ for the explicit speaker PEQ from Dolby.
 
-    Includes both bell filters and high-pass filters from the
-    speaker-peq-filters section. The HP protects laptop speakers
-    from sub-bass energy they can't reproduce.
+    Handles filter types: 1 (bell), 4 (low-shelf), 7 and 9 (high-pass).
+    The HP protects laptop speakers from sub-bass energy they can't reproduce.
     """
     peq_left_bells = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
     peq_right_bells = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
-    hp_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 9]
-    hp_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 9]
+    hp_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (7, 9)]
+    hp_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (7, 9)]
+    shelf_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 4]
+    shelf_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 4]
 
     num_bells = max(len(peq_left_bells), len(peq_right_bells))
     num_hp = max(len(hp_left), len(hp_right))
-    num_bands = num_hp + num_bells
+    num_shelf = max(len(shelf_left), len(shelf_right))
+    num_bands = num_hp + num_shelf + num_bells
 
     if num_bands == 0:
         return None
@@ -496,11 +529,19 @@ def make_peq_eq(peq_filters):
     for j, pf in enumerate(hp_right):
         right_bands[f"band{j}"] = make_hp_band(pf["f0"], pf["order"])
 
+    # Shelf filters next
+    off = num_hp
+    for j, pf in enumerate(shelf_left):
+        left_bands[f"band{off + j}"] = make_shelf_band(pf["f0"], pf["gain"], pf["s"])
+    for j, pf in enumerate(shelf_right):
+        right_bands[f"band{off + j}"] = make_shelf_band(pf["f0"], pf["gain"], pf["s"])
+
     # Bell filters after
+    off = num_hp + num_shelf
     for j, pf in enumerate(peq_left_bells):
-        left_bands[f"band{num_hp + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
+        left_bands[f"band{off + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
     for j, pf in enumerate(peq_right_bells):
-        right_bands[f"band{num_hp + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
+        right_bands[f"band{off + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
 
     # Fill missing
     for idx in range(num_bands):
@@ -517,7 +558,7 @@ def make_peq_eq(peq_filters):
                 right_bands[key] = make_band(1000.0, 0.0)
 
     # Compensate for peak PEQ boost to prevent clipping
-    all_peq = peq_left_bells + peq_right_bells
+    all_peq = peq_left_bells + peq_right_bells + shelf_left + shelf_right
     peak_boost = max((pf["gain"] for pf in all_peq), default=0.0)
     output_gain = -max(peak_boost, 0.0)
 
@@ -1080,8 +1121,10 @@ def main():
         print(f"\nPEQ filters (kept as parametric EQ):")
         for pf in peq_filters:
             spk = "L" if pf["speaker"] == 0 else "R"
-            if pf["type"] == 9:
+            if pf["type"] in (7, 9):
                 print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
+            elif pf["type"] == 4:
+                print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
             elif pf["type"] == 1:
                 print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
