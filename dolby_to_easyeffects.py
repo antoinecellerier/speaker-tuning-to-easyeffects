@@ -552,8 +552,9 @@ def make_autogain(vol_leveler):
     amount = vol_leveler["amount"]
     max_history = max(30 - amount * 10, 5)
 
-    # Dolby target is in dBFS; use as LUFS target (reasonable approximation)
-    target = vol_leveler["out_target"]
+    # Dolby target is in dBFS; subtract 3 dB for the LUFS target to provide
+    # headroom (EBU R 128 standard is -23 LUFS vs Dolby's -20 dBFS).
+    target = vol_leveler["out_target"] - 3
 
     return {
         "bypass": False,
