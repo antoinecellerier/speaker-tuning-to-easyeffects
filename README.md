@@ -26,7 +26,7 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 Each preset contains four plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
-2. **Equalizer** — the 3 explicit speaker PEQ bell filters per channel from the vlldp section
+2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + 3 speaker PEQ bell filters per channel from the vlldp section
 3. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
 4. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
 
@@ -174,7 +174,7 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 - ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
 - ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
 - **Dialog enhancer** — center-channel extraction and boost.
-- **High-pass filter** — the speaker PEQ includes a 4th-order HP at 100 Hz to protect the laptop speakers. Skipped since EasyEffects' parametric EQ doesn't have a matching filter type and the speakers physically can't reproduce below ~100 Hz anyway.
+- ~~**High-pass filter**~~ — now implemented as a `Hi-pass` band (slope `x4` = 24 dB/oct) in the parametric EQ. Protects laptop speakers from sub-bass energy they can't reproduce.
 - **Surround decoder/virtualizer** — spatial audio processing.
 
 ## Extracting the XML

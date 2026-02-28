@@ -222,36 +222,73 @@ def make_convolver(kernel_name: str):
     }
 
 
-def make_peq_eq(peq_filters):
-    """Parametric EQ for the explicit speaker PEQ bells from Dolby.
+def make_hp_band(freq: float, order: int) -> dict:
+    """High-pass filter band for speaker protection."""
+    # order 4 = 24 dB/oct = x4 slope
+    slope_map = {1: "x1", 2: "x2", 3: "x3", 4: "x4"}
+    return {
+        "frequency": freq,
+        "gain": 0.0,
+        "mode": "RLC (BT)",
+        "mute": False,
+        "q": 0.707,
+        "slope": slope_map.get(order, "x4"),
+        "solo": False,
+        "type": "Hi-pass",
+        "width": 4.0,
+    }
 
-    These are individual filter specs (not target curves), so they
-    map directly to parametric EQ bands without overlap issues.
+
+def make_peq_eq(peq_filters):
+    """Parametric EQ for the explicit speaker PEQ from Dolby.
+
+    Includes both bell filters and high-pass filters from the
+    speaker-peq-filters section. The HP protects laptop speakers
+    from sub-bass energy they can't reproduce.
     """
-    peq_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
-    peq_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
-    num_bands = max(len(peq_left), len(peq_right))
+    peq_left_bells = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
+    peq_right_bells = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
+    hp_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 9]
+    hp_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 9]
+
+    num_bells = max(len(peq_left_bells), len(peq_right_bells))
+    num_hp = max(len(hp_left), len(hp_right))
+    num_bands = num_hp + num_bells
 
     if num_bands == 0:
         return None
 
     left_bands = {}
     right_bands = {}
-    for j, pf in enumerate(peq_left):
-        left_bands[f"band{j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
-    for j, pf in enumerate(peq_right):
-        right_bands[f"band{j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
+
+    # HP filters first
+    for j, pf in enumerate(hp_left):
+        left_bands[f"band{j}"] = make_hp_band(pf["f0"], pf["order"])
+    for j, pf in enumerate(hp_right):
+        right_bands[f"band{j}"] = make_hp_band(pf["f0"], pf["order"])
+
+    # Bell filters after
+    for j, pf in enumerate(peq_left_bells):
+        left_bands[f"band{num_hp + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
+    for j, pf in enumerate(peq_right_bells):
+        right_bands[f"band{num_hp + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
 
     # Fill missing
     for idx in range(num_bands):
         key = f"band{idx}"
         if key not in left_bands:
-            left_bands[key] = make_band(1000.0, 0.0)
+            if idx < num_hp:
+                left_bands[key] = make_hp_band(100.0, 4)
+            else:
+                left_bands[key] = make_band(1000.0, 0.0)
         if key not in right_bands:
-            right_bands[key] = make_band(1000.0, 0.0)
+            if idx < num_hp:
+                right_bands[key] = make_hp_band(100.0, 4)
+            else:
+                right_bands[key] = make_band(1000.0, 0.0)
 
     # Compensate for peak PEQ boost to prevent clipping
-    all_peq = peq_left + peq_right
+    all_peq = peq_left_bells + peq_right_bells
     peak_boost = max((pf["gain"] for pf in all_peq), default=0.0)
     output_gain = -max(peak_boost, 0.0)
 
@@ -522,7 +559,7 @@ def main():
     for pf in peq_filters:
         spk = "L" if pf["speaker"] == 0 else "R"
         if pf["type"] == 9:
-            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} (skipped)")
+            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
         elif pf["type"] == 1:
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
