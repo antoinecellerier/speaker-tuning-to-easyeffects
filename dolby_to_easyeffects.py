@@ -569,10 +569,19 @@ def make_peq_eq(peq_filters):
             else:
                 right_bands[key] = make_band(1000.0, 0.0)
 
-    # Compensate for peak PEQ boost to prevent clipping
+    # Compensate for PEQ boost to prevent clipping. Scale the compensation
+    # by bandwidth: a narrow Q=4.6 bell at +4 dB barely raises broadband level,
+    # while a wide Q=0.7 bell at +4 dB raises it nearly 4 dB.
+    # Effective boost ≈ gain * min(1, 2/Q) for bells, full gain for shelves.
     all_peq = peq_left_bells + peq_right_bells + shelf_left + shelf_right
-    peak_boost = max((pf["gain"] for pf in all_peq), default=0.0)
-    output_gain = -max(peak_boost, 0.0)
+    effective_boosts = []
+    for pf in all_peq:
+        if pf["gain"] <= 0:
+            continue
+        q = pf.get("q", 1.0)
+        effective_boosts.append(pf["gain"] * min(1.0, 2.0 / q))
+    peak_boost = max(effective_boosts, default=0.0)
+    output_gain = -peak_boost
 
     return {
         "bypass": False,
