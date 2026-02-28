@@ -23,10 +23,11 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 
 ### Output: EasyEffects presets
 
-Each preset contains two plugins chained in order:
+Each preset contains three plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Equalizer** — the 3 explicit speaker PEQ bell filters per channel from the vlldp section
+3. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -81,6 +82,10 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
         <ieq-enable value="1"/>           ← enabled for dynamic, music
         <ieq-amount value="10"/>          ← 0-10 scale
         <ieq-bands-set preset="ieq_balanced"/>
+        <volume-leveler-enable value="1"/>
+        <volume-leveler-amount value="2"/>  ← 0-2 (aggressiveness)
+        <volume-leveler-in-target value="-320"/>  ← 1/16 dB = -20 dBFS
+        <volume-leveler-out-target value="-320"/>
         <bass-enhancer-enable value="0"/>
         <regulator-enable value="1"/>
         ...
@@ -107,15 +112,23 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
 
 ### Profile differences
 
-| Profile | IEQ enabled | IEQ curve | vlldp AO/PEQ | MB compressor |
-|---|---|---|---|---|
-| dynamic | yes | ieq_balanced | shared | enabled |
-| movie | no | — | shared | enabled |
-| music | yes | ieq_balanced | shared | enabled |
-| game | no | — | shared | enabled |
-| voice | no | — | **different** | disabled |
+| Profile | IEQ enabled | IEQ curve | Volume leveler | vlldp AO/PEQ | MB compressor |
+|---|---|---|---|---|---|
+| dynamic | yes | ieq_balanced | on (amount 2) | shared | enabled |
+| movie | no | — | off | shared | enabled |
+| music | yes | ieq_balanced | on (amount 2) | shared | enabled |
+| game | no | — | on (amount 2) | shared | enabled |
+| voice | no | — | off | **different** | disabled |
 
 All non-voice profiles share the same audio-optimizer and speaker PEQ values. The voice profile has different AO tuning and simplified PEQ. The multi-band compressor threshold varies slightly per profile.
+
+### Volume leveler → Autogain mapping
+
+The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement:
+
+- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -20 LUFS (approximate equivalent)
+- **volume-leveler-amount** (0–2): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 2 → 10s aggressive)
+- **Reference**: Geometric Mean (MSI) — combines momentary, short-term, and integrated loudness for balanced behavior
 
 ### EasyEffects 8.x specifics
 
@@ -127,7 +140,7 @@ All non-voice profiles share the same audio-optimizer and speaker PEQ values. Th
 ## What's not implemented
 
 - **Multi-band compressor** — the Dolby vlldp has a 2-band compressor that maximizes loudness. This is the main reason Windows sounds "more powerful". EasyEffects has a multiband compressor plugin but mapping the Dolby parameters (encoded as raw coefficients) is non-trivial.
-- **Volume leveler** — dynamic range compression that brings up quiet passages.
+- ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
 - **Dialog enhancer** — center-channel extraction and boost.
 - **High-pass filter** — the speaker PEQ includes a 4th-order HP at 100 Hz to protect the laptop speakers. Skipped since EasyEffects' parametric EQ doesn't have a matching filter type and the speakers physically can't reproduce below ~100 Hz anyway.
 - **Surround decoder/virtualizer** — spatial audio processing.

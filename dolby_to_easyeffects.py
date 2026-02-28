@@ -83,7 +83,25 @@ def parse_xml(path: Path):
             "order": int(f.get("order", "0")),
         })
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters
+    # Volume leveler settings (from tuning-cp, same profile as IEQ)
+    vol_leveler = None
+    for profile in endpoint.findall("profile"):
+        cp = profile.find("tuning-cp")
+        if cp is not None:
+            vl_enable = cp.find("volume-leveler-enable")
+            if vl_enable is not None:
+                vl_amount = cp.find("volume-leveler-amount")
+                vl_in = cp.find("volume-leveler-in-target")
+                vl_out = cp.find("volume-leveler-out-target")
+                vol_leveler = {
+                    "enable": int(vl_enable.get("value")),
+                    "amount": int(vl_amount.get("value")) if vl_amount is not None else 0,
+                    "in_target": int(vl_in.get("value")) / 16.0 if vl_in is not None else -20.0,
+                    "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
+                }
+                break
+
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler
 
 
 # --- FIR generation ---
@@ -223,7 +241,40 @@ def make_peq_eq(peq_filters):
     }
 
 
-def make_preset(kernel_name, peq_filters):
+def make_autogain(vol_leveler):
+    """Autogain plugin mapping from Dolby volume leveler.
+
+    The Dolby volume leveler brings quiet passages up to a target loudness.
+    EasyEffects' autogain does the same using EBU R 128 loudness measurement.
+
+    Dolby volume-leveler-amount (0-2) maps to aggressiveness:
+      0 = gentle (long history window)
+      2 = aggressive (short history window)
+    """
+    if not vol_leveler or not vol_leveler["enable"]:
+        return None
+
+    # Map Dolby amount (0-2) to maximum-history (seconds).
+    # Higher amount = shorter window = more aggressive leveling.
+    # amount 0 → 30s (gentle), amount 2 → 10s (aggressive)
+    amount = vol_leveler["amount"]
+    max_history = max(30 - amount * 10, 5)
+
+    # Dolby target is in dBFS; use as LUFS target (reasonable approximation)
+    target = vol_leveler["out_target"]
+
+    return {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "maximum-history": max_history,
+        "reference": "Geometric Mean (MSI)",
+        "silence-threshold": -70.0,
+        "target": round(target, 1),
+    }
+
+
+def make_preset(kernel_name, peq_filters, vol_leveler=None):
     preset = {
         "output": {
             "blocklist": [],
@@ -237,11 +288,16 @@ def make_preset(kernel_name, peq_filters):
         preset["output"]["equalizer#0"] = peq
         preset["output"]["plugins_order"].append("equalizer#0")
 
+    autogain = make_autogain(vol_leveler)
+    if autogain:
+        preset["output"]["autogain#0"] = autogain
+        preset["output"]["plugins_order"].append("autogain#0")
+
     return preset
 
 
 def main():
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters = parse_xml(XML_PATH)
+    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler = parse_xml(XML_PATH)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     IRS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -264,6 +320,12 @@ def main():
             print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} (skipped)")
         elif pf["type"] == 1:
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
+
+    if vol_leveler:
+        print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
+        print(f"  amount: {vol_leveler['amount']}")
+        print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
+        print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
     print()
 
     for preset_name, curve_key in IEQ_CURVES.items():
@@ -283,7 +345,7 @@ def main():
         save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
-        preset = make_preset(preset_name, peq_filters)
+        preset = make_preset(preset_name, peq_filters, vol_leveler)
         out_path = OUTPUT_DIR / f"{preset_name}.json"
         out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
