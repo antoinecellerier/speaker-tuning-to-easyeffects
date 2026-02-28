@@ -447,6 +447,7 @@ def make_convolver(kernel_name: str):
         "output-gain": 0.0,
         "kernel-name": kernel_name,
         "ir-width": 100,
+        "autogain": False,
     }
 
 
