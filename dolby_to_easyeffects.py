@@ -11,7 +11,10 @@ directly implements the exact target frequency response.
 
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
-  - equalizer#0: speaker PEQ bells (explicit parametric filters from Dolby)
+  - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
+  - multiband_compressor#0: dynamics processing (from mb-compressor-tuning)
+  - multiband_compressor#1: per-band limiter (from regulator-tuning)
+  - autogain#0: volume leveler (from volume-leveler settings)
 """
 
 import argparse
@@ -248,7 +251,32 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
             }
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp
+    # Regulator settings (per-band limiter from tuning-vlldp)
+    regulator = None
+    reg_dist = vlldp.find("regulator-speaker-dist-enable")
+    if reg_dist is not None and reg_dist.get("value") == "1":
+        reg_tuning = vlldp.find("regulator-tuning")
+        if reg_tuning is not None:
+            th_el = reg_tuning.find("threshold_high")
+            tl_el = reg_tuning.find("threshold_low")
+            # Handle both inline values and presets (array_20_zero = all zeros)
+            if th_el is not None and th_el.get("value"):
+                th = [x / 16.0 for x in parse_csv_ints(th_el.get("value"))]
+            else:
+                th = [0.0] * 20
+            if tl_el is not None and tl_el.get("value"):
+                tl = [x / 16.0 for x in parse_csv_ints(tl_el.get("value"))]
+            else:
+                tl = [-12.0] * 20
+            reg_stress = vlldp.find("regulator-stress-amount")
+            stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
+            regulator = {
+                "threshold_high": th,
+                "threshold_low": tl,
+                "stress": [x / 16.0 for x in stress],
+            }
+
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator
 
 
 # --- FIR generation ---
@@ -632,7 +660,138 @@ def make_multiband_compressor(mb_comp, freqs):
     return result
 
 
-def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None, freqs=None):
+def make_regulator(regulator, freqs):
+    """Per-band limiter mapped from Dolby regulator-tuning.
+
+    The Dolby regulator is a 20-band limiter that prevents speaker
+    distortion. We approximate it using EasyEffects' multiband compressor
+    with a high ratio (100:1) to act as a limiter.
+
+    The 20 Dolby bands are grouped into zones with similar thresholds
+    to fit within EasyEffects' 8-band limit.
+    """
+    if not regulator:
+        return None
+
+    th = regulator["threshold_high"]
+
+    # Group the 20 bands into zones with distinct thresholds.
+    # Find runs of identical threshold_high values.
+    zones = []  # list of (start_idx, end_idx, threshold)
+    i = 0
+    while i < len(th):
+        j = i + 1
+        while j < len(th) and th[j] == th[i]:
+            j += 1
+        zones.append((i, j - 1, th[i]))
+        i = j
+
+    # Merge zones if we have more than 8 (EasyEffects limit)
+    # In practice, Dolby regulators typically produce 2-5 zones
+    while len(zones) > 8:
+        # Merge the two adjacent zones with the smallest threshold difference
+        min_diff = float("inf")
+        min_idx = 0
+        for k in range(len(zones) - 1):
+            diff = abs(zones[k][2] - zones[k + 1][2])
+            if diff < min_diff:
+                min_diff = diff
+                min_idx = k
+        z1 = zones[min_idx]
+        z2 = zones[min_idx + 1]
+        merged_thresh = max(z1[2], z2[2])  # use the less aggressive threshold
+        zones[min_idx] = (z1[0], z2[1], merged_thresh)
+        del zones[min_idx + 1]
+
+    # Build the multiband compressor (used as limiter: ratio=100:1, fast attack)
+    result = {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "dry": -80.01,
+        "wet": 0.0,
+        "compressor-mode": "Modern",
+        "envelope-boost": "None",
+        "stereo-split": False,
+    }
+
+    for i in range(8):
+        bandn = f"band{i}"
+        if i < len(zones):
+            zone_start, zone_end, threshold = zones[i]
+            # Crossover at the geometric mean between the last freq of this
+            # zone and the first freq of the next zone
+            if i > 0:
+                prev_end = zones[i - 1][1]
+                cross_freq = math.sqrt(freqs[prev_end] * freqs[zone_start])
+            else:
+                cross_freq = 10.0  # not used for band 0
+
+            band = {
+                "compressor-enable": True,
+                "mute": False,
+                "solo": False,
+                "attack-threshold": round(threshold, 1),
+                "attack-time": 1.0,  # very fast for limiting
+                "release-threshold": -80.01,
+                "release-time": 50.0,
+                "ratio": 100.0,  # effectively a limiter
+                "knee": -6.0,
+                "makeup": 0.0,
+                "compression-mode": "Downward",
+                "sidechain-type": "Internal",
+                "sidechain-mode": "Peak",  # peak detection for limiting
+                "sidechain-source": "Middle",
+                "stereo-split-source": "Left/Right",
+                "sidechain-lookahead": 0.0,
+                "sidechain-reactivity": 10.0,
+                "sidechain-preamp": 0.0,
+                "sidechain-custom-lowcut-filter": False,
+                "sidechain-custom-highcut-filter": False,
+                "sidechain-lowcut-frequency": 10.0,
+                "sidechain-highcut-frequency": 20000.0,
+                "boost-threshold": -72.0,
+                "boost-amount": 6.0,
+            }
+            if i > 0:
+                band["enable-band"] = True
+                band["split-frequency"] = round(cross_freq, 1)
+            result[bandn] = band
+        else:
+            # Disabled band
+            result[bandn] = {
+                "enable-band": False,
+                "compressor-enable": False,
+                "mute": False,
+                "solo": False,
+                "attack-threshold": -12.0,
+                "attack-time": 20.0,
+                "release-threshold": -80.01,
+                "release-time": 100.0,
+                "ratio": 1.0,
+                "knee": -6.0,
+                "makeup": 0.0,
+                "compression-mode": "Downward",
+                "sidechain-type": "Internal",
+                "sidechain-mode": "RMS",
+                "sidechain-source": "Middle",
+                "stereo-split-source": "Left/Right",
+                "sidechain-lookahead": 0.0,
+                "sidechain-reactivity": 10.0,
+                "sidechain-preamp": 0.0,
+                "sidechain-custom-lowcut-filter": False,
+                "sidechain-custom-highcut-filter": False,
+                "sidechain-lowcut-frequency": 10.0,
+                "sidechain-highcut-frequency": 20000.0,
+                "boost-threshold": -72.0,
+                "boost-amount": 6.0,
+            }
+
+    return result
+
+
+def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
+                regulator=None, freqs=None):
     preset = {
         "output": {
             "blocklist": [],
@@ -650,6 +809,11 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None, freqs=
     if mbc:
         preset["output"]["multiband_compressor#0"] = mbc
         preset["output"]["plugins_order"].append("multiband_compressor#0")
+
+    reg = make_regulator(regulator, freqs)
+    if reg:
+        preset["output"]["multiband_compressor#1"] = reg
+        preset["output"]["plugins_order"].append("multiband_compressor#1")
 
     autogain = make_autogain(vol_leveler)
     if autogain:
@@ -737,7 +901,7 @@ def main():
     print(f"Endpoint: {args.endpoint} (mode={args.mode})")
     print(f"Profile: {args.profile or '(first)'}")
 
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(
+    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator = parse_xml(
         xml_path,
         endpoint_type=args.endpoint,
         operating_mode=args.mode,
@@ -788,6 +952,12 @@ def main():
             print(f"  band {i}: xover={xover_hz} Hz, thresh={thresh:+.1f} dB, "
                   f"ratio={ratio:.2f}:1, attack={attack:.1f} ms, "
                   f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
+
+    if regulator:
+        print(f"\nRegulator (per-band limiter):")
+        print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
+        print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
+        print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
     print()
 
     # Build preset name mapping using the configured prefix.
@@ -826,7 +996,7 @@ def main():
         save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
-        preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, freqs)
+        preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, regulator, freqs)
         out_path = args.output_dir / f"{preset_name}.json"
         out_path.write_text(json.dumps(preset, indent=4) + "\n")
 

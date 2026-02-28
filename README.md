@@ -44,12 +44,13 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 
 ### Output: EasyEffects presets
 
-Each preset contains four plugins chained in order:
+Each preset contains five plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + 3 speaker PEQ bell filters per channel from the vlldp section
 3. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
-4. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
+4. **Regulator** — per-band limiter (second multiband compressor instance at 100:1 ratio) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
+5. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -134,6 +135,12 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
           <band_group_3 value="20,0,32767,22641,27238,0"/>      ← bypass
         </mb-compressor-tuning>
         <mb-compressor-target-power-level value="-80"/>         ← 1/16 dB = -5 dBFS
+        <regulator-speaker-dist-enable value="1"/>
+        <regulator-tuning>
+          <threshold_high value="-160,-144,-128,-80,0,..."/>    ← 1/16 dB per band
+          <threshold_low value="-352,-336,-320,-272,-192,..."/> ← 1/16 dB per band
+        </regulator-tuning>
+        <regulator-stress-amount value="144,144,0,0,0,0,0,0"/> ← 1/16 dB
         ...
       </tuning-vlldp>
     </profile>
@@ -183,6 +190,22 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 - **volume-leveler-amount** (0–2): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 2 → 10s aggressive)
 - **Reference**: Geometric Mean (MSI) — combines momentary, short-term, and integrated loudness for balanced behavior
 
+### Regulator → Per-band limiter
+
+The Dolby regulator is a 20-band limiter that prevents speaker distortion by clamping per-band levels to `threshold_high` values (in 1/16 dB). This is mapped to a second EasyEffects multiband compressor instance (`multiband_compressor#1`) configured as a limiter (ratio 100:1, 1 ms attack, Peak sidechain mode).
+
+The 20 Dolby bands are grouped into zones with identical thresholds to fit within EasyEffects' 8-band limit. For this device, this produces 5 zones:
+
+| Zone | Frequency range | Threshold |
+|------|----------------|-----------|
+| 0 | below 81 Hz | -10 dB |
+| 1 | 81–182 Hz | -9 dB |
+| 2 | 182–277 Hz | -8 dB |
+| 3 | 277–392 Hz | -5 dB |
+| 4 | above 392 Hz | 0 dB (no limiting) |
+
+The tighter limiting at low frequencies protects laptop speakers from sub-bass distortion they can't reproduce cleanly. The `threshold_low` values (more aggressive thresholds) and `stress-amount` are not currently used — only `threshold_high` is mapped.
+
 ### EasyEffects 8.x specifics
 
 - Presets: `~/.local/share/easyeffects/output/` (not `~/.config/`)
@@ -194,6 +217,7 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 
 - ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
 - ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
+- ~~**Regulator**~~ — now implemented as a second multiband compressor instance (`multiband_compressor#1`) acting as a per-band limiter (100:1 ratio). The 20-band thresholds are grouped into zones to fit EasyEffects' 8-band limit. Uses `threshold_high` values; `threshold_low` and `stress-amount` are not mapped.
 - **Dialog enhancer** — center-channel extraction and boost.
 - ~~**High-pass filter**~~ — now implemented as a `Hi-pass` band (slope `x4` = 24 dB/oct) in the parametric EQ. Protects laptop speakers from sub-bass energy they can't reproduce.
 - **Surround decoder/virtualizer** — spatial audio processing.
