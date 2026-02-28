@@ -937,7 +937,7 @@ def make_regulator(regulator, freqs):
                 "sidechain-mode": "Peak",  # peak detection for limiting
                 "sidechain-source": "Middle",
                 "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 0.0,
+                "sidechain-lookahead": 1.0,  # 1 ms head start for transients
                 "sidechain-reactivity": 10.0,
                 "sidechain-preamp": 0.0,
                 "sidechain-custom-lowcut-filter": False,
