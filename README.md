@@ -62,15 +62,16 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 
 ### Output: EasyEffects presets
 
-Each preset contains up to seven plugins chained in order:
+Each preset contains up to eight plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
-2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, low-shelves) per channel from the vlldp section
-3. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
-4. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings); placed before the compressor to match Dolby's CP→VLLDP signal flow so the compressor and regulator catch any overshoot
-5. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
-6. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
-7. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks
+2. **Stereo Tools** — stereo widening via Mid/Side balance (Calf Stereo Tools), mapped from Dolby's surround-boost; enabled on dynamic/movie profiles
+3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, low-shelves) per channel from the vlldp section
+4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
+5. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings); placed before the compressor to match Dolby's CP→VLLDP signal flow so the compressor and regulator catch any overshoot
+6. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
+7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
+8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -239,7 +240,6 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 
 ## What's not implemented
 
-- **Surround decoder/virtualizer** — not applicable to stereo output.
 - **`filter_coefficients`** — base64-encoded biquad blob in `tuning-vlldp`. Investigated but the format doesn't produce sensible audio EQ curves; likely VLLDP-internal analysis filters rather than audio-path EQ. The audio-optimizer + PEQ parameters already capture the same speaker correction.
 - **`regulator-stress-amount`** / **`threshold_low`** — secondary regulator parameters not mapped; only `threshold_high` is used for the per-band limiter.
 

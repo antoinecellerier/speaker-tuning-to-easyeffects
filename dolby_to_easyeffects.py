@@ -11,6 +11,7 @@ directly implements the exact target frequency response.
 
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
+  - stereo_tools#0: surround virtualizer (stereo widening from surround-boost)
   - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
   - equalizer#1: dialog enhancer (speech presence boost from dialog-enhancer settings)
   - autogain#0: volume leveler (from volume-leveler settings)
@@ -316,6 +317,16 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "amount": int(de_amount.get("value")) if de_amount is not None else 5,
             }
 
+    # Surround virtualizer settings (from tuning-cp)
+    surround = None
+    if cp is not None:
+        sr_enable = cp.find("surround-decoder-enable")
+        if sr_enable is not None and sr_enable.get("value") == "1":
+            sr_boost = cp.find("surround-boost")
+            surround = {
+                "boost": int(sr_boost.get("value")) / 16.0 if sr_boost is not None else 0.0,
+            }
+
     # Multi-band compressor settings (from tuning-vlldp)
     mb_comp = None
     mbc_enable = vlldp.find("mb-compressor-enable")
@@ -372,7 +383,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "timbre_preservation": timbre,
             }
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator
 
 
 # --- FIR generation ---
@@ -592,6 +603,50 @@ def make_peq_eq(peq_filters):
         "split-channels": True,
         "left": left_bands,
         "right": right_bands,
+    }
+
+
+def make_stereo_tools(surround):
+    """Stereo widening mapped from Dolby surround virtualizer.
+
+    Dolby's surround decoder/virtualizer creates a wider stereo image
+    from stereo content. We approximate this using the Calf Stereo
+    Tools plugin's stereo-base parameter, which controls the Mid/Side
+    balance to widen or narrow the stereo field.
+
+    surround-boost (0-16 in 1/16 dB scale) maps to stereo-base:
+      0 dB → 0.0 (no widening)
+      6 dB → 0.3 (moderate widening)
+    Kept conservative to avoid phase artifacts on laptop speakers.
+    """
+    if not surround or surround["boost"] <= 0:
+        return None
+
+    # Map surround-boost (dB) to stereo-base (0-1 range).
+    # 6 dB boost → 0.3 stereo-base (moderate widening).
+    # Cap at 0.5 to prevent excessive widening artifacts.
+    base = min(surround["boost"] / 20.0, 0.5)
+
+    return {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "balance-in": 0.0,
+        "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False,
+        "muter": False,
+        "phasel": False,
+        "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 0.0,
+        "side-balance": 0.0,
+        "middle-level": 0.0,
+        "middle-panorama": 0.0,
+        "stereo-base": round(base, 2),
+        "delay": 0.0,
+        "sc-level": 1.0,
+        "stereo-phase": 0.0,
     }
 
 
@@ -1022,7 +1077,7 @@ def make_limiter():
 
 
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
-                dialog_enhancer=None, mb_comp=None,
+                dialog_enhancer=None, surround=None, mb_comp=None,
                 regulator=None, freqs=None):
     preset = {
         "output": {
@@ -1031,6 +1086,12 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
             "plugins_order": ["convolver#0"],
         }
     }
+
+    # Stereo widening early in chain (before EQ changes the spectrum)
+    st = make_stereo_tools(surround)
+    if st:
+        preset["output"]["stereo_tools#0"] = st
+        preset["output"]["plugins_order"].append("stereo_tools#0")
 
     peq = make_peq_eq(peq_filters)
     if peq:
@@ -1194,7 +1255,7 @@ def main():
         print(f"Endpoint: {args.endpoint} (mode={args.mode})")
         print(f"Profile: {profile_type or '(first)'}")
 
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator = parse_xml(
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
@@ -1227,6 +1288,11 @@ def main():
             gain = dialog_enhancer["amount"] / 16.0 * 6.0
             print(f"\nDialog enhancer: amount={dialog_enhancer['amount']}, "
                   f"mapped to +{gain:.1f} dB @ 2.5 kHz")
+
+        if surround:
+            base = min(surround["boost"] / 20.0, 0.5)
+            print(f"\nSurround virtualizer: boost={surround['boost']:.1f} dB, "
+                  f"mapped to stereo-base={base:.2f}")
 
         if vol_leveler:
             print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
@@ -1287,7 +1353,7 @@ def main():
             save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
-            preset = make_preset(preset_name, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator, freqs)
+            preset = make_preset(preset_name, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, freqs)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
