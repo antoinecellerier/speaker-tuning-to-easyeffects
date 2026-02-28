@@ -690,16 +690,16 @@ def make_autogain(vol_leveler):
     The Dolby volume leveler brings quiet passages up to a target loudness.
     EasyEffects' autogain does the same using EBU R 128 loudness measurement.
 
-    Dolby volume-leveler-amount (0-2) maps to aggressiveness:
+    Dolby volume-leveler-amount (0-10) maps to aggressiveness:
       0 = gentle (long history window)
-      2 = aggressive (short history window)
+      10 = aggressive (short history window)
     """
     if not vol_leveler or not vol_leveler["enable"]:
         return None
 
-    # Map Dolby amount (0-2) to maximum-history (seconds).
+    # Map Dolby amount (0-10) to maximum-history (seconds).
     # Higher amount = shorter window = more aggressive leveling.
-    # amount 0 → 30s (gentle), amount 2 → 20s (moderate)
+    # amount 0 → 30s (gentle), amount 4+ → 10s (aggressive, clamped)
     # Using a gentler slope than Dolby because EasyEffects lacks the MI
     # (Media Intelligence) steering that prevents pumping in the real pipeline.
     amount = vol_leveler["amount"]
@@ -910,7 +910,7 @@ def make_regulator(regulator, freqs):
         ratio = 1 / (1 - slope) when slope < 1, else 100:1.
       - timbre_preservation: 0-1, controls knee softness. Higher values
         mean softer knee to preserve spectral shape. Mapped to
-        knee = -6 * (1 - timbre) dB (0 = hard knee, 1 = -6 dB knee).
+        knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
     """
     if not regulator:
         return None
