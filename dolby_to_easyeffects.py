@@ -12,6 +12,7 @@ directly implements the exact target frequency response.
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
   - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
+  - equalizer#1: dialog enhancer (speech presence boost from dialog-enhancer settings)
   - autogain#0: volume leveler (from volume-leveler settings)
   - multiband_compressor#0: dynamics processing (from mb-compressor-tuning)
   - multiband_compressor#1: per-band limiter (from regulator-tuning)
@@ -305,6 +306,16 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
             }
 
+    # Dialog enhancer settings (from tuning-cp)
+    dialog_enhancer = None
+    if cp is not None:
+        de_enable = cp.find("dialog-enhancer-enable")
+        if de_enable is not None and de_enable.get("value") == "1":
+            de_amount = cp.find("dialog-enhancer-amount")
+            dialog_enhancer = {
+                "amount": int(de_amount.get("value")) if de_amount is not None else 5,
+            }
+
     # Multi-band compressor settings (from tuning-vlldp)
     mb_comp = None
     mbc_enable = vlldp.find("mb-compressor-enable")
@@ -361,7 +372,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "timbre_preservation": timbre,
             }
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator
 
 
 # --- FIR generation ---
@@ -572,6 +583,40 @@ def make_peq_eq(peq_filters):
         "split-channels": True,
         "left": left_bands,
         "right": right_bands,
+    }
+
+
+def make_dialog_enhancer(dialog_enhancer):
+    """Dialog enhancer mapped as a broad speech-band EQ boost.
+
+    Dolby's dialog enhancer (DE) isolates speech frequencies and
+    selectively boosts them. We approximate this with a broad Bell
+    filter centered at 2.5 kHz (speech presence region), with gain
+    scaled by the DE amount (0-16 scale).
+
+    The DE amount maps to gain: amount/16 * 6 dB, giving a maximum
+    of +6 dB at amount=16. Typical values: dynamic=5 (+1.9 dB),
+    voice=3 (+1.1 dB), music=7 (+2.6 dB when enabled).
+    """
+    if not dialog_enhancer:
+        return None
+
+    amount = dialog_enhancer["amount"]
+    gain = amount / 16.0 * 6.0
+    if gain <= 0:
+        return None
+
+    band = make_band(2500.0, round(gain, 2), q=0.7)
+
+    return {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "mode": "IIR",
+        "num-bands": 1,
+        "split-channels": False,
+        "left": {"band0": band},
+        "right": {"band0": band},
     }
 
 
@@ -965,7 +1010,8 @@ def make_limiter():
     }
 
 
-def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
+def make_preset(kernel_name, peq_filters, vol_leveler=None,
+                dialog_enhancer=None, mb_comp=None,
                 regulator=None, freqs=None):
     preset = {
         "output": {
@@ -979,6 +1025,13 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
     if peq:
         preset["output"]["equalizer#0"] = peq
         preset["output"]["plugins_order"].append("equalizer#0")
+
+    # Dialog enhancer (speech presence boost) before the volume leveler,
+    # matching Dolby's CP order: DE → IEQ → Volume Leveler.
+    de = make_dialog_enhancer(dialog_enhancer)
+    if de:
+        preset["output"]["equalizer#1"] = de
+        preset["output"]["plugins_order"].append("equalizer#1")
 
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
@@ -1130,7 +1183,7 @@ def main():
         print(f"Endpoint: {args.endpoint} (mode={args.mode})")
         print(f"Profile: {profile_type or '(first)'}")
 
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator = parse_xml(
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
@@ -1158,6 +1211,11 @@ def main():
                 print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
             elif pf["type"] == 1:
                 print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
+
+        if dialog_enhancer:
+            gain = dialog_enhancer["amount"] / 16.0 * 6.0
+            print(f"\nDialog enhancer: amount={dialog_enhancer['amount']}, "
+                  f"mapped to +{gain:.1f} dB @ 2.5 kHz")
 
         if vol_leveler:
             print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
@@ -1218,7 +1276,7 @@ def main():
             save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
-            preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, regulator, freqs)
+            preset = make_preset(preset_name, peq_filters, vol_leveler, dialog_enhancer, mb_comp, regulator, freqs)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
