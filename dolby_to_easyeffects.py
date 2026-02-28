@@ -673,8 +673,8 @@ def make_multiband_compressor(mb_comp, freqs):
                 "sidechain-custom-highcut-filter": False,
                 "sidechain-lowcut-frequency": 10.0,
                 "sidechain-highcut-frequency": crossover_freq,
-                "boost-threshold": -72.0,
-                "boost-amount": 6.0,
+                "boost-threshold": -60.0,
+                "boost-amount": 0.0,
             }
         elif i == 1:
             # High band
@@ -704,8 +704,8 @@ def make_multiband_compressor(mb_comp, freqs):
                 "sidechain-custom-highcut-filter": False,
                 "sidechain-lowcut-frequency": crossover_freq,
                 "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -72.0,
-                "boost-amount": 6.0,
+                "boost-threshold": -60.0,
+                "boost-amount": 0.0,
             }
         else:
             # Disabled bands
@@ -733,8 +733,8 @@ def make_multiband_compressor(mb_comp, freqs):
                 "sidechain-custom-highcut-filter": False,
                 "sidechain-lowcut-frequency": 10.0,
                 "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -72.0,
-                "boost-amount": 6.0,
+                "boost-threshold": -60.0,
+                "boost-amount": 0.0,
             }
 
     return result
@@ -854,8 +854,8 @@ def make_regulator(regulator, freqs):
                 "sidechain-custom-highcut-filter": False,
                 "sidechain-lowcut-frequency": 10.0,
                 "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -72.0,
-                "boost-amount": 6.0,
+                "boost-threshold": -60.0,
+                "boost-amount": 0.0,
             }
             if i > 0:
                 band["enable-band"] = True
@@ -887,8 +887,8 @@ def make_regulator(regulator, freqs):
                 "sidechain-custom-highcut-filter": False,
                 "sidechain-lowcut-frequency": 10.0,
                 "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -72.0,
-                "boost-amount": 6.0,
+                "boost-threshold": -60.0,
+                "boost-amount": 0.0,
             }
 
     return result
