@@ -234,17 +234,14 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 
 ## What's not implemented
 
-- ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
-- ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
-- ~~**Regulator**~~ — now implemented as a second multiband compressor instance (`multiband_compressor#1`) acting as a per-band limiter. The 20-band thresholds are grouped into zones to fit EasyEffects' 8-band limit. Ratio derived from `regulator-distortion-slope`, knee from `regulator-timbre-preservation`. Uses `threshold_high` values; `threshold_low` and `stress-amount` are not mapped.
-- ~~**High-pass filter**~~ — now implemented as a `Hi-pass` band (slope `x4` = 24 dB/oct) in the parametric EQ. Protects laptop speakers from sub-bass energy they can't reproduce.
-- **Dialog enhancer** — center-channel extraction and boost (`dialog-enhancer-amount` varies per profile: 5 for dynamic, 7 for music, 3 for voice). No direct EasyEffects equivalent.
-- **Surround decoder/virtualizer** — spatial audio processing (speaker angle parameters, height filters). Not applicable to stereo output.
-- **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block. These appear to be VLLDP internal pipeline coefficients (possibly level-dependent analysis filters), not standard audio-path biquads — the coefficient format doesn't produce sensible EQ curves under any standard interpretation. Our audio-optimizer + PEQ approach already captures the same corrections through Dolby's higher-level parameters.
+- **Dialog enhancer** — `dialog-enhancer-enable`/`amount` vary per profile (dynamic: 5, music: 7, voice: 3) but there is no direct EasyEffects equivalent.
+- **Surround decoder/virtualizer** — not applicable to stereo output.
+- **`filter_coefficients`** — base64-encoded biquad blob in `tuning-vlldp`. Investigated but the format doesn't produce sensible audio EQ curves; likely VLLDP-internal analysis filters rather than audio-path EQ. The audio-optimizer + PEQ parameters already capture the same speaker correction.
+- **`regulator-stress-amount`** / **`threshold_low`** — secondary regulator parameters not mapped; only `threshold_high` is used for the per-band limiter.
 
 ### Unused XML data (not worth implementing)
 
-The following XML elements are present but not used because they are always zero/off in this device, are DSP pipeline internals, or have no EasyEffects equivalent:
+The following XML fields are present but deliberately ignored — they are always zero/disabled on this device, are DSP pipeline internals with no EasyEffects equivalent, or relate to multi-channel/subwoofer routing irrelevant for stereo laptop output:
 
 - `pregain`, `postgain`, `calibration-boost`, `system-gain` — all 0 dB gain trims
 - `bass-enhancer-*`, `bass-extraction-*` — always disabled
