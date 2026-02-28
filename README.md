@@ -4,11 +4,21 @@ Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEff
 
 ## Quick start
 
-1. Extract the Dolby tuning XML from your Windows driver (see [Extracting the XML](#extracting-the-xml))
-2. Run `python3 dolby_to_easyeffects.py path/to/DEV_*.xml`
-3. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
+1. Run the script, pointing it at your Windows partition or a Dolby tuning XML:
+   ```bash
+   # Auto-discover from a mounted Windows partition (matches your audio hardware)
+   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows
 
-Options:
+   # Or specify the XML directly
+   python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml
+   ```
+2. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
+
+The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/card*/codec*` and finds the matching tuning XML in the Windows DriverStore. If multiple versions exist, the newest is preferred.
+
+### Options
+
+- `--windows DIR` — auto-discover tuning XML from a mounted Windows directory
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`)
@@ -190,11 +200,13 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 
 ## Extracting the XML
 
-The Dolby tuning XML can be found in the Windows driver package, typically at:
+The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
+
+If you prefer to extract the XML manually, it can be found in the Windows driver package at:
 ```
-C:\Windows\System32\DolbyAPO\DAX3\
+C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.xml
 ```
-Look for files named `DEV_*_SUBSYS_*.xml`. The `_settings.xml` companion file contains UI/profile defaults.
+Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
 
 ## References
 

@@ -15,8 +15,10 @@ Output chain:
 """
 
 import argparse
+import glob
 import json
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -32,6 +34,103 @@ FIR_LENGTH = 4096  # ~85ms, plenty for EQ
 
 def parse_csv_ints(s: str) -> list[int]:
     return [int(x) for x in s.split(",")]
+
+
+def get_audio_subsystem_ids():
+    """Read HDA codec subsystem IDs from /proc/asound.
+
+    Returns a list of (vendor_id, subsystem_id) tuples as uppercase hex
+    strings, e.g. [("10EC0287", "17AA22E6")].
+    """
+    results = []
+    for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
+        try:
+            text = codec_path.read_text()
+        except OSError:
+            continue
+        vendor_id = None
+        subsys_id = None
+        for line in text.splitlines():
+            if line.startswith("Vendor Id:"):
+                vendor_id = line.split("0x", 1)[-1].strip().upper()
+            elif line.startswith("Subsystem Id:"):
+                subsys_id = line.split("0x", 1)[-1].strip().upper()
+        if vendor_id and subsys_id:
+            results.append((vendor_id, subsys_id))
+    return results
+
+
+def find_tuning_xml(windows_root: Path):
+    """Find the DAX3 tuning XML matching this machine's audio hardware.
+
+    Searches the Windows DriverStore for DAX3 tuning XMLs and matches
+    against the audio codec's subsystem ID from /proc/asound.
+    """
+    codecs = get_audio_subsystem_ids()
+    if not codecs:
+        raise FileNotFoundError(
+            "No HDA codecs found in /proc/asound. "
+            "Cannot auto-detect audio hardware."
+        )
+
+    # Extract just the subsystem IDs for matching
+    subsys_ids = {s.upper() for _, s in codecs}
+
+    # Search DriverStore for DAX3 tuning XMLs
+    driver_store = windows_root / "System32" / "DriverStore" / "FileRepository"
+    if not driver_store.is_dir():
+        raise FileNotFoundError(
+            f"DriverStore not found at {driver_store}. "
+            f"Is '{windows_root}' the correct Windows directory?"
+        )
+
+    # Look for dax3_ext_*.inf_* directories
+    candidates = []
+    for dax_dir in sorted(driver_store.glob("dax3_ext_*.inf_*")):
+        for xml_file in sorted(dax_dir.glob("DEV_*_SUBSYS_*.xml")):
+            # Skip settings files
+            if xml_file.name.endswith("_settings.xml"):
+                continue
+            # Extract subsystem ID from filename: DEV_XXXX_SUBSYS_YYYYYYYY_...
+            match = re.search(r"SUBSYS_([0-9A-Fa-f]{8})", xml_file.name)
+            if match:
+                file_subsys = match.group(1).upper()
+                if file_subsys in subsys_ids:
+                    candidates.append(xml_file)
+
+    if not candidates:
+        codec_info = ", ".join(
+            f"vendor={v} subsys={s}" for v, s in codecs
+        )
+        raise FileNotFoundError(
+            f"No matching DAX3 tuning XML found in {driver_store}. "
+            f"Detected codecs: {codec_info}"
+        )
+
+    if len(candidates) > 1:
+        # Prefer the highest tuning version from the XML metadata
+        def xml_sort_key(path):
+            try:
+                root = ET.parse(path).getroot()
+                tv = root.find("tuning_version")
+                version = int(tv.get("value", "0")) if tv is not None else 0
+            except (ET.ParseError, ValueError, AttributeError):
+                version = 0
+            return version
+
+        candidates.sort(key=xml_sort_key, reverse=True)
+        print(f"Multiple matching XMLs found, using highest tuning version:")
+        for c in candidates:
+            try:
+                root = ET.parse(c).getroot()
+                tv = root.find("tuning_version")
+                ver = tv.get("value", "?") if tv is not None else "?"
+            except ET.ParseError:
+                ver = "?"
+            marker = "→ " if c == candidates[0] else "  "
+            print(f"  {marker}{c} (tuning_version={ver})")
+
+    return candidates[0]
 
 
 def list_endpoints(path: Path):
@@ -566,8 +665,19 @@ def main():
     )
     parser.add_argument(
         "xml_file",
+        nargs="?",
         type=Path,
+        default=None,
         help="path to the Dolby DAX3 tuning XML (e.g. DEV_0287_SUBSYS_*.xml)",
+    )
+    parser.add_argument(
+        "--windows",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="path to a mounted Windows directory (e.g. /mnt/windows/Windows); "
+             "auto-discovers the correct tuning XML by matching the audio "
+             "codec subsystem ID from /proc/asound",
     )
     parser.add_argument(
         "--output-dir",
@@ -608,16 +718,27 @@ def main():
     )
     args = parser.parse_args()
 
+    # Resolve the XML file path
+    if args.xml_file and args.windows:
+        parser.error("specify either xml_file or --windows, not both")
+    elif args.windows:
+        xml_path = find_tuning_xml(args.windows)
+        print(f"Auto-detected: {xml_path}")
+    elif args.xml_file:
+        xml_path = args.xml_file
+    else:
+        parser.error("either xml_file or --windows is required")
+
     if args.list:
-        print(f"Endpoints and profiles in {args.xml_file}:")
-        list_endpoints(args.xml_file)
+        print(f"Endpoints and profiles in {xml_path}:")
+        list_endpoints(xml_path)
         return
 
     print(f"Endpoint: {args.endpoint} (mode={args.mode})")
     print(f"Profile: {args.profile or '(first)'}")
 
     freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(
-        args.xml_file,
+        xml_path,
         endpoint_type=args.endpoint,
         operating_mode=args.mode,
         profile_type=args.profile,
