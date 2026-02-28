@@ -15,6 +15,7 @@ Output chain:
   - autogain#0: volume leveler (from volume-leveler settings)
   - multiband_compressor#0: dynamics processing (from mb-compressor-tuning)
   - multiband_compressor#1: per-band limiter (from regulator-tuning)
+  - limiter#0: brickwall output limiter (safety net)
 """
 
 import argparse
@@ -938,6 +939,32 @@ def make_regulator(regulator, freqs):
     return result
 
 
+def make_limiter():
+    """Brickwall output limiter to catch any remaining overshoot.
+
+    Placed at the very end of the chain as a safety net. Uses the LSP
+    limiter plugin with a -1 dB threshold and 1 ms lookahead for
+    transparent true-peak limiting.
+    """
+    return {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "mode": 0,  # Herm Thin — transparent
+        "oversampling": 0,
+        "dithering": 0,
+        "sidechain-type": 0,
+        "lookahead": 1.0,
+        "attack": 1.0,
+        "release": 5.0,
+        "threshold": -1.0,
+        "gain-boost": False,
+        "stereo-link": 100.0,
+        "alr": False,
+        "sidechain-preamp": 0.0,
+    }
+
+
 def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
                 regulator=None, freqs=None):
     preset = {
@@ -970,6 +997,10 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
+
+    # Brickwall limiter at the end as a safety net
+    preset["output"]["limiter#0"] = make_limiter()
+    preset["output"]["plugins_order"].append("limiter#0")
 
     return preset
 
