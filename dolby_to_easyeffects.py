@@ -693,24 +693,30 @@ def make_autogain(vol_leveler):
     Dolby volume-leveler-amount (0-10) maps to aggressiveness:
       0 = gentle (long history window)
       10 = aggressive (short history window)
+
+    Bypassed by default: without Dolby's MI (Media Intelligence) steering,
+    the autogain causes audible distortion on quiet→loud transitions
+    because the convolver's steep spectral shape creates ~10 dB of
+    peak-to-LUFS mismatch that MI would normally compensate for.
     """
     if not vol_leveler or not vol_leveler["enable"]:
         return None
 
+    amount = vol_leveler["amount"]
+
     # Map Dolby amount (0-10) to maximum-history (seconds).
     # Higher amount = shorter window = more aggressive leveling.
     # amount 0 → 30s (gentle), amount 4+ → 10s (aggressive, clamped)
-    # Using a gentler slope than Dolby because EasyEffects lacks the MI
-    # (Media Intelligence) steering that prevents pumping in the real pipeline.
-    amount = vol_leveler["amount"]
     max_history = max(30 - amount * 5, 10)
 
-    # Dolby target is in dBFS; subtract 3 dB for the LUFS target to provide
-    # headroom (EBU R 128 standard is -23 LUFS vs Dolby's -20 dBFS).
-    target = vol_leveler["out_target"] - 3
+    # Dolby target is in dBFS; map directly to LUFS target.
+    target = vol_leveler["out_target"]
 
+    # Bypassed by default: without Dolby's MI (Media Intelligence) steering,
+    # the autogain causes audible distortion on quiet→loud transitions.
+    # Settings are preserved so users can enable it manually if desired.
     return {
-        "bypass": False,
+        "bypass": True,
         "input-gain": 0.0,
         "output-gain": 0.0,
         "maximum-history": max_history,
@@ -791,7 +797,7 @@ def make_multiband_compressor(mb_comp, freqs):
     result = {
         "bypass": False,
         "input-gain": 0.0,
-        "output-gain": round(mb_comp["volmax_boost"], 1),
+        "output-gain": 0.0,
         "dry": -80.01,
         "wet": 0.0,
         "compressor-mode": "Modern",

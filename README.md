@@ -68,8 +68,8 @@ Each preset contains up to eight plugins chained in order:
 2. **Stereo Tools** — stereo widening via Mid/Side balance (Calf Stereo Tools), mapped from Dolby's surround-boost; enabled on dynamic/movie profiles
 3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, low-shelves) per channel from the vlldp section
 4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
-5. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings); placed before the compressor to match Dolby's CP→VLLDP signal flow so the compressor and regulator catch any overshoot
-6. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
+5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
+6. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients
 7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
 8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks
 
@@ -127,7 +127,7 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
         <ieq-amount value="10"/>          ← 0-10 scale
         <ieq-bands-set preset="ieq_balanced"/>
         <volume-leveler-enable value="1"/>
-        <volume-leveler-amount value="2"/>  ← 0-2 (aggressiveness)
+        <volume-leveler-amount value="2"/>  ← 0-10 (aggressiveness)
         <volume-leveler-in-target value="-320"/>  ← 1/16 dB = -20 dBFS
         <volume-leveler-out-target value="-320"/>
         <bass-enhancer-enable value="0"/>
@@ -197,7 +197,7 @@ The Dolby MB compressor stores parameters as 6-value tuples of raw DSP coefficie
 
 **Time constants**: Stored as exponential smoothing coefficients in Q15 format, operating per block (assumed 256 samples at 48 kHz = 187.5 blocks/sec). Decoded via `tau = -1 / (blocks_per_sec * ln(coeff / 32768))`.
 
-**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB overall output gain boost, applied as `output-gain` on the EasyEffects multiband compressor. This is the main loudness maximizer.
+**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB. This defines the maximum gain the Dolby volume leveler may add above its output target — it is a ceiling for the volume leveler, not an output gain for the compressor.
 
 The decoded bands for this device:
 - **Band 0** (low, below 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 17 ms, release 268 ms, makeup +2 dB
@@ -205,10 +205,10 @@ The decoded bands for this device:
 
 ### Volume leveler → Autogain mapping
 
-The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement:
+The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement. **Bypassed by default** — without Dolby's MI (Media Intelligence) content analysis, the autogain causes audible distortion on quiet→loud transitions because it can't anticipate dynamic changes. The Dolby-derived settings are preserved so users can enable it manually:
 
-- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -23 LUFS (-20 minus 3 dB headroom for the downstream compressor's volmax-boost)
-- **volume-leveler-amount** (0–2): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 2 → 20s moderate). Uses a gentler slope than Dolby because EasyEffects lacks MI (Media Intelligence) steering that prevents pumping.
+- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -20 LUFS (matching the Dolby config directly)
+- **volume-leveler-amount** (0–10): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 4+ → 10s aggressive)
 - **Reference**: Geometric Mean (MSI) — combines momentary, short-term, and integrated loudness for balanced behavior
 
 ### Regulator → Per-band limiter
