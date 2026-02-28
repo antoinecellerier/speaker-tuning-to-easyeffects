@@ -64,7 +64,7 @@ Each preset contains five plugins chained in order:
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + 3 speaker PEQ bell filters per channel from the vlldp section
 3. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
-4. **Regulator** — per-band limiter (second multiband compressor instance at 100:1 ratio) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
+4. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
 5. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
 
 Output files:
@@ -135,7 +135,7 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
           <ch_01 value="-240,0,160,..."/>
         </audio-optimizer-bands>
         <speaker-peq-filters>
-          <filter speaker="0" type="9" f0="100" order="4"/>        ← HP (skipped)
+          <filter speaker="0" type="9" f0="100" order="4"/>        ← HP filter
           <filter speaker="0" type="1" f0="516" gain="-4.0" q="1.5"/>  ← Bell
           <filter speaker="0" type="1" f0="280" gain="3.0" q="2.0"/>
           <filter speaker="0" type="1" f0="400" gain="4.0" q="4.6"/>

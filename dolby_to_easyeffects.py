@@ -18,17 +18,15 @@ Output chain:
 """
 
 import argparse
-import glob
 import json
 import math
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
-
-import subprocess
 
 DEFAULT_OUTPUT_DIR = Path.home() / ".local" / "share" / "easyeffects" / "output"
 DEFAULT_IRS_DIR = Path.home() / ".local" / "share" / "easyeffects" / "irs"
