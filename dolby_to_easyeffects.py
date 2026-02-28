@@ -548,9 +548,11 @@ def make_autogain(vol_leveler):
 
     # Map Dolby amount (0-2) to maximum-history (seconds).
     # Higher amount = shorter window = more aggressive leveling.
-    # amount 0 → 30s (gentle), amount 2 → 10s (aggressive)
+    # amount 0 → 30s (gentle), amount 2 → 20s (moderate)
+    # Using a gentler slope than Dolby because EasyEffects lacks the MI
+    # (Media Intelligence) steering that prevents pumping in the real pipeline.
     amount = vol_leveler["amount"]
-    max_history = max(30 - amount * 10, 5)
+    max_history = max(30 - amount * 5, 10)
 
     # Dolby target is in dBFS; subtract 3 dB for the LUFS target to provide
     # headroom (EBU R 128 standard is -23 LUFS vs Dolby's -20 dBFS).

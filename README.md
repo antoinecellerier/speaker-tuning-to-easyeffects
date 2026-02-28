@@ -204,8 +204,8 @@ The decoded bands for this device:
 
 The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement:
 
-- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -20 LUFS (approximate equivalent)
-- **volume-leveler-amount** (0–2): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 2 → 10s aggressive)
+- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -23 LUFS (-20 minus 3 dB headroom for the downstream compressor's volmax-boost)
+- **volume-leveler-amount** (0–2): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 2 → 20s moderate). Uses a gentler slope than Dolby because EasyEffects lacks MI (Media Intelligence) steering that prevents pumping.
 - **Reference**: Geometric Mean (MSI) — combines momentary, short-term, and integrated loudness for balanced behavior
 
 ### Regulator → Per-band limiter
