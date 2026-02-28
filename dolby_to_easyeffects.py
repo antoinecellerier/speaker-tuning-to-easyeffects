@@ -273,10 +273,16 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 tl = [-12.0] * 20
             reg_stress = vlldp.find("regulator-stress-amount")
             stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
+            reg_slope = vlldp.find("regulator-distortion-slope")
+            slope = int(reg_slope.get("value")) / 16.0 if reg_slope is not None else 1.0
+            reg_timbre = vlldp.find("regulator-timbre-preservation")
+            timbre = int(reg_timbre.get("value")) / 16.0 if reg_timbre is not None else 0.75
             regulator = {
                 "threshold_high": th,
                 "threshold_low": tl,
                 "stress": [x / 16.0 for x in stress],
+                "distortion_slope": slope,
+                "timbre_preservation": timbre,
             }
 
     return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator
@@ -668,15 +674,39 @@ def make_regulator(regulator, freqs):
 
     The Dolby regulator is a 20-band limiter that prevents speaker
     distortion. We approximate it using EasyEffects' multiband compressor
-    with a high ratio (100:1) to act as a limiter.
+    configured as a limiter.
 
     The 20 Dolby bands are grouped into zones with similar thresholds
     to fit within EasyEffects' 8-band limit.
+
+    Regulator parameters mapped:
+      - distortion_slope: controls limiter ratio. 1.0 = hard limiter
+        (infinity:1), lower values = softer limiting. Mapped as
+        ratio = 1 / (1 - slope) when slope < 1, else 100:1.
+      - timbre_preservation: 0-1, controls knee softness. Higher values
+        mean softer knee to preserve spectral shape. Mapped to
+        knee = -6 * (1 - timbre) dB (0 = hard knee, 1 = -6 dB knee).
     """
     if not regulator:
         return None
 
     th = regulator["threshold_high"]
+    slope = regulator.get("distortion_slope", 1.0)
+    timbre = regulator.get("timbre_preservation", 0.75)
+
+    # Derive ratio from distortion slope:
+    # slope=1.0 → hard limiter (use 100:1 as practical maximum)
+    # slope=0.5 → ratio=2:1 (moderate compression)
+    if slope >= 1.0:
+        ratio = 100.0
+    elif slope <= 0.0:
+        ratio = 1.0  # bypass
+    else:
+        ratio = 1.0 / (1.0 - slope)
+
+    # Derive knee from timbre preservation:
+    # timbre=0 → hard knee (0 dB), timbre=1 → soft knee (-6 dB)
+    knee = -6.0 * timbre
 
     # Group the 20 bands into zones with distinct thresholds.
     # Find runs of identical threshold_high values.
@@ -738,8 +768,8 @@ def make_regulator(regulator, freqs):
                 "attack-time": 1.0,  # very fast for limiting
                 "release-threshold": -80.01,
                 "release-time": 50.0,
-                "ratio": 100.0,  # effectively a limiter
-                "knee": -6.0,
+                "ratio": round(ratio, 1),
+                "knee": round(knee, 1),
                 "makeup": 0.0,
                 "compression-mode": "Downward",
                 "sidechain-type": "Internal",
@@ -961,6 +991,8 @@ def main():
         print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
         print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
         print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
+        print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
+        print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
     print()
 
     # Build preset name mapping using the configured prefix.

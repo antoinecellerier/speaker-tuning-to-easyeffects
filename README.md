@@ -192,7 +192,11 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 
 ### Regulator → Per-band limiter
 
-The Dolby regulator is a 20-band limiter that prevents speaker distortion by clamping per-band levels to `threshold_high` values (in 1/16 dB). This is mapped to a second EasyEffects multiband compressor instance (`multiband_compressor#1`) configured as a limiter (ratio 100:1, 1 ms attack, Peak sidechain mode).
+The Dolby regulator is a 20-band limiter that prevents speaker distortion by clamping per-band levels to `threshold_high` values (in 1/16 dB). This is mapped to a second EasyEffects multiband compressor instance (`multiband_compressor#1`) configured as a limiter with Peak sidechain and 1 ms attack.
+
+Additional regulator parameters:
+- **`regulator-distortion-slope`** (1/16 scale): controls limiting aggressiveness. Slope 1.0 = hard limiter (ratio 100:1), lower values → softer compression (ratio = 1/(1-slope))
+- **`regulator-timbre-preservation`** (1/16 scale): controls knee softness to preserve tonal balance. Mapped to compressor knee: knee = -6 × timbre dB (0.75 → -4.5 dB knee)
 
 The 20 Dolby bands are grouped into zones with identical thresholds to fit within EasyEffects' 8-band limit. For this device, this produces 5 zones:
 
@@ -217,12 +221,11 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 
 - ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
 - ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
-- ~~**Regulator**~~ — now implemented as a second multiband compressor instance (`multiband_compressor#1`) acting as a per-band limiter (100:1 ratio). The 20-band thresholds are grouped into zones to fit EasyEffects' 8-band limit. Uses `threshold_high` values; `threshold_low` and `stress-amount` are not mapped.
+- ~~**Regulator**~~ — now implemented as a second multiband compressor instance (`multiband_compressor#1`) acting as a per-band limiter. The 20-band thresholds are grouped into zones to fit EasyEffects' 8-band limit. Ratio derived from `regulator-distortion-slope`, knee from `regulator-timbre-preservation`. Uses `threshold_high` values; `threshold_low` and `stress-amount` are not mapped.
 - ~~**High-pass filter**~~ — now implemented as a `Hi-pass` band (slope `x4` = 24 dB/oct) in the parametric EQ. Protects laptop speakers from sub-bass energy they can't reproduce.
 - **Dialog enhancer** — center-channel extraction and boost (`dialog-enhancer-amount` varies per profile: 5 for dynamic, 7 for music, 3 for voice). No direct EasyEffects equivalent.
 - **Surround decoder/virtualizer** — spatial audio processing (speaker angle parameters, height filters). Not applicable to stereo output.
-- **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block represent the ground-truth hardware DSP filter bank. Decoding these could replace the audio-optimizer + PEQ approximation with exact filter reconstruction.
-- **Regulator refinements** — `regulator-distortion-slope` (1.0) could derive a more accurate limiter ratio than the hard-coded 100:1. `regulator-timbre-preservation` (0.75) could influence per-band knee settings.
+- **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block. These appear to be VLLDP internal pipeline coefficients (possibly level-dependent analysis filters), not standard audio-path biquads — the coefficient format doesn't produce sensible EQ curves under any standard interpretation. Our audio-optimizer + PEQ approach already captures the same corrections through Dolby's higher-level parameters.
 
 ## TODO
 - add option to extract all endpoints and profiles
