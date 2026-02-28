@@ -9,9 +9,15 @@ Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEff
 3. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
 
 Options:
+- `--list` — show available endpoints and profiles in the XML, then exit
+- `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
+- `--mode MODE` — endpoint operating mode (default: `normal`)
+- `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
+
+When `--mode` or `--profile` is specified, the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
 
 ### Dependencies
 

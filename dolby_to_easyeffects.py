@@ -34,7 +34,21 @@ def parse_csv_ints(s: str) -> list[int]:
     return [int(x) for x in s.split(",")]
 
 
-def parse_xml(path: Path):
+def list_endpoints(path: Path):
+    """Print available endpoints and profiles in the XML."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    for ep in root.findall(".//endpoint"):
+        ep_type = ep.get("type")
+        op_mode = ep.get("operating_mode")
+        profiles = [p.get("type") for p in ep.findall("profile")]
+        print(f"  endpoint: {ep_type} (operating_mode={op_mode})")
+        for p in profiles:
+            print(f"    profile: {p}")
+
+
+def parse_xml(path: Path, endpoint_type="internal_speaker",
+              operating_mode="normal", profile_type=None):
     tree = ET.parse(path)
     root = tree.getroot()
     constant = root.find("constant")
@@ -46,19 +60,37 @@ def parse_xml(path: Path):
         if el.tag.startswith("ieq_"):
             curves[el.tag] = parse_csv_ints(el.get("target"))
 
-    endpoint = root.find(".//endpoint[@type='internal_speaker'][@operating_mode='normal']")
-    ieq_amount = 10
-    for profile in endpoint.findall("profile"):
-        cp = profile.find("tuning-cp")
-        if cp is not None:
-            enable = cp.find("ieq-enable")
-            if enable is not None and enable.get("value") == "1":
-                amt = cp.find("ieq-amount")
-                if amt is not None:
-                    ieq_amount = int(amt.get("value"))
-                break
+    endpoint = root.find(
+        f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
+    )
+    if endpoint is None:
+        raise ValueError(
+            f"Endpoint type='{endpoint_type}' operating_mode='{operating_mode}' "
+            f"not found. Use --list to see available endpoints."
+        )
 
-    profile = endpoint.find("profile")
+    # Select the profile for vlldp settings (AO, PEQ, MB compressor)
+    if profile_type:
+        profile = endpoint.find(f"profile[@type='{profile_type}']")
+        if profile is None:
+            available = [p.get("type") for p in endpoint.findall("profile")]
+            raise ValueError(
+                f"Profile '{profile_type}' not found. "
+                f"Available: {', '.join(available)}"
+            )
+    else:
+        profile = endpoint.find("profile")
+
+    # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
+    ieq_amount = 10
+    cp = profile.find("tuning-cp")
+    if cp is not None:
+        enable = cp.find("ieq-enable")
+        if enable is not None and enable.get("value") == "1":
+            amt = cp.find("ieq-amount")
+            if amt is not None:
+                ieq_amount = int(amt.get("value"))
+
     vlldp = profile.find("tuning-vlldp")
 
     ao_bands = vlldp.find("audio-optimizer-bands")
@@ -77,23 +109,20 @@ def parse_xml(path: Path):
             "order": int(f.get("order", "0")),
         })
 
-    # Volume leveler settings (from tuning-cp, same profile as IEQ)
+    # Volume leveler settings (from tuning-cp of the selected profile)
     vol_leveler = None
-    for profile in endpoint.findall("profile"):
-        cp = profile.find("tuning-cp")
-        if cp is not None:
-            vl_enable = cp.find("volume-leveler-enable")
-            if vl_enable is not None:
-                vl_amount = cp.find("volume-leveler-amount")
-                vl_in = cp.find("volume-leveler-in-target")
-                vl_out = cp.find("volume-leveler-out-target")
-                vol_leveler = {
-                    "enable": int(vl_enable.get("value")),
-                    "amount": int(vl_amount.get("value")) if vl_amount is not None else 0,
-                    "in_target": int(vl_in.get("value")) / 16.0 if vl_in is not None else -20.0,
-                    "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
-                }
-                break
+    if cp is not None:
+        vl_enable = cp.find("volume-leveler-enable")
+        if vl_enable is not None:
+            vl_amount = cp.find("volume-leveler-amount")
+            vl_in = cp.find("volume-leveler-in-target")
+            vl_out = cp.find("volume-leveler-out-target")
+            vol_leveler = {
+                "enable": int(vl_enable.get("value")),
+                "amount": int(vl_amount.get("value")) if vl_amount is not None else 0,
+                "in_target": int(vl_in.get("value")) / 16.0 if vl_in is not None else -20.0,
+                "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
+            }
 
     # Multi-band compressor settings (from tuning-vlldp)
     mb_comp = None
@@ -109,8 +138,7 @@ def parse_xml(path: Path):
                     band_groups.append(parse_csv_ints(bg.get("value")))
             target_power = vlldp.find("mb-compressor-target-power-level")
             # volmax-boost is in tuning-cp
-            first_cp = endpoint.find("profile/tuning-cp")
-            volmax = first_cp.find("volmax-boost") if first_cp is not None else None
+            volmax = cp.find("volmax-boost") if cp is not None else None
             # Also grab regulator stress for additional context
             reg_stress = vlldp.find("regulator-stress-amount")
             mb_comp = {
@@ -558,9 +586,42 @@ def main():
         default="Dolby",
         help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
     )
+    parser.add_argument(
+        "--endpoint",
+        default="internal_speaker",
+        help="endpoint type from the XML (default: internal_speaker)",
+    )
+    parser.add_argument(
+        "--mode",
+        default="normal",
+        help="endpoint operating mode (default: normal)",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="profile type, e.g. dynamic, music, voice (default: first profile)",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="list available endpoints and profiles, then exit",
+    )
     args = parser.parse_args()
 
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(args.xml_file)
+    if args.list:
+        print(f"Endpoints and profiles in {args.xml_file}:")
+        list_endpoints(args.xml_file)
+        return
+
+    print(f"Endpoint: {args.endpoint} (mode={args.mode})")
+    print(f"Profile: {args.profile or '(first)'}")
+
+    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(
+        args.xml_file,
+        endpoint_type=args.endpoint,
+        operating_mode=args.mode,
+        profile_type=args.profile,
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.irs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -608,11 +669,19 @@ def main():
                   f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
     print()
 
-    # Build preset name mapping using the configured prefix
+    # Build preset name mapping using the configured prefix.
+    # Include endpoint mode and profile in the name when explicitly specified.
+    name_parts = [args.prefix]
+    if args.mode != "normal":
+        name_parts.append(args.mode.title())
+    if args.profile:
+        name_parts.append(args.profile.title())
+    name_base = "-".join(name_parts)
+
     ieq_presets = {
-        f"{args.prefix}-Balanced": "ieq_balanced",
-        f"{args.prefix}-Detailed": "ieq_detailed",
-        f"{args.prefix}-Warm": "ieq_warm",
+        f"{name_base}-Balanced": "ieq_balanced",
+        f"{name_base}-Detailed": "ieq_detailed",
+        f"{name_base}-Warm": "ieq_warm",
     }
 
     for preset_name, curve_key in ieq_presets.items():
