@@ -224,6 +224,10 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 - **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block represent the ground-truth hardware DSP filter bank. Decoding these could replace the audio-optimizer + PEQ approximation with exact filter reconstruction.
 - **Regulator refinements** — `regulator-distortion-slope` (1.0) could derive a more accurate limiter ratio than the hard-coded 100:1. `regulator-timbre-preservation` (0.75) could influence per-band knee settings.
 
+## TODO
+- add option to extract all endpoints and profiles
+- add option to configure easy effects autoload of profile on speaker output (but not other outputs)
+
 ### Unused XML data (not worth implementing)
 
 The following XML elements are present but not used because they are always zero/off in this device, are DSP pipeline internals, or have no EasyEffects equivalent:
