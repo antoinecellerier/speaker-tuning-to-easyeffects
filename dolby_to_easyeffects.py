@@ -200,16 +200,19 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     ao_right = parse_csv_ints(ao_bands.find("ch_01").get("value"))
 
     peq_filters = []
-    for f in vlldp.findall(".//speaker-peq-filters/filter"):
-        peq_filters.append({
-            "speaker": int(f.get("speaker")),
-            "enabled": int(f.get("enabled")),
-            "type": int(f.get("type")),
-            "f0": float(f.get("f0")),
-            "gain": float(f.get("gain", "0")),
-            "q": float(f.get("q", "0.707")),
-            "order": int(f.get("order", "0")),
-        })
+    peq_enable = vlldp.find("speaker-peq-enable")
+    if peq_enable is None or peq_enable.get("value") != "0":
+        for f in vlldp.findall(".//speaker-peq-filters/filter"):
+            if f.get("enabled") == "0":
+                continue
+            peq_filters.append({
+                "speaker": int(f.get("speaker")),
+                "type": int(f.get("type")),
+                "f0": float(f.get("f0")),
+                "gain": float(f.get("gain", "0")),
+                "q": float(f.get("q", "0.707")),
+                "order": int(f.get("order", "0")),
+            })
 
     # Volume leveler settings (from tuning-cp of the selected profile)
     vol_leveler = None

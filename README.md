@@ -218,9 +218,32 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 - ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
 - ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
 - ~~**Regulator**~~ — now implemented as a second multiband compressor instance (`multiband_compressor#1`) acting as a per-band limiter (100:1 ratio). The 20-band thresholds are grouped into zones to fit EasyEffects' 8-band limit. Uses `threshold_high` values; `threshold_low` and `stress-amount` are not mapped.
-- **Dialog enhancer** — center-channel extraction and boost.
 - ~~**High-pass filter**~~ — now implemented as a `Hi-pass` band (slope `x4` = 24 dB/oct) in the parametric EQ. Protects laptop speakers from sub-bass energy they can't reproduce.
-- **Surround decoder/virtualizer** — spatial audio processing.
+- **Dialog enhancer** — center-channel extraction and boost (`dialog-enhancer-amount` varies per profile: 5 for dynamic, 7 for music, 3 for voice). No direct EasyEffects equivalent.
+- **Surround decoder/virtualizer** — spatial audio processing (speaker angle parameters, height filters). Not applicable to stereo output.
+- **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block represent the ground-truth hardware DSP filter bank. Decoding these could replace the audio-optimizer + PEQ approximation with exact filter reconstruction.
+- **Regulator refinements** — `regulator-distortion-slope` (1.0) could derive a more accurate limiter ratio than the hard-coded 100:1. `regulator-timbre-preservation` (0.75) could influence per-band knee settings.
+
+### Unused XML data (not worth implementing)
+
+The following XML elements are present but not used because they are always zero/off in this device, are DSP pipeline internals, or have no EasyEffects equivalent:
+
+- `pregain`, `postgain`, `calibration-boost`, `system-gain` — all 0 dB gain trims
+- `bass-enhancer-*`, `bass-extraction-*` — always disabled
+- `virtual-bass-*` — always disabled
+- `volume-modeler-*` — always disabled
+- `graphic-equalizer-*` — always disabled (user-facing 20-band GEQ)
+- `surround-boost`, `surround-decoder-center-spreading-enable` — surround upmix parameters
+- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry
+- `mi-*-steering-enable` — Media Intelligence auto-steering flags
+- `output-mode` / `mix_matrix` / `processing_mode` — speaker routing
+- `init-info` blocks — DSP buffer/capacity sizing
+- CP-level `audio-optimizer-bands` (ch_00–ch_07) — always zero; vlldp has the real data
+- CP-level `regulator-tuning` — always zero presets; vlldp has the real data
+- `mb-compressor-agc-enable`, `mb-compressor-slow-gain-enable` — always off
+- `woofer-regulator-*` — no subwoofer in this endpoint
+- `band_20_freq` at 44.1 kHz — script is 48 kHz only
+- `ieq-bands-set` — indicates default IEQ variant; script generates all three
 
 ## Extracting the XML
 
