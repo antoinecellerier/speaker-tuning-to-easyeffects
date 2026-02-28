@@ -65,10 +65,10 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 Each preset contains five plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
-2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + 3 speaker PEQ bell filters per channel from the vlldp section
-3. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
-4. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
-5. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
+2. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ bell filters per channel from the vlldp section
+3. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings); placed before the compressor to match Dolby's CP→VLLDP signal flow so the compressor and regulator catch any overshoot
+4. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
+5. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
