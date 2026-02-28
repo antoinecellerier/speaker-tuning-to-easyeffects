@@ -14,6 +14,7 @@ Output chain:
   - equalizer#0: speaker PEQ bells (explicit parametric filters from Dolby)
 """
 
+import argparse
 import json
 import math
 import xml.etree.ElementTree as ET
@@ -22,18 +23,11 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
-XML_PATH = Path(__file__).parent / "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml"
-OUTPUT_DIR = Path.home() / ".local" / "share" / "easyeffects" / "output"
-IRS_DIR = Path.home() / ".local" / "share" / "easyeffects" / "irs"
+DEFAULT_OUTPUT_DIR = Path.home() / ".local" / "share" / "easyeffects" / "output"
+DEFAULT_IRS_DIR = Path.home() / ".local" / "share" / "easyeffects" / "irs"
 
 SAMPLE_RATE = 48000
 FIR_LENGTH = 4096  # ~85ms, plenty for EQ
-
-IEQ_CURVES = {
-    "Dolby-Balanced": "ieq_balanced",
-    "Dolby-Detailed": "ieq_detailed",
-    "Dolby-Warm": "ieq_warm",
-}
 
 
 def parse_csv_ints(s: str) -> list[int]:
@@ -539,9 +533,36 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None, freqs=
 
 
 def main():
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(XML_PATH)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    IRS_DIR.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser(
+        description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
+    )
+    parser.add_argument(
+        "xml_file",
+        type=Path,
+        help="path to the Dolby DAX3 tuning XML (e.g. DEV_0287_SUBSYS_*.xml)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"EasyEffects output preset directory (default: {DEFAULT_OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--irs-dir",
+        type=Path,
+        default=DEFAULT_IRS_DIR,
+        help=f"EasyEffects impulse response directory (default: {DEFAULT_IRS_DIR})",
+    )
+    parser.add_argument(
+        "--prefix",
+        default="Dolby",
+        help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
+    )
+    args = parser.parse_args()
+
+    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(args.xml_file)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.irs_dir.mkdir(parents=True, exist_ok=True)
 
     scale = ieq_amount / 10.0
     print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
@@ -587,7 +608,18 @@ def main():
                   f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
     print()
 
-    for preset_name, curve_key in IEQ_CURVES.items():
+    # Build preset name mapping using the configured prefix
+    ieq_presets = {
+        f"{args.prefix}-Balanced": "ieq_balanced",
+        f"{args.prefix}-Detailed": "ieq_detailed",
+        f"{args.prefix}-Warm": "ieq_warm",
+    }
+
+    for preset_name, curve_key in ieq_presets.items():
+        if curve_key not in curves:
+            print(f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+            continue
+
         gains_raw = curves[curve_key]
         ieq_db = np.array(gains_raw) / 16.0 * scale
 
@@ -600,12 +632,12 @@ def main():
         fir_right = make_fir(float_freqs, combined_right, normalize=True)
 
         # Save stereo impulse response
-        irs_path = IRS_DIR / f"{preset_name}.irs"
+        irs_path = args.irs_dir / f"{preset_name}.irs"
         save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
         preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, freqs)
-        out_path = OUTPUT_DIR / f"{preset_name}.json"
+        out_path = args.output_dir / f"{preset_name}.json"
         out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
         print(f"Wrote {irs_path}")

@@ -4,9 +4,14 @@ Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEff
 
 ## Quick start
 
-1. Place the Dolby tuning XML in this directory (see [Extracting the XML](#extracting-the-xml))
-2. Run `python3 dolby_to_easyeffects.py`
+1. Extract the Dolby tuning XML from your Windows driver (see [Extracting the XML](#extracting-the-xml))
+2. Run `python3 dolby_to_easyeffects.py path/to/DEV_*.xml`
 3. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
+
+Options:
+- `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
+- `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
+- `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
 
 ### Dependencies
 
