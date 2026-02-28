@@ -5,11 +5,14 @@ Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEff
 ## Quick start
 
 1. Run the script, pointing it at your Windows partition or a Dolby tuning XML:
-   ```bash
-   # Auto-discover from a mounted Windows partition (matches your audio hardware)
-   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows
 
-   # Or specify the XML directly
+   Auto-discover from a mounted Windows partition (matches your audio hardware):
+   ```bash
+   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows
+   ```
+
+   Or specify the XML directly:
+   ```bash
    python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml
    ```
 2. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
@@ -36,8 +39,8 @@ When `--mode` or `--profile` is specified (or `--all-profiles` is used), the pre
 
 The `--autoload` option configures EasyEffects to automatically apply a preset whenever the internal speaker output becomes active:
 
+Generate all presets and autoload Dolby-Dynamic-Balanced on the speaker:
 ```bash
-# Generate all presets and autoload Dolby-Dynamic-Balanced on the speaker
 python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
     --all-profiles --autoload Dolby-Dynamic-Balanced
 ```
@@ -272,6 +275,6 @@ Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (
 
 ## References
 
+- [wwmm/easyeffects](https://github.com/wwmm/easyeffects) — preset format reference
 - [shuhaowu/linux-thinkpad-speaker-improvements](https://github.com/shuhaowu/linux-thinkpad-speaker-improvements) — alternative approach using captured impulse responses via WASAPI loopback
 - [sklynic/easyeffects-tuf-gaming-a15](https://github.com/sklynic/easyeffects-tuf-gaming-a15) — manual DAX3 EQ extraction for ASUS laptops
-- [EasyEffects source (wwmm/easyeffects)](https://github.com/wwmm/easyeffects) — preset format reference
