@@ -23,11 +23,12 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 
 ### Output: EasyEffects presets
 
-Each preset contains three plugins chained in order:
+Each preset contains four plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Equalizer** — the 3 explicit speaker PEQ bell filters per channel from the vlldp section
-3. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
+3. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients, with volmax-boost as output gain
+4. **Autogain** — volume leveler that dynamically adjusts output to a target loudness (maps from Dolby's volume-leveler settings)
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -104,6 +105,14 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
           ...
         </speaker-peq-filters>
         <mb-compressor-enable value="1"/>
+        <mb-compressor-tuning>
+          <group_count value="2"/>                              ← 2 active bands
+          <band_group_0 value="3,-103,19639,24080,32123,32"/>   ← low band (6-tuple)
+          <band_group_1 value="20,-103,19654,22641,30810,32"/>  ← high band
+          <band_group_2 value="20,0,32767,22641,27238,0"/>      ← bypass
+          <band_group_3 value="20,0,32767,22641,27238,0"/>      ← bypass
+        </mb-compressor-tuning>
+        <mb-compressor-target-power-level value="-80"/>         ← 1/16 dB = -5 dBFS
         ...
       </tuning-vlldp>
     </profile>
@@ -122,6 +131,29 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
 
 All non-voice profiles share the same audio-optimizer and speaker PEQ values. The voice profile has different AO tuning and simplified PEQ. The multi-band compressor threshold varies slightly per profile.
 
+### Multi-band compressor coefficient decoding
+
+The Dolby MB compressor stores parameters as 6-value tuples of raw DSP coefficients per band. The decoded format:
+
+| Index | Field | Units | Example (band 0) | Decoded |
+|-------|-------|-------|-------------------|---------|
+| 0 | Crossover band index | index into 20-freq table | 3 | 328 Hz |
+| 1 | Threshold | 1/16 dB | -103 | -6.4 dB |
+| 2 | Gain coefficient | Q15 fixed-point | 19639 | ratio ≈ 1.67:1 |
+| 3 | Attack coefficient | Q15 block-rate | 24080 | ~17 ms |
+| 4 | Release coefficient | Q15 block-rate | 32123 | ~268 ms |
+| 5 | Makeup gain | 1/16 dB | 32 | +2 dB |
+
+**Gain coefficient → ratio**: `ratio = 1 / (coeff / 32768)`. A value of 32767 (≈1.0) means bypass (1:1 ratio).
+
+**Time constants**: Stored as exponential smoothing coefficients in Q15 format, operating per block (assumed 256 samples at 48 kHz = 187.5 blocks/sec). Decoded via `tau = -1 / (blocks_per_sec * ln(coeff / 32768))`.
+
+**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB overall output gain boost, applied as `output-gain` on the EasyEffects multiband compressor. This is the main loudness maximizer.
+
+The decoded bands for this device:
+- **Band 0** (low, below 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 17 ms, release 268 ms, makeup +2 dB
+- **Band 1** (high, above 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 14 ms, release 87 ms, makeup +2 dB
+
 ### Volume leveler → Autogain mapping
 
 The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement:
@@ -139,7 +171,7 @@ The Dolby volume leveler dynamically adjusts gain to maintain a target loudness 
 
 ## What's not implemented
 
-- **Multi-band compressor** — the Dolby vlldp has a 2-band compressor that maximizes loudness. This is the main reason Windows sounds "more powerful". EasyEffects has a multiband compressor plugin but mapping the Dolby parameters (encoded as raw coefficients) is non-trivial.
+- ~~**Multi-band compressor**~~ — now implemented. The Dolby 6-tuple coefficients have been decoded (see [coefficient decoding](#multi-band-compressor-coefficient-decoding)) and mapped to EasyEffects' multiband compressor plugin with 2 bands split at 328 Hz. The `volmax-boost` (6 dB) is applied as compressor output gain. Note: the block size for time constant decoding is assumed to be 256 samples — the exact Dolby block size is unconfirmed, so attack/release times are approximate.
 - ~~**Volume leveler**~~ — now implemented via EasyEffects autogain (EBU R 128 loudness targeting). Dolby's volume-leveler-amount (0–2) maps to autogain history window length (30s gentle → 10s aggressive). Target level (-320 = -20 dBFS) maps to -20 LUFS.
 - **Dialog enhancer** — center-channel extraction and boost.
 - **High-pass filter** — the speaker PEQ includes a 4th-order HP at 100 Hz to protect the laptop speakers. Skipped since EasyEffects' parametric EQ doesn't have a matching filter type and the speakers physically can't reproduce below ~100 Hz anyway.

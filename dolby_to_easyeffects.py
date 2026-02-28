@@ -101,7 +101,33 @@ def parse_xml(path: Path):
                 }
                 break
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler
+    # Multi-band compressor settings (from tuning-vlldp)
+    mb_comp = None
+    mbc_enable = vlldp.find("mb-compressor-enable")
+    if mbc_enable is not None and mbc_enable.get("value") == "1":
+        mbc_tuning = vlldp.find("mb-compressor-tuning")
+        if mbc_tuning is not None:
+            group_count = int(mbc_tuning.find("group_count").get("value"))
+            band_groups = []
+            for i in range(4):
+                bg = mbc_tuning.find(f"band_group_{i}")
+                if bg is not None:
+                    band_groups.append(parse_csv_ints(bg.get("value")))
+            target_power = vlldp.find("mb-compressor-target-power-level")
+            # volmax-boost is in tuning-cp
+            first_cp = endpoint.find("profile/tuning-cp")
+            volmax = first_cp.find("volmax-boost") if first_cp is not None else None
+            # Also grab regulator stress for additional context
+            reg_stress = vlldp.find("regulator-stress-amount")
+            mb_comp = {
+                "group_count": group_count,
+                "band_groups": band_groups,
+                "target_power": int(target_power.get("value")) / 16.0 if target_power is not None else -5.0,
+                "volmax_boost": int(volmax.get("value")) / 16.0 if volmax is not None else 0.0,
+                "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
+            }
+
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp
 
 
 # --- FIR generation ---
@@ -274,7 +300,181 @@ def make_autogain(vol_leveler):
     }
 
 
-def make_preset(kernel_name, peq_filters, vol_leveler=None):
+def decode_mbc_time_constant(coeff, block_size=256):
+    """Decode a Dolby time constant coefficient to milliseconds.
+
+    Dolby stores time constants as exponential smoothing coefficients
+    in Q15 fixed-point format, operating per block (not per sample).
+    coeff/32768 = (1 - alpha), where alpha = 1 - exp(-1/(tau * blocks_per_sec)).
+    """
+    blocks_per_sec = SAMPLE_RATE / block_size
+    one_minus_alpha = coeff / 32768.0
+    if one_minus_alpha <= 0.0 or one_minus_alpha >= 1.0:
+        return 100.0  # fallback
+    tau = -1.0 / (blocks_per_sec * math.log(one_minus_alpha))
+    return tau * 1000.0  # seconds to ms
+
+
+def make_multiband_compressor(mb_comp, freqs):
+    """Multi-band compressor mapping from Dolby mb-compressor-tuning.
+
+    The Dolby MB compressor uses raw DSP coefficients in 6-tuples:
+      [crossover_band_idx, threshold_q4, gain_coeff_q15,
+       attack_coeff_q15, release_coeff_q15, makeup_q4]
+
+    Where:
+      - crossover_band_idx: index into the 20-band frequency table
+      - threshold: in 1/16 dB
+      - gain_coeff: Q15 fixed-point, 32767 = unity (bypass)
+        ratio ≈ 1 / (gain_coeff / 32768)
+      - attack/release: exponential smoothing coefficients (block-rate)
+      - makeup: in 1/16 dB
+    """
+    if not mb_comp or mb_comp["group_count"] < 2:
+        return None
+
+    band_groups = mb_comp["band_groups"]
+    if len(band_groups) < 2:
+        return None
+
+    def decode_band(bg):
+        xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
+        threshold = thresh_raw / 16.0
+        # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
+        gain_frac = gain_raw / 32768.0
+        ratio = 1.0 / gain_frac if gain_frac > 0.01 else 100.0
+        attack_ms = decode_mbc_time_constant(attack_raw)
+        release_ms = decode_mbc_time_constant(release_raw)
+        makeup = makeup_raw / 16.0
+        return {
+            "xover_idx": xover_idx,
+            "threshold": threshold,
+            "ratio": ratio,
+            "attack_ms": attack_ms,
+            "release_ms": release_ms,
+            "makeup": makeup,
+        }
+
+    band0 = decode_band(band_groups[0])
+    band1 = decode_band(band_groups[1])
+
+    # Crossover frequency from band index into the 20-freq table
+    xover_idx = band0["xover_idx"]
+    if 0 <= xover_idx < len(freqs):
+        crossover_freq = float(freqs[xover_idx])
+    else:
+        crossover_freq = 500.0  # fallback
+
+    # Build EasyEffects multiband compressor with 2 active bands
+    # Band 0 = low (below crossover), Band 1 = high (above crossover)
+    # Bands 2-7 are disabled
+    result = {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": round(mb_comp["volmax_boost"], 1),
+        "dry": -80.01,
+        "wet": 0.0,
+        "compressor-mode": "Modern",
+        "envelope-boost": "None",
+        "stereo-split": False,
+    }
+
+    for i in range(8):
+        bandn = f"band{i}"
+        if i == 0:
+            # Low band — always enabled, no split-frequency
+            b = band0
+            result[bandn] = {
+                "compressor-enable": True,
+                "mute": False,
+                "solo": False,
+                "attack-threshold": round(b["threshold"], 1),
+                "attack-time": round(b["attack_ms"], 1),
+                "release-threshold": -80.01,
+                "release-time": round(b["release_ms"], 1),
+                "ratio": round(b["ratio"], 2),
+                "knee": -6.0,
+                "makeup": round(b["makeup"], 1),
+                "compression-mode": "Downward",
+                "sidechain-type": "Internal",
+                "sidechain-mode": "RMS",
+                "sidechain-source": "Middle",
+                "stereo-split-source": "Left/Right",
+                "sidechain-lookahead": 0.0,
+                "sidechain-reactivity": 10.0,
+                "sidechain-preamp": 0.0,
+                "sidechain-custom-lowcut-filter": False,
+                "sidechain-custom-highcut-filter": False,
+                "sidechain-lowcut-frequency": 10.0,
+                "sidechain-highcut-frequency": crossover_freq,
+                "boost-threshold": -72.0,
+                "boost-amount": 6.0,
+            }
+        elif i == 1:
+            # High band
+            b = band1
+            result[bandn] = {
+                "enable-band": True,
+                "split-frequency": crossover_freq,
+                "compressor-enable": True,
+                "mute": False,
+                "solo": False,
+                "attack-threshold": round(b["threshold"], 1),
+                "attack-time": round(b["attack_ms"], 1),
+                "release-threshold": -80.01,
+                "release-time": round(b["release_ms"], 1),
+                "ratio": round(b["ratio"], 2),
+                "knee": -6.0,
+                "makeup": round(b["makeup"], 1),
+                "compression-mode": "Downward",
+                "sidechain-type": "Internal",
+                "sidechain-mode": "RMS",
+                "sidechain-source": "Middle",
+                "stereo-split-source": "Left/Right",
+                "sidechain-lookahead": 0.0,
+                "sidechain-reactivity": 10.0,
+                "sidechain-preamp": 0.0,
+                "sidechain-custom-lowcut-filter": False,
+                "sidechain-custom-highcut-filter": False,
+                "sidechain-lowcut-frequency": crossover_freq,
+                "sidechain-highcut-frequency": 20000.0,
+                "boost-threshold": -72.0,
+                "boost-amount": 6.0,
+            }
+        else:
+            # Disabled bands
+            result[bandn] = {
+                "enable-band": False,
+                "compressor-enable": False,
+                "mute": False,
+                "solo": False,
+                "attack-threshold": -12.0,
+                "attack-time": 20.0,
+                "release-threshold": -80.01,
+                "release-time": 100.0,
+                "ratio": 1.0,
+                "knee": -6.0,
+                "makeup": 0.0,
+                "compression-mode": "Downward",
+                "sidechain-type": "Internal",
+                "sidechain-mode": "RMS",
+                "sidechain-source": "Middle",
+                "stereo-split-source": "Left/Right",
+                "sidechain-lookahead": 0.0,
+                "sidechain-reactivity": 10.0,
+                "sidechain-preamp": 0.0,
+                "sidechain-custom-lowcut-filter": False,
+                "sidechain-custom-highcut-filter": False,
+                "sidechain-lowcut-frequency": 10.0,
+                "sidechain-highcut-frequency": 20000.0,
+                "boost-threshold": -72.0,
+                "boost-amount": 6.0,
+            }
+
+    return result
+
+
+def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None, freqs=None):
     preset = {
         "output": {
             "blocklist": [],
@@ -288,6 +488,11 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None):
         preset["output"]["equalizer#0"] = peq
         preset["output"]["plugins_order"].append("equalizer#0")
 
+    mbc = make_multiband_compressor(mb_comp, freqs)
+    if mbc:
+        preset["output"]["multiband_compressor#0"] = mbc
+        preset["output"]["plugins_order"].append("multiband_compressor#0")
+
     autogain = make_autogain(vol_leveler)
     if autogain:
         preset["output"]["autogain#0"] = autogain
@@ -297,7 +502,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None):
 
 
 def main():
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler = parse_xml(XML_PATH)
+    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp = parse_xml(XML_PATH)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     IRS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -326,6 +531,23 @@ def main():
         print(f"  amount: {vol_leveler['amount']}")
         print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
         print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
+
+    if mb_comp:
+        print(f"\nMulti-band compressor: {mb_comp['group_count']} bands")
+        print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
+        print(f"  volmax-boost: {mb_comp['volmax_boost']:.1f} dB")
+        for i, bg in enumerate(mb_comp["band_groups"][:mb_comp["group_count"]]):
+            xover_idx = bg[0]
+            xover_hz = freqs[xover_idx] if 0 <= xover_idx < len(freqs) else "?"
+            thresh = bg[1] / 16.0
+            ratio_frac = bg[2] / 32768.0
+            ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
+            attack = decode_mbc_time_constant(bg[3])
+            release = decode_mbc_time_constant(bg[4])
+            makeup = bg[5] / 16.0
+            print(f"  band {i}: xover={xover_hz} Hz, thresh={thresh:+.1f} dB, "
+                  f"ratio={ratio:.2f}:1, attack={attack:.1f} ms, "
+                  f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
     print()
 
     for preset_name, curve_key in IEQ_CURVES.items():
@@ -345,7 +567,7 @@ def main():
         save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
-        preset = make_preset(preset_name, peq_filters, vol_leveler)
+        preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, freqs)
         out_path = OUTPUT_DIR / f"{preset_name}.json"
         out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
