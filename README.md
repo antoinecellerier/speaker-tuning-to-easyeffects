@@ -23,11 +23,26 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`)
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
+- `--all-profiles` — generate presets for all profiles in the selected endpoint/mode (9 profiles × 3 IEQ curves = 27 presets)
+- `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
+- `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
 
-When `--mode` or `--profile` is specified, the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
+When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
+
+### Autoload
+
+The `--autoload` option configures EasyEffects to automatically apply a preset whenever the internal speaker output becomes active:
+
+```bash
+# Generate all presets and autoload Dolby-Dynamic-Balanced on the speaker
+python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
+    --all-profiles --autoload Dolby-Dynamic-Balanced
+```
+
+This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matching EasyEffects' autoload convention (`{node.name}:{device.profile.description}.json`). Speaker sinks are detected from PipeWire via `pw-dump`, filtering on the `audio-speakers` device icon to exclude HDMI/DisplayPort outputs. The script must be run from a desktop session with PipeWire running.
 
 ### Dependencies
 
@@ -226,10 +241,6 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 - **Dialog enhancer** — center-channel extraction and boost (`dialog-enhancer-amount` varies per profile: 5 for dynamic, 7 for music, 3 for voice). No direct EasyEffects equivalent.
 - **Surround decoder/virtualizer** — spatial audio processing (speaker angle parameters, height filters). Not applicable to stereo output.
 - **Filter coefficients** — base64-encoded biquad coefficients in the vlldp `filter_coefficients` block. These appear to be VLLDP internal pipeline coefficients (possibly level-dependent analysis filters), not standard audio-path biquads — the coefficient format doesn't produce sensible EQ curves under any standard interpretation. Our audio-optimizer + PEQ approach already captures the same corrections through Dolby's higher-level parameters.
-
-## TODO
-- add option to extract all endpoints and profiles
-- add option to configure easy effects autoload of profile on speaker output (but not other outputs)
 
 ### Unused XML data (not worth implementing)
 

@@ -28,8 +28,11 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
+import subprocess
+
 DEFAULT_OUTPUT_DIR = Path.home() / ".local" / "share" / "easyeffects" / "output"
 DEFAULT_IRS_DIR = Path.home() / ".local" / "share" / "easyeffects" / "irs"
+DEFAULT_AUTOLOAD_DIR = Path.home() / ".local" / "share" / "easyeffects" / "autoload" / "output"
 
 SAMPLE_RATE = 48000
 FIR_LENGTH = 4096  # ~85ms, plenty for EQ
@@ -147,6 +150,75 @@ def list_endpoints(path: Path):
         print(f"  endpoint: {ep_type} (operating_mode={op_mode})")
         for p in profiles:
             print(f"    profile: {p}")
+
+
+def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> list[str]:
+    """Return all profile type names for the given endpoint/mode, excluding 'off'."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    ep = root.find(
+        f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
+    )
+    if ep is None:
+        return []
+    return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
+
+
+def find_speaker_sinks() -> list[dict]:
+    """Find internal speaker output sinks from PipeWire.
+
+    Returns a list of dicts with 'name', 'description', and 'profile' keys,
+    corresponding to the PipeWire node.name, node.description, and
+    device.profile.description properties used by EasyEffects autoload.
+
+    Only returns sinks with the 'audio-speakers' device icon, excluding
+    HDMI/DisplayPort outputs.
+    """
+    try:
+        result = subprocess.run(
+            ["pw-dump"], capture_output=True, text=True, timeout=5
+        )
+        data = json.loads(result.stdout)
+    except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+    sinks = []
+    for obj in data:
+        props = obj.get("info", {}).get("props", {})
+        if props.get("media.class") != "Audio/Sink":
+            continue
+        # Only include sinks with the speaker icon (excludes HDMI, headphones, etc.)
+        if props.get("device.icon_name") != "audio-speakers":
+            continue
+        sinks.append({
+            "name": props.get("node.name", ""),
+            "description": props.get("node.description", ""),
+            "profile": props.get("device.profile.description", ""),
+        })
+    return sinks
+
+
+def write_autoload(autoload_dir: Path, device_name: str, device_description: str,
+                   device_profile: str, preset_name: str) -> Path:
+    """Write an EasyEffects autoload config file for a device/route → preset mapping.
+
+    EasyEffects loads this file when the given PipeWire sink becomes the active
+    output, automatically switching to the named preset.
+
+    File is named '{device_name}:{device_profile}.json' (with '/' replaced by '_'),
+    matching EasyEffects' AutoloadManager::getFilePath() convention.
+    """
+    autoload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = device_name.replace("/", "_")
+    safe_profile = device_profile.replace("/", "_")
+    path = autoload_dir / f"{safe_name}:{safe_profile}.json"
+    path.write_text(json.dumps({
+        "device": device_name,
+        "device-description": device_description,
+        "device-profile": device_profile,
+        "preset-name": preset_name,
+    }, indent=4) + "\n")
+    return path
 
 
 def parse_xml(path: Path, endpoint_type="internal_speaker",
@@ -913,6 +985,27 @@ def main():
         action="store_true",
         help="list available endpoints and profiles, then exit",
     )
+    parser.add_argument(
+        "--all-profiles",
+        action="store_true",
+        help="generate presets for all profiles in the selected endpoint/mode "
+             "(profile names are included in the preset names)",
+    )
+    parser.add_argument(
+        "--autoload",
+        nargs="?",
+        const=True,
+        metavar="PRESET",
+        help="write EasyEffects autoload config for speaker outputs. "
+             "Optionally specify the preset name to autoload; "
+             "defaults to the first Balanced preset generated",
+    )
+    parser.add_argument(
+        "--autoload-dir",
+        type=Path,
+        default=DEFAULT_AUTOLOAD_DIR,
+        help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
+    )
     args = parser.parse_args()
 
     # Resolve the XML file path
@@ -931,129 +1024,165 @@ def main():
         list_endpoints(xml_path)
         return
 
-    print(f"Endpoint: {args.endpoint} (mode={args.mode})")
-    print(f"Profile: {args.profile or '(first)'}")
-
-    freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator = parse_xml(
-        xml_path,
-        endpoint_type=args.endpoint,
-        operating_mode=args.mode,
-        profile_type=args.profile,
-    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     args.irs_dir.mkdir(parents=True, exist_ok=True)
 
-    scale = ieq_amount / 10.0
-    print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
+    # Determine which profiles to process
+    if args.all_profiles:
+        profile_types = get_profile_types(xml_path, args.endpoint, args.mode)
+        if not profile_types:
+            print(f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
+            return
+        print(f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
+    else:
+        profile_types = [args.profile]  # None means "first profile"
 
-    # Audio-optimizer curves in dB
-    ao_db_left = np.array(ao_left) / 16.0
-    ao_db_right = np.array(ao_right) / 16.0
-    float_freqs = np.array(freqs, dtype=float)
+    all_preset_names = []
 
-    print(f"\nAudio-optimizer (dB):")
-    print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
-    print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
+    for profile_type in profile_types:
+        # Build name base: prefix[-Mode][-Profile]
+        # When --all-profiles is used, always include the profile name.
+        name_parts = [args.prefix]
+        if args.mode != "normal":
+            name_parts.append(args.mode.title())
+        if profile_type or args.all_profiles:
+            name_parts.append((profile_type or "default").title())
+        name_base = "-".join(name_parts)
 
-    print(f"\nPEQ filters (kept as parametric EQ):")
-    for pf in peq_filters:
-        spk = "L" if pf["speaker"] == 0 else "R"
-        if pf["type"] == 9:
-            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
-        elif pf["type"] == 1:
-            print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
+        print(f"\n{'='*60}")
+        print(f"Endpoint: {args.endpoint} (mode={args.mode})")
+        print(f"Profile: {profile_type or '(first)'}")
 
-    if vol_leveler:
-        print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
-        print(f"  amount: {vol_leveler['amount']}")
-        print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
-        print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, mb_comp, regulator = parse_xml(
+            xml_path,
+            endpoint_type=args.endpoint,
+            operating_mode=args.mode,
+            profile_type=profile_type,
+        )
 
-    if mb_comp:
-        print(f"\nMulti-band compressor: {mb_comp['group_count']} bands")
-        print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
-        print(f"  volmax-boost: {mb_comp['volmax_boost']:.1f} dB")
-        for i, bg in enumerate(mb_comp["band_groups"][:mb_comp["group_count"]]):
-            xover_idx = bg[0]
-            xover_hz = freqs[xover_idx] if 0 <= xover_idx < len(freqs) else "?"
-            thresh = bg[1] / 16.0
-            ratio_frac = bg[2] / 32768.0
-            ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
-            attack = decode_mbc_time_constant(bg[3])
-            release = decode_mbc_time_constant(bg[4])
-            makeup = bg[5] / 16.0
-            print(f"  band {i}: xover={xover_hz} Hz, thresh={thresh:+.1f} dB, "
-                  f"ratio={ratio:.2f}:1, attack={attack:.1f} ms, "
-                  f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
+        scale = ieq_amount / 10.0
+        print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
 
-    if regulator:
-        print(f"\nRegulator (per-band limiter):")
-        print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
-        print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
-        print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
-        print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
-        print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
-    print()
+        # Audio-optimizer curves in dB
+        ao_db_left = np.array(ao_left) / 16.0
+        ao_db_right = np.array(ao_right) / 16.0
+        float_freqs = np.array(freqs, dtype=float)
 
-    # Build preset name mapping using the configured prefix.
-    # Include endpoint mode and profile in the name when explicitly specified.
-    name_parts = [args.prefix]
-    if args.mode != "normal":
-        name_parts.append(args.mode.title())
-    if args.profile:
-        name_parts.append(args.profile.title())
-    name_base = "-".join(name_parts)
+        print(f"\nAudio-optimizer (dB):")
+        print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
+        print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
-    ieq_presets = {
-        f"{name_base}-Balanced": "ieq_balanced",
-        f"{name_base}-Detailed": "ieq_detailed",
-        f"{name_base}-Warm": "ieq_warm",
-    }
+        print(f"\nPEQ filters (kept as parametric EQ):")
+        for pf in peq_filters:
+            spk = "L" if pf["speaker"] == 0 else "R"
+            if pf["type"] == 9:
+                print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
+            elif pf["type"] == 1:
+                print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
-    for preset_name, curve_key in ieq_presets.items():
-        if curve_key not in curves:
-            print(f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
-            continue
+        if vol_leveler:
+            print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
+            print(f"  amount: {vol_leveler['amount']}")
+            print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
+            print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
 
-        gains_raw = curves[curve_key]
-        ieq_db = np.array(gains_raw) / 16.0 * scale
+        if mb_comp:
+            print(f"\nMulti-band compressor: {mb_comp['group_count']} bands")
+            print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
+            print(f"  volmax-boost: {mb_comp['volmax_boost']:.1f} dB")
+            for i, bg in enumerate(mb_comp["band_groups"][:mb_comp["group_count"]]):
+                xover_idx = bg[0]
+                xover_hz = freqs[xover_idx] if 0 <= xover_idx < len(freqs) else "?"
+                thresh = bg[1] / 16.0
+                ratio_frac = bg[2] / 32768.0
+                ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
+                attack = decode_mbc_time_constant(bg[3])
+                release = decode_mbc_time_constant(bg[4])
+                makeup = bg[5] / 16.0
+                print(f"  band {i}: xover={xover_hz} Hz, thresh={thresh:+.1f} dB, "
+                      f"ratio={ratio:.2f}:1, attack={attack:.1f} ms, "
+                      f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
 
-        # Combined target: IEQ + audio-optimizer (summed in dB)
-        combined_left = ieq_db + ao_db_left
-        combined_right = ieq_db + ao_db_right
-
-        # Generate FIR impulse responses
-        fir_left = make_fir(float_freqs, combined_left, normalize=True)
-        fir_right = make_fir(float_freqs, combined_right, normalize=True)
-
-        # Save stereo impulse response
-        irs_path = args.irs_dir / f"{preset_name}.irs"
-        save_wav_stereo(irs_path, fir_left, fir_right)
-
-        # Create preset (kernel-name is the WAV filename stem)
-        preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, regulator, freqs)
-        out_path = args.output_dir / f"{preset_name}.json"
-        out_path.write_text(json.dumps(preset, indent=4) + "\n")
-
-        print(f"Wrote {irs_path}")
-        print(f"Wrote {out_path}")
-        print(f"  {curve_key} combined IEQ+AO curve (left channel):")
-        print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
-        for i, f in enumerate(freqs):
-            print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
-
-        # Verify FIR frequency response
-        H = np.fft.rfft(fir_left, n=FIR_LENGTH)
-        fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
-        mag_db = 20.0 * np.log10(np.abs(H) + 1e-12)
-        # Check response at center frequencies
-        print(f"\n  FIR verification (left, normalized to peak=0):")
-        for i, f in enumerate(freqs):
-            idx = np.argmin(np.abs(fft_freqs - f))
-            print(f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
-                  f"actual: {mag_db[idx]:+6.1f}  "
-                  f"error: {mag_db[idx] - (combined_left[i] - np.max(combined_left)):+5.2f}")
+        if regulator:
+            print(f"\nRegulator (per-band limiter):")
+            print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
+            print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
+            print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
+            print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
+            print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
         print()
+
+        ieq_presets = {
+            f"{name_base}-Balanced": "ieq_balanced",
+            f"{name_base}-Detailed": "ieq_detailed",
+            f"{name_base}-Warm": "ieq_warm",
+        }
+
+        for preset_name, curve_key in ieq_presets.items():
+            if curve_key not in curves:
+                print(f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+                continue
+
+            gains_raw = curves[curve_key]
+            ieq_db = np.array(gains_raw) / 16.0 * scale
+
+            # Combined target: IEQ + audio-optimizer (summed in dB)
+            combined_left = ieq_db + ao_db_left
+            combined_right = ieq_db + ao_db_right
+
+            # Generate FIR impulse responses
+            fir_left = make_fir(float_freqs, combined_left, normalize=True)
+            fir_right = make_fir(float_freqs, combined_right, normalize=True)
+
+            # Save stereo impulse response
+            irs_path = args.irs_dir / f"{preset_name}.irs"
+            save_wav_stereo(irs_path, fir_left, fir_right)
+
+            # Create preset (kernel-name is the WAV filename stem)
+            preset = make_preset(preset_name, peq_filters, vol_leveler, mb_comp, regulator, freqs)
+            out_path = args.output_dir / f"{preset_name}.json"
+            out_path.write_text(json.dumps(preset, indent=4) + "\n")
+
+            all_preset_names.append(preset_name)
+
+            print(f"Wrote {irs_path}")
+            print(f"Wrote {out_path}")
+            print(f"  {curve_key} combined IEQ+AO curve (left channel):")
+            print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
+            for i, f in enumerate(freqs):
+                print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
+
+            # Verify FIR frequency response
+            H = np.fft.rfft(fir_left, n=FIR_LENGTH)
+            fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
+            mag_db = 20.0 * np.log10(np.abs(H) + 1e-12)
+            print(f"\n  FIR verification (left, normalized to peak=0):")
+            for i, f in enumerate(freqs):
+                idx = np.argmin(np.abs(fft_freqs - f))
+                print(f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
+                      f"actual: {mag_db[idx]:+6.1f}  "
+                      f"error: {mag_db[idx] - (combined_left[i] - np.max(combined_left)):+5.2f}")
+            print()
+
+    # Autoload configuration
+    if args.autoload and all_preset_names:
+        autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
+        sinks = find_speaker_sinks()
+        if not sinks:
+            print("Warning: no speaker sinks found via pw-dump; cannot configure autoload.")
+            print("  Is PipeWire running? Try running the script while logged into your desktop session.")
+        else:
+            print(f"\nConfiguring autoload → '{autoload_preset}':")
+            for sink in sinks:
+                path = write_autoload(
+                    args.autoload_dir,
+                    sink["name"],
+                    sink["description"],
+                    sink["profile"],
+                    autoload_preset,
+                )
+                print(f"  Wrote {path}")
+                print(f"  Device: {sink['description']} ({sink['profile']})")
 
 
 if __name__ == "__main__":
