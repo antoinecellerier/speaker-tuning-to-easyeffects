@@ -12,9 +12,9 @@ directly implements the exact target frequency response.
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
   - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
+  - autogain#0: volume leveler (from volume-leveler settings)
   - multiband_compressor#0: dynamics processing (from mb-compressor-tuning)
   - multiband_compressor#1: per-band limiter (from regulator-tuning)
-  - autogain#0: volume leveler (from volume-leveler settings)
 """
 
 import argparse
@@ -909,6 +909,14 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
         preset["output"]["equalizer#0"] = peq
         preset["output"]["plugins_order"].append("equalizer#0")
 
+    # Autogain (volume leveler) goes before the compressor/regulator to match
+    # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
+    # This lets the compressor and regulator catch any overshoot from the leveler.
+    autogain = make_autogain(vol_leveler)
+    if autogain:
+        preset["output"]["autogain#0"] = autogain
+        preset["output"]["plugins_order"].append("autogain#0")
+
     mbc = make_multiband_compressor(mb_comp, freqs)
     if mbc:
         preset["output"]["multiband_compressor#0"] = mbc
@@ -918,11 +926,6 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None, mb_comp=None,
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
-
-    autogain = make_autogain(vol_leveler)
-    if autogain:
-        preset["output"]["autogain#0"] = autogain
-        preset["output"]["plugins_order"].append("autogain#0")
 
     return preset
 
