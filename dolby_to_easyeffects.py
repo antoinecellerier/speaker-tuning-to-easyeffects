@@ -11,6 +11,7 @@ directly implements the exact target frequency response.
 
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
+  - bass_enhancer#0: psychoacoustic bass via harmonic generation
   - stereo_tools#0: surround virtualizer (stereo widening from surround-boost)
   - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
   - equalizer#1: dialog enhancer (speech presence boost from dialog-enhancer settings)
@@ -1445,6 +1446,31 @@ def make_regulator(regulator, freqs):
     return result
 
 
+def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
+    """Psychoacoustic bass enhancement via harmonic generation.
+
+    Small laptop speakers cannot reproduce low frequencies physically.
+    The bass enhancer generates upper harmonics of the bass content,
+    which the brain perceives as bass (the "missing fundamental" effect).
+
+    Scope is set to 2x the high-pass cutoff so harmonics are generated
+    only for frequencies the speaker rolls off.
+    """
+    scope = min(hp_freq * 2.0, 300.0)
+    return {
+        "bypass": False,
+        "input-gain": 0.0,
+        "output-gain": 0.0,
+        "amount": round(amount, 1),
+        "harmonics": 10.0,
+        "scope": round(scope, 1),
+        "floor": 10.0,
+        "blend": -10.0,
+        "floor-active": True,
+        "listen": False,
+    }
+
+
 def make_limiter():
     """Brickwall output limiter to catch any remaining overshoot.
 
@@ -1482,6 +1508,15 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
             "plugins_order": ["convolver#0"],
         }
     }
+
+    # SoundWire speakers lack Dolby's proprietary Virtual Bass Enhancement
+    # (VBE) that runs in the Windows driver. Compensate with psychoacoustic
+    # harmonic generation so small speakers still produce perceived bass.
+    if is_soundwire:
+        hp_filters = [f for f in peq_filters if f["type"] in (7, 9)]
+        hp_freq = hp_filters[0]["f0"] if hp_filters else 100.0
+        preset["output"]["bass_enhancer#0"] = make_bass_enhancer(hp_freq)
+        preset["output"]["plugins_order"].append("bass_enhancer#0")
 
     # Stereo widening early in chain (before EQ changes the spectrum)
     st = make_stereo_tools(surround)
