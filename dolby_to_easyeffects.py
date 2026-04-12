@@ -33,9 +33,13 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
-DEFAULT_OUTPUT_DIR = Path.home() / ".local" / "share" / "easyeffects" / "output"
-DEFAULT_IRS_DIR = Path.home() / ".local" / "share" / "easyeffects" / "irs"
-DEFAULT_AUTOLOAD_DIR = Path.home() / ".local" / "share" / "easyeffects" / "autoload" / "output"
+_FLATPAK_BASE = Path.home() / ".var" / "app" / "com.github.wwmm.easyeffects" / "config" / "easyeffects"
+_NATIVE_BASE = Path.home() / ".local" / "share" / "easyeffects"
+_EASYEFFECTS_BASE = _FLATPAK_BASE if _FLATPAK_BASE.exists() else _NATIVE_BASE
+
+DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
+DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
+DEFAULT_AUTOLOAD_DIR = _EASYEFFECTS_BASE / "autoload" / "output"
 
 SAMPLE_RATE = 48000
 FIR_LENGTH = 4096  # ~85ms, plenty for EQ

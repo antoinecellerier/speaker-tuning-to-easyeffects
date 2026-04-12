@@ -251,20 +251,7 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 
 ### Flatpak EasyEffects
 
-The default `--output-dir` / `--irs-dir` point at the native-package XDG paths. The Flatpak build (`com.github.wwmm.easyeffects`) runs in a sandbox that does not have access to `~/.local/share/easyeffects/` by default, so presets written there are invisible to it. Two options:
-
-1. **Write directly into the Flatpak data directory**:
-   ```bash
-   python3 dolby_to_easyeffects.py ... \
-       --output-dir ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/output \
-       --irs-dir    ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/irs \
-       --autoload-dir ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/autoload/output
-   ```
-2. **Or grant the Flatpak read access to the native path**:
-   ```bash
-   flatpak override --user --filesystem=~/.local/share/easyeffects com.github.wwmm.easyeffects
-   ```
-   Then the script's defaults work. Verify with `flatpak run --command=easyeffects com.github.wwmm.easyeffects -p`.
+The script auto-detects whether EasyEffects is installed via Flatpak or as a native package. If `~/.var/app/com.github.wwmm.easyeffects/config/easyeffects/` exists, it writes presets there; otherwise it falls back to the native `~/.local/share/easyeffects/` path. You can still override with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
 
 ### SoundWire codecs (newer Intel platforms)
 
