@@ -26,6 +26,7 @@ import math
 import re
 import subprocess
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -44,10 +45,10 @@ def parse_csv_ints(s: str) -> list[int]:
 
 
 def get_hda_codec_ids():
-    """Read HDA codec subsystem IDs from /proc/asound.
+    """Read HDA codec names and subsystem IDs from /proc/asound.
 
-    Returns a list of (vendor_id, subsystem_id) tuples as uppercase hex
-    strings, e.g. [("10EC0287", "17AA22E6")].
+    Returns a list of (vendor_id, subsystem_id, codec_name) tuples, e.g.
+    [("10EC0287", "17AA22E6", "Realtek ALC287")].
     """
     results = []
     for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
@@ -55,15 +56,18 @@ def get_hda_codec_ids():
             text = codec_path.read_text()
         except OSError:
             continue
+        codec_name = ""
         vendor_id = None
         subsys_id = None
         for line in text.splitlines():
-            if line.startswith("Vendor Id:"):
+            if line.startswith("Codec:"):
+                codec_name = line.split(":", 1)[1].strip()
+            elif line.startswith("Vendor Id:"):
                 vendor_id = line.split("0x", 1)[-1].strip().upper()
             elif line.startswith("Subsystem Id:"):
                 subsys_id = line.split("0x", 1)[-1].strip().upper()
         if vendor_id and subsys_id:
-            results.append((vendor_id, subsys_id))
+            results.append((vendor_id, subsys_id, codec_name))
     return results
 
 
@@ -126,131 +130,236 @@ def get_pci_audio_subsystem():
     return None
 
 
-def report_speaker_info():
-    """Report detected audio hardware and speaker layout."""
-    import platform
+@dataclass
+class SpeakerPin:
+    """A single internal speaker output (HDA pin or SoundWire amplifier)."""
+    node: str            # HDA node ID or SoundWire device name
+    control_name: str    # ALSA control name or driver name
+    role: str            # "woofer" or "tweeter"
+    stereo: bool = True
 
-    print("=== System ===")
-    dmi_product = Path("/sys/class/dmi/id/product_name")
-    dmi_family = Path("/sys/class/dmi/id/product_family")
-    if dmi_product.exists():
-        print(f"  Product: {dmi_product.read_text().strip()}")
-    if dmi_family.exists():
-        print(f"  Family:  {dmi_family.read_text().strip()}")
-    print(f"  Kernel:  {platform.release()}")
 
-    print("\n=== Sound cards ===")
-    cards_path = Path("/proc/asound/cards")
-    if cards_path.exists():
-        for line in cards_path.read_text().strip().splitlines():
-            print(f"  {line.strip()}")
-    else:
-        print("  (none found)")
+@dataclass
+class SpeakerInfo:
+    """Collected audio hardware information for --speaker-info."""
+    product: str = ""
+    family: str = ""
+    kernel: str = ""
+    sound_cards: list[str] = field(default_factory=list)
+    hda_codecs: list[tuple[str, str, str]] = field(default_factory=list)
+    soundwire_devices: list[tuple[str, str]] = field(default_factory=list)
+    pci_subsystem: tuple[str, str] | None = None
+    pcm_devices: list[tuple[str, str]] = field(default_factory=list)
+    # SoundWire-specific
+    sdw_codecs: list[str] = field(default_factory=list)
+    sdw_amplifiers: list[str] = field(default_factory=list)
+    # Speaker pins (HDA or SoundWire)
+    speakers: list[SpeakerPin] = field(default_factory=list)
 
-    print("\n=== HDA codecs ===")
-    hda = get_hda_codec_ids()
-    if hda:
-        for vendor_id, subsys_id in hda:
-            print(f"  Vendor: 0x{vendor_id}  Subsystem: 0x{subsys_id}")
-    else:
-        print("  (none)")
+    @property
+    def bus_type(self) -> str:
+        if self.soundwire_devices:
+            return "soundwire"
+        if self.hda_codecs:
+            return "hda"
+        return "unknown"
 
-    print("\n=== SoundWire devices ===")
+    @property
+    def layout_summary(self) -> str:
+        if not self.speakers:
+            return "Could not determine speaker layout"
+        total = sum(2 if s.stereo else 1 for s in self.speakers)
+        by_role: dict[str, int] = {}
+        for s in self.speakers:
+            by_role[s.role] = by_role.get(s.role, 0) + (2 if s.stereo else 1)
+        if len(self.speakers) == 1:
+            return f"{total} speakers → full-range stereo"
+        parts = " + ".join(f"{n}x {role}" for role, n in by_role.items())
+        return f"{total} speakers → multi-way: {parts}"
+
+
+def _detect_soundwire_speakers(info: SpeakerInfo):
+    """Detect speaker amplifiers on the SoundWire bus."""
     sdw_path = Path("/sys/bus/soundwire/devices")
-    sdw = get_soundwire_ids()
-    if sdw:
-        for man_id, part_id in sdw:
-            print(f"  Manufacturer: 0x{man_id}  Part: 0x{part_id}")
-    else:
-        print("  (none)")
+    if not sdw_path.is_dir():
+        return
 
-    print("\n=== PCI audio subsystem ===")
-    pci = get_pci_audio_subsystem()
-    if pci:
-        print(f"  Subsystem: {pci[0]}:{pci[1]}")
-    else:
-        print("  (none)")
+    amp_patterns = ("rt13", "rt_amp", "max98", "cs35")
 
-    print("\n=== Speaker amplifiers ===")
-    amp_count = 0
-    amp_names = []
-    if sdw_path.is_dir():
-        for dev_dir in sorted(sdw_path.iterdir()):
-            match = re.match(
-                r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+",
-                dev_dir.name,
-            )
-            if not match:
-                continue
-            part_id = match.group(2).upper()
-            driver_link = dev_dir / "driver"
-            driver_name = ""
-            if driver_link.is_symlink():
-                driver_name = driver_link.resolve().name
-            # Speaker amplifier codecs (Realtek RT1316/RT1318/RT1320 etc.)
-            # are distinguishable from CODEC devices (RT711/RT712/RT713)
-            # by their part ID range or driver name.
-            is_amp = (
-                "rt13" in driver_name.lower()
-                or "rt_amp" in driver_name.lower()
-                or "max98" in driver_name.lower()
-                or "cs35" in driver_name.lower()
-            )
-            if is_amp:
-                amp_count += 1
-                amp_names.append(f"{dev_dir.name} (driver: {driver_name})")
-            else:
-                print(f"  Codec: {dev_dir.name} (driver: {driver_name})")
+    for dev_dir in sorted(sdw_path.iterdir()):
+        match = re.match(
+            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+",
+            dev_dir.name,
+        )
+        if not match:
+            continue
+        driver_link = dev_dir / "driver"
+        driver_name = driver_link.resolve().name if driver_link.is_symlink() else ""
+        lower_driver = driver_name.lower()
 
-    # Also check ALSA mixer for speaker amp controls
-    alsa_amps = set()
+        if any(p in lower_driver for p in amp_patterns):
+            info.sdw_amplifiers.append(f"{dev_dir.name} (driver: {driver_name})")
+            info.speakers.append(SpeakerPin(
+                node=dev_dir.name,
+                control_name=driver_name,
+                role="amplifier",
+            ))
+        else:
+            info.sdw_codecs.append(f"{dev_dir.name} (driver: {driver_name})")
+
+    if info.speakers:
+        return
+
+    # Fallback: check ALSA mixer for amp controls when sysfs gives nothing
     try:
         result = subprocess.run(
             ["amixer", "-c0", "scontrols"],
             capture_output=True, text=True, timeout=5,
         )
         for line in result.stdout.splitlines():
-            # e.g. "Simple mixer control 'rt1318-1 DAC',0"
             m = re.search(r"'(rt\d+[^']*|max98[^']*|cs35[^']*)\s+DAC'", line, re.I)
             if m:
-                alsa_amps.add(m.group(1))
+                name = m.group(1)
+                info.sdw_amplifiers.append(f"{name} (from ALSA mixer)")
+                info.speakers.append(SpeakerPin(
+                    node="mixer", control_name=name, role="amplifier",
+                ))
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    if amp_names:
-        for name in amp_names:
-            print(f"  Amplifier: {name}")
-    elif alsa_amps:
-        for name in sorted(alsa_amps):
-            print(f"  Amplifier: {name} (from ALSA mixer)")
-        amp_count = len(alsa_amps)
 
-    if amp_count == 0:
-        print("  (no speaker amplifiers detected)")
+def _detect_hda_speakers(info: SpeakerInfo):
+    """Detect internal speakers from HDA codec pin configurations."""
+    for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
+        try:
+            text = codec_path.read_text()
+        except OSError:
+            continue
+        nodes = re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", text, flags=re.MULTILINE)
+        for block in nodes:
+            if "[Pin Complex]" not in block or "[Fixed] Speaker at Int" not in block:
+                continue
+            node_match = re.match(r"Node (0x[0-9a-fA-F]+)", block)
+            if not node_match:
+                continue
+            ctrl_match = re.search(r'Control: name="([^"]+)"', block)
+            ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
+            lower = ctrl_name.lower()
+            role = "woofer" if ("bass" in lower or "woofer" in lower) else "tweeter"
+            info.speakers.append(SpeakerPin(
+                node=node_match.group(1),
+                control_name=ctrl_name,
+                role=role,
+                stereo="Stereo" in block.split("\n", 1)[0],
+            ))
 
-    print("\n=== PCM playback devices ===")
+
+def _gather_speaker_info() -> SpeakerInfo:
+    """Collect all audio hardware information into a SpeakerInfo."""
+    import platform
+
+    info = SpeakerInfo(kernel=platform.release())
+
+    # System identity
+    for attr, path in [("product", "/sys/class/dmi/id/product_name"),
+                       ("family", "/sys/class/dmi/id/product_family")]:
+        p = Path(path)
+        if p.exists():
+            setattr(info, attr, p.read_text().strip())
+
+    # Sound cards
+    cards_path = Path("/proc/asound/cards")
+    if cards_path.exists():
+        info.sound_cards = [l.strip() for l in cards_path.read_text().strip().splitlines()]
+
+    # Bus-agnostic detection
+    info.hda_codecs = get_hda_codec_ids()
+    info.soundwire_devices = get_soundwire_ids()
+    info.pci_subsystem = get_pci_audio_subsystem()
+
+    # PCM playback devices
     for pcm_dir in sorted(Path("/proc/asound/card0").glob("pcm*p")):
         info_path = pcm_dir / "info"
         if not info_path.exists():
             continue
-        info = {}
+        fields = {}
         for line in info_path.read_text().splitlines():
             if ": " in line:
                 k, v = line.split(": ", 1)
-                info[k.strip()] = v.strip()
-        stream_id = info.get("id", "?")
-        print(f"  pcm{info.get('device', '?')}p: {stream_id}")
+                fields[k.strip()] = v.strip()
+        info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
 
-    print("\n=== Speaker layout estimate ===")
-    if amp_count >= 2:
-        print(f"  {amp_count} amplifiers detected → likely multi-way "
-              f"(woofer + tweeter) or multi-driver setup")
-    elif amp_count == 1:
-        print(f"  1 amplifier detected → likely full-range speakers (no dedicated tweeters)")
-    else:
-        print(f"  Could not determine speaker layout (no SoundWire amplifiers found)")
-        if hda:
-            print(f"  HDA codec detected — speaker layout not discoverable via sysfs")
+    # Speaker detection — branch by bus type
+    if info.bus_type == "soundwire":
+        _detect_soundwire_speakers(info)
+    elif info.bus_type == "hda":
+        _detect_hda_speakers(info)
+
+    return info
+
+
+def _print_speaker_info(info: SpeakerInfo):
+    """Print the collected speaker info report."""
+    sections = []
+
+    # System
+    lines = []
+    if info.product:
+        lines.append(f"  Product: {info.product}")
+    if info.family:
+        lines.append(f"  Family:  {info.family}")
+    lines.append(f"  Kernel:  {info.kernel}")
+    sections.append(("System", lines))
+
+    # Sound cards
+    sections.append(("Sound cards",
+                      [f"  {c}" for c in info.sound_cards] or ["  (none found)"]))
+
+    # HDA codecs
+    sections.append(("HDA codecs",
+                      [f"  {name or 'Unknown'} — Vendor: 0x{v}  Subsystem: 0x{s}"
+                       for v, s, name in info.hda_codecs]
+                      or ["  (none)"]))
+
+    # SoundWire devices
+    sections.append(("SoundWire devices",
+                      [f"  Manufacturer: 0x{m}  Part: 0x{p}" for m, p in info.soundwire_devices]
+                      or ["  (none)"]))
+
+    # PCI audio subsystem
+    pci_line = f"  Subsystem: {info.pci_subsystem[0]}:{info.pci_subsystem[1]}" if info.pci_subsystem else "  (none)"
+    sections.append(("PCI audio subsystem", [pci_line]))
+
+    # Speaker amplifiers / HDA pins (bus-specific section)
+    if info.bus_type == "soundwire":
+        amp_lines = [f"  Codec: {c}" for c in info.sdw_codecs]
+        amp_lines += [f"  Amplifier: {a}" for a in info.sdw_amplifiers]
+        if not info.sdw_amplifiers:
+            amp_lines.append("  (no speaker amplifiers detected)")
+        sections.append(("Speaker amplifiers", amp_lines))
+    elif info.bus_type == "hda" and info.speakers:
+        sections.append(("HDA internal speakers", [
+            f"  {s.node}: {s.control_name} ({s.role}, {'stereo' if s.stereo else 'mono'})"
+            for s in info.speakers
+        ]))
+
+    # PCM playback devices
+    sections.append(("PCM playback devices",
+                      [f"  pcm{dev}p: {name}" for dev, name in info.pcm_devices]))
+
+    # Speaker layout estimate
+    sections.append(("Speaker layout estimate", [f"  {info.layout_summary}"]))
+
+    for title, lines in sections:
+        print(f"=== {title} ===")
+        print("\n".join(lines))
+        print()
+
+
+def report_speaker_info():
+    """Report detected audio hardware and speaker layout."""
+    info = _gather_speaker_info()
+    _print_speaker_info(info)
 
 
 def find_tuning_xml(windows_root: Path):
@@ -272,7 +381,7 @@ def find_tuning_xml(windows_root: Path):
         )
 
     # HDA subsystem IDs for matching DEV_*_SUBSYS_*.xml files
-    hda_subsys_ids = {s.upper() for _, s in hda_codecs}
+    hda_subsys_ids = {s.upper() for _, s, _name in hda_codecs}
 
     # SoundWire: build expected SUBSYS value from PCI subsystem ID.
     # Dolby filenames encode it as {pci_subsys_device}{pci_subsys_vendor},
