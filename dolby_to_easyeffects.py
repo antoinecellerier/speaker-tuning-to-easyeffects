@@ -43,7 +43,7 @@ def parse_csv_ints(s: str) -> list[int]:
     return [int(x) for x in s.split(",")]
 
 
-def get_audio_subsystem_ids():
+def get_hda_codec_ids():
     """Read HDA codec subsystem IDs from /proc/asound.
 
     Returns a list of (vendor_id, subsystem_id) tuples as uppercase hex
@@ -67,51 +67,158 @@ def get_audio_subsystem_ids():
     return results
 
 
+def get_soundwire_ids():
+    """Read SoundWire device IDs from /sys/bus/soundwire/devices.
+
+    Returns a list of (manufacturer_id, part_id) tuples as uppercase hex
+    strings, e.g. [("025D", "1318")].
+    """
+    results = []
+    sdw_path = Path("/sys/bus/soundwire/devices")
+    if not sdw_path.is_dir():
+        return results
+    for dev_dir in sorted(sdw_path.iterdir()):
+        # SoundWire slave devices look like "sdw:L:N:MMMM:PPPP:VV"
+        match = re.match(
+            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+", dev_dir.name
+        )
+        if match:
+            man_id = match.group(1).upper()
+            part_id = match.group(2).upper()
+            results.append((man_id, part_id))
+    return results
+
+
+def get_pci_audio_subsystem():
+    """Get the PCI subsystem ID of the audio controller.
+
+    Returns (subsys_vendor, subsys_device) as uppercase 4-char hex strings,
+    e.g. ("17AA", "2339"), or None if not found.
+
+    Walks up from the sound card device to find the PCI parent, which
+    handles both direct PCI sound devices and platform devices like
+    SOF SoundWire that sit under a PCI controller.
+    """
+    pci_path = Path("/sys/class/sound")
+    if not pci_path.is_dir():
+        return None
+    for card_dir in sorted(pci_path.glob("card*")):
+        device_link = card_dir / "device"
+        if not device_link.exists():
+            continue
+        # Walk up the sysfs tree to find a PCI device with subsystem IDs
+        current = device_link.resolve()
+        while current != Path("/"):
+            subsys_vendor_path = current / "subsystem_vendor"
+            subsys_device_path = current / "subsystem_device"
+            if subsys_vendor_path.exists() and subsys_device_path.exists():
+                try:
+                    vendor = subsys_vendor_path.read_text().strip()
+                    device = subsys_device_path.read_text().strip()
+                except OSError:
+                    pass
+                else:
+                    vendor = vendor.replace("0x", "").upper()
+                    device = device.replace("0x", "").upper()
+                    if vendor and device:
+                        return (vendor, device)
+            current = current.parent
+    return None
+
+
 def find_tuning_xml(windows_root: Path):
     """Find the DAX3 tuning XML matching this machine's audio hardware.
 
     Searches the Windows DriverStore for DAX3 tuning XMLs and matches
-    against the audio codec's subsystem ID from /proc/asound.
+    against:
+    - HDA codec subsystem IDs from /proc/asound (traditional HDA codecs)
+    - SoundWire device IDs + PCI subsystem ID (newer Intel platforms)
     """
-    codecs = get_audio_subsystem_ids()
-    if not codecs:
+    hda_codecs = get_hda_codec_ids()
+    sdw_devices = get_soundwire_ids()
+    pci_subsys = get_pci_audio_subsystem()
+
+    if not hda_codecs and not sdw_devices:
         raise FileNotFoundError(
-            "No HDA codecs found in /proc/asound. "
+            "No HDA codecs or SoundWire devices found. "
             "Cannot auto-detect audio hardware."
         )
 
-    # Extract just the subsystem IDs for matching
-    subsys_ids = {s.upper() for _, s in codecs}
+    # HDA subsystem IDs for matching DEV_*_SUBSYS_*.xml files
+    hda_subsys_ids = {s.upper() for _, s in hda_codecs}
 
-    # Search DriverStore for DAX3 tuning XMLs
-    driver_store = windows_root / "System32" / "DriverStore" / "FileRepository"
-    if not driver_store.is_dir():
+    # SoundWire: build expected SUBSYS value from PCI subsystem ID.
+    # Dolby filenames encode it as {pci_subsys_device}{pci_subsys_vendor},
+    # e.g. PCI subsystem 17AA:2339 -> SUBSYS_233917AA
+    sdw_subsys_id = None
+    if pci_subsys:
+        vendor, device = pci_subsys
+        sdw_subsys_id = f"{device}{vendor}".upper()
+
+    # SoundWire manufacturer+function pairs for matching
+    sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
+
+    # Search DriverStore for DAX3 tuning XMLs.
+    # Accept either a Windows system root (needs the FileRepository subpath)
+    # or an already-extracted DriverStore directory containing dax3_ext_*.inf_*
+    # subdirectories directly.
+    file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
+    if file_repo.is_dir():
+        driver_store = file_repo
+    elif windows_root.is_dir() and any(windows_root.glob("dax3_ext_*.inf_*")):
+        driver_store = windows_root
+    else:
         raise FileNotFoundError(
-            f"DriverStore not found at {driver_store}. "
-            f"Is '{windows_root}' the correct Windows directory?"
+            f"DriverStore not found at {file_repo} and {windows_root} does not "
+            f"contain dax3_ext_*.inf_* subdirectories. "
+            f"Pass either a Windows system root or an extracted DriverStore."
         )
 
     # Look for dax3_ext_*.inf_* directories
     candidates = []
     for dax_dir in sorted(driver_store.glob("dax3_ext_*.inf_*")):
-        for xml_file in sorted(dax_dir.glob("DEV_*_SUBSYS_*.xml")):
-            # Skip settings files
+        for xml_file in sorted(dax_dir.glob("*.xml")):
             if xml_file.name.endswith("_settings.xml"):
                 continue
-            # Extract subsystem ID from filename: DEV_XXXX_SUBSYS_YYYYYYYY_...
-            match = re.search(r"SUBSYS_([0-9A-Fa-f]{8})", xml_file.name)
-            if match:
-                file_subsys = match.group(1).upper()
-                if file_subsys in subsys_ids:
+            name = xml_file.name.upper()
+
+            # Match HDA-style: DEV_XXXX_SUBSYS_YYYYYYYY_...
+            # Also matches INTELAUDIO_DEV_... variants
+            if "DEV_" in name and "SUBSYS_" in name:
+                match = re.search(r"SUBSYS_([0-9A-F]{8})", name)
+                if match and match.group(1) in hda_subsys_ids:
                     candidates.append(xml_file)
+                    continue
+
+            # Match SoundWire-style: SOUNDWIRE_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
+            # or SOUNDWIRE_SDCAFUNCTION_NN_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
+            sdw_match = re.search(
+                r"MAN_([0-9A-F]{4})_FUNC_([0-9A-F]{4})_SUBSYS_([0-9A-F]{8})",
+                name,
+            )
+            if sdw_match:
+                man = sdw_match.group(1)
+                func = sdw_match.group(2)
+                subsys = sdw_match.group(3)
+                if (man, func) in sdw_man_func:
+                    if sdw_subsys_id is None or subsys == sdw_subsys_id:
+                        candidates.append(xml_file)
+                        continue
+
+            # Match SDW_XXXX_SUBSYS_YYYYYYYY_... style
+            sdw_alt = re.search(r"^SDW_[0-9A-F]+_SUBSYS_([0-9A-F]{8})", name)
+            if sdw_alt and sdw_subsys_id and sdw_alt.group(1) == sdw_subsys_id:
+                candidates.append(xml_file)
+                continue
 
     if not candidates:
-        codec_info = ", ".join(
-            f"vendor={v} subsys={s}" for v, s in codecs
-        )
+        hda_info = ", ".join(f"vendor={v} subsys={s}" for v, s in hda_codecs)
+        sdw_info = ", ".join(f"man={m} part={p}" for m, p in sdw_devices)
+        pci_info = f"pci_subsys={pci_subsys}" if pci_subsys else "no PCI subsystem"
         raise FileNotFoundError(
             f"No matching DAX3 tuning XML found in {driver_store}. "
-            f"Detected codecs: {codec_info}"
+            f"Detected HDA codecs: {hda_info or 'none'}; "
+            f"SoundWire devices: {sdw_info or 'none'}; {pci_info}"
         )
 
     if len(candidates) > 1:
@@ -136,6 +243,8 @@ def find_tuning_xml(windows_root: Path):
                 ver = "?"
             marker = "→ " if c == candidates[0] else "  "
             print(f"  {marker}{c} (tuning_version={ver})")
+    else:
+        print(f"Matched tuning XML: {candidates[0]}")
 
     return candidates[0]
 
