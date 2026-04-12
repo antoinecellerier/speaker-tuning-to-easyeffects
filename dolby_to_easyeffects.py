@@ -126,6 +126,133 @@ def get_pci_audio_subsystem():
     return None
 
 
+def report_speaker_info():
+    """Report detected audio hardware and speaker layout."""
+    import platform
+
+    print("=== System ===")
+    dmi_product = Path("/sys/class/dmi/id/product_name")
+    dmi_family = Path("/sys/class/dmi/id/product_family")
+    if dmi_product.exists():
+        print(f"  Product: {dmi_product.read_text().strip()}")
+    if dmi_family.exists():
+        print(f"  Family:  {dmi_family.read_text().strip()}")
+    print(f"  Kernel:  {platform.release()}")
+
+    print("\n=== Sound cards ===")
+    cards_path = Path("/proc/asound/cards")
+    if cards_path.exists():
+        for line in cards_path.read_text().strip().splitlines():
+            print(f"  {line.strip()}")
+    else:
+        print("  (none found)")
+
+    print("\n=== HDA codecs ===")
+    hda = get_hda_codec_ids()
+    if hda:
+        for vendor_id, subsys_id in hda:
+            print(f"  Vendor: 0x{vendor_id}  Subsystem: 0x{subsys_id}")
+    else:
+        print("  (none)")
+
+    print("\n=== SoundWire devices ===")
+    sdw_path = Path("/sys/bus/soundwire/devices")
+    sdw = get_soundwire_ids()
+    if sdw:
+        for man_id, part_id in sdw:
+            print(f"  Manufacturer: 0x{man_id}  Part: 0x{part_id}")
+    else:
+        print("  (none)")
+
+    print("\n=== PCI audio subsystem ===")
+    pci = get_pci_audio_subsystem()
+    if pci:
+        print(f"  Subsystem: {pci[0]}:{pci[1]}")
+    else:
+        print("  (none)")
+
+    print("\n=== Speaker amplifiers ===")
+    amp_count = 0
+    amp_names = []
+    if sdw_path.is_dir():
+        for dev_dir in sorted(sdw_path.iterdir()):
+            match = re.match(
+                r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+",
+                dev_dir.name,
+            )
+            if not match:
+                continue
+            part_id = match.group(2).upper()
+            driver_link = dev_dir / "driver"
+            driver_name = ""
+            if driver_link.is_symlink():
+                driver_name = driver_link.resolve().name
+            # Speaker amplifier codecs (Realtek RT1316/RT1318/RT1320 etc.)
+            # are distinguishable from CODEC devices (RT711/RT712/RT713)
+            # by their part ID range or driver name.
+            is_amp = (
+                "rt13" in driver_name.lower()
+                or "rt_amp" in driver_name.lower()
+                or "max98" in driver_name.lower()
+                or "cs35" in driver_name.lower()
+            )
+            if is_amp:
+                amp_count += 1
+                amp_names.append(f"{dev_dir.name} (driver: {driver_name})")
+            else:
+                print(f"  Codec: {dev_dir.name} (driver: {driver_name})")
+
+    # Also check ALSA mixer for speaker amp controls
+    alsa_amps = set()
+    try:
+        result = subprocess.run(
+            ["amixer", "-c0", "scontrols"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            # e.g. "Simple mixer control 'rt1318-1 DAC',0"
+            m = re.search(r"'(rt\d+[^']*|max98[^']*|cs35[^']*)\s+DAC'", line, re.I)
+            if m:
+                alsa_amps.add(m.group(1))
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    if amp_names:
+        for name in amp_names:
+            print(f"  Amplifier: {name}")
+    elif alsa_amps:
+        for name in sorted(alsa_amps):
+            print(f"  Amplifier: {name} (from ALSA mixer)")
+        amp_count = len(alsa_amps)
+
+    if amp_count == 0:
+        print("  (no speaker amplifiers detected)")
+
+    print("\n=== PCM playback devices ===")
+    for pcm_dir in sorted(Path("/proc/asound/card0").glob("pcm*p")):
+        info_path = pcm_dir / "info"
+        if not info_path.exists():
+            continue
+        info = {}
+        for line in info_path.read_text().splitlines():
+            if ": " in line:
+                k, v = line.split(": ", 1)
+                info[k.strip()] = v.strip()
+        stream_id = info.get("id", "?")
+        print(f"  pcm{info.get('device', '?')}p: {stream_id}")
+
+    print("\n=== Speaker layout estimate ===")
+    if amp_count >= 2:
+        print(f"  {amp_count} amplifiers detected → likely multi-way "
+              f"(woofer + tweeter) or multi-driver setup")
+    elif amp_count == 1:
+        print(f"  1 amplifier detected → likely full-range speakers (no dedicated tweeters)")
+    else:
+        print(f"  Could not determine speaker layout (no SoundWire amplifiers found)")
+        if hda:
+            print(f"  HDA codec detected — speaker layout not discoverable via sysfs")
+
+
 def find_tuning_xml(windows_root: Path):
     """Find the DAX3 tuning XML matching this machine's audio hardware.
 
@@ -1368,7 +1495,16 @@ def main():
         default=DEFAULT_AUTOLOAD_DIR,
         help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
     )
+    parser.add_argument(
+        "--speaker-info",
+        action="store_true",
+        help="report detected audio hardware and speaker layout, then exit",
+    )
     args = parser.parse_args()
+
+    if args.speaker_info:
+        report_speaker_info()
+        return
 
     # Resolve the XML file path
     if args.xml_file and args.windows:
