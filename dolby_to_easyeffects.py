@@ -331,6 +331,27 @@ def write_autoload(autoload_dir: Path, device_name: str, device_description: str
     return path
 
 
+def resolve_xml_value(element, constants):
+    """Resolve a value from either a value= attribute or a preset= reference.
+
+    SoundWire XMLs (e.g. Lunar Lake) use preset references like
+    <ch_00 preset="array_20_zero" /> instead of inline value="..." attributes.
+    The preset name refers to a named element under <constant> whose target=
+    attribute holds the actual CSV data.
+    """
+    if element is None:
+        return ""
+    val = element.get("value")
+    if val is not None and val != "":
+        return val
+    preset_name = element.get("preset")
+    if preset_name and constants is not None:
+        ref = constants.find(preset_name)
+        if ref is not None:
+            return ref.get("target", "")
+    return ""
+
+
 def parse_xml(path: Path, endpoint_type="internal_speaker",
               operating_mode="normal", profile_type=None):
     tree = ET.parse(path)
@@ -378,8 +399,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     vlldp = profile.find("tuning-vlldp")
 
     ao_bands = vlldp.find("audio-optimizer-bands")
-    ao_left = parse_csv_ints(ao_bands.find("ch_00").get("value"))
-    ao_right = parse_csv_ints(ao_bands.find("ch_01").get("value"))
+    ao_left = parse_csv_ints(resolve_xml_value(ao_bands.find("ch_00"), constant))
+    ao_right = parse_csv_ints(resolve_xml_value(ao_bands.find("ch_01"), constant))
 
     peq_filters = []
     peq_enable = vlldp.find("speaker-peq-enable")
@@ -469,15 +490,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         if reg_tuning is not None:
             th_el = reg_tuning.find("threshold_high")
             tl_el = reg_tuning.find("threshold_low")
-            # Handle both inline values and presets (array_20_zero = all zeros)
-            if th_el is not None and th_el.get("value"):
-                th = [x / 16.0 for x in parse_csv_ints(th_el.get("value"))]
-            else:
-                th = [0.0] * 20
-            if tl_el is not None and tl_el.get("value"):
-                tl = [x / 16.0 for x in parse_csv_ints(tl_el.get("value"))]
-            else:
-                tl = [-12.0] * 20
+            th_val = resolve_xml_value(th_el, constant)
+            tl_val = resolve_xml_value(tl_el, constant)
+            th = [x / 16.0 for x in parse_csv_ints(th_val)] if th_val else [0.0] * 20
+            tl = [x / 16.0 for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * 20
             reg_stress = vlldp.find("regulator-stress-amount")
             stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
             reg_slope = vlldp.find("regulator-distortion-slope")
@@ -542,12 +558,14 @@ def make_fir(band_freqs, gains_db, normalize=True):
     H_min = np.exp(log_H_min)
     fir = np.fft.irfft(H_min, n=n)
 
+    peak_mag = np.max(np.abs(H_min))
+    peak_db = 20.0 * np.log10(peak_mag + 1e-12)
+
     if normalize:
-        peak_mag = np.max(np.abs(H_min))
         if peak_mag > 0:
             fir /= peak_mag
 
-    return fir
+    return fir, peak_db
 
 
 def save_wav_stereo(path, fir_left, fir_right):
@@ -572,7 +590,7 @@ def make_band(freq: float, gain: float, q=1.5) -> dict:
     }
 
 
-def make_convolver(kernel_name: str):
+def make_convolver(kernel_name: str, output_gain: float = 0.0):
     """Convolver plugin config referencing an IR by name.
 
     EasyEffects 8.x uses kernel-name (filename stem without extension),
@@ -581,7 +599,7 @@ def make_convolver(kernel_name: str):
     return {
         "bypass": False,
         "input-gain": 0.0,
-        "output-gain": 0.0,
+        "output-gain": round(output_gain, 2),
         "kernel-name": kernel_name,
         "ir-width": 100,
         "autogain": False,
@@ -759,7 +777,7 @@ def make_stereo_tools(surround):
     }
 
 
-def make_dialog_enhancer(dialog_enhancer):
+def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
     """Dialog enhancer mapped as a broad speech-band EQ boost.
 
     Dolby's dialog enhancer (DE) isolates speech frequencies and
@@ -767,14 +785,34 @@ def make_dialog_enhancer(dialog_enhancer):
     filter centered at 2.5 kHz (speech presence region), with gain
     scaled by the DE amount (0-16 scale).
 
-    The DE amount maps to gain: amount/16 * 6 dB, giving a maximum
-    of +6 dB at amount=16. Typical values: dynamic=5 (+1.9 dB),
-    voice=3 (+1.1 dB), music=7 (+2.6 dB when enabled).
+    For HDA presets: amount/16 * 6 dB, giving a maximum of +6 dB.
+    For SoundWire presets: stronger mapping (amount/16 * 8 dB) plus
+    a second bell at 4 kHz for consonant clarity, compensating for
+    the simpler full-range speakers on newer platforms.
     """
     if not dialog_enhancer:
         return None
 
     amount = dialog_enhancer["amount"]
+
+    if is_soundwire:
+        gain_presence = amount / 16.0 * 8.0
+        gain_clarity = gain_presence * 0.6
+        if gain_presence <= 0:
+            return None
+        band0 = make_band(2500.0, round(gain_presence, 2), q=0.7)
+        band1 = make_band(4000.0, round(gain_clarity, 2), q=1.0)
+        return {
+            "bypass": False,
+            "input-gain": 0.0,
+            "output-gain": 0.0,
+            "mode": "IIR",
+            "num-bands": 2,
+            "split-channels": False,
+            "left": {"band0": band0, "band1": band1},
+            "right": {"band0": band0, "band1": band1},
+        }
+
     gain = amount / 16.0 * 6.0
     if gain <= 0:
         return None
@@ -793,7 +831,7 @@ def make_dialog_enhancer(dialog_enhancer):
     }
 
 
-def make_autogain(vol_leveler):
+def make_autogain(vol_leveler, conservative=False):
     """Autogain plugin mapping from Dolby volume leveler.
 
     The Dolby volume leveler brings quiet passages up to a target loudness.
@@ -803,27 +841,33 @@ def make_autogain(vol_leveler):
       0 = gentle (long history window)
       10 = aggressive (short history window)
 
-    Bypassed by default: without Dolby's MI (Media Intelligence) steering,
-    the autogain causes audible distortion on quiet→loud transitions
-    because the convolver's steep spectral shape creates ~10 dB of
-    peak-to-LUFS mismatch that MI would normally compensate for.
+    For HDA presets: bypassed by default because the convolver's steep
+    spectral shape (IEQ + audio-optimizer) creates ~10 dB peak-to-LUFS
+    mismatch that causes distortion without Dolby's MI steering.
+
+    For SoundWire presets (conservative=True): enabled with gentle settings.
+    The simpler spectral shape (IEQ only, no AO correction) has much less
+    peak-to-LUFS mismatch, so conservative autogain is safe.
     """
     if not vol_leveler or not vol_leveler["enable"]:
         return None
 
     amount = vol_leveler["amount"]
-
-    # Map Dolby amount (0-10) to maximum-history (seconds).
-    # Higher amount = shorter window = more aggressive leveling.
-    # amount 0 → 30s (gentle), amount 4+ → 10s (aggressive, clamped)
-    max_history = max(30 - amount * 5, 10)
-
-    # Dolby target is in dBFS; map directly to LUFS target.
     target = vol_leveler["out_target"]
 
-    # Bypassed by default: without Dolby's MI (Media Intelligence) steering,
-    # the autogain causes audible distortion on quiet→loud transitions.
-    # Settings are preserved so users can enable it manually if desired.
+    if conservative:
+        max_history = max(40 - amount * 4, 15)
+        return {
+            "bypass": False,
+            "input-gain": 0.0,
+            "output-gain": 0.0,
+            "maximum-history": max_history,
+            "reference": "Geometric Mean (MSI)",
+            "silence-threshold": -50.0,
+            "target": round(target - 6.0, 1),
+        }
+
+    max_history = max(30 - amount * 5, 10)
     return {
         "bypass": True,
         "input-gain": 0.0,
@@ -1193,11 +1237,12 @@ def make_limiter():
 
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
                 dialog_enhancer=None, surround=None, mb_comp=None,
-                regulator=None, freqs=None):
+                regulator=None, freqs=None, convolver_gain=0.0,
+                is_soundwire=False):
     preset = {
         "output": {
             "blocklist": [],
-            "convolver#0": make_convolver(kernel_name),
+            "convolver#0": make_convolver(kernel_name, output_gain=convolver_gain),
             "plugins_order": ["convolver#0"],
         }
     }
@@ -1215,7 +1260,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
 
     # Dialog enhancer (speech presence boost) before the volume leveler,
     # matching Dolby's CP order: DE → IEQ → Volume Leveler.
-    de = make_dialog_enhancer(dialog_enhancer)
+    de = make_dialog_enhancer(dialog_enhancer, is_soundwire=is_soundwire)
     if de:
         preset["output"]["equalizer#1"] = de
         preset["output"]["plugins_order"].append("equalizer#1")
@@ -1223,7 +1268,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
     # This lets the compressor and regulator catch any overshoot from the leveler.
-    autogain = make_autogain(vol_leveler)
+    autogain = make_autogain(vol_leveler, conservative=is_soundwire)
     if autogain:
         preset["output"]["autogain#0"] = autogain
         preset["output"]["plugins_order"].append("autogain#0")
@@ -1336,6 +1381,9 @@ def main():
     else:
         parser.error("either xml_file or --windows is required")
 
+    xml_basename = Path(xml_path).name.upper()
+    is_soundwire = "SOUNDWIRE" in xml_basename or xml_basename.startswith("SDW_")
+
     if args.list:
         print(f"Endpoints and profiles in {xml_path}:")
         list_endpoints(xml_path)
@@ -1367,6 +1415,8 @@ def main():
         name_base = "-".join(name_parts)
 
         print(f"\n{'='*60}")
+        if is_soundwire:
+            print(f"SoundWire device detected — using enhanced preset generation")
         print(f"Endpoint: {args.endpoint} (mode={args.mode})")
         print(f"Profile: {profile_type or '(first)'}")
 
@@ -1460,15 +1510,26 @@ def main():
             combined_right = ieq_db + ao_db_right
 
             # Generate FIR impulse responses
-            fir_left = make_fir(float_freqs, combined_left, normalize=True)
-            fir_right = make_fir(float_freqs, combined_right, normalize=True)
+            fir_left, peak_db_left = make_fir(float_freqs, combined_left, normalize=True)
+            fir_right, peak_db_right = make_fir(float_freqs, combined_right, normalize=True)
+            peak_db = max(peak_db_left, peak_db_right)
+
+            # For SoundWire presets, restore half the headroom that peak
+            # normalization removed. The IEQ-only curve (no AO correction)
+            # peaks at low-mids; normalizing to that peak pushes presence
+            # and treble below their intended level. Restoring 50% keeps
+            # the spectral shape while recovering perceived brightness.
+            convolver_gain = peak_db * 0.5 if is_soundwire else 0.0
 
             # Save stereo impulse response
             irs_path = args.irs_dir / f"{preset_name}.irs"
             save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
-            preset = make_preset(preset_name, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, freqs)
+            preset = make_preset(preset_name, peq_filters, vol_leveler,
+                                 dialog_enhancer, surround, mb_comp, regulator,
+                                 freqs, convolver_gain=convolver_gain,
+                                 is_soundwire=is_soundwire)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
@@ -1476,6 +1537,9 @@ def main():
 
             print(f"Wrote {irs_path}")
             print(f"Wrote {out_path}")
+            if convolver_gain != 0.0:
+                print(f"  Convolver output-gain: {convolver_gain:+.1f} dB "
+                      f"(FIR peak was {peak_db:+.1f} dB, restoring 50%)")
             print(f"  {curve_key} combined IEQ+AO curve (left channel):")
             print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
             for i, f in enumerate(freqs):
