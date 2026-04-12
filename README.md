@@ -9,6 +9,7 @@ Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEff
 | ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author (primary development target) |
 | Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | ThinkPad T14s Gen 6 AMD | — | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
+| ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
 
 If you test it on other hardware, please open an issue with your device model and audio codec subsystem ID (`cat /proc/asound/card*/codec* | grep Subsystem`).
 
@@ -247,6 +248,27 @@ The tighter limiting at low frequencies protects laptop speakers from sub-bass d
 - IR files: `~/.local/share/easyeffects/irs/` with `.irs` extension (not `.wav`)
 - Convolver uses `"kernel-name"` (filename stem), not the deprecated `"kernel-path"`
 - Equalizer has no graphic EQ mode — only parametric (LSP plugin)
+
+### Flatpak EasyEffects
+
+The default `--output-dir` / `--irs-dir` point at the native-package XDG paths. The Flatpak build (`com.github.wwmm.easyeffects`) runs in a sandbox that does not have access to `~/.local/share/easyeffects/` by default, so presets written there are invisible to it. Two options:
+
+1. **Write directly into the Flatpak data directory**:
+   ```bash
+   python3 dolby_to_easyeffects.py ... \
+       --output-dir ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/output \
+       --irs-dir    ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/irs \
+       --autoload-dir ~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/autoload/output
+   ```
+2. **Or grant the Flatpak read access to the native path**:
+   ```bash
+   flatpak override --user --filesystem=~/.local/share/easyeffects com.github.wwmm.easyeffects
+   ```
+   Then the script's defaults work. Verify with `flatpak run --command=easyeffects com.github.wwmm.easyeffects -p`.
+
+### SoundWire codecs (newer Intel platforms)
+
+Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
 
 ## What's not implemented
 
