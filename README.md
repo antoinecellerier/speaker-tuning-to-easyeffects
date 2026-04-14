@@ -1,6 +1,16 @@
 # Dolby DAX3 to EasyEffects Preset Converter
 
-Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEffects output presets. Developed for the ThinkPad X1 Yoga Gen 7 (Realtek ALC287, subsystem 17AA:22E6) running Debian with PipeWire 1.4.10 and EasyEffects 8.1.2. This might work for other devices, do open an issue to let me know what you find out if you test it.
+Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEffects output presets. Developed for the ThinkPad X1 Yoga Gen 7 (Realtek ALC287, subsystem 17AA:22E6) running Debian with PipeWire 1.4.10 and EasyEffects 8.1.2. Also reported working on other Lenovo hardware (see [Tested devices](#tested-devices)). If you try it on something new, please open an issue to let me know.
+
+## Tested devices
+
+| Device | Codec / Subsystem | Reported by |
+|---|---|---|
+| ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author (primary development target) |
+| Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
+| ThinkPad T14s Gen 6 AMD | — | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
+
+If you test it on other hardware, please open an issue with your device model and audio codec subsystem ID (`cat /proc/asound/card*/codec* | grep Subsystem`).
 
 ## Quick start
 
@@ -274,8 +284,11 @@ C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.x
 ```
 Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
 
+If you don't have a Windows install available, you can also get the XML straight from a Lenovo driver download using [`innoextract`](https://constexpr.org/innoextract/) on the installer — no Windows partition required (reported working in [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1)).
+
 ## References
 
 - [wwmm/easyeffects](https://github.com/wwmm/easyeffects) — preset format reference
 - [shuhaowu/linux-thinkpad-speaker-improvements](https://github.com/shuhaowu/linux-thinkpad-speaker-improvements) — alternative approach using captured impulse responses via WASAPI loopback
 - [sklynic/easyeffects-tuf-gaming-a15](https://github.com/sklynic/easyeffects-tuf-gaming-a15) — manual DAX3 EQ extraction for ASUS laptops
+- [mister2d/thinkpad-linux-audio](https://github.com/mister2d/thinkpad-linux-audio/) — extended Dolby pipeline for ThinkPads, built on top of this tooling ([#2](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/2))
