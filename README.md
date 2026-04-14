@@ -286,6 +286,14 @@ Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (
 
 If you don't have a Windows install available, you can also get the XML straight from a Lenovo driver download using [`innoextract`](https://constexpr.org/innoextract/) on the installer — no Windows partition required (reported working in [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1)).
 
+## Further reading
+
+In-tree docs with more context on specific aspects:
+
+- [docs/design-notes.md](docs/design-notes.md) — why the plugin chain is ordered the way it is, gain-staging rationale, and why autogain is bypassed by default
+- [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of 196 DAX3 tuning files across 3 Realtek codec variants
+- [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
+
 ## References
 
 - [wwmm/easyeffects](https://github.com/wwmm/easyeffects) — preset format reference

@@ -1,3 +1,4 @@
 *.xml
 *.swp
 __pycache__/
+localresearch/
