@@ -98,16 +98,46 @@ def get_soundwire_ids():
     return results
 
 
+def _walk_to_pci_subsys(start: Path):
+    """Walk up sysfs from `start` to find the nearest PCI subsystem IDs."""
+    current = start.resolve()
+    while current != Path("/"):
+        subsys_vendor_path = current / "subsystem_vendor"
+        subsys_device_path = current / "subsystem_device"
+        if subsys_vendor_path.exists() and subsys_device_path.exists():
+            try:
+                vendor = subsys_vendor_path.read_text().strip()
+                device = subsys_device_path.read_text().strip()
+            except OSError:
+                pass
+            else:
+                vendor = vendor.replace("0x", "").upper()
+                device = device.replace("0x", "").upper()
+                if vendor and device:
+                    return (vendor, device)
+        current = current.parent
+    return None
+
+
 def get_pci_audio_subsystem():
     """Get the PCI subsystem ID of the audio controller.
 
     Returns (subsys_vendor, subsys_device) as uppercase 4-char hex strings,
     e.g. ("17AA", "2339"), or None if not found.
 
-    Walks up from the sound card device to find the PCI parent, which
-    handles both direct PCI sound devices and platform devices like
-    SOF SoundWire that sit under a PCI controller.
+    Prefers the PCI ancestor of a SoundWire device when present so we pick
+    the controller that actually hosts the speaker amplifiers, rather than
+    whichever /sys/class/sound card sorts first (which may be HDMI audio
+    on a discrete GPU). Falls back to walking up from sound cards for
+    traditional HDA systems.
     """
+    sdw_bus = Path("/sys/bus/soundwire/devices")
+    if sdw_bus.is_dir():
+        for dev_dir in sorted(sdw_bus.iterdir()):
+            result = _walk_to_pci_subsys(dev_dir)
+            if result:
+                return result
+
     pci_path = Path("/sys/class/sound")
     if not pci_path.is_dir():
         return None
@@ -115,23 +145,9 @@ def get_pci_audio_subsystem():
         device_link = card_dir / "device"
         if not device_link.exists():
             continue
-        # Walk up the sysfs tree to find a PCI device with subsystem IDs
-        current = device_link.resolve()
-        while current != Path("/"):
-            subsys_vendor_path = current / "subsystem_vendor"
-            subsys_device_path = current / "subsystem_device"
-            if subsys_vendor_path.exists() and subsys_device_path.exists():
-                try:
-                    vendor = subsys_vendor_path.read_text().strip()
-                    device = subsys_device_path.read_text().strip()
-                except OSError:
-                    pass
-                else:
-                    vendor = vendor.replace("0x", "").upper()
-                    device = device.replace("0x", "").upper()
-                    if vendor and device:
-                        return (vendor, device)
-            current = current.parent
+        result = _walk_to_pci_subsys(device_link)
+        if result:
+            return result
     return None
 
 
@@ -283,16 +299,17 @@ def _gather_speaker_info() -> SpeakerInfo:
     info.pci_subsystem = get_pci_audio_subsystem()
 
     # PCM playback devices
-    for pcm_dir in sorted(Path("/proc/asound/card0").glob("pcm*p")):
-        info_path = pcm_dir / "info"
-        if not info_path.exists():
-            continue
-        fields = {}
-        for line in info_path.read_text().splitlines():
-            if ": " in line:
-                k, v = line.split(": ", 1)
-                fields[k.strip()] = v.strip()
-        info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
+    for card_dir in sorted(Path("/proc/asound").glob("card*")):
+        for pcm_dir in sorted(card_dir.glob("pcm*p")):
+            info_path = pcm_dir / "info"
+            if not info_path.exists():
+                continue
+            fields = {}
+            for line in info_path.read_text().splitlines():
+                if ": " in line:
+                    k, v = line.split(": ", 1)
+                    fields[k.strip()] = v.strip()
+            info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
 
     # Speaker detection — branch by bus type
     if info.bus_type == "soundwire":
@@ -391,6 +408,11 @@ def find_tuning_xml(windows_root: Path):
     # SoundWire: build expected SUBSYS value from PCI subsystem ID.
     # Dolby filenames encode it as {pci_subsys_device}{pci_subsys_vendor},
     # e.g. PCI subsystem 17AA:2339 -> SUBSYS_233917AA
+    if sdw_devices and pci_subsys is None:
+        raise RuntimeError(
+            "SoundWire devices detected but could not determine PCI subsystem ID. "
+            "Cannot safely select a tuning XML."
+        )
     sdw_subsys_id = None
     if pci_subsys:
         vendor, device = pci_subsys
@@ -418,8 +440,8 @@ def find_tuning_xml(windows_root: Path):
     # Look for dax3_ext_*.inf_* directories
     candidates = []
     for dax_dir in sorted(driver_store.glob("dax3_ext_*.inf_*")):
-        for xml_file in sorted(dax_dir.glob("*.xml")):
-            if xml_file.name.endswith("_settings.xml"):
+        for xml_file in sorted(dax_dir.glob("*.[xX][mM][lL]")):
+            if xml_file.name.lower().endswith("_settings.xml"):
                 continue
             name = xml_file.name.upper()
 
@@ -441,10 +463,9 @@ def find_tuning_xml(windows_root: Path):
                 man = sdw_match.group(1)
                 func = sdw_match.group(2)
                 subsys = sdw_match.group(3)
-                if (man, func) in sdw_man_func:
-                    if sdw_subsys_id is None or subsys == sdw_subsys_id:
-                        candidates.append(xml_file)
-                        continue
+                if (man, func) in sdw_man_func and subsys == sdw_subsys_id:
+                    candidates.append(xml_file)
+                    continue
 
             # Match SDW_XXXX_SUBSYS_YYYYYYYY_... style
             sdw_alt = re.search(r"^SDW_[0-9A-F]+_SUBSYS_([0-9A-F]{8})", name)
@@ -1037,12 +1058,10 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
     amount = dialog_enhancer["amount"]
 
     if is_soundwire:
-        gain_presence = amount / 16.0 * 8.0
-        gain_clarity = gain_presence * 0.6
+        gain_presence = round(amount / 16.0 * 8.0, 2)
+        gain_clarity = round(gain_presence * 0.6, 2)
         if gain_presence <= 0:
             return None
-        band0 = make_band(2500.0, round(gain_presence, 2), q=0.7)
-        band1 = make_band(4000.0, round(gain_clarity, 2), q=1.0)
         return {
             "bypass": False,
             "input-gain": 0.0,
@@ -1050,15 +1069,19 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
             "mode": "IIR",
             "num-bands": 2,
             "split-channels": False,
-            "left": {"band0": band0, "band1": band1},
-            "right": {"band0": band0, "band1": band1},
+            "left": {
+                "band0": make_band(2500.0, gain_presence, q=0.7),
+                "band1": make_band(4000.0, gain_clarity, q=1.0),
+            },
+            "right": {
+                "band0": make_band(2500.0, gain_presence, q=0.7),
+                "band1": make_band(4000.0, gain_clarity, q=1.0),
+            },
         }
 
-    gain = amount / 16.0 * 6.0
+    gain = round(amount / 16.0 * 6.0, 2)
     if gain <= 0:
         return None
-
-    band = make_band(2500.0, round(gain, 2), q=0.7)
 
     return {
         "bypass": False,
@@ -1067,8 +1090,8 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
         "mode": "IIR",
         "num-bands": 1,
         "split-channels": False,
-        "left": {"band0": band},
-        "right": {"band0": band},
+        "left": {"band0": make_band(2500.0, gain, q=0.7)},
+        "right": {"band0": make_band(2500.0, gain, q=0.7)},
     }
 
 
