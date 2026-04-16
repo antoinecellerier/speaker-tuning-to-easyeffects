@@ -62,6 +62,28 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 - Python 3, NumPy, SciPy
 
+## Extracting the XML
+
+The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
+
+If you prefer to extract the XML manually, it can be found in the Windows driver package at:
+```
+C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.xml
+```
+Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
+
+If you don't have a Windows install available, you can also get the XML straight from a Lenovo driver download using [`innoextract`](https://constexpr.org/innoextract/) on the installer — no Windows partition required (reported working in [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1)).
+
+## Auto-detection notes
+
+### Flatpak EasyEffects
+
+The script auto-detects whether EasyEffects is installed via Flatpak or as a native package. If `~/.var/app/com.github.wwmm.easyeffects/config/easyeffects/` exists, it writes presets there; otherwise it falls back to the native `~/.local/share/easyeffects/` path. You can still override with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
+
+### SoundWire codecs (newer Intel platforms)
+
+Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
+
 ## What the script does
 
 ### Input: Dolby DAX3 XML
@@ -87,6 +109,13 @@ Each preset contains up to eight plugins chained in order:
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
 - `~/.local/share/easyeffects/output/Dolby-{Balanced,Detailed,Warm}.json` — EasyEffects presets
+
+### EasyEffects 8.x specifics
+
+- Presets: `~/.local/share/easyeffects/output/` (not `~/.config/`)
+- IR files: `~/.local/share/easyeffects/irs/` with `.irs` extension (not `.wav`)
+- Convolver uses `"kernel-name"` (filename stem), not the deprecated `"kernel-path"`
+- Equalizer has no graphic EQ mode — only parametric (LSP plugin)
 
 ## Key findings
 
@@ -242,21 +271,6 @@ The 20 Dolby bands are grouped into zones with identical thresholds to fit withi
 
 The tighter limiting at low frequencies protects laptop speakers from sub-bass distortion they can't reproduce cleanly. The `threshold_low` values (more aggressive thresholds) and `stress-amount` are not currently used — only `threshold_high` is mapped.
 
-### EasyEffects 8.x specifics
-
-- Presets: `~/.local/share/easyeffects/output/` (not `~/.config/`)
-- IR files: `~/.local/share/easyeffects/irs/` with `.irs` extension (not `.wav`)
-- Convolver uses `"kernel-name"` (filename stem), not the deprecated `"kernel-path"`
-- Equalizer has no graphic EQ mode — only parametric (LSP plugin)
-
-### Flatpak EasyEffects
-
-The script auto-detects whether EasyEffects is installed via Flatpak or as a native package. If `~/.var/app/com.github.wwmm.easyeffects/config/easyeffects/` exists, it writes presets there; otherwise it falls back to the native `~/.local/share/easyeffects/` path. You can still override with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
-
-### SoundWire codecs (newer Intel platforms)
-
-Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
-
 ## What's not implemented
 
 - **`filter_coefficients`** — base64-encoded biquad blob in `tuning-vlldp`. Investigated but the format doesn't produce sensible audio EQ curves; likely VLLDP-internal analysis filters rather than audio-path EQ. The audio-optimizer + PEQ parameters already capture the same speaker correction.
@@ -282,18 +296,6 @@ The following XML fields are present but deliberately ignored — they are alway
 - `woofer-regulator-*` — no subwoofer in this endpoint
 - `band_20_freq` at 44.1 kHz — script is 48 kHz only
 - `ieq-bands-set` — indicates default IEQ variant; script generates all three
-
-## Extracting the XML
-
-The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
-
-If you prefer to extract the XML manually, it can be found in the Windows driver package at:
-```
-C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.xml
-```
-Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
-
-If you don't have a Windows install available, you can also get the XML straight from a Lenovo driver download using [`innoextract`](https://constexpr.org/innoextract/) on the installer — no Windows partition required (reported working in [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1)).
 
 ## Further reading
 
