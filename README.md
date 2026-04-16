@@ -1,6 +1,6 @@
 # Dolby DAX3 to EasyEffects Preset Converter
 
-Converts Dolby Atmos DAX3 tuning XML extracted from Windows drivers into EasyEffects output presets. Developed for the ThinkPad X1 Yoga Gen 7 (Realtek ALC287, subsystem 17AA:22E6) running Debian with PipeWire 1.4.10 and EasyEffects 8.1.2. Also reported working on other Lenovo hardware (see [Tested devices](#tested-devices)). If you try it on something new, please open an issue to let me know.
+Converts Dolby Atmos DAX3 tuning XML from Windows drivers into EasyEffects 8.x output presets. If your distro still ships EasyEffects 7 (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the preset formats aren't compatible.
 
 ## Tested devices
 
