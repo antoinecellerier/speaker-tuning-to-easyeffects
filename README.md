@@ -72,7 +72,22 @@ C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.x
 ```
 Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
 
-If you don't have a Windows install available, you can also get the XML straight from a Lenovo driver download using [`innoextract`](https://constexpr.org/innoextract/) on the installer — no Windows partition required (reported working in [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1)).
+### From a Lenovo driver EXE (no Windows partition required)
+
+Download the Lenovo audio driver EXE (e.g. `n4ba126w.exe`) into this project directory. You need [`innoextract`](https://constexpr.org/innoextract/install) installed.
+
+From the project root, run these three commands:
+
+```bash
+# 1. Extract only the Dolby tuning XMLs into ./driver-cache/
+innoextract -I 'code$GetExtractPath$/Dolby/03_dax_ext' -d ./driver-cache ./n4ba126w.exe
+
+# 2. Rename to the layout --windows expects
+mv './driver-cache/code$GetExtractPath$/Dolby/03_dax_ext' ./driver-cache/dax3_ext_rtk.inf_extracted
+
+# 3. Generate presets
+python3 dolby_to_easyeffects.py --windows ./driver-cache
+```
 
 ## Auto-detection notes
 
