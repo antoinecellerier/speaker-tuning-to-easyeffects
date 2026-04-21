@@ -15,7 +15,9 @@ If you test it on other hardware, please open an issue with your device model an
 
 ## Quick start
 
-1. Run the script, pointing it at your Windows partition or a Dolby tuning XML:
+1. Install dependencies (see [Dependencies](#dependencies) below for your distro). TL;DR: you need Python 3 with NumPy and SciPy.
+
+2. Run the script, pointing it at your Windows partition or a Dolby tuning XML:
 
    Auto-discover from a mounted Windows partition (matches your audio hardware):
    ```bash
@@ -26,7 +28,7 @@ If you test it on other hardware, please open an issue with your device model an
    ```bash
    python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml
    ```
-2. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
+3. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
 
 The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/card*/codec*` and finds the matching tuning XML in the Windows DriverStore. If multiple versions exist, the newest is preferred.
 
@@ -60,7 +62,24 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 ### Dependencies
 
-- Python 3, NumPy, SciPy
+The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects.
+
+Install on your distro:
+
+- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy`
+- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy`
+- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy`
+- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy`
+- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy`
+- **NixOS (shell):** `nix-shell -p python3 python3Packages.numpy python3Packages.scipy`
+
+If your distro isn't listed or you'd rather not touch system packages, a venv works too:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install numpy scipy
+```
 
 ## Extracting the XML
 
