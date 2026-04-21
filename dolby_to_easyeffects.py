@@ -524,6 +524,22 @@ def list_endpoints(path: Path):
             print(f"    profile: {p}")
 
 
+_SAFE_PROFILE_RE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def sanitize_profile_type(t: str) -> str:
+    """Normalize a profile type for safe use in output file paths.
+
+    Profile names flow into `{output_dir}/{...}-{profile}-....json` and the
+    matching `.irs`, so values like `../foo` from a crafted XML would escape
+    the intended directory. Replace anything outside a plain identifier with
+    `_` rather than rejecting — unknown vendor profile names should still
+    produce a usable (if ugly) preset name.
+    """
+    safe = _SAFE_PROFILE_RE.sub("_", t)
+    return safe or "_"
+
+
 def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> list[str]:
     """Return all profile type names for the given endpoint/mode, excluding 'off'."""
     tree = ET.parse(path)
@@ -1718,7 +1734,10 @@ def main():
         if args.mode != "normal":
             name_parts.append(args.mode.title())
         if profile_type or args.all_profiles:
-            name_parts.append((profile_type or "default").title())
+            safe_profile = sanitize_profile_type(profile_type or "default")
+            if profile_type and safe_profile != profile_type:
+                print(f"Warning: sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
+            name_parts.append(safe_profile.title())
         name_base = "-".join(name_parts)
 
         print(f"\n{'='*60}")
