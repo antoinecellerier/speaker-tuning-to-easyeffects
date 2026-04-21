@@ -72,7 +72,7 @@ Install on your distro:
 - **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy`
 - **Alpine:** `sudo apk add py3-numpy py3-scipy`
 - **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy`
-- **NixOS (shell):** `nix-shell -p python3 python3Packages.numpy python3Packages.scipy`
+- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy ])"`
 
 If your distro isn't listed or you'd rather not touch system packages, a venv works too:
 
