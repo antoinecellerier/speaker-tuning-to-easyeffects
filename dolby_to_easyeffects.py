@@ -422,15 +422,29 @@ def find_tuning_xml(windows_root: Path):
     sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
 
     # Search DriverStore for DAX3 tuning XMLs.
-    # Accept either a Windows system root (needs the FileRepository subpath)
-    # or an already-extracted DriverStore directory containing dax3_ext_*.inf_*
-    # subdirectories directly.
+    # Accept either a Windows system root (needs the FileRepository subpath),
+    # the root of a mounted C: drive (a sibling Windows/ subdir contains the
+    # system root), or an already-extracted DriverStore directory containing
+    # dax3_ext_*.inf_* subdirectories directly.
     file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
+    driver_store = None
     if file_repo.is_dir():
         driver_store = file_repo
-    elif windows_root.is_dir() and any(windows_root.glob("dax3_ext_*.inf_*")):
-        driver_store = windows_root
-    else:
+    elif windows_root.is_dir():
+        if any(windows_root.glob("dax3_ext_*.inf_*")):
+            driver_store = windows_root
+        else:
+            # Maybe the user passed the C:\ mount point instead of C:\Windows.
+            # Look for a case-insensitive "Windows" subdirectory with the
+            # expected DriverStore layout.
+            for child in windows_root.iterdir():
+                if not child.is_dir() or child.name.lower() != "windows":
+                    continue
+                nested = child / "System32" / "DriverStore" / "FileRepository"
+                if nested.is_dir():
+                    driver_store = nested
+                    break
+    if driver_store is None:
         raise FileNotFoundError(
             f"DriverStore not found at {file_repo} and {windows_root} does not "
             f"contain dax3_ext_*.inf_* subdirectories. "
