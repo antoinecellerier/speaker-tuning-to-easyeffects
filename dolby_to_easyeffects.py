@@ -701,7 +701,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             if f.get("enabled") == "0":
                 continue
             ftype = int(f.get("type"))
-            if ftype not in (1, 4, 7, 9):
+            if ftype not in (1, 3, 4, 6, 7, 8, 9):
                 print(f"  Warning: unknown PEQ filter type {ftype}, skipping")
                 continue
             peq_filters.append({
@@ -922,28 +922,28 @@ def make_hp_band(freq: float, order: int) -> dict:
     }
 
 
-def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
-    """Low-shelf filter band from Dolby PEQ type 4.
+def _shelf_q_from_s(gain: float, s: float) -> float:
+    """Standard audio S-to-Q conversion for shelving filters.
 
-    The S (shelf slope) parameter controls the steepness of the transition.
-    S=1.0 gives a Butterworth (maximally flat) response with Q≈0.707.
-    Convert S to Q using the standard audio shelf formula.
+    Q = 1/sqrt((A + 1/A) * (1/S - 1) + 2) where A = 10^(gain/40).
+    For S=1.0 this simplifies to Q ≈ 0.707 (Butterworth). The
+    (A + 1/A) term is symmetric in A↔1/A, so the sign of gain does
+    not affect Q — and the formula is also symmetric between
+    low-shelf and high-shelf variants.
     """
-    # S-to-Q conversion for shelving filters:
-    # Q = 1/sqrt((A + 1/A) * (1/S - 1) + 2) where A = 10^(gain/40)
-    # For S=1.0, this simplifies to Q ≈ 0.707 (Butterworth).
-    # The (A + 1/A) term is symmetric in A↔1/A, so the sign of gain
-    # doesn't affect Q — boost and cut shelves of equal magnitude
-    # share the same Q.
     a = 10 ** (gain / 40.0) if gain != 0 else 1.0
     denom = (a + 1.0 / a) * (1.0 / s - 1.0) + 2.0
-    q = 1.0 / math.sqrt(max(denom, 0.01))
+    return 1.0 / math.sqrt(max(denom, 0.01))
+
+
+def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
+    """Low-shelf filter band from Dolby PEQ type 4."""
     return {
         "frequency": freq,
         "gain": round(gain, 4),
         "mode": "RLC (BT)",
         "mute": False,
-        "q": round(q, 4),
+        "q": round(_shelf_q_from_s(gain, s), 4),
         "slope": "x1",
         "solo": False,
         "type": "Lo-shelf",
@@ -951,23 +951,75 @@ def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
     }
 
 
+def make_hishelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
+    """High-shelf filter band from Dolby PEQ type 3.
+
+    Mirror of make_shelf_band with LSP's "Hi-shelf" mode. Same Q-from-S
+    derivation — the formula is symmetric in shelf direction. Corpus
+    gains are strictly non-negative (0 to +15 dB) across the 1754
+    type-3 filters observed, typically a +2-5 dB presence lift around
+    2.7 kHz. Experimental path — not yet audibly validated.
+    """
+    return {
+        "frequency": freq,
+        "gain": round(gain, 4),
+        "mode": "RLC (BT)",
+        "mute": False,
+        "q": round(_shelf_q_from_s(gain, s), 4),
+        "slope": "x1",
+        "solo": False,
+        "type": "Hi-shelf",
+        "width": 4.0,
+    }
+
+
+def make_lp_band(freq: float, order: int) -> dict:
+    """Low-pass filter band from Dolby PEQ types 6 and 8.
+
+    Mirror of make_hp_band with LSP's "Lo-pass" mode. Rare: 32 filters
+    across 5 XMLs in the corpus, predominantly tweeter-guard rolloff
+    at 8 kHz on some ALC274 Lenovo laptops. Experimental path — not
+    yet audibly validated.
+    """
+    slope_map = {1: "x1", 2: "x2", 3: "x3", 4: "x4"}
+    return {
+        "frequency": freq,
+        "gain": 0.0,
+        "mode": "RLC (BT)",
+        "mute": False,
+        "q": 0.707,
+        "slope": slope_map.get(order, "x4"),
+        "solo": False,
+        "type": "Lo-pass",
+        "width": 4.0,
+    }
+
+
 def make_peq_eq(peq_filters):
     """Parametric EQ for the explicit speaker PEQ from Dolby.
 
-    Handles filter types: 1 (bell), 4 (low-shelf), 7 and 9 (high-pass).
-    The HP protects laptop speakers from sub-bass energy they can't reproduce.
+    Handles filter types: 1 (bell), 4 (low-shelf), 7/9 (high-pass),
+    3 (high-shelf, experimental), 6/8 (low-pass, experimental). The HP
+    protects laptop speakers from sub-bass energy they can't reproduce;
+    the LP is a tweeter-guard rolloff seen on a handful of ALC274 SKUs.
     """
-    peq_left_bells = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
-    peq_right_bells = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
-    hp_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (7, 9)]
-    hp_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (7, 9)]
-    shelf_left = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 4]
-    shelf_right = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 4]
+    bells_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
+    bells_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
+    hp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (7, 9)]
+    hp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (7, 9)]
+    lp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (6, 8)]
+    lp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (6, 8)]
+    loshelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 4]
+    loshelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 4]
+    hishelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 3]
+    hishelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 3]
 
-    num_bells = max(len(peq_left_bells), len(peq_right_bells))
-    num_hp = max(len(hp_left), len(hp_right))
-    num_shelf = max(len(shelf_left), len(shelf_right))
-    num_bands = num_hp + num_shelf + num_bells
+    num_bells = max(len(bells_l), len(bells_r))
+    num_hp = max(len(hp_l), len(hp_r))
+    num_lp = max(len(lp_l), len(lp_r))
+    num_loshelf = max(len(loshelf_l), len(loshelf_r))
+    num_hishelf = max(len(hishelf_l), len(hishelf_r))
+    num_bands = num_hp + num_lp + num_loshelf + num_hishelf + num_bells
 
     if num_bands == 0:
         return None
@@ -975,52 +1027,60 @@ def make_peq_eq(peq_filters):
     left_bands = {}
     right_bands = {}
 
-    # HP filters first
-    for j, pf in enumerate(hp_left):
-        left_bands[f"band{j}"] = make_hp_band(pf["f0"], pf["order"])
-    for j, pf in enumerate(hp_right):
-        right_bands[f"band{j}"] = make_hp_band(pf["f0"], pf["order"])
+    def place(bucket_l, bucket_r, builder, off):
+        for j, pf in enumerate(bucket_l):
+            left_bands[f"band{off + j}"] = builder(pf)
+        for j, pf in enumerate(bucket_r):
+            right_bands[f"band{off + j}"] = builder(pf)
 
-    # Shelf filters next
-    off = num_hp
-    for j, pf in enumerate(shelf_left):
-        left_bands[f"band{off + j}"] = make_shelf_band(pf["f0"], pf["gain"], pf["s"])
-    for j, pf in enumerate(shelf_right):
-        right_bands[f"band{off + j}"] = make_shelf_band(pf["f0"], pf["gain"], pf["s"])
+    off = 0
+    place(hp_l, hp_r, lambda pf: make_hp_band(pf["f0"], pf["order"]), off)
+    off += num_hp
+    place(lp_l, lp_r, lambda pf: make_lp_band(pf["f0"], pf["order"]), off)
+    off += num_lp
+    place(loshelf_l, loshelf_r,
+          lambda pf: make_shelf_band(pf["f0"], pf["gain"], pf["s"]), off)
+    off += num_loshelf
+    place(hishelf_l, hishelf_r,
+          lambda pf: make_hishelf_band(pf["f0"], pf["gain"], pf["s"]), off)
+    off += num_hishelf
+    place(bells_l, bells_r,
+          lambda pf: make_band(pf["f0"], pf["gain"], q=pf["q"]), off)
 
-    # Bell filters after
-    off = num_hp + num_shelf
-    for j, pf in enumerate(peq_left_bells):
-        left_bands[f"band{off + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
-    for j, pf in enumerate(peq_right_bells):
-        right_bands[f"band{off + j}"] = make_band(pf["f0"], pf["gain"], q=pf["q"])
-
-    # Fill missing
+    # Fill missing bands on whichever channel is shorter. Each slot keeps
+    # its filter category so the channels stay topologically matched.
+    fillers = []
+    for _ in range(num_hp):
+        fillers.append(lambda: make_hp_band(100.0, 4))
+    for _ in range(num_lp):
+        fillers.append(lambda: make_lp_band(20000.0, 4))
+    for _ in range(num_loshelf):
+        fillers.append(lambda: make_shelf_band(100.0, 0.0))
+    for _ in range(num_hishelf):
+        fillers.append(lambda: make_hishelf_band(10000.0, 0.0))
+    for _ in range(num_bells):
+        fillers.append(lambda: make_band(1000.0, 0.0))
     for idx in range(num_bands):
         key = f"band{idx}"
         if key not in left_bands:
-            if idx < num_hp:
-                left_bands[key] = make_hp_band(100.0, 4)
-            else:
-                left_bands[key] = make_band(1000.0, 0.0)
+            left_bands[key] = fillers[idx]()
         if key not in right_bands:
-            if idx < num_hp:
-                right_bands[key] = make_hp_band(100.0, 4)
-            else:
-                right_bands[key] = make_band(1000.0, 0.0)
+            right_bands[key] = fillers[idx]()
 
     # Compensate for PEQ boost to prevent clipping. Bells are scaled by
     # bandwidth: a narrow Q=4.6 bell at +4 dB barely raises broadband
     # level, while a wide Q=0.7 bell at +4 dB raises it nearly 4 dB
-    # (effective boost ≈ gain * min(1, 2/Q)). Shelves get the full gain
-    # because they boost the entire band above the corner frequency.
+    # (effective boost ≈ gain * min(1, 2/Q)). Shelves (both low- and
+    # high-shelf) contribute their full gain because they raise an entire
+    # half-band above/below the corner. HP/LP filters are cut-only and
+    # reduce headroom, so they don't enter the compensation sum.
     effective_boosts = []
-    for pf in peq_left_bells + peq_right_bells:
+    for pf in bells_l + bells_r:
         if pf["gain"] <= 0:
             continue
         q = pf.get("q", 1.0)
         effective_boosts.append(pf["gain"] * min(1.0, 2.0 / q))
-    for pf in shelf_left + shelf_right:
+    for pf in loshelf_l + loshelf_r + hishelf_l + hishelf_r:
         if pf["gain"] <= 0:
             continue
         effective_boosts.append(pf["gain"])
@@ -1577,7 +1637,7 @@ DISABLEABLE_FILTERS = {
     "volmax": ("too loud, pumping/squash on loud content",
                "drops the +volmax-boost static loudness gain"),
     "mbc": ("compressed or \"squashed\" character",
-            "drops the 2-band Dolby compressor"),
+            "drops the Dolby multi-band compressor"),
     "regulator": ("unusual spectral pumping or narrow-band breathing",
                   "drops the per-band limiter"),
     "bass-enhancer": ("bass sounds artificial/distorted (SoundWire only)",
@@ -1586,7 +1646,17 @@ DISABLEABLE_FILTERS = {
                "drops the 2.5 kHz speech-band EQ"),
     "stereo": ("phasey or hollow stereo image",
                "drops the surround widener"),
+    "high-shelf": ("harsh or sibilant high frequencies",
+                   "drops Dolby's type-3 high-shelf boost (experimental)"),
+    "lo-pass": ("highs sound rolled off / dull",
+                "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
 }
+
+# Subset of DISABLEABLE_FILTERS whose emission paths are numerically
+# verified but not yet user-validated on real hardware. Used to trigger
+# a targeted "please report" prompt at end-of-run when any of these
+# fired for the current preset.
+EXPERIMENTAL_FILTERS = frozenset({"high-shelf", "lo-pass"})
 
 
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
@@ -1629,10 +1699,19 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
             preset["output"]["plugins_order"].append("stereo_tools#0")
             emitted.add("stereo")
 
-    peq = make_peq_eq(peq_filters)
+    effective_peq = peq_filters
+    if "high-shelf" in disabled:
+        effective_peq = [f for f in effective_peq if f["type"] != 3]
+    if "lo-pass" in disabled:
+        effective_peq = [f for f in effective_peq if f["type"] not in (6, 8)]
+    peq = make_peq_eq(effective_peq)
     if peq:
         preset["output"]["equalizer#0"] = peq
         preset["output"]["plugins_order"].append("equalizer#0")
+        if any(f["type"] == 3 for f in effective_peq):
+            emitted.add("high-shelf")
+        if any(f["type"] in (6, 8) for f in effective_peq):
+            emitted.add("lo-pass")
 
     # Dialog enhancer (speech presence boost) before the volume leveler,
     # matching Dolby's CP order: DE → IEQ → Volume Leveler.
@@ -1863,8 +1942,12 @@ def main():
             spk = "L" if pf["speaker"] == 0 else "R"
             if pf["type"] in (7, 9):
                 print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
+            elif pf["type"] in (6, 8):
+                print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)  [experimental]")
             elif pf["type"] == 4:
                 print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
+            elif pf["type"] == 3:
+                print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}  [experimental]")
             elif pf["type"] == 1:
                 print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
@@ -2024,6 +2107,14 @@ def main():
             print(f"  {'':<24}    ({effect})")
         print()
         print("Flags are repeatable, e.g. --disable volmax --disable mbc.")
+
+    experimental = sorted(EXPERIMENTAL_FILTERS & active_filters)
+    if experimental:
+        print()
+        print(f"Experimental path(s) exercised: {', '.join(experimental)}")
+        print("These filters are reproduced directly from the Dolby tuning and")
+        print("verified numerically, but have not yet been audibly validated by")
+        print("a user with an affected device. Feedback is especially helpful.")
 
     print()
     print("How does it sound? Please report back (good or bad) at")

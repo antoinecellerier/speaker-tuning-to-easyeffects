@@ -286,16 +286,16 @@ not the de-duplicated-per-device view of the original audit):
 |------|--------------------------------------|---------------------|-------------------------|
 | 1    | Bell/peaking EQ                      | 15432               | ✅ Yes                  |
 | 9    | High-pass (with order)               |  3088               | ✅ Yes                  |
-| 3    | **High-shelf** (with S parameter)    |  1754               | ❌ No — warned as unknown |
+| 3    | **High-shelf** (with S parameter)    |  1754               | 🧪 Experimental         |
 | 7    | High-pass variant (with order)       |  1016               | ✅ Yes                  |
 | 4    | Low-shelf (with S parameter)         |   192               | ✅ Yes                  |
-| 8    | Low-pass variant (with order)        |    22               | ❌ No — warned as unknown |
-| 6    | Low-pass (with order)                |    10               | ❌ No — warned as unknown |
+| 8    | Low-pass variant (with order)        |    22               | 🧪 Experimental         |
+| 6    | Low-pass (with order)                |    10               | 🧪 Experimental         |
 
 In the original 196-XML audit only types 1/4/7/9 were observed. The expanded cohort
-surfaces three previously-unseen types:
+surfaces three previously-unseen types, all now emitted via experimental paths:
 
-### Type 3 — high-shelf filter (not yet supported)
+### Type 3 — high-shelf filter (experimental)
 
 ```xml
 <filter speaker="0" enabled="1" type="3" f0="2700" gain="2.000000" s="1.000000"/>
@@ -304,21 +304,25 @@ surfaces three previously-unseen types:
 Same parameter shape as type 4 (`f0`/`gain`/`s`) but mirrored — gains are strictly
 non-negative (range 0 to +15 dB across the corpus, no cut variants seen), and the
 inflection is above `f0` rather than below. Present in **32 distinct XMLs** (1754
-filters), centred around 2.7 kHz with +2 to +5 dB presence lift. The script currently
-logs "unknown PEQ filter type 3, skipping" and drops them — affected devices lose
-their intended high-frequency shelf.
+filters), centred around 2.7 kHz with +2 to +5 dB presence lift. Emitted via
+`make_hishelf_band` (LSP `"Hi-shelf"` mode) with the same Q-from-S formula as
+Lo-shelf (the formula is symmetric in shelf direction). Verified numerically by a
+throwaway FFT script against the RBJ high-shelf cookbook formula; affected users
+can turn it off with `--disable high-shelf` and are invited to report audibility.
 
-### Types 6 and 8 — low-pass variants (not yet supported)
+### Types 6 and 8 — low-pass variants (experimental)
 
 ```xml
 <filter speaker="0" enabled="1" type="6" f0="8000" order="4"/>
 <filter speaker="0" enabled="1" type="8" f0="19500" order="8"/>
 ```
 
-Same shape as types 7/9 (`f0`/`order`, no gain) but with the implicit direction
-flipped — type 6 appears at 8–10 kHz with order 4 (tweeter-guard rolloff on some
-ALC274 Lenovo laptops), type 8 at 8/19.5 kHz with order 4–8. Rare: only 3 XMLs carry
-type 6 (10 filters) and 2 XMLs carry type 8 (22 filters). Script warns and skips.
+Same shape as types 7/9 (`f0`/`order`, no gain) but with the direction flipped —
+type 6 appears at 8–10 kHz with order 4 (tweeter-guard rolloff on some ALC274
+Lenovo laptops), type 8 at 8/19.5 kHz with order 4–8. Rare: only 3 XMLs carry type
+6 (10 filters) and 2 XMLs carry type 8 (22 filters). Emitted via `make_lp_band`
+(LSP `"Lo-pass"` mode), structurally a mirror of the already-verified HP path.
+Turn off with `--disable lo-pass`.
 
 ### Types 1, 4, 7, 9 — supported
 
@@ -397,8 +401,8 @@ defensive-only paths and should be treated as implementation gaps):
 
 | Code path                                 | Current behaviour                                                        | Expanded-cohort check                                                              | Status                                                          |
 |-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
-| Unknown PEQ filter type (`ftype not in (1,4,7,9)`) | Warns "unknown PEQ filter type N, skipping" and drops the filter | 1786 filters of type 3/6/8 across 37 XMLs (§9)                                     | **Reachable** — type 3 is a high-shelf worth supporting         |
-| 1-band MBC (`group_count < 2`)            | Early-returns without emitting any MBC plugin                           | 294 profiles enable MBC with `group_count=1` (§2)                                  | **Reachable** — would benefit from a degenerate single-band emission |
+| Unknown PEQ filter type (`ftype not in (1,3,4,6,7,8,9)`) | Warns "unknown PEQ filter type N, skipping" and drops the filter | No observed filter outside the supported set on the 1050-XML cohort            | Inert again — types 3/6/8 are now emitted (see §9); the warning remains as a guard against future driver releases adding new types |
+| 1-band MBC (`group_count < 2`)            | Early-returns without emitting any MBC plugin                           | 294 profiles enable MBC with `group_count=1` (§2)                                  | **Reachable** — would benefit from a degenerate single-band emission (follow-up work) |
 | Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 246/15551 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
 
 If a future driver release breaks any of the truly-inert assumptions, the script will
