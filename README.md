@@ -80,23 +80,23 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 ### Dependencies
 
-The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) is optional — if installed, the script renders its output with semantic colors; without it, output is plain monochrome and everything else still works.
+The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — if installed, the script renders its output and `--help` with semantic colors; without them, output is plain monochrome and everything else still works.
 
 Install on your distro:
 
-- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich`
-- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich`
-- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich`
-- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich`
-- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich`
-- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich ])"`
+- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich py3-rich-argparse`
+- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
+- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
 
 If your distro isn't listed or you'd rather not touch system packages, a venv works too:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install numpy scipy rich
+pip install numpy scipy rich rich-argparse
 ```
 
 ## Extracting the XML

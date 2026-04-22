@@ -52,6 +52,11 @@ try:
 except ImportError:
     _CONSOLE = None
 
+try:
+    from rich_argparse import RichHelpFormatter as _HelpFormatter
+except ImportError:
+    _HelpFormatter = argparse.HelpFormatter
+
 
 def cprint(style: str, text: str = "") -> None:
     """Print `text` in the given semantic style, or plain if rich is absent."""
@@ -1808,8 +1813,12 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
 
 
 def main():
+    # --no-color must be honored before argparse prints --help; pre-scan
+    # argv so the formatter falls back to plain when requested.
+    formatter_class = argparse.HelpFormatter if "--no-color" in sys.argv else _HelpFormatter
     parser = argparse.ArgumentParser(
         description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
+        formatter_class=formatter_class,
     )
     parser.add_argument(
         "xml_file",
