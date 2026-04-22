@@ -36,6 +36,7 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory
 - `--list` — show available endpoints and profiles in the XML, then exit
+- `--speaker-info` — report detected audio hardware and speaker layout, then exit
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
@@ -46,6 +47,8 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `stereo`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
+- `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
+- `--no-color` — disable colored terminal output
 
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
 
