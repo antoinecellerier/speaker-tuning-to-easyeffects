@@ -1,6 +1,6 @@
 # Dolby DAX3 to EasyEffects Preset Converter
 
-Converts Dolby Atmos DAX3 tuning XML from Windows drivers into EasyEffects 8.x output presets. If your distro still ships EasyEffects 7 (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the preset formats aren't compatible.
+Converts Dolby Atmos DAX3 tuning XML from Windows drivers into [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets. If your distro still ships EasyEffects 7 (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the preset formats aren't compatible.
 
 ## Tested devices
 
