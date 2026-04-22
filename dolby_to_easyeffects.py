@@ -1210,18 +1210,29 @@ def make_multiband_compressor(mb_comp, freqs):
        attack_coeff_q15, release_coeff_q15, makeup_q4]
 
     Where:
-      - crossover_band_idx: index into the 20-band frequency table
+      - crossover_band_idx: index into the 20-band frequency table.
+        For each band i, this is the *upper* edge of that band; the
+        last band's value is a sentinel (typically len(freqs) = 20)
+        meaning "up to Nyquist".
       - threshold: in 1/16 dB
       - gain_coeff: Q15 fixed-point, 32767 = unity (bypass)
         ratio ≈ 1 / (gain_coeff / 32768)
       - attack/release: exponential smoothing coefficients (block-rate)
       - makeup: in 1/16 dB
+
+    Most devices use 2 bands; corpus also has ~4% of MBC-enabled
+    profiles with 3 or 4 bands (e.g. voice profiles using the upper
+    bands for speech-band compression, music profiles using 4 bands
+    purely for per-band makeup gain). LSP MBC supports 8 bands max,
+    so any value above that would be clipped — but Dolby's schema
+    only allocates 4 band_group_N elements.
     """
     if not mb_comp or mb_comp["group_count"] < 2:
         return None
 
     band_groups = mb_comp["band_groups"]
-    if len(band_groups) < 2:
+    n_bands = min(mb_comp["group_count"], len(band_groups), 8)
+    if n_bands < 2:
         return None
 
     def decode_band(bg):
@@ -1242,19 +1253,20 @@ def make_multiband_compressor(mb_comp, freqs):
             "makeup": makeup,
         }
 
-    band0 = decode_band(band_groups[0])
-    band1 = decode_band(band_groups[1])
+    decoded = [decode_band(bg) for bg in band_groups[:n_bands]]
 
-    # Crossover frequency from band index into the 20-freq table
-    xover_idx = band0["xover_idx"]
-    if 0 <= xover_idx < len(freqs):
-        crossover_freq = float(freqs[xover_idx])
-    else:
-        crossover_freq = 500.0  # fallback
+    # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
+    # band i+1's lower edge is the same frequency. Only the first n_bands - 1
+    # crossovers are meaningful — the last band's xover_idx is the high-cap
+    # sentinel and isn't used as a split point.
+    def xover_to_freq(idx, fallback):
+        if 0 <= idx < len(freqs):
+            return float(freqs[idx])
+        return fallback
 
-    # Build EasyEffects multiband compressor with 2 active bands
-    # Band 0 = low (below crossover), Band 1 = high (above crossover)
-    # Bands 2-7 are disabled
+    crossovers = [xover_to_freq(decoded[i]["xover_idx"], 500.0)
+                  for i in range(n_bands - 1)]
+
     result = {
         "bypass": False,
         "input-gain": 0.0,
@@ -1268,10 +1280,20 @@ def make_multiband_compressor(mb_comp, freqs):
 
     for i in range(8):
         bandn = f"band{i}"
-        if i == 0:
-            # Low band — always enabled, no split-frequency
-            b = band0
-            result[bandn] = {
+        if i < n_bands:
+            b = decoded[i]
+            # Band i sits between its lower edge (crossovers[i-1] for i>0,
+            # else 0/DC) and its upper edge (crossovers[i] for i<n_bands-1,
+            # else 20 kHz Nyquist).
+            lower = crossovers[i - 1] if i > 0 else 10.0
+            upper = crossovers[i] if i < n_bands - 1 else 20000.0
+            band = {}
+            if i > 0:
+                # Band 0 is always enabled with no split-frequency; bands 1+
+                # need both fields set so LSP MBC actually splits at lower.
+                band["enable-band"] = True
+                band["split-frequency"] = lower
+            band.update({
                 "compressor-enable": True,
                 "mute": False,
                 "solo": False,
@@ -1292,42 +1314,12 @@ def make_multiband_compressor(mb_comp, freqs):
                 "sidechain-preamp": 0.0,
                 "sidechain-custom-lowcut-filter": False,
                 "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": 10.0,
-                "sidechain-highcut-frequency": crossover_freq,
+                "sidechain-lowcut-frequency": lower,
+                "sidechain-highcut-frequency": upper,
                 "boost-threshold": -60.0,
                 "boost-amount": 0.0,
-            }
-        elif i == 1:
-            # High band
-            b = band1
-            result[bandn] = {
-                "enable-band": True,
-                "split-frequency": crossover_freq,
-                "compressor-enable": True,
-                "mute": False,
-                "solo": False,
-                "attack-threshold": round(b["threshold"], 1),
-                "attack-time": round(b["attack_ms"], 1),
-                "release-threshold": -80.01,
-                "release-time": round(b["release_ms"], 1),
-                "ratio": round(b["ratio"], 2),
-                "knee": -6.0,
-                "makeup": round(b["makeup"], 1),
-                "compression-mode": "Downward",
-                "sidechain-type": "Internal",
-                "sidechain-mode": "RMS",
-                "sidechain-source": "Middle",
-                "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 0.0,
-                "sidechain-reactivity": 10.0,
-                "sidechain-preamp": 0.0,
-                "sidechain-custom-lowcut-filter": False,
-                "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": crossover_freq,
-                "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -60.0,
-                "boost-amount": 0.0,
-            }
+            })
+            result[bandn] = band
         else:
             # Disabled bands
             result[bandn] = {
