@@ -43,6 +43,7 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 - `--all-profiles` — generate presets for all profiles in the selected endpoint/mode (9 profiles × 3 IEQ curves = 27 presets)
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
+- `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
@@ -80,6 +81,8 @@ python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
 ```
 
 This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matching EasyEffects' autoload convention (`{node.name}:{device.profile.description}.json`). Speaker sinks are detected from PipeWire via `pw-dump`, filtering on the `audio-speakers` device icon to exclude HDMI/DisplayPort outputs. The script must be run from a desktop session with PipeWire running.
+
+EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing an empty `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. Editing the fallback setting requires modifying `~/.config/easyeffects/db/easyeffectsrc` directly since EasyEffects exposes no CLI or D-Bus hook for it; if EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip both steps if you manage this yourself.
 
 ### Dependencies
 

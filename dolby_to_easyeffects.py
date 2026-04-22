@@ -22,6 +22,7 @@ Output chain:
 """
 
 import argparse
+import configparser
 import json
 import math
 import re
@@ -83,6 +84,14 @@ _EASYEFFECTS_BASE = _FLATPAK_BASE if _FLATPAK_BASE.exists() else _NATIVE_BASE
 DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
 DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
 DEFAULT_AUTOLOAD_DIR = _EASYEFFECTS_BASE / "autoload" / "output"
+
+# EasyEffects 8.x KConfig file. Separate from _EASYEFFECTS_BASE (which is
+# under XDG_DATA_HOME for presets/IRs); this one is under XDG_CONFIG_HOME.
+_FLATPAK_RC = Path.home() / ".var" / "app" / "com.github.wwmm.easyeffects" / "config" / "easyeffects" / "db" / "easyeffectsrc"
+_NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
+DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _FLATPAK_RC.parent.exists() else _NATIVE_RC
+
+BYPASS_PRESET_NAME = "Nothing"
 
 SAMPLE_RATE = 48000
 FIR_LENGTH = 4096  # ~85ms, plenty for EQ
@@ -668,6 +677,89 @@ def write_autoload(autoload_dir: Path, device_name: str, device_description: str
         "preset-name": preset_name,
     }, indent=4) + "\n")
     return path
+
+
+def write_bypass_preset(output_dir: Path, preset_name: str,
+                        dry_run: bool = False) -> tuple[Path, str]:
+    """Write an empty bypass preset used as EasyEffects' global fallback.
+
+    Returns (path, status) where status is "written", "kept", or "would-write".
+    If a preset of the same name already exists on disk, it is preserved — the
+    user may have hand-built one and we don't want to clobber it.
+    """
+    path = output_dir / f"{preset_name}.json"
+    if path.exists():
+        return path, "kept"
+    if dry_run:
+        return path, "would-write"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "output": {"blocklist": [], "plugins_order": []},
+    }, indent=4) + "\n")
+    return path, "written"
+
+
+def set_autoload_fallback(rc_path: Path, preset_name: str,
+                          dry_run: bool = False) -> tuple[str, str]:
+    """Enable EasyEffects' global Fallback Preset toggle in its KConfig file.
+
+    EasyEffects 8.x stores the toggle as two keys under the [Window] section
+    (they're bound to QML properties attached to the main window object —
+    quirky location, but matches EE's config binding). No EE CLI or D-Bus
+    interface exists for this setting, so direct file edit is the only option.
+
+    Returns (status, existing_preset) where status is one of:
+      - "already-configured": both keys set and fallback enabled; file untouched.
+      - "patched": file created or keys set/updated.
+      - "would-patch": dry-run equivalent of "patched".
+    """
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    parser.optionxform = str  # EE uses camelCase keys; don't lowercase them
+
+    if rc_path.exists():
+        parser.read(rc_path, encoding="utf-8")
+
+    section = "Window"
+    existing_preset = ""
+    uses_fallback = False
+    if parser.has_section(section):
+        existing_preset = parser.get(section, "outputAutoloadingFallbackPreset",
+                                     fallback="").strip()
+        uses_fallback = parser.get(section, "outputAutoloadingUsesFallback",
+                                   fallback="false").strip().lower() == "true"
+
+    if uses_fallback and existing_preset:
+        return "already-configured", existing_preset
+
+    if dry_run:
+        return "would-patch", existing_preset
+
+    if not parser.has_section(section):
+        parser.add_section(section)
+    parser.set(section, "outputAutoloadingFallbackPreset", preset_name)
+    parser.set(section, "outputAutoloadingUsesFallback", "true")
+
+    rc_path.parent.mkdir(parents=True, exist_ok=True)
+    with rc_path.open("w", encoding="utf-8") as f:
+        parser.write(f, space_around_delimiters=False)
+    return "patched", existing_preset
+
+
+def easyeffects_is_running() -> bool:
+    """Return True if an EasyEffects process is currently running.
+
+    Used to warn the user that easyeffectsrc edits won't take effect until
+    EE is restarted — EE reads the file on startup and writes it on exit,
+    so mid-run writes get clobbered.
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "easyeffects"],
+            capture_output=True, timeout=2,
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
 
 
 def resolve_xml_value(element, constants):
@@ -1910,6 +2002,15 @@ def main():
         help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
     )
     parser.add_argument(
+        "--no-autoload-bypass",
+        dest="autoload_bypass",
+        action="store_false",
+        help=f"with --autoload, do not write a '{BYPASS_PRESET_NAME}' bypass "
+             "preset or enable EasyEffects' global Fallback Preset. Use if "
+             "you manage the fallback yourself. Existing user setups are "
+             "preserved even without this flag.",
+    )
+    parser.add_argument(
         "--speaker-info",
         action="store_true",
         help="report detected audio hardware and speaker layout, then exit",
@@ -2194,6 +2295,37 @@ def main():
                 )
                 cprint("ok", f"  {verb} {path}")
                 print(f"  Device: {sink['description']} ({sink['profile']})")
+
+        # Fallback preset: neutralize the Dolby chain on any non-speaker sink
+        # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload
+        # entry. Without this, EE keeps the last-loaded preset applied and
+        # mangles audio on outputs the Dolby tuning wasn't designed for.
+        if args.autoload_bypass:
+            cprint("head", f"\nConfiguring fallback preset → '{BYPASS_PRESET_NAME}':")
+            bypass_path, bypass_status = write_bypass_preset(
+                args.output_dir, BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            )
+            if bypass_status == "kept":
+                cprint("ok", f"  Kept existing {bypass_path}")
+            elif bypass_status == "would-write":
+                cprint("ok", f"  Would write {bypass_path}")
+            else:
+                cprint("ok", f"  Wrote {bypass_path}")
+
+            fallback_status, existing = set_autoload_fallback(
+                DEFAULT_EASYEFFECTS_RC, BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            )
+            if fallback_status == "already-configured":
+                cprint("ok", f"  Fallback preset already configured "
+                              f"('{existing}') in {DEFAULT_EASYEFFECTS_RC} — leaving as-is")
+            elif fallback_status == "would-patch":
+                cprint("ok", f"  Would enable fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+            else:
+                cprint("ok", f"  Enabled fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+                if easyeffects_is_running():
+                    cprint("warn", "  EasyEffects is currently running — restart it for "
+                                   "the fallback setting to take effect (EE rewrites "
+                                   "this file on exit).")
 
     # End-of-run troubleshooting hint. Only list filters that actually
     # got emitted this run — no point suggesting --disable for
