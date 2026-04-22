@@ -131,6 +131,11 @@ Notable per-profile patterns:
 The voice profile's high boost combined with a disabled compressor means the regulator
 alone has to catch peaks on that profile.
 
+The script applies `volmax-boost` as `output-gain` on the regulator
+(`multiband_compressor#1`), falling back to `limiter#0.input-gain` when the regulator
+is absent. Can be disabled with `--disable volmax` if the boost drives the brick-wall
+limiter into audible gain reduction on already-loud masters.
+
 ---
 
 ## 5. Dialog enhancer — profile-dependent behaviour

@@ -729,6 +729,16 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
             }
 
+    # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
+    # maximum gain above the volume leveler's out-target. Parsed outside
+    # the MBC block because the regulator is the preferred injection point
+    # and MBC may be disabled on some profiles.
+    volmax_boost = 0.0
+    if cp is not None:
+        volmax = cp.find("volmax-boost")
+        if volmax is not None:
+            volmax_boost = int(volmax.get("value")) / 16.0
+
     # Dialog enhancer settings (from tuning-cp)
     dialog_enhancer = None
     if cp is not None:
@@ -762,15 +772,12 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 if bg is not None:
                     band_groups.append(parse_csv_ints(bg.get("value")))
             target_power = vlldp.find("mb-compressor-target-power-level")
-            # volmax-boost is in tuning-cp
-            volmax = cp.find("volmax-boost") if cp is not None else None
             # Also grab regulator stress for additional context
             reg_stress = vlldp.find("regulator-stress-amount")
             mb_comp = {
                 "group_count": group_count,
                 "band_groups": band_groups,
                 "target_power": int(target_power.get("value")) / 16.0 if target_power is not None else -5.0,
-                "volmax_boost": int(volmax.get("value")) / 16.0 if volmax is not None else 0.0,
                 "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
             }
 
@@ -800,7 +807,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "timbre_preservation": timbre,
             }
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator
+    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost
 
 
 # --- FIR generation ---
@@ -1347,7 +1354,7 @@ def make_multiband_compressor(mb_comp, freqs):
     return result
 
 
-def make_regulator(regulator, freqs):
+def make_regulator(regulator, freqs, volmax_boost=0.0):
     """Per-band limiter mapped from Dolby regulator-tuning.
 
     The Dolby regulator is a 20-band limiter that prevents speaker
@@ -1364,6 +1371,11 @@ def make_regulator(regulator, freqs):
       - timbre_preservation: 0-1, controls knee softness. Higher values
         mean softer knee to preserve spectral shape. Mapped to
         knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
+
+    volmax_boost is applied as output-gain: a static approximation of
+    Dolby's VolMax ceiling, which sits downstream of the per-band
+    regulator in the real VLLDP pipeline. The brick-wall limiter#0
+    catches any post-boost overshoot.
     """
     if not regulator:
         return None
@@ -1418,7 +1430,7 @@ def make_regulator(regulator, freqs):
     result = {
         "bypass": False,
         "input-gain": 0.0,
-        "output-gain": 0.0,
+        "output-gain": round(volmax_boost, 1),
         "dry": -80.01,
         "wet": 0.0,
         "compressor-mode": "Modern",
@@ -1528,16 +1540,21 @@ def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
     }
 
 
-def make_limiter():
+def make_limiter(input_gain=0.0):
     """Brickwall output limiter to catch any remaining overshoot.
 
     Placed at the very end of the chain as a safety net. Uses the LSP
     limiter plugin with a -1 dB threshold and 1 ms lookahead for
     transparent true-peak limiting.
+
+    input_gain is the fallback injection point for Dolby's volmax-boost
+    when the regulator (multiband_compressor#1) is absent, so the
+    static loudness boost still pushes peaks into the brick-wall and
+    the resulting limiting acts as a crude loudness maximiser.
     """
     return {
         "bypass": False,
-        "input-gain": 0.0,
+        "input-gain": round(input_gain, 1),
         "output-gain": 0.0,
         "mode": "Herm Thin",
         "oversampling": "None",
@@ -1557,7 +1574,8 @@ def make_limiter():
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
                 dialog_enhancer=None, surround=None, mb_comp=None,
                 regulator=None, freqs=None, convolver_gain=0.0,
-                is_soundwire=False):
+                is_soundwire=False, volmax_boost=0.0, disabled=None):
+    disabled = disabled or set()
     preset = {
         "output": {
             "blocklist": [],
@@ -1569,17 +1587,18 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
     # SoundWire speakers lack Dolby's proprietary Virtual Bass Enhancement
     # (VBE) that runs in the Windows driver. Compensate with psychoacoustic
     # harmonic generation so small speakers still produce perceived bass.
-    if is_soundwire:
+    if is_soundwire and "bass-enhancer" not in disabled:
         hp_filters = [f for f in peq_filters if f["type"] in (7, 9)]
         hp_freq = hp_filters[0]["f0"] if hp_filters else 100.0
         preset["output"]["bass_enhancer#0"] = make_bass_enhancer(hp_freq)
         preset["output"]["plugins_order"].append("bass_enhancer#0")
 
     # Stereo widening early in chain (before EQ changes the spectrum)
-    st = make_stereo_tools(surround)
-    if st:
-        preset["output"]["stereo_tools#0"] = st
-        preset["output"]["plugins_order"].append("stereo_tools#0")
+    if "stereo" not in disabled:
+        st = make_stereo_tools(surround)
+        if st:
+            preset["output"]["stereo_tools#0"] = st
+            preset["output"]["plugins_order"].append("stereo_tools#0")
 
     peq = make_peq_eq(peq_filters)
     if peq:
@@ -1588,10 +1607,11 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
 
     # Dialog enhancer (speech presence boost) before the volume leveler,
     # matching Dolby's CP order: DE → IEQ → Volume Leveler.
-    de = make_dialog_enhancer(dialog_enhancer, is_soundwire=is_soundwire)
-    if de:
-        preset["output"]["equalizer#1"] = de
-        preset["output"]["plugins_order"].append("equalizer#1")
+    if "dialog" not in disabled:
+        de = make_dialog_enhancer(dialog_enhancer, is_soundwire=is_soundwire)
+        if de:
+            preset["output"]["equalizer#1"] = de
+            preset["output"]["plugins_order"].append("equalizer#1")
 
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
@@ -1601,18 +1621,29 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
         preset["output"]["autogain#0"] = autogain
         preset["output"]["plugins_order"].append("autogain#0")
 
-    mbc = make_multiband_compressor(mb_comp, freqs)
-    if mbc:
-        preset["output"]["multiband_compressor#0"] = mbc
-        preset["output"]["plugins_order"].append("multiband_compressor#0")
+    if "mbc" not in disabled:
+        mbc = make_multiband_compressor(mb_comp, freqs)
+        if mbc:
+            preset["output"]["multiband_compressor#0"] = mbc
+            preset["output"]["plugins_order"].append("multiband_compressor#0")
 
-    reg = make_regulator(regulator, freqs)
+    # volmax-boost injection: regulator output-gain is the primary slot
+    # (matches Dolby VolMax topology). If the regulator is disabled or
+    # absent from the XML, fall back to limiter#0 input-gain so the boost
+    # still happens. Never both.
+    apply_volmax = volmax_boost if "volmax" not in disabled else 0.0
+    reg = None
+    if "regulator" not in disabled:
+        reg = make_regulator(regulator, freqs, volmax_boost=apply_volmax)
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
+        limiter_boost = 0.0
+    else:
+        limiter_boost = apply_volmax
 
     # Brickwall limiter at the end as a safety net
-    preset["output"]["limiter#0"] = make_limiter()
+    preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
     preset["output"]["plugins_order"].append("limiter#0")
 
     return preset
@@ -1701,7 +1732,19 @@ def main():
         action="store_true",
         help="report detected audio hardware and speaker layout, then exit",
     )
+    parser.add_argument(
+        "--disable",
+        action="append",
+        default=[],
+        choices=["volmax", "mbc", "regulator", "bass-enhancer", "dialog", "stereo"],
+        metavar="NAME",
+        help="drop a filter from the generated preset (repeatable). "
+             "Valid names: volmax, mbc, regulator, bass-enhancer, dialog, stereo. "
+             "Try --disable volmax if output sounds too loud / saturated, or "
+             "--disable mbc if you dislike the compressor character.",
+    )
     args = parser.parse_args()
+    disabled = set(args.disable)
 
     if args.speaker_info:
         report_speaker_info()
@@ -1740,6 +1783,7 @@ def main():
         profile_types = [args.profile]  # None means "first profile"
 
     all_preset_names = []
+    active_filters = set()
 
     for profile_type in profile_types:
         # Build name base: prefix[-Mode][-Profile]
@@ -1760,12 +1804,27 @@ def main():
         print(f"Endpoint: {args.endpoint} (mode={args.mode})")
         print(f"Profile: {profile_type or '(first)'}")
 
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator = parse_xml(
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
             profile_type=profile_type,
         )
+
+        # Track which --disable'able filters actually ended up in at
+        # least one emitted preset so we can tailor the end-of-run hint.
+        if volmax_boost > 0 and "volmax" not in disabled:
+            active_filters.add("volmax")
+        if mb_comp and "mbc" not in disabled:
+            active_filters.add("mbc")
+        if regulator and "regulator" not in disabled:
+            active_filters.add("regulator")
+        if is_soundwire and "bass-enhancer" not in disabled:
+            active_filters.add("bass-enhancer")
+        if dialog_enhancer and "dialog" not in disabled:
+            active_filters.add("dialog")
+        if surround and surround.get("boost", 0) > 0 and "stereo" not in disabled:
+            active_filters.add("stereo")
 
         scale = ieq_amount / 10.0
         print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
@@ -1808,7 +1867,6 @@ def main():
         if mb_comp:
             print(f"\nMulti-band compressor: {mb_comp['group_count']} bands")
             print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
-            print(f"  volmax-boost: {mb_comp['volmax_boost']:.1f} dB")
             for i, bg in enumerate(mb_comp["band_groups"][:mb_comp["group_count"]]):
                 xover_idx = bg[0]
                 xover_hz = freqs[xover_idx] if 0 <= xover_idx < len(freqs) else "?"
@@ -1829,6 +1887,14 @@ def main():
             print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
             print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
             print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
+
+        if "volmax" in disabled:
+            slot = "disabled via --disable volmax"
+        elif regulator and "regulator" not in disabled:
+            slot = "applied as regulator output-gain"
+        else:
+            slot = "applied as limiter input-gain"
+        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB ({slot})")
         print()
 
         ieq_presets = {
@@ -1869,7 +1935,9 @@ def main():
             preset = make_preset(preset_name, peq_filters, vol_leveler,
                                  dialog_enhancer, surround, mb_comp, regulator,
                                  freqs, convolver_gain=convolver_gain,
-                                 is_soundwire=is_soundwire)
+                                 is_soundwire=is_soundwire,
+                                 volmax_boost=volmax_boost,
+                                 disabled=disabled)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
@@ -1916,6 +1984,37 @@ def main():
                 )
                 print(f"  Wrote {path}")
                 print(f"  Device: {sink['description']} ({sink['profile']})")
+
+    # End-of-run troubleshooting hint. Only list filters that actually
+    # got emitted this run — no point suggesting --disable for
+    # something the user couldn't hear anyway.
+    hints = {
+        "volmax": ("too loud, pumping/squash on loud content",
+                   "drops the +volmax-boost static loudness gain"),
+        "mbc": ("compressed or \"squashed\" character",
+                "drops the 2-band Dolby compressor"),
+        "regulator": ("unusual spectral pumping or narrow-band breathing",
+                      "drops the per-band limiter"),
+        "bass-enhancer": ("bass sounds artificial/distorted (SoundWire only)",
+                          "drops the harmonic bass generator"),
+        "dialog": ("vocals over-boosted or harsh in the presence region",
+                   "drops the 2.5 kHz speech-band EQ"),
+        "stereo": ("phasey or hollow stereo image",
+                   "drops the surround widener"),
+    }
+    shown = [k for k in hints if k in active_filters]
+    if shown:
+        print(f"\n{'=' * 60}")
+        print("If anything sounds off on your hardware, you can rebuild")
+        print("without specific filters instead of editing the chain in")
+        print("EasyEffects. Re-run adding one or more of:")
+        print()
+        for name in shown:
+            symptom, effect = hints[name]
+            print(f"  --disable {name:<14}  # if you hear: {symptom}")
+            print(f"  {'':<24}    ({effect})")
+        print()
+        print("Flags are repeatable, e.g. --disable volmax --disable mbc.")
 
 
 if __name__ == "__main__":

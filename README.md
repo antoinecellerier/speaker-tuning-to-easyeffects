@@ -45,8 +45,24 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
+- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `stereo`. See [Disabling filters](#disabling-filters) below.
 
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
+
+### Disabling filters
+
+If the generated preset has audible artifacts on your hardware (saturation, pumping, harsh highs, uncomfortable stereo width), you can rebuild it without specific filters rather than hand-editing the chain inside EasyEffects. Repeat `--disable NAME` as many times as needed:
+
+| Name | What to try if you hear... |
+|------|----------------------------|
+| `volmax` | Output is too loud / the final limiter is pumping on loud masters. Drops the static loudness boost derived from Dolby's `volmax-boost` (typically +6 dB). |
+| `mbc` | A compressed or "squashed" character you don't like. Drops the 2-band dynamics processor. |
+| `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
+| `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
+| `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
+| `stereo` | Phasey or hollow stereo image. Drops the surround widener. |
+
+Convolver, PEQ, autogain, and the final brickwall limiter can't be disabled from the CLI — they're the FIR correction, speaker PEQ, volume-leveler placeholder, and safety net respectively.
 
 ### Autoload
 
@@ -137,8 +153,8 @@ Each preset contains up to eight plugins chained in order:
 4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
 5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
 6. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients
-7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges
-8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks
+7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges; also the primary slot where Dolby's `volmax-boost` is applied as `output-gain` (typically +6 dB of loudness makeup)
+8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks; fallback slot for `volmax-boost` when the regulator isn't emitted
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -271,7 +287,7 @@ The Dolby MB compressor stores parameters as 6-value tuples of raw DSP coefficie
 
 **Time constants**: Stored as exponential smoothing coefficients in Q15 format, operating per block (assumed 256 samples at 48 kHz = 187.5 blocks/sec). Decoded via `tau = -1 / (blocks_per_sec * ln(coeff / 32768))`.
 
-**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB. This defines the maximum gain the Dolby volume leveler may add above its output target — it is a ceiling for the volume leveler, not an output gain for the compressor.
+**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB. This defines the maximum gain the Dolby volume leveler may add above its output target, i.e. the ceiling of Dolby's VolMax loudness maximiser. EasyEffects has no MI-steered leveler to apply it dynamically, so the script applies it as a static `output-gain` on the regulator (`multiband_compressor#1`), with a fallback to `input-gain` on the brickwall limiter when the regulator isn't emitted. Can be turned off with `--disable volmax` (see below).
 
 The decoded bands for this device:
 - **Band 0** (low, below 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 17 ms, release 268 ms, makeup +2 dB
