@@ -1113,8 +1113,21 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     vlldp = profile.find("tuning-vlldp")
 
     ao_bands = vlldp.find("audio-optimizer-bands")
-    ao_left = parse_csv_ints(resolve_xml_value(ao_bands.find("ch_00"), constant))
-    ao_right = parse_csv_ints(resolve_xml_value(ao_bands.find("ch_01"), constant))
+    ch_00 = ao_bands.find("ch_00")
+    ch_01 = ao_bands.find("ch_01")
+    if ch_00 is None or ch_01 is None:
+        found_tags = sorted({c.tag for c in ao_bands})
+        raise ValueError(
+            f"{path.name}: audio-optimizer-bands has no ch_00/ch_01 — "
+            f"found {found_tags or '[]'} instead. This XML uses a simplified "
+            "DAX3 schema variant that this script does not support (no MBC, "
+            "no speaker PEQ, different channel naming). Pick another "
+            "endpoint/profile, use a full-schema XML from your device's "
+            "current driver, or open an issue if you need this variant "
+            "supported."
+        )
+    ao_left = parse_csv_ints(resolve_xml_value(ch_00, constant))
+    ao_right = parse_csv_ints(resolve_xml_value(ch_01, constant))
 
     peq_filters = []
     peq_enable = vlldp.find("speaker-peq-enable")
