@@ -56,7 +56,7 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 | Name | What to try if you hear... |
 |------|----------------------------|
 | `volmax` | Output is too loud / the final limiter is pumping on loud masters. Drops the static loudness boost derived from Dolby's `volmax-boost` (typically +6 dB). |
-| `mbc` | A compressed or "squashed" character you don't like. Drops the 2-band dynamics processor. |
+| `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
 | `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
@@ -132,7 +132,7 @@ The script auto-detects whether EasyEffects is installed via Flatpak or as a nat
 
 ### SoundWire codecs (newer Intel platforms)
 
-Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
+Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root (e.g. `/mnt/windows/Windows`), a drive-root mount (e.g. `/mnt/c` — the script looks for a case-insensitive `Windows/` child), *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
 
 ## What the script does
 
@@ -152,7 +152,7 @@ Each preset contains up to eight plugins chained in order:
 3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, low-shelves) per channel from the vlldp section
 4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
 5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
-6. **Multiband Compressor** — 2-band dynamics processing mapped from Dolby's mb-compressor-tuning coefficients
+6. **Multiband Compressor** — multi-band dynamics processing mapped from Dolby's `mb-compressor-tuning` coefficients; emits 1 to 4 bands based on the XML's `group_count` (dominated by 2-band tunings in the wild, but 3- and 4-band tunings — including voice-profile speech compression and music-profile per-band makeup — are also supported)
 7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges; also the primary slot where Dolby's `volmax-boost` is applied as `output-gain` (typically +6 dB of loudness makeup)
 8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks; fallback slot for `volmax-boost` when the regulator isn't emitted
 
@@ -239,11 +239,11 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
         </speaker-peq-filters>
         <mb-compressor-enable value="1"/>
         <mb-compressor-tuning>
-          <group_count value="2"/>                              ← 2 active bands
+          <group_count value="2"/>                              ← 1–4 active bands (dev device: 2)
           <band_group_0 value="3,-103,19639,24080,32123,32"/>   ← low band (6-tuple)
           <band_group_1 value="20,-103,19654,22641,30810,32"/>  ← high band
-          <band_group_2 value="20,0,32767,22641,27238,0"/>      ← bypass
-          <band_group_3 value="20,0,32767,22641,27238,0"/>      ← bypass
+          <band_group_2 value="20,0,32767,22641,27238,0"/>      ← unused on this device (schema slot)
+          <band_group_3 value="20,0,32767,22641,27238,0"/>      ← unused on this device (schema slot)
         </mb-compressor-tuning>
         <mb-compressor-target-power-level value="-80"/>         ← 1/16 dB = -5 dBFS
         <regulator-speaker-dist-enable value="1"/>
@@ -272,7 +272,7 @@ All non-voice profiles share the same audio-optimizer and speaker PEQ values. Th
 
 ### Multi-band compressor coefficient decoding
 
-The Dolby MB compressor stores parameters as 6-value tuples of raw DSP coefficients per band. The decoded format:
+The Dolby MB compressor uses `group_count` active bands (1 to 4, capped at LSP MBC's 8-band ceiling) with parameters stored as 6-value tuples of raw DSP coefficients per band. Bands beyond `group_count` are ignored — the XML always allocates 4 `band_group_N` slots, but only the first `group_count` are decoded. Each band's decoded format:
 
 | Index | Field | Units | Example (band 0) | Decoded |
 |-------|-------|-------|-------------------|---------|
@@ -289,9 +289,11 @@ The Dolby MB compressor stores parameters as 6-value tuples of raw DSP coefficie
 
 **volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB. This defines the maximum gain the Dolby volume leveler may add above its output target, i.e. the ceiling of Dolby's VolMax loudness maximiser. EasyEffects has no MI-steered leveler to apply it dynamically, so the script applies it as a static `output-gain` on the regulator (`multiband_compressor#1`), with a fallback to `input-gain` on the brickwall limiter when the regulator isn't emitted. Can be turned off with `--disable volmax` (see below).
 
-The decoded bands for this device:
+The decoded bands for the development device (2-band tuning):
 - **Band 0** (low, below 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 17 ms, release 268 ms, makeup +2 dB
 - **Band 1** (high, above 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 14 ms, release 87 ms, makeup +2 dB
+
+Other devices in the corpus ship 3- or 4-band tunings — e.g. a voice profile with 2:1 speech-band compression above 1.3 kHz and 7 kHz, or a music profile using four bands as a per-band makeup stage (1:1 ratios with +1–3 dB per band). See the cross-device findings for distribution.
 
 ### Volume leveler → Autogain mapping
 

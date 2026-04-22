@@ -67,6 +67,30 @@ This is the most important finding: **MBC is the exception, not the rule.**
 Music profiles enable MBC more often (19%), suggesting MBC is used for loudness
 maximisation on premium speakers, not as a universal safety feature.
 
+### Band-count distribution (MBC-enabled profiles)
+
+A later audit across 372 XMLs (`dax3_ext_rtk` plus the IdeaPad-3-17ABA7 sub-corpus):
+
+| `group_count` | MBC-enabled profiles |
+|---------------|----------------------|
+| 2             | 212                  |
+| 3             | 5                    |
+| 4             | 4                    |
+
+Plus 51 profiles defining 3- or 4-band tunings with the compressor currently disabled
+(i.e. Dolby has shipped the coefficients but gates the stage off). Examples reached by
+the N-band path:
+
+- **voice profile, 3-band**: bands 1 (1313–7125 Hz) and 2 (7125+ Hz) both at 2:1 above
+  −12/−18 dBFS with +6/+9 dB makeup — speech-band compression the 2-band-capped
+  decoder previously dropped.
+- **music profile, 4-band**: all bands at 1:1 with per-band makeup ranging +1.2 to
+  +2.9 dB — used as a 4-band makeup stage, not as a compressor.
+
+The decoder was 2-band-only until commit `07612e9`, which would have silently dropped
+bands above index 1 on these profiles. It now emits all `group_count` bands (capped at
+LSP MBC's 8-band ceiling).
+
 ### Compressor ratio diversity
 
 Devices that do enable MBC show wide ratio variation:
