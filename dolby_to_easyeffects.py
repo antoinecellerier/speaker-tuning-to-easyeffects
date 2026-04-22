@@ -2016,6 +2016,10 @@ def main():
         print()
         print("Flags are repeatable, e.g. --disable volmax --disable mbc.")
 
+    print()
+    print("How does it sound? Please report back (good or bad) at")
+    print("  https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues")
+
 
 if __name__ == "__main__":
     main()
