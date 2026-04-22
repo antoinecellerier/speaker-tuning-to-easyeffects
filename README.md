@@ -119,25 +119,25 @@ Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (
 
 Download the Lenovo audio driver EXE (e.g. `n4ba126w.exe`) into this project directory. You need [`innoextract`](https://constexpr.org/innoextract/install) installed.
 
-From the project root, run these three commands:
+From the project root, run these two commands:
 
 ```bash
 # 1. Extract only the Dolby tuning XMLs into ./driver-cache/
 innoextract -I 'code$GetExtractPath$/Dolby/03_dax_ext' -d ./driver-cache ./n4ba126w.exe
 
-# 2. Rename to the layout --windows expects
-mv './driver-cache/code$GetExtractPath$/Dolby/03_dax_ext' ./driver-cache/dax3_ext_rtk.inf_extracted
-
-# 3. Generate presets (autoprobe picks up ./driver-cache; pass --windows
-#    ./driver-cache explicitly if the autoprobe reports ambiguity)
+# 2. Generate presets (autoprobe finds the extracted XMLs automatically)
 python3 dolby_to_easyeffects.py --autoload
 ```
+
+If the autoprobe reports ambiguity (e.g. you have several extracted driver trees), pass `--windows ./driver-cache` to point it at the one you want.
 
 ## Auto-detection notes
 
 ### Windows partition or extracted DriverStore
 
-Omitting `--windows` and the positional XML triggers the autoprobe. It enumerates NTFS-family mountpoints (`ntfs`, `ntfs3`, `fuseblk`) from `/proc/mounts` and keeps any whose DriverStore contains `dax3_ext_*.inf_*` subdirs — both full system roots like `/mnt/windows/Windows` and drive-root mounts like `/mnt/c` are accepted. If nothing mounted matches, it falls back to a shallow scan of the current directory for the same `dax3_ext_*.inf_*` marker, covering the `innoextract`-to-`./driver-cache` workflow above. A single unambiguous match is used; multiple matches (e.g. several Windows partitions mounted at once) fail with a listing so you can pick one via `--windows DIR`.
+Omitting `--windows` and the positional XML triggers the autoprobe. It enumerates NTFS-family mountpoints (`ntfs`, `ntfs3`, `fuseblk`) from `/proc/mounts` and keeps any whose DriverStore contains `dax3_ext_*.inf_*` subdirs — both full system roots like `/mnt/windows/Windows` and drive-root mounts like `/mnt/c` are accepted. If nothing mounted matches, it falls back to a bounded walk of the current directory for any directory whose files include a Dolby-shaped XML (`DEV_*_SUBSYS_*.xml` / `SOUNDWIRE_*_SUBSYS_*.xml` / `SDW_*_SUBSYS_*.xml`, excluding `_settings.xml` companions). That covers the raw `innoextract` layout (`./driver-cache/code$GetExtractPath$/Dolby/03_dax_ext/`) as well as hand-organised collections — no `dax3_ext_*.inf_*` rename required. The walk skips hidden directories, doesn't follow symlinks, and is depth-capped.
+
+A single unambiguous match is used. When multiple candidates match, the autoprobe narrows to those containing an XML for your detected audio hardware and uses it if exactly one survives; otherwise it errors with the shortlist so you can pick one via `--windows DIR`.
 
 ### Flatpak EasyEffects
 

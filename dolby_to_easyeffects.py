@@ -25,6 +25,7 @@ import argparse
 import configparser
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -462,17 +463,47 @@ def report_speaker_info():
     _print_speaker_info(info)
 
 
+# Dolby tuning XML filename sentinel. All three Dolby filename styles
+# (``DEV_..._SUBSYS_...``, ``SOUNDWIRE_..._SUBSYS_...``, ``SDW_..._SUBSYS_...``)
+# include ``SUBSYS_`` followed by exactly eight hex characters — highly
+# specific, essentially zero false-positive risk against unrelated XMLs. The
+# ``_settings.xml`` companion files that ship alongside are filtered out at
+# the call sites where this regex is used.
+DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Fa-f]{8}.*\.xml$", re.IGNORECASE)
+
+
+def _has_dolby_xml(directory: Path) -> bool:
+    """Return True if ``directory`` directly contains a Dolby-shaped XML."""
+    try:
+        for entry in directory.iterdir():
+            name = entry.name
+            if name.lower().endswith("_settings.xml"):
+                continue
+            if entry.is_file() and DOLBY_FILENAME_RE.search(name):
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def _resolve_driver_store(windows_root: Path) -> Path | None:
-    """Locate the DriverStore FileRepository for a given source directory.
+    """Locate the driver-store-ish directory to scan for Dolby tuning XMLs.
 
-    Accepts either a Windows system root (e.g. ``C:\\Windows``), a drive-root
-    mount (e.g. ``C:\\`` — the function descends into a case-insensitive
-    ``Windows/`` child), or an already-extracted DriverStore directory that
-    contains ``dax3_ext_*.inf_*`` subdirectories directly.
+    Accepts:
 
-    Returns the directory to scan for ``dax3_ext_*.inf_*`` subdirs, or
-    ``None`` if ``windows_root`` does not match any recognised layout.
-    I/O errors (e.g. permission denied walking an inaccessible mount) are
+    1. A Windows system root (e.g. ``C:\\Windows``) whose ``System32/DriverStore/FileRepository``
+       subdirectory exists.
+    2. A drive-root mount (e.g. ``C:\\``) with a case-insensitive ``Windows/``
+       child that satisfies (1).
+    3. A pre-extracted DriverStore directory containing ``dax3_ext_*.inf_*``
+       subdirectories directly.
+    4. Any directory that directly contains one or more Dolby-shaped XML
+       files (``DEV_*_SUBSYS_*.xml``, SoundWire variants, etc.) — covers the
+       ``innoextract`` default output and arbitrary hand-organised XML
+       collections.
+
+    Returns the directory whose immediate children will be scanned by
+    ``find_tuning_xml``, or ``None`` if no layout matches. I/O errors are
     swallowed and treated as "no match".
     """
     try:
@@ -482,6 +513,8 @@ def _resolve_driver_store(windows_root: Path) -> Path | None:
         if not windows_root.is_dir():
             return None
         if any(windows_root.glob("dax3_ext_*.inf_*")):
+            return windows_root
+        if _has_dolby_xml(windows_root):
             return windows_root
         for child in windows_root.iterdir():
             if not child.is_dir() or child.name.lower() != "windows":
@@ -519,6 +552,83 @@ def _ntfs_family_mountpoints() -> list[Path]:
     return mounts
 
 
+_CWD_PROBE_MAX_DEPTH = 10
+
+
+def _detect_expected_subsys_ids() -> set[str]:
+    """Return SUBSYS values (8 hex chars, uppercase) that would match this
+    machine's audio hardware in a Dolby XML filename.
+
+    Combines HDA codec subsystem IDs from ``/proc/asound`` with the PCI
+    audio subsystem ID (``{device}{vendor}`` for SoundWire naming). May
+    return an empty set if no hardware is detected.
+    """
+    ids: set[str] = set()
+    for _vendor, subsys, _name in get_hda_codec_ids():
+        ids.add(subsys.upper())
+    pci_subsys = get_pci_audio_subsystem()
+    if pci_subsys:
+        vendor, device = pci_subsys
+        ids.add(f"{device}{vendor}".upper())
+    return ids
+
+
+def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> bool:
+    """Return True iff ``candidate`` contains a Dolby XML whose filename
+    encodes any of the ``expected_subsys`` values.
+
+    Resolves ``candidate`` to a driver-store the same way ``find_tuning_xml``
+    does, then scans XMLs under ``dax3_ext_*.inf_*`` wrappers (if present)
+    or directly under the resolved dir.
+    """
+    if not expected_subsys:
+        return False
+    driver_store = _resolve_driver_store(candidate)
+    if driver_store is None:
+        return False
+    xml_dirs = sorted(driver_store.glob("dax3_ext_*.inf_*")) or [driver_store]
+    for xml_dir in xml_dirs:
+        try:
+            for entry in xml_dir.iterdir():
+                if not entry.is_file():
+                    continue
+                name = entry.name.upper()
+                if name.endswith("_SETTINGS.XML"):
+                    continue
+                if not DOLBY_FILENAME_RE.search(entry.name):
+                    continue
+                for subsys in expected_subsys:
+                    if f"SUBSYS_{subsys}" in name:
+                        return True
+        except OSError:
+            continue
+    return False
+
+
+def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -> list[Path]:
+    """Return directories under ``root`` that directly contain a Dolby XML.
+
+    Walks with ``followlinks=False`` and a depth cap (depth 0 = ``root``
+    itself). Hidden subdirectories (``.git``, ``.venv``, etc.) are pruned
+    in-place so they never enter the walk.
+    """
+    root_parts_len = len(root.parts)
+    results: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        current = Path(dirpath)
+        depth = len(current.parts) - root_parts_len
+        if depth >= max_depth:
+            dirnames[:] = []
+        for fn in filenames:
+            if fn.lower().endswith("_settings.xml"):
+                continue
+            if DOLBY_FILENAME_RE.search(fn):
+                results.append(current)
+                break
+    return results
+
+
 def autoprobe_dolby_source() -> Path:
     """Find a single Dolby tuning source without user input.
 
@@ -527,10 +637,11 @@ def autoprobe_dolby_source() -> Path:
     1. **Mount probe** — enumerate NTFS-family mountpoints from
        ``/proc/mounts`` and keep any whose DriverStore contains at least one
        ``dax3_ext_*.inf_*`` subdir.
-    2. **CWD probe** (only if the mount probe finds nothing) — shallow glob
-       of the current working directory for a parent containing
-       ``dax3_ext_*.inf_*``, matching the ``innoextract``-to-``./driver-cache``
-       workflow documented in the README.
+    2. **CWD probe** (only if the mount probe finds nothing) — bounded walk
+       of the current working directory for any directory that directly
+       contains a Dolby-shaped XML. Covers the ``innoextract`` default
+       layout (``./driver-cache/code$GetExtractPath$/Dolby/03_dax_ext/``)
+       as well as ad-hoc XML collections.
 
     Returns a path suitable for ``find_tuning_xml``. Raises
     ``FileNotFoundError`` with a diagnostic if zero or multiple candidates
@@ -552,27 +663,40 @@ def autoprobe_dolby_source() -> Path:
     cwd = Path.cwd()
     if not mount_candidates:
         seen: set[Path] = set()
-        for pattern in ("dax3_ext_*.inf_*", "*/dax3_ext_*.inf_*", "*/*/dax3_ext_*.inf_*"):
-            for match in cwd.glob(pattern):
-                if not match.is_dir():
-                    continue
-                rel = match.relative_to(cwd)
-                if any(part.startswith(".") for part in rel.parts):
-                    continue
-                parent = match.parent
-                if parent in seen:
-                    continue
-                seen.add(parent)
-                cwd_candidates.append(parent)
+        for cand in _walk_for_dolby_xml_dirs(cwd):
+            # Cosmetic lift: a directly-matched ``dax3_ext_*.inf_*`` wrapper
+            # is reported as its parent (the extraction root), matching the
+            # path the user would otherwise pass as ``--windows DIR``.
+            if cand.name.startswith("dax3_ext_") and ".inf_" in cand.name:
+                cand = cand.parent
+            if cand in seen:
+                continue
+            seen.add(cand)
+            cwd_candidates.append(cand)
 
     candidates = mount_candidates + cwd_candidates
-    if len(candidates) == 1:
-        winner = candidates[0]
+
+    def _announce(winner: Path) -> None:
         if winner in mount_candidates:
             cprint("ok", f"Auto-detected Windows mount: {winner}")
         else:
             cprint("ok", f"Auto-detected extracted DriverStore: {winner}")
-        return winner
+
+    if len(candidates) == 1:
+        _announce(candidates[0])
+        return candidates[0]
+
+    # With multiple candidates, try to pick the one whose XMLs actually
+    # match this machine's audio hardware. Avoids unnecessary ambiguity
+    # when the user has multiple extracted driver trees on disk and
+    # only one is for their device.
+    hardware_matches: list[Path] = []
+    if len(candidates) > 1:
+        expected = _detect_expected_subsys_ids()
+        hardware_matches = [c for c in candidates if _candidate_has_matching_xml(c, expected)]
+        if len(hardware_matches) == 1:
+            _announce(hardware_matches[0])
+            return hardware_matches[0]
 
     if not candidates:
         if inspected_mounts:
@@ -583,8 +707,8 @@ def autoprobe_dolby_source() -> Path:
         else:
             mount_desc = "no NTFS-family filesystems mounted"
         cwd_desc = (
-            f"no dax3_ext_*.inf_* directories found under {cwd} "
-            "(searched up to 2 levels deep)"
+            f"no Dolby-shaped XMLs found under {cwd} "
+            f"(searched up to {_CWD_PROBE_MAX_DEPTH} levels deep)"
         )
         raise FileNotFoundError(
             f"Auto-detection failed: {mount_desc}; {cwd_desc}. "
@@ -592,11 +716,23 @@ def autoprobe_dolby_source() -> Path:
             "extracted DriverStore) or a positional XML path explicitly."
         )
 
-    listing = "\n".join(f"  - {p}" for p in candidates)
+    # Narrow the listing to whatever is most actionable: the
+    # hardware-matching subset if more than one matched, else the full
+    # candidate list if none matched.
+    if len(hardware_matches) > 1:
+        listing = "\n".join(f"  - {p}" for p in hardware_matches)
+        header = (
+            f"Auto-detection found {len(hardware_matches)} Dolby sources "
+            "matching this machine's audio hardware:"
+        )
+    else:
+        listing = "\n".join(f"  - {p}" for p in candidates)
+        header = (
+            f"Auto-detection found {len(candidates)} Dolby sources, "
+            "none of which match this machine's audio hardware:"
+        )
     raise FileNotFoundError(
-        "Auto-detection found multiple possible Dolby sources:\n"
-        f"{listing}\n"
-        "Pass --windows DIR to pick one explicitly."
+        f"{header}\n{listing}\nPass --windows DIR to pick one explicitly."
     )
 
 
@@ -642,13 +778,17 @@ def find_tuning_xml(windows_root: Path):
         file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
         raise FileNotFoundError(
             f"DriverStore not found at {file_repo} and {windows_root} does not "
-            f"contain dax3_ext_*.inf_* subdirectories. "
+            f"contain dax3_ext_*.inf_* subdirectories or Dolby-shaped XMLs. "
             f"Pass either a Windows system root or an extracted DriverStore."
         )
 
-    # Look for dax3_ext_*.inf_* directories
+    # Scan for XMLs inside dax3_ext_*.inf_* wrappers, falling back to the
+    # driver_store root itself if no wrappers are present (layout 4).
+    xml_dirs = sorted(driver_store.glob("dax3_ext_*.inf_*"))
+    if not xml_dirs:
+        xml_dirs = [driver_store]
     candidates = []
-    for dax_dir in sorted(driver_store.glob("dax3_ext_*.inf_*")):
+    for dax_dir in xml_dirs:
         for xml_file in sorted(dax_dir.glob("*.[xX][mM][lL]")):
             if xml_file.name.lower().endswith("_settings.xml"):
                 continue
