@@ -1280,19 +1280,21 @@ def make_multiband_compressor(mb_comp, freqs):
       - attack/release: exponential smoothing coefficients (block-rate)
       - makeup: in 1/16 dB
 
-    Most devices use 2 bands; corpus also has ~4% of MBC-enabled
-    profiles with 3 or 4 bands (e.g. voice profiles using the upper
-    bands for speech-band compression, music profiles using 4 bands
-    purely for per-band makeup gain). LSP MBC supports 8 bands max,
-    so any value above that would be clipped — but Dolby's schema
-    only allocates 4 band_group_N elements.
+    Corpus composition (1050-XML cohort, MBC-enabled rows): 1 band on
+    294 profiles (music-dominated, fast attack/release used as a
+    loudness maximiser with full-band ratio up to 2:1), 2 bands on
+    561, 3 on 175, 4 on 121. LSP MBC supports 8 bands max, so any
+    value above that would be clipped — but Dolby's schema only
+    allocates 4 band_group_N elements. For group_count=1 the single
+    band covers the whole spectrum (no split frequency); bands 1-7
+    in the emitted config stay disabled via enable-band=False.
     """
-    if not mb_comp or mb_comp["group_count"] < 2:
+    if not mb_comp:
         return None
 
     band_groups = mb_comp["band_groups"]
     n_bands = min(mb_comp["group_count"], len(band_groups), 8)
-    if n_bands < 2:
+    if n_bands < 1:
         return None
 
     def decode_band(bg):
@@ -1652,11 +1654,17 @@ DISABLEABLE_FILTERS = {
                 "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
 }
 
-# Subset of DISABLEABLE_FILTERS whose emission paths are numerically
-# verified but not yet user-validated on real hardware. Used to trigger
-# a targeted "please report" prompt at end-of-run when any of these
-# fired for the current preset.
-EXPERIMENTAL_FILTERS = frozenset({"high-shelf", "lo-pass"})
+# Emission paths that are numerically verified but not yet user-validated
+# on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
+# off with --disable <key>; "mbc-1band" is a marker-only name (no separate
+# flag — users who want it off should pass --disable mbc instead). Used
+# to trigger a targeted "please report" prompt at end-of-run when any of
+# these fired for the current preset.
+EXPERIMENTAL_MARKERS = {
+    "high-shelf": "type-3 high-shelf",
+    "lo-pass": "type-6/8 low-pass",
+    "mbc-1band": "1-band MBC (group_count=1)",
+}
 
 
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
@@ -1736,6 +1744,8 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
             preset["output"]["multiband_compressor#0"] = mbc
             preset["output"]["plugins_order"].append("multiband_compressor#0")
             emitted.add("mbc")
+            if mb_comp and mb_comp["group_count"] == 1:
+                emitted.add("mbc-1band")
 
     # volmax-boost injection: regulator output-gain is the primary slot
     # (matches Dolby VolMax topology). If the regulator is disabled or
@@ -1968,20 +1978,28 @@ def main():
             print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
 
         if mb_comp:
-            print(f"\nMulti-band compressor: {mb_comp['group_count']} bands")
+            tag = "  [experimental]" if mb_comp["group_count"] == 1 else ""
+            print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s){tag}")
             print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
-            for i, bg in enumerate(mb_comp["band_groups"][:mb_comp["group_count"]]):
+            n_bands_print = mb_comp["group_count"]
+            for i, bg in enumerate(mb_comp["band_groups"][:n_bands_print]):
                 xover_idx = bg[0]
-                xover_hz = freqs[xover_idx] if 0 <= xover_idx < len(freqs) else "?"
+                if i == n_bands_print - 1:
+                    # Sentinel in the last band — the band runs to Nyquist
+                    xover_hz = "full-band" if n_bands_print == 1 else "Nyquist"
+                elif 0 <= xover_idx < len(freqs):
+                    xover_hz = f"{freqs[xover_idx]} Hz"
+                else:
+                    xover_hz = "?"
                 thresh = bg[1] / 16.0
                 ratio_frac = bg[2] / 32768.0
                 ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
                 attack = decode_mbc_time_constant(bg[3])
                 release = decode_mbc_time_constant(bg[4])
                 makeup = bg[5] / 16.0
-                print(f"  band {i}: xover={xover_hz} Hz, thresh={thresh:+.1f} dB, "
-                      f"ratio={ratio:.2f}:1, attack={attack:.1f} ms, "
-                      f"release={release:.1f} ms, makeup={makeup:+.1f} dB")
+                print(f"  band {i}: xover={xover_hz}, thresh={thresh:+.1f} dB, "
+                      f"ratio={ratio:.2f}:1, attack={attack:.2f} ms, "
+                      f"release={release:.2f} ms, makeup={makeup:+.1f} dB")
 
         if regulator:
             print(f"\nRegulator (per-band limiter):")
@@ -2108,11 +2126,13 @@ def main():
         print()
         print("Flags are repeatable, e.g. --disable volmax --disable mbc.")
 
-    experimental = sorted(EXPERIMENTAL_FILTERS & active_filters)
+    experimental = [EXPERIMENTAL_MARKERS[k]
+                    for k in EXPERIMENTAL_MARKERS
+                    if k in active_filters]
     if experimental:
         print()
         print(f"Experimental path(s) exercised: {', '.join(experimental)}")
-        print("These filters are reproduced directly from the Dolby tuning and")
+        print("These emissions are reproduced directly from the Dolby tuning and")
         print("verified numerically, but have not yet been audibly validated by")
         print("a user with an affected device. Feedback is especially helpful.")
 

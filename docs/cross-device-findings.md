@@ -102,10 +102,11 @@ Expanded 1050-XML cohort, across all profiles where `mb-compressor-enable=1`:
 Two noteworthy wrinkles the old 2-band decoder masked:
 
 - **294 profiles enable MBC with `group_count=1`** — single-band, full-spectrum
-  dynamics. The script's current `group_count < 2` guard drops these, emitting no
-  dynamics stage at all. Not a regression (the guard predates the N-band work), but
-  a likely follow-up: route 1-band tunings through the LSP MBC as a degenerate
-  single-band compressor.
+  dynamics. Almost entirely on the `music` profile, typically used as a loudness
+  maximiser: ratios 1:1 to 2:1, threshold 0 dB to −6 dB, sub-millisecond attack
+  and release (coeffs 10/20 in Q15 block-rate → 0.66/0.72 ms). Emitted from the
+  `mbc-1band` experimental path since the guard was relaxed; LSP MBC accepts a
+  single enabled band with no split frequency and bands 1-7 disabled.
 - **398 profiles declare 3- or 4-band tunings but gate the compressor off**
   (`mbc_enable=0`). Dolby ships the coefficients anyway, so a future driver update
   that flips the enable bit would suddenly activate them. The N-band decoder
@@ -402,7 +403,7 @@ defensive-only paths and should be treated as implementation gaps):
 | Code path                                 | Current behaviour                                                        | Expanded-cohort check                                                              | Status                                                          |
 |-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | Unknown PEQ filter type (`ftype not in (1,3,4,6,7,8,9)`) | Warns "unknown PEQ filter type N, skipping" and drops the filter | No observed filter outside the supported set on the 1050-XML cohort            | Inert again — types 3/6/8 are now emitted (see §9); the warning remains as a guard against future driver releases adding new types |
-| 1-band MBC (`group_count < 2`)            | Early-returns without emitting any MBC plugin                           | 294 profiles enable MBC with `group_count=1` (§2)                                  | **Reachable** — would benefit from a degenerate single-band emission (follow-up work) |
+| 1-band MBC (`group_count=1`)              | Emits LSP `multiband_compressor` with band 0 active (no split frequency) and bands 1-7 disabled; `mbc-1band` experimental marker added to the end-of-run callout | 294 profiles enable MBC with `group_count=1` (§2), dominated by the `music` profile using 1-2:1 ratio with fast attack/release as a loudness maximiser | Experimental — reproduced from the Dolby tuning but not yet audibly validated. `--disable mbc` turns it off. |
 | Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 246/15551 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
 
 If a future driver release breaks any of the truly-inert assumptions, the script will
