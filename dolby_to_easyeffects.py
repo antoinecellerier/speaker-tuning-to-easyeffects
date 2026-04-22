@@ -646,7 +646,7 @@ def find_speaker_sinks() -> list[dict]:
 
 
 def write_autoload(autoload_dir: Path, device_name: str, device_description: str,
-                   device_profile: str, preset_name: str) -> Path:
+                   device_profile: str, preset_name: str, dry_run: bool = False) -> Path:
     """Write an EasyEffects autoload config file for a device/route → preset mapping.
 
     EasyEffects loads this file when the given PipeWire sink becomes the active
@@ -655,10 +655,12 @@ def write_autoload(autoload_dir: Path, device_name: str, device_description: str
     File is named '{device_name}:{device_profile}.json' (with '/' replaced by '_'),
     matching EasyEffects' AutoloadManager::getFilePath() convention.
     """
-    autoload_dir.mkdir(parents=True, exist_ok=True)
     safe_name = device_name.replace("/", "_")
     safe_profile = device_profile.replace("/", "_")
     path = autoload_dir / f"{safe_name}:{safe_profile}.json"
+    if dry_run:
+        return path
+    autoload_dir.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "device": device_name,
         "device-description": device_description,
@@ -1928,6 +1930,12 @@ def main():
         action="store_true",
         help="disable colored terminal output",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run without writing any files to disk (presets, IRs, autoload); "
+             "useful for debugging script execution and output",
+    )
     args = parser.parse_args()
     if args.no_color:
         _disable_color()
@@ -1956,8 +1964,11 @@ def main():
         list_endpoints(xml_path)
         return
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    args.irs_dir.mkdir(parents=True, exist_ok=True)
+    if args.dry_run:
+        cprint("head", "Dry run: no files will be written to disk.")
+    else:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        args.irs_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine which profiles to process
     if args.all_profiles:
@@ -2121,7 +2132,8 @@ def main():
 
             # Save stereo impulse response
             irs_path = args.irs_dir / f"{preset_name}.irs"
-            save_wav_stereo(irs_path, fir_left, fir_right)
+            if not args.dry_run:
+                save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
             preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
@@ -2133,12 +2145,14 @@ def main():
             for name in emitted:
                 filters_by_profile.setdefault(name, set()).add(profile_label)
             out_path = args.output_dir / f"{preset_name}.json"
-            out_path.write_text(json.dumps(preset, indent=4) + "\n")
+            if not args.dry_run:
+                out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
             all_preset_names.append(preset_name)
 
-            cprint("ok", f"Wrote {irs_path}")
-            cprint("ok", f"Wrote {out_path}")
+            verb = "Would write" if args.dry_run else "Wrote"
+            cprint("ok", f"{verb} {irs_path}")
+            cprint("ok", f"{verb} {out_path}")
             if convolver_gain != 0.0:
                 print(f"  Convolver output-gain: {convolver_gain:+.1f} dB "
                       f"(FIR peak was {peak_db:+.1f} dB, restoring 50%)")
@@ -2168,6 +2182,7 @@ def main():
             cprint("warn", "  Is PipeWire running? Try running the script while logged into your desktop session.")
         else:
             cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
+            verb = "Would write" if args.dry_run else "Wrote"
             for sink in sinks:
                 path = write_autoload(
                     args.autoload_dir,
@@ -2175,8 +2190,9 @@ def main():
                     sink["description"],
                     sink["profile"],
                     autoload_preset,
+                    dry_run=args.dry_run,
                 )
-                cprint("ok", f"  Wrote {path}")
+                cprint("ok", f"  {verb} {path}")
                 print(f"  Device: {sink['description']} ({sink['profile']})")
 
     # End-of-run troubleshooting hint. Only list filters that actually
