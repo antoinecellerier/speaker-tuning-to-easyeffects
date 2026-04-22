@@ -931,8 +931,11 @@ def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
     """
     # S-to-Q conversion for shelving filters:
     # Q = 1/sqrt((A + 1/A) * (1/S - 1) + 2) where A = 10^(gain/40)
-    # For S=1.0, this simplifies to Q ≈ 0.707 (Butterworth)
-    a = 10 ** (abs(gain) / 40.0) if gain != 0 else 1.0
+    # For S=1.0, this simplifies to Q ≈ 0.707 (Butterworth).
+    # The (A + 1/A) term is symmetric in A↔1/A, so the sign of gain
+    # doesn't affect Q — boost and cut shelves of equal magnitude
+    # share the same Q.
+    a = 10 ** (gain / 40.0) if gain != 0 else 1.0
     denom = (a + 1.0 / a) * (1.0 / s - 1.0) + 2.0
     q = 1.0 / math.sqrt(max(denom, 0.01))
     return {
