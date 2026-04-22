@@ -1957,9 +1957,15 @@ def main():
         profile_types = [args.profile]  # None means "first profile"
 
     all_preset_names = []
-    active_filters = set()
+    # filter name → set of profile labels that emitted it. Lets the
+    # end-of-run --disable hint say *which* profiles each suggestion
+    # actually touches, so a user autoloading one preset isn't misled
+    # into thinking a filter applies to them when it only runs in other
+    # profiles.
+    filters_by_profile: dict[str, set[str]] = {}
 
     for profile_type in profile_types:
+        profile_label = profile_type or "default"
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
         name_parts = [args.prefix]
@@ -2111,7 +2117,8 @@ def main():
                                           is_soundwire=is_soundwire,
                                           volmax_boost=volmax_boost,
                                           disabled=disabled)
-            active_filters.update(emitted)
+            for name in emitted:
+                filters_by_profile.setdefault(name, set()).add(profile_label)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
@@ -2162,7 +2169,8 @@ def main():
     # End-of-run troubleshooting hint. Only list filters that actually
     # got emitted this run — no point suggesting --disable for
     # something the user couldn't hear anyway.
-    shown = [k for k in DISABLEABLE_FILTERS if k in active_filters]
+    shown = [k for k in DISABLEABLE_FILTERS if k in filters_by_profile]
+    total_profiles = len(profile_types)
     if shown:
         cprint("head", f"\n{'=' * 60}")
         cprint("dim", "If anything sounds off on your hardware, you can rebuild")
@@ -2171,14 +2179,21 @@ def main():
         print()
         for name in shown:
             symptom, effect = DISABLEABLE_FILTERS[name]
+            using = sorted(filters_by_profile[name])
+            if total_profiles <= 1:
+                scope = ""
+            elif len(using) == total_profiles:
+                scope = "; used in all profiles"
+            else:
+                scope = f"; used in profiles: {', '.join(using)}"
             cprint("dim", f"  --disable {name:<14}  # if you hear: {symptom}")
-            cprint("dim", f"  {'':<24}    ({effect})")
+            cprint("dim", f"  {'':<24}    ({effect}{scope})")
         print()
         cprint("dim", "Flags are repeatable, e.g. --disable volmax --disable mbc.")
 
     experimental = [EXPERIMENTAL_MARKERS[k]
                     for k in EXPERIMENTAL_MARKERS
-                    if k in active_filters]
+                    if k in filters_by_profile]
     if experimental:
         print()
         cprint("dim", f"Experimental path(s) exercised: {', '.join(experimental)}")
