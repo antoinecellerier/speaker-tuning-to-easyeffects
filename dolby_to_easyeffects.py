@@ -462,6 +462,144 @@ def report_speaker_info():
     _print_speaker_info(info)
 
 
+def _resolve_driver_store(windows_root: Path) -> Path | None:
+    """Locate the DriverStore FileRepository for a given source directory.
+
+    Accepts either a Windows system root (e.g. ``C:\\Windows``), a drive-root
+    mount (e.g. ``C:\\`` — the function descends into a case-insensitive
+    ``Windows/`` child), or an already-extracted DriverStore directory that
+    contains ``dax3_ext_*.inf_*`` subdirectories directly.
+
+    Returns the directory to scan for ``dax3_ext_*.inf_*`` subdirs, or
+    ``None`` if ``windows_root`` does not match any recognised layout.
+    I/O errors (e.g. permission denied walking an inaccessible mount) are
+    swallowed and treated as "no match".
+    """
+    try:
+        file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
+        if file_repo.is_dir():
+            return file_repo
+        if not windows_root.is_dir():
+            return None
+        if any(windows_root.glob("dax3_ext_*.inf_*")):
+            return windows_root
+        for child in windows_root.iterdir():
+            if not child.is_dir() or child.name.lower() != "windows":
+                continue
+            nested = child / "System32" / "DriverStore" / "FileRepository"
+            if nested.is_dir():
+                return nested
+    except OSError:
+        return None
+    return None
+
+
+_NTFS_FAMILY_FSTYPES = frozenset({"ntfs", "ntfs3", "fuseblk"})
+
+
+def _unescape_proc_mount(s: str) -> str:
+    """Decode /proc/mounts octal escapes (\\040, \\011, \\012, \\134)."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), s)
+
+
+def _ntfs_family_mountpoints() -> list[Path]:
+    """Return mountpoints from /proc/mounts whose fstype can hold Windows."""
+    try:
+        data = Path("/proc/mounts").read_text()
+    except OSError:
+        return []
+    mounts: list[Path] = []
+    for line in data.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        _device, mountpoint, fstype = parts[0], parts[1], parts[2]
+        if fstype in _NTFS_FAMILY_FSTYPES:
+            mounts.append(Path(_unescape_proc_mount(mountpoint)))
+    return mounts
+
+
+def autoprobe_dolby_source() -> Path:
+    """Find a single Dolby tuning source without user input.
+
+    Tries, in order:
+
+    1. **Mount probe** — enumerate NTFS-family mountpoints from
+       ``/proc/mounts`` and keep any whose DriverStore contains at least one
+       ``dax3_ext_*.inf_*`` subdir.
+    2. **CWD probe** (only if the mount probe finds nothing) — shallow glob
+       of the current working directory for a parent containing
+       ``dax3_ext_*.inf_*``, matching the ``innoextract``-to-``./driver-cache``
+       workflow documented in the README.
+
+    Returns a path suitable for ``find_tuning_xml``. Raises
+    ``FileNotFoundError`` with a diagnostic if zero or multiple candidates
+    match; the caller should surface the message to the user.
+    """
+    mount_candidates: list[Path] = []
+    inspected_mounts = _ntfs_family_mountpoints()
+    for mp in inspected_mounts:
+        driver_store = _resolve_driver_store(mp)
+        if driver_store is None:
+            continue
+        try:
+            if any(driver_store.glob("dax3_ext_*.inf_*")):
+                mount_candidates.append(mp)
+        except OSError:
+            continue
+
+    cwd_candidates: list[Path] = []
+    cwd = Path.cwd()
+    if not mount_candidates:
+        seen: set[Path] = set()
+        for pattern in ("dax3_ext_*.inf_*", "*/dax3_ext_*.inf_*", "*/*/dax3_ext_*.inf_*"):
+            for match in cwd.glob(pattern):
+                if not match.is_dir():
+                    continue
+                rel = match.relative_to(cwd)
+                if any(part.startswith(".") for part in rel.parts):
+                    continue
+                parent = match.parent
+                if parent in seen:
+                    continue
+                seen.add(parent)
+                cwd_candidates.append(parent)
+
+    candidates = mount_candidates + cwd_candidates
+    if len(candidates) == 1:
+        winner = candidates[0]
+        if winner in mount_candidates:
+            cprint("ok", f"Auto-detected Windows mount: {winner}")
+        else:
+            cprint("ok", f"Auto-detected extracted DriverStore: {winner}")
+        return winner
+
+    if not candidates:
+        if inspected_mounts:
+            mount_desc = (
+                "no Dolby DriverStore found on mounted NTFS filesystems "
+                f"({', '.join(str(p) for p in inspected_mounts)})"
+            )
+        else:
+            mount_desc = "no NTFS-family filesystems mounted"
+        cwd_desc = (
+            f"no dax3_ext_*.inf_* directories found under {cwd} "
+            "(searched up to 2 levels deep)"
+        )
+        raise FileNotFoundError(
+            f"Auto-detection failed: {mount_desc}; {cwd_desc}. "
+            "Pass --windows DIR (e.g. a mounted Windows partition or an "
+            "extracted DriverStore) or a positional XML path explicitly."
+        )
+
+    listing = "\n".join(f"  - {p}" for p in candidates)
+    raise FileNotFoundError(
+        "Auto-detection found multiple possible Dolby sources:\n"
+        f"{listing}\n"
+        "Pass --windows DIR to pick one explicitly."
+    )
+
+
 def find_tuning_xml(windows_root: Path):
     """Find the DAX3 tuning XML matching this machine's audio hardware.
 
@@ -499,30 +637,9 @@ def find_tuning_xml(windows_root: Path):
     # SoundWire manufacturer+function pairs for matching
     sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
 
-    # Search DriverStore for DAX3 tuning XMLs.
-    # Accept either a Windows system root (needs the FileRepository subpath),
-    # the root of a mounted C: drive (a sibling Windows/ subdir contains the
-    # system root), or an already-extracted DriverStore directory containing
-    # dax3_ext_*.inf_* subdirectories directly.
-    file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
-    driver_store = None
-    if file_repo.is_dir():
-        driver_store = file_repo
-    elif windows_root.is_dir():
-        if any(windows_root.glob("dax3_ext_*.inf_*")):
-            driver_store = windows_root
-        else:
-            # Maybe the user passed the C:\ mount point instead of C:\Windows.
-            # Look for a case-insensitive "Windows" subdirectory with the
-            # expected DriverStore layout.
-            for child in windows_root.iterdir():
-                if not child.is_dir() or child.name.lower() != "windows":
-                    continue
-                nested = child / "System32" / "DriverStore" / "FileRepository"
-                if nested.is_dir():
-                    driver_store = nested
-                    break
+    driver_store = _resolve_driver_store(windows_root)
     if driver_store is None:
+        file_repo = windows_root / "System32" / "DriverStore" / "FileRepository"
         raise FileNotFoundError(
             f"DriverStore not found at {file_repo} and {windows_root} does not "
             f"contain dax3_ext_*.inf_* subdirectories. "
@@ -1967,7 +2084,9 @@ def main():
         metavar="DIR",
         help="path to a mounted Windows directory (e.g. /mnt/windows/Windows); "
              "auto-discovers the correct tuning XML by matching the audio "
-             "codec subsystem ID from /proc/asound",
+             "codec subsystem ID from /proc/asound. Omit this flag to let the "
+             "script probe /proc/mounts and the current directory for a "
+             "suitable source",
     )
     parser.add_argument(
         "--output-dir",
@@ -2081,7 +2200,12 @@ def main():
     elif args.xml_file:
         xml_path = args.xml_file
     else:
-        parser.error("either xml_file or --windows is required")
+        try:
+            windows_root = autoprobe_dolby_source()
+        except FileNotFoundError as err:
+            parser.error(str(err))
+        xml_path = find_tuning_xml(windows_root)
+        cprint("ok", f"Auto-detected: {xml_path}")
 
     xml_basename = Path(xml_path).name.upper()
     is_soundwire = "SOUNDWIRE" in xml_basename or xml_basename.startswith("SDW_")

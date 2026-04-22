@@ -17,24 +17,24 @@ If you test it on other hardware, please open an issue with your device model an
 
 1. Install dependencies (see [Dependencies](#dependencies) below for your distro). TL;DR: you need Python 3 with NumPy and SciPy.
 
-2. Run the script, pointing it at your Windows partition or a Dolby tuning XML:
+2. Run the script. If your Windows partition is mounted or a driver package is extracted in the current directory, no arguments are needed:
 
-   Auto-discover from a mounted Windows partition (matches your audio hardware):
    ```bash
-   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows
+   python3 dolby_to_easyeffects.py --autoload
    ```
 
-   Or specify the XML directly:
-   ```bash
-   python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml
-   ```
-3. Load a preset in EasyEffects: Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm
+   Or point it at the Windows directory or a tuning XML explicitly:
 
-The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/card*/codec*` and finds the matching tuning XML in the Windows DriverStore. If multiple versions exist, the newest is preferred.
+   ```bash
+   python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
+   python3 dolby_to_easyeffects.py path/to/DEV_0287_SUBSYS_*.xml --autoload
+   ```
+
+The `--autoload` option wires EasyEffects to apply the Dolby correction on your internal speaker automatically. Skip it if you'd rather select a preset yourself (Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm); see [Autoload](#autoload) for details.
 
 ### Options
 
-- `--windows DIR` — auto-discover tuning XML from a mounted Windows directory
+- `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
@@ -128,11 +128,16 @@ innoextract -I 'code$GetExtractPath$/Dolby/03_dax_ext' -d ./driver-cache ./n4ba1
 # 2. Rename to the layout --windows expects
 mv './driver-cache/code$GetExtractPath$/Dolby/03_dax_ext' ./driver-cache/dax3_ext_rtk.inf_extracted
 
-# 3. Generate presets
-python3 dolby_to_easyeffects.py --windows ./driver-cache
+# 3. Generate presets (autoprobe picks up ./driver-cache; pass --windows
+#    ./driver-cache explicitly if the autoprobe reports ambiguity)
+python3 dolby_to_easyeffects.py --autoload
 ```
 
 ## Auto-detection notes
+
+### Windows partition or extracted DriverStore
+
+Omitting `--windows` and the positional XML triggers the autoprobe. It enumerates NTFS-family mountpoints (`ntfs`, `ntfs3`, `fuseblk`) from `/proc/mounts` and keeps any whose DriverStore contains `dax3_ext_*.inf_*` subdirs — both full system roots like `/mnt/windows/Windows` and drive-root mounts like `/mnt/c` are accepted. If nothing mounted matches, it falls back to a shallow scan of the current directory for the same `dax3_ext_*.inf_*` marker, covering the `innoextract`-to-`./driver-cache` workflow above. A single unambiguous match is used; multiple matches (e.g. several Windows partitions mounted at once) fail with a listing so you can pick one via `--windows DIR`.
 
 ### Flatpak EasyEffects
 
