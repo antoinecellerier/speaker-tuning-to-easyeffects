@@ -466,10 +466,17 @@ def report_speaker_info():
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
 # (``DEV_..._SUBSYS_...``, ``SOUNDWIRE_..._SUBSYS_...``, ``SDW_..._SUBSYS_...``)
 # include ``SUBSYS_`` followed by exactly eight hex characters — highly
-# specific, essentially zero false-positive risk against unrelated XMLs. The
-# ``_settings.xml`` companion files that ship alongside are filtered out at
-# the call sites where this regex is used.
+# specific, essentially zero false-positive risk against unrelated XMLs.
+# Companion files with suffixes that share the filename pattern but do
+# *not* hold DAX3 playback tunings are filtered out at the call sites:
+#   ``_settings.xml`` — per-device simplified settings
+#   ``_dmic.xml`` / ``_amic.xml`` — Dolby Fusion (microphone AEC) tunings
+#                                   under ``fusion_ext_*`` and related dirs
 DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Fa-f]{8}.*\.xml$", re.IGNORECASE)
+
+# Filename-suffix exclusions applied at probe candidate sites. All lowercase;
+# compare against ``name.lower().endswith(...)``.
+_NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
 
 
 def _has_dolby_xml(directory: Path) -> bool:
@@ -477,7 +484,7 @@ def _has_dolby_xml(directory: Path) -> bool:
     try:
         for entry in directory.iterdir():
             name = entry.name
-            if name.lower().endswith("_settings.xml"):
+            if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
                 continue
             if entry.is_file() and DOLBY_FILENAME_RE.search(name):
                 return True
@@ -592,9 +599,9 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
             for entry in xml_dir.iterdir():
                 if not entry.is_file():
                     continue
-                name = entry.name.upper()
-                if name.endswith("_SETTINGS.XML"):
+                if entry.name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
                     continue
+                name = entry.name.upper()
                 if not DOLBY_FILENAME_RE.search(entry.name):
                     continue
                 for subsys in expected_subsys:
@@ -621,7 +628,7 @@ def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) 
         if depth >= max_depth:
             dirnames[:] = []
         for fn in filenames:
-            if fn.lower().endswith("_settings.xml"):
+            if fn.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
                 continue
             if DOLBY_FILENAME_RE.search(fn):
                 results.append(current)
@@ -790,7 +797,7 @@ def find_tuning_xml(windows_root: Path):
     candidates = []
     for dax_dir in xml_dirs:
         for xml_file in sorted(dax_dir.glob("*.[xX][mM][lL]")):
-            if xml_file.name.lower().endswith("_settings.xml"):
+            if xml_file.name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
                 continue
             name = xml_file.name.upper()
 
@@ -1072,6 +1079,21 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     root = tree.getroot()
     constant = root.find("constant")
 
+    if constant is None:
+        # Dolby Fusion (microphone AEC / noise-suppression) XMLs share the
+        # ``DEV_*_SUBSYS_*`` filename shape but carry a completely different
+        # schema — no ``<constant>``, no ``<endpoint>``. They ship under
+        # ``fusion_ext_*`` or ``ext_*_*/fusion/`` with ``_dmic.xml`` /
+        # ``_amic.xml`` suffixes. The probe filters them by suffix; this
+        # guard catches the case where the user passes one explicitly.
+        raise ValueError(
+            f"{path.name}: no <constant> element at XML root. This looks "
+            "like a Dolby Fusion (microphone AEC) tuning, not a DAX3 "
+            "playback tuning. Pick an XML without a '_dmic' / '_amic' "
+            "suffix — those live alongside the DAX3 tunings in the same "
+            "driver package but are for mic processing only."
+        )
+
     freqs = parse_csv_ints(constant.find("band_20_freq").get("fs_48000"))
 
     curves = {}
@@ -1083,9 +1105,15 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
     )
     if endpoint is None:
+        available = sorted({
+            f"{ep.get('type')}/{ep.get('operating_mode')}"
+            for ep in root.findall(".//endpoint")
+        })
+        available_str = ", ".join(available) if available else "(none)"
         raise ValueError(
             f"Endpoint type='{endpoint_type}' operating_mode='{operating_mode}' "
-            f"not found. Use --list to see available endpoints."
+            f"not found. Available endpoint/mode pairs: {available_str}. "
+            f"Pass --endpoint TYPE --mode MODE to pick one."
         )
 
     # Select the profile for vlldp settings (AO, PEQ, MB compressor)
