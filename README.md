@@ -37,7 +37,7 @@ The `--windows` option reads the audio codec's subsystem ID from `/proc/asound/c
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
-- `--mode MODE` — endpoint operating mode (default: `normal`)
+- `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
 - `--all-profiles` — generate presets for all profiles in the selected endpoint/mode (9 profiles × 3 IEQ curves = 27 presets)
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
@@ -151,7 +151,7 @@ Each preset contains up to eight plugins chained in order:
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Stereo Tools** — stereo widening via Mid/Side balance (Calf Stereo Tools), mapped from Dolby's surround-boost; enabled on dynamic/movie profiles
-3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, low-shelves) per channel from the vlldp section
+3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, shelves, and HP/LP) per channel from the vlldp section
 4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
 5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
 6. **Multiband Compressor** — multi-band dynamics processing mapped from Dolby's `mb-compressor-tuning` coefficients; emits 1 to 4 bands based on the XML's `group_count` (dominated by 2-band tunings in the wild, but 3- and 4-band tunings — including voice-profile speech compression and music-profile per-band makeup — are also supported)
