@@ -1372,10 +1372,8 @@ def make_regulator(regulator, freqs, volmax_boost=0.0):
         mean softer knee to preserve spectral shape. Mapped to
         knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
 
-    volmax_boost is applied as output-gain: a static approximation of
-    Dolby's VolMax ceiling, which sits downstream of the per-band
-    regulator in the real VLLDP pipeline. The brick-wall limiter#0
-    catches any post-boost overshoot.
+    volmax_boost is applied as `output-gain`; see `make_preset` for how
+    that interacts with the rest of the chain.
     """
     if not regulator:
         return None
@@ -1571,11 +1569,41 @@ def make_limiter(input_gain=0.0):
     }
 
 
+# Single source of truth for the --disable flag. Adding a new entry here
+# automatically extends the argparse choices and the end-of-run hint
+# block; each emission branch in `make_preset` is responsible for
+# recording its name into the returned `emitted` set when it actually
+# runs, so there is no separate plugin-key → name map to keep in sync.
+DISABLEABLE_FILTERS = {
+    "volmax": ("too loud, pumping/squash on loud content",
+               "drops the +volmax-boost static loudness gain"),
+    "mbc": ("compressed or \"squashed\" character",
+            "drops the 2-band Dolby compressor"),
+    "regulator": ("unusual spectral pumping or narrow-band breathing",
+                  "drops the per-band limiter"),
+    "bass-enhancer": ("bass sounds artificial/distorted (SoundWire only)",
+                      "drops the harmonic bass generator"),
+    "dialog": ("vocals over-boosted or harsh in the presence region",
+               "drops the 2.5 kHz speech-band EQ"),
+    "stereo": ("phasey or hollow stereo image",
+               "drops the surround widener"),
+}
+
+
 def make_preset(kernel_name, peq_filters, vol_leveler=None,
                 dialog_enhancer=None, surround=None, mb_comp=None,
                 regulator=None, freqs=None, convolver_gain=0.0,
                 is_soundwire=False, volmax_boost=0.0, disabled=None):
+    """Build a preset dict.
+
+    Returns (preset, emitted) where emitted is the set of
+    DISABLEABLE_FILTERS names that actually ran in this invocation —
+    i.e. those the user could meaningfully --disable on a rerun.
+    Tracked inline with each emission branch so the set can't drift
+    from what is in the returned dict.
+    """
     disabled = disabled or set()
+    emitted = set()
     preset = {
         "output": {
             "blocklist": [],
@@ -1592,6 +1620,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
         hp_freq = hp_filters[0]["f0"] if hp_filters else 100.0
         preset["output"]["bass_enhancer#0"] = make_bass_enhancer(hp_freq)
         preset["output"]["plugins_order"].append("bass_enhancer#0")
+        emitted.add("bass-enhancer")
 
     # Stereo widening early in chain (before EQ changes the spectrum)
     if "stereo" not in disabled:
@@ -1599,6 +1628,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
         if st:
             preset["output"]["stereo_tools#0"] = st
             preset["output"]["plugins_order"].append("stereo_tools#0")
+            emitted.add("stereo")
 
     peq = make_peq_eq(peq_filters)
     if peq:
@@ -1612,6 +1642,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
         if de:
             preset["output"]["equalizer#1"] = de
             preset["output"]["plugins_order"].append("equalizer#1")
+            emitted.add("dialog")
 
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
@@ -1626,6 +1657,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
         if mbc:
             preset["output"]["multiband_compressor#0"] = mbc
             preset["output"]["plugins_order"].append("multiband_compressor#0")
+            emitted.add("mbc")
 
     # volmax-boost injection: regulator output-gain is the primary slot
     # (matches Dolby VolMax topology). If the regulator is disabled or
@@ -1638,15 +1670,19 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
+        emitted.add("regulator")
         limiter_boost = 0.0
     else:
         limiter_boost = apply_volmax
+
+    if apply_volmax > 0:
+        emitted.add("volmax")
 
     # Brickwall limiter at the end as a safety net
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
     preset["output"]["plugins_order"].append("limiter#0")
 
-    return preset
+    return preset, emitted
 
 
 def main():
@@ -1736,10 +1772,10 @@ def main():
         "--disable",
         action="append",
         default=[],
-        choices=["volmax", "mbc", "regulator", "bass-enhancer", "dialog", "stereo"],
+        choices=list(DISABLEABLE_FILTERS),
         metavar="NAME",
         help="drop a filter from the generated preset (repeatable). "
-             "Valid names: volmax, mbc, regulator, bass-enhancer, dialog, stereo. "
+             f"Valid names: {', '.join(DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
     )
@@ -1811,21 +1847,6 @@ def main():
             profile_type=profile_type,
         )
 
-        # Track which --disable'able filters actually ended up in at
-        # least one emitted preset so we can tailor the end-of-run hint.
-        if volmax_boost > 0 and "volmax" not in disabled:
-            active_filters.add("volmax")
-        if mb_comp and "mbc" not in disabled:
-            active_filters.add("mbc")
-        if regulator and "regulator" not in disabled:
-            active_filters.add("regulator")
-        if is_soundwire and "bass-enhancer" not in disabled:
-            active_filters.add("bass-enhancer")
-        if dialog_enhancer and "dialog" not in disabled:
-            active_filters.add("dialog")
-        if surround and surround.get("boost", 0) > 0 and "stereo" not in disabled:
-            active_filters.add("stereo")
-
         scale = ieq_amount / 10.0
         print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
 
@@ -1888,7 +1909,9 @@ def main():
             print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
             print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
 
-        if "volmax" in disabled:
+        if volmax_boost <= 0:
+            slot = "value is 0, no boost to apply"
+        elif "volmax" in disabled:
             slot = "disabled via --disable volmax"
         elif regulator and "regulator" not in disabled:
             slot = "applied as regulator output-gain"
@@ -1932,12 +1955,13 @@ def main():
             save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
-            preset = make_preset(preset_name, peq_filters, vol_leveler,
-                                 dialog_enhancer, surround, mb_comp, regulator,
-                                 freqs, convolver_gain=convolver_gain,
-                                 is_soundwire=is_soundwire,
-                                 volmax_boost=volmax_boost,
-                                 disabled=disabled)
+            preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
+                                          dialog_enhancer, surround, mb_comp, regulator,
+                                          freqs, convolver_gain=convolver_gain,
+                                          is_soundwire=is_soundwire,
+                                          volmax_boost=volmax_boost,
+                                          disabled=disabled)
+            active_filters.update(emitted)
             out_path = args.output_dir / f"{preset_name}.json"
             out_path.write_text(json.dumps(preset, indent=4) + "\n")
 
@@ -1988,21 +2012,7 @@ def main():
     # End-of-run troubleshooting hint. Only list filters that actually
     # got emitted this run — no point suggesting --disable for
     # something the user couldn't hear anyway.
-    hints = {
-        "volmax": ("too loud, pumping/squash on loud content",
-                   "drops the +volmax-boost static loudness gain"),
-        "mbc": ("compressed or \"squashed\" character",
-                "drops the 2-band Dolby compressor"),
-        "regulator": ("unusual spectral pumping or narrow-band breathing",
-                      "drops the per-band limiter"),
-        "bass-enhancer": ("bass sounds artificial/distorted (SoundWire only)",
-                          "drops the harmonic bass generator"),
-        "dialog": ("vocals over-boosted or harsh in the presence region",
-                   "drops the 2.5 kHz speech-band EQ"),
-        "stereo": ("phasey or hollow stereo image",
-                   "drops the surround widener"),
-    }
-    shown = [k for k in hints if k in active_filters]
+    shown = [k for k in DISABLEABLE_FILTERS if k in active_filters]
     if shown:
         print(f"\n{'=' * 60}")
         print("If anything sounds off on your hardware, you can rebuild")
@@ -2010,7 +2020,7 @@ def main():
         print("EasyEffects. Re-run adding one or more of:")
         print()
         for name in shown:
-            symptom, effect = hints[name]
+            symptom, effect = DISABLEABLE_FILTERS[name]
             print(f"  --disable {name:<14}  # if you hear: {symptom}")
             print(f"  {'':<24}    ({effect})")
         print()
