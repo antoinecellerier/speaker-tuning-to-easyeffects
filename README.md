@@ -80,23 +80,23 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 ### Dependencies
 
-The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects.
+The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) is optional — if installed, the script renders its output with semantic colors; without it, output is plain monochrome and everything else still works.
 
 Install on your distro:
 
-- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy`
-- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy`
-- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy`
-- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy`
-- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy`
-- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy ])"`
+- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich`
+- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich`
+- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich`
+- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich`
+- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich`
+- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich ])"`
 
 If your distro isn't listed or you'd rather not touch system packages, a venv works too:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install numpy scipy
+pip install numpy scipy rich
 ```
 
 ## Extracting the XML

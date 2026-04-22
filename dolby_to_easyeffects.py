@@ -26,12 +26,44 @@ import json
 import math
 import re
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
+
+try:
+    from rich.console import Console
+    from rich.theme import Theme
+    _CONSOLE = Console(
+        theme=Theme({
+            "err":  "bold red",
+            "head": "bold cyan",
+            "ok":   "green",
+            "warn": "yellow",
+            "cta":  "bold magenta",
+            "dim":  "dim",
+        }),
+        markup=False,
+        highlight=False,
+    )
+except ImportError:
+    _CONSOLE = None
+
+
+def cprint(style: str, text: str = "") -> None:
+    """Print `text` in the given semantic style, or plain if rich is absent."""
+    if _CONSOLE is None:
+        print(text)
+        return
+    _CONSOLE.print(text, style=style)
+
+
+def _disable_color() -> None:
+    global _CONSOLE
+    _CONSOLE = None
 
 _FLATPAK_BASE = Path.home() / ".var" / "app" / "com.github.wwmm.easyeffects" / "config" / "easyeffects"
 _NATIVE_BASE = Path.home() / ".local" / "share" / "easyeffects"
@@ -373,7 +405,7 @@ def _print_speaker_info(info: SpeakerInfo):
     sections.append(("Speaker layout estimate", [f"  {info.layout_summary}"]))
 
     for title, lines in sections:
-        print(f"=== {title} ===")
+        cprint("head", f"=== {title} ===")
         print("\n".join(lines))
         print()
 
@@ -509,7 +541,7 @@ def find_tuning_xml(windows_root: Path):
             return version
 
         candidates.sort(key=xml_sort_key, reverse=True)
-        print(f"Multiple matching XMLs found, using highest tuning version:")
+        cprint("head", "Multiple matching XMLs found, using highest tuning version:")
         for c in candidates:
             try:
                 root = ET.parse(c).getroot()
@@ -517,10 +549,12 @@ def find_tuning_xml(windows_root: Path):
                 ver = tv.get("value", "?") if tv is not None else "?"
             except ET.ParseError:
                 ver = "?"
-            marker = "→ " if c == candidates[0] else "  "
-            print(f"  {marker}{c} (tuning_version={ver})")
+            if c == candidates[0]:
+                cprint("ok", f"  → {c} (tuning_version={ver})")
+            else:
+                print(f"    {c} (tuning_version={ver})")
     else:
-        print(f"Matched tuning XML: {candidates[0]}")
+        cprint("ok", f"Matched tuning XML: {candidates[0]}")
 
     return candidates[0]
 
@@ -702,7 +736,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 continue
             ftype = int(f.get("type"))
             if ftype not in (1, 3, 4, 6, 7, 8, 9):
-                print(f"  Warning: unknown PEQ filter type {ftype}, skipping")
+                cprint("warn", f"  Warning: unknown PEQ filter type {ftype}, skipping")
                 continue
             peq_filters.append({
                 "speaker": int(f.get("speaker")),
@@ -1867,7 +1901,14 @@ def main():
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
     )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored terminal output",
+    )
     args = parser.parse_args()
+    if args.no_color:
+        _disable_color()
     disabled = set(args.disable)
 
     if args.speaker_info:
@@ -1879,7 +1920,7 @@ def main():
         parser.error("specify either xml_file or --windows, not both")
     elif args.windows:
         xml_path = find_tuning_xml(args.windows)
-        print(f"Auto-detected: {xml_path}")
+        cprint("ok", f"Auto-detected: {xml_path}")
     elif args.xml_file:
         xml_path = args.xml_file
     else:
@@ -1889,7 +1930,7 @@ def main():
     is_soundwire = "SOUNDWIRE" in xml_basename or xml_basename.startswith("SDW_")
 
     if args.list:
-        print(f"Endpoints and profiles in {xml_path}:")
+        cprint("head", f"Endpoints and profiles in {xml_path}:")
         list_endpoints(xml_path)
         return
 
@@ -1900,9 +1941,9 @@ def main():
     if args.all_profiles:
         profile_types = get_profile_types(xml_path, args.endpoint, args.mode)
         if not profile_types:
-            print(f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
+            cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
             return
-        print(f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
+        cprint("head", f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
     else:
         profile_types = [args.profile]  # None means "first profile"
 
@@ -1918,13 +1959,13 @@ def main():
         if profile_type or args.all_profiles:
             safe_profile = sanitize_profile_type(profile_type or "default")
             if profile_type and safe_profile != profile_type:
-                print(f"Warning: sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
+                cprint("warn", f"Warning: sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
             name_parts.append(safe_profile.title())
         name_base = "-".join(name_parts)
 
-        print(f"\n{'='*60}")
+        cprint("head", f"\n{'='*60}")
         if is_soundwire:
-            print(f"SoundWire device detected — using enhanced preset generation")
+            cprint("head", "SoundWire device detected — using enhanced preset generation")
         print(f"Endpoint: {args.endpoint} (mode={args.mode})")
         print(f"Profile: {profile_type or '(first)'}")
 
@@ -2028,7 +2069,7 @@ def main():
 
         for preset_name, curve_key in ieq_presets.items():
             if curve_key not in curves:
-                print(f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+                cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
                 continue
 
             gains_raw = curves[curve_key]
@@ -2067,8 +2108,8 @@ def main():
 
             all_preset_names.append(preset_name)
 
-            print(f"Wrote {irs_path}")
-            print(f"Wrote {out_path}")
+            cprint("ok", f"Wrote {irs_path}")
+            cprint("ok", f"Wrote {out_path}")
             if convolver_gain != 0.0:
                 print(f"  Convolver output-gain: {convolver_gain:+.1f} dB "
                       f"(FIR peak was {peak_db:+.1f} dB, restoring 50%)")
@@ -2081,10 +2122,10 @@ def main():
             H = np.fft.rfft(fir_left, n=FIR_LENGTH)
             fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
             mag_db = 20.0 * np.log10(np.abs(H) + 1e-12)
-            print(f"\n  FIR verification (left, normalized to peak=0):")
+            cprint("dim", f"\n  FIR verification (left, normalized to peak=0):")
             for i, f in enumerate(freqs):
                 idx = np.argmin(np.abs(fft_freqs - f))
-                print(f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
+                cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
                       f"actual: {mag_db[idx]:+6.1f}  "
                       f"error: {mag_db[idx] - (combined_left[i] - np.max(combined_left)):+5.2f}")
             print()
@@ -2094,10 +2135,10 @@ def main():
         autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
         sinks = find_speaker_sinks()
         if not sinks:
-            print("Warning: no speaker sinks found via pw-dump; cannot configure autoload.")
-            print("  Is PipeWire running? Try running the script while logged into your desktop session.")
+            cprint("warn", "Warning: no speaker sinks found via pw-dump; cannot configure autoload.")
+            cprint("warn", "  Is PipeWire running? Try running the script while logged into your desktop session.")
         else:
-            print(f"\nConfiguring autoload → '{autoload_preset}':")
+            cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
             for sink in sinks:
                 path = write_autoload(
                     args.autoload_dir,
@@ -2106,7 +2147,7 @@ def main():
                     sink["profile"],
                     autoload_preset,
                 )
-                print(f"  Wrote {path}")
+                cprint("ok", f"  Wrote {path}")
                 print(f"  Device: {sink['description']} ({sink['profile']})")
 
     # End-of-run troubleshooting hint. Only list filters that actually
@@ -2114,32 +2155,36 @@ def main():
     # something the user couldn't hear anyway.
     shown = [k for k in DISABLEABLE_FILTERS if k in active_filters]
     if shown:
-        print(f"\n{'=' * 60}")
-        print("If anything sounds off on your hardware, you can rebuild")
-        print("without specific filters instead of editing the chain in")
-        print("EasyEffects. Re-run adding one or more of:")
+        cprint("head", f"\n{'=' * 60}")
+        cprint("dim", "If anything sounds off on your hardware, you can rebuild")
+        cprint("dim", "without specific filters instead of editing the chain in")
+        cprint("dim", "EasyEffects. Re-run adding one or more of:")
         print()
         for name in shown:
             symptom, effect = DISABLEABLE_FILTERS[name]
-            print(f"  --disable {name:<14}  # if you hear: {symptom}")
-            print(f"  {'':<24}    ({effect})")
+            cprint("dim", f"  --disable {name:<14}  # if you hear: {symptom}")
+            cprint("dim", f"  {'':<24}    ({effect})")
         print()
-        print("Flags are repeatable, e.g. --disable volmax --disable mbc.")
+        cprint("dim", "Flags are repeatable, e.g. --disable volmax --disable mbc.")
 
     experimental = [EXPERIMENTAL_MARKERS[k]
                     for k in EXPERIMENTAL_MARKERS
                     if k in active_filters]
     if experimental:
         print()
-        print(f"Experimental path(s) exercised: {', '.join(experimental)}")
-        print("These emissions are reproduced directly from the Dolby tuning and")
-        print("verified numerically, but have not yet been audibly validated by")
-        print("a user with an affected device. Feedback is especially helpful.")
+        cprint("dim", f"Experimental path(s) exercised: {', '.join(experimental)}")
+        cprint("dim", "These emissions are reproduced directly from the Dolby tuning and")
+        cprint("dim", "verified numerically, but have not yet been audibly validated by")
+        cprint("cta", "a user with an affected device. Feedback is especially helpful.")
 
     print()
-    print("How does it sound? Please report back (good or bad) at")
-    print("  https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues")
+    cprint("cta", "How does it sound? Please report back (good or bad) at")
+    cprint("cta", "  https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        cprint("err", f"Error: {e}")
+        sys.exit(1)
