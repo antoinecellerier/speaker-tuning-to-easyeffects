@@ -291,6 +291,42 @@ autogain by default — see `docs/design-notes.md` for the full rationale.
 
 ---
 
+## 12. Defensive paths verified inert against the corpus
+
+Dolby's XML schema permits more variation than any shipping device exhibits.
+The parser includes defensive handling for several of these cases, but none of
+them currently fire on the observed corpus (audited 2026-04-22, 372 XMLs across
+`dax3_ext_rtk` plus the IdeaPad-3-17ABA7 sub-corpus). Listed here so future
+readers know the defensive code is intentional — and what would have to change
+in the wild for each path to become reachable.
+
+| Code path                                 | Defensive behaviour                                                     | Corpus check                                                                       | Trigger condition                                              |
+|-------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| Default profile (no `--profile` flag)     | `parse_xml` picks `endpoint.find("profile")` (first child)              | 217/217 internal_speaker/normal endpoints have `dynamic` first                     | XML where `off` or another no-op profile precedes `dynamic`    |
+| Asymmetric L/R PEQ filter counts          | Missing-channel HP slot fills with 100 Hz/24 dB-oct HP, bell slot with flat 1 kHz bell | 1440 PEQ profiles → 0 with asymmetric HP counts; 1 with any L/R filter-count diff | Per-driver tuning where one channel has filters the other lacks |
+| Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | 509 profiles with positive PEQ gain → 0 with L≠R peak                              | Per-channel boost values diverging                             |
+| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting), volmax still routes via regulator | 0 regulator-enabled profiles with missing/empty inline threshold and no `preset=` ref | Hand-edited XML or future driver release with broken regulator tuning |
+| Shelf filter with explicit `q` attribute  | Output-gain compensation now uses full shelf gain (commit `c505864`)    | 192 type-4 shelf filters → 0 with explicit `q`                                     | Driver release that adds `q` to a shelf — previously silently under-compensated |
+| `is_soundwire` filename detection         | Falls back to HDA mode (no bass enhancer, no convolver headroom restore) | All matched XMLs in the corpus have `SOUNDWIRE_…` or `SDW_…` filenames intact      | User manually renames a SoundWire XML before passing it in     |
+| `make_multiband_compressor` 5+ band cap   | `min(group_count, 8)` enforced                                          | Max observed `group_count` = 4 (Dolby schema only allocates `band_group_0..3`)     | Dolby schema extension                                         |
+
+If a future driver release breaks any of these assumptions, the script will
+silently produce a degraded preset rather than crash. The corpus audit is
+reproducible with the python snippets in the message body of commit `07612e9`
+(MBC band counts) and via the H2/M2/L1 snippets in this file's git history.
+
+Two "by-design" behaviours that look like bugs but aren't:
+
+- The SoundWire convolver applies `peak_db * 0.5` as `output-gain`, intentionally
+  letting peak frequencies exceed 0 dBFS so the brick-wall limiter shapes them
+  back. Restores half of the headroom that pure peak-normalisation would lose
+  for the IEQ-only (no-AO) curve.
+- The PEQ output-gain compensation deliberately ignores high-pass and negative-gain
+  filters: HP slots reduce headroom requirements (cuts only), and shelves/bells
+  with negative gain don't add headroom pressure.
+
+---
+
 ## Interesting observations
 
 1. **No Intel Fusion devices found** — the `fusion_ext_intel` driver package shares
