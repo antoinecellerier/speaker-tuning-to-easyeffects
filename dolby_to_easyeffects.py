@@ -1981,8 +1981,8 @@ def main():
         cprint("head", f"\n{'='*60}")
         if is_soundwire:
             cprint("head", "SoundWire device detected — using enhanced preset generation")
-        print(f"Endpoint: {args.endpoint} (mode={args.mode})")
-        print(f"Profile: {profile_type or '(first)'}")
+        cprint("head", f"Endpoint: {args.endpoint} (mode={args.mode})")
+        cprint("head", f"Profile: {profile_type or '(first)'}")
 
         freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost = parse_xml(
             xml_path,
