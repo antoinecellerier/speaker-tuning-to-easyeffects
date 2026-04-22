@@ -2,11 +2,17 @@
 
 > Interpretive analysis of the parameter schema used by Dolby DAX3 tuning XML (distributed publicly as part of Windows audio driver packages), for the purpose of Linux interoperability. No verbatim tuning arrays are reproduced.
 
-Cohort-level analysis of **196 DAX3 tuning files** spanning **3 Realtek codec variants**
+The original cohort was **196 DAX3 tuning files** spanning **3 Realtek codec variants**
 (ALC257, ALC285, ALC287) found in the `dax3_ext_rtk` and `fusion_ext_intel` driver
-packages. The README documents how the script handles one specific device; this doc
-captures what's universal across the ecosystem and what varies from device to device,
-so readers can judge which parts of the pipeline are portable and which are tuned.
+packages. A 2026-04-22 expansion pulled in four more Lenovo audio-driver packages
+(`ext_lenovo_AIO_rtk`, `ext_thinkpad_AIO_rtk`, `ext_capg_thinkpad`,
+`ext_amd_thinkpad_AIO`) for a total of **1050 tuning XMLs / 15551 profile rows**
+spanning **9 Realtek codec variants plus SoundWire**. The README documents how the
+script handles one specific device; this doc captures what's universal across the
+ecosystem and what varies from device to device, so readers can judge which parts
+of the pipeline are portable and which are tuned.
+
+Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):
 
 | Codec  | Devices | MBC enabled | MBC disabled |
 |--------|---------|-------------|--------------|
@@ -14,9 +20,24 @@ so readers can judge which parts of the pipeline are portable and which are tune
 | ALC285 | 27      | 0 (0%)      | 14 (52%)     |
 | ALC287 | 81      | 4 (5%)      | 63 (78%)     |
 
-> All files live under two driver packages: `dax3_ext_rtk` (Realtek, 196 files) and
-> `fusion_ext_intel` (Intel, 67 files sharing the same XMLs). All endpoint types are
-> `internal_speaker` — no headphone or external tunings.
+Expanded 1050-XML cohort — XML count per codec (not dynamic-profile count):
+
+| Codec family          | XMLs | Notes                                           |
+|-----------------------|------|-------------------------------------------------|
+| ALC257 (DEV_0257)     | 605  | Dominant, mostly Lenovo AIO-RTK package         |
+| ALC287 (DEV_0287)     | 221  | Primary ThinkPad codec; dev-device family       |
+| ALC235 (DEV_0235)     |  92  | New vs original cohort                          |
+| ALC256 (DEV_0256)     |  37  | New                                             |
+| ALC274 (DEV_0274)     |  26  | New — source of the rare PEQ type-6/8 filters   |
+| ALC285 (DEV_0285)     |  26  | Same as original                                |
+| ALC230 (DEV_0230)     |  24  | New                                             |
+| SoundWire (`MAN_025D`)|  10  | New — includes one `SDW_` prefix variant        |
+| ALC298/0887/0892/0897 |   9  | New, low count — desktop-style AIO codecs       |
+
+> All files live under `internal_speaker` endpoints — no headphone or external
+> tunings in either cohort. The new packages introduce non-`normal` operating modes
+> (tablet/stand/tent/lid_close/etc., see §13) that the original 196-XML cohort did
+> not exercise.
 
 ---
 
@@ -39,7 +60,7 @@ These parameters are **identical across every device and profile** examined:
 | `postgain` (CP & VLLDP)            | 0                  | Always zero                        |
 | `system-gain`                      | 0                  | Always zero                        |
 | `calibration-boost`                | 0                  | Always zero                        |
-| `dialog-enhancer-ducking`          | 0                  | Always zero                        |
+| `dialog-enhancer-ducking`          | 0 (mostly)         | 98% of rows; 246/15551 are non-zero (8 or 6) in the expanded cohort — not universal |
 | `regulator-overdrive`              | 0                  | Always zero                        |
 | `peak-level`                       | 0                  | Zero on all but 1 device (−0.2 dB) |
 | IEQ curve preset                   | `ieq_balanced`     | Only curve used anywhere           |
@@ -69,27 +90,38 @@ maximisation on premium speakers, not as a universal safety feature.
 
 ### Band-count distribution (MBC-enabled profiles)
 
-A later audit across 372 XMLs (`dax3_ext_rtk` plus the IdeaPad-3-17ABA7 sub-corpus):
+Expanded 1050-XML cohort, across all profiles where `mb-compressor-enable=1`:
 
-| `group_count` | MBC-enabled profiles |
-|---------------|----------------------|
-| 2             | 212                  |
-| 3             | 5                    |
-| 4             | 4                    |
+| `group_count` | Enabled profiles | Disabled profiles   |
+|---------------|------------------|---------------------|
+| 1             |  294             | 9550                |
+| 2             |  561             |  272                |
+| 3             |  175             |  212                |
+| 4             |  121             |  186                |
 
-Plus 51 profiles defining 3- or 4-band tunings with the compressor currently disabled
-(i.e. Dolby has shipped the coefficients but gates the stage off). Examples reached by
-the N-band path:
+Two noteworthy wrinkles the old 2-band decoder masked:
 
-- **voice profile, 3-band**: bands 1 (1313–7125 Hz) and 2 (7125+ Hz) both at 2:1 above
-  −12/−18 dBFS with +6/+9 dB makeup — speech-band compression the 2-band-capped
+- **294 profiles enable MBC with `group_count=1`** — single-band, full-spectrum
+  dynamics. The script's current `group_count < 2` guard drops these, emitting no
+  dynamics stage at all. Not a regression (the guard predates the N-band work), but
+  a likely follow-up: route 1-band tunings through the LSP MBC as a degenerate
+  single-band compressor.
+- **398 profiles declare 3- or 4-band tunings but gate the compressor off**
+  (`mbc_enable=0`). Dolby ships the coefficients anyway, so a future driver update
+  that flips the enable bit would suddenly activate them. The N-band decoder
+  handles this transparently; prior to commit `07612e9` it would have silently
+  dropped bands above index 1.
+
+Concrete examples reached by the N-band path:
+
+- **voice profile, 3-band**: bands 1 (1313–7125 Hz) and 2 (7125+ Hz) both at 2:1
+  above −12/−18 dBFS with +6/+9 dB makeup — speech-band compression the 2-band-capped
   decoder previously dropped.
 - **music profile, 4-band**: all bands at 1:1 with per-band makeup ranging +1.2 to
   +2.9 dB — used as a 4-band makeup stage, not as a compressor.
 
-The decoder was 2-band-only until commit `07612e9`, which would have silently dropped
-bands above index 1 on these profiles. It now emits all `group_count` bands (capped at
-LSP MBC's 8-band ceiling).
+The decoder was 2-band-only until commit `07612e9`. It now emits `group_count` bands
+(capped at LSP MBC's 8-band ceiling).
 
 ### Compressor ratio diversity
 
@@ -247,41 +279,66 @@ that has one.
 
 ## 9. PEQ filters — mostly simple, occasionally complex
 
-Of 196 devices on the `dynamic` profile:
+Across the expanded 1050-XML cohort (raw filter counts, all speakers, all profiles —
+not the de-duplicated-per-device view of the original audit):
 
-- **153** have PEQ filters
-- Most have **1–2 filters per speaker** (typically a high-pass + one bell)
-- **2 devices** have **5 filters per speaker** (the most complex)
-- **4 unique filter types** are used:
+| Type | Description                          | Count (1050 cohort) | Script support          |
+|------|--------------------------------------|---------------------|-------------------------|
+| 1    | Bell/peaking EQ                      | 15432               | ✅ Yes                  |
+| 9    | High-pass (with order)               |  3088               | ✅ Yes                  |
+| 3    | **High-shelf** (with S parameter)    |  1754               | ❌ No — warned as unknown |
+| 7    | High-pass variant (with order)       |  1016               | ✅ Yes                  |
+| 4    | Low-shelf (with S parameter)         |   192               | ✅ Yes                  |
+| 8    | Low-pass variant (with order)        |    22               | ❌ No — warned as unknown |
+| 6    | Low-pass (with order)                |    10               | ❌ No — warned as unknown |
 
-| Type | Description                       | Count      | Script support |
-|------|-----------------------------------|------------|----------------|
-| 1    | Bell/peaking EQ                   | majority   | ✅ Yes         |
-| 9    | High-pass (with order)            | common     | ✅ Yes         |
-| 4    | Low-shelf (with S parameter)      | 4 filters  | ✅ Yes         |
-| 7    | High-pass variant (with order)    | 8 filters  | ✅ Yes         |
+In the original 196-XML audit only types 1/4/7/9 were observed. The expanded cohort
+surfaces three previously-unseen types:
 
-### Type 4 — low-shelf filter
+### Type 3 — high-shelf filter (not yet supported)
 
 ```xml
-<filter speaker="0" enabled="1" type="4" f0="600" gain="2.000000" s="1.000000"/>
+<filter speaker="0" enabled="1" type="3" f0="2700" gain="2.000000" s="1.000000"/>
 ```
 
-Uses frequency, gain, and **slope (S)** parameter instead of Q. The script maps it to
-EasyEffects `"type": "Lo-shelf"` with Q derived from S via the standard audio shelf
-formula.
+Same parameter shape as type 4 (`f0`/`gain`/`s`) but mirrored — gains are strictly
+non-negative (range 0 to +15 dB across the corpus, no cut variants seen), and the
+inflection is above `f0` rather than below. Present in **32 distinct XMLs** (1754
+filters), centred around 2.7 kHz with +2 to +5 dB presence lift. The script currently
+logs "unknown PEQ filter type 3, skipping" and drops them — affected devices lose
+their intended high-frequency shelf.
 
-### Type 7 — high-pass (Butterworth-style)
+### Types 6 and 8 — low-pass variants (not yet supported)
 
 ```xml
+<filter speaker="0" enabled="1" type="6" f0="8000" order="4"/>
+<filter speaker="0" enabled="1" type="8" f0="19500" order="8"/>
+```
+
+Same shape as types 7/9 (`f0`/`order`, no gain) but with the implicit direction
+flipped — type 6 appears at 8–10 kHz with order 4 (tweeter-guard rolloff on some
+ALC274 Lenovo laptops), type 8 at 8/19.5 kHz with order 4–8. Rare: only 3 XMLs carry
+type 6 (10 filters) and 2 XMLs carry type 8 (22 filters). Script warns and skips.
+
+### Types 1, 4, 7, 9 — supported
+
+Type 1 and type 9 are the dominant filters in the corpus; types 4 and 7 are minority
+but fully handled:
+
+```xml
+<filter speaker="0" enabled="1" type="4" f0="600"  gain="2.000000" s="1.000000"/>
 <filter speaker="0" enabled="1" type="7" f0="100" order="4"/>
 ```
 
-Same structure as type 9 (HP with order, no gain). Likely a different filter topology
-(e.g., Butterworth vs Linkwitz-Riley). The script treats it identically to type 9.
+Type 4 maps to EasyEffects `"type": "Lo-shelf"` with Q derived from S via the standard
+audio shelf formula. Type 7 is treated identically to type 9 (both are HP with order,
+likely different filter topologies — Butterworth vs Linkwitz-Riley).
 
-Types 4 and 7 only appear across 12 filters / 196 devices (rare). The script warns on
-any other unknown type.
+### Filters-per-speaker distribution
+
+Most devices have 1–3 filters per speaker (typically a high-pass plus one or two
+bells). The complexity ceiling in the expanded cohort is ~7–8 filters per speaker on
+a few Lenovo AIO-RTK tunings — still comfortably below the LSP PEQ 32-band ceiling.
 
 ---
 
@@ -334,7 +391,17 @@ in the wild for each path to become reachable.
 | `is_soundwire` filename detection         | Falls back to HDA mode (no bass enhancer, no convolver headroom restore) | All matched XMLs in the corpus have `SOUNDWIRE_…` or `SDW_…` filenames intact      | User manually renames a SoundWire XML before passing it in     |
 | `make_multiband_compressor` 5+ band cap   | `min(group_count, 8)` enforced                                          | Max observed `group_count` = 4 (Dolby schema only allocates `band_group_0..3`)     | Dolby schema extension                                         |
 
-If a future driver release breaks any of these assumptions, the script will
+**Now reachable on the expanded 1050-XML cohort** (formerly inert in the original
+196-XML and 372-XML audits — listed here for symmetry, but these are no longer
+defensive-only paths and should be treated as implementation gaps):
+
+| Code path                                 | Current behaviour                                                        | Expanded-cohort check                                                              | Status                                                          |
+|-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
+| Unknown PEQ filter type (`ftype not in (1,4,7,9)`) | Warns "unknown PEQ filter type N, skipping" and drops the filter | 1786 filters of type 3/6/8 across 37 XMLs (§9)                                     | **Reachable** — type 3 is a high-shelf worth supporting         |
+| 1-band MBC (`group_count < 2`)            | Early-returns without emitting any MBC plugin                           | 294 profiles enable MBC with `group_count=1` (§2)                                  | **Reachable** — would benefit from a degenerate single-band emission |
+| Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 246/15551 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
+
+If a future driver release breaks any of the truly-inert assumptions, the script will
 silently produce a degraded preset rather than crash. The corpus audit is
 reproducible with the python snippets in the message body of commit `07612e9`
 (MBC band counts) and via the H2/M2/L1 snippets in this file's git history.
@@ -348,6 +415,87 @@ Two "by-design" behaviours that look like bugs but aren't:
 - The PEQ output-gain compensation deliberately ignores high-pass and negative-gain
   filters: HP slots reduce headroom requirements (cuts only), and shelves/bells
   with negative gain don't add headroom pressure.
+
+---
+
+## 13. Endpoint operating modes and profile variants (expanded cohort)
+
+The original 196-XML cohort only exposed `operating_mode="normal"` endpoints with
+the six canonical profile types (`dynamic`/`movie`/`music`/`game`/`voice`/`off`).
+The Lenovo-AIO-RTK and ThinkPad-AIO-RTK packages added in the 2026-04-22 expansion
+exercise both axes significantly further.
+
+### Operating modes
+
+| `operating_mode`        | Rows  | Typical hardware                                       |
+|-------------------------|-------|--------------------------------------------------------|
+| `normal`                | 9868  | All laptops — the mode selected by default             |
+| `laptop`                | 1306  | Convertible in clamshell pose                          |
+| `stand`                 | 1296  | Convertible in stand/present pose                      |
+| `tablet`                | 1288  | Convertible folded flat                                |
+| `tent`                  | 1278  | Convertible in tent pose                               |
+| `lid_close`             |  219  | Lid-closed external-monitor use                        |
+| `detachable_speaker`    |  140  | Detachable tablet-with-dock SKUs                       |
+| `hybridaudio_detached`  |   20  | Same family, detached-speaker path                     |
+| `book`                  |   20  | Book-pose convertibles                                 |
+| `flat`                  |   20  | Flat-on-desk orientation                               |
+
+The script only ever reads `operating_mode="normal"` (the `--mode` default). On
+convertibles, Dolby ships distinct tunings per hinge pose — the "normal" fallback
+is fine for the clamshell case, but users of Yoga-class devices would need
+`--mode tablet|stand|tent` to pick up the pose-specific tuning. The CLI already
+exposes `--mode`; no script change needed, but the README could call this out.
+
+### Profile types
+
+The canonical Dolby profile vocabulary expands beyond the six listed in the
+original cohort:
+
+| Profile             | Rows | Notes                                                 |
+|---------------------|------|-------------------------------------------------------|
+| `dynamic`           | 1599 | Primary listening profile                             |
+| `movie`             | 1599 |                                                       |
+| `music`             | 1599 |                                                       |
+| `voice`             | 1599 |                                                       |
+| `off`               | 1599 | No-op pass-through                                    |
+| `game`              | 1576 |                                                       |
+| `personalize_user1` | 1576 | User-customisable slot 1 (not the `personalize` alias) |
+| `personalize_user2` | 1576 | Slot 2                                                |
+| `personalize_user3` | 1576 | Slot 3                                                |
+| `voice_onlinecourse`| 1137 | Ultra-gentle leveler profile (§4)                     |
+| `game_shooter`      |   23 | Genre-specific game profile                           |
+| `game_racing`       |   23 |                                                       |
+| `game_rpg`          |   23 |                                                       |
+| `game_rts`          |   23 |                                                       |
+| `personalize`       |   23 | Legacy single-slot personalize (pre-user1/2/3 schema) |
+
+The `personalize_user{1,2,3}` slots are Dolby-provided starting tunings meant to be
+reshaped via the Dolby Access Windows app. In the shipped XML they carry real
+Dolby tunings, not empty slots — `--profile personalize_user2` is a legitimate
+preset source. The `game_{shooter,racing,rpg,rts}` variants appear only on a
+small subset of ThinkPad AIO-RTK devices; all share the outer `game` tuning
+shape with per-genre tweaks to surround-boost and dialog handling.
+
+`--list` already reports whatever profile names the XML declares, so users pick
+these up naturally. `--all-profiles` iterates every one and generates
+`Dolby-{ProfileName}-{IEQ-variant}` presets for each.
+
+### Corpus-shift caveats on prior distributions
+
+A few other distributions shifted noticeably under the expanded cohort — record
+the direction without redoing every table:
+
+- **Music-profile MBC enable** jumped from 19% (original) to **44%** (expanded).
+  Lenovo's AIO-RTK tunings enable multi-band loudness maximisation more
+  aggressively than the ThinkPad-only original cohort.
+- **Regulator distortion slope** shifted from 53% hard-limiter (slope=16) to
+  **95%** in the expanded cohort. The per-XML table in §6 still reflects the
+  original 196-file breakdown; the design implication — that the output brickwall
+  limiter is redundant on slope-16 devices but essential on softer slopes —
+  stands, but the "soft-slope minority" is smaller than the original 47%.
+- **Voice-profile volmax-boost** is more polarised than §4 reported: 45% at 6 dB,
+  24% at 9 dB, 23% at 8 dB (in the expanded cohort), rather than the original
+  "8 dB (43%), 9 dB (25%)" picture.
 
 ---
 
