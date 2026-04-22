@@ -80,7 +80,7 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 ### Dependencies
 
-The script needs Python 3, NumPy, and SciPy. PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — if installed, the script renders its output and `--help` with semantic colors; without them, output is plain monochrome and everything else still works.
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — if installed, the script renders its output and `--help` with semantic colors; without them, output is plain monochrome and everything else still works.
 
 Install on your distro:
 
