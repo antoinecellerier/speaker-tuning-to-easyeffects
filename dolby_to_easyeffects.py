@@ -77,9 +77,35 @@ def _disable_color() -> None:
     global _CONSOLE
     _CONSOLE = None
 
-_FLATPAK_BASE = Path.home() / ".var" / "app" / "com.github.wwmm.easyeffects" / "config" / "easyeffects"
+_FLATPAK_APP_ID = "com.github.wwmm.easyeffects"
+_FLATPAK_BASE = Path.home() / ".var" / "app" / _FLATPAK_APP_ID / "config" / "easyeffects"
 _NATIVE_BASE = Path.home() / ".local" / "share" / "easyeffects"
-_EASYEFFECTS_BASE = _FLATPAK_BASE if _FLATPAK_BASE.exists() else _NATIVE_BASE
+
+
+def _prefer_flatpak() -> bool:
+    """Choose between Flatpak and native EasyEffects install locations.
+
+    Prefers whichever install has a data directory (i.e. has been run
+    at least once). If neither has been run, probes Flatpak app install
+    roots so a freshly-installed-but-unopened Flatpak still picks the
+    Flatpak paths. On systems with both installed and both launched,
+    preserves the prior default (Flatpak wins).
+    """
+    if _FLATPAK_BASE.exists():
+        return True
+    if _NATIVE_BASE.exists():
+        return False
+    for root in (
+        Path("/var/lib/flatpak/app"),
+        Path.home() / ".local" / "share" / "flatpak" / "app",
+    ):
+        if (root / _FLATPAK_APP_ID).exists():
+            return True
+    return False
+
+
+_USE_FLATPAK = _prefer_flatpak()
+_EASYEFFECTS_BASE = _FLATPAK_BASE if _USE_FLATPAK else _NATIVE_BASE
 
 DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
 DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
@@ -87,9 +113,9 @@ DEFAULT_AUTOLOAD_DIR = _EASYEFFECTS_BASE / "autoload" / "output"
 
 # EasyEffects 8.x KConfig file. Separate from _EASYEFFECTS_BASE (which is
 # under XDG_DATA_HOME for presets/IRs); this one is under XDG_CONFIG_HOME.
-_FLATPAK_RC = Path.home() / ".var" / "app" / "com.github.wwmm.easyeffects" / "config" / "easyeffects" / "db" / "easyeffectsrc"
+_FLATPAK_RC = Path.home() / ".var" / "app" / _FLATPAK_APP_ID / "config" / "easyeffects" / "db" / "easyeffectsrc"
 _NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
-DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _FLATPAK_RC.parent.exists() else _NATIVE_RC
+DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _USE_FLATPAK else _NATIVE_RC
 
 BYPASS_PRESET_NAME = "Nothing"
 
