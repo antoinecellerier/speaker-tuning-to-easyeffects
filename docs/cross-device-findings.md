@@ -504,6 +504,56 @@ the direction without redoing every table:
 
 ---
 
+## 14. Newer-pipeline DSP blocks not modeled by the script
+
+The 2026-04-26 expansion (Lenovo IdeaPad-Slim-5x-Gen-9 / IdeaPad-5x-2-in-1-14 /
+ThinkPad-X13s-Gen-1 driver packages, ~798 additional tuning XMLs) introduced
+several DSP blocks that don't appear in the original Realtek/Intel cohort. The
+script does not implement any of them. Two are flagged at parse time via
+`warn_unmodeled_features` (`dolby_to_easyeffects.py:~1275`); the rest are
+inactive across the entire 1848-XML corpus and silently dropped.
+
+| Block                                              | Element(s)                                                                   | Active in corpus                          | Status                                                                                                  |
+|----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| Dynamic Speaker Optimization (DSO)                 | `init-info/dynamic_speaker_optimization_enable`, `dynamic-speaker-optimization-amount`, `dynamic-speaker-optimization-speaker-interval` | 1 XML — IdeaPad-5x-2-in-1 SoundWire SPK1 (`SUBSYS_37A317AA`) | **Warned at parse time.** Excursion-aware bass limiting tied to driver size; needs Dolby DSP data we don't have. |
+| Advanced speaker virtualizer                       | `advanced-speaker-virtualizer-rendering-config`, `advanced-speaker-virtualizer-start-bin`, `speaker_virtualizer_mode` | Same 1 XML                                | **Warned at parse time.** Newer FFT-domain replacement for `output-mode-partial-{surround,height}-virtualizer-enable`; also unmodeled. |
+| Volume-leveler compressor sub-component            | `volume-leveler-compressor-enable`                                           | 73 XMLs (Yoga-7-2-in-1 BT, IdeaPad-5x-2-in-1 internal) | Not warned. VL is bypassed entirely (autogain trap, see design-notes.md), so dropping the sub-block has no audible effect. |
+| Rear / rear-height virtualizer angles              | `virtualizer-rear-speaker-angle`, `virtualizer-rear-height-speaker-angle`, `rear-height-filter-mode` | Common on 4+ speaker laptops              | Not modeled. The legacy `output-mode-partial-{surround,height}-virtualizer-enable` already isn't modeled either; see CLAUDE.md and design-notes.md. |
+| Surround-decoder centre spreading                  | `surround-decoder-center-spreading-enable`                                   | Present in 310 XMLs, **enabled in 0**     | Defensive — would silently drop if a future driver enables it.                                          |
+| Woofer-only regulator                              | `woofer-regulator-enable`, `woofer-regulator-tuning`                         | Present in 310, **enabled in 0**          | Defensive — would silently drop if a future driver enables it.                                          |
+| Independent regulator mode                         | `regulator-independent-enable`                                               | 1 XML, never enabled                      | Defensive.                                                                                              |
+| Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 310, **enabled in 0**          | Defensive — bass-extraction itself is universally off.                                                  |
+| Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented.                |
+
+The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` deliberately
+flags only the two rare-but-real cases (DSO, advanced virtualizer). Adding the
+universally-present-but-never-enabled defensive entries would be noise — they
+fire on every run for no gain. If a future driver release flips one of them
+on, the corpus sweep will catch it before the warning needs to.
+
+### Why these aren't implemented
+
+For each of the two warned features, implementation would require either real
+device measurements or undocumented Dolby DSP internals:
+
+- **DSO** maps a target excursion (driver-specific) and a per-band power
+  envelope to a real-time gain. The `amount` (1–10) and `speaker-interval`
+  (`720,300` mm × 100?) attributes name the dial but not the algorithm. A
+  rough LSP `multiband_compressor` band-0 limiter could approximate the
+  bass-protection role, but at the cost of pumping artifacts that DSO
+  specifically avoids — net negative versus dropping it.
+- **Advanced speaker virtualizer** is an FFT-domain HRTF-style spatializer.
+  The 8-int rendering config (`103,32568,6698,5090,1,1,1,1`) is opaque, and
+  no LSP/EE plugin reproduces this kind of processing. The legacy
+  `output-mode-partial-*-virtualizer-enable` blocks were already approximated
+  only as a stereo widener via `surround-boost → stereo_tools`; the advanced
+  variant is the same problem one generation later.
+
+The warning is the honest outcome: the user knows what's being dropped, and a
+future device-level investigation can wire in something better.
+
+---
+
 ## Interesting observations
 
 1. **No Intel Fusion devices found** — the `fusion_ext_intel` driver package shares

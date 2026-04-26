@@ -1270,7 +1270,36 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "timbre_preservation": timbre,
             }
 
+    warn_unmodeled_features(profile)
+
     return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost
+
+
+# Newer-pipeline DSP blocks observed in the corpus that the script does not
+# model. Warn when they're enabled so users can correlate with audible gaps.
+# The list intentionally omits features that are universally present (e.g.
+# `output-mode-partial-{surround,height}-virtualizer-enable`, MI steering)
+# — those are documented in CLAUDE.md / docs/ and warning on every run would
+# be noise. Only flag rare, enabled-only feature blocks here.
+#
+# Each entry is (xpath, predicate, description). Predicate takes the matched
+# element and returns True if the feature is *active* in this profile.
+_UNMODELED_FEATURES = [
+    (".//dynamic_speaker_optimization_enable",
+     lambda el: el.get("value") == "1",
+     "Dynamic Speaker Optimization (excursion-aware bass limiting)"),
+    (".//advanced-speaker-virtualizer-rendering-config",
+     lambda el: True,  # presence implies the newer virtualizer pipeline is configured
+     "advanced speaker virtualizer (newer FFT-domain spatializer)"),
+]
+
+
+def warn_unmodeled_features(profile):
+    """Emit a one-line warning per unmodeled-but-enabled DSP block."""
+    for xpath, active, desc in _UNMODELED_FEATURES:
+        el = profile.find(xpath)
+        if el is not None and active(el):
+            cprint("warn", f"  Note: {desc} is set in the XML but not modeled — silently dropped.")
 
 
 # --- FIR generation ---

@@ -367,7 +367,7 @@ The following XML fields are present but deliberately ignored — they are alway
 In-tree docs with more context on specific aspects:
 
 - [docs/design-notes.md](docs/design-notes.md) — why the plugin chain is ordered the way it is, gain-staging rationale, and why autogain is bypassed by default
-- [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of 196 DAX3 tuning files across 3 Realtek codec variants
+- [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~1850 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
 - [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
 
 ## References
