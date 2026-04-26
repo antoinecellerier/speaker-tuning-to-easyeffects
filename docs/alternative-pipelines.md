@@ -280,6 +280,98 @@ al_0=0.56234`, etc., reading as ratio / split-frequency / linear-threshold
 `10^(dB/20)`) round-trip exactly with this script's JSON output as of the
 4-decimal precision fix in commit `6e72dd0`.
 
+### Companion converter — design sketch
+
+Not built. Captured here so the analysis doesn't have to be redone if anyone
+later wants the conversion automated. Recommendation: **a sibling
+`ee_to_pipewire.py` at the repo root** (matches the existing single-file
+convention; no new `tools/` directory needed) that reads an existing
+EasyEffects `.json` preset plus its matching `.irs`, and emits a PipeWire
+`.conf`. Main script untouched, so future precision/feature fixes stay
+single-target.
+
+**Why a separate tool, not a `--pipewire-filter-chain` flag in the main
+script:** doubling the emit surface inside `dolby_to_easyeffects.py` means
+every future precision/feature fix has to land twice, with a silent-divergence
+risk. A separate tool keeps that cost at zero for users on the EasyEffects
+path (the majority).
+
+**Per-param translation** (verified against taprobane99's `99-dolby-music.conf`
+— values round-trip with this script's 4-decimal-precision JSON since
+commit `6e72dd0`):
+
+| EE param                       | PW LSP-LV2 param | Conversion             |
+|--------------------------------|------------------|------------------------|
+| `attack-threshold` (dB)        | `al_N`           | `10**(dB/20)` (linear) |
+| `release-threshold` (dB)       | `rrl_N`          | `10**(dB/20)`          |
+| `makeup` (dB)                  | `mk_N`           | `10**(dB/20)`          |
+| `knee` (dB, ≤0)                | `kn_N`           | `10**(dB/20)` — note `0 dB → 1.0`, not 0 |
+| `ratio`                        | `cr_N`           | identity               |
+| `attack-time` (ms)             | `at_N`           | identity               |
+| `release-time` (ms)            | `rt_N`           | identity               |
+| `split-frequency` (Hz)         | `sf_N`           | identity               |
+| `enable-band` (bool)           | `cbe_N`          | 1 / 0                  |
+| `compressor-enable` (bool)     | `ce_N`           | 1 / 0                  |
+| `sidechain-mode` `RMS`/`Peak`  | `scm_N`          | 1 / 0                  |
+| `sidechain-lookahead` (ms)     | `sla_N`          | identity               |
+
+**Per-stage plugin URI mapping** — one PW node per EE plugin, except as
+noted:
+
+| EE plugin key             | PW plugin                                                                     |
+|---------------------------|-------------------------------------------------------------------------------|
+| `convolver#0`             | `type=builtin label=convolver` × 2 (mono — one per channel)                  |
+| `bass_enhancer#0`         | Calf `BassEnhancer` or Bankstown (taprobane99 uses Bankstown — pick one)    |
+| `stereo_tools#0`          | Calf `http://calf.sourceforge.net/plugins/StereoTools`                        |
+| `equalizer#0` (PEQ)       | LSP `http://lsp-plug.in/plugins/lv2/para_equalizer_x16_stereo`                |
+| `equalizer#1` (dialog)    | Same plugin as PEQ — disambiguate by **position in `plugins_order`**          |
+| `autogain#0`              | LSP `autogain_stereo` — **skip entirely if `bypass: true`** (HDA default)     |
+| `multiband_compressor#0`  | LSP `mb_compressor_stereo`                                                    |
+| `multiband_compressor#1`  | Same plugin, regulator-tuned params                                           |
+| `limiter#0`               | LSP `limiter_stereo`                                                          |
+
+**Six gotchas to flag before writing any code:**
+
+- **Bypassed plugins**: skip them entirely (don't emit as a node-and-link
+  pair with `bypass=true`). The autogain stage in particular is
+  `bypass: true` by HDA-default design — see `make_autogain` docstring at
+  `dolby_to_easyeffects.py:1694`.
+- **Mono convolver**: PW's builtin `convolver` is one channel per node, so
+  `convolver#0` in EE expands to two PW nodes (`conv_l`, `conv_r`) wired in
+  parallel. The only place the link generator needs special-casing.
+- **`volmax_boost` lives in two possible places**: `make_preset` lines
+  2246–2256 puts it on the regulator's `output-gain` if the regulator is
+  present, otherwise on the limiter's `input-gain`. Reader must check both.
+- **Dialog-vs-PEQ disambiguation is positional only** — both are `equalizer#N`
+  with the same dict shape. Assert `equalizer#1` follows `equalizer#0` in
+  `plugins_order` to fail loud if a future change reorders them.
+- **PEQ filter-type enum mismatch**: EE writes string `type` values
+  (`"Bell"`, `"Hi-shelf"`, `"Lo-pass"`, `"Hi-pass"`); LSP
+  `para_equalizer_x16` `t_N` uses integer enums. Need a small lookup
+  table — easy to mis-map. Reference: [LSP para_equalizer manual](https://lsp-plug.in/?page=manuals&section=para_equalizer_x16_stereo).
+- **Absolute IRS path**: PW builtin convolver `config.filename` needs an
+  absolute path. Resolve `<kernel-name>.irs` against `--irs-dir` (default
+  `~/.local/share/easyeffects/irs/`) and bake the absolute path into the
+  conf. The conf becomes stale if the IRS moves — worth a comment in the
+  conf header.
+
+**Out of scope (intentionally):**
+- WirePlumber routing rules (auto-set the new sink as default).
+- 4-channel upmix (the Yoga Slim 7x case — would need speaker-layout info
+  not present in the EE JSON).
+- Disabling EE autoload to avoid double-processing — print a "next steps"
+  block at the end of the converter run instead.
+
+**Rough size**: ~350–500 LOC (9 stage emitters × ~25 LOC + SPA-JSON
+formatter ~30 + JSON parser ~80 + link generator ~60 + CLI ~50). Well under
+a full `--pipewire-filter-chain` integration in the main script, which would
+have to mirror every `make_*` function permanently.
+
+**Verification when implemented**: load conf into PW, A/B against the
+EasyEffects-processed sink with reference content, and round-trip the LSP
+MBC `al_N`/`mk_N` linear values back to dB to confirm they match the source
+JSON's `attack-threshold`/`makeup` to within 4 decimals.
+
 ## Option 4: Hybrid — SOF DSP for PEQ + filter-chain for the rest
 
 **Status: best practical tradeoff**
