@@ -252,6 +252,34 @@ context.modules = [
 The script could gain a `--pipewire-filter-chain` option that generates the
 complete `.conf` file instead of / in addition to EasyEffects presets.
 
+### Working example
+
+[taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio](https://github.com/taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio)
+hand-converted this script's `Dolby-Music-Balanced.json` output into a working
+PipeWire `filter-chain` config (`99-dolby-music.conf`) using LSP LV2 plugins
+(`mb_compressor_stereo`, `limiter_stereo`) and the same `.irs` files. Two patterns
+worth borrowing if anyone implements `--pipewire-filter-chain`:
+
+- **4-speaker upmix from a stereo source** (the Yoga Slim 7x has four speakers
+  the EasyEffects path can't drive). Their output node declares
+  `audio.channels = 4` with `audio.position = [ FL FR RL RR ]`, the post-MBC
+  stereo signal feeds a `limiter_f` (front pair) and a `limiter_r` (rear pair)
+  in parallel, and the final output exposes all four `limiter_{f,r}:out_{l,r}`
+  ports. This duplicates the stereo image to both pairs while letting front
+  and rear limiters run with independent gain reduction. Not Dolby-faithful
+  (no surround/height virtualization — see `cross-device-findings.md` §14)
+  but materially better than mono-summing or relying on the kernel mixer.
+- **Bankstown LV2 bass exciter** (`https://chadmed.au/bankstown`, also used by
+  [AsahiLinux/asahi-audio](https://github.com/AsahiLinux/asahi-audio)) inserted
+  before the convolver. A reasonable LV2-land substitute for Dolby's
+  `bass-extraction` block, which is universally `enable=0` in the corpus
+  (cross-device-findings.md §14) but matters for laptops with small drivers.
+
+The MBC band parameters they encode in the `.conf` (`cr_0=3.938, sf_1=469.0,
+al_0=0.56234`, etc., reading as ratio / split-frequency / linear-threshold
+`10^(dB/20)`) round-trip exactly with this script's JSON output as of the
+4-decimal precision fix in commit `6e72dd0`.
+
 ## Option 4: Hybrid — SOF DSP for PEQ + filter-chain for the rest
 
 **Status: best practical tradeoff**

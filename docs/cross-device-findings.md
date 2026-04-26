@@ -241,6 +241,17 @@ limiter, so for 53% of devices the regulator *is* the brickwall limiter. The exp
 output limiter added to the EasyEffects chain is redundant on those devices and
 essential on the remaining 47%. See `docs/design-notes.md` for why both exist.
 
+**Real-world evidence the regulator chain matters.** On a Snapdragon X Yoga Slim
+7x running Linux without DSP-level Dolby protection,
+[taprobane99](https://github.com/taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio)
+had to manually trim four ALSA UCM mixer levels (`PA Volume 12→6`, two
+`Digital Volume 68→58`, one `Digital Volume 84→5`), disable the WSA884x amp's
+internal compressor (`COMP Switch 1→0`), and cap WirePlumber to 7% just to
+avoid blowing the speakers — about 22 dB of headroom thrown away because the
+kernel-level audio stack has no Dolby-equivalent per-band limiter. The
+regulator we emit is doing the work that lets the rest of the chain run
+unattenuated.
+
 ---
 
 ## 7. Regulator thresholds — per-band frequency shaping
