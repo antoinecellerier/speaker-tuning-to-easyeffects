@@ -8,7 +8,7 @@ Converts Dolby Atmos DAX3 tuning XML from Windows drivers into [EasyEffects](htt
 |---|---|---|
 | ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author (primary development target) |
 | Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
-| ThinkPad T14s Gen 6 AMD | — | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
+| ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
 | ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
 
 If you test it on other hardware, please open an issue with your device model and audio codec subsystem ID (`cat /proc/asound/card*/codec* | grep Subsystem`).
