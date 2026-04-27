@@ -102,8 +102,10 @@ If your distro isn't listed or you'd rather not touch system packages, a venv wo
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install numpy scipy rich rich-argparse
+pip install -r requirements.txt
 ```
+
+`requirements.txt` also pulls in `pytest` so you can run the test suite (`pytest tests/`) from the same venv.
 
 ## Extracting the XML
 

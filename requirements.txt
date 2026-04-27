@@ -1,0 +1,5 @@
+numpy
+scipy
+rich
+rich-argparse
+pytest
