@@ -151,3 +151,33 @@ re-proposed:
   ripple between Dolby's 20 band centers regardless of how the solver was tuned.
   See the README's "IEQ target curves are composite targets" table for the full
   comparison.
+- **Auto-trimming the convolver IR to its audible length.** Issue #11 noted that the
+  4096-tap (~85 ms) IR has a long sub-noise-floor tail. A sweep across 729 FIRs from
+  11 device groups (Realtek HDA, Senary, Qualcomm, AMD, ThinkPad / IdeaPad / AIO
+  variants) measured trim length as the smallest cutoff beyond which every tail
+  sample is below the FIR's peak by ≥ N dB, rounded up to a 64-sample boundary.
+  Distributions of trimmed length as % of the original 4096 taps:
+
+  | threshold | mean | p10 | p50 | p90 | max | mean ms saved |
+  |-----------|-----:|----:|----:|----:|----:|--------------:|
+  | −80 dB    |  48% | 34% | 52% | 55% | 66% |       ~44 ms  |
+  | −90 dB    |  54% | 50% | 53% | 63% | 78% |       ~39 ms  |
+  | −100 dB   |  60% | 52% | 56% | 73% | 94% |       ~34 ms  |
+  | −110 dB   |  69% | 53% | 66% | 91% |100% |       ~26 ms  |
+  | −120 dB   |  81% | 63% | 80% | 98% |100% |       ~17 ms  |
+
+  Per-device means at −100 dB clustered tightly (56–69% across all codecs except
+  one 3-FIR outlier at 88%) — not device-specific. So the trim would be safe to
+  ship. But EasyEffects' Convolver wraps `libzita-convolver` directly and calls
+  `Convproc::configure(2, 2, kernel.sampleCount(), bufferSize, bufferSize, Convproc::MAXPART, density)`
+  ([EE source][ee-conv]) — i.e. `minpart == quantum == bufferSize`. zita-convolver
+  is a non-uniform partitioned FFT convolver where I/O latency is set by the
+  first (smallest) partition and progressively larger partitions process the
+  tail; with `minpart` pegged to the audio quantum the convolver adds zero
+  latency on top of the PipeWire buffer for any IR length up to multi-second IRs.
+  So trimming would save ~½ of an already <0.1%-of-a-core convolver workload and
+  ~16 KB per file with no audible or perceptible-latency change. Not worth the
+  maintenance cost of a threshold parameter that would invite future "is this
+  audible?" re-litigation each time the cepstral construction is touched.
+
+[ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
