@@ -2,24 +2,31 @@
 
 A few things about this repo that aren't obvious from reading the code:
 
-- **There's no automated test suite, but math changes do get verified.**
-  For DSP / numerical work (FIR generation, coefficient decoding, gain
-  staging, unit conversions, filter design) the pattern is to write a
-  throwaway Python script using numpy/scipy that checks the math
-  directly — e.g. sweep the generated FIR through an FFT and compare to
-  the target frequency response, or decode a Q15 time-constant both ways
-  and confirm they match a known formula. Keep these scripts ad-hoc;
-  don't commit them and don't graduate them into a formal test harness.
-  For preset/structure changes, verification means running the script
-  against a real XML, confirming the expected files appear under
-  `~/.local/share/easyeffects/`, and loading the preset in EasyEffects.
-  If you can't verify locally, say so.
+- **There is a `pytest` suite under `tests/` with no proprietary
+  inputs.** Run it as `pytest tests/` — the bulk of the suite (DSP
+  math, output schema, the trap-regression suite that locks in every
+  shipped bug listed below, and `--disable`/argparse coverage) runs in
+  a couple of seconds and needs no setup. Corpus tests under
+  `tests/corpus/` run the full pipeline against real DAX3 XMLs that
+  the test code auto-discovers the same way the script does (NTFS
+  mounts and CWD); set `ATMOS_CORPUS_DIR=/path/to/xmls` to override
+  discovery, or do nothing and the corpus tier will skip cleanly when
+  no corpus is reachable. When changing math (FIR generation,
+  coefficient decoding, gain staging, unit conversions, filter
+  design), add or extend a unit test — ad-hoc numpy/scipy scripts
+  under `localresearch/` are still fine for exploration, but if a
+  check is worth re-running it belongs in `tests/`. For
+  preset/structure changes, run the script against a real XML,
+  confirm the expected files appear under
+  `~/.local/share/easyeffects/`, and load the preset in EasyEffects.
+  If you can't verify locally, say so. **The suite catches structural
+  regressions, not audible ones — see below.**
 
 - **Ask the user to confirm audio quality after any change that touches
-  the output path.** Local verification (files generated, preset loads,
-  math checks out) does not catch audible issues — past sessions shipped
-  bugs that only showed up on real listening. Tell the user what to
-  listen for based on what the change touched:
+  the output path.** The `tests/` suite catches structural regressions
+  (the trap list below) but **does not** substitute for listening —
+  past sessions shipped bugs that only showed up on real content. Tell
+  the user what to listen for based on what the change touched:
   - *Clipping or sudden level jumps* on loud content — past traps
     include the convolver autogain +50 dB bug and MBC output-gain
     misconfiguration.

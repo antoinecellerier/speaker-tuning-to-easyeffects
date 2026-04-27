@@ -362,6 +362,26 @@ The following XML fields are present but deliberately ignored — they are alway
 - `band_20_freq` at 44.1 kHz — script is 48 kHz only
 - `ieq-bands-set` — indicates default IEQ variant; script generates all three
 
+## Running the tests
+
+A `pytest` suite under `tests/` covers the converter without requiring any proprietary Dolby tuning data as input.
+
+```bash
+pytest tests/
+```
+
+The bulk of the suite (DSP math, output schema, a dedicated regression suite for every shipped-bug "trap", and `--disable`/argparse behavior) runs in a couple of seconds and needs no setup. It uses synthetic, hand-built inputs only — no real DAX3 XML is shipped or checked in.
+
+The corpus tier under `tests/corpus/` runs the full pipeline (parse → FIR → preset → IRS) against a corpus of real DAX3 XMLs. It auto-discovers them the same way the main script does — NTFS-family mountpoints whose DriverStore contains `dax3_ext_*.inf_*`, plus a bounded walk of the current working directory for any folder containing Dolby-shaped XMLs. To override, point it at a specific directory:
+
+```bash
+ATMOS_CORPUS_DIR=/path/to/dax3/xmls pytest tests/corpus/
+```
+
+If no corpus is reachable and `ATMOS_CORPUS_DIR` is unset, the corpus tier skips cleanly.
+
+The suite catches structural regressions (FIR not minimum-phase, convolver autogain accidentally re-enabled, MBC compression-mode flipped to upward, enums emitted as integers, etc.) but does not substitute for listening tests after any change to the output path.
+
 ## Further reading
 
 In-tree docs with more context on specific aspects:
