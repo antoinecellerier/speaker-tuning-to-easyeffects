@@ -3,7 +3,7 @@
 Measure DAX3's per-channel response on Windows via WASAPI loopback, then
 deconvolve / spectrum-analyze on Linux and compare against the FIR our
 converter generates from the same XML. Reproduces the empirical
-comparison in `docs/design-notes.md` ("Empirical comparison vs DAX3").
+comparison in [docs/design-notes.md](../../docs/design-notes.md#empirical-comparison-vs-dax3-on-windows) ("Empirical comparison vs DAX3").
 
 ## Quick start
 
@@ -80,7 +80,7 @@ The Windows side needs:
 - `stimulus_pink_quiet.wav` + `stimulus_pink_quiet.json`
 - `stimulus_multitone.wav` + `stimulus_multitone.json`
 - `capture_dax.py`
-- `CLAUDE_WINDOWS.md` (only if Claude Code will be helping on Windows)
+- [`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md) (only if Claude Code will be helping on Windows)
 
 Total ~12 MB of stimuli + a small script. Copy via USB / OneDrive.
 
@@ -222,8 +222,8 @@ After running on the OFF + Dynamic captures, the most informative views:
 
 ## Prior art
 
-`shuhaowu/linux-thinkpad-speaker-improvements` (linked from the main
-README under "Further reading") uses the same basic technique — WASAPI
+[`shuhaowu/linux-thinkpad-speaker-improvements`](https://github.com/shuhaowu/linux-thinkpad-speaker-improvements)
+uses the same basic technique — WASAPI
 loopback of a stimulus through DAX3 — with a single dirac impulse and
 manual Audacity capture. We use a swept sine plus stationary stimuli
 for ~40 dB better SNR, script the entire Windows-side flow, and
