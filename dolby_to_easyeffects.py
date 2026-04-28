@@ -1282,24 +1282,50 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 # — those are documented in CLAUDE.md / docs/ and warning on every run would
 # be noise. Only flag rare, enabled-only feature blocks here.
 #
-# Each entry is (xpath, predicate, description). Predicate takes the matched
-# element and returns True if the feature is *active* in this profile.
+# Each entry is (xpath, predicate, message). Predicate takes the matched
+# element and returns True if the feature is *active* in this profile;
+# message takes the same element and returns the warning text.
+_REPORT_URL = "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues"
+
 _UNMODELED_FEATURES = [
     (".//dynamic_speaker_optimization_enable",
      lambda el: el.get("value") == "1",
-     "Dynamic Speaker Optimization (excursion-aware bass limiting)"),
+     lambda el: "Dynamic Speaker Optimization (excursion-aware bass limiting) "
+                "is set in the XML but not modeled — silently dropped."),
     (".//advanced-speaker-virtualizer-rendering-config",
      lambda el: True,  # presence implies the newer virtualizer pipeline is configured
-     "advanced speaker virtualizer (newer FFT-domain spatializer)"),
+     lambda el: "advanced speaker virtualizer (newer FFT-domain spatializer) "
+                "is set in the XML but not modeled — silently dropped."),
+    # Watching-only fields below: the corpus shows these as effectively
+    # constants and the script doesn't act on them. If a future XML breaks
+    # the assumption we'd like to know — the warnings nudge users to report.
+    (".//peak-level",
+     lambda el: (el.get("value") or "0") != "0",
+     lambda el: (
+         f"peak-level={el.get('value')} (≈ {int(el.get('value', '0')) / 16:+.2f} dB "
+         "at the standard 1/16-dB convention) — this is 0 on every device in our "
+         "corpus, and the script does not currently map it to the limiter "
+         "threshold (interpretation unverified). If audio sounds off, please "
+         f"report at {_REPORT_URL}"
+     )),
+    (".//ieq-bands-set",
+     lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
+     lambda el: (
+         f"ieq-bands-set preset={el.get('preset')!r} — this XML names a "
+         "non-balanced curve as the profile default, but every device in our "
+         "corpus uses 'ieq_balanced'. We still emit the usual "
+         "Balanced/Detailed/Warm presets; you may want to start with the "
+         f"matching variant. Please report at {_REPORT_URL}"
+     )),
 ]
 
 
 def warn_unmodeled_features(profile):
     """Emit a one-line warning per unmodeled-but-enabled DSP block."""
-    for xpath, active, desc in _UNMODELED_FEATURES:
+    for xpath, active, message in _UNMODELED_FEATURES:
         el = profile.find(xpath)
         if el is not None and active(el):
-            cprint("warn", f"  Note: {desc} is set in the XML but not modeled — silently dropped.")
+            cprint("warn", f"  Note: {message(el)}")
 
 
 # --- FIR generation ---
