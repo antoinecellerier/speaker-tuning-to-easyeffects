@@ -1,0 +1,11 @@
+# Generated stimulus + analysis artifacts. Reproducible from make_stimulus.py
+# and the captures.
+*.wav
+*.npy
+*.npz
+*.png
+captures/
+analysis_*.txt
+inverse_sweep.npy
+stimulus_*.json
+__pycache__/
