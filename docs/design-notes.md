@@ -133,6 +133,136 @@ the energy is in the first half of the 4096 taps), has no significant tail ringi
 and extrapolates flat beyond the band edges. 4096 taps (~85 ms at 48 kHz) is
 sufficient for 20-band EQ correction.
 
+## Empirical comparison vs DAX3 on Windows
+
+Issue #11 raised an interesting side question: how does the FIR our converter
+generates from the XML compare to what Dolby's DAX3 implementation actually
+does on Windows? The XML is magnitude-only — there's no phase reference for
+the IEQ + audio-optimizer combined response — so the question can only be
+answered empirically.
+
+The measurement tooling lives at `tools/measure_dax/`. It plays a stimulus
+through the speaker output, captures the post-DAX3 signal via WASAPI loopback,
+and analyses the result. Five stimulus kinds:
+
+- **sweep** (exponential 20 Hz–22 kHz, −18 dBFS peak): Farina deconvolution
+  recovers an LTI IR if the system is LTI.
+- **sweep_quiet** (−42 dBFS peak): same sweep at much lower input level.
+- **pink / pink_quiet**: stationary pink noise; steady-state magnitude after
+  the leveler settles.
+- **multitone**: 20 pure tones at the Dolby band centers; per-band amplitude
+  *and phase* via single-bin DFT.
+
+Captured on a ThinkPad X1 Yoga Gen 7 (Realtek ALC287, subsystem 17AA:22E6 —
+matches the development XML at `localresearch/DEV_0287_SUBSYS_17AA22E6_*`).
+
+### Finding 1: DAX3 is non-LTI for our stimuli
+
+The volume leveler / regulator engage during capture and apply time-varying,
+content-adaptive gain. Symptoms:
+
+- 100 ms RMS envelope of the swept-sine capture varies by 16–34 dB from
+  start to end of the sweep, depending on profile (vs flat ±0 dB on the
+  OFF baseline). The leveler boosts late-sweep portions where the input
+  fade-out drops the level.
+- Multitone clipped on 4 of 6 profiles (dynamic, movie, music, game) —
+  peak hit 0 dBFS with up to 113 clipped samples. The regulator engaged
+  as a hard limiter even at −18 dBFS RMS input.
+- For sweep at −18 dBFS, captured peaks reached ~−0.5 dBFS on the
+  aggressive profiles (dynamic / movie / music / game). At −42 dBFS the
+  leveler is *more* aggressive, not less (it's targeting a fixed loudness
+  and brings quiet content up).
+
+This means the recovered "IR" is not a true linear impulse response —
+Farina deconvolution conflates frequency response with the time-varying
+gain applied during the sweep. A clean LTI characterization of DAX3 is not
+possible without disabling the leveler / regulator (which Dolby Access
+doesn't expose), or sending continuously-stationary stimuli that give the
+leveler a fixed level to settle on (which is what the pink stimuli do).
+
+### Finding 2: DAX3's phase is hybrid, not pure min-phase or linear-phase
+
+Sweep captures, post-peak vs pre-peak energy ratio (channel L). Pure
+minimum-phase would be +∞ dB; linear-phase would be ~0 dB.
+
+| profile | sweep (−18 dBFS) | sweep_quiet (−42 dBFS) |
+|---------|-----------------:|-----------------------:|
+| OFF     |  +0.0 dB (linear) |  +0.0 dB (linear) — bandlimited Dirac, expected |
+| dynamic | +14.6 dB | +18.7 dB |
+| movie   | +10.4 dB | +18.1 dB |
+| music   | +15.7 dB | +19.4 dB |
+| game    | +10.0 dB | +17.8 dB |
+| voice   |  +8.6 dB |  +8.8 dB |
+
+Every DAX3-on profile sits between linear-phase and minimum-phase. Voice
+is closest to linear-phase (+8.6 dB) — likely a deliberate choice for
+speech, where flat group delay preserves consonant transients. The
+sweep_quiet variant looks more min-phase-like across profiles, but this
+is most plausibly an artifact of the leveler's asymmetric response to a
+quiet sweep, not a real phase shift.
+
+This rules out our generated FIR matching DAX3's exact phase behaviour
+in any profile. Per the no-added-latency constraint we don't switch our
+converter to linear-phase regardless of this finding — minimum-phase is
+the right trade-off for an EQ correction filter, and we accept that this
+diverges from Dolby's choice.
+
+### Finding 3: DAX3 doesn't faithfully implement the published XML curves
+
+Each profile's captured spectrum vs **its own** balanced FIR target,
+between-band magnitude residual on a 200-point log grid (47–19688 Hz):
+
+| profile | sweep | sweep_quiet | pink | pink_quiet |
+|---------|-------|-------------|------|-----------:|
+| dynamic | 9.2 / 31.4 dB | 6.9 / 24.2 | 7.2 / 27.1 | 7.5 / 25.9 |
+| movie   | 11.9 / 37.2 | 7.3 / 25.4 | 7.5 / 28.1 | 7.6 / 26.3 |
+| music   | **7.3 / 21.6** | **5.1 / 19.6** | 5.9 / 20.4 | 6.5 / 20.4 |
+| game    | 11.8 / 37.2 | 7.3 / 24.6 | 7.5 / 28.1 | 7.8 / 26.7 |
+| voice   | 9.8 / 30.8 | 9.6 / 30.2 | 9.6 / 31.8 | 9.9 / 33.1 |
+
+(`RMS / max` in dB; captured spectrum minus our FIR's frequency response.)
+
+For comparison, the synthetic LTI test (apply our FIR to the stimulus,
+deconvolve, compare to original) recovers within **0.06 dB RMS / 0.36 dB
+max** — three orders of magnitude tighter. The captured DAX3 response is
+genuinely far from what our FIR predicts, not a measurement artifact.
+
+The bulk of the residual sits at HF (>5 kHz). At 19688 Hz the captured
+magnitude is typically 20–40 dB above what the XML's combined IEQ + AO
+target predicts. **DAX3 does not apply the deep HF rolloff that the
+published XML implies.** This is the most actionable finding — it
+suggests either (a) DAX3 ships a separate HF-shaping stage we're not
+modelling, (b) the audio_optimizer block is a target-response curve that
+DAX3 inverts internally rather than applying directly, or (c) the
+specific IEQ "Balanced" curve in Dolby Access doesn't correspond to the
+`ieq_balanced` block in the XML. We have no way to disambiguate from
+loopback alone; resolving it would need a Dolby-side reference.
+
+The Music profile fits its XML target most closely (RMS 5–7 dB).
+Dynamic, Movie, Game cluster around 7–12 dB RMS. Voice deviates the
+most (9–10 dB RMS).
+
+### Implications for the converter
+
+Our `make_fir` produces a faithful min-phase FIR of `IEQ + audio_optimizer`
+within ≤0.001 dB of the band-center target — the math is correct. What
+we cannot reproduce on Linux without additional reverse-engineering:
+
+1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
+   ~42 ms of group delay, ruled out by the no-added-latency constraint.
+2. **DAX3's apparent flatter HF response.** Worth investigating but
+   requires a hypothesis (b/c above) and audible validation, not a
+   structural change.
+3. **DAX3's non-LTI dynamics** (leveler, regulator engaging during
+   playback). EasyEffects' autogain is bypassed by default already
+   (see "Why autogain is bypassed by default" above) — adding a
+   content-adaptive leveler equivalent would require approximating
+   Media Intelligence steering, which is a substantial undertaking.
+
+The captures + analysis tooling under `tools/measure_dax/` are kept for
+future debugging — re-running on a new device or after a Dolby driver
+update is a one-command repeat.
+
 ## Rejected approaches
 
 Things that were investigated and explicitly declined, recorded so they don't get
