@@ -1398,9 +1398,17 @@ def make_convolver(kernel_name: str, output_gain: float = 0.0):
 
 
 def make_hp_band(freq: float, order: int) -> dict:
-    """High-pass filter band for speaker protection."""
-    # order 4 = 24 dB/oct = x4 slope
-    slope_map = {1: "x1", 2: "x2", 3: "x3", 4: "x4"}
+    """High-pass filter band for speaker protection.
+
+    Dolby's ``order=N`` declares an N-th-order high-pass. LSP's
+    ``RLC (BT)`` HP user-facing slope ``x1..x4`` is *internally doubled*
+    to ``nSlope=2,4,6,8`` (that's literally ``*slope = 2 * *slope`` in
+    ``para_equalizer.cpp:167``), and ``calc_rlc_filter`` then builds
+    ``nSlope/2`` cascaded 2nd-order sections at the user-Q — so internal
+    ``nSlope`` equals filter order. So Dolby ``order=N`` maps to LSP
+    user-facing slope ``x{N/2}``. Corpus has order ∈ {2, 4, 8}.
+    """
+    slope_map = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
     return {
         "frequency": freq,
         "gain": 0.0,
@@ -1468,12 +1476,13 @@ def make_hishelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
 def make_lp_band(freq: float, order: int) -> dict:
     """Low-pass filter band from Dolby PEQ types 6 and 8.
 
-    Mirror of make_hp_band with LSP's "Lo-pass" mode. Rare: 32 filters
-    across 5 XMLs in the corpus, predominantly tweeter-guard rolloff
-    at 8 kHz on some ALC274 Lenovo laptops. Experimental path — not
-    yet audibly validated.
+    Mirror of make_hp_band with LSP's "Lo-pass" mode — same LSP slope
+    doubling convention (see make_hp_band docstring), so order N maps
+    to slope ``x{N/2}``. Rare: a few hundred LP filters across the corpus,
+    mostly order=8 tweeter-guard rolloff. Experimental path — not yet
+    audibly validated.
     """
-    slope_map = {1: "x1", 2: "x2", 3: "x3", 4: "x4"}
+    slope_map = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
     return {
         "frequency": freq,
         "gain": 0.0,

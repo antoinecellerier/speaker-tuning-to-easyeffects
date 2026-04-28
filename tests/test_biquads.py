@@ -43,8 +43,13 @@ def test_make_band_passes_parameters_through():
     assert band["q"] == 2.0
 
 
+# Dolby `order=N` declares an N-th-order filter. LSP RLC (BT) HP/LP
+# doubles the user-facing slope internally (para_equalizer.cpp:167) and
+# builds nSlope/2 cascaded 2nd-order sections (Filter.cpp calc_rlc_filter),
+# so the user-facing slope x1..x4 corresponds to filter orders 2, 4, 6, 8.
+# Mapping: order N → slope x{N/2}. Corpus has order ∈ {2, 4, 8}.
 @pytest.mark.parametrize("order,expected_slope", [
-    (1, "x1"), (2, "x2"), (3, "x3"), (4, "x4"), (99, "x4"),
+    (2, "x1"), (4, "x2"), (6, "x3"), (8, "x4"), (99, "x4"),
 ])
 def test_make_hp_band_slope_mapping(order, expected_slope):
     band = make_hp_band(120.0, order)
@@ -54,13 +59,71 @@ def test_make_hp_band_slope_mapping(order, expected_slope):
 
 
 @pytest.mark.parametrize("order,expected_slope", [
-    (1, "x1"), (2, "x2"), (3, "x3"), (4, "x4"), (0, "x4"),
+    (2, "x1"), (4, "x2"), (6, "x3"), (8, "x4"), (0, "x4"),
 ])
 def test_make_lp_band_slope_mapping(order, expected_slope):
     band = make_lp_band(8000.0, order)
     assert band["type"] == "Lo-pass"
     assert band["slope"] == expected_slope
     assert band["gain"] == 0.0
+
+
+def _lsp_rlc_hp_cascade_db(f0: float, order: int, q: float, freqs: np.ndarray,
+                            fs: int = 48000) -> np.ndarray:
+    """|H(f)| in dB for LSP RLC (BT) HP at order N, Q=q.
+
+    Mirrors lsp-dsp-units Filter.cpp calc_rlc_filter for FLT_BT_RLC_HIPASS:
+    nSlope/2 cascaded 2nd-order sections of analog prototype
+    s² / (s² + k·s + 1) with k = 2/(1+Q), each bilinear-transformed with
+    cutoff pre-warped to f0. nSlope = filter order. (For odd order: extra
+    1st-order section; corpus has only even orders so we skip that branch.)
+    """
+    assert order % 2 == 0, "corpus has only even orders"
+    n_sections = order // 2
+    k = 2.0 / (1.0 + q)
+    # Bilinear: s_norm = c·(1-z⁻¹)/(1+z⁻¹) with c = cot(π·f0/fs) so that
+    # the digital cutoff lands at f0.
+    c = 1.0 / math.tan(math.pi * f0 / fs)
+    c2 = c * c
+    a0 = c2 + k * c + 1.0
+    b = np.array([c2, -2.0 * c2, c2]) / a0
+    a = np.array([1.0, (2.0 - 2.0 * c2) / a0, (c2 - k * c + 1.0) / a0])
+    section_db = biquad_response_db(b, a, freqs, fs=fs)
+    return n_sections * section_db
+
+
+def test_make_hp_band_order_4_has_4th_order_rolloff():
+    """make_hp_band(100, 4) → LSP slope=x2 → 2 cascaded 2nd-order sections
+    at Q=0.707 → 4th-order asymptotic rolloff (≈24 dB/oct deep in stopband).
+
+    Regression guard: if order→slope mapping is wrong, this fails.
+    """
+    band = make_hp_band(100.0, 4)
+    assert band["slope"] == "x2"  # 2 cascades = 4th-order
+    # Two octaves below cutoff: |H|² ≈ (f/f0)^8, so |H| ≈ -48 dB
+    # for an ideal 4th-order BW. LSP's same-Q cascade differs near fc but
+    # asymptotic is the same: at f0/4 we should be deep in stopband.
+    db = _lsp_rlc_hp_cascade_db(100.0, order=4, q=0.707,
+                                 freqs=np.array([25.0, 50.0, 200.0]))
+    # f=25 (two octaves below): expect ≈ −48 dB (within a few dB of ideal BW)
+    assert db[0] < -40.0
+    # f=50 (one octave below): expect ≈ −24 dB (LSP same-Q ≈ −25 dB)
+    assert -32.0 < db[1] < -18.0
+    # f=200 (one octave above): essentially passband (≥ −1 dB)
+    assert db[2] > -1.0
+
+
+def test_make_hp_band_order_4_was_8th_order_before_fix():
+    """Regression guard: the previous (wrong) mapping order=4 → slope=x4
+    produced 4 cascaded sections = 8th-order, attenuating ≈ −50 dB at
+    f0/2. Make sure we don't drift back there.
+    """
+    band = make_hp_band(100.0, 4)
+    # If someone reverts to slope=x4 (4 cascaded sections = 8th-order):
+    assert band["slope"] != "x4", (
+        "order=4 should be 4th-order (slope=x2), not 8th (slope=x4) — "
+        "see para_equalizer.cpp:167 for LSP's slope-doubling"
+    )
 
 
 def test_make_shelf_band_emits_lo_shelf():
