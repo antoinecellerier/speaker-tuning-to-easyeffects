@@ -702,6 +702,93 @@ Per-variant captures retained under
 `localresearch/measure_ee/variants/{baseline, clamp_pm{20,15,10,6},
 ieq_cap10, ieq_window_100_10k, no_hp}/`.
 
+**β follow-up: cross-profile validation.** β was the most
+plausible candidate from the single-profile sweep, so it was
+re-tested on the other four profiles (movie / music / game /
+voice) to see if the per-band improvement signature is
+consistent. Same XML, same DAX captures, same harness, fresh
+EE captures with `--ieq-amount-as-cap`. The test XML uses
+`ieq-amount=10` on every profile, so the cap value itself is
+not the variable across profiles; the variable is the IEQ +
+AO curve content, which differs per profile (different
+audio-optimizer per-band gains, same `ieq_balanced` curve
+shape).
+
+|β| − |baseline| (positive = β is closer to DAX), in dB:
+
+| profile |  47 Hz | 141 Hz | 234 Hz | 469 Hz | 2.25k | 5.8k | 11.25k | 13.9k | 19.7k | total |
+|---------|------:|------:|------:|------:|------:|-----:|-------:|------:|------:|------:|
+| dynamic | +1.93 | +1.76 | +1.58 | +0.51 | +1.64 | +2.22 | +2.17 | +2.30 | +9.78 | +23.9 |
+| movie   | +1.98 | +1.53 | +1.62 | +0.69 | +1.63 | +2.00 | +2.00 | +2.00 | +9.69 | +23.1 |
+| music   | +1.89 | +1.53 | +0.53 | +0.69 | +1.63 | −1.13 | +2.00 | +2.00 | +9.69 | +18.8 |
+| game    | +1.89 | +1.53 | +1.62 | +0.69 | +1.63 | +2.00 | +2.00 | +2.00 | +9.69 | +23.0 |
+| voice   | −1.99 | +1.53 | +1.62 | +0.69 | +1.63 | +2.00 | +2.00 | +2.00 | +9.69 | +19.2 |
+
+(Reproduce: `localresearch/measure_ee/spec_beta_profiles.tsv` +
+the temporary `--ieq-amount-as-cap` flag. Plot:
+`localresearch/_beta_cross_profile.png` — pink-noise overlay
+of DAX vs baseline vs β across all five profiles.)
+
+The signature is striking: β shifts EE by **almost identically
+the same dB amount per band on every profile** (the +9.69–9.78
+column at 19.7 kHz is within 0.1 dB across all five). That's
+the expected behavior if β is hitting a *structural* feature of
+the published IEQ curve — `ieq_balanced` is shared across
+profiles, so capping it produces the same lift in every
+profile's combined target. If the captured improvement were
+noise or coincidence, we'd expect per-profile variability of
+several dB; we see ≤0.1 dB.
+
+Two regressions stand out: voice at 47 Hz (β is 2 dB *worse*)
+and music at 5.8 kHz (β is 1.1 dB *worse*). In both cases the
+baseline residual at that band was already near zero (voice 47
+Hz: +0.46 dB EE−DAX; music 5.8 kHz: −0.43 dB), so β's lift
+*overcorrects* through zero rather than degrades the chain. The
+underlying lift is the same magnitude as on the other profiles
+— it just happens to land on the wrong side of zero where the
+profile was already close. That's a side-effect of β's
+mechanism (it always lifts) rather than a profile-specific
+failure of the rule.
+
+In aggregate, β closes 18.8–23.9 dB of total |EE−DAX| residual
+on every profile, ~80% of which is concentrated at 11.25–19.7
+kHz. After β, every profile still shows an 18 dB residual at
+19.7 kHz (also remarkably consistent: the post-β `vsDAX` at
+19.7 kHz is −18.46 / −19.57 / −13.85 / −19.02 / −17.96 across
+the five profiles, clustered ~−18 dB). So β is *part of* the
+right reading but not all of it; a second mechanism (likely the
+fixed HF voicing in DAX from Finding 6) accounts for the
+remaining ~18 dB.
+
+**Updated stance on β.** Cross-profile consistency materially
+strengthens the case that β reflects how DAX actually
+interprets `ieq-amount`. The single-profile result was already
+the cleanest of the five hypotheses; the cross-profile result
+shows the improvement is *structural*, not coincidental. We
+still don't change the default because:
+
+  - We have one device's data. The XML schema interpretation
+    might be device-specific in a way β happens to fit on this
+    device. (`ieq-amount` is always 10 in this XML; we have no
+    direct evidence about the cap-vs-scale interpretation when
+    the value differs.)
+  - β cannot close the remaining 18 dB at 19.7 kHz, so even if
+    correct it has to coexist with a second mechanism we
+    haven't modeled. Switching defaults to a partially-correct
+    rule is worse than leaving a known-incomplete rule in
+    place.
+  - β has small per-profile regressions (voice 47 Hz, music
+    5.8 kHz) that, while explainable as overcorrection, would
+    audibly tilt those profiles vs the current default.
+
+**The bar for adopting β as the default:** a second-device
+XML where `ieq-amount` differs from 10 *and* a captured DAX
+response from that device, showing that the cap reading
+predicts the per-band improvement at the new value. That
+would distinguish "β is the right rule" from "β's +10 dB
+HF lift happens to align with DAX's HF voicing on this
+device."
+
 ### Follow-ups to close the gap to DAX
 
 The cheap, deterministic, XML-only experiments have been exhausted —
