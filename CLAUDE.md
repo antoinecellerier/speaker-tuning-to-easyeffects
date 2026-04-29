@@ -42,6 +42,35 @@ A few things about this repo that aren't obvious from reading the code:
   - *Audible noise-floor boost during silence* — the upward-compression
     trap on LSP MBC defaults.
 
+- **The filter chain must be derivable solely from the published
+  Dolby DAX3 tuning XML.** The project's value prop is "feed in any
+  per-device XML, get a faithful EE preset"; empirical / hand-tuned
+  offsets that don't trace back to an XML field break that
+  invariant. Concretely:
+  - Every parameter the script emits (FIR coefficients, biquad
+    frequencies/Q/gain, compressor thresholds, regulator gains, etc.)
+    must be derived from a parsed XML field. If a value falls back
+    to a hardcoded default, that's a topology filler, not a tuning
+    choice — keep it out of the audible path or document the
+    fallback as part of the schema interpretation.
+  - "DAX-on-Windows captures something different from our
+    EE-on-Linux output" is **not** a license to fit our chain to
+    the captured response. Empirical fits are pragmatic shortcuts
+    that *invert* the value prop (a Linux preset that matches one
+    machine's DAX driver but stops generalising). If empirical
+    tuning is ever desired, ship it as opt-in (a flag, a separate
+    converter mode) so the principled XML-only path stays the
+    default for every other XML the script consumes. See
+    `docs/design-notes.md` "Follow-ups" section for the standing
+    list of empirical shortcuts that have been considered but not
+    adopted by default.
+  - Investigation flags introduced to test a hypothesis are
+    temporary scaffolding. Once the hypothesis is closed (decisive
+    result documented), revert the flag — the experiment is more
+    valuable as a permanent design-notes finding than as a
+    permanent CLI surface that future readers feel obliged to
+    keep correct.
+
 - **Past rabbit holes worth skipping:**
   - *`filter_coefficients`* (the base64 blob in `tuning-vlldp`) is not an
     audio EQ. It's VLLDP-internal analysis filters; the audio-optimizer
