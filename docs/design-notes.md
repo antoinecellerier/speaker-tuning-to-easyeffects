@@ -143,7 +143,11 @@ answered empirically.
 
 The measurement tooling lives at `tools/measure_dax/`. It plays a stimulus
 through the speaker output, captures the post-DAX3 signal via WASAPI loopback,
-and analyses the result. Five stimulus kinds:
+and analyses the result. A Linux-side counterpart at `tools/measure_ee/`
+runs the same stimulus battery through a live EasyEffects instance with our
+generated preset and produces analyzer-compatible captures, so the EE-on-Linux
+and DAX-on-Windows responses can be overlaid for the same XML and profile.
+Five stimulus kinds:
 
 - **sweep** (exponential 20 Hz–22 kHz, −18 dBFS peak): Farina deconvolution
   recovers an LTI IR if the system is LTI.

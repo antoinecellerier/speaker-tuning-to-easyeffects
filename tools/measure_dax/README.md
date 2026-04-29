@@ -5,6 +5,10 @@ deconvolve / spectrum-analyze on Linux and compare against the FIR our
 converter generates from the same XML. Reproduces the empirical
 comparison in [docs/design-notes.md](../../docs/design-notes.md#empirical-comparison-vs-dax3-on-windows) ("Empirical comparison vs DAX3").
 
+For the Linux-side counterpart that runs the same stimuli through a live
+EasyEffects instance (so you can overlay EE's actual response on top of
+DAX's), see [`tools/measure_ee/`](../measure_ee/).
+
 ## Quick start
 
 ```sh
