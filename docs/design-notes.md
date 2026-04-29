@@ -85,6 +85,55 @@ With these fixes in place, the normal-operation surplus is small enough that con
 sits at target loudness without the regulator triggering, and worst-case quiet-input
 scenarios are caught by the brickwall limiter rather than clipping the output.
 
+## Plugin parameter audit
+
+Every JSON key our generated preset emits is set explicitly by the
+converter — there are no inherited LSP / EasyEffects defaults sneaking
+through. But many of the values we hardcode are **converter-level
+judgments** rather than XML-derived, and judgment calls are exactly
+where past LSP-default traps have bitten (convolver `autogain` → +50 dB,
+MBC upward compression → noise-floor amplification). This table is the
+audit of every hardcoded knob we currently ship, so future readers can
+distinguish "we tested this and it's right" from "we chose this and
+moved on."
+
+Risk class:
+  - **AUDIBLE** — a different value would change steady-state magnitude,
+    transient behavior, or dynamics character.
+  - **TOPOLOGY** — affects routing or signal flow but not the
+    in-band magnitude under nominal conditions.
+  - **SAFE** — choice is constrained to one value (e.g. dithering off
+    on a master limiter), or alternatives are obviously inferior.
+
+| plugin | parameter | current | risk | rationale / status |
+|---|---|---|---|---|
+| convolver#0 | `autogain` | `false` | AUDIBLE | Trap fix (commit `5973326`). LSP default is `true`, which RMS-normalises the FIR — gives a +50 dB boost on our peak-normalised minimum-phase IR. Must stay false. |
+| convolver#0 | `ir-width` | `100` | TOPOLOGY | Stereo image width in convolver's mid/side decode. 100 = pure stereo passthrough. |
+| stereo_tools#0 | `mode` | `"LR > LR (Stereo Default)"` | TOPOLOGY | Plain L/R passthrough. M/S processing isn't relevant — Dolby's surround widener is parameterised on stereo width, not M/S. |
+| equalizer#0 | `mode` | `"IIR"` | AUDIBLE | Biquad realisation of the per-band PEQ. Alternatives FIR / FFT / SPM. FFT mode would reproduce the band targets exactly at every FFT bin instead of analytically (open: candidate test). |
+| equalizer#0 | `q-mode` | (LSP default) | AUDIBLE | We don't set this; LSP default applies. Convention question: "traditional" vs "mathematical" Q definition — same numeric `q` value produces different effective bandwidth. Open: numeric verification needed. |
+| equalizer#0 | per-band `mode` | `"RLC (BT)"` | AUDIBLE | Filter family. LSP also offers LRX, BWC, APO — different group-delay / steepness profiles. Has been verified for HP-slope behavior (commit `944a8f3`); other types not formally tested against XML target. |
+| equalizer#0 | `split-channels` | `true` | AUDIBLE | Required: the Dolby PEQ is asymmetric L/R on most devices. Linking would force-symmetrise. |
+| autogain#0 | `bypass` | `true` (HDA), `false` (SDW) | AUDIBLE | Documented in "Why autogain is bypassed by default" — re-enabling reintroduces pumping on quiet→loud transitions. |
+| multiband_compressor#0 | `compressor-mode` | `"Modern"` | AUDIBLE | LSP's two compressor algorithms differ in knee shape and ratio behavior. Not measured against the XML's compressor model. Open: candidate test. |
+| multiband_compressor#0 | `envelope-boost` | `"None"` | AUDIBLE | A pre-detection EQ tilt. Options include `Pink BT/MT`, `Brown BT/MT`. Primitive analog to Dolby's MI steering — could shape compressor response on content where it currently engages flat. Open: candidate test. |
+| multiband_compressor#0 | `stereo-split` | `false` | TOPOLOGY | Single sidechain across L+R. Dolby's compressor is parameterised globally (one threshold per band, both channels), so unified sidechain matches. |
+| multiband_compressor#0 | per-band `sidechain-mode` | `"RMS"` | AUDIBLE | RMS detection — gives smoother level estimation than peak. Reasonable for a music compressor. Not directly tested against Dolby's. |
+| multiband_compressor#0 | per-band `sidechain-source` | `"Middle"` | AUDIBLE | Sidechain on `M` of M/S. Could be `"Stereo"` (full stereo image) or per-channel — the choice affects how loud-on-one-side content compresses both sides. Open: not tested. |
+| multiband_compressor#0 | per-band `sidechain-reactivity` | `10.0` ms | AUDIBLE | Pre-attack envelope smoothing. LSP default. |
+| multiband_compressor#0 | per-band `compression-mode` | `"Downward"` | AUDIBLE | Trap fix (commit `e454711`). LSP default enables upward compression below `boost-threshold=-72 dB`, which amplifies noise floor during silence. |
+| multiband_compressor#1 (regulator) | `sidechain-mode` (limiting band) | `"Peak"` | AUDIBLE | Peak detection on the band that does brickwall limiting; RMS on others. Matches the hard-limit role of that band. |
+| limiter#0 | `mode` | `"Herm Thin"` | AUDIBLE | One of LSP's many limiter algorithms. Hermes Thin is a thin-saturation curve. Modern / Classic / Herm Wide variants differ in distortion character. Open: candidate test. |
+| limiter#0 | `oversampling` | `"None"` | AUDIBLE | No oversampling. Hard limiting on HF content can alias into-band; 2x or 4x suppresses it. Adds latency. Open: candidate test. |
+| limiter#0 | `dithering` | `"None"` | SAFE | Off — adding dither here raises the noise floor unconditionally. |
+| limiter#0 | `lookahead` | `1.0` ms | TOPOLOGY | Below LSP default (5 ms) but non-zero. Allows correct peak detection without the full-default delay. |
+| limiter#0 | `alr` | `false` | AUDIBLE | LSP "auto level release" — dynamic relaxation of release time on the limiter. Off keeps behavior predictable. |
+
+Items flagged **open: candidate test** are the active audit surface. Where
+those experiments produce measurement-backed conclusions, the relevant row
+will be updated to cite the residual numbers and the decision (kept,
+changed, or documented trade-off).
+
 ## Why autogain is bypassed by default
 
 The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters

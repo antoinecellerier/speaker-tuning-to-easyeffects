@@ -64,12 +64,18 @@ A few things about this repo that aren't obvious from reading the code:
     `docs/design-notes.md` "Follow-ups" section for the standing
     list of empirical shortcuts that have been considered but not
     adopted by default.
-  - Investigation flags introduced to test a hypothesis are
-    temporary scaffolding. Once the hypothesis is closed (decisive
-    result documented), revert the flag — the experiment is more
+  - Investigation flags introduced to test a hypothesis on the
+    main converter (`dolby_to_easyeffects.py`) are temporary
+    scaffolding. Once the hypothesis is closed (decisive result
+    documented), revert the flag — the experiment is more
     valuable as a permanent design-notes finding than as a
     permanent CLI surface that future readers feel obliged to
-    keep correct.
+    keep correct. The same rule does *not* apply to harness /
+    measurement tooling under `tools/` (e.g.
+    `tools/measure_ee/sweep_variants.sh`,
+    `tools/measure_ee/summarise_variants.py`); those are
+    test-rig infrastructure, kept around so future variant
+    experiments don't reinvent the wheel.
 
 - **Past rabbit holes worth skipping:**
   - *`filter_coefficients`* (the base64 blob in `tuning-vlldp`) is not an
