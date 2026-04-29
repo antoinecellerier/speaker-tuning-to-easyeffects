@@ -322,6 +322,115 @@ single 47 Hz sine for 12 s, shows DAX at −14 dB (vs EE −37 dB), a
 23 dB gap that's much bigger than the pink-noise gap and consistent
 with leveler boost rather than steady-state EQ.
 
+### Finding 5: No HF-shaping XML block was missed
+
+A schema audit of the corpus XMLs (every element appearing under
+`tuning-cp` and `tuning-vlldp` across `localresearch/` devices,
+checked against what `parse_xml` reads) found **no candidate
+HF-shaping element that the converter ignores**. The
+elements `parse_xml` skips are bass-side
+(`bass-enhancer-*`, `bass-extraction-*`, `virtual-bass-*`),
+spatial (virtualizer angles, surround-decoder-center-spreading,
+height-filter-mode), woofer-specific
+(`woofer-regulator-*`, `calibration-boost`,
+`customer-woofer-channel-index`), volume-modeling
+(`volume-modeler-*`), or graphic-EQ (`graphic-equalizer-*`,
+which is `enable=0` everywhere in the corpus). None of these
+match an HF / treble / shelf / post-AO role.
+
+This narrows hypothesis (a) — "DAX ships an HF-shaping stage we're
+not modeling" — to one of two possibilities: either a DAX-internal
+processing stage that does **not** appear in the published tuning
+XML at all (e.g. a fixed driver-level treble curve baked into DAX3,
+not parameterised per device), or an XML element whose semantics
+we have mis-categorised (e.g. `bass-extraction` actually carrying
+HF data, which is implausible from element naming but not strictly
+ruled out by the corpus). Either way, hypothesis (a) cannot be
+falsified without data outside the XML; the deterministic
+"XML-only filter chain" property cannot close it.
+
+### Finding 6: Hypothesis (b) is rejected; hypothesis (a) lives outside the XML
+
+A 2×2 deterministic variant matrix was run across all 5 profiles to
+disambiguate Finding 4's remaining hypotheses (a) vs (b). The variants
+were produced from the same XML by patching `make_fir` to accept a
+`phase` choice (minimum-phase via cepstral construction, or
+linear-phase via zero-phase IFFT centered at `n/2`) and patching the
+`combined = ieq_db ± ao_db` step in the converter to flip the AO
+sign. Both patches were temporary scaffolding for this experiment —
+the final result is decisive enough that they were removed once the
+matrix was captured. Pink-noise steady-state RMS residual EE−DAX
+(dB), 200–18000 Hz, normalized at 1 kHz, channel L:
+
+| profile | add+min (default) | sub+min | add+lin | sub+lin |
+|---------|-----------------:|--------:|--------:|--------:|
+| dynamic | **11.95** | 19.53 | 12.15 | 19.94 |
+| movie   | **12.53** | 20.26 | 12.84 | 20.66 |
+| music   | **8.87**  | 16.56 |  9.13 | 16.97 |
+| game    | **12.16** | 20.23 | 12.48 | 20.65 |
+| voice   | **11.45** | 31.01 | 11.75 | 31.42 |
+
+(Reproducing requires re-applying the temporary patches to
+`make_fir` and the `ieq_db + ao_db` step, then driving
+`tools/measure_ee/capture_battery.py` once per (variant, profile)
+and comparing against the DAX captures with
+`tools/measure_ee/compare_ee_vs_dax.py`.)
+
+`add+min` (the current default) wins on every profile; `sub+min` is
++7–20 dB worse. Hypothesis (b) — "DAX inverts AO before applying" —
+is decisively **rejected**: subtracting AO moves EE *away* from DAX,
+not toward it. Voice profile is the most extreme (+19.6 dB with sub),
+because voice has the largest AO swings; this also confirms the AO
+contribution is being applied with the right sign at the right
+magnitude.
+
+`add+lin` is consistently +0.2–0.4 dB worse than `add+min`. Phase
+character has minor influence on the magnitude residual (as expected
+— pink noise is a steady-state magnitude measurement; the small
+delta is leveler interaction with the changed temporal envelope).
+Linear-phase doesn't help magnitude match; it costs ~42 ms group
+delay; it's diagnostic only.
+
+Per-band residuals on `add+min` reveal the gap structure:
+
+| band | dynamic | movie | music | game | voice |
+|---:|---:|---:|---:|---:|---:|
+|    47 Hz |  −8.1 |  −7.0 | −14.4 |  −6.5 |  +0.5 |
+|   234 Hz |  +3.1 |  +3.0 |  +1.1 |  +3.5 |  +3.0 |
+|  2.25 kHz |  +4.2 |  +3.9 |  +4.2 |  +2.7 |  +4.9 |
+|  5.81 kHz |  −3.4 |  −3.7 |  −0.4 |  −3.7 |  −3.4 |
+| 11.25 kHz |  −9.5 | −10.2 |  −5.3 |  −9.7 |  −8.5 |
+| 13.88 kHz | −16.5 | −17.2 | −11.7 | −16.7 | −15.6 |
+| 19.69 kHz | −28.2 | −29.2 | −23.5 | −28.7 | −27.6 |
+
+(Music's smaller HF gap reflects its less-aggressive HF rolloff in
+`ieq_music_balanced`; the rest cluster within ~3 dB at every HF band.)
+
+The HF gap above ~10 kHz is **profile-independent** — same shape,
+similar magnitudes regardless of which `IEQ + AO` target is in play.
+This is the canonical signature of a **fixed** HF behavior on
+DAX's side that is not parameterised in the published tuning XML.
+Combined with Finding 5 (no candidate HF-shaping XML element was
+missed), the only remaining explanation for the HF residual is a
+DAX-internal processing stage outside the XML — likely a built-in
+treble-region behavior calibrated per-platform but not exposed
+through the tuning files we consume.
+
+The mid-frequency biases (+3 dB at 234 Hz, +4 dB at 2.25 kHz,
+roughly profile-independent) point at a similar story: EE applies
+the XML-implied curve, DAX softens specific bands, and the shape
+of the softening is fixed rather than per-profile. These are the
+shape of "voicing" choices baked into DAX, not absorbed into the
+per-device tuning.
+
+**Outcome for the converter:** the current `IEQ + AO` minimum-phase
+FIR is the right deterministic target for the published XML. No
+default change, no permanent flag added — the experiments closed
+their hypotheses, not opened a new tuning surface. Closing the
+remaining residual further requires data outside the XML (e.g.
+follow-up #1 below — a stripped-down single-block tuning XML A/B
+on Windows).
+
 ### Implications for the converter
 
 Our `make_fir` produces a faithful min-phase FIR of `IEQ + audio_optimizer`
@@ -330,11 +439,13 @@ we cannot reproduce on Linux without additional reverse-engineering:
 
 1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
    ~42 ms of group delay, ruled out by the no-added-latency constraint.
-2. **DAX3's apparent flatter HF response.** Finding 4 narrows the
-   space to hypothesis (a) or (b) — (c) is ruled out, our converter
-   and EE agree on which `ieq_*` curve is being applied and on its
-   magnitude. Resolving (a) vs (b) needs a controlled single-block
-   A/B (a stripped-down XML), not a structural change to the converter.
+2. **DAX3's apparent flatter HF response.** Finding 6 rejects
+   hypothesis (b): the variant matrix shows `IEQ − AO` is +7–20 dB
+   *worse* than `IEQ + AO` on every profile. Finding 5 makes
+   hypothesis (a) implausible within the XML (no missed element).
+   What remains is a fixed DAX-internal processing stage outside
+   the published tuning XML. Closing it requires data we don't
+   have (e.g. a stripped-down single-block A/B on Windows).
 3. **DAX3's non-LTI dynamics** (leveler, regulator engaging during
    playback). EasyEffects' autogain is bypassed by default already
    (see "Why autogain is bypassed by default" above) — adding a
@@ -347,59 +458,58 @@ update is a one-command repeat.
 
 ### Follow-ups to close the gap to DAX
 
-These are not committed yet — listed here so the next session can pick
-them up. Effectiveness varies; the cheap A/B'able ones are at the top.
+The cheap, deterministic, XML-only experiments have been exhausted —
+hypothesis (b) is rejected (Finding 6), no missed XML block (Finding
+5), 5-profile coverage is in (Finding 6). What remains needs either
+data outside the XML or a relaxation of the determinism / latency
+constraints.
 
-**Cheap experiments worth A/B'ing on real content:**
+**Still actionable, no constraint change:**
 
-1. **Try `IEQ − AO` instead of `IEQ + AO` in the FIR target.** Tests
-   hypothesis (b) — DAX inverting `audio_optimizer` before applying.
-   One-line flag in `dolby_to_easyeffects.py`. If EE response moves
-   toward DAX after the change, hypothesis (b) wins; if further away,
-   (a) wins.
-2. **Drop a small attenuation bell at 2.25 kHz in `equalizer#1`.** The
-   user preset currently has `+1.88 dB / Q 0.7 @ 2500 Hz`. Replacing
-   with `−4 dB / Q ≈ 1 @ 2250 Hz` would close the ~4 dB upper-mid
-   over-boost without touching the FIR. Listening pass on dialogue.
-3. **Soften the HP at 100 Hz from `x2` slope to `x1`.** Closes part
-   of the LF gap (8 dB pink, 23 dB multitone at 47 Hz). Risk: small
-   speakers benefit from the steeper HP for excursion limiting —
-   listening pass on bass-heavy content before merging.
-4. **Run the EE battery on the other four profiles** (Movie / Music /
-   Game / Voice). Today's data is Dynamic only. If the HF gap is
-   profile-independent, hypothesis (a) is more likely; if it scales
-   with `IEQ + AO` magnitude, hypothesis (b) is more likely. No code
-   change.
-
-**Diagnostic, no code change:**
-
-5. **Audit the XML schema for blocks `parse_xml` skips.** If there's
-   an HF-shaping element in `tuning-vlldp` we don't currently parse,
-   that's the simplest explanation for the 28 dB gap. Quick grep
-   through the cohort under `localresearch/`.
-6. **Stripped-down single-block tuning XML A/B on Windows.** Disable
-   everything except IEQ in a tuning XML and capture DAX. Risk: needs
-   driver-level XML replacement, could brick DAX on the test machine
-   until restoration. Scope before attempting.
+1. **Stripped-down single-block tuning XML A/B on Windows.** Disable
+   everything except IEQ in a tuning XML and capture DAX, then add
+   AO, then add per-band PEQ, etc. Pinpoints which DAX stage is
+   adding the fixed HF/mid behavior we cannot derive from the XML.
+   Risk: needs driver-level XML replacement, could brick DAX on
+   the test machine until restoration. Scope before attempting.
 
 **Out of scope unless a constraint changes:**
 
-7. **Match DAX's hybrid phase character** — partial-linear-phase FIR,
+2. **Match DAX's hybrid phase character** — partial-linear-phase FIR,
    adds ~20–40 ms group delay. Ruled out by no-added-latency
-   constraint; needs an explicit decision to relax that.
-8. **Approximate DAX's leveler / regulator** — closes the multitone-LF
+   constraint; needs an explicit decision to relax that. The
+   `--fir-phase=linphase` flag is the upper-bound experiment for
+   this; Finding 6 shows pure linear-phase doesn't help magnitude.
+3. **Approximate DAX's leveler / regulator** — closes the multitone-LF
    gap and the −18 vs −42 dBFS sweep difference. Substantial RE
    effort; naively re-enabling EE autogain reintroduces the pumping
    trap (see "Why autogain is bypassed by default").
 
-**Pragmatic shortcut if RE proves too expensive:**
+**Pragmatic shortcut if determinism is relaxed:**
 
-9. **Empirically tune the preset to match DAX's *captured* response,**
+4. **Empirically tune the preset to match DAX's *captured* response,**
    not the XML's published curves. Fit a FIR + biquad chain to the
    DAX pink-noise capture directly. Loses the "we faithfully apply
    the published XML" property but produces a Linux preset that
    audibly matches Windows. Could be opt-in via a flag so the
-   principled path stays the default.
+   principled path stays the default. The variant matrix in Finding
+   6 plus the per-band table identify the specific dB targets such
+   a tuner would need to hit (e.g. flatten the HF rolloff above
+   ~10 kHz, soften the +4 dB at 2.25 kHz, lift 5–6 kHz).
+
+**Closed by the variant sweep (Finding 6) — kept here as historical
+record; do not re-litigate without new evidence:**
+
+  - "Try `IEQ − AO`" — rejected; +7–20 dB worse on every profile.
+  - "Run on the other 4 profiles" — done; HF gap is profile-independent.
+  - "Audit the XML schema for missed HF-shaping blocks" — done;
+    none found (Finding 5).
+  - "Soften the HP at 100 Hz from `x2` to `x1`" — the test XML's
+    HP is XML-driven (order=4 → x2), not the line-1581 filler
+    path; softening would diverge from the deterministic mapping.
+  - "Drop a 2.25 kHz attenuation bell in `equalizer#1`" — would
+    work as an empirical fix for the +4 dB band but loses
+    XML-determinism; folded into option 4 above.
 
 ## Rejected approaches
 
