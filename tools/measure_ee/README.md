@@ -37,7 +37,8 @@ Two extra traps caught us during the retry:
 | `teardown.sh` | Reverses the above; restores db rc from backup and unloads the null sink |
 | `smoke.py` | Bypass-preset smoke harness — gates every route attempt before running the full battery |
 | `capture_battery.py` | Runs the 5-stimulus battery through EE, writes `loopback_*.{wav,json}` analyzer-compatible |
-| `compare_ee_vs_dax.py` | Overlays EE captures vs DAX3 captures (analyze.py outputs from both sides) |
+| `compare_ee_vs_dax.py` | Overlays EE captures vs DAX3 captures (analyze.py outputs from both sides) — frequency domain |
+| `compare_ir_time_domain.py` | Overlays converter FIR / EE-captured / DAX-captured IRs in the time domain — envelope decay, cumulative-energy times, peak position. Answers "is my FIR's tail real signal or just below the noise floor?" |
 | `compare_ee_analytical.py` | Optional self-check: capture vs analytical (FIR + biquads) model. Useful for converter validation, *not* required for EE↔DAX comparison. |
 
 ## Usage

@@ -133,6 +133,32 @@ the energy is in the first half of the 4096 taps), has no significant tail ringi
 and extrapolates flat beyond the band edges. 4096 taps (~85 ms at 48 kHz) is
 sufficient for 20-band EQ correction.
 
+**FIR time-domain envelope** (Dolby-Balanced, Dynamic, X1 Yoga Gen 7, channel L,
+peak-normalized; reproduce with `tools/measure_ee/compare_ir_time_domain.py`):
+
+|                              | converter FIR (`Dolby-Balanced.irs`) | EE-captured | DAX-captured |
+|------------------------------|---:|---:|---:|
+| total samples (file)         | 4096 (85.3 ms) | 8192 (170.7 ms) | 8192 (170.7 ms) |
+| 95% cumulative energy        | peak + 1.15 ms | peak + 2.79 ms | peak + 1.29 ms |
+| 99% cumulative energy        | peak + 5.50 ms | peak + 7.21 ms | peak + 3.62 ms |
+| 99.9% cumulative energy      | peak + 11.19 ms | peak + 13.77 ms | peak + 8.21 ms |
+| envelope first &lt; −60 dB   | peak + 19.94 ms | peak + 23.29 ms | peak + 11.40 ms |
+| envelope first &lt; −80 dB   | peak + 49.88 ms | peak + 51.19 ms | peak + 23.15 ms |
+
+The converter FIR and the EE-captured IR have nearly identical decay profiles —
+expected, since EE *is* the convolver applying that FIR. The DAX-captured IR
+decays roughly 2× faster (−60 dB at 11 ms post-peak vs ~22 ms). What looks
+like a "long" loopback IR in a stereogram view is the −60 to −100 dB tail; on
+a log-envelope scale the post-peak tail of all three IRs falls below the
+audible threshold within ~25–50 ms.
+
+The 99% cumulative-energy time (peak + 5.5 ms for the converter FIR) is what
+matters for "where is the impulse-response actually doing work." The remaining
+~80 ms of the 4096-tap file is the natural decay of the lowest-frequency
+biquads in the cepstral construction (a 100 Hz HP at Q ≈ 0.7 has a several-ms
+time-constant; the trailing &lt;−60 dB samples encode its asymptotic decay).
+Trimming earlier than that loses LF accuracy, not visible "blank space."
+
 ## Empirical comparison vs DAX3 on Windows
 
 Issue #11 raised an interesting side question: how does the FIR our converter
@@ -239,12 +265,62 @@ suggests either (a) DAX3 ships a separate HF-shaping stage we're not
 modelling, (b) the audio_optimizer block is a target-response curve that
 DAX3 inverts internally rather than applying directly, or (c) the
 specific IEQ "Balanced" curve in Dolby Access doesn't correspond to the
-`ieq_balanced` block in the XML. We have no way to disambiguate from
-loopback alone; resolving it would need a Dolby-side reference.
+`ieq_balanced` block in the XML. Finding 4 (below) rules (c) out via a
+Linux-side EE-loopback capture of the same XML; disambiguating (a) vs
+(b) still needs either a Dolby-side reference or a stripped-down
+single-block tuning XML.
 
 The Music profile fits its XML target most closely (RMS 5–7 dB).
 Dynamic, Movie, Game cluster around 7–12 dB RMS. Voice deviates the
 most (9–10 dB RMS).
+
+### Finding 4: EE-on-Linux follows the XML; the gap is on DAX's side
+
+With the new `tools/measure_ee/` Linux-side capture (same 5 stimuli,
+same `analyze.py`, same XML reference), we can place EE and DAX side by
+side for the same profile. Pink-noise steady-state, Dynamic / Balanced,
+ThinkPad X1 Yoga Gen 7 (DEV_0287_SUBSYS_17AA22E6), normalized at 1 kHz:
+
+| freq | EE (dB) | DAX (dB) | Δ EE−DAX |
+|---:|---:|---:|---:|
+| 47 Hz | −36.5 | −28.4 | −8.1 |
+| 234 Hz | +19.4 | +16.3 | +3.1 |
+| 1 kHz | 0 | 0 | 0 |
+| 2.25 kHz | +16.6 | +12.4 | +4.2 |
+| 5.8 kHz | +0.1 | +3.3 | −3.2 |
+| 11.25 kHz | −6.8 | +2.5 | −9.3 |
+| 13.9 kHz | −14.0 | +2.2 | −16.2 |
+| 19.7 kHz | −27.5 | +0.7 | −28.1 |
+
+(Reproduce with `tools/measure_ee/compare_ee_vs_dax.py` after running
+the EE battery and the DAX battery through `analyze.py` — see
+`tools/measure_ee/README.md`.)
+
+EE follows the converter's XML interpretation within ≤3 dB across most
+of the band — same shape, same band centers, same depths. DAX
+diverges most where the XML target is most extreme (deep HF rolloff
+in `ieq_balanced + audio_optimizer`): at 19.7 kHz the XML target
+predicts roughly −43 dB, EE applies −27 dB (the FIR doesn't reach the
+target's depth), and DAX applies +1 dB.
+
+This rules out hypothesis (c) from Finding 3 (the wrong `ieq_*` curve)
+— our converter and EE agree on which curve is in play, and they
+agree on its magnitude shape. The remaining hypotheses are (a) DAX
+ships a separate HF-shaping stage we're not modeling, or (b) DAX
+treats `audio_optimizer` as a target-response that it inverts before
+applying. Loopback can't distinguish them without a controlled
+single-block A/B (e.g., a tuning XML stripped down to a single block
+at a time), but the gap is unambiguously on DAX's side, not the
+converter's.
+
+The 47 Hz deviation (−8 dB EE vs −28 dB DAX, both relative to 1 kHz)
+is partly the EE chain's `equalizer#0 band0` HP at 100 Hz / x2 slope
+(≈4th-order rolloff that takes us deeper than the XML target alone)
+and partly DAX's volume regulator boosting LF tones at low input
+levels — the multitone capture, where the leveler can lock onto a
+single 47 Hz sine for 12 s, shows DAX at −14 dB (vs EE −37 dB), a
+23 dB gap that's much bigger than the pink-noise gap and consistent
+with leveler boost rather than steady-state EQ.
 
 ### Implications for the converter
 
@@ -254,9 +330,11 @@ we cannot reproduce on Linux without additional reverse-engineering:
 
 1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
    ~42 ms of group delay, ruled out by the no-added-latency constraint.
-2. **DAX3's apparent flatter HF response.** Worth investigating but
-   requires a hypothesis (b/c above) and audible validation, not a
-   structural change.
+2. **DAX3's apparent flatter HF response.** Finding 4 narrows the
+   space to hypothesis (a) or (b) — (c) is ruled out, our converter
+   and EE agree on which `ieq_*` curve is being applied and on its
+   magnitude. Resolving (a) vs (b) needs a controlled single-block
+   A/B (a stripped-down XML), not a structural change to the converter.
 3. **DAX3's non-LTI dynamics** (leveler, regulator engaging during
    playback). EasyEffects' autogain is bypassed by default already
    (see "Why autogain is bypassed by default" above) — adding a
@@ -266,6 +344,62 @@ we cannot reproduce on Linux without additional reverse-engineering:
 The captures + analysis tooling under `tools/measure_dax/` are kept for
 future debugging — re-running on a new device or after a Dolby driver
 update is a one-command repeat.
+
+### Follow-ups to close the gap to DAX
+
+These are not committed yet — listed here so the next session can pick
+them up. Effectiveness varies; the cheap A/B'able ones are at the top.
+
+**Cheap experiments worth A/B'ing on real content:**
+
+1. **Try `IEQ − AO` instead of `IEQ + AO` in the FIR target.** Tests
+   hypothesis (b) — DAX inverting `audio_optimizer` before applying.
+   One-line flag in `dolby_to_easyeffects.py`. If EE response moves
+   toward DAX after the change, hypothesis (b) wins; if further away,
+   (a) wins.
+2. **Drop a small attenuation bell at 2.25 kHz in `equalizer#1`.** The
+   user preset currently has `+1.88 dB / Q 0.7 @ 2500 Hz`. Replacing
+   with `−4 dB / Q ≈ 1 @ 2250 Hz` would close the ~4 dB upper-mid
+   over-boost without touching the FIR. Listening pass on dialogue.
+3. **Soften the HP at 100 Hz from `x2` slope to `x1`.** Closes part
+   of the LF gap (8 dB pink, 23 dB multitone at 47 Hz). Risk: small
+   speakers benefit from the steeper HP for excursion limiting —
+   listening pass on bass-heavy content before merging.
+4. **Run the EE battery on the other four profiles** (Movie / Music /
+   Game / Voice). Today's data is Dynamic only. If the HF gap is
+   profile-independent, hypothesis (a) is more likely; if it scales
+   with `IEQ + AO` magnitude, hypothesis (b) is more likely. No code
+   change.
+
+**Diagnostic, no code change:**
+
+5. **Audit the XML schema for blocks `parse_xml` skips.** If there's
+   an HF-shaping element in `tuning-vlldp` we don't currently parse,
+   that's the simplest explanation for the 28 dB gap. Quick grep
+   through the cohort under `localresearch/`.
+6. **Stripped-down single-block tuning XML A/B on Windows.** Disable
+   everything except IEQ in a tuning XML and capture DAX. Risk: needs
+   driver-level XML replacement, could brick DAX on the test machine
+   until restoration. Scope before attempting.
+
+**Out of scope unless a constraint changes:**
+
+7. **Match DAX's hybrid phase character** — partial-linear-phase FIR,
+   adds ~20–40 ms group delay. Ruled out by no-added-latency
+   constraint; needs an explicit decision to relax that.
+8. **Approximate DAX's leveler / regulator** — closes the multitone-LF
+   gap and the −18 vs −42 dBFS sweep difference. Substantial RE
+   effort; naively re-enabling EE autogain reintroduces the pumping
+   trap (see "Why autogain is bypassed by default").
+
+**Pragmatic shortcut if RE proves too expensive:**
+
+9. **Empirically tune the preset to match DAX's *captured* response,**
+   not the XML's published curves. Fit a FIR + biquad chain to the
+   DAX pink-noise capture directly. Loses the "we faithfully apply
+   the published XML" property but produces a Linux preset that
+   audibly matches Windows. Could be opt-in via a flag so the
+   principled path stays the default.
 
 ## Rejected approaches
 

@@ -43,18 +43,33 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def _scan_dir(d: Path) -> dict[tuple[str, str, str], Path]:
-    """Map (kind, tag, channel) -> file_path, for analyze.py's outputs."""
+def _scan_dir(d: Path, want_label: str | None = None
+              ) -> dict[tuple[str, str, str], Path]:
+    """Map (kind, tag, channel) -> file_path, for analyze.py's outputs.
+
+    If want_label is given, keep only files whose label matches exactly.
+    Otherwise we'd silently pick whichever label happened to come last
+    in directory iteration (e.g. comparing EE-dynamic to DAX-off).
+    """
     out: dict[tuple[str, str, str], Path] = {}
     if not d.is_dir():
         return out
+    seen_labels: set[str] = set()
     for path in d.iterdir():
         m = re.match(r"^(spectrum|tones|ir)_([^_]+(?:_quiet)?)_(.+)_([LR])"
                      r"\.(npz|wav)$", path.name)
         if not m:
             continue
-        kind, tag, _label, ch, _ext = m.groups()
+        kind, tag, label, ch, _ext = m.groups()
+        seen_labels.add(label)
+        if want_label is not None and label != want_label:
+            continue
         out[(kind, tag, ch)] = path
+    if want_label is not None and not out and seen_labels:
+        sys.stderr.write(
+            f"WARN: no files in {d} matched label={want_label!r}; "
+            f"available labels: {sorted(seen_labels)}\n"
+        )
     return out
 
 
@@ -153,12 +168,26 @@ def _maybe_plot(f: np.ndarray, c_ee: np.ndarray, c_dax: np.ndarray,
     ax1.set_title(title)
     ax1.legend(loc="lower left", fontsize=8)
     ax1.grid(True, which="both", alpha=0.3)
+    # Cap the magnitude axis to a sensible reading range. Sweep IRs run
+    # to −175 dB at the FFT noise floor; clamping shows the music.
+    band_mask = (f >= 30) & (f <= 22000)
+    if band_mask.any():
+        lo = float(min(c_ee[band_mask].min(), c_dax[band_mask].min()))
+        hi = float(max(c_ee[band_mask].max(), c_dax[band_mask].max()))
+        pad = 3.0
+        ax1.set_ylim(max(-60.0, lo - pad), hi + pad)
 
     ax2.semilogx(f, diff, color="C2")
     ax2.axhline(0, lw=0.5, color="k")
     ax2.axvspan(200, 18000, color="0.95", alpha=0.5, zorder=-1)
     ax2.set_xlim(20, 24000)
-    ax2.set_ylim(-6, 6)
+    # Auto-scale the residual to whatever range is actually present
+    # (clamped to at least ±5 dB so a flat-ish residual isn't misread
+    # as huge). The HF gap is often −28 dB; hardcoding ±6 hid it.
+    band_resid = diff[(f >= 50) & (f <= 22000)]
+    if band_resid.size:
+        rmax = float(np.max(np.abs(band_resid))) + 1.0
+        ax2.set_ylim(-max(5.0, rmax), max(5.0, rmax))
     ax2.set_xlabel("Hz")
     ax2.set_ylabel("EE − DAX (dB)")
     ax2.grid(True, which="both", alpha=0.3)
@@ -169,21 +198,14 @@ def _maybe_plot(f: np.ndarray, c_ee: np.ndarray, c_dax: np.ndarray,
     return True
 
 
-def _ref_target(xml_path: Path, profile: str, curve: str, sr: int = 48000
+def _ref_target(xml_path: Path, profile: str, curve: str
                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (band_freqs, target_db_L, target_db_R) using the same code
-    path analyze.py uses (parse_xml + interpolate_curve_db)."""
-    from dolby_to_easyeffects import (parse_xml, interpolate_curve_db,
-                                      SAMPLE_RATE)
-    if sr != SAMPLE_RATE:
-        raise SystemExit(f"sr {sr} != converter SAMPLE_RATE {SAMPLE_RATE}")
-    res = parse_xml(str(xml_path))
-    freqs, curves, ieq_amount, ao_l, ao_r = res[:5]
-    target_l = interpolate_curve_db(freqs, curves, ieq_amount, ao_l,
-                                     profile, curve, channel="left")
-    target_r = interpolate_curve_db(freqs, curves, ieq_amount, ao_r,
-                                     profile, curve, channel="right")
-    return np.asarray(freqs, dtype=float), target_l, target_r
+    path analyze.py uses (build_reference)."""
+    sys.path.insert(0, str(REPO_ROOT / "tools" / "measure_dax"))
+    from analyze import build_reference  # noqa: E402
+    ref = build_reference(xml_path, profile, curve)
+    return ref.band_freqs, ref.target_db_L, ref.target_db_R
 
 
 def main() -> int:
@@ -192,6 +214,13 @@ def main() -> int:
                     help="analyze.py output dir for EE captures")
     ap.add_argument("--dax-dir", type=Path, required=True,
                     help="analyze.py output dir for DAX captures")
+    ap.add_argument("--ee-label", default=None,
+                    help="EE label (the part between <tag>_ and _<ch> in "
+                         "the analyzer outputs, e.g. ee_dynamic_balanced). "
+                         "Required if the dir has multiple labels.")
+    ap.add_argument("--dax-label", default=None,
+                    help="DAX label (e.g. dynamic, game, movie). Required "
+                         "if the dir has multiple labels.")
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Output directory (default ee-dir)")
     ap.add_argument("--xml", type=Path, default=None,
@@ -206,8 +235,8 @@ def main() -> int:
     out_dir = args.out_dir or args.ee_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ee_idx = _scan_dir(args.ee_dir)
-    dax_idx = _scan_dir(args.dax_dir)
+    ee_idx = _scan_dir(args.ee_dir, args.ee_label)
+    dax_idx = _scan_dir(args.dax_dir, args.dax_label)
     if not ee_idx:
         print(f"no analyze.py outputs found in {args.ee_dir}", file=sys.stderr)
         return 2
