@@ -134,6 +134,44 @@ those experiments produce measurement-backed conclusions, the relevant row
 will be updated to cite the residual numbers and the decision (kept,
 changed, or documented trade-off).
 
+### Measurement outcome: dynamics plugins are dormant on the test stimuli
+
+A reduced A/B sweep (current vs `limiter mode = "Herm Wide"` +
+`oversampling = "Full x4/24 bit"`, captured against `Dolby-Dynamic-Balanced`
+on multitone / pink / sweep / sweep_quiet / pink_quiet) measured the
+EE-vs-XML-target residual at:
+
+| variant | EE-vs-XML rms | EE-vs-XML max |
+|---|---:|---:|
+| current (Herm Thin / None) | 0.94 dB | 4.40 dB |
+| Herm Wide / Full x4/24 bit | 0.93 dB | 4.39 dB |
+
+The two variants agree to **0.01 dB RMS** — within measurement noise.
+This is the predicted outcome from a level-budget analysis: every
+captured stimulus peaks at ≈ −10 dBFS, well below the limiter's
+~ −1 dBFS threshold and below most MBC band thresholds in the test
+XML. **The dynamics plugins (limiter, MBC, regulator) are passive at
+our nominal stimulus levels**, so the parameters in the audit table
+flagged as "AUDIBLE" but living in those plugins (`limiter mode/
+oversampling`, `MBC compressor-mode`, `MBC envelope-boost`, `MBC
+sidechain-source/mode/reactivity`) cannot be characterised by the
+current pink-noise / multitone test rig. They affect transient and
+loud-content behavior; characterising those needs a different test
+stimulus (e.g. clipping-engaging sustained tones, or live program
+material with peak detection) — out of scope for this audit, which
+focuses on frequency-domain fidelity at nominal levels.
+
+The measurement also reads off the **EE-vs-XML baseline**: at
+0.94 dB RMS / 4.4 dB max in-band residual on `Dolby-Dynamic-Balanced`,
+our chain is highly faithful to the XML target. The 11.84 dB
+EE-vs-DAX residual recorded in Finding 6 is dominated by fixed-DAX
+behavior outside the XML, not by drift in our implementation.
+
+For the rows still marked "open" in the table above (MBC and limiter
+character knobs), the practical guidance is: defaults are safe at
+nominal levels; revisit if a future investigation focuses on
+transient or peak-engaging content.
+
 ## Why autogain is bypassed by default
 
 The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters
