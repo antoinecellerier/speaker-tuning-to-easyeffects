@@ -163,9 +163,13 @@ focuses on frequency-domain fidelity at nominal levels.
 
 The measurement also reads off the **EE-vs-XML baseline**: at
 0.94 dB RMS / 4.4 dB max in-band residual on `Dolby-Dynamic-Balanced`,
-our chain is highly faithful to the XML target. The 11.84 dB
-EE-vs-DAX residual recorded in Finding 6 is dominated by fixed-DAX
-behavior outside the XML, not by drift in our implementation.
+the FIR + biquad chain reproduces the curve our converter intended
+to produce — i.e. the DSP math executes correctly. (`vsXML` is
+internal consistency, not interpretation correctness; see the
+"note on metrics" in Finding 7 for why this distinction matters.)
+The 11.84 dB EE-vs-DAX residual recorded in Finding 6 is therefore
+not implementation drift; per Findings 6 / 7 it's dominated by
+fixed DAX-internal behavior outside the published XML.
 
 For the rows still marked "open" in the table above (MBC and limiter
 character knobs), the practical guidance is: defaults are safe at
@@ -543,6 +547,161 @@ The captures + analysis tooling under `tools/measure_dax/` are kept for
 future debugging — re-running on a new device or after a Dolby driver
 update is a one-command repeat.
 
+### Finding 7: Five XML-interpretation hypotheses tested; none closes the gap
+
+After Findings 5/6 closed hypothesis (b) and the missed-block theory,
+five further hypotheses were brainstormed to explain the residual:
+
+  - **α** — DAX soft-clamps the IEQ+AO target depth.
+  - **β** — `ieq-amount` is a +/- dB cap, not the linear scale we apply.
+  - **γ** — DAX applies IEQ only inside a frequency window.
+  - **δ** — DAX's regulator boosts quiet sustained low tones.
+  - **ε** — Our 100 Hz × 4th-order HP cuts deeper than DAX at 47 Hz.
+
+α/β/γ/ε were tested as a single-profile (dynamic / balanced) variant
+sweep against the DEV_0287 ThinkPad X1 Yoga Gen 7 XML, with four
+temporary CLI flags on the converter: `--clamp-target-db N`,
+`--ieq-amount-as-cap`, `--ieq-window LO:HI`, `--disable-speaker-hp`.
+δ does not get a variant — it's already the standing follow-up #3.
+The flags were reverted in the same commit that landed this finding.
+
+Per-band EE − DAX (dB), pink-noise steady-state, normalized at 1 kHz,
+positive = EE louder than DAX:
+
+| variant            |  47 Hz | 234 Hz | 2.25k | 5.8k | 11.25k | 13.9k | 19.7k |
+|--------------------|-------:|-------:|------:|-----:|-------:|------:|------:|
+| baseline           |  −8.1  |  +3.1  |  +4.2 | −3.2 |  −9.3  | −16.2 | −28.1 |
+| clamp ±20 dB       |  −8.0  |  −0.5  |  +3.5 | −3.2 |  −9.3  | −16.2 | −28.1 |
+| clamp ±15 dB       |  −8.0  |  −5.5  |  −1.5 | −3.2 |  −9.3  | −16.2 | −23.4 |
+| clamp ±10 dB       |  −8.1  | −10.5  |  −6.5 | −3.2 |  −9.3  | −16.2 | −18.5 |
+| clamp ±6 dB        |  −7.6  | −14.0  | −10.0 | −3.1 |  −8.8  | −14.1 | −14.0 |
+| ieq-amount-as-cap  |  −6.1  |  +1.5  |  +2.5 | −1.2 |  −7.3  | −14.2 | −18.5 |
+| ieq-window 100–10k | −18.0  |  +3.1  |  +4.2 | −3.2 | −10.7  | −10.6 | −10.5 |
+| no-HP              | +16.9  |  +2.4  |  +4.2 | −3.1 |  −9.3  | −16.1 | −28.1 |
+
+(Reproduce: `localresearch/measure_ee/spec_freqgap.tsv` + a converter
+patched to re-introduce the four flags. The TSV uses unique per-variant
+preset prefixes (`DolbyFG1…DolbyFG8`) to defeat EasyEffects' convolver
+IRS-cache by kernel name — without unique kernel names, EE silently
+reuses the previous variant's cached IR even after the .irs file is
+overwritten on disk.)
+
+**A note on metrics.** Two residuals are reported in the
+`summarise_variants.py` output: `vsDAX` (against the captured
+DAX response) and `vsXML` (against the analytical target our
+converter built from its own XML interpretation). They answer
+different questions and `vsXML` is the weaker signal:
+
+  - `vsDAX` is the only **external** check. DAX captures are
+    imperfect (they're for one device, one driver, and DAX itself
+    is non-LTI per Finding 1) but they're the only data point not
+    derived from our own assumptions. If a candidate rule moves
+    EE materially closer to DAX *without giving up ground in other
+    bands*, that's evidence our current rule is wrong — even if
+    the new rule lowers `vsXML`, since `vsXML` is computed
+    against our own (possibly wrong) interpretation.
+  - `vsXML` is **internal consistency**. It tells us whether
+    the FIR + biquad chain reproduced the curve our converter
+    intended (i.e. did the math execute?). It does not validate
+    the *interpretation* itself, since both the chain and the
+    reference are derived from the same `parse_xml`/`make_fir`
+    code path. If we got a field's semantics wrong, `vsXML` can
+    happily report 0 dB while the chain is still wrong.
+
+  The verdict for each hypothesis below is therefore framed
+  around `vsDAX` per-band trade-offs. `vsXML` deltas are
+  reported as a sanity check that the patched converter did
+  what we asked, not as the deciding criterion.
+
+**α (clamp).** vsDAX trade by clamp depth: each step closes some
+HF residual but immediately opens an equivalent (or larger) mid-band
+residual. ±20 dB shifts only 234 Hz (+3.1 → −0.5); ±15 closes 4.7
+dB at 19.7 kHz but adds 5.5 dB error at 234 Hz; ±6 closes 14 dB at
+19.7 kHz but every mid band is now 10–14 dB off. No symmetric N
+gets closer in *every* band — there's always a band where we were
+nearer DAX before and aren't now. Aggregate `vsDAX rms` does drop
+(11.84 → 9.59 at ±6) but the per-band trade is the more honest
+view: the rule isn't shifting the whole curve toward DAX, it's
+swapping which bands diverge.
+
+**β (ieq-amount-as-cap).** Cleanest per-band trade in the set:
+19.7 kHz residual drops from −28 to −18 dB (+9.7 dB closer to
+DAX), 13.9 kHz and 11.25 kHz each gain ~2 dB, 5.8 kHz gains 2 dB,
+47 Hz gains 2 dB; 234 Hz and 2.25 kHz both move ~1.6 dB closer to
+DAX. Every band moves *toward* DAX, no band moves materially
+away. `vsDAX rms` 11.84 → 9.09; `vsDAX max` 25.15 → 17.52. This
+is the most plausible candidate of the five — it's the only one
+where the per-band view shows no clear regression. But the
+remaining gap is still 18 dB at 19.7 kHz, so β alone doesn't
+explain the residual; at most it's part of the story. (`vsXML`
+worsens 0.94 → 3.06, but that's expected — we're applying a
+different interpretation than the converter's reference path
+uses, so they should disagree.)
+
+**γ (ieq-window 100 Hz – 10 kHz).** Per-band: largest single
+HF improvement (19.7 kHz residual drops to −10.5, 13.9 kHz to
+−10.6) but 47 Hz residual blows out from −8 to −18 dB EE−DAX
+and 11.25 kHz worsens by ~1.4. Mid-band unchanged. So γ buys
+~17 dB at 19.7 kHz and ~6 dB at 13.9 kHz at the cost of ~10 dB
+at 47 Hz — a band-for-band trade, not a strict improvement.
+Aggregate `vsDAX rms` 11.84 → 7.57 (lowest of all variants),
+driven entirely by the HF win; the in-band `vsDAX max` summary
+metric (which excludes 47 Hz) drops to 10.88 dB but the actual
+worst-band error has just relocated to 47 Hz at 18 dB.
+
+**δ (leveler).** Confirmed unchanged. The pink-noise gap at 47 Hz
+is −8 dB EE−DAX while the multitone-on-47 Hz gap is −23 dB EE−DAX
+(Finding 4); the factor-of-3 gap ratio between stimuli is the
+canonical signature of a content-adaptive leveler boosting
+sustained low tones. Closing this requires modeling DAX's
+MI-steered leveling, unchanged from follow-up #3.
+
+**ε (no speaker HP).** Decisive analytical match: a Butterworth-style
+4th-order HP at f0 = 100 Hz attenuates 47 Hz by ~26 dB; the captured
+`no-HP` variant lifts EE at 47 Hz from −36.5 to −11.6 dB, a +24.9 dB
+shift. ε is the dominant LF mechanism on EE's side. But removing
+the HP overshoots DAX (EE at 47 Hz is now +16.9 dB vs DAX, vs
+−8.1 dB with HP), so the HP itself is the right *topology* — DAX
+must apply some LF shaping, just softer than ours. Two consistent
+stories: (i) DAX applies an HP at the same f0 with a shallower
+slope (~12 dB/oct instead of 24), or (ii) DAX's leveler boost (δ)
+compensates for an otherwise-similar HP, and the pink-noise
+EE−DAX gap is leveler, not filter, dominated. The variant sweep
+cannot disambiguate.
+
+**Outcome.** None of α/β/γ is a strict per-band improvement
+against DAX. β is the closest thing — every band moves toward
+DAX, none materially away — but the 19.7 kHz residual is still
+18 dB after applying it, which means even if β is part of the
+right interpretation it doesn't explain the bulk of the gap. α
+and γ are pareto trades: they swap one band's error for
+another. The pattern across α/β/γ — partial movement, no
+sweep that lands every band closer — is the same pattern
+Finding 6 saw with the AO-sign and phase variants, and it's
+consistent with Finding 6's conclusion: the residual is
+dominated by DAX-internal behavior outside the published XML
+(a fixed HF voicing + the leveler), not a single wrong XML
+rule on our side.
+
+**Caveat.** This conclusion is conditional on the experimental
+data we have. We have DAX captures for one device / one driver
+revision; β's ~9 dB HF improvement *might* generalize, in which
+case our current `ieq-amount → linear scale` rule is wrong and
+the cap reading is right. The reason we're not adopting β is
+not that it's worse — it isn't, on `vsDAX` — but that the
+remaining 18 dB residual at 19.7 kHz means even the best
+candidate doesn't close the gap, so swapping rules trades one
+incomplete model for another. If a second device's DAX captures
+become available and β is a strict improvement on that device
+too, that's the threshold for revisiting the default. The four
+temporary flags were removed; if the experiment ever needs to
+be re-run, re-add them per the patch in the git history of this
+finding.
+
+Per-variant captures retained under
+`localresearch/measure_ee/variants/{baseline, clamp_pm{20,15,10,6},
+ieq_cap10, ieq_window_100_10k, no_hp}/`.
+
 ### Follow-ups to close the gap to DAX
 
 The cheap, deterministic, XML-only experiments have been exhausted —
@@ -584,8 +743,8 @@ constraints.
    a tuner would need to hit (e.g. flatten the HF rolloff above
    ~10 kHz, soften the +4 dB at 2.25 kHz, lift 5–6 kHz).
 
-**Closed by the variant sweep (Finding 6) — kept here as historical
-record; do not re-litigate without new evidence:**
+**Closed by the variant sweep (Finding 6 / 7) — kept here as
+historical record; do not re-litigate without new evidence:**
 
   - "Try `IEQ − AO`" — rejected; +7–20 dB worse on every profile.
   - "Run on the other 4 profiles" — done; HF gap is profile-independent.
@@ -594,9 +753,25 @@ record; do not re-litigate without new evidence:**
   - "Soften the HP at 100 Hz from `x2` to `x1`" — the test XML's
     HP is XML-driven (order=4 → x2), not the line-1581 filler
     path; softening would diverge from the deterministic mapping.
+    `no-HP` variant in Finding 7 confirms HP is responsible for
+    ~25 dB at 47 Hz — removing it overshoots DAX, so HP topology
+    is correct, only the slope might differ.
   - "Drop a 2.25 kHz attenuation bell in `equalizer#1`" — would
     work as an empirical fix for the +4 dB band but loses
     XML-determinism; folded into option 4 above.
+  - "Soft-clamp the IEQ+AO target depth (α)" — Finding 7;
+    pareto trade — every clamp depth swaps HF residual for
+    mid-band residual, no setting moves every band toward DAX.
+  - "Reinterpret `ieq-amount` as a +/- dB cap (β)" — Finding 7;
+    *cleanest candidate* — every band moves toward DAX (no
+    regression), 19.7 kHz gains +9.7 dB. Not adopted because
+    the 19.7 kHz gap is still 18 dB after applying it, so β
+    alone can't be the rule we're missing. Worth revisiting if
+    a second device's DAX captures show the same per-band
+    improvement.
+  - "Apply IEQ only inside a frequency window (γ)" — Finding 7;
+    pareto trade — biggest HF reduction (−10.5 dB at 19.7 kHz),
+    but 47 Hz blows out from −8 to −18 dB EE−DAX.
 
 ## Rejected approaches
 

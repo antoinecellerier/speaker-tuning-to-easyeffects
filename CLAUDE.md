@@ -57,9 +57,27 @@ A few things about this repo that aren't obvious from reading the code:
     EE-on-Linux output" is **not** a license to fit our chain to
     the captured response. Empirical fits are pragmatic shortcuts
     that *invert* the value prop (a Linux preset that matches one
-    machine's DAX driver but stops generalising). If empirical
-    tuning is ever desired, ship it as opt-in (a flag, a separate
-    converter mode) so the principled XML-only path stays the
+    machine's DAX driver but stops generalising). However: the
+    XML → filter-parameter mappings the converter implements are
+    themselves *hypotheses about what the schema means*, not
+    revealed truth. We have no Dolby spec; everything in
+    `parse_xml` is empirically inferred from corpus patterns and
+    sanity checks. DAX captures (where available) are the only
+    external signal we have for whether those mappings are
+    correct, so capture experiments that consistently move EE
+    closer to DAX *across all bands* without per-band
+    regressions are evidence the current mapping is wrong and
+    worth revising — even if the new mapping diverges from the
+    "vsXML" reference (which is computed against our existing
+    interpretation and so begs the question). The bar to
+    actually change a default mapping is high — at least one
+    second-device DAX capture confirming the new rule generalises
+    — but the mappings themselves are not above empirical
+    falsification. What stays out of bounds is per-device
+    hand-tuned offsets that don't trace back to *any* XML
+    field. If empirical tuning is ever desired, ship it as
+    opt-in (a flag, a separate converter mode) so the
+    principled XML-only path stays the
     default for every other XML the script consumes. See
     `docs/design-notes.md` "Follow-ups" section for the standing
     list of empirical shortcuts that have been considered but not
