@@ -197,6 +197,36 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   bookworm, Ubuntu 24.04 native) need `--target-sink ''` to fall
   back to the v1 virtual-sink emission, with the volume-stacking
   and HDMI-bypass caveats noted above.
+- **The chain sink stays visible** in pavucontrol / GNOME's sound
+  output picker as a separate entry alongside the hardware speaker.
+  Picking it works (the chain auto-routes to the speaker) but the
+  per-sink volume slider is then on the chain, not the speaker —
+  reintroducing the v1 stacking. The desired UX (one sink per
+  hardware output, chain transparently inserted) requires hiding
+  the chain from PA enumeration; we explored two paths and neither
+  is viable on this class of hardware:
+  - `media.class = "Audio/Sink/Internal"` does suppress the chain
+    from PA's sink list, but it also breaks pipewire-pulse
+    bridging — apps targeting the speaker block on writes to a
+    sink-input PA can't represent (`pa_sink_input.sink ==
+    PA_INVALID_INDEX`).
+  - WirePlumber's Software DSP policy
+    (`/usr/share/wireplumber/scripts/node/software-dsp.lua`,
+    [docs](https://pipewire.pages.freedesktop.org/wireplumber/policies/software_dsp.html))
+    inverts the visibility — it hides the *speaker* and exposes
+    the chain in its place via `hide-parent: true`. That works for
+    embedded devices where the speaker is the only port on its
+    card, but on multi-port HDA cards (laptops with HDMI / BT /
+    Headphones sharing an `alsa_card.*` with the Speaker port),
+    GNOME's gvc-mixer-control enumerates outputs from the active
+    profile's port list — not just from PA's sink list — so a
+    phantom "Speaker - <hw-description>" entry stays in the picker
+    even with the sink hidden. Selecting the phantom fails because
+    `pactl set-default-sink` on the hidden sink returns "No such
+    entity"; the user-visible result is worse than just having two
+    working entries. There is no card profile on the dev hardware
+    that excludes the Speaker port without also unplugging
+    headphones, so we can't profile-swap our way out either.
 - **No 4-channel upmix** for Snapdragon-class laptops (Yoga Slim 7x,
   X13s Gen 1). Every XML in the 1050-file corpus reports
   `total_count=2`, including the X13s sibling — the upmix is device
