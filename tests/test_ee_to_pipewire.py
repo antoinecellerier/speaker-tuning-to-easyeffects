@@ -792,3 +792,76 @@ def test_main_target_sink_empty_disables_smart_filter(generated, tmp_path):
     assert rc == 0
     conf_text = out_path.read_text()
     assert "filter.smart" not in conf_text
+
+
+# ---------------------------------------------------------------------------
+# Default node-name derivation. Without an explicit --node-name, the
+# converter should name the chain after the preset filename stem so
+# multiple presets produce distinct sinks (Dolby-Balanced.json →
+# effect_input.Dolby_Balanced; Dolby-Detailed.json → effect_input.Dolby_Detailed).
+# Without this, every conversion lands on the same sink name.
+# ---------------------------------------------------------------------------
+
+def test_main_default_node_name_derives_from_preset_filename(
+        generated, tmp_path, capsys):
+    preset, irs_path = generated
+    preset_path = tmp_path / "Dolby-Balanced.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "out.conf"
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--output", str(out_path),
+        "--no-validate",
+        "--target-sink", "",
+    ])
+    assert rc == 0
+    conf = out_path.read_text()
+    # Sanitised preset stem becomes the sink and source node names.
+    assert 'node.name = "effect_input.Dolby_Balanced"' in conf
+    assert 'node.name = "effect_output.Dolby_Balanced"' in conf
+    # Description preserves the unsanitised stem (hyphen kept).
+    assert 'node.description = "Dolby-Balanced"' in conf
+
+
+def test_main_two_presets_produce_distinct_sinks(generated, tmp_path):
+    preset, irs_path = generated
+    p1 = tmp_path / "Dolby-Balanced.json"
+    p2 = tmp_path / "Dolby-Detailed.json"
+    p1.write_text(json.dumps(preset))
+    p2.write_text(json.dumps(preset))
+
+    confs = []
+    for p in (p1, p2):
+        out = tmp_path / f"{p.stem}.conf"
+        rc = ee2pw_main([
+            str(p),
+            "--irs-dir", str(irs_path.parent),
+            "--output", str(out),
+            "--no-validate",
+            "--target-sink", "",
+        ])
+        assert rc == 0
+        confs.append(out.read_text())
+    assert 'effect_input.Dolby_Balanced' in confs[0]
+    assert 'effect_input.Dolby_Balanced' not in confs[1]
+    assert 'effect_input.Dolby_Detailed' in confs[1]
+
+
+def test_main_explicit_node_name_overrides_derivation(generated, tmp_path):
+    preset, irs_path = generated
+    preset_path = tmp_path / "Dolby-Balanced.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "Custom.conf"
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--output", str(out_path),
+        "--node-name", "MyChain",
+        "--no-validate",
+        "--target-sink", "",
+    ])
+    assert rc == 0
+    conf = out_path.read_text()
+    assert 'effect_input.MyChain' in conf
+    assert 'Dolby_Balanced' not in conf

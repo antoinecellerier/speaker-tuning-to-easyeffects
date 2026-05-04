@@ -807,15 +807,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--node-name",
-        default=DEFAULT_NODE_NAME,
-        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_] "
-             f"(default: {DEFAULT_NODE_NAME})",
+        default=None,
+        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
+             f"Default: derived from the preset filename stem "
+             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
+             f"converting multiple presets produces distinct sink "
+             f"names without collision. Falls back to "
+             f"{DEFAULT_NODE_NAME!r} if the stem is empty after "
+             f"sanitisation.",
     )
     parser.add_argument(
         "--node-description",
-        default=DEFAULT_NODE_DESCRIPTION,
-        help=f"human-readable node description (default: "
-             f"{DEFAULT_NODE_DESCRIPTION!r})",
+        default=None,
+        help=f"human-readable node description. Default: derived "
+             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
+             f"falling back to {DEFAULT_NODE_DESCRIPTION!r}.",
     )
     parser.add_argument(
         "--output",
@@ -892,7 +898,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: preset JSON is malformed: {e}", file=sys.stderr)
         return 2
 
-    safe_node_name = _sanitize_name(args.node_name)
+    # Default node-name / -description are derived from the preset
+    # filename stem so converting multiple presets produces distinct
+    # sinks (e.g. Dolby-Balanced.json → Dolby_Balanced; Dolby-Detailed.json
+    # → Dolby_Detailed). Without this, every conversion lands on the
+    # same conf path and PW node name. The DEFAULT_NODE_NAME fallback
+    # only kicks in for pathological stems (empty after sanitisation).
+    if args.node_name is None:
+        derived = _sanitize_name(preset_path.stem).strip("_")
+        node_name = derived if derived else DEFAULT_NODE_NAME
+    else:
+        node_name = args.node_name
+    if args.node_description is None:
+        node_description = preset_path.stem or DEFAULT_NODE_DESCRIPTION
+    else:
+        node_description = args.node_description
+
+    safe_node_name = _sanitize_name(node_name)
     output_path: Path | None
     if args.dry_run:
         output_path = None
@@ -956,8 +978,8 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
 
     links = emit_links(chain.stages)
-    conf = format_conf(chain.stages, links, args.node_name,
-                       args.node_description,
+    conf = format_conf(chain.stages, links, node_name,
+                       node_description,
                        target_object=args.target_object,
                        target_sink=target_sink,
                        warnings=chain.warnings)
@@ -1003,7 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
-    _print_next_steps(sys.stderr, output_path, args.node_name,
+    _print_next_steps(sys.stderr, output_path, node_name,
                       target_object=args.target_object,
                       irs_path=copied_irs)
     return 0

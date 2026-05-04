@@ -24,6 +24,14 @@ the load-bearing decisions behind it.
 | Filter-chain conf | `~/.config/pipewire/pipewire.conf.d/<node-name>.conf` |
 | Copied IRS | `~/.config/pipewire/pipewire.conf.d/<node-name>.irs` |
 
+`<node-name>` defaults to the preset filename stem, sanitised to
+`[A-Za-z0-9_]` (e.g. `Dolby-Balanced.json` → `Dolby_Balanced`,
+`Dolby-Music-Warm.json` → `Dolby_Music_Warm`). Converting multiple
+presets in succession therefore produces distinct sinks rather than
+clobbering a single fixed name. `--node-name <name>` overrides;
+`--node-description <desc>` overrides the human-readable label
+(default: the preset stem unmodified, e.g. `Dolby-Balanced`).
+
 `pipewire.conf.d/` (not `filter-chain.conf.d/`) is the directory the
 daemon's stock `pipewire.conf` auto-includes; `filter-chain.conf.d/`
 is the overlay set for the standalone `pipewire -c filter-chain.conf`
