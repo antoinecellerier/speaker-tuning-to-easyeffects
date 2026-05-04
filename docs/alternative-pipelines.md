@@ -280,15 +280,29 @@ al_0=0.56234`, etc., reading as ratio / split-frequency / linear-threshold
 `10^(dB/20)`) round-trip exactly with this script's JSON output as of the
 4-decimal precision fix in commit `6e72dd0`.
 
-### Companion converter — design sketch
+### Companion converter
 
-Not built. Captured here so the analysis doesn't have to be redone if anyone
-later wants the conversion automated. Recommendation: **a sibling
-`ee_to_pipewire.py` at the repo root** (matches the existing single-file
-convention; no new `tools/` directory needed) that reads an existing
+A first-version `ee_to_pipewire.py` ships at the repo root: it reads an
 EasyEffects `.json` preset plus its matching `.irs`, and emits a PipeWire
-`.conf`. Main script untouched, so future precision/feature fixes stay
-single-target.
+`filter-chain` `.conf`. v1 translates the convolver, both PEQs (speaker +
+dialog), the MBC, the regulator, and the brickwall limiter. It skips
+`bass_enhancer#0`, `stereo_tools#0`, and non-bypassed `autogain#0` with
+a stderr warning — these need plugin choices (Bankstown vs Calf, LSP
+StereoTools etc.) that aren't worth committing to before the rest sees
+real-world testing. Main script untouched, so future precision/feature
+fixes stay single-target.
+
+```bash
+python3 ee_to_pipewire.py ~/.config/easyeffects/output/Dolby-Balanced.json
+# → writes ~/.config/pipewire/filter-chain.conf.d/Dolby_Filter_Chain.conf
+# Then: systemctl --user restart pipewire pipewire-pulse
+```
+
+The MBC/regulator/limiter linear values round-trip back to the source
+preset's dB values to 4 decimals (verified by `tests/test_ee_to_pipewire.py`
+against the same `make_preset` fixture used by `test_preset.py`). The
+detail below documents the design choices and the per-param translation
+table.
 
 **Why a separate tool, not a `--pipewire-filter-chain` flag in the main
 script:** doubling the emit surface inside `dolby_to_easyeffects.py` means

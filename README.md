@@ -390,7 +390,7 @@ In-tree docs with more context on specific aspects:
 
 - [docs/design-notes.md](docs/design-notes.md) — why the plugin chain is ordered the way it is, gain-staging rationale, why autogain is bypassed by default, and an empirical comparison of our generated FIR against DAX3's actual response on Windows
 - [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~1850 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
-- [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
+- [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects. The companion script `ee_to_pipewire.py` at the repo root implements a first-version EasyEffects-preset → PipeWire-`filter-chain`-conf converter; see the "Companion converter" section
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side analysis scripts for measuring DAX3's actual response via WASAPI loopback. Reproduces the empirical comparison in `design-notes.md` on any Lenovo/ThinkPad with DAX3 installed.
 - [tools/measure_ee/](tools/measure_ee/) — Linux-side counterpart: captures the live EasyEffects pipeline (with our generated preset applied) into the same `loopback_*.{wav,json}` schema, so `tools/measure_dax/analyze.py` and `tools/measure_ee/compare_ee_vs_dax.py` can overlay the EE-on-Linux response next to the DAX-on-Windows reference.
 
