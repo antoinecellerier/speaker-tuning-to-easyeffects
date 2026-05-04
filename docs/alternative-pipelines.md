@@ -300,9 +300,18 @@ python3 ee_to_pipewire.py ~/.config/easyeffects/output/Dolby-Balanced.json
 
 The MBC/regulator/limiter linear values round-trip back to the source
 preset's dB values to 4 decimals (verified by `tests/test_ee_to_pipewire.py`
-against the same `make_preset` fixture used by `test_preset.py`). The
-detail below documents the design choices and the per-param translation
-table.
+against the same `make_preset` fixture used by `test_preset.py`).
+
+End-to-end validation lives in [`tools/measure_pw/`](../tools/measure_pw/):
+`validate_conf.py` is a sub-second schema check (shells out to
+`lv2info` for every URI in the conf), and `compare_ee_vs_pw.py` /
+`compare_ee_vs_pw_time_domain.py` capture EE and PW responses to the
+same stimulus battery and verify equivalence to ≤0.5 dB across
+50 Hz–18 kHz and ≥30 dB signal-to-residual in the time domain. See
+that directory's README for the full workflow.
+
+The detail below documents the design choices and the per-param
+translation table.
 
 **Why a separate tool, not a `--pipewire-filter-chain` flag in the main
 script:** doubling the emit surface inside `dolby_to_easyeffects.py` means

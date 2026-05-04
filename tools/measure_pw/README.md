@@ -1,0 +1,171 @@
+# measure_pw — capture & validate the PipeWire filter-chain output of `ee_to_pipewire.py`
+
+Companion to [`tools/measure_ee/`](../measure_ee/) (which captures the
+live EasyEffects pipeline). This directory hosts the tooling that
+proves the PipeWire `filter-chain` `.conf` produced by
+[`ee_to_pipewire.py`](../../ee_to_pipewire.py) is equivalent — both in
+frequency and time domain — to the EasyEffects chain that
+[`dolby_to_easyeffects.py`](../../dolby_to_easyeffects.py) emits from
+the same Dolby DAX3 XML.
+
+The PW chain reuses the same `ee_capture` null sink + `pw-record`
+pipeline as `measure_ee`, so captures from both sides are
+schema-identical and feed the same analysis tools.
+
+## Why a deterministic schema check first
+
+Comparative audio testing has a long warm-up (set up null sink,
+restart EE, run capture battery, deconvolve sweeps, plot diffs) and
+the failure modes are noisy — a misrouted PW link or a sub-sample
+group-delay change can mask the real bug. So validate the conf
+*before* spending five minutes on a battery:
+
+```sh
+python3 ee_to_pipewire.py <preset.json> --dry-run \
+  | python3 tools/measure_pw/validate_conf.py -
+```
+
+That shells out to `lv2info` for every LV2 URI in the conf, parses
+each port's `Symbol`/`Min`/`Max`/`Default`/`Properties`, and
+validates the conf's `control = { ... }` block against it. Catches:
+
+  - Unknown port symbols (typos / schema drift in the converter).
+  - Out-of-range values.
+  - The xm/MUTE inversion trap: any non-Off filter type paired with
+    `xm=1` is flagged because the band would be silently muted.
+
+Audio testing is still the final gate — schema correctness is
+necessary but not sufficient. Some bugs (e.g. `inputs`/`outputs`
+arrays missing from `filter.graph`, comb-filter from auto-route
+leaks, FFT block-size differences between LSP and PW builtin
+convolvers) only show up at runtime.
+
+## Files
+
+| file | role |
+|---|---|
+| [`setup_chain.sh`](setup_chain.sh) | Generates the conf, drops it in `~/.config/pipewire/filter-chain.conf.d/`, starts a child `pipewire -c filter-chain.conf` process, links the chain output to `ee_capture`, sets the chain as default sink, and stops EasyEffects (so its `easyeffects_sink` doesn't compete with the chain for WirePlumber's auto-link policy — see "WirePlumber traps" below). |
+| [`teardown_chain.sh`](teardown_chain.sh) | Reverses the above: kills the child `pipewire`, removes the conf drop-in, restores the default sink, and restarts EE in service mode if setup stopped it. |
+| [`capture_battery.py`](capture_battery.py) | Plays the 5-stimulus battery into the chain and captures from `ee_capture.monitor` to `loopback_<stim>_<label>.{wav,json}`, schema-identical to `tools/measure_ee/capture_battery.py`. Re-uses `tools/measure_ee/smoke.py`'s `play_and_capture` primitive for timing parity. |
+| [`compare_ee_vs_pw.py`](compare_ee_vs_pw.py) | Frequency-domain magnitude diff: Farina deconvolution for sweeps, Welch-averaged spectrum for steady-state stimuli. Multitone-aware (only the actual tone bins are compared; inter-tone bins are noise vs noise). PASS when |dB diff| ≤ tolerance (default 0.5 dB) across 50 Hz–18 kHz on every stimulus. |
+| [`compare_ee_vs_pw_time_domain.py`](compare_ee_vs_pw_time_domain.py) | Sample-aligned subtraction: integer-sample lag from cross-correlation, fractional refinement via FFT phase rotation, residual = ee − pw_aligned. Reports signal-to-residual ratio (S/R) in dB. PASS when S/R ≥ 30 dB on every stimulus. |
+| [`validate_conf.py`](validate_conf.py) | The deterministic schema check described above. No PipeWire daemon needed; sub-second. |
+
+## Workflow
+
+```sh
+# 0. one-time: stimuli (shared with tools/measure_ee/)
+mkdir -p localresearch/measure_ee/stimuli && cd localresearch/measure_ee/stimuli
+python3 ../../../tools/measure_dax/make_stimulus.py
+cd -
+
+# 1. cheap deterministic check first — catches schema mistakes in
+#    seconds without restarting any audio infrastructure
+python3 ee_to_pipewire.py \
+    ~/.local/share/easyeffects/output/Dolby-Balanced.json --dry-run \
+  | python3 tools/measure_pw/validate_conf.py -
+
+# 2. set up the EE-side route (loads ee_capture null sink, redirects
+#    EE output to it, restarts EE — this mutes your speakers temporarily)
+bash tools/measure_ee/setup_null_sink.sh
+
+# 3. set up the PW chain (stops EE, loads the chain, wires it into
+#    ee_capture, sets the chain as default sink)
+bash tools/measure_pw/setup_chain.sh \
+    ~/.local/share/easyeffects/output/Dolby-Balanced.json \
+    Dolby_PW_Test
+
+# 4. capture EE side first (need EE running — do this BEFORE step 3
+#    if you also want EE captures; or restart EE between batteries)
+#    For a fresh comparison run:
+#      bash tools/measure_pw/teardown_chain.sh   # restarts EE
+python3 tools/measure_ee/capture_battery.py \
+    --stimulus-dir localresearch/measure_ee/stimuli \
+    --preset Dolby-Balanced \
+    --label ee_dolby_balanced \
+    --target ee_capture.monitor \
+    --out-dir localresearch/measure_ee/captures_ee
+
+# 5. capture PW side (re-do step 3 to put chain back, then:)
+python3 tools/measure_pw/capture_battery.py \
+    --node-name Dolby_PW_Test \
+    --label pw_dolby_balanced
+
+# 6. frequency-domain comparison
+python3 tools/measure_pw/compare_ee_vs_pw.py
+# → localresearch/measure_pw/ee_vs_pw/{summary.json,diff_*.png}
+
+# 7. time-domain comparison
+python3 tools/measure_pw/compare_ee_vs_pw_time_domain.py
+# → localresearch/measure_pw/ee_vs_pw/{td_summary.json,td_*.png}
+
+# 8. tear down (restores speakers, restarts EE)
+bash tools/measure_pw/teardown_chain.sh
+bash tools/measure_ee/teardown.sh
+```
+
+## Equivalence thresholds
+
+These are the targets the comparison scripts check against by
+default. Real-world results on the development device come in
+comfortably under all of them.
+
+| metric | target | rationale |
+|---|---|---|
+| Frequency-domain max |Δ| (50 Hz–18 kHz) | ≤ 0.5 dB | Below the audible threshold for tonal-balance changes; well within EE's own preset-to-preset variance. |
+| Time-domain S/R (signal-to-residual) | ≥ 30 dB | Realistic ceiling. EE's LSP convolver and PW's builtin convolver use different FFT block sizes / edge handling, leaving an irreducible ~35 dB residual. |
+
+## WirePlumber traps that bit during development
+
+Three runtime gotchas that aren't obvious from the static schema —
+worth knowing before you debug a "chain doesn't process audio"
+mystery:
+
+1. **`pw-cat --target` is a hint, not a directive.** WirePlumber
+   policy routes the playback stream to whatever the system default
+   sink is. The fix is `pactl set-default-sink effect_input.<NAME>`
+   (which `setup_chain.sh` does, restoring on teardown).
+
+2. **WirePlumber auto-links the chain output to every Audio/Sink it
+   sees**, even with `target.object = ee_capture` baked into the
+   conf. If `easyeffects_sink` is around, the chain output goes to
+   *both* `ee_capture` *and* `easyeffects_sink` → the latter loops
+   back through EE's processing → ends up on `ee_capture` again, a
+   few ms delayed → **comb-filter pattern on the captured spectrum**.
+   The fix is to stop EE for the duration (which `setup_chain.sh`
+   does, then `teardown_chain.sh` restarts it).
+
+3. **The `filter.graph` block needs explicit `inputs = [...]` and
+   `outputs = [...]` arrays.** Without them, audio enters the chain's
+   input sink but never reaches any node — the graph has no
+   externally-routed endpoints. Symptom: the chain loads, registers
+   nodes, accepts audio at the input sink monitor, but its output
+   ports produce silence. This was missing from the design doc.
+   `ee_to_pipewire.py` emits these now and the round-trip test
+   covers it.
+
+## Why audio testing is still the final gate
+
+`validate_conf.py` checks the static schema. It can't tell you:
+
+- Whether the chain *runs* (some plugins fail to instantiate at the
+  filter-graph layer even when their static metadata is fine).
+- Whether the actual audio reaches the chain's input (WirePlumber
+  routing traps).
+- Whether the convolver block size, partition strategy, or FFT
+  precision diverges from EE in ways that affect transients.
+
+The compare scripts answer all of those, at the cost of ~1 min for
+a full battery. Run `validate_conf.py` on every commit; run the
+audio battery before tagging a release or merging a converter
+change that could affect the output path.
+
+## Captures and outputs land in `localresearch/measure_pw/`
+
+`capture_battery.py` defaults to `localresearch/measure_pw/captures/`
+and the comparison scripts default to
+`localresearch/measure_pw/ee_vs_pw/`. EE-side captures stay in
+`localresearch/measure_ee/captures_ee/` and stimuli in
+`localresearch/measure_ee/stimuli/` (shared, since
+`tools/measure_dax/make_stimulus.py` writes them once and both
+sides feed from the same source). `localresearch/` is gitignored.

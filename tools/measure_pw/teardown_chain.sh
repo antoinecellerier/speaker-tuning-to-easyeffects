@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Reverse setup_pw_chain.sh: kill the child pipewire process and
-# remove the conf drop-in. Leaves the ee_capture null sink in place
-# (use teardown.sh to remove that too).
+# Reverse setup_chain.sh: kill the child pipewire process, remove
+# the conf drop-in, restore the previous default sink, and restart
+# EasyEffects (if setup stopped it). Leaves the ee_capture null
+# sink in place — use tools/measure_ee/teardown.sh for that.
 #
 # Usage:
-#   bash tools/measure_ee/teardown_pw_chain.sh [<node-name>]
+#   bash tools/measure_pw/teardown_chain.sh [<node-name>]
 #
 # Defaults:
 #   <node-name> = "Dolby_PW_Test"
@@ -52,7 +53,7 @@ if [[ -f "$LOG_FILE" ]]; then
     rm -f "$LOG_FILE"
 fi
 
-# Restore the previous default sink (set by setup_pw_chain.sh).
+# Restore the previous default sink (set by setup_chain.sh).
 PREV_SINK_FILE="/tmp/pw_chain.${NODE_NAME}.prev_default_sink"
 if [[ -f "$PREV_SINK_FILE" ]]; then
     PREV="$(cat "$PREV_SINK_FILE")"
@@ -63,7 +64,7 @@ if [[ -f "$PREV_SINK_FILE" ]]; then
     rm -f "$PREV_SINK_FILE"
 fi
 
-# Restart EasyEffects if setup_pw_chain.sh stopped it.
+# Restart EasyEffects if setup_chain.sh stopped it.
 WAS_EE_FILE="/tmp/pw_chain.${NODE_NAME}.was_ee_running"
 if [[ -f "$WAS_EE_FILE" ]] && [[ "$(cat "$WAS_EE_FILE")" == "1" ]]; then
     nohup easyeffects --hide-window --service-mode \
@@ -74,4 +75,4 @@ fi
 rm -f "$WAS_EE_FILE"
 
 echo "PW chain $NODE_NAME torn down. ee_capture null sink left in place "
-echo "(run teardown.sh to remove it and restore EE)."
+echo "(run tools/measure_ee/teardown.sh to remove it)."

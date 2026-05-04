@@ -18,11 +18,17 @@ on a capture battery.
 
 Usage:
 
-  python3 tools/measure_ee/validate_pw_conf.py path/to/file.conf
+  python3 tools/measure_pw/validate_conf.py path/to/file.conf
   python3 ee_to_pipewire.py preset.json --dry-run \\
-    | python3 tools/measure_ee/validate_pw_conf.py /dev/stdin
+    | python3 tools/measure_pw/validate_conf.py -
 
 Exit 0 = clean. Exit 1 = at least one error. Exit 2 = setup error.
+
+Dependencies:
+  - `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`)
+  - `spa-json-dump` (ships with PipeWire ≥ 0.3.x)
+
+Both are tiny, sub-millisecond CLIs. No PipeWire daemon required.
 """
 
 from __future__ import annotations

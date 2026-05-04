@@ -43,8 +43,8 @@ from scipy.signal import correlate
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_EE_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "captures_ee"
-DEFAULT_PW_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "captures_pw"
-DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "ee_vs_pw"
+DEFAULT_PW_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "captures"
+DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "ee_vs_pw"
 
 SR = 48000
 

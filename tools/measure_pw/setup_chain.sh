@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Set up a PipeWire filter-chain rendering of an EasyEffects preset
 # and wire its output into the same `ee_capture` null sink that
-# setup_null_sink.sh creates. Pre-req for capture_battery_pw.py.
+# tools/measure_ee/setup_null_sink.sh creates. Pre-req for
+# tools/measure_pw/capture_battery.py.
 #
-# After this returns, you can capture-battery-pw against the chain;
-# audio fed to `effect_input.<NODE_NAME>` will be processed by the
-# chain and recorded from `ee_capture.monitor`.
+# After this returns, you can capture against the chain; audio fed
+# to `effect_input.<NODE_NAME>` will be processed by the chain and
+# recorded from `ee_capture.monitor`.
 #
 # Usage:
-#   bash tools/measure_ee/setup_pw_chain.sh <ee-preset.json> [<node-name>]
+#   bash tools/measure_pw/setup_chain.sh <ee-preset.json> [<node-name>]
 #
 # Defaults:
 #   <node-name> = "Dolby_PW_Test"
@@ -16,15 +17,21 @@
 # The script:
 #   1. Generates a conf via ee_to_pipewire.py and drops it in
 #      ~/.config/pipewire/filter-chain.conf.d/<node-name>.conf
-#   2. Starts a child `pipewire -c filter-chain.conf` process and
+#   2. Stops EasyEffects (so its `easyeffects_sink` doesn't get
+#      auto-linked to the chain output, see comment below).
+#   3. Starts a child `pipewire -c filter-chain.conf` process and
 #      writes its PID to /tmp/pw_chain.<node-name>.pid
-#   3. Waits for the chain to register, then `pw-link`s its playback
+#   4. Waits for the chain to register, then `pw-link`s its playback
 #      output into `ee_capture:playback_{FL,FR}`.
+#   5. Sets the chain as the default sink (WirePlumber ignores
+#      pw-cat --target hints and routes to whatever the default
+#      sink is, so this step is load-bearing).
+#   6. Disconnects any other auto-routes WirePlumber created.
 #
-# Pre-flight expectation: setup_null_sink.sh has already loaded the
-# ee_capture null sink. If not, this script aborts.
+# Pre-flight expectation: tools/measure_ee/setup_null_sink.sh has
+# already loaded the ee_capture null sink. If not, this script aborts.
 #
-# Tear down with teardown_pw_chain.sh <node-name>.
+# Tear down with `tools/measure_pw/teardown_chain.sh <node-name>`.
 
 set -euo pipefail
 
@@ -41,7 +48,7 @@ if [[ ! -f "$PRESET_PATH" ]]; then
 fi
 
 if ! pw-cli ls Node 2>/dev/null | grep -q "ee_capture"; then
-    echo "ee_capture sink not found — run setup_null_sink.sh first" >&2
+    echo "ee_capture sink not found — run tools/measure_ee/setup_null_sink.sh first" >&2
     exit 2
 fi
 
@@ -158,13 +165,10 @@ fi
 cat <<EOF
 
 Run capture battery:
-  python3 ${REPO_ROOT}/tools/measure_ee/capture_battery_pw.py \\
-      --stimulus-dir ~/dax-measure \\
+  python3 ${REPO_ROOT}/tools/measure_pw/capture_battery.py \\
       --node-name ${NODE_NAME} \\
-      --label pw_dolby_balanced \\
-      --target ee_capture.monitor \\
-      --out-dir ~/dax-measure/pw_captures
+      --label pw_dolby_balanced
 
 Tear down:
-  bash ${REPO_ROOT}/tools/measure_ee/teardown_pw_chain.sh ${NODE_NAME}
+  bash ${REPO_ROOT}/tools/measure_pw/teardown_chain.sh ${NODE_NAME}
 EOF

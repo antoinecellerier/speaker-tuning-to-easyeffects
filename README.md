@@ -393,6 +393,7 @@ In-tree docs with more context on specific aspects:
 - [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects. The companion script `ee_to_pipewire.py` at the repo root implements a first-version EasyEffects-preset → PipeWire-`filter-chain`-conf converter; see the "Companion converter" section
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side analysis scripts for measuring DAX3's actual response via WASAPI loopback. Reproduces the empirical comparison in `design-notes.md` on any Lenovo/ThinkPad with DAX3 installed.
 - [tools/measure_ee/](tools/measure_ee/) — Linux-side counterpart: captures the live EasyEffects pipeline (with our generated preset applied) into the same `loopback_*.{wav,json}` schema, so `tools/measure_dax/analyze.py` and `tools/measure_ee/compare_ee_vs_dax.py` can overlay the EE-on-Linux response next to the DAX-on-Windows reference.
+- [tools/measure_pw/](tools/measure_pw/) — captures and validates the PipeWire `filter-chain` rendering of the same preset (`ee_to_pipewire.py` companion). A `validate_conf.py` deterministic schema check catches inverted bools / unknown ports / out-of-range values without any audio capture, and `compare_ee_vs_pw.py` / `_time_domain.py` overlay the PW captures against the EE-side captures from `tools/measure_ee/`.
 
 ## References
 

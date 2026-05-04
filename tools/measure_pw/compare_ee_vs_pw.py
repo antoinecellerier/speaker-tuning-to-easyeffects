@@ -18,19 +18,23 @@ Outputs (in --out-dir):
     summary.json     — per-stimulus magnitude diff stats and verdict
     diff_<stim>.png  — magnitude overlay + difference (if matplotlib)
 
-Usage:
+Usage (defaults assume the standard ./localresearch/measure_{ee,pw}/
+layout):
 
-    python3 tools/measure_ee/compare_ee_vs_pw.py \\
-        --ee-dir ~/dax-measure/ee_captures \\
-        --pw-dir ~/dax-measure/pw_captures \\
+    python3 tools/measure_pw/compare_ee_vs_pw.py
+
+Or with explicit paths:
+
+    python3 tools/measure_pw/compare_ee_vs_pw.py \\
+        --ee-dir localresearch/measure_ee/captures_ee \\
+        --pw-dir localresearch/measure_pw/captures \\
         --ee-label ee_dolby_balanced \\
-        --pw-label pw_dolby_balanced \\
-        --stimulus-dir ~/dax-measure \\
-        --out-dir ~/dax-measure/ee_vs_pw
+        --pw-label pw_dolby_balanced
 
 Equivalence verdict: PASS when |dB diff| stays under --tolerance-db
-(default 0.5 dB) across the band 50 Hz–18 kHz on both sweep and pink
-captures.
+(default 0.5 dB) across the band 50 Hz–18 kHz on every stimulus.
+For multitone stimuli we restrict the comparison to ±2 bins around
+each tone frequency (inter-tone bins are noise vs noise).
 """
 from __future__ import annotations
 
@@ -54,9 +58,9 @@ BAND_HI_HZ = 18000.0
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_EE_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "captures_ee"
-DEFAULT_PW_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "captures_pw"
+DEFAULT_PW_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "captures"
 DEFAULT_STIMULUS_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "stimuli"
-DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "ee_vs_pw"
+DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "ee_vs_pw"
 
 
 # ---------------------------------------------------------------------------
