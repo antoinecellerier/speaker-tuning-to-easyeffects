@@ -26,13 +26,16 @@ from ee_to_pipewire import (
     EE_FTYPE_TO_LSP,
     build_chain,
     db_to_lin,
+    emit_convolver,
     emit_limiter,
     emit_links,
     emit_mb_compressor,
     emit_peq,
     format_conf,
     lin_to_db,
+    main as ee2pw_main,
     _assert_positional,
+    _resolve_irs,
     _sanitize_name,
 )
 from tests.conftest import (
@@ -406,3 +409,167 @@ def test_assert_positional_raises_inside_build_chain():
     }
     with pytest.raises(AssertionError):
         build_chain(bad_preset, irs_dir=None, must_exist=False)
+
+
+def test_assert_positional_raises_when_mbc_swapped():
+    """Same contract as PEQ/dialog: regulator (#1) must follow MBC (#0)."""
+    with pytest.raises(AssertionError):
+        _assert_positional(
+            ["multiband_compressor#1", "multiband_compressor#0"]
+        )
+
+
+# ---------------------------------------------------------------------------
+# Convolver gain field
+# ---------------------------------------------------------------------------
+
+def test_convolver_emits_gain_in_config(tmp_path):
+    """The PW builtin convolver's `gain` config field is the only place
+    output-gain can be applied (no wet/dry control). 0 dB → 1.0.
+    """
+    irs_path = tmp_path / "x.irs"
+    irs_path.write_bytes(b"")
+    plugin = {"bypass": False, "kernel-name": "x", "output-gain": 0.0}
+    stage = emit_convolver(plugin, tmp_path, must_exist=False)
+    assert stage is not None
+    for node in stage.nodes:
+        assert "gain" in node["config"]
+        assert node["config"]["gain"] == pytest.approx(1.0)
+
+
+def test_convolver_nonzero_gain_round_trips(tmp_path):
+    plugin = {"bypass": False, "kernel-name": "x", "output-gain": 6.0}
+    stage = emit_convolver(plugin, tmp_path, must_exist=False)
+    assert stage is not None
+    for node in stage.nodes:
+        # 6 dB ≈ 1.9953
+        assert lin_to_db(node["config"]["gain"]) == pytest.approx(6.0,
+                                                                   abs=1e-4)
+
+
+def test_convolver_missing_kernel_name_raises(tmp_path):
+    plugin = {"bypass": False, "output-gain": 0.0}
+    with pytest.raises(ValueError, match="kernel-name"):
+        emit_convolver(plugin, tmp_path, must_exist=False)
+
+
+# ---------------------------------------------------------------------------
+# IRS path-separator rejection
+# ---------------------------------------------------------------------------
+
+def test_resolve_irs_rejects_path_separators(tmp_path):
+    with pytest.raises(ValueError, match="path separators"):
+        _resolve_irs("subdir/foo", tmp_path, must_exist=False)
+
+
+def test_resolve_irs_rejects_parent_traversal(tmp_path):
+    with pytest.raises(ValueError, match="path separators"):
+        _resolve_irs("../escape", tmp_path, must_exist=False)
+
+
+# ---------------------------------------------------------------------------
+# format_conf empty-stages message
+# ---------------------------------------------------------------------------
+
+def test_format_conf_empty_includes_warnings():
+    """The empty-stage error should surface the warning trail so the
+    user understands why nothing was emitted.
+    """
+    with pytest.raises(ValueError, match="cuts list"):
+        format_conf([], [], "n", "d",
+                    warnings=["autogain#0: not bypassed but v1 …"])
+
+
+# ---------------------------------------------------------------------------
+# Self-validation pass via main()
+# ---------------------------------------------------------------------------
+
+def test_main_validate_runs_on_dry_run(generated, tmp_path, monkeypatch,
+                                       capsys):
+    """End-to-end: with `lv2info`/`spa-json-dump` available, the
+    self-validation pass should succeed silently on a freshly generated
+    conf. Skips cleanly if either tool is absent.
+    """
+    import shutil as _sh
+    if not _sh.which("lv2info") or not _sh.which("spa-json-dump"):
+        pytest.skip("lv2info / spa-json-dump not on PATH")
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--dry-run",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # No "[validate]" lines mean validation ran cleanly (only setup
+    # skips emit them).
+    assert "[validate] skipped" not in captured.err
+    assert "schema validation failed" not in captured.err
+
+
+def test_main_no_validate_skips_check(generated, tmp_path, capsys):
+    """`--no-validate` should bypass the self-check entirely (works even
+    without lv2info installed).
+    """
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--dry-run",
+        "--no-validate",
+    ])
+    assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table
+# ---------------------------------------------------------------------------
+
+def test_unknown_plugin_key_warns_not_raises():
+    """A novel plugin key (e.g. `compressor#0` from a non-Dolby preset
+    accidentally fed in) must surface as a warning, not a crash.
+    """
+    preset = {
+        "output": {
+            "plugins_order": ["compressor#0", "limiter#0"],
+            "compressor#0": {"bypass": False},
+            "limiter#0": {"bypass": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    assert any("compressor#0" in w and "unknown" in w for w in chain.warnings)
+
+
+def test_bypassed_autogain_silent_skip():
+    """HDA's bypassed autogain must not emit a warning — it's the
+    expected default state.
+    """
+    preset = {
+        "output": {
+            "plugins_order": ["autogain#0", "limiter#0"],
+            "autogain#0": {"bypass": True},
+            "limiter#0": {"bypass": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    assert not any("autogain" in w for w in chain.warnings)
+
+
+def test_active_autogain_emits_warning():
+    preset = {
+        "output": {
+            "plugins_order": ["autogain#0", "limiter#0"],
+            "autogain#0": {"bypass": False},
+            "limiter#0": {"bypass": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    assert any("autogain" in w and "v1 doesn't translate" in w
+               for w in chain.warnings)

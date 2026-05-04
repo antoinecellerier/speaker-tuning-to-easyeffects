@@ -19,10 +19,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+VALIDATE_CONF_SCRIPT = SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +45,10 @@ DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/filter-chain.conf.d"
 DEFAULT_NODE_NAME = "Dolby_Filter_Chain"
 DEFAULT_NODE_DESCRIPTION = "Dolby DAX3 (filter-chain)"
 
+LIN_AMP_FLOOR = 1e-30  # numerical floor for log10 in lin_to_db
+LSP_PEQ_BANDS = 16     # para_equalizer_x16_lr — bump if URI changes
+LSP_MBC_BANDS = 8      # mb_compressor_stereo
+
 # All enum tables are extracted directly from the LSP plugin source under
 # localresearch/measure_dax/lsp-plugins-1.2.27/modules/.
 
@@ -48,6 +59,8 @@ EE_FTYPE_TO_LSP = {
     "Allpass": 8, "Bandpass": 9, "Ladder-pass": 10, "Ladder-rej": 11,
 }
 # para_equalizer.cpp:94 — filter_modes[]
+# EE only emits "RLC (BT)" in practice; other entries are kept for forward-
+# compatibility if EE ever surfaces the mode picker for Dolby presets.
 EE_FMODE_TO_LSP = {
     "RLC (BT)": 0, "RLC (MT)": 1, "BWC (BT)": 2, "BWC (MT)": 3,
     "LRX (BT)": 4, "LRX (MT)": 5, "APO (DR)": 6,
@@ -92,6 +105,7 @@ class Stage:
     in_r: tuple[str, str]
     out_l: tuple[str, str]
     out_r: tuple[str, str]
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -111,12 +125,18 @@ def db_to_lin(db: float) -> float:
 
 def lin_to_db(lin: float) -> float:
     """Inverse of db_to_lin. Used by tests for the round-trip assertion."""
-    import math
-    return 20.0 * math.log10(max(lin, 1e-30))
+    return 20.0 * math.log10(max(lin, LIN_AMP_FLOOR))
 
 
 def _resolve_irs(kernel_name: str, irs_dir: Path, must_exist: bool = True) -> Path:
     """Resolve <kernel-name>.irs against irs_dir to an absolute path."""
+    # EE itself rejects path separators in kernel-name; mirror that here so
+    # a malformed preset can't escape the IRS dir.
+    if "/" in kernel_name or kernel_name.startswith("..") or "\0" in kernel_name:
+        raise ValueError(
+            f"invalid kernel-name {kernel_name!r}: must not contain path "
+            "separators (EE forbids them too)"
+        )
     path = (irs_dir / f"{kernel_name}.irs").expanduser().resolve()
     if must_exist and not path.is_file():
         raise FileNotFoundError(
@@ -127,13 +147,14 @@ def _resolve_irs(kernel_name: str, irs_dir: Path, must_exist: bool = True) -> Pa
 
 
 def _assert_positional(plugins_order: list[str]) -> None:
-    """Lock the dialog/PEQ disambiguation contract.
+    """Lock the dialog/PEQ and MBC/regulator disambiguation contracts.
 
     Both `equalizer#0` (PEQ) and `equalizer#1` (dialog) are emitted by
     `dolby_to_easyeffects.py` with the same dict shape — only their
-    position in `plugins_order` distinguishes them. If a future change
-    reordered them, the converter's mapping would silently swap roles.
-    Fail loudly here.
+    position in `plugins_order` distinguishes them. The same is true of
+    `multiband_compressor#0` (MBC) and `multiband_compressor#1`
+    (regulator). If a future change reordered either pair, the
+    converter's mapping would silently swap roles. Fail loudly here.
     """
     if "equalizer#0" in plugins_order and "equalizer#1" in plugins_order:
         i0 = plugins_order.index("equalizer#0")
@@ -141,6 +162,15 @@ def _assert_positional(plugins_order: list[str]) -> None:
         assert i0 < i1, (
             "equalizer#0 (PEQ) must precede equalizer#1 (dialog) in "
             "plugins_order; got " + repr(plugins_order)
+        )
+    if ("multiband_compressor#0" in plugins_order
+            and "multiband_compressor#1" in plugins_order):
+        i0 = plugins_order.index("multiband_compressor#0")
+        i1 = plugins_order.index("multiband_compressor#1")
+        assert i0 < i1, (
+            "multiband_compressor#0 (MBC) must precede "
+            "multiband_compressor#1 (regulator) in plugins_order; got "
+            + repr(plugins_order)
         )
 
 
@@ -160,49 +190,46 @@ def emit_convolver(plugin: dict, irs_dir: Path,
     EE's single `convolver#0` plugin therefore expands to two PW nodes
     (`conv_l`, `conv_r`) reading channels 0 and 1 of the same stereo IRS.
     """
+    # Defensive — build_chain skips bypassed plugins before dispatch, but
+    # the unit tests call emitters directly.
     if plugin.get("bypass", False):
         return None
 
-    irs_path = _resolve_irs(plugin["kernel-name"], irs_dir,
-                            must_exist=must_exist)
+    kernel_name = plugin.get("kernel-name")
+    if not kernel_name:
+        raise ValueError(
+            "convolver#0 has no 'kernel-name' field; cannot resolve IRS path"
+        )
+    irs_path = _resolve_irs(kernel_name, irs_dir, must_exist=must_exist)
     output_gain_lin = db_to_lin(plugin.get("output-gain", 0.0))
 
-    # The PW builtin convolver doesn't expose `Wet`/`Dry` controls; gain
-    # staging must be done outside the node. We model it by scaling the
-    # IR samples implicitly via the next stage's input gain — but for v1
-    # the EE convolver's output_gain is universally 0.0 (verified across
-    # the 1050-XML corpus), so we just preserve it as a structural field
-    # and warn if non-zero.
-    extra_warnings = []
-    if abs(plugin.get("output-gain", 0.0)) > 1e-6:
-        extra_warnings.append(
-            f"convolver output-gain={plugin['output-gain']} dB is non-zero "
-            "but the PW builtin convolver has no wet/dry control; this "
-            "gain is dropped. Open an issue if your preset relies on it."
-        )
-    _ = output_gain_lin  # acknowledged but not applied; see warning above
-
+    # The PW builtin convolver's `gain` config field scales the IR
+    # samples on load (libpipewire-module-filter-chain(7)). EE's
+    # convolver output_gain is universally 0.0 across the 1050-XML
+    # corpus, so this is structurally identity in practice; passing it
+    # through anyway keeps the chain faithful for any preset that does
+    # set it.
     nodes = [
         {
             "type": "builtin",
             "name": "conv_l",
             "label": "convolver",
-            "config": {"filename": str(irs_path), "channel": 0},
+            "config": {"filename": str(irs_path), "channel": 0,
+                       "gain": output_gain_lin},
         },
         {
             "type": "builtin",
             "name": "conv_r",
             "label": "convolver",
-            "config": {"filename": str(irs_path), "channel": 1},
+            "config": {"filename": str(irs_path), "channel": 1,
+                       "gain": output_gain_lin},
         },
     ]
-    stage = Stage(
+    return Stage(
         nodes=nodes,
         in_l=("conv_l", "In"), in_r=("conv_r", "In"),
         out_l=("conv_l", "Out"), out_r=("conv_r", "Out"),
     )
-    stage.warnings = extra_warnings  # type: ignore[attr-defined]
-    return stage
 
 
 def _emit_peq_node(plugin: dict, name: str) -> dict:
@@ -218,7 +245,7 @@ def _emit_peq_node(plugin: dict, name: str) -> dict:
     left = plugin.get("left", {})
     right = plugin.get("right", {})
 
-    for i in range(16):
+    for i in range(LSP_PEQ_BANDS):
         if i < num_bands:
             for side, bands in (("l", left), ("r", right)):
                 band = bands.get(f"band{i}", {})
@@ -262,6 +289,7 @@ def emit_peq(plugin: dict, name: str) -> Stage | None:
     the speaker PEQ always sets `split-channels=True`. The `_lr` plugin
     handles both — we just feed identical bands when not split.
     """
+    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
     node = _emit_peq_node(plugin, name)
@@ -279,6 +307,7 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
     `multiband_compressor#1` (the regulator). Identical shape on the EE
     side, identical mapping here.
     """
+    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
 
@@ -294,7 +323,7 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
         "envb": EE_MBC_ENVB.get(plugin.get("envelope-boost", "None"), 0),
     }
 
-    for i in range(8):
+    for i in range(LSP_MBC_BANDS):
         band = plugin.get(f"band{i}", {})
         # Band 0 always enabled with no split-frequency. Bands 1..7 carry
         # `enable-band` and `split-frequency`.
@@ -329,6 +358,7 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
 
 def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
     """LSP limiter_stereo node."""
+    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
 
@@ -364,6 +394,56 @@ def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
 # Driver
 # ---------------------------------------------------------------------------
 
+@dataclass
+class PluginHandler:
+    """Dispatch entry for one EE plugin key.
+
+    `emitter=None` marks a key whose v1 implementation is to skip with
+    `skip_warning`. `silent_if_bypassed=True` suppresses the warning
+    when the source plugin is bypassed — used for autogain, where the
+    bypassed state is the HDA default and the user shouldn't be nagged.
+    """
+    emitter: Callable[..., "Stage | None"] | None
+    args: tuple = ()
+    skip_warning: str | None = None
+    silent_if_bypassed: bool = False
+
+
+EE_KEY_DISPATCH: dict[str, PluginHandler] = {
+    "convolver#0":            PluginHandler(emit_convolver),
+    "equalizer#0":            PluginHandler(emit_peq, ("peq",)),
+    "equalizer#1":            PluginHandler(emit_peq, ("dialog",)),
+    "multiband_compressor#0": PluginHandler(emit_mb_compressor, ("mbc",)),
+    "multiband_compressor#1": PluginHandler(emit_mb_compressor, ("reg",)),
+    "limiter#0":              PluginHandler(emit_limiter),
+    "autogain#0": PluginHandler(
+        None,
+        skip_warning=(
+            "autogain#0: not bypassed but v1 doesn't translate autogain. "
+            "The PW chain will lack volume-leveler behaviour. "
+            "Mostly affects SoundWire devices."
+        ),
+        silent_if_bypassed=True,
+    ),
+    "bass_enhancer#0": PluginHandler(
+        None,
+        skip_warning=(
+            "bass_enhancer#0: v1 doesn't translate bass_enhancer (plugin "
+            "choice between Bankstown LV2 and Calf BassEnhancer is "
+            "unresolved). Affects SoundWire devices with small drivers."
+        ),
+    ),
+    "stereo_tools#0": PluginHandler(
+        None,
+        skip_warning=(
+            "stereo_tools#0: v1 doesn't translate stereo_tools (Calf "
+            "StereoTools mapping is non-trivial). Affects presets with "
+            "surround virtualizer."
+        ),
+    ),
+}
+
+
 def build_chain(preset: dict, irs_dir: Path,
                 must_exist: bool = True) -> ChainResult:
     """Walk plugins_order and build the PW stage list."""
@@ -384,61 +464,34 @@ def build_chain(preset: dict, irs_dir: Path,
             warn(f"{key}: missing from preset object; skipped.")
             continue
 
-        if plugin.get("bypass", False) and key != "autogain#0":
+        handler = EE_KEY_DISPATCH.get(key)
+        if handler is None:
+            warn(f"{key}: unknown plugin key; skipped.")
+            continue
+
+        bypassed = plugin.get("bypass", False)
+        if handler.emitter is None:
+            if bypassed and handler.silent_if_bypassed:
+                continue
+            assert handler.skip_warning is not None
+            warn(handler.skip_warning)
+            continue
+
+        if bypassed:
             # Surface bypass-skip uniformly so users notice if their EE
             # bypassed-plugin choice silently disappeared.
             warn(f"{key}: bypassed in source preset; not emitted.")
             continue
 
         if key == "convolver#0":
-            stage = emit_convolver(plugin, irs_dir, must_exist=must_exist)
-            if stage is not None:
-                result.stages.append(stage)
-                for w in getattr(stage, "warnings", []):
-                    warn(w)
-        elif key == "equalizer#0":
-            stage = emit_peq(plugin, "peq")
-            if stage is not None:
-                result.stages.append(stage)
-        elif key == "equalizer#1":
-            stage = emit_peq(plugin, "dialog")
-            if stage is not None:
-                result.stages.append(stage)
-        elif key == "multiband_compressor#0":
-            stage = emit_mb_compressor(plugin, "mbc")
-            if stage is not None:
-                result.stages.append(stage)
-        elif key == "multiband_compressor#1":
-            stage = emit_mb_compressor(plugin, "reg")
-            if stage is not None:
-                result.stages.append(stage)
-        elif key == "limiter#0":
-            stage = emit_limiter(plugin, "limiter")
-            if stage is not None:
-                result.stages.append(stage)
-        elif key == "autogain#0":
-            if plugin.get("bypass", False):
-                # HDA default — quiet skip, no warning.
-                continue
-            warn(
-                f"{key}: not bypassed but v1 doesn't translate autogain. "
-                "The PW chain will lack volume-leveler behaviour. "
-                "Mostly affects SoundWire devices."
-            )
-        elif key == "bass_enhancer#0":
-            warn(
-                f"{key}: v1 doesn't translate bass_enhancer (plugin choice "
-                "between Bankstown LV2 and Calf BassEnhancer is unresolved). "
-                "Affects SoundWire devices with small drivers."
-            )
-        elif key == "stereo_tools#0":
-            warn(
-                f"{key}: v1 doesn't translate stereo_tools (Calf "
-                "StereoTools mapping is non-trivial). Affects presets "
-                "with surround virtualizer."
-            )
+            stage = handler.emitter(plugin, irs_dir, *handler.args,
+                                    must_exist=must_exist)
         else:
-            warn(f"{key}: unknown plugin key; skipped.")
+            stage = handler.emitter(plugin, *handler.args)
+        if stage is not None:
+            result.stages.append(stage)
+            for w in stage.warnings:
+                warn(w)
 
     return result
 
@@ -514,10 +567,18 @@ def _fmt_dict(d: dict, indent: int) -> str:
 
 def format_conf(stages: list[Stage], links: list[dict],
                 node_name: str, node_description: str,
-                target_object: str | None = None) -> str:
+                target_object: str | None = None,
+                warnings: list[str] | None = None) -> str:
     """Render the full PipeWire filter-chain conf as text."""
     if not stages:
-        raise ValueError("cannot format conf with empty stage list")
+        msg = (
+            "cannot format conf with empty stage list (every plugin was "
+            "either bypassed in the source preset or in the v1 cuts list)"
+        )
+        if warnings:
+            msg += "; warnings collected during build:\n  - " + \
+                "\n  - ".join(warnings)
+        raise ValueError(msg)
     nodes = [n for s in stages for n in s.nodes]
     # Without explicit `inputs` / `outputs`, the filter.graph has no
     # external endpoints and PipeWire silently passes nothing through —
@@ -574,8 +635,30 @@ def format_conf(stages: list[Stage], links: list[dict],
 # CLI
 # ---------------------------------------------------------------------------
 
+def _validate_conf(conf_text: str) -> tuple[int, str]:
+    """Run validate_conf.py against `conf_text`.
+
+    Returns (returncode, combined_output). Returncode -1 signals a setup
+    skip (script absent, or `lv2info`/`spa-json-dump` missing); the
+    caller treats that as a soft warning, not a hard failure. The
+    `validate_conf.py` script's own contract: 0 = clean, 1 = errors,
+    2 = setup error.
+    """
+    if not VALIDATE_CONF_SCRIPT.is_file():
+        return -1, f"validate_conf.py not found at {VALIDATE_CONF_SCRIPT}"
+    if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
+        return -1, ("lv2info or spa-json-dump not in PATH "
+                    "(install lilv-utils and pipewire)")
+    rc = subprocess.run(
+        [sys.executable, str(VALIDATE_CONF_SCRIPT), "-", "-q"],
+        input=conf_text, capture_output=True, text=True, timeout=30,
+    )
+    return rc.returncode, (rc.stderr or "") + (rc.stdout or "")
+
+
 def _print_next_steps(stream, output_path: Path | None,
-                      node_name: str) -> None:
+                      node_name: str,
+                      target_object: str | None = None) -> None:
     pre = "[next] "
     print(f"{pre}systemctl --user restart pipewire pipewire-pulse",
           file=stream)
@@ -583,6 +666,9 @@ def _print_next_steps(stream, output_path: Path | None,
           "remove its autoload for this device.", file=stream)
     print(f"{pre}Verify the new sink: pw-cli ls Node | grep "
           f"{_sanitize_name(node_name)}", file=stream)
+    if target_object:
+        print(f"{pre}Verify routing: pw-link -l | grep {target_object}",
+              file=stream)
     if output_path is not None:
         print(f"{pre}Conf written to: {output_path}", file=stream)
 
@@ -640,9 +726,18 @@ def main(argv: list[str] | None = None) -> int:
         "--target-object",
         default=None,
         help="bind the chain's playback to a specific downstream node "
-             "(node.name). Used by the measurement tooling to route into "
-             "a null sink so the chain doesn't also auto-link to the "
-             "system speakers. Normal users leave unset.",
+             "(node.name) instead of letting WirePlumber choose. Useful "
+             "for pinning the chain to a particular HDMI or USB sink, or "
+             "for routing into a measurement null sink.",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="skip the schema self-check against lv2info port metadata. "
+             "By default, after generating the conf, ee_to_pipewire shells "
+             "out to tools/measure_pw/validate_conf.py to catch unknown "
+             "port symbols and out-of-range values; pass this flag to "
+             "skip it (e.g. on systems without lv2info installed).",
     )
     args = parser.parse_args(argv)
 
@@ -680,10 +775,25 @@ def main(argv: list[str] | None = None) -> int:
     links = emit_links(chain.stages)
     conf = format_conf(chain.stages, links, args.node_name,
                        args.node_description,
-                       target_object=args.target_object)
+                       target_object=args.target_object,
+                       warnings=chain.warnings)
 
     for w in chain.warnings:
         print(f"[skip] {w}", file=sys.stderr)
+
+    if not args.no_validate:
+        rc, output = _validate_conf(conf)
+        if rc == -1:
+            print(f"[validate] skipped: {output.strip()}", file=sys.stderr)
+        elif rc == 2:
+            # Setup error inside validate_conf.py — degraded gracefully.
+            print(f"[validate] skipped (setup): {output.strip()}",
+                  file=sys.stderr)
+        elif rc != 0:
+            sys.stderr.write(output)
+            print("error: schema validation failed; conf not written",
+                  file=sys.stderr)
+            return 1
 
     if args.dry_run:
         sys.stdout.write(conf)
@@ -696,7 +806,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
-    _print_next_steps(sys.stderr, output_path, args.node_name)
+    _print_next_steps(sys.stderr, output_path, args.node_name,
+                      target_object=args.target_object)
     return 0
 
 
