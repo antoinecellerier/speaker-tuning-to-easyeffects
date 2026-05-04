@@ -114,6 +114,34 @@ A few things about this repo that aren't obvious from reading the code:
   same as commits get `Co-Authored-By`. Applies to `gh issue/pr comment`
   bodies.
 
+- **`ee_to_pipewire.py` is the companion converter.** Turns the
+  generated EasyEffects preset into a PipeWire `filter-chain` `.conf`
+  for users who'd rather not run EE. v1 covers convolver / PEQ /
+  dialog / MBC / regulator / limiter (stereo only). Not yet
+  translated: `bass_enhancer`, `stereo_tools`, non-bypassed
+  `autogain`, 4-channel upmix — each gated on a real-world report.
+  By default the converter copies the `.irs` next to the generated
+  conf and rewrites the convolver `filename`, so the PW chain has no
+  runtime dependency on the EasyEffects directory layout
+  (`--no-copy-irs` reverts to the v1 cross-tree reference). The conf
+  is emitted as a WirePlumber 0.5+ smart filter pinned to the
+  auto-detected internal-speaker sink (`filter.smart` +
+  `filter.smart.target` + `node.link-group` + `priority.session=-1`),
+  so the speaker remains the default sink, apps target it as usual,
+  the chain inserts itself transparently into the path, HDMI / BT /
+  USB outputs bypass automatically, and there's no second volume
+  layer. `--target-sink <node.name>` overrides the auto-detected
+  sink; `--target-sink ''` reverts to a v1 virtual-sink conf that
+  apps target directly.
+  Equivalence to the EE chain is verified by `tools/measure_pw/`
+  (frequency-domain ≤0.5 dB, time-domain ≥30 dB S/R) and by the
+  `tools/measure_pw/validate_conf.py` deterministic schema check
+  (lv2info-driven), which `ee_to_pipewire.py` runs automatically
+  unless `--no-validate` is passed. Corpus tier:
+  `tests/corpus/test_ee_to_pipewire_corpus.py` exercises the full
+  XML→conf pipeline against every discovered DAX3 XML. The
+  follow-up tracker is `localresearch/ee_to_pipewire_followups.md`.
+
 Everything else — plugin chain rationale, gain-staging, unit
 conversions, cross-device findings — lives in `docs/` and is linked
 from the README's "Further reading" section.

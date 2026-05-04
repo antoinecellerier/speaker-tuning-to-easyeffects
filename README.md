@@ -84,6 +84,17 @@ This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matchin
 
 EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing an empty `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. If EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip both steps if you manage this yourself.
 
+### Optional: PipeWire `filter-chain` instead of EasyEffects
+
+`ee_to_pipewire.py` converts a generated EasyEffects preset into a PipeWire `filter-chain` `.conf` for users who'd rather not run EasyEffects (lower CPU, no GUI, set-and-forget). Disable EasyEffects for this device first to avoid double-processing.
+
+```bash
+python3 ee_to_pipewire.py ~/.local/share/easyeffects/output/Dolby-Balanced.json
+systemctl --user restart pipewire pipewire-pulse
+```
+
+The conf attaches to the internal-speaker sink as a WirePlumber 0.5+ smart filter — apps keep targeting the speaker as default, the chain inserts itself transparently, HDMI / Bluetooth / USB outputs bypass automatically, and there's no second volume layer. v1 covers convolver, PEQ, dialog, multiband compressor, regulator, and limiter (stereo only) and measures equivalent to the EasyEffects chain to ≤0.5 dB / ≥30 dB S/R on the development device. `bass_enhancer`, `stereo_tools`, non-bypassed `autogain`, and 4-channel upmix for Snapdragon-class laptops aren't translated yet — open an issue with your device model, codec subsystem ID, and a link to the OEM's Windows driver download if you need one. Design notes in [`docs/alternative-pipelines.md`](docs/alternative-pipelines.md) "Companion converter"; equivalence-measurement tooling in [`tools/measure_pw/`](tools/measure_pw/).
+
 ### Dependencies
 
 The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — if installed, the script renders its output and `--help` with semantic colors; without them, output is plain monochrome and everything else still works.

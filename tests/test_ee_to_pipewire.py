@@ -573,3 +573,222 @@ def test_active_autogain_emits_warning():
     chain = build_chain(preset, irs_dir=None, must_exist=False)
     assert any("autogain" in w and "v1 doesn't translate" in w
                for w in chain.warnings)
+
+
+# ---------------------------------------------------------------------------
+# IRS copy: by default the conf is self-contained — the .irs is copied
+# next to the conf and the convolver `filename` rewritten. --no-copy-irs
+# preserves v1's behaviour of referencing the EE-side path.
+# ---------------------------------------------------------------------------
+
+def _run_main(generated, tmp_path, *extra_args, no_validate=True):
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "TestChain.conf"
+    args = [
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(out_path),
+        *extra_args,
+    ]
+    if no_validate:
+        args.append("--no-validate")
+    rc = ee2pw_main(args)
+    return rc, out_path, irs_path
+
+
+def test_main_copies_irs_next_to_conf(generated, tmp_path):
+    """Default behaviour: writing the conf also copies the .irs into the
+    same directory and rewrites the convolver `filename` to that copy.
+    """
+    rc, out_path, src_irs = _run_main(generated, tmp_path)
+    assert rc == 0
+
+    target_irs = out_path.parent / "TestChain.irs"
+    assert target_irs.is_file(), "IRS should be copied next to the conf"
+    # Bytes match the source.
+    assert target_irs.read_bytes() == src_irs.read_bytes()
+    # Conf body references the new path, not the original EE-side one.
+    conf_text = out_path.read_text()
+    assert str(target_irs) in conf_text
+    assert str(src_irs) not in conf_text
+
+
+def test_main_no_copy_irs_keeps_source_path(generated, tmp_path):
+    """With `--no-copy-irs`, no copy happens and the conf references the
+    original EE-side path (the v1 behaviour).
+    """
+    rc, out_path, src_irs = _run_main(generated, tmp_path, "--no-copy-irs")
+    assert rc == 0
+
+    target_irs = out_path.parent / "TestChain.irs"
+    assert not target_irs.exists(), \
+        "no copy should be made when --no-copy-irs is passed"
+    conf_text = out_path.read_text()
+    assert str(src_irs) in conf_text
+
+
+def test_main_dry_run_retargets_without_copying(generated, tmp_path,
+                                                 capsys):
+    """Dry-run still rewrites the convolver path so the printed conf
+    matches what a real run would produce, but no file is created.
+    """
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "TestChain.conf"
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(out_path),
+        "--no-validate",
+        "--dry-run",
+    ])
+    assert rc == 0
+    assert not out_path.exists()
+    target_irs = out_path.parent / "TestChain.irs"
+    assert not target_irs.exists()
+    captured = capsys.readouterr()
+    # The printed conf shows where the IRS *would* land, not the EE path.
+    assert str(target_irs) in captured.out
+    assert str(irs_path) not in captured.out
+
+
+def test_main_existing_target_irs_without_force_errors(generated,
+                                                       tmp_path, capsys):
+    """If the target .irs already exists with different content,
+    refuse to overwrite without --force."""
+    rc, out_path, _src_irs = _run_main(generated, tmp_path)
+    assert rc == 0
+
+    target_irs = out_path.parent / "TestChain.irs"
+    target_irs.write_bytes(b"stale bytes that don't match")
+
+    # Re-run with --force on the conf only; IRS check should still fire.
+    rc2, _, _ = _run_main(generated, tmp_path, "--force")
+    # --force overwrites both, so this round should succeed and replace
+    # the stale bytes.
+    assert rc2 == 0
+    preset, src_irs = generated
+    assert target_irs.read_bytes() == src_irs.read_bytes()
+
+
+def test_main_force_overwrites_existing_irs(generated, tmp_path):
+    """--force replaces both the conf and the IRS in the target dir."""
+    rc, out_path, src_irs = _run_main(generated, tmp_path)
+    assert rc == 0
+
+    target_irs = out_path.parent / "TestChain.irs"
+    # Corrupt the copied IRS to ensure --force actually rewrites it.
+    target_irs.write_bytes(b"corrupted")
+    rc2, _, _ = _run_main(generated, tmp_path, "--force")
+    assert rc2 == 0
+    assert target_irs.read_bytes() == src_irs.read_bytes()
+
+
+def test_main_target_irs_exists_blocks_without_force(generated, tmp_path,
+                                                     capsys):
+    """Without --force, an existing target IRS blocks the conf write."""
+    rc, out_path, _src_irs = _run_main(generated, tmp_path)
+    assert rc == 0
+    # Conf exists too — delete it so the conf-side check passes and we
+    # exercise the IRS-side check specifically.
+    out_path.unlink()
+
+    rc2, _, _ = _run_main(generated, tmp_path)
+    assert rc2 == 1
+    captured = capsys.readouterr()
+    assert "TestChain.irs" in captured.err
+    assert "--force" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# WirePlumber 0.5+ smart-filter target. When `target_sink` is set the
+# conf gets `node.link-group`/`filter.smart`/`filter.smart.target` on
+# both streams so WP routes apps targeting that hardware sink through
+# the chain transparently. When unset (or explicitly "" via CLI) the
+# conf falls back to the v1 virtual-sink behaviour.
+# ---------------------------------------------------------------------------
+
+def _format_minimal(target_sink=None, target_object=None):
+    """Build a minimal valid chain text without touching the filesystem.
+
+    Skips IRS resolution (must_exist=False) so the test fixture is just
+    a one-stage chain — enough to exercise format_conf's prop wiring.
+    """
+    preset = {
+        "output": {
+            "plugins_order": ["limiter#0"],
+            "limiter#0": {"bypass": False, "threshold": -1.0,
+                          "lookahead": 1.0, "attack": 1.0, "release": 5.0,
+                          "stereo-link": 100.0, "input-gain": 0.0,
+                          "output-gain": 0.0, "mode": "Herm Thin",
+                          "alr": False, "gain-boost": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    links = emit_links(chain.stages)
+    return format_conf(chain.stages, links, "TestChain", "test desc",
+                       target_object=target_object,
+                       target_sink=target_sink)
+
+
+def test_format_conf_no_target_sink_omits_smart_filter():
+    """v1 fallback: without target_sink, no smart-filter properties."""
+    conf = _format_minimal()
+    assert "filter.smart" not in conf
+    assert "node.link-group" not in conf
+
+
+def test_format_conf_target_sink_emits_smart_filter():
+    """target_sink populates the WP smart-filter properties on both
+    capture and playback streams, with matching link-group."""
+    conf = _format_minimal(target_sink="alsa_output.x.HiFi__Speaker__sink")
+    assert "filter.smart = true" in conf
+    assert 'filter.smart.target = {' in conf
+    assert '"alsa_output.x.HiFi__Speaker__sink"' in conf
+    # Same link-group on both sides — WP needs this to treat the
+    # capture and playback streams as one filter for routing.
+    assert conf.count('node.link-group = "TestChain_smart_filter"') == 2
+    # filter.smart.targetable is intentionally left as the default
+    # (false), which keeps the chain sink hidden from app target lists.
+    assert "filter.smart.targetable" not in conf
+
+
+def test_format_conf_target_sink_keeps_no_target_object():
+    """Smart-filter mode shouldn't bake target.object on playback —
+    WP's link resolver picks the target. Coexistence with
+    --target-object is allowed (measurement rig still uses it)."""
+    conf = _format_minimal(target_sink="speaker_sink")
+    assert "target.object" not in conf
+
+
+def test_format_conf_target_sink_and_target_object_coexist():
+    """Power users / measurement rig may set both: target_object
+    pins playback, target_sink advertises smart routing."""
+    conf = _format_minimal(target_sink="speaker_sink",
+                           target_object="ee_capture")
+    assert "filter.smart = true" in conf
+    assert 'target.object = "ee_capture"' in conf
+
+
+def test_main_target_sink_flag_threads_through(generated, tmp_path):
+    """End-to-end: --target-sink lands as filter.smart.target."""
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", "speaker_sink_xyz")
+    assert rc == 0
+    conf_text = out_path.read_text()
+    assert "filter.smart = true" in conf_text
+    assert '"speaker_sink_xyz"' in conf_text
+
+
+def test_main_target_sink_empty_disables_smart_filter(generated, tmp_path):
+    """--target-sink '' explicitly opts out of smart-filter mode."""
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", "")
+    assert rc == 0
+    conf_text = out_path.read_text()
+    assert "filter.smart" not in conf_text

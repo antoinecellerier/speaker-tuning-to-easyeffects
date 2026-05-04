@@ -41,9 +41,16 @@ LSP_MBC_URI = "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo"
 LSP_LIM_URI = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
 
 DEFAULT_IRS_DIR = Path.home() / ".local/share/easyeffects/irs"
-DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/filter-chain.conf.d"
+# PipeWire's stock pipewire.conf only auto-includes the
+# pipewire.conf.d/*.conf overlay set; filter-chain.conf.d/ is *not*
+# scanned by the daemon (it's the path for the standalone
+# `pipewire -c filter-chain.conf` invocation pattern, used by the
+# measurement rig). Drop the conf in pipewire.conf.d/ so the running
+# daemon picks it up on the next restart.
+DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/pipewire.conf.d"
 DEFAULT_NODE_NAME = "Dolby_Filter_Chain"
 DEFAULT_NODE_DESCRIPTION = "Dolby DAX3 (filter-chain)"
+DEFAULT_LINK_GROUP_SUFFIX = "_smart_filter"
 
 LIN_AMP_FLOOR = 1e-30  # numerical floor for log10 in lin_to_db
 LSP_PEQ_BANDS = 16     # para_equalizer_x16_lr — bump if URI changes
@@ -144,6 +151,24 @@ def _resolve_irs(kernel_name: str, irs_dir: Path, must_exist: bool = True) -> Pa
             "directory containing the .irs."
         )
     return path
+
+
+def _retarget_convolver_irs(stages: list["Stage"],
+                            target_irs: Path) -> Path | None:
+    """Rewrite every convolver node's `filename` to ``target_irs`` and
+    return the original source path (or ``None`` if the chain has no
+    convolver). All convolver nodes share one source IRS, so we copy
+    once and point both channels at the same destination.
+    """
+    src: Path | None = None
+    for stage in stages:
+        for node in stage.nodes:
+            if node.get("label") != "convolver":
+                continue
+            if src is None:
+                src = Path(node["config"]["filename"])
+            node["config"]["filename"] = str(target_irs)
+    return src
 
 
 def _assert_positional(plugins_order: list[str]) -> None:
@@ -568,8 +593,23 @@ def _fmt_dict(d: dict, indent: int) -> str:
 def format_conf(stages: list[Stage], links: list[dict],
                 node_name: str, node_description: str,
                 target_object: str | None = None,
+                target_sink: str | None = None,
                 warnings: list[str] | None = None) -> str:
-    """Render the full PipeWire filter-chain conf as text."""
+    """Render the full PipeWire filter-chain conf as text.
+
+    ``target_sink`` (the WirePlumber 0.5+ smart-filter target — typically
+    the internal speaker sink's ``node.name``) makes the chain attach
+    transparently to that hardware sink: apps keep targeting the
+    speaker sink as the default, WirePlumber's link resolver routes
+    them through the filter automatically, the chain auto-bypasses on
+    HDMI/Bluetooth/USB, and there's no second volume layer. When unset,
+    falls back to the v1 virtual-sink behaviour.
+
+    ``target_object`` is the lower-level "pin playback to this node"
+    used by the measurement rig to redirect into a null sink; it
+    coexists with ``target_sink`` but the smart-filter pattern usually
+    makes it unnecessary outside test rigs.
+    """
     if not stages:
         msg = (
             "cannot format conf with empty stage list (every plugin was "
@@ -591,6 +631,48 @@ def format_conf(stages: list[Stage], links: list[dict],
     graph_outputs = [f"{last.out_l[0]}:{last.out_l[1]}",
                      f"{last.out_r[0]}:{last.out_r[1]}"]
     safe_name = _sanitize_name(node_name)
+    capture_props: dict = {
+        "node.name": f"effect_input.{safe_name}",
+        "media.class": "Audio/Sink",
+    }
+    if target_sink:
+        # Smart-filter mode: WirePlumber 0.5+'s linking pipeline
+        # (linking/find-filter-target.lua + linking/get-filter-from-target.lua)
+        # detects nodes with `filter.smart = true` plus a matching
+        # `filter.smart.target` and inserts them on links targeting that
+        # node. `node.link-group` ties the capture and playback streams
+        # together as one logical filter so WP routes them as a unit.
+        # `filter.smart.targetable` defaults to false, which keeps apps
+        # from picking the chain's capture sink directly — they target
+        # the hardware speaker sink as usual, the chain inserts itself
+        # in the path. No second volume layer; HDMI/BT outputs aren't
+        # matched, so the chain bypasses automatically when audio
+        # routes anywhere other than ``target_sink``.
+        #
+        # `priority.session = -1` keeps WirePlumber's
+        # default-nodes/find-best-default-node.lua from picking the
+        # chain as the default sink (it would otherwise win the
+        # tiebreaker against the speaker sink — both have priority 0
+        # by default, and the freshly-loaded chain sorts later). With
+        # smart-filter routing, the user wants the speaker sink to
+        # remain the default; the chain inserts itself transparently.
+        capture_props.update({
+            "node.link-group": f"{safe_name}{DEFAULT_LINK_GROUP_SUFFIX}",
+            "filter.smart": True,
+            "filter.smart.name": safe_name,
+            "filter.smart.target": {"node.name": target_sink},
+            "priority.session": -1,
+        })
+    playback_props: dict = {
+        "node.name": f"effect_output.{safe_name}",
+        "node.passive": True,
+    }
+    if target_sink:
+        # Same link-group on the playback side so WirePlumber treats the
+        # capture and playback streams as one filter for routing.
+        playback_props["node.link-group"] = (
+            f"{safe_name}{DEFAULT_LINK_GROUP_SUFFIX}"
+        )
     args = {
         "node.description": node_description,
         "media.name": node_description,
@@ -602,14 +684,8 @@ def format_conf(stages: list[Stage], links: list[dict],
         },
         "audio.channels": 2,
         "audio.position": ["FL", "FR"],
-        "capture.props": {
-            "node.name": f"effect_input.{safe_name}",
-            "media.class": "Audio/Sink",
-        },
-        "playback.props": {
-            "node.name": f"effect_output.{safe_name}",
-            "node.passive": True,
-        },
+        "capture.props": capture_props,
+        "playback.props": playback_props,
     }
     if target_object:
         # Bind the playback stream to a specific downstream sink. Used
@@ -622,8 +698,10 @@ def format_conf(stages: list[Stage], links: list[dict],
         "# Generated by ee_to_pipewire.py — see\n"
         "# https://github.com/antoinecellerier/speaker-tuning-to-easyeffects\n"
         "#\n"
-        "# IRS file paths are absolute. Move the .irs and this conf\n"
-        "# becomes stale; re-run ee_to_pipewire.py to refresh.\n\n"
+        "# IRS file paths are absolute. By default the converter copies\n"
+        "# the .irs next to this conf, so the chain is self-contained;\n"
+        "# re-run ee_to_pipewire.py to refresh after updating the source\n"
+        "# EasyEffects preset.\n\n"
         "context.modules = [\n"
     )
     body += "    " + _fmt_dict(module, 1) + "\n"
@@ -634,6 +712,38 @@ def format_conf(stages: list[Stage], links: list[dict],
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
+    """Return (chosen_sink_name, warnings) for the smart-filter target.
+
+    Reuses ``dolby_to_easyeffects.find_speaker_sinks()`` (same probe as
+    the EasyEffects autoload pathway: ``pw-dump`` filtered to
+    ``Audio/Sink`` nodes whose ``device.icon_name`` is
+    ``audio-speakers``, which excludes HDMI / Bluetooth / USB headsets).
+    Returns ``(None, [reason])`` if no unique speaker sink can be
+    chosen — the caller surfaces that as an error and prompts for
+    ``--target-sink``.
+    """
+    try:
+        from dolby_to_easyeffects import find_speaker_sinks
+    except Exception as e:  # pragma: no cover — defensive
+        return None, [f"could not import speaker probe: {e}"]
+    sinks = find_speaker_sinks()
+    if not sinks:
+        return None, [
+            "no internal-speaker sink found via pw-dump "
+            "(no PipeWire daemon running, or no Audio/Sink with "
+            "device.icon_name=audio-speakers)"
+        ]
+    names = [s["name"] for s in sinks if s.get("name")]
+    if len(names) == 1:
+        return names[0], []
+    return None, [
+        f"multiple speaker sinks found ({len(names)}): "
+        + ", ".join(names)
+        + "; pass --target-sink to pick one"
+    ]
+
 
 def _validate_conf(conf_text: str) -> tuple[int, str]:
     """Run validate_conf.py against `conf_text`.
@@ -658,7 +768,8 @@ def _validate_conf(conf_text: str) -> tuple[int, str]:
 
 def _print_next_steps(stream, output_path: Path | None,
                       node_name: str,
-                      target_object: str | None = None) -> None:
+                      target_object: str | None = None,
+                      irs_path: Path | None = None) -> None:
     pre = "[next] "
     print(f"{pre}systemctl --user restart pipewire pipewire-pulse",
           file=stream)
@@ -671,6 +782,8 @@ def _print_next_steps(stream, output_path: Path | None,
               file=stream)
     if output_path is not None:
         print(f"{pre}Conf written to: {output_path}", file=stream)
+    if irs_path is not None:
+        print(f"{pre}IRS copied to:   {irs_path}", file=stream)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -708,8 +821,8 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         type=Path,
         default=None,
-        help="output .conf path (default: "
-             "~/.config/pipewire/filter-chain.conf.d/<node-name>.conf)",
+        help=f"output .conf path (default: "
+             f"{DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
     )
     parser.add_argument(
         "--force",
@@ -727,8 +840,24 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="bind the chain's playback to a specific downstream node "
              "(node.name) instead of letting WirePlumber choose. Useful "
-             "for pinning the chain to a particular HDMI or USB sink, or "
-             "for routing into a measurement null sink.",
+             "for routing into a measurement null sink. End users "
+             "usually want --target-sink instead, which is set by "
+             "default and uses WirePlumber 0.5+ smart-filter routing "
+             "so apps don't see the chain as a separate sink.",
+    )
+    parser.add_argument(
+        "--target-sink",
+        default=None,
+        help="hardware sink (node.name) the filter should attach to as "
+             "a WirePlumber smart filter. When set, apps target this "
+             "sink as usual and the filter inserts itself into the path; "
+             "no virtual-sink stacking, automatic bypass on HDMI / "
+             "Bluetooth / USB outputs. Default: auto-detect the "
+             "internal-speaker sink via pw-dump (same probe "
+             "dolby_to_easyeffects.py --autoload uses). Pass an empty "
+             "string ('') to disable smart-filter mode and emit the "
+             "v1 virtual-sink conf (apps target effect_input.<name> "
+             "directly).",
     )
     parser.add_argument(
         "--no-validate",
@@ -738,6 +867,18 @@ def main(argv: list[str] | None = None) -> int:
              "out to tools/measure_pw/validate_conf.py to catch unknown "
              "port symbols and out-of-range values; pass this flag to "
              "skip it (e.g. on systems without lv2info installed).",
+    )
+    parser.add_argument(
+        "--no-copy-irs",
+        action="store_true",
+        help="don't copy the .irs next to the generated conf. By default "
+             "the converter copies the impulse response from --irs-dir "
+             "into the conf's directory and rewrites the convolver "
+             "filename, so the PipeWire chain has no runtime dependency "
+             "on the EasyEffects path layout. Pass this flag to keep the "
+             "conf pointing at the original EE-side .irs (which lets EE "
+             "preset regenerations propagate automatically, at the cost "
+             "of a brittle cross-tree dependency).",
     )
     args = parser.parse_args(argv)
 
@@ -772,10 +913,53 @@ def main(argv: list[str] | None = None) -> int:
               "was skipped)", file=sys.stderr)
         return 1
 
+    # Resolve where the IRS will live. By default we copy it next to the
+    # conf so the PW chain is self-contained; --no-copy-irs keeps the
+    # original EE-side absolute path baked into the conf. In dry-run we
+    # still compute the destination so the printed conf reflects what a
+    # real run would produce.
+    if output_path is not None:
+        target_irs_dir = output_path.parent
+    elif args.output is not None:
+        target_irs_dir = args.output.expanduser().parent
+    else:
+        target_irs_dir = DEFAULT_OUTPUT_DIR.expanduser()
+    target_irs = target_irs_dir / f"{safe_node_name}.irs"
+    src_irs: Path | None = None
+    if not args.no_copy_irs:
+        src_irs = _retarget_convolver_irs(chain.stages, target_irs)
+
+    # Resolve the smart-filter target sink. ``--target-sink ''`` (empty
+    # string) explicitly disables smart-filter mode; an unset flag falls
+    # through to autodetection.
+    if args.target_sink == "":
+        target_sink: str | None = None
+        print("[smart-filter] disabled by --target-sink ''; emitting "
+              "v1 virtual-sink conf (apps will target effect_input."
+              f"{safe_node_name} directly)", file=sys.stderr)
+    elif args.target_sink:
+        target_sink = args.target_sink
+        print(f"[smart-filter] target sink: {target_sink} (from "
+              "--target-sink)", file=sys.stderr)
+    else:
+        target_sink, detect_warnings = _autodetect_speaker_sink()
+        if target_sink:
+            print(f"[smart-filter] target sink: {target_sink} "
+                  "(autodetected)", file=sys.stderr)
+        else:
+            for w in detect_warnings:
+                print(f"[smart-filter] {w}", file=sys.stderr)
+            print("[smart-filter] falling back to v1 virtual-sink conf "
+                  "(apps will target effect_input."
+                  f"{safe_node_name}); pass --target-sink "
+                  "<node.name> to enable smart-filter routing.",
+                  file=sys.stderr)
+
     links = emit_links(chain.stages)
     conf = format_conf(chain.stages, links, args.node_name,
                        args.node_description,
                        target_object=args.target_object,
+                       target_sink=target_sink,
                        warnings=chain.warnings)
 
     for w in chain.warnings:
@@ -804,10 +988,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {output_path} exists; pass --force to overwrite",
               file=sys.stderr)
         return 1
+
+    # IRS copy: skip when source and target are the same path (no-op),
+    # otherwise honour the same --force semantics as the conf write.
+    copied_irs: Path | None = None
+    if src_irs is not None and src_irs.resolve() != target_irs.resolve():
+        if target_irs.exists() and not args.force:
+            print(f"error: {target_irs} exists; pass --force to overwrite",
+                  file=sys.stderr)
+            return 1
+        target_irs.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_irs, target_irs)
+        copied_irs = target_irs
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
     _print_next_steps(sys.stderr, output_path, args.node_name,
-                      target_object=args.target_object)
+                      target_object=args.target_object,
+                      irs_path=copied_irs)
     return 0
 
 
