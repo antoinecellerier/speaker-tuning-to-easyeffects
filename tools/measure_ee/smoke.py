@@ -27,6 +27,9 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal import correlate, fftconvolve
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
+
 SR = 48000
 SMOKE_DURATION = 1.5
 CAPTURE_DURATION = 2.5
@@ -75,7 +78,7 @@ def write_wav_f32(path: Path, signal: np.ndarray, sr: int = SR) -> None:
 
 
 def read_wav_f32(path: Path) -> tuple[int, np.ndarray]:
-    sr, x = wavfile.read(str(path))
+    sr, x = wav_read(path)
     if x.dtype == np.int16:
         x = x.astype(np.float32) / 32768.0
     elif x.dtype == np.int32:
@@ -196,7 +199,7 @@ def play_and_capture(
         # Derive from the stimulus length so 12 s stationary stimuli don't get
         # cut off. Add 5 s slack for pw-cat startup + tail flush.
         try:
-            stim_sr, stim_data = wavfile.read(str(stim_path))
+            stim_sr, stim_data = wav_read(stim_path)
             play_timeout_s = stim_data.shape[0] / stim_sr + 5.0
         except Exception:
             play_timeout_s = 60.0

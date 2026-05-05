@@ -38,7 +38,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
 
 
 @dataclass
@@ -57,7 +59,7 @@ class IRStats:
 
 
 def load_ir(path: Path) -> tuple[int, np.ndarray]:
-    sr, x = wavfile.read(str(path))
+    sr, x = wav_read(path)
     if x.dtype == np.int16:
         x = x.astype(np.float32) / 32768.0
     elif x.dtype == np.int32:

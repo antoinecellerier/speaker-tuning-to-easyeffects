@@ -35,12 +35,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
 from scipy.signal import correlate
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_EE_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "captures_ee"
@@ -51,7 +54,7 @@ SR = 48000
 
 
 def _load(path: Path) -> np.ndarray:
-    sr, x = wavfile.read(str(path))
+    sr, x = wav_read(path)
     if sr != SR:
         raise SystemExit(f"{path}: sr={sr} != {SR}")
     if x.dtype == np.int16:

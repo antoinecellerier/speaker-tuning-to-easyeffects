@@ -37,9 +37,11 @@ from scipy.signal import correlate, fftconvolve, group_delay
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dolby_to_easyeffects import (  # noqa: E402
     parse_xml, make_fir, interpolate_curve_db, SAMPLE_RATE,
 )
+from _wavio import read as wav_read  # noqa: E402
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -72,7 +74,7 @@ SWEEP_IR_PRE = 2048
 # ----- shared loaders -----
 
 def _read_wav_float(path: Path) -> tuple[int, np.ndarray]:
-    sr, x = wavfile.read(str(path))
+    sr, x = wav_read(path)
     if x.dtype == np.int16:
         x = x.astype(np.float32) / 32768.0
     elif x.dtype == np.int32:

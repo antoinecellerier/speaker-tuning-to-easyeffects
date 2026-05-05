@@ -43,11 +43,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
 from scipy.signal import freqz
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
 
 # Reuse the verified RBJ + LSP RLC math from the test suite.
 from conftest import (  # noqa: E402  type: ignore[import-not-found]
@@ -171,7 +172,7 @@ def _equalizer_response_db(eq: dict, freqs: np.ndarray, channel: str,
 def _fir_magnitude_db(irs_path: Path, freqs: np.ndarray) -> np.ndarray:
     """Read an .irs (32-bit float wav) and return |FFT| magnitude (dB)
     interpolated to `freqs`."""
-    sr, x = wavfile.read(str(irs_path))
+    sr, x = wav_read(irs_path)
     if sr != SR:
         raise SystemExit(f"FIR sr={sr} != {SR}")
     if x.dtype == np.int16:

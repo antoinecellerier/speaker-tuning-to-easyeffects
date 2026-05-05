@@ -45,7 +45,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
 
 SR = 48000
 SCHEMA_VERSION = 1
@@ -56,8 +55,10 @@ DEFAULT_STIMULUS_DIR = REPO_ROOT / "localresearch" / "measure_ee" / "stimuli"
 DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "captures"
 # Re-use the play_and_capture primitive from tools/measure_ee/smoke.py
 # so playback timing stays identical between EE and PW captures.
+sys.path.insert(0, str(SCRIPT_DIR.parent))
 sys.path.insert(0, str(SCRIPT_DIR.parent / "measure_ee"))
 import smoke as _smoke  # noqa: E402
+from _wavio import read as wav_read  # noqa: E402
 
 STIMULUS_NAMES = (
     "stimulus_sweep.wav",
@@ -154,7 +155,7 @@ def capture_one(
     if not out_path.is_file() or out_path.stat().st_size == 0:
         raise SystemExit(f"capture failed (no data): {out_path}")
 
-    sr, cap = wavfile.read(str(out_path))
+    sr, cap = wav_read(out_path)
     if sr != SR:
         print(f"WARN: capture sr={sr} != expected {SR}", file=sys.stderr)
     if cap.dtype == np.int16:

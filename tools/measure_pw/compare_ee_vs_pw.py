@@ -45,8 +45,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
 from scipy.signal import fftconvolve
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
 
 SR = 48000
 
@@ -68,7 +70,7 @@ DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "measure_pw" / "ee_vs_pw"
 # ---------------------------------------------------------------------------
 
 def _load_wav_f32(path: Path) -> np.ndarray:
-    sr, x = wavfile.read(str(path))
+    sr, x = wav_read(path)
     if sr != SR:
         raise SystemExit(f"{path}: sample rate {sr} != expected {SR}")
     if x.dtype == np.int16:

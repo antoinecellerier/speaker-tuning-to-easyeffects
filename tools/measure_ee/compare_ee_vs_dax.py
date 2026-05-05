@@ -37,10 +37,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from scipy.io import wavfile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _wavio import read as wav_read  # noqa: E402
 
 
 def _scan_dir(d: Path, want_label: str | None = None
@@ -103,7 +104,7 @@ def _read_tones(npz_path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 def _read_ir_mag(wav_path: Path, n_fft: int = 16384, sr: int = 48000
                  ) -> tuple[np.ndarray, np.ndarray]:
-    sr_, ir = wavfile.read(str(wav_path))
+    sr_, ir = wav_read(wav_path)
     if ir.dtype != np.float32:
         if ir.dtype == np.int16:
             ir = ir.astype(np.float32) / 32768.0
