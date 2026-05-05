@@ -207,14 +207,21 @@ Output files:
 
 The 20-value IEQ arrays (e.g. `ieq_balanced`) represent the **desired composite frequency response**, not individual filter gains. Applying them directly as parametric bell filter gains causes massive overlap stacking (+20–30 dB at mid frequencies).
 
-Approaches tried and their problems:
+Approaches tried and their problems (numbers reproduced on the X1 Yoga
+Gen 7 / Realtek 17AA:22E6 dynamic / balanced curve; comparable shape on
+the IdeaPad XML from issue #4):
 
-| Approach | Issue |
-|---|---|
-| Raw values as bell gains (Q=1.5) | +33 dB cumulative boost at mid frequencies from overlapping filters |
-| Iterative solver (center-freq only) | Correct at 20 center points but ±5 dB ripple between bands |
-| Least-squares solver (dense grid) | Oscillating gains, still ±4 dB ripple |
-| **FIR convolution (current)** | **Perfect frequency response, ≤0.06 dB error everywhere** |
+| Approach | Peak error vs target | RMS error vs target |
+|---|---:|---:|
+| Raw values as bell gains (Q=1.5) | ~34 dB (cumulative boost at mids from overlapping filters) | ~20 dB |
+| Iterative solver (center-freq only) | ~16 dB between bands (0.1 dB at the 20 centres) | ~2 dB |
+| Least-squares solver (dense grid) | ~11 dB | ~1.6 dB |
+| **FIR convolution (current)** | **0.34 dB across audible band, 0.07 dB at the 20 band centres** | **<0.1 dB** |
+
+Earlier revisions of this table quoted "±5 / ±4 dB ripple" for the
+biquad-fit rows and "≤0.06 dB everywhere" for FIR — those mixed peak
+and RMS metrics across rows. The numbers above are all peak and RMS
+on the same dense log-frequency grid (20 Hz–22 kHz, 800 points).
 
 ### FIR generation
 
