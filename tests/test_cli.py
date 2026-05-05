@@ -273,6 +273,9 @@ def test_nonexistent_xml_path_fails_cleanly(tmp_path):
     "SOUNDWIRE_DEV_0123_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml",
     "SDW_DEV_0123_SUBSYS_17AA22E6.xml",
     "dev_0287_subsys_17aa22e6.xml",  # case-insensitive
+    # Lenovo IdeaPad text-vendor SUBSYS — see issue #4 (taprobane99).
+    "AUCD_DEV_0C29_SUBSYS_IDEA4002_ADCM_SUBSYS_IDEA4002.xml",
+    "AUCD_DEV_0C29_SUBSYS_idea4002_ADCM_SUBSYS_idea4002.xml",  # case-insensitive
 ])
 def test_dolby_filename_regex_matches_dax3_filenames(filename):
     assert DOLBY_FILENAME_RE.search(filename) is not None
@@ -281,9 +284,10 @@ def test_dolby_filename_regex_matches_dax3_filenames(filename):
 @pytest.mark.parametrize("filename", [
     "settings.xml",                        # no SUBSYS_ token
     "DEV_0287_SUBSYS_17AA22E6.txt",        # not .xml
-    "SUBSYS_TOOSHORT.xml",                 # 8-hex-char requirement
+    "SUBSYS_SHORT.xml",                    # 5 chars, fails 8-char width
     "SUBSYS_17AA22E6_NO_DOT_XML",          # no .xml
     "DEV_0287.xml",                        # no SUBSYS_ token
+    "SUBSYS_BAD-CHAR.xml",                 # non-alphanumeric in the 8-char window
 ])
 def test_dolby_filename_regex_rejects_non_dax3(filename):
     assert DOLBY_FILENAME_RE.search(filename) is None

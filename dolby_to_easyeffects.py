@@ -465,14 +465,17 @@ def report_speaker_info():
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
 # (``DEV_..._SUBSYS_...``, ``SOUNDWIRE_..._SUBSYS_...``, ``SDW_..._SUBSYS_...``)
-# include ``SUBSYS_`` followed by exactly eight hex characters — highly
-# specific, essentially zero false-positive risk against unrelated XMLs.
-# Companion files with suffixes that share the filename pattern but do
-# *not* hold DAX3 playback tunings are filtered out at the call sites:
+# include ``SUBSYS_`` followed by exactly eight alphanumeric characters.
+# Most subsystem IDs are hex (e.g. ``17AA22E6``) but Lenovo IdeaPad
+# installers use the marketing tag ``IDEA`` as a text vendor prefix
+# (e.g. ``IDEA4002``), so we accept ``[0-9A-Za-z]`` rather than restricting
+# to hex — see issue #4 (taprobane99). Companion files with suffixes that
+# share the filename pattern but do *not* hold DAX3 playback tunings are
+# filtered out at the call sites:
 #   ``_settings.xml`` — per-device simplified settings
 #   ``_dmic.xml`` / ``_amic.xml`` — Dolby Fusion (microphone AEC) tunings
 #                                   under ``fusion_ext_*`` and related dirs
-DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Fa-f]{8}.*\.xml$", re.IGNORECASE)
+DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Za-z]{8}.*\.xml$", re.IGNORECASE)
 
 # Filename-suffix exclusions applied at probe candidate sites. All lowercase;
 # compare against ``name.lower().endswith(...)``.
