@@ -203,7 +203,19 @@ def _band_stats(freqs: np.ndarray, ee_db: np.ndarray, pw_db: np.ndarray,
 # ---------------------------------------------------------------------------
 
 def _maybe_plot(out_path: Path, stim: str, freqs: np.ndarray,
-                ee_db: np.ndarray, pw_db: np.ndarray) -> None:
+                ee_db: np.ndarray | None = None,
+                pw_db: np.ndarray | None = None,
+                ee_l: np.ndarray | None = None,
+                ee_r: np.ndarray | None = None,
+                pw_l: np.ndarray | None = None,
+                pw_r: np.ndarray | None = None) -> None:
+    """Plot the EE vs PW magnitude diff. When per-channel arrays are
+    supplied, the top panel shows L and R separately for both EE and
+    PW (4 traces) and the bottom panel overlays the L and R diffs in
+    different colours — making any asymmetric divergence visually
+    obvious. Without per-channel arrays, falls back to the original
+    two-trace plot for symmetric / mono-summed stimuli.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -212,15 +224,37 @@ def _maybe_plot(out_path: Path, stim: str, freqs: np.ndarray,
         return
     mask = (freqs >= 20) & (freqs <= 22000)
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
-    ax1.semilogx(freqs[mask], ee_db[mask], label="EasyEffects", linewidth=1.0)
-    ax1.semilogx(freqs[mask], pw_db[mask], label="PipeWire filter-chain",
-                 linewidth=1.0, linestyle="--")
+    has_per_channel = (ee_l is not None and ee_r is not None
+                       and pw_l is not None and pw_r is not None)
+    if has_per_channel:
+        ax1.semilogx(freqs[mask], ee_l[mask], label="EE L",
+                     linewidth=1.0, color="C0")
+        ax1.semilogx(freqs[mask], ee_r[mask], label="EE R",
+                     linewidth=1.0, color="C2")
+        ax1.semilogx(freqs[mask], pw_l[mask], label="PW L",
+                     linewidth=1.0, color="C0", linestyle="--")
+        ax1.semilogx(freqs[mask], pw_r[mask], label="PW R",
+                     linewidth=1.0, color="C2", linestyle="--")
+    else:
+        ax1.semilogx(freqs[mask], ee_db[mask], label="EasyEffects",
+                     linewidth=1.0)
+        ax1.semilogx(freqs[mask], pw_db[mask], label="PipeWire filter-chain",
+                     linewidth=1.0, linestyle="--")
     ax1.set_ylabel("Magnitude (dB)")
     ax1.set_title(f"EE vs PW — {stim}")
     ax1.legend()
     ax1.grid(True, which="both", alpha=0.3)
-    diff = ee_db[mask] - pw_db[mask]
-    ax2.semilogx(freqs[mask], diff, color="red", linewidth=0.8)
+    if has_per_channel:
+        diff_l = ee_l[mask] - pw_l[mask]
+        diff_r = ee_r[mask] - pw_r[mask]
+        ax2.semilogx(freqs[mask], diff_l, color="C0", linewidth=0.8,
+                     label="EE − PW (L)")
+        ax2.semilogx(freqs[mask], diff_r, color="C2", linewidth=0.8,
+                     label="EE − PW (R)")
+        ax2.legend(loc="upper right", fontsize=8)
+    else:
+        diff = ee_db[mask] - pw_db[mask]
+        ax2.semilogx(freqs[mask], diff, color="red", linewidth=0.8)
     ax2.set_ylabel("EE − PW (dB)")
     ax2.set_xlabel("Frequency (Hz)")
     ax2.axhline(0, color="black", linewidth=0.5)
@@ -278,10 +312,6 @@ def compare_steady(ee_path: Path, pw_path: Path, stim_meta: dict,
                                         channel=0)
         _, pw_r = _windowed_spectrum_db(pw_lb, win_start, win_end,
                                         channel=1)
-        # Average the per-channel ee/pw spectra for plotting (mid-of-
-        # the-road overlay), but compute stats on the worse channel.
-        ee_db = 0.5 * (ee_l + ee_r)
-        pw_db = 0.5 * (pw_l + pw_r)
         stats_l = _band_stats(freqs, ee_l, pw_l, BAND_LO_HZ, BAND_HI_HZ,
                               tol_db, f"{tag}/L")
         stats_r = _band_stats(freqs, ee_r, pw_r, BAND_LO_HZ, BAND_HI_HZ,
@@ -300,8 +330,13 @@ def compare_steady(ee_path: Path, pw_path: Path, stim_meta: dict,
             pass_tolerance=stats_l.pass_tolerance and stats_r.pass_tolerance,
         )
         if out_plot is not None:
-            _maybe_plot(out_plot, f"{tag} (per-channel avg)",
-                        freqs, ee_db, pw_db)
+            # Pass the per-channel arrays so the plot shows L and R
+            # separately on both panels; the diff panel overlays the
+            # two channel diffs in different colours so any asymmetric
+            # divergence is visually obvious.
+            _maybe_plot(out_plot, f"{tag} (per-channel)",
+                        freqs, ee_db=None, pw_db=None,
+                        ee_l=ee_l, ee_r=ee_r, pw_l=pw_l, pw_r=pw_r)
         return stats
     freqs, ee_db = _windowed_spectrum_db(ee_lb, win_start, win_end)
     _, pw_db = _windowed_spectrum_db(pw_lb, win_start, win_end)

@@ -201,7 +201,8 @@ def compare_capture_pair(ee_path: Path, pw_path: Path, sr_target_db: float,
         report_tag = tag
 
     if out_plot is not None:
-        _maybe_plot(out_plot, report_tag, sig, residual)
+        _maybe_plot(out_plot, report_tag, sig, residual,
+                    per_channel=per_channel)
     return TDStats(
         stimulus=report_tag,
         lag_samples=lag,
@@ -215,7 +216,14 @@ def compare_capture_pair(ee_path: Path, pw_path: Path, sr_target_db: float,
 
 
 def _maybe_plot(out_path: Path, tag: str, sig: np.ndarray,
-                residual: np.ndarray) -> None:
+                residual: np.ndarray, per_channel: bool = False) -> None:
+    """Plot the EE signal alongside the residual (EE − PW). For mono /
+    L=R captures, channel 0 is enough — the channels are identical and
+    drawing both would be redundant. For asymmetric stimuli, splits
+    into a 2×2 grid so L and R residuals are visible side-by-side; a
+    one-channel divergence then jumps off the page rather than being
+    averaged or hidden.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -227,18 +235,37 @@ def _maybe_plot(out_path: Path, tag: str, sig: np.ndarray,
     if sig.shape[0] < n1:
         n0, n1 = 0, min(9600, sig.shape[0])
     t = np.arange(n0, n1) / SR * 1000  # ms
-    fig, axes = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
-    axes[0].plot(t, sig[n0:n1, 0], label="EE", linewidth=0.7)
-    axes[0].plot(t, sig[n0:n1, 0] - residual[n0:n1, 0],
-                 label="PW (aligned)", linewidth=0.7, linestyle="--")
-    axes[0].set_ylabel("Amplitude")
-    axes[0].set_title(f"EE vs PW (time domain) — {tag}")
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
-    axes[1].plot(t, residual[n0:n1, 0], color="red", linewidth=0.6)
-    axes[1].set_ylabel("Residual (EE - PW)")
-    axes[1].set_xlabel("Time (ms)")
-    axes[1].grid(True, alpha=0.3)
+
+    if per_channel and sig.ndim == 2 and sig.shape[1] >= 2:
+        fig, axes = plt.subplots(2, 2, figsize=(12, 5), sharex=True)
+        for ch, ch_label, col in ((0, "L", 0), (1, "R", 1)):
+            axes[0, col].plot(t, sig[n0:n1, ch], label=f"EE {ch_label}",
+                              linewidth=0.7)
+            axes[0, col].plot(t, sig[n0:n1, ch] - residual[n0:n1, ch],
+                              label=f"PW {ch_label} (aligned)",
+                              linewidth=0.7, linestyle="--")
+            axes[0, col].set_ylabel("Amplitude")
+            axes[0, col].set_title(f"{tag} — channel {ch_label}")
+            axes[0, col].legend()
+            axes[0, col].grid(True, alpha=0.3)
+            axes[1, col].plot(t, residual[n0:n1, ch], color="red",
+                              linewidth=0.6)
+            axes[1, col].set_ylabel(f"Residual (EE − PW), {ch_label}")
+            axes[1, col].set_xlabel("Time (ms)")
+            axes[1, col].grid(True, alpha=0.3)
+    else:
+        fig, axes = plt.subplots(2, 1, figsize=(10, 5), sharex=True)
+        axes[0].plot(t, sig[n0:n1, 0], label="EE", linewidth=0.7)
+        axes[0].plot(t, sig[n0:n1, 0] - residual[n0:n1, 0],
+                     label="PW (aligned)", linewidth=0.7, linestyle="--")
+        axes[0].set_ylabel("Amplitude")
+        axes[0].set_title(f"EE vs PW (time domain) — {tag}")
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+        axes[1].plot(t, residual[n0:n1, 0], color="red", linewidth=0.6)
+        axes[1].set_ylabel("Residual (EE - PW)")
+        axes[1].set_xlabel("Time (ms)")
+        axes[1].grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
