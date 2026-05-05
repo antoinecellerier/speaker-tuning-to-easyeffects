@@ -65,6 +65,14 @@ STIMULUS_NAMES = (
     "stimulus_pink.wav",
     "stimulus_pink_quiet.wav",
     "stimulus_multitone.wav",
+    # Stereo-asymmetric pink (L≠R, decorrelated seeds). See
+    # tools/measure_ee/capture_battery.py for the rationale — kept in
+    # sync so the battery exercises both M and S components.
+    "stimulus_stereo_pink.wav",
+    # Stereo-correlated pink (M ≫ S) — natural-music operating point.
+    # Sibling of stimulus_stereo_pink; the two together cover both
+    # the maximum-entropy and natural-correlation regimes.
+    "stimulus_stereo_correlated.wav",
 )
 
 

@@ -128,14 +128,24 @@ def _ir_magnitude_db(ir: np.ndarray, n_fft: int = 8192
 # ---------------------------------------------------------------------------
 
 def _windowed_spectrum_db(loopback: np.ndarray, win_start: float,
-                          win_end: float, n_fft: int = 16384
+                          win_end: float, n_fft: int = 16384,
+                          channel: int | None = None
                           ) -> tuple[np.ndarray, np.ndarray]:
-    """Average power spectrum over [win_start, win_end] seconds, in dB."""
+    """Average power spectrum over [win_start, win_end] seconds, in dB.
+
+    ``channel`` selects a single column when set (0=L, 1=R); leaving it
+    ``None`` mono-sums L+R, which is lossless for symmetric stimuli but
+    nulls the Side component for asymmetric content. Asymmetric stimuli
+    must be diffed per-channel — see compare_steady's stereo branch.
+    """
     n0 = int(win_start * SR)
     n1 = min(int(win_end * SR), loopback.shape[0])
     if n1 - n0 < n_fft:
         n_fft = max(1024, (n1 - n0) // 2)
-    sig = loopback[n0:n1].mean(axis=1)  # mono-sum L+R
+    if channel is None:
+        sig = loopback[n0:n1].mean(axis=1)  # mono-sum L+R
+    else:
+        sig = loopback[n0:n1, channel]
     # Welch-style averaging
     hop = n_fft // 2
     window = np.hanning(n_fft).astype(np.float32)
@@ -243,11 +253,56 @@ def compare_sweep(ee_path: Path, pw_path: Path, inverse: np.ndarray,
 
 
 def compare_steady(ee_path: Path, pw_path: Path, stim_meta: dict,
-                   out_plot: Path | None, tol_db: float, tag: str) -> DiffStats:
+                   out_plot: Path | None, tol_db: float, tag: str
+                   ) -> DiffStats:
+    """Compare a steady-state stimulus, with stereo branching.
+
+    For ``stereo_mode == "asymmetric"`` stimuli (L≠R), comparing the
+    mono-sum nulls the Side component, so we run the analysis per
+    channel and surface the worst-case stats — that's the only way to
+    catch a stereo_tools (or other stage's) M/S divergence.
+    """
     ee_lb = _load_wav_f32(ee_path)
     pw_lb = _load_wav_f32(pw_path)
     win_start = float(stim_meta.get("analysis_window_start_seconds", 6.0))
     win_end = float(stim_meta.get("analysis_window_end_seconds", 11.0))
+    if stim_meta.get("stereo_mode") == "asymmetric":
+        # Per-channel diff: take the worst stats across L and R so the
+        # PASS/FAIL decision matches what a careful listener would
+        # notice — a divergence on either channel is a real divergence.
+        freqs, ee_l = _windowed_spectrum_db(ee_lb, win_start, win_end,
+                                            channel=0)
+        _, ee_r = _windowed_spectrum_db(ee_lb, win_start, win_end,
+                                        channel=1)
+        _, pw_l = _windowed_spectrum_db(pw_lb, win_start, win_end,
+                                        channel=0)
+        _, pw_r = _windowed_spectrum_db(pw_lb, win_start, win_end,
+                                        channel=1)
+        # Average the per-channel ee/pw spectra for plotting (mid-of-
+        # the-road overlay), but compute stats on the worse channel.
+        ee_db = 0.5 * (ee_l + ee_r)
+        pw_db = 0.5 * (pw_l + pw_r)
+        stats_l = _band_stats(freqs, ee_l, pw_l, BAND_LO_HZ, BAND_HI_HZ,
+                              tol_db, f"{tag}/L")
+        stats_r = _band_stats(freqs, ee_r, pw_r, BAND_LO_HZ, BAND_HI_HZ,
+                              tol_db, f"{tag}/R")
+        worst = stats_l if stats_l.band_max_db >= stats_r.band_max_db \
+            else stats_r
+        # Re-tag so the summary shows the user-facing stimulus name and
+        # the worst channel's stats — informative without doubling the
+        # summary row count.
+        stats = DiffStats(
+            stimulus=f"{tag} (worst={worst.stimulus[-1]})",
+            band_max_db=worst.band_max_db,
+            band_max_freq_hz=worst.band_max_freq_hz,
+            band_rms_db=worst.band_rms_db,
+            band_99p_db=worst.band_99p_db,
+            pass_tolerance=stats_l.pass_tolerance and stats_r.pass_tolerance,
+        )
+        if out_plot is not None:
+            _maybe_plot(out_plot, f"{tag} (per-channel avg)",
+                        freqs, ee_db, pw_db)
+        return stats
     freqs, ee_db = _windowed_spectrum_db(ee_lb, win_start, win_end)
     _, pw_db = _windowed_spectrum_db(pw_lb, win_start, win_end)
 
@@ -314,6 +369,13 @@ def main() -> int:
         ("pink", "steady"),
         ("pink_quiet", "steady"),
         ("multitone", "steady"),
+        # Asymmetric pink — stim_meta's stereo_mode==asymmetric flips
+        # compare_steady into per-channel mode automatically. The
+        # decorrelated variant maxes out the S component; the
+        # correlated one matches the natural-music operating point
+        # (M ≫ S) where stereo_tools' widener is actually applied.
+        ("stereo_pink", "steady"),
+        ("stereo_correlated", "steady"),
     ]
 
     all_stats: list[DiffStats] = []

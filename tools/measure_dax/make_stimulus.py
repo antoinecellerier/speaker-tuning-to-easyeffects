@@ -118,6 +118,7 @@ def make_sweep(level_dbfs_peak: float) -> tuple[np.ndarray, dict]:
         "active_samples": int(sweep.size),
         "tail_samples": int(tail.size),
         "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
         "inverse_filter": "inverse_sweep.npy",
     }
     return stereo, meta
@@ -174,8 +175,137 @@ def make_pink(level_dbfs_rms: float, seed: int = 0
         "tail_samples": int(tail.size),
         "seed": seed,
         "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
         # Reference window for the analyze step: skip the leveler's settling
         # transient at the start; analyze the last ~5 s of the stationary part.
+        "analysis_window_start_seconds": 6.0,
+        "analysis_window_end_seconds": 11.0,
+    }
+    return stereo, meta
+
+
+def make_stereo_pink(level_dbfs_rms: float, seed_l: int = 100,
+                     seed_r: int = 101) -> tuple[np.ndarray, dict]:
+    """Decorrelated pink-noise stereo: two independent pink streams on L
+    and R. Used for stereo-aspect equivalence testing — symmetric stimuli
+    (the rest of the battery) reduce to identity through any M/S widener
+    because S = (L-R)/2 = 0, so a stereo_tools bug that affects only the
+    Side component is invisible. Independent seeds guarantee a non-trivial
+    M *and* S spectrum, so per-channel comparison can catch any asymmetric
+    chain divergence.
+
+    Caveat: M ≈ S ≈ 70% of either channel, which is *not* the operating
+    point natural music sits at (real recordings have M ≫ S, with the
+    widener designed for that regime). For a music-like test, see
+    ``make_stereo_correlated_pink``.
+    """
+    n_active = int(round(STEADY_T * SR))
+    pink_l = _pink_noise(n_active, seed=seed_l)
+    pink_r = _pink_noise(n_active, seed=seed_r)
+    pink_l *= 10 ** (level_dbfs_rms / 20.0)
+    pink_r *= 10 ** (level_dbfs_rms / 20.0)
+    fade_n = int(round(STEADY_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    for ch in (pink_l, pink_r):
+        ch[:fade_n] *= fade
+        ch[-fade_n:] *= fade[::-1]
+    tail = np.zeros(int(round(STEADY_TAIL * SR)), dtype=np.float32)
+    left = np.concatenate([pink_l, tail])
+    right = np.concatenate([pink_r, tail])
+    stereo = np.column_stack([left, right]).astype(np.float32)
+    peak = float(np.max(np.abs(stereo)))
+    if peak >= 1.0:
+        stereo *= (10 ** (-0.5 / 20.0)) / peak
+    meta = {
+        "kind": "stereo_pink",
+        "sample_rate": SR,
+        "duration_seconds": STEADY_T + STEADY_TAIL,
+        "active_seconds": STEADY_T,
+        "tail_seconds": STEADY_TAIL,
+        "level_dbfs_rms": level_dbfs_rms,
+        "fade_ms": STEADY_FADE_MS,
+        "stimulus_samples": int(stereo.shape[0]),
+        "active_samples": int(n_active),
+        "tail_samples": int(tail.size),
+        "seed_left": seed_l,
+        "seed_right": seed_r,
+        "format": "float32 stereo L≠R",
+        # Comparison drivers key off this field to switch from mono-sum
+        # to per-channel diffing — the only way to detect a bug whose
+        # signature lives in the M/S split (e.g. a wrong stereo-base
+        # sign or an off-by-one channel swap in stereo_tools).
+        "stereo_mode": "asymmetric",
+        "analysis_window_start_seconds": 6.0,
+        "analysis_window_end_seconds": 11.0,
+    }
+    return stereo, meta
+
+
+def make_stereo_correlated_pink(
+        level_dbfs_rms: float,
+        side_ratio: float = 0.05,
+        seed_main: int = 200,
+        seed_side: int = 201) -> tuple[np.ndarray, dict]:
+    """Music-like correlated stereo pink: a strong shared centre + a
+    small per-channel decorrelation. With ``side_ratio = 0.05`` the
+    Mid:Side amplitude ratio is ~32 dB, mimicking the operating point
+    of natural music (instruments centred, modest stereo enrichment).
+
+    Construction:
+
+        L = main + side_ratio · side_l
+        R = main − side_ratio · side_r
+
+    where ``main`` is one pink stream and ``side_l/side_r`` are two
+    independent pink streams. The decorrelated pink stimulus
+    (``make_stereo_pink``) hits M ≈ S ≈ 70%, which is great for
+    detecting LTI bugs but unrepresentative of where stereo_tools'
+    widener is actually applied at runtime. This stimulus complements
+    it: any bug whose visibility depends on signal correlation
+    (e.g. nonlinear stages activating only at specific M/S ratios,
+    or a widener whose error scales with |S|) shows up here in a way
+    decorrelated pink would mask.
+    """
+    n_active = int(round(STEADY_T * SR))
+    main = _pink_noise(n_active, seed=seed_main)
+    side_l = _pink_noise(n_active, seed=seed_side)
+    side_r = _pink_noise(n_active, seed=seed_side + 1)
+    left = main + side_ratio * side_l
+    right = main - side_ratio * side_r
+    # Renormalise each channel to the requested RMS independently so the
+    # added decorrelation noise doesn't shift the comparison level.
+    target = 10 ** (level_dbfs_rms / 20.0)
+    for ch in (left, right):
+        rms = float(np.sqrt(np.mean(ch.astype(np.float64) ** 2)) + 1e-12)
+        ch *= target / rms
+    fade_n = int(round(STEADY_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    for ch in (left, right):
+        ch[:fade_n] *= fade
+        ch[-fade_n:] *= fade[::-1]
+    tail = np.zeros(int(round(STEADY_TAIL * SR)), dtype=np.float32)
+    left = np.concatenate([left.astype(np.float32), tail])
+    right = np.concatenate([right.astype(np.float32), tail])
+    stereo = np.column_stack([left, right]).astype(np.float32)
+    peak = float(np.max(np.abs(stereo)))
+    if peak >= 1.0:
+        stereo *= (10 ** (-0.5 / 20.0)) / peak
+    meta = {
+        "kind": "stereo_correlated_pink",
+        "sample_rate": SR,
+        "duration_seconds": STEADY_T + STEADY_TAIL,
+        "active_seconds": STEADY_T,
+        "tail_seconds": STEADY_TAIL,
+        "level_dbfs_rms": level_dbfs_rms,
+        "fade_ms": STEADY_FADE_MS,
+        "stimulus_samples": int(stereo.shape[0]),
+        "active_samples": int(n_active),
+        "tail_samples": int(tail.size),
+        "side_ratio": side_ratio,
+        "seed_main": seed_main,
+        "seed_side": seed_side,
+        "format": "float32 stereo L≠R (correlated, M≫S)",
+        "stereo_mode": "asymmetric",
         "analysis_window_start_seconds": 6.0,
         "analysis_window_end_seconds": 11.0,
     }
@@ -238,6 +368,7 @@ def make_multitone(level_dbfs_rms: float, seed: int = 1
         "per_tone_amplitude": float(per_tone_amp),
         "seed": seed,
         "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
         "analysis_window_start_seconds": 6.0,
         "analysis_window_end_seconds": 11.0,
     }
@@ -282,6 +413,18 @@ def main() -> None:
     # multitone
     stereo, meta = make_multitone(level_dbfs_rms=-18.0)
     write_stimulus("stimulus_multitone", stereo, meta)
+
+    # stereo-asymmetric pink (decorrelated) — exercises the M/S split
+    # at maximum entropy. Catches LTI divergences in stereo_tools
+    # (and any other stage's) M/S processing.
+    stereo, meta = make_stereo_pink(level_dbfs_rms=-18.0)
+    write_stimulus("stimulus_stereo_pink", stereo, meta)
+
+    # stereo-correlated pink — natural-music operating point (M ≫ S).
+    # Catches divergences whose visibility depends on signal
+    # correlation, which the decorrelated stimulus can mask.
+    stereo, meta = make_stereo_correlated_pink(level_dbfs_rms=-18.0)
+    write_stimulus("stimulus_stereo_correlated", stereo, meta)
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")

@@ -163,10 +163,15 @@ Gen 7, HDA, `Dolby-Balanced`):
 
 - Frequency-domain: max |Δ| ≤ 0.5 dB across 50 Hz–18 kHz on every
   stimulus in the battery (sweep, sweep_quiet, pink, pink_quiet,
-  multitone).
-- Time-domain: signal-to-residual ≥ 30 dB on every stimulus (the
-  ~35 dB ceiling is from FFT-block-size differences between EE's LSP
-  convolver and PW's builtin convolver, not a chain divergence).
+  multitone, plus the asymmetric `stereo_pink` for stereo-aspect
+  validation). Real measurements on the dev device land in the
+  0.00–0.03 dB range.
+- Time-domain: signal-to-residual ≥ 30 dB on every stimulus as the
+  PASS threshold; real measurements with the full LSP+Calf chain
+  run at +70..+73 dB on mono-symmetric stimuli, and the asymmetric
+  `stereo_pink` (per-channel comparison) lands in the same band —
+  so a sub-30 result is a real regression rather than a metrology
+  ceiling.
 
 Measurement workflow + thresholds in
 [`tools/measure_pw/README.md`](../tools/measure_pw/README.md). A
@@ -231,11 +236,6 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   X13s Gen 1). Every XML in the 1050-file corpus reports
   `total_count=2`, including the X13s sibling — the upmix is device
   wisdom encoded outside the XML.  See cross-device-findings.md §14.
-- **Time-domain residual capped at ~35 dB S/R** between EE and PW
-  chains. Not audible (well below content-coupled noise) but worth
-  knowing if you measure rather than listen. Recoverable by tuning
-  PW's builtin convolver `blocksize` / `tailsize` to match LSP's
-  defaults; not yet attempted.
 - **No `--launch` flag.** PipeWire's standard reload path is
   `systemctl --user restart pipewire pipewire-pulse`; the script
   prints that as a "[next]" line and lets the user run it.

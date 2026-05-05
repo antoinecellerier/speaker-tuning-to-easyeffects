@@ -22,11 +22,12 @@ Outputs (in --out-dir):
   td_<stim>.png         — time-aligned overlay + residual (matplotlib)
 
 Equivalence target: residual RMS at least 30 dB below the signal RMS
-(i.e. signal-to-residual ratio ≥ 30 dB) on every stimulus. 30 dB is a
-realistic ceiling — even with perfect schema mapping, EE's LSP
-convolver and PW's builtin convolver use different FFT block sizes
-and edge-handling, leaving an irreducible ~35 dB residual. Higher
-thresholds would require swapping implementations.
+(i.e. signal-to-residual ratio ≥ 30 dB) on every stimulus. The
+threshold is a safety margin, not a ceiling: real measurements on
+the development device with the full LSP+Calf chain run at
++70..+73 dB S/R on mono-symmetric stimuli (sweep / pink / multitone),
+so a regression that drops below 30 dB is a clear signal of an
+actual divergence rather than a metrology limit.
 """
 
 from __future__ import annotations
@@ -159,23 +160,50 @@ class TDStats:
 
 
 def compare_capture_pair(ee_path: Path, pw_path: Path, sr_target_db: float,
-                         out_plot: Path | None, tag: str) -> TDStats:
+                         out_plot: Path | None, tag: str,
+                         per_channel: bool = False) -> TDStats:
+    """Compute the EE vs PW time-domain residual for one capture pair.
+
+    ``per_channel=True`` reports the worst-case S/R across L and R, so a
+    divergence isolated to one channel (e.g. a stereo_tools sign error
+    affecting only the Side path) isn't masked by the other channel
+    matching cleanly. Sweeps and L=R steady stimuli use the default
+    full-array residual, where the per-channel split would just shave
+    3 dB off identical numbers.
+    """
     ee = _load(ee_path)
     pw = _load(pw_path)
     ee_a, pw_a, lag = _align_and_trim(ee, pw)
     residual = ee_a - pw_a
 
     sig = ee_a  # use EE as the signal reference
-    sig_rms = float(np.sqrt(np.mean(sig.astype(np.float64) ** 2)))
-    res_rms = float(np.sqrt(np.mean(residual.astype(np.float64) ** 2)))
-    res_peak = float(np.max(np.abs(residual)))
-    sr_db = 20 * math.log10(max(sig_rms, 1e-12) /
-                            max(res_rms, 1e-12))
+    if per_channel and sig.ndim == 2 and sig.shape[1] >= 2:
+        # Compute per-channel stats; report the worst (lower S/R) so the
+        # PASS/FAIL decision matches what a careful listener would catch.
+        sr_per_channel = []
+        for ch in range(sig.shape[1]):
+            srms = float(np.sqrt(np.mean(sig[:, ch].astype(np.float64) ** 2)))
+            rrms = float(np.sqrt(np.mean(residual[:, ch].astype(np.float64) ** 2)))
+            ratio = 20 * math.log10(max(srms, 1e-12) / max(rrms, 1e-12))
+            sr_per_channel.append((ratio, srms, rrms,
+                                   float(np.max(np.abs(residual[:, ch])))))
+        # Pick the worst-S/R channel for the headline numbers.
+        worst_idx = int(np.argmin([s[0] for s in sr_per_channel]))
+        sr_db, sig_rms, res_rms, res_peak = sr_per_channel[worst_idx]
+        ch_label = "L" if worst_idx == 0 else "R"
+        report_tag = f"{tag} (worst={ch_label})"
+    else:
+        sig_rms = float(np.sqrt(np.mean(sig.astype(np.float64) ** 2)))
+        res_rms = float(np.sqrt(np.mean(residual.astype(np.float64) ** 2)))
+        res_peak = float(np.max(np.abs(residual)))
+        sr_db = 20 * math.log10(max(sig_rms, 1e-12) /
+                                max(res_rms, 1e-12))
+        report_tag = tag
 
     if out_plot is not None:
-        _maybe_plot(out_plot, tag, sig, residual)
+        _maybe_plot(out_plot, report_tag, sig, residual)
     return TDStats(
-        stimulus=tag,
+        stimulus=report_tag,
         lag_samples=lag,
         lag_ms=lag / SR * 1000,
         signal_rms_db=20 * math.log10(max(sig_rms, 1e-12)),
@@ -225,14 +253,25 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     ap.add_argument("--target-sr-db", type=float, default=30.0,
                     help="minimum signal-to-residual ratio in dB to PASS "
-                         "(default 30 dB; see module docstring on the "
-                         "irreducible ~35 dB convolver-implementation "
-                         "residual)")
+                         "(default 30 dB safety margin; mono stimuli "
+                         "typically measure +70 dB+ on the dev device, "
+                         "so a sub-30 result is a real regression)")
+    ap.add_argument("--stimulus-dir", type=Path,
+                    default=DEFAULT_PW_DIR.parent.parent / "measure_ee" /
+                            "stimuli",
+                    help="where stimulus_*.json metadata lives — needed "
+                         "to detect asymmetric stereo stimuli and switch "
+                         "to per-channel residual comparison")
     args = ap.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    stims = ["sweep", "sweep_quiet", "pink", "pink_quiet", "multitone"]
+    # Asymmetric stereo stimuli are diffed per-channel so a one-channel
+    # divergence (e.g. a wrong stereo_tools side gain) isn't diluted by
+    # the other channel's clean residual. Symmetric stimuli get the
+    # default full-array residual.
+    stims = ["sweep", "sweep_quiet", "pink", "pink_quiet", "multitone",
+             "stereo_pink", "stereo_correlated"]
     all_stats: list[TDStats] = []
     for tag in stims:
         ee_path = args.ee_dir / f"loopback_{tag}_{args.ee_label}.wav"
@@ -240,9 +279,17 @@ def main() -> int:
         if not ee_path.is_file() or not pw_path.is_file():
             print(f"WARN: missing capture for {tag}; skipping")
             continue
+        meta_path = args.stimulus_dir / f"stimulus_{tag}.json"
+        per_channel = False
+        if meta_path.is_file():
+            try:
+                meta = json.loads(meta_path.read_text())
+                per_channel = meta.get("stereo_mode") == "asymmetric"
+            except (json.JSONDecodeError, OSError):
+                pass
         plot = args.out_dir / f"td_{tag}.png"
         stats = compare_capture_pair(ee_path, pw_path, args.target_sr_db,
-                                     plot, tag)
+                                     plot, tag, per_channel=per_channel)
         all_stats.append(stats)
         verdict = "PASS" if stats.pass_tolerance else "FAIL"
         print(f"[{stats.stimulus:14}] {verdict}  "

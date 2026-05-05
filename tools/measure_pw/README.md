@@ -37,8 +37,9 @@ validates the conf's `control = { ... }` block against it. Catches:
 Audio testing is still the final gate — schema correctness is
 necessary but not sufficient. Some bugs (e.g. `inputs`/`outputs`
 arrays missing from `filter.graph`, comb-filter from auto-route
-leaks, FFT block-size differences between LSP and PW builtin
-convolvers) only show up at runtime.
+leaks, runtime-only LV2 plugin behaviour, asymmetric stereo
+processing that mono-symmetric stimuli cannot expose) only show up
+at runtime.
 
 ## Files
 
@@ -113,7 +114,7 @@ comfortably under all of them.
 | metric | target | rationale |
 |---|---|---|
 | Frequency-domain max |Δ| (50 Hz–18 kHz) | ≤ 0.5 dB | Below the audible threshold for tonal-balance changes; well within EE's own preset-to-preset variance. |
-| Time-domain S/R (signal-to-residual) | ≥ 30 dB | Realistic ceiling. EE's LSP convolver and PW's builtin convolver use different FFT block sizes / edge handling, leaving an irreducible ~35 dB residual. |
+| Time-domain S/R (signal-to-residual) | ≥ 30 dB | Safety margin, not a ceiling. Mono-symmetric stimuli on the dev device with the full LSP+Calf chain measure +70..+73 dB; a sub-30 result is a real regression. Asymmetric stereo stimuli (`stimulus_stereo_pink`) exercise the M/S split and pass at the same +70 dB+ band. |
 
 ## WirePlumber traps that bit during development
 

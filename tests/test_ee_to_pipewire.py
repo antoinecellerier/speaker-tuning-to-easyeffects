@@ -202,6 +202,137 @@ def test_emit_stereo_tools_mode_enum_complete():
     assert EE_ST_MODE["LR > LR (Stereo Default)"] == 0
 
 
+@pytest.mark.parametrize("label,expected_int", [
+    ("LR > LR (Stereo Default)", 0),
+    ("LR > MS (Stereo to Mid-Side)", 1),
+    ("MS > LR (Mid-Side to Stereo)", 2),
+    ("LR > LL (Mono Left Channel)", 3),
+    ("LR > RR (Mono Right Channel)", 4),
+    ("LR > L+R (Mono Sum L+R)", 5),
+    ("LR > RL (Stereo Flip Channels)", 6),
+])
+def test_emit_stereo_tools_each_mode_label_maps(label, expected_int):
+    """Per-label sentinel — catches a typo in any individual scale-point
+    string drifting away from the StereoTools.ttl ground truth (e.g. a
+    stray space, missing parens, or hyphen vs en-dash). A bug in any
+    one entry would flip a stereo widener into a mono-summing chain.
+    """
+    plugin = {
+        "bypass": False,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False, "muter": False,
+        "phasel": False, "phaser": False,
+        "mode": label,
+        "side-level": 0.0, "side-balance": 0.0,
+        "middle-level": 0.0, "middle-panorama": 0.0,
+        "stereo-base": 0.0, "delay": 0.0,
+        "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    stage = emit_stereo_tools(plugin)
+    assert stage.nodes[0]["control"]["mode"] == expected_int
+
+
+@pytest.mark.parametrize("key,calf_symbol,value", [
+    # Linear passthroughs: -1..+1 ranges, direct map (no dB conversion).
+    ("balance-in",      "balance_in",   -0.5),
+    ("balance-out",     "balance_out",   0.7),
+    ("side-balance",    "sbal",         -0.3),
+    ("middle-panorama", "mpan",          0.4),
+    # stereo-base (-1..+1): widening factor; the only stereo_tools key EE
+    # ever sets non-default for Dolby presets.
+    ("stereo-base",     "stereo_base",   0.6),
+    # delay (-20..+20 ms): asymmetric per-channel time offset.
+    ("delay",           "delay",        -5.0),
+    # stereo-phase (0..360°): channel-pair phase rotation in degrees.
+    ("stereo-phase",    "stereo_phase",   90.0),
+    # sc-level (1..100): sidechain level — direct linear, *not* dB.
+    ("sc-level",        "sc_level",      50.0),
+])
+def test_emit_stereo_tools_linear_keys_pass_through(key, calf_symbol, value):
+    """Each key listed in BIND_LV2_PORT (without _DB) is a direct linear
+    bind in EE — no unit conversion. Regression-guard against someone
+    "helpfully" wrapping one of these in db_to_lin (which would silently
+    wreck the stereo image, balance, or timing).
+    """
+    plugin = {
+        "bypass": False,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False, "muter": False,
+        "phasel": False, "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 0.0, "side-balance": 0.0,
+        "middle-level": 0.0, "middle-panorama": 0.0,
+        "stereo-base": 0.0, "delay": 0.0,
+        "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    plugin[key] = value
+    stage = emit_stereo_tools(plugin)
+    assert stage.nodes[0]["control"][calf_symbol] == value
+
+
+@pytest.mark.parametrize("key,calf_symbol,db_value", [
+    ("side-level",   "slev", -6.0),
+    ("middle-level", "mlev", +3.0),
+    ("input-gain",   "level_in",  -3.0),
+    ("output-gain",  "level_out", +6.0),
+])
+def test_emit_stereo_tools_db_keys_convert(key, calf_symbol, db_value):
+    """The four dB-valued keys must be db_to_linear-converted to match
+    EE's BIND_LV2_PORT_DB. Slev/mlev set the M/S gains used by the
+    widener, so a unit mistake would skew the stereo image asymmetrically.
+    """
+    plugin = {
+        "bypass": False,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False, "muter": False,
+        "phasel": False, "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 0.0, "side-balance": 0.0,
+        "middle-level": 0.0, "middle-panorama": 0.0,
+        "stereo-base": 0.0, "delay": 0.0,
+        "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    plugin[key] = db_value
+    stage = emit_stereo_tools(plugin)
+    assert math.isclose(stage.nodes[0]["control"][calf_symbol],
+                        db_to_lin(db_value), rel_tol=1e-9)
+
+
+@pytest.mark.parametrize("flag", ["softclip", "mutel", "muter",
+                                  "phasel", "phaser"])
+def test_emit_stereo_tools_bool_flags_round_trip(flag):
+    """Each toggle must serialize to 0/1 in both states — the LV2 port
+    type is `lv2:toggled` so a `True`/`False` Python value would not be
+    accepted by lv2info validation. Regression-guard against a future
+    refactor that drops the `int()` cast.
+    """
+    base = {
+        "bypass": False,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False, "muter": False,
+        "phasel": False, "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 0.0, "side-balance": 0.0,
+        "middle-level": 0.0, "middle-panorama": 0.0,
+        "stereo-base": 0.0, "delay": 0.0,
+        "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    base[flag] = True
+    on = emit_stereo_tools(base).nodes[0]["control"][flag]
+    base[flag] = False
+    off = emit_stereo_tools(base).nodes[0]["control"][flag]
+    assert on == 1 and off == 0
+    assert isinstance(on, int) and isinstance(off, int)
+
+
 def test_emit_stereo_tools_round_trips_levels_and_widening():
     """`side-level` and `middle-level` go through BIND_LV2_PORT_DB →
     db_to_linear; `stereo-base` is direct linear. These are the two

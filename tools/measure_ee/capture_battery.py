@@ -56,6 +56,17 @@ STIMULUS_NAMES = (
     "stimulus_pink.wav",
     "stimulus_pink_quiet.wav",
     "stimulus_multitone.wav",
+    # Stereo-asymmetric pink (L≠R, decorrelated seeds). The mono
+    # battery can't expose a stereo_tools (or any other stage's)
+    # M/S-split bug because S = (L-R)/2 = 0 for L=R inputs. This
+    # stimulus populates both M and S so per-channel comparison can
+    # detect asymmetric chain divergence.
+    "stimulus_stereo_pink.wav",
+    # Stereo-correlated pink (M ≫ S) — natural-music operating
+    # point. Decorrelated pink alone leaves a blind spot for bugs
+    # whose visibility depends on signal correlation (e.g. nonlinear
+    # stages or a widener whose error scales with |S|).
+    "stimulus_stereo_correlated.wav",
 )
 
 
