@@ -116,10 +116,10 @@ on WirePlumber < 0.5 or with a non-standard policy.
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. Per-control mapping in the table below. |
 | `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost` on `output-gain` (typically +6 dB) when present; if the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead — readers walking the gain stages must check both. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
+| `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). `amount` is dB in the EE preset, linear in Calf — converted via `db_to_linear` (the `BIND_LV2_PORT_DB` macro). `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct. Triggers on SoundWire devices with small drivers. |
+| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. Triggers on every preset whose XML enables surround virtualizer. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true; emitting a bypassed node would just clutter. |
-| `autogain#0` (active) | *(warn + skip)* | SoundWire's conservative-leveler path needs an `autogain_stereo` mapping that v1 doesn't ship. Affects SoundWire devices. |
-| `bass_enhancer#0` | *(warn + skip)* | Bankstown vs Calf BassEnhancer choice unresolved; needs at least one real-world report to anchor on a specific plugin URI. |
-| `stereo_tools#0` | *(warn + skip)* | Calf StereoTools mapping is non-trivial (M/S level/balance, side level, phase). Triggers only on devices whose XML enables surround virt. |
+| `autogain#0` (active) | *(warn + skip)* | EE's autogain is a native libebur128 implementation (`src/autogain.cpp` — no LV2 wrapper, no Calf or LSP equivalent exposes EBU R 128 metering). The PW chain has no faithful translation; volume-leveler behaviour is dropped. Affects SoundWire devices where Dolby's volume-leveler is enabled. |
 
 Each skipped plugin emits a stderr warning with rationale. The dispatch
 table (`EE_KEY_DISPATCH` in `ee_to_pipewire.py`) marks unknown keys with

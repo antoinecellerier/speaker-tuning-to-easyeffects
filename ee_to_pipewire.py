@@ -39,6 +39,12 @@ VALIDATE_CONF_SCRIPT = SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"
 LSP_PEQ_URI = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"
 LSP_MBC_URI = "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo"
 LSP_LIM_URI = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
+# Calf plugins back EE's bass_enhancer and stereo_tools modules (verified
+# against the EasyEffects sources in src/{bass_enhancer,stereo_tools}.cpp:
+# both call `lv2_wrapper` with these URIs and bind EE preset keys to the
+# LV2 control symbols listed in the per-emitter mapping below).
+CALF_BE_URI = "http://calf.sourceforge.net/plugins/BassEnhancer"
+CALF_ST_URI = "http://calf.sourceforge.net/plugins/StereoTools"
 
 DEFAULT_IRS_DIR = Path.home() / ".local/share/easyeffects/irs"
 # PipeWire's stock pipewire.conf only auto-includes the
@@ -91,6 +97,19 @@ EE_LIMITER_MODE = {
     "Herm Thin": 0, "Herm Wide": 1, "Herm Tail": 2, "Herm Duck": 3,
     "Exp Thin": 4, "Exp Wide": 5, "Exp Tail": 6, "Exp Duck": 7,
     "Line Thin": 8, "Line Wide": 9, "Line Tail": 10, "Line Duck": 11,
+}
+
+# Calf StereoTools `mode` scale points (lv2info "...StereoTools" → port "mode";
+# label strings are the exact `mode` values EE writes into preset JSON, see
+# stereo_tools_preset.cpp:54 → `defaultModeLabelsValue()`).
+EE_ST_MODE = {
+    "LR > LR (Stereo Default)":      0,
+    "LR > MS (Stereo to Mid-Side)":  1,
+    "MS > LR (Mid-Side to Stereo)":  2,
+    "LR > LL (Mono Left Channel)":   3,
+    "LR > RR (Mono Right Channel)":  4,
+    "LR > L+R (Mono Sum L+R)":       5,
+    "LR > RL (Stereo Flip Channels)": 6,
 }
 
 
@@ -415,6 +434,85 @@ def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
     )
 
 
+def emit_bass_enhancer(plugin: dict, name: str = "bass") -> Stage | None:
+    """Calf BassEnhancer node.
+
+    EE's bass_enhancer wraps Calf BassEnhancer LV2; mapping verified
+    against bass_enhancer.cpp:68-74 (BIND_LV2_PORT calls). Note `amount`
+    is dB in the EE preset, linear in the Calf port (BIND_LV2_PORT_DB
+    converts via util::db_to_linear). `harmonics`, `scope`, `floor` and
+    `blend` are direct.
+    """
+    if plugin.get("bypass", False):
+        return None
+    control = {
+        "level_in":     db_to_lin(plugin.get("input-gain", 0.0)),
+        "level_out":    db_to_lin(plugin.get("output-gain", 0.0)),
+        "amount":       db_to_lin(plugin.get("amount", 0.0)),
+        "drive":        float(plugin.get("harmonics", 8.5)),
+        "freq":         float(plugin.get("scope", 100.0)),
+        "blend":        float(plugin.get("blend", 0.0)),
+        "floor":        float(plugin.get("floor", 20.0)),
+        "floor_active": 1 if plugin.get("floor-active", False) else 0,
+        "listen":       1 if plugin.get("listen", False) else 0,
+    }
+    node = {
+        "type": "lv2",
+        "name": name,
+        "plugin": CALF_BE_URI,
+        "control": control,
+    }
+    return Stage(
+        nodes=[node],
+        in_l=(name, "in_l"), in_r=(name, "in_r"),
+        out_l=(name, "out_l"), out_r=(name, "out_r"),
+    )
+
+
+def emit_stereo_tools(plugin: dict, name: str = "stereo") -> Stage | None:
+    """Calf StereoTools node.
+
+    Mapping verified against stereo_tools.cpp:65-80 — `slev` and `mlev`
+    are the only ports that go through BIND_LV2_PORT_DB (dB → linear);
+    every other named symbol is a direct linear/bool/enum bind. The
+    `mode` enum string-label → integer table is `EE_ST_MODE`.
+    """
+    if plugin.get("bypass", False):
+        return None
+    control = {
+        "level_in":      db_to_lin(plugin.get("input-gain", 0.0)),
+        "level_out":     db_to_lin(plugin.get("output-gain", 0.0)),
+        "balance_in":    float(plugin.get("balance-in", 0.0)),
+        "balance_out":   float(plugin.get("balance-out", 0.0)),
+        "softclip":      1 if plugin.get("softclip", False) else 0,
+        "mutel":         1 if plugin.get("mutel", False) else 0,
+        "muter":         1 if plugin.get("muter", False) else 0,
+        "phasel":        1 if plugin.get("phasel", False) else 0,
+        "phaser":        1 if plugin.get("phaser", False) else 0,
+        "mode":          EE_ST_MODE.get(
+            plugin.get("mode", "LR > LR (Stereo Default)"), 0),
+        "slev":          db_to_lin(plugin.get("side-level", 0.0)),
+        "sbal":          float(plugin.get("side-balance", 0.0)),
+        "mlev":          db_to_lin(plugin.get("middle-level", 0.0)),
+        "mpan":          float(plugin.get("middle-panorama", 0.0)),
+        "stereo_base":   float(plugin.get("stereo-base", 0.0)),
+        "delay":         float(plugin.get("delay", 0.0)),
+        "sc_level":      float(plugin.get("sc-level", 1.0)),
+        "stereo_phase":  float(plugin.get("stereo-phase", 0.0)),
+    }
+    node = {
+        "type": "lv2",
+        "name": name,
+        "plugin": CALF_ST_URI,
+        "control": control,
+    }
+    return Stage(
+        nodes=[node],
+        in_l=(name, "in_l"), in_r=(name, "in_r"),
+        out_l=(name, "out_l"), out_r=(name, "out_r"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -441,30 +539,24 @@ EE_KEY_DISPATCH: dict[str, PluginHandler] = {
     "multiband_compressor#0": PluginHandler(emit_mb_compressor, ("mbc",)),
     "multiband_compressor#1": PluginHandler(emit_mb_compressor, ("reg",)),
     "limiter#0":              PluginHandler(emit_limiter),
+    "bass_enhancer#0":        PluginHandler(emit_bass_enhancer, ("bass",)),
+    "stereo_tools#0":         PluginHandler(emit_stereo_tools, ("stereo",)),
+    # autogain stays a hard skip: EE's autogain is a native libebur128
+    # implementation (autogain.cpp computes integrated/short-term loudness
+    # and applies adaptive gain — no LV2 wrapper, no Calf or LSP equivalent
+    # exposes EBU R 128 metering), so there's no faithful PipeWire
+    # filter-chain port. silent_if_bypassed keeps the warning quiet on the
+    # HDA-default bypass; an active autogain is rare (SoundWire only) and
+    # is worth surfacing.
     "autogain#0": PluginHandler(
         None,
         skip_warning=(
-            "autogain#0: not bypassed but v1 doesn't translate autogain. "
+            "autogain#0: not bypassed but the PW route can't translate it "
+            "(EE's autogain is native libebur128, no LV2 equivalent). "
             "The PW chain will lack volume-leveler behaviour. "
             "Mostly affects SoundWire devices."
         ),
         silent_if_bypassed=True,
-    ),
-    "bass_enhancer#0": PluginHandler(
-        None,
-        skip_warning=(
-            "bass_enhancer#0: v1 doesn't translate bass_enhancer (plugin "
-            "choice between Bankstown LV2 and Calf BassEnhancer is "
-            "unresolved). Affects SoundWire devices with small drivers."
-        ),
-    ),
-    "stereo_tools#0": PluginHandler(
-        None,
-        skip_warning=(
-            "stereo_tools#0: v1 doesn't translate stereo_tools (Calf "
-            "StereoTools mapping is non-trivial). Affects presets with "
-            "surround virtualizer."
-        ),
     ),
 }
 

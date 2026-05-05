@@ -23,14 +23,19 @@ from dolby_to_easyeffects import (
     save_wav_stereo,
 )
 from ee_to_pipewire import (
+    CALF_BE_URI,
+    CALF_ST_URI,
     EE_FTYPE_TO_LSP,
+    EE_ST_MODE,
     build_chain,
     db_to_lin,
+    emit_bass_enhancer,
     emit_convolver,
     emit_limiter,
     emit_links,
     emit_mb_compressor,
     emit_peq,
+    emit_stereo_tools,
     format_conf,
     lin_to_db,
     main as ee2pw_main,
@@ -130,6 +135,167 @@ def test_emit_mb_compressor_skips_bypassed():
 
 def test_emit_limiter_skips_bypassed():
     assert emit_limiter({"bypass": True}) is None
+
+
+def test_emit_bass_enhancer_skips_bypassed():
+    assert emit_bass_enhancer({"bypass": True}) is None
+
+
+def test_emit_stereo_tools_skips_bypassed():
+    assert emit_stereo_tools({"bypass": True}) is None
+
+
+def test_emit_bass_enhancer_round_trips_db_amount():
+    """`amount` is dB in the EE preset, linear in Calf — the BIND_LV2_PORT_DB
+    macro converts via db_to_linear. Lock the conversion so a future refactor
+    that drops the dB→linear step doesn't silently mute or amplify the bass.
+    """
+    plugin = {
+        "bypass": False,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "amount": 12.0,            # +12 dB → 3.9810717... linear
+        "harmonics": 8.5, "scope": 100.0,
+        "blend": -10.0, "floor": 10.0,
+        "floor-active": True, "listen": False,
+    }
+    stage = emit_bass_enhancer(plugin)
+    assert stage is not None and len(stage.nodes) == 1
+    node = stage.nodes[0]
+    assert node["plugin"] == CALF_BE_URI
+    ctl = node["control"]
+    assert math.isclose(ctl["amount"], db_to_lin(12.0), rel_tol=1e-9)
+    assert ctl["drive"] == 8.5
+    assert ctl["freq"] == 100.0
+    assert ctl["blend"] == -10.0
+    assert ctl["floor"] == 10.0
+    assert ctl["floor_active"] == 1
+    assert ctl["listen"] == 0
+
+
+def test_emit_bass_enhancer_control_symbols_match_calf():
+    """The Calf BassEnhancer LV2 plugin defines an exact set of input
+    control symbols. Lock the emitted symbol set so a typo (`drive` →
+    `harmonics`, `floor_active` → `floor-active`) is caught at test-time
+    rather than at runtime via lv2info validation.
+    """
+    plugin = {
+        "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
+        "amount": 0.0, "harmonics": 8.5, "scope": 100.0,
+        "blend": 0.0, "floor": 20.0,
+        "floor-active": False, "listen": False,
+    }
+    stage = emit_bass_enhancer(plugin)
+    expected = {"level_in", "level_out", "amount", "drive", "freq",
+                "blend", "floor", "floor_active", "listen"}
+    assert set(stage.nodes[0]["control"].keys()) == expected
+
+
+def test_emit_stereo_tools_mode_enum_complete():
+    """Every mode label `make_stereo_tools` could ever write must map
+    to a Calf integer. The seven labels are stable (defined in
+    StereoTools.ttl scale points), so this is a regression sentinel.
+    """
+    expected_count = 7
+    assert len(EE_ST_MODE) == expected_count
+    assert set(EE_ST_MODE.values()) == set(range(expected_count))
+    # Exhaustively confirm the canonical default is 0.
+    assert EE_ST_MODE["LR > LR (Stereo Default)"] == 0
+
+
+def test_emit_stereo_tools_round_trips_levels_and_widening():
+    """`side-level` and `middle-level` go through BIND_LV2_PORT_DB →
+    db_to_linear; `stereo-base` is direct linear. These are the two
+    parameters that matter for the surround widener, so lock them.
+    """
+    plugin = {
+        "bypass": False,
+        "input-gain": -3.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0,
+        "softclip": False,
+        "mutel": False, "muter": False,
+        "phasel": False, "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 6.0, "side-balance": 0.0,
+        "middle-level": -2.0, "middle-panorama": 0.0,
+        "stereo-base": 0.3,
+        "delay": 0.0, "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    stage = emit_stereo_tools(plugin)
+    assert stage is not None
+    node = stage.nodes[0]
+    assert node["plugin"] == CALF_ST_URI
+    ctl = node["control"]
+    assert math.isclose(ctl["level_in"], db_to_lin(-3.0), rel_tol=1e-9)
+    assert math.isclose(ctl["slev"],     db_to_lin(6.0),  rel_tol=1e-9)
+    assert math.isclose(ctl["mlev"],     db_to_lin(-2.0), rel_tol=1e-9)
+    assert ctl["stereo_base"] == 0.3
+    assert ctl["mode"] == 0
+
+
+def test_emit_stereo_tools_control_symbols_match_calf():
+    """Lock the emitted Calf StereoTools symbol set against typos —
+    `slev`/`sbal`/`mlev`/`mpan` and the underscores in `stereo_base`,
+    `sc_level`, `stereo_phase` are common get-it-wrong points.
+    """
+    plugin = {
+        "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
+        "balance-in": 0.0, "balance-out": 0.0, "softclip": False,
+        "mutel": False, "muter": False, "phasel": False, "phaser": False,
+        "mode": "LR > LR (Stereo Default)",
+        "side-level": 0.0, "side-balance": 0.0,
+        "middle-level": 0.0, "middle-panorama": 0.0,
+        "stereo-base": 0.0, "delay": 0.0,
+        "sc-level": 1.0, "stereo-phase": 0.0,
+    }
+    stage = emit_stereo_tools(plugin)
+    expected = {
+        "level_in", "level_out", "balance_in", "balance_out",
+        "softclip", "mutel", "muter", "phasel", "phaser",
+        "mode", "slev", "sbal", "mlev", "mpan",
+        "stereo_base", "delay", "sc_level", "stereo_phase",
+    }
+    assert set(stage.nodes[0]["control"].keys()) == expected
+
+
+def test_build_chain_includes_bass_enhancer_and_stereo_tools():
+    """End-to-end: a preset whose plugins_order includes both new keys
+    must yield two extra emitted nodes (one per emitter). Catches the
+    case where the dispatch entry was added but emitter was forgotten,
+    or vice-versa.
+    """
+    preset = {
+        "output": {
+            "plugins_order": ["bass_enhancer#0", "stereo_tools#0",
+                              "limiter#0"],
+            "bass_enhancer#0": {
+                "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
+                "amount": 12.0, "harmonics": 10.0, "scope": 200.0,
+                "blend": -10.0, "floor": 10.0,
+                "floor-active": True, "listen": False,
+            },
+            "stereo_tools#0": {
+                "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
+                "balance-in": 0.0, "balance-out": 0.0,
+                "softclip": False, "mutel": False, "muter": False,
+                "phasel": False, "phaser": False,
+                "mode": "LR > LR (Stereo Default)",
+                "side-level": 0.0, "side-balance": 0.0,
+                "middle-level": 0.0, "middle-panorama": 0.0,
+                "stereo-base": 0.3, "delay": 0.0,
+                "sc-level": 1.0, "stereo-phase": 0.0,
+            },
+            "limiter#0": {
+                "bypass": False, "mode": "Herm Thin",
+                "input-gain": 0.0, "output-gain": 0.0,
+                "threshold": -1.0, "lookahead": 1.0,
+                "attack": 1.0, "release": 5.0,
+                "stereo-link": 100.0, "alr": False, "gain-boost": False,
+            },
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    names = {n["name"] for s in chain.stages for n in s.nodes}
+    assert "bass" in names and "stereo" in names and "limiter" in names
 
 
 def test_sanitize_name_strips_invalid_chars():
@@ -355,6 +521,8 @@ def test_every_active_plugin_emits_or_warns(generated):
         "multiband_compressor#0": {"mbc"},
         "multiband_compressor#1": {"reg"},
         "limiter#0": {"limiter"},
+        "bass_enhancer#0": {"bass"},
+        "stereo_tools#0": {"stereo"},
     }
     for key in source_keys:
         if key in emitter_targets:
@@ -571,7 +739,10 @@ def test_active_autogain_emits_warning():
         }
     }
     chain = build_chain(preset, irs_dir=None, must_exist=False)
-    assert any("autogain" in w and "v1 doesn't translate" in w
+    # The warning must name the plugin and explain that no LV2 equivalent
+    # exists (the precise wording is in EE_KEY_DISPATCH and may evolve;
+    # what matters is that a non-bypassed autogain doesn't drop silently).
+    assert any("autogain" in w and "libebur128" in w
                for w in chain.warnings)
 
 

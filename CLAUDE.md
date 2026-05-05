@@ -116,10 +116,15 @@ A few things about this repo that aren't obvious from reading the code:
 
 - **`ee_to_pipewire.py` is the companion converter.** Turns the
   generated EasyEffects preset into a PipeWire `filter-chain` `.conf`
-  for users who'd rather not run EE. v1 covers convolver / PEQ /
-  dialog / MBC / regulator / limiter (stereo only). Not yet
-  translated: `bass_enhancer`, `stereo_tools`, non-bypassed
-  `autogain`, 4-channel upmix — each gated on a real-world report.
+  for users who'd rather not run EE. Covers convolver / PEQ /
+  dialog / MBC / regulator / limiter (LSP-backed) plus
+  `bass_enhancer` / `stereo_tools` (Calf-backed; URIs and control
+  symbols cross-checked against the EasyEffects sources, see the
+  per-emitter comments in `ee_to_pipewire.py`). Stereo only. Not
+  translated: non-bypassed `autogain` (EE's implementation is native
+  libebur128 — no LV2 equivalent exposes EBU R 128 metering, so the
+  converter warns and skips); 4-channel upmix (chain is stereo-only,
+  gated on a real-world report).
   By default the converter copies the `.irs` next to the generated
   conf and rewrites the convolver `filename`, so the PW chain has no
   runtime dependency on the EasyEffects directory layout
