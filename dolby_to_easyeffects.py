@@ -1265,12 +1265,23 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             slope = int(reg_slope.get("value")) / 16.0 if reg_slope is not None else 1.0
             reg_timbre = vlldp.find("regulator-timbre-preservation")
             timbre = int(reg_timbre.get("value")) / 16.0 if reg_timbre is not None else 0.75
+            # `regulator-overdrive` and `regulator-relaxation-amount` are read
+            # for visibility (debug print + watch warn) but not yet mapped to
+            # any LSP plugin parameter — the corpus shows them as constants
+            # (overdrive=0, relaxation=96 in 1/16-dB units) so we have no
+            # signal to disambiguate the right mapping.
+            reg_overdrive = vlldp.find("regulator-overdrive")
+            overdrive = int(reg_overdrive.get("value")) if reg_overdrive is not None else 0
+            reg_relax = vlldp.find("regulator-relaxation-amount")
+            relaxation = int(reg_relax.get("value")) if reg_relax is not None else 96
             regulator = {
                 "threshold_high": th,
                 "threshold_low": tl,
                 "stress": [x / 16.0 for x in stress],
                 "distortion_slope": slope,
                 "timbre_preservation": timbre,
+                "overdrive": overdrive,
+                "relaxation": relaxation,
             }
 
     warn_unmodeled_features(profile)
@@ -1319,6 +1330,22 @@ _UNMODELED_FEATURES = [
          "corpus uses 'ieq_balanced'. We still emit the usual "
          "Balanced/Detailed/Warm presets; you may want to start with the "
          f"matching variant. Please report at {_REPORT_URL}"
+     )),
+    (".//regulator-overdrive",
+     lambda el: (el.get("value") or "0") != "0",
+     lambda el: (
+         f"regulator-overdrive={el.get('value')} — this is 0 on every "
+         "device we've seen. The script does not currently map it (the "
+         "schema interpretation is unverified for non-zero values). "
+         f"Please report at {_REPORT_URL}"
+     )),
+    (".//regulator-relaxation-amount",
+     lambda el: (el.get("value") or "96") != "96",
+     lambda el: (
+         f"regulator-relaxation-amount={el.get('value')} — this is 96 on "
+         "every device we've seen. The script does not currently map it "
+         "(the schema interpretation is unverified for other values). "
+         f"Please report at {_REPORT_URL}"
      )),
 ]
 
@@ -1963,6 +1990,12 @@ def make_regulator(regulator, freqs, volmax_boost=0.0):
         mean softer knee to preserve spectral shape. Mapped to
         knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
 
+    `regulator-stress-amount`, `regulator-overdrive` and
+    `regulator-relaxation-amount` are parsed for visibility (debug
+    print + `_UNMODELED_FEATURES` watch list) but not mapped here. See
+    docs/design-notes.md "Follow-ups" entry on regulator-stress for
+    the empirical work that closed that hypothesis.
+
     volmax_boost is applied as `output-gain`; see `make_preset` for how
     that interacts with the rest of the chain.
     """
@@ -2587,6 +2620,8 @@ def main():
             print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
             print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
             print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
+            print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (watched; not yet mapped)")
+            print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (watched; not yet mapped)")
 
         if volmax_boost <= 0:
             slot = "value is 0, no boost to apply"

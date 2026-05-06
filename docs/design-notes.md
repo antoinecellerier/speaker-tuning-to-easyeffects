@@ -806,6 +806,95 @@ constraints.
    Risk: needs driver-level XML replacement, could brick DAX on
    the test machine until restoration. Scope before attempting.
 
+5. **`regulator-stress-amount` mapping investigated and rejected.**
+   Issue #11 raised whether DAX's "tier-2" adaptive sub-models
+   could explain part of the EE-vs-DAX gap. A corpus audit across
+   ~2,900 XMLs settled the schema-prevalence side of that question:
+
+   | field | enabled / non-default in any XML |
+   |---|---|
+   | `sliding-bass-enable=1` | 5 IdeaPad-3 XMLs (all `max-gain=0`, dormant) |
+   | `volume-modeler-enable=1` | 0 |
+   | `process-optimizer-enable=1` | 0 (bands always `array_20_zero`) |
+   | `regulator-stress-amount` | non-zero on bass bands in 86% of XMLs |
+   | `regulator-overdrive` | always `0` (35,654 profile slots) |
+   | `regulator-relaxation-amount` | always `96` (13,042 profile slots) |
+
+   So of the candidates, only `regulator-stress-amount` carries
+   live, device-varying values. The remainder are dormant or
+   constant across shipped tunings — implementing them blind would
+   change zero output samples on real XMLs.
+
+   For `regulator-stress-amount`, the only candidate worth testing,
+   the natural mapping is "lower the per-band regulator threshold
+   by `stress[i]` dB to make the limiter engage earlier on stressed
+   bands". This was wired up behind a temporary `--enable-regulator-stress`
+   flag (alignment hypothesis A: `stress[i]` indexes the post-grouping
+   zone i; sign: stress > 0 → tighter limiter). Validation against
+   the X1 Yoga DAX captures used a bass-burst stimulus (sustained
+   sine tones at 50/80/120/180 Hz, -5 and -25 dBFS) — added to
+   `tools/measure_dax/make_stimulus.py` and now part of the
+   standard stimulus suite.
+
+   **Outcome — hypothesis A is directionally falsified at 180 Hz**:
+
+   - 180 Hz is the only diagnostic tone (50/80/120 Hz are
+     attenuated 11-42 dB by the FIR + PEQ before reaching the
+     regulator, so the regulator never engages on them in either
+     EE config; 50 Hz also showed crest factor 23 dB on the DAX
+     side, indicating Virtual Bass Enhancement adding harmonics
+     that contaminate any regulator-only comparison).
+   - At 180 Hz: DAX captured -6.14 dBFS, EE-off -8.93, EE-on -9.71.
+     |DAX - EE_off| = 2.79 dB, |DAX - EE_on| = 3.57 dB → stress-on
+     moved EE *away* from DAX, not toward it.
+   - DAX's regulator engages ~19 dB of GR at 180 Hz (loud-quiet
+     diff 1.13 dB instead of the 20 dB a dormant regulator would
+     give). EE-on engages 0.78 dB. Whatever DAX is doing, it's an
+     order of magnitude stronger than the 9 dB threshold drop our
+     `stress=144` produces — the 1/16-dB convention may be wrong,
+     stress may not be a threshold offset at all, or DAX's bass
+     control runs through a stage we can't approximate.
+
+   **The flag has been reverted** (per CLAUDE.md "investigation
+   flags are temporary scaffolding"). The mapping math is documented
+   here as a permanent finding rather than carried as a CLI switch
+   future readers would feel obliged to keep correct.
+
+   What remains in committed code:
+   - `regulator-stress-amount` is parsed into the regulator dict and
+     printed in the debug summary (no behavioural effect; visibility
+     only).
+   - `regulator-overdrive` and `regulator-relaxation-amount` are
+     parsed, printed, and on the `_UNMODELED_FEATURES` watch list.
+     Any XML where they deviate from the corpus-constants
+     (`overdrive=0`, `relaxation=96`) will trigger a "report this
+     XML" warning so we can re-investigate if the corpus assumption
+     changes.
+   - The bass-burst stimuli (`stimulus_bass_burst.wav` /
+     `stimulus_bass_burst_quiet.wav`) ship as part of the standard
+     measurement suite — useful diagnostic for any future
+     bass-region work even though the stress hypothesis closed.
+
+   Bigger picture (links back to Finding 4): DAX delivers 22-30 dB
+   more bass to its regulator than our chain delivers to ours,
+   then runs a much more active regulator on top. That's the gap
+   to close, and it isn't reachable through the stress field. Two
+   architectural levers might:
+
+   - Less aggressive bass attenuation in the FIR/PEQ stages, so
+     our regulator sees content above its threshold (currently a
+     layer-2 IEQ/AO interpretation question — see Findings 6 and 7).
+   - A level-dependent / VBE / leveler stage upstream of the
+     regulator (no LSP equivalent of DAX's leveler exists; would
+     need custom DSP or a different plugin pipeline).
+
+   Both are larger pieces of work than this follow-up's scope.
+
+   Out of scope (XML-zeroed across the corpus, would change zero
+   output samples on shipped tunings): `sliding-bass-*`,
+   `volume-modeler-*`, `process-optimizer-bands`. Documented here
+   so they don't get re-proposed.
+
 **Out of scope unless a constraint changes:**
 
 2. **Match DAX's hybrid phase character** — partial-linear-phase FIR,

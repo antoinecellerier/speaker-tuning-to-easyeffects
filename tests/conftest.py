@@ -199,4 +199,6 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
         "stress": [0.0] * 8,
         "distortion_slope": distortion_slope,
         "timbre_preservation": timbre_preservation,
+        "overdrive": 0,
+        "relaxation": 96,
     }
