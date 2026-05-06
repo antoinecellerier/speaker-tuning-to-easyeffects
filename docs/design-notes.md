@@ -789,6 +789,192 @@ would distinguish "β is the right rule" from "β's +10 dB
 HF lift happens to align with DAX's HF voicing on this
 device."
 
+### Finding 8: DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
+
+The bass-burst stimulus that closed the regulator-stress investigation
+(Finding 7 item 1) surfaced an unrelated finding on the DAX side. The
+50 Hz capture region (loud, peak −5 dBFS) shows a textbook
+missing-fundamental harmonic complex:
+
+| freq | magnitude | role |
+|---:|---:|---|
+| 50 Hz | −36.3 dBFS | fundamental |
+| 150 Hz | −37.6 dBFS | 3rd harmonic (1.3 dB below fundamental) |
+| 250 Hz | −38.1 dBFS | 5th harmonic (1.8 dB below fundamental) |
+| 200 / 300 Hz | −50 dBFS | 4th / 6th (suppressed even harmonics) |
+| 350 Hz | −54.3 dBFS | 7th |
+
+For comparison, the 180 Hz capture in the same battery has all
+non-fundamental peaks ≥35 dB below the fundamental (clean sine, crest
+factor 4.4 dB). The 50 Hz region's crest factor is 22.9 dB — DAX is
+generating odd harmonics at near-fundamental amplitude on bass content
+the speaker can't physically reproduce. This is the standard
+psychoacoustic-bass mechanism (SRS TruBass / Waves MaxxBass / Dolby's
+own Virtual Bass Enhancement), letting the auditory system reconstruct
+a 50 Hz percept from the harmonic complex above the speaker's HP roll-off.
+
+Our converter only emits Calf BassEnhancer when `is_soundwire=True`;
+the X1 Yoga (and other HDA devices) get no harmonic-generation stage
+at all. The capture used the bass-burst stimulus in
+`tools/measure_dax/make_stimulus.py:make_bass_burst` (sustained sine
+tones at 50 / 80 / 120 / 180 Hz, ±5 / −25 dBFS peak) — the same battery
+that closed Finding 7 item 1.
+
+This is a **non-LTI** processing-stage gap, distinct from the LTI EQ-curve
+gap analyzed in Findings 4–7. It would be invisible to pink-noise
+captures (the harmonic complex blends into the broadband spectrum) and
+shows up only on tonal bass content.
+
+**XML interpretation question.** The X1 Yoga XML has every VBE-adjacent
+field populated:
+
+```
+<bass-enhancer-enable value="0"/>
+<bass-enhancer-cutoff-frequency value="200"/>
+<virtual-bass-mode value="0"/>
+<virtual-bass-mix-freqs value="94,469"/>
+<virtual-bass-subgains value="-32,-144,-192"/>
+<virtual-bass-src-freqs value="35,160"/>
+<virtual-bass-overall-gain value="0"/>
+```
+
+`enable=0` / `mode=0` read as "off" but every supporting field is
+non-default. Two readings:
+
+1. `mode=0` is honestly off. DAX has a baseline VBE that always runs
+   and is not parameterized in the schema. The supporting fields are
+   dead schema slots.
+2. `mode=0` is a label (e.g. "auto/default") and the supporting
+   parameters configure it.
+
+A `*-mode` survey across the schema shows that some mode-attrs do vary
+by device (`height-filter-mode` is `0`/`1` in the corpus), so `0` is
+not universally "off" — but the precedent for a feature with a
+separate `*-enable` *and* tuning fields is `dialog-enhancer-enable=0`
+with `dialog-enhancer-amount=7`: tuning fields persist as dead values
+when the gate is off.
+
+**Corpus sweep settles the actionable question regardless of which
+reading is correct.** Across 2,470 XMLs containing VBE fields:
+
+| field | unique values across 2,470 XMLs |
+|---|---|
+| `virtual-bass-mode` | `0` only |
+| `bass-enhancer-enable` | `0` only |
+| `virtual-bass-mix-freqs` | `94,469` only — 1 unique value |
+| `virtual-bass-src-freqs` | `35,160` only — 1 unique value |
+| `virtual-bass-subgains` | `-32,-144,-192` only — 1 unique value |
+| `virtual-bass-overall-gain` | `0` only |
+| `virtual-bass-slope-gain` | `0` only |
+
+Across hundreds of distinct speaker designs, the supporting fields are
+**frozen identical**. If reading 2 were correct — that they configure
+the synthesis — they would vary the way `mb_comp` thresholds, IEQ
+curves, and regulator levels do. They don't. **The schema cannot drive
+a per-device VBE mapping** in either reading.
+
+**Companion-file audit.** Each DAX3 driver package ships a main tuning
+XML, a `_settings.xml` (UI-only: AutoProfile mappings, Dolby Access GUI
+flags), one or more `operator_settings_*.json` files (Dolby Access
+vendor config: mirroring, auto-profile behavior), and `.inf`/`.cat`
+driver-install metadata. Mic-side `_amic.xml` / `_dmic.xml` files are
+already filtered by the corpus harness. **No text-readable per-device
+file carries VBE tuning.** The DAX3 binaries themselves could carry an
+internal lookup table keyed on PCI subsystem ID, but reading that
+requires reverse-engineering the DLL and is out of scope.
+
+**Actionable conclusion.** A faithful XML-derived per-device VBE mapping
+is not on the table — there's no per-device VBE signal in any
+text-readable source we ship against. Any VBE we add for HDA devices
+is, by construction, a hardcoded baseline that does not trace back to
+per-device XML, so it lives in opt-in territory under the project's
+XML-only invariant. The existing `make_bass_enhancer(hp_freq)` factory
+(introduced in commit `bc12c2e9` from the EasyEffects laptop-speaker
+guide) is the natural baseline candidate; gating it on HDA devices is
+an investigation question rather than a deterministic-mapping one. See
+issue #14 for the open follow-up.
+
+**Empirical follow-up: Calf BassEnhancer hits an architectural ceiling.**
+A `--enable-vbe` investigation flag was added on top of the
+SoundWire-only emission gate, with `make_bass_enhancer` extended to
+accept `(floor, scope) = virtual-bass-src-freqs` from the XML (the
+field lives under `tuning-cp`, not `tuning-vlldp`, and is corpus-frozen
+at `35,160`). Bass-burst captures (X1 Yoga, dynamic/balanced, 50 / 80 /
+120 / 180 Hz at peak −5 dBFS) compared the unflagged chain, the
+flagged chain, and DAX:
+
+| tone | EE off Δ3 | EE+VBE Δ3 (XML-derived) | DAX Δ3 |
+|---:|---:|---:|---:|
+| 50 Hz | −81 dB | **−8 dB** | **−1 dB** |
+| 80 Hz | −102 | **−29** | **−28** ← matches DAX |
+| 120 Hz | −102 | −42 | −59 |
+| 180 Hz | −112 | **−18** ← regression | **−74 (clean)** |
+
+Calf does generate psychoacoustic harmonics on 50/80 Hz at amplitudes
+within ~5 dB of DAX (50 Hz benefit) but also produces a strong 3rd
+harmonic at 540 Hz on the 180 Hz tone, where DAX is essentially clean
+(180 Hz regression). A parameter sweep across `harmonics` (3 / 5 / 10),
+`blend` (−10 / 0 / +10), and `amount` (6 / 12) confirmed the
+regression is structural: every variant trades 50 Hz benefit linearly
+for 180 Hz regression — there's no parameter point where Calf produces
+DAX-like harmonics on the lowest tones *and* stays clean above the
+declared `virtual-bass-src-freqs` upper bound.
+
+The mechanism is Calf BassEnhancer's internal source-band filter: it
+has a soft (≈12 dB/oct) rolloff at the `scope` parameter, so a 180 Hz
+input above a `scope=160` cutoff is only ~4 dB attenuated and the
+harmonic generator still receives a sizable signal. Tightening `scope`
+below 100 Hz to fully suppress 180 Hz also kills the 80 Hz synthesis
+that already matches DAX. Calf also leaks 2nd harmonics (e.g. a 100 Hz
+peak when a 50 Hz tone is present, ≈25 dB below the fundamental) where
+DAX's profile is much weaker on evens — DAX's harmonic generator
+appears to use a near-symmetric nonlinearity that emphasizes odd
+harmonics, while Calf's distortion model produces both.
+
+The flag was reverted from the converter's CLI surface. The `make_bass_enhancer`
+function retains its `src_freqs` parameter (XML-derived, corpus-frozen) so
+that if a future architectural revisit ships VBE-on-HDA via a different
+plugin / topology, the band-bounds plumbing is already in place.
+
+**Calf Saturator (architectural alternative for PipeWire-conf path).** A
+PoC offline test (`lv2apply` driving Calf Saturator on the bass-burst
+stimulus at `mix=1.0`, `drive=4.0`, `hp_pre_freq=35`, `lp_pre_freq=160`,
+`hp_post_freq=180`, `lp_post_freq=800`) showed Saturator's harmonic
+profile is closer to DAX's than Calf BassEnhancer's, but the
+architectural ceiling is *lowered, not escaped*. Wet-only output Δ
+versus fundamental-leakage:
+
+| tone | calf_v2 (BassEnhancer) Δ3 | sat_v1 (Saturator) Δ3 | DAX Δ3 |
+|---:|---:|---:|---:|
+| 50 Hz | −8 | +4.5 | −1.3 |
+| 80 Hz | −29 | −3.4 | −28 |
+| 180 Hz | **−18 (regression)** | **−31** | −74 (clean) |
+
+Saturator at 180 Hz is ~13 dB cleaner than Calf BassEnhancer (−31 vs
+−18 below fundamental) — meaningful but still ~40 dB above DAX's clean
+profile. The reason is identical to BassEnhancer's: Calf Saturator's
+internal `lp_pre_freq` is also a soft (~12 dB/oct) rolloff, so out-of-band
+content above 160 Hz still passes through enough to generate harmonics.
+Calf Saturator additionally leaks 2nd-harmonic ≈11 dB stronger than
+DAX's profile at 50 Hz (3rd-vs-2nd ratio +11 dB for Saturator,
++26 dB for DAX) — Calf's distortion model is not purely symmetric.
+
+Even harder drive (`drive=8`) and tighter post-band (`lp_post=600`)
+amplify the harmonic complex but don't change the relative ratios.
+Adding an explicit LSP `filter_stereo` chain in front of Saturator for
+a brick-wall pre-band is feasible architecturally but adds two LV2
+stages and complicates the dry/wet mix path; deferred unless a
+device-side capture proves the perceptual gap is worth the engineering
+cost.
+
+EE 8.x exposes no saturator plugin slot, so any Saturator-based
+approximation would ship only for users on the PipeWire filter-chain
+path (`ee_to_pipewire.py` users). Splitting VBE behavior across the
+two output paths (EE has no VBE; PW has approximate VBE) is a
+maintenance-cost decision rather than a measurement one. Issue #14 is
+left open as the canonical reference for the gap; no converter change
+ships from this investigation.
+
 ### Follow-ups to close the gap to DAX
 
 The cheap, deterministic, XML-only experiments have been exhausted —
