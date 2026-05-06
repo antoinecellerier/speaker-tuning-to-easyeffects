@@ -375,6 +375,71 @@ def make_multitone(level_dbfs_rms: float, seed: int = 1
     return stereo, meta
 
 
+# ----- bass burst -----
+
+def make_bass_burst(level_dbfs_peak: float,
+                    tone_freqs_hz: tuple[float, ...] = (50.0, 80.0, 120.0, 180.0),
+                    tone_duration_s: float = 3.0,
+                    gap_duration_s: float = 0.5,
+                    pre_silence_s: float = 0.3,
+                    tail_silence_s: float = 0.5,
+                    fade_ms: float = 5.0
+                    ) -> tuple[np.ndarray, dict]:
+    """Sustained bass-band sine bursts, stereo (identical L/R).
+
+    Designed to drive the bass-band regulator at frequencies above the
+    speaker's HP cutoff (the bursts that don't get attenuated to
+    sub-threshold by upstream EQ are the diagnostic ones). Each burst
+    is gated with a raised-cosine fade-in/out so band edges are clean.
+    """
+    n_pre = int(round(pre_silence_s * SR))
+    n_tone = int(round(tone_duration_s * SR))
+    n_gap = int(round(gap_duration_s * SR))
+    n_tail = int(round(tail_silence_s * SR))
+
+    fade = int(round(fade_ms * 1e-3 * SR))
+    env = np.ones(n_tone, dtype=np.float64)
+    env[:fade] = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade) / fade))
+    env[-fade:] = env[fade - 1::-1]
+
+    amp = 10.0 ** (level_dbfs_peak / 20.0)
+    pieces: list[np.ndarray] = [np.zeros(n_pre, dtype=np.float32)]
+    tone_starts: list[tuple[float, int]] = []
+    cursor = n_pre
+    for i, f in enumerate(tone_freqs_hz):
+        t = np.arange(n_tone) / SR
+        tone = (amp * env * np.sin(2 * np.pi * f * t)).astype(np.float32)
+        tone_starts.append((float(f), cursor))
+        pieces.append(tone)
+        cursor += n_tone
+        if i < len(tone_freqs_hz) - 1:
+            pieces.append(np.zeros(n_gap, dtype=np.float32))
+            cursor += n_gap
+    pieces.append(np.zeros(n_tail, dtype=np.float32))
+
+    mono = np.concatenate(pieces)
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+
+    duration_s = stereo.shape[0] / SR
+    meta = {
+        "kind": "bass_burst",
+        "sample_rate": SR,
+        "duration_seconds": duration_s,
+        "tail_seconds": tail_silence_s,
+        "level_dbfs_peak": level_dbfs_peak,
+        "tone_freqs_hz": list(tone_freqs_hz),
+        "tone_duration_s": tone_duration_s,
+        "gap_duration_s": gap_duration_s,
+        "pre_silence_s": pre_silence_s,
+        "fade_ms": fade_ms,
+        "tone_starts_samples": [(f, n) for f, n in tone_starts],
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
 # ----- entry point -----
 
 def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
@@ -425,6 +490,18 @@ def main() -> None:
     # correlation, which the decorrelated stimulus can mask.
     stereo, meta = make_stereo_correlated_pink(level_dbfs_rms=-18.0)
     write_stimulus("stimulus_stereo_correlated", stereo, meta)
+
+    # bass-burst — sustained sine tones at 50/80/120/180 Hz at -5 and
+    # -25 dBFS peak. Designed to expose bass-band regulator behaviour:
+    # the loud variant pushes the post-FIR signal above any reasonable
+    # regulator threshold (at frequencies the chain doesn't pre-
+    # attenuate); the quiet variant is a same-frequency control with
+    # the regulator dormant. Used to compare DAX-side bass dynamics
+    # against the EE chain — see docs/design-notes.md "Follow-ups".
+    stereo, meta = make_bass_burst(level_dbfs_peak=-5.0)
+    write_stimulus("stimulus_bass_burst", stereo, meta)
+    stereo, meta = make_bass_burst(level_dbfs_peak=-25.0)
+    write_stimulus("stimulus_bass_burst_quiet", stereo, meta)
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")
