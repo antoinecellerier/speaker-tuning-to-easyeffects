@@ -43,7 +43,17 @@ else
 fi
 echo "${SINK_ID}" > "${STATE_FILE}"
 
-# 2. easyeffectsrc -----------------------------------------------------------
+# 2. quit any running EE BEFORE editing the rc -------------------------------
+
+# EE 8.x persists [StreamOutputs] on shutdown — if we edit while it's
+# still running, `easyeffects -q` then writes the live `outputDevice`
+# (the user's hw sink) back over our edit. Quit first, edit second.
+if pgrep -f "easyeffects.*service-mode" >/dev/null 2>&1; then
+    easyeffects -q || true
+    sleep 0.5
+fi
+
+# 3. easyeffectsrc -----------------------------------------------------------
 
 # Refresh the backup unconditionally: if a previous run crashed before
 # teardown, the on-disk EE_RC is the *edited* version, not the user's
@@ -104,12 +114,8 @@ rc_path.write_text("".join(out))
 print(f"updated {rc_path}")
 PYEOF
 
-# 3. restart EE in service mode ---------------------------------------------
+# 4. start EE in service mode -----------------------------------------------
 
-if pgrep -f "easyeffects.*service-mode" >/dev/null 2>&1; then
-    easyeffects -q || true
-    sleep 0.5
-fi
 nohup easyeffects --hide-window --service-mode \
     >"${STATE_DIR}/ee.log" 2>&1 &
 echo "restarted easyeffects (service mode)"
