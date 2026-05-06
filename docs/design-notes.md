@@ -980,6 +980,39 @@ broken with a deeper signal chain; the cost is two extra LV2 stages
 per channel (4 LSP filter instances total in stereo) plus disabled
 internal Calf filtering.
 
+**Caveat: ceiling-break is for harmonic structure only, not absolute
+magnitude.** The PoC measured the wet-only output of the
+LSP-cascade-plus-Saturator chain (`mix=1.0`, post-HP at 180 Hz kills the
+band-passed fundamental). In a real deployment the wet path is summed
+with a parallel dry chain that carries the fundamental — but our dry
+chain attenuates 50 Hz to ~−66 dBFS, and the wet Saturator residual
+sits at ~−54 dBFS, so the mixed 50 Hz fundamental lands ~9 dB below
+DAX's captured −45 dBFS. The harmonic complex is now structurally
+right (+56 dB odd-vs-even ratio at 50 Hz, 180 Hz harmonic regression
+gone) but the fundamental remains low. This separates cleanly into
+*two* gaps, not one:
+
+1. **Bass-attenuation gap** (Findings 4, 7): our chain attenuates 50 Hz
+   ~21 dB more than DAX does. Lives outside the XML — DAX's regulator /
+   leveler appears to actively boost quiet sustained low tones, which
+   is what hypothesis δ in Finding 7 was tracking. Closing this gap
+   needs a level-dependent / content-adaptive boost upstream, not a
+   harmonic synthesizer.
+2. **Harmonic-synthesis gap** (this finding): DAX adds odd-dominated
+   harmonics on bass content; our chain doesn't. The
+   LSP-cascade-plus-Saturator chain closes this structurally.
+
+Calf BassEnhancer in earlier tests *appeared* to address part of (1)
+because its mix structure passes some boosted dry-band signal through —
+but that conflated the two gaps and came at the 180 Hz regression
+cost. The Saturator-based path keeps the gaps separated, which is
+honest but means closing the harmonic gap doesn't close the magnitude
+gap. The mixed-topology measurement (parallel dry + wet Saturator
+chain summed at output) is the next concrete step before any
+`ee_to_pipewire.py` change ships; the wet-only PoC numbers tell us
+the harmonic ceiling can be broken but not what the integrated
+chain's absolute magnitude match looks like.
+
 **Calf MultibandEnhancer was tested in parallel and does not escape
 the ceiling.** A 24-variant sweep over crossovers, per-band drive,
 blend, and base parameters found that the best variant
