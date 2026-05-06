@@ -961,19 +961,50 @@ DAX's profile at 50 Hz (3rd-vs-2nd ratio +11 dB for Saturator,
 
 Even harder drive (`drive=8`) and tighter post-band (`lp_post=600`)
 amplify the harmonic complex but don't change the relative ratios.
-Adding an explicit LSP `filter_stereo` chain in front of Saturator for
-a brick-wall pre-band is feasible architecturally but adds two LV2
-stages and complicates the dry/wet mix path; deferred unless a
-device-side capture proves the perceptual gap is worth the engineering
-cost.
 
-EE 8.x exposes no saturator plugin slot, so any Saturator-based
-approximation would ship only for users on the PipeWire filter-chain
-path (`ee_to_pipewire.py` users). Splitting VBE behavior across the
-two output paths (EE has no VBE; PW has approximate VBE) is a
-maintenance-cost decision rather than a measurement one. Issue #14 is
-left open as the canonical reference for the gap; no converter change
-ships from this investigation.
+**Cascading LSP filters + Saturator escapes the single-plugin ceiling.**
+A follow-up PoC chained two LSP `filter_stereo` stages in front of
+Calf Saturator (BWC mode at slope `x16` ≈192 dB/oct on input edges,
+`x8` ≈96 dB/oct on output edges) for a true brick-wall band-pass at
+[35, 160] Hz, with Calf Saturator's internal pre/post filters disabled
+to avoid double-filtering. Final output Δ3 (3rd harmonic vs
+fundamental) at 180 Hz: **−56 dB** — vs Calf BassEnhancer's −18 dB
+ceiling, a 38 dB improvement, and within 17 dB of DAX's −74 dB clean
+profile. The 50 Hz / 80 Hz odd-vs-even ratios are also strongly
+odd-dominated (3rd-vs-2nd at +56 dB / +16 dB respectively), confirming
+Calf Saturator's `drive` produces a near-symmetric saturation when fed
+a clean band-passed input — the even-harmonic leakage seen in earlier
+single-plugin tests was artefactual of out-of-band content reaching
+the saturator. So both walls of the architectural ceiling can be
+broken with a deeper signal chain; the cost is two extra LV2 stages
+per channel (4 LSP filter instances total in stereo) plus disabled
+internal Calf filtering.
+
+**Calf MultibandEnhancer was tested in parallel and does not escape
+the ceiling.** A 24-variant sweep over crossovers, per-band drive,
+blend, and base parameters found that the best variant
+(`split_taper_mid`: drive=10/4/1/0, blend=8/2/0/0, splits 65/100/150)
+produces a DAX-shaped tapered Δ3 (weakening with frequency) but caps
+at 50 Hz Δ3 ≈ −20 dB — the plugin's harmonic generator is a
+memoryless wave-shaper with an intensity ceiling that no parameter
+combination crosses. It is also even-dominated at the lowest tones
+where DAX is strongly odd-dominated. MultibandEnhancer cannot
+substitute for the BassEnhancer / Saturator path.
+
+EE 8.x exposes no saturator plugin slot and no way to chain LV2
+filters in series before its built-in plugin slots, so the
+cascading-LSP-plus-Saturator approximation can only ship via the
+PipeWire filter-chain path (`ee_to_pipewire.py` users). Splitting VBE
+behaviour across the two output paths (EE-mode users get nothing;
+PW-mode users get an approximation that genuinely tracks DAX's
+selectivity within ~17 dB at 180 Hz) becomes a maintenance-cost
+decision rather than a measurement one. Issue #14 is left open as the
+canonical reference for the gap; no converter change ships from this
+investigation. A follow-up that extends `ee_to_pipewire.py` to inject
+the LSP-cascade-plus-Saturator chain when the XML carries
+`virtual-bass-mode=0` and `is_soundwire=False` is the natural next
+step if a listening test confirms the captured improvement is
+audible.
 
 ### Follow-ups to close the gap to DAX
 
