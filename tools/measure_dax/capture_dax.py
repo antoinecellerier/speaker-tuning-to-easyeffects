@@ -65,7 +65,7 @@ PKEY_ACTIVE_SPATIAL_MODE_CLSID = "{9637b4b9-11ee-4c35-b43c-7b2452c993cc},1"
 VALID_LABELS = ("off", "dynamic", "movie", "music", "game", "voice")
 EXPECTED_SR = 48000
 EXPECTED_CHANNELS = 2
-LOOPBACK_PADDING_SEC = 0.5  # extra recording past stimulus end
+LOOPBACK_PADDING_SEC = 1.5  # extra recording past stimulus end (covers play startup + capture-side delay)
 
 # Dolby APO CLSIDs observed in the wild. We log unrecognized FX CLSIDs so
 # the user can extend this list if they're on a newer Dolby driver.
@@ -782,11 +782,24 @@ def main() -> int:
                 "Unmute and re-run."
             )
 
-    duration_seconds = meta.get("duration_seconds")
-    if duration_seconds is None:
-        duration_seconds = (
-            meta.get("active_seconds", meta.get("sweep_seconds", 10.0))
-            + meta.get("tail_seconds", 1.0)
+    # Always derive duration from the actual WAV length — JSON metadata
+    # may be missing/stale on custom stimuli, and a too-short recording
+    # window silently truncates late tones in the capture. The WAV is
+    # the ground truth.
+    import soundfile as sf
+    wav_info = sf.info(str(stim_path))
+    wav_duration = wav_info.frames / wav_info.samplerate
+    meta_duration = meta.get("duration_seconds")
+    if meta_duration is None:
+        meta_duration = (
+            meta.get("active_seconds", meta.get("sweep_seconds", 0.0))
+            + meta.get("tail_seconds", 0.0)
+        )
+    duration_seconds = max(float(meta_duration or 0.0), wav_duration)
+    if meta_duration and abs(meta_duration - wav_duration) > 0.05:
+        _info(
+            f"stimulus meta duration_seconds={meta_duration:.2f} differs "
+            f"from WAV length {wav_duration:.2f}s; recording for the WAV length"
         )
     total_seconds = duration_seconds + LOOPBACK_PADDING_SEC
     capture = play_and_record(sd_idx, sd_info, stim_path, total_seconds)
