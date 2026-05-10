@@ -833,7 +833,7 @@ def find_tuning_xml(windows_root: Path):
                 continue
 
     if not candidates:
-        hda_info = ", ".join(f"vendor={v} subsys={s}" for v, s in hda_codecs)
+        hda_info = ", ".join(f"vendor={v} subsys={s}" for v, s, _name in hda_codecs)
         sdw_info = ", ".join(f"man={m} part={p}" for m, p in sdw_devices)
         pci_info = f"pci_subsys={pci_subsys}" if pci_subsys else "no PCI subsystem"
         raise FileNotFoundError(
