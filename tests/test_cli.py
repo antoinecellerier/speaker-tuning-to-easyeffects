@@ -22,9 +22,12 @@ from pathlib import Path
 
 import pytest
 
+import dolby_to_easyeffects
 from dolby_to_easyeffects import (
     DISABLEABLE_FILTERS,
     DOLBY_FILENAME_RE,
+    autoprobe_dolby_source,
+    find_tuning_xml,
     make_preset,
 )
 from tests.conftest import (
@@ -259,6 +262,138 @@ def test_nonexistent_xml_path_fails_cleanly(tmp_path):
     assert result.returncode == 1
     combined = result.stdout + result.stderr
     assert "error" in combined.lower() or "no such" in combined.lower()
+
+
+# --- find_tuning_xml / autoprobe_dolby_source error-branch coverage ---
+# These paths build human-readable diagnostics by joining over collections
+# of hardware-detected tuples / Paths. PR #16 fixed a tuple-arity bug in
+# the `if not candidates:` branch that shipped because no test exercised
+# it. Pin each error branch directly so a future arity or formatting
+# regression fails CI here rather than at runtime for end users.
+
+
+def test_find_tuning_xml_raises_when_no_audio_hardware(monkeypatch, tmp_path):
+    """No HDA codecs and no SoundWire devices → FileNotFoundError
+    at dolby_to_easyeffects.py:761-765. The earliest bailout in
+    find_tuning_xml; static message, but pinned so a future
+    refactor doesn't silently turn it into a different exception type.
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    with pytest.raises(FileNotFoundError, match="No HDA codecs or SoundWire"):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_raises_when_soundwire_without_pci(monkeypatch, tmp_path):
+    """SoundWire devices detected but PCI subsystem ID is None →
+    RuntimeError at dolby_to_easyeffects.py:773-777. Without the PCI
+    subsystem we can't build the SDW SUBSYS match key, so refusing to
+    guess is the right behavior; pin the exception type and message.
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "get_soundwire_ids", lambda: [("025D", "1318")]
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: None)
+    with pytest.raises(RuntimeError, match="PCI subsystem"):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_raises_when_driver_store_missing(monkeypatch, tmp_path):
+    """Hardware detected but _resolve_driver_store returns None →
+    FileNotFoundError at dolby_to_easyeffects.py:787-793. The message
+    interpolates Path objects; pin that the formatter survives.
+    """
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: None)
+    with pytest.raises(FileNotFoundError, match="DriverStore not found"):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_no_matching_xml_includes_hda_in_message(monkeypatch, tmp_path):
+    """Regression sentinel for PR #16. The `if not candidates:` branch at
+    dolby_to_easyeffects.py:835-843 unpacks hda_codecs via a generator
+    expression inside an f-string; an arity mismatch (which is what
+    PR #16 fixed) crashes the diagnostic with ValueError instead of
+    reaching the FileNotFoundError. This test asserts both the exception
+    type and that the codec identifiers reach the user-visible message,
+    so reverting line 836 to the 2-tuple unpack fails here.
+    """
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
+    with pytest.raises(
+        FileNotFoundError, match=r"vendor=10EC0287 subsys=17AA22E6"
+    ):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_no_matching_xml_includes_sdw_in_message(monkeypatch, tmp_path):
+    """Parallel regression sentinel for the sdw_info formatter at
+    dolby_to_easyeffects.py:837. If get_soundwire_ids ever grows a third
+    tuple field, this test catches the same arity-bug class on the SDW
+    side before it ships.
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "get_soundwire_ids", lambda: [("025D", "1318")]
+    )
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: ("17AA", "2339")
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
+    with pytest.raises(FileNotFoundError, match=r"man=025D part=1318"):
+        find_tuning_xml(tmp_path)
+
+
+def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
+    """No NTFS mounts and an empty CWD → FileNotFoundError at
+    dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic
+    text and the FileNotFoundError type.
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "_ntfs_family_mountpoints", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "_walk_for_dolby_xml_dirs", lambda _root: []
+    )
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(
+        FileNotFoundError, match=r"Auto-detection failed.*no NTFS-family"
+    ):
+        autoprobe_dolby_source()
+
+
+def test_autoprobe_raises_when_multiple_candidates_no_hardware_match(monkeypatch, tmp_path):
+    """Two mount candidates, neither matching this machine's hardware →
+    FileNotFoundError at dolby_to_easyeffects.py:732-746. Exercises the
+    `.join(f"  - {p}" for p in candidates)` listing formatter on a
+    non-trivial list, and pins that both candidate paths appear in the
+    user-visible message.
+    """
+    mount_a = tmp_path / "win_a"
+    mount_b = tmp_path / "win_b"
+    (mount_a / "dax3_ext_foo.inf_001").mkdir(parents=True)
+    (mount_b / "dax3_ext_bar.inf_002").mkdir(parents=True)
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "_ntfs_family_mountpoints",
+        lambda: [mount_a, mount_b],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda p: p)
+    monkeypatch.setattr(dolby_to_easyeffects, "_detect_expected_subsys_ids", set)
+    with pytest.raises(FileNotFoundError, match=r"none of which match") as excinfo:
+        autoprobe_dolby_source()
+    msg = str(excinfo.value)
+    assert str(mount_a) in msg
+    assert str(mount_b) in msg
 
 
 # --- Dolby filename auto-discovery regex ---
