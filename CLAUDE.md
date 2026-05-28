@@ -88,7 +88,12 @@ A few things about this repo that aren't obvious from reading the code:
     default for every other XML the script consumes. See
     `docs/design-notes.md` "Follow-ups" section for the standing
     list of empirical shortcuts that have been considered but not
-    adopted by default.
+    adopted by default. Separately, the "Unvalidated converter
+    scaling factors (the `ieq-amount` class)" section lists the
+    scaling constants we *do* ship by default but have not yet
+    confirmed against a DAX capture (e.g. the dialog-enhancer dB
+    ceiling, the surround `/20`, the regulator knee `-6`) — adopted
+    guesses, not rejected shortcuts.
   - Investigation flags introduced to test a hypothesis on the
     main converter (`dolby_to_easyeffects.py`) are temporary
     scaffolding. Once the hypothesis is closed (decisive result

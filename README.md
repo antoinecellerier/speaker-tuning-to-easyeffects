@@ -212,6 +212,8 @@ Output files:
 - **Speaker PEQ gains**: already in dB (float attributes in XML like `gain="-4.000000"`).
 - **ieq-amount**: a **percentage** weight on the IEQ voicing — `10` means the IEQ curve is applied at 10% on top of the audio-optimizer correction (`scale = amount/100`), not as a full-depth EQ. (Earlier versions read it as `amount/10` = full strength; that over-applied the IEQ and diverged from DAX by up to ~28 dB in the treble. DAX steers the IEQ dynamically via Media Intelligence — `mi-ieq-steering-enable` — so a small static weight approximates its steady-state. See `docs/design-notes.md` "Finding 9".)
 
+The `ieq-amount` fix was one of a class: several other converter scaling constants (the dialog-enhancer dB ceiling, the surround `/20`, the regulator slope/knee mappings, the MBC Q15 decode) ship by default but have not yet been confirmed against a DAX capture. They are catalogued, with the measurement that would validate each, in `docs/design-notes.md` "Unvalidated converter scaling factors (the `ieq-amount` class)".
+
 ### IEQ target curves are composite targets, not filter gains
 
 The 20-value IEQ arrays (e.g. `ieq_balanced`) represent the **desired composite frequency response**, not individual filter gains. Applying them directly as parametric bell filter gains causes massive overlap stacking (+20–30 dB at mid frequencies).

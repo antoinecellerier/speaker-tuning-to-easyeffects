@@ -1140,6 +1140,70 @@ the percentage interpretation; until then `/100` is a hypothesis that fits
 all current evidence, per the standing principle that the XML→parameter
 mappings are empirically falsifiable.
 
+### Unvalidated converter scaling factors (the `ieq-amount` class)
+
+Finding 9 corrected a scaling *interpretation*, not an arithmetic slip:
+`ieq-amount` was read as `amount/10` when the field is a percentage,
+`amount/100`. The lesson generalises. The converter carries a cluster of
+scaling factors that map an XML field onto a filter parameter through a
+constant we *invented* rather than confirmed. The `/16`-dB convention is the
+one such constant we have actually verified (issue #15: a user set ±12 dB in
+DAX on Windows and the settings file stored ±192). The rest below are adopted
+defaults that ship in the audible path but have never been individually checked
+against a DAX capture. They are catalogued here as a class so a capture
+campaign can attack them deliberately. This is distinct from the "Follow-ups"
+list further down, which tracks ideas we considered and did *not* adopt — these
+are live, shipping defaults.
+
+| # | Factor (`dolby_to_easyeffects.py`) | XML field | Why it's a guess | Path status | What would falsify it |
+|---|---|---|---|---|---|
+| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA, `:1746`/`:2594`); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire, `:1725`); bell centered 2.5 kHz, Q≈0.7 | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | the X1 Yoga DAX capture battery already covers these profiles at three DE amounts (0/3/5) — compare the 2–5 kHz residual DE-on vs DE-off: does DAX lift the speech band, and does the lift scale with `amount`? |
+| 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`:1681`/`:2599`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | an M/S-residual probe on the stereo-correlated / stereo-pink stimuli, but a number→spatial-param mapping is hard to ground-truth — low priority |
+| 3 | Convolver SoundWire headroom restore: `peak_db * 0.5` (`:2682`) | (none — post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | the 0.5 is chosen to "recover brightness"; not XML-derived | **default audible** on SoundWire | a SoundWire-device DAX capture (Snapdragon X / Yoga Slim 7x) |
+| 4 | Regulator slope→ratio: slope read `/16` (`:1268`), then `ratio = 1/(1−slope)` (`:2020`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | a bass-burst capture comparing gain-reduction-vs-level on devices with differing slope values |
+| 5 | Regulator timbre→knee: timbre read `/16` (`:1270`), then `knee = −6·timbre` dB (`:2024`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | the `−6` dB maximum knee is a pure guess; the field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | a device whose XML carries `timbre≠0.75`, plus a capture |
+| 6 | MBC ratio `1/(coeff/32768)` (`:1839`/`:1864`); time constants via Q15 with `block_size=256` → 187.5 blocks/s (`:1810`) | `mb-compressor-tuning` 6-tuples | the Q15 format and 256-sample block size are assumed from common DSP practice and only sanity-checked numerically, never measured | **dormant** — the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) | loud/dynamic content that drives the MBC, then measure attack/release/ratio against DAX |
+| 7 | Volume-leveler→autogain window: `max-history = 40−amount·4` / `30−amount·5` (`:1787`/`:1798`) | `volume-leveler-amount` (0–10) | the window formula is invented | **bypassed by default** (HDA); active only in the conservative SoundWire path | a capture of DAX's MI-steered leveler (non-LTI — hard) |
+
+Confirmed for contrast: the `/16`-dB convention is verified (issue #15) and the
+`/32768` Q15 decode is at least numerically consistent with first-order
+time-constant theory; everything else above is unverified.
+
+**Validation roadmap.** Ordered by how closely each mirrors the `ieq-amount`
+case — a fixed scaling in the default path, measurable against a DAX capture:
+
+1. *Offline pre-screen, on data already in hand.* Recompute the current
+   converter's target without the stage under test, subtract from the matching
+   DAX capture, and read the residual — the same offline screen that flagged
+   the `ieq-amount` weight before any new measurement. The dialog enhancer
+   (entry 1) is the strongest candidate: the X1 Yoga DAX battery already spans
+   DE amounts 0/3/5, so the speech-band residual can be compared across
+   profiles now. Surround (entry 2) and the regulator (entries 4/5) have
+   in-hand data too, though both are expected to be partly inconclusive (the
+   spatial mapping; the known DAX bass-control gap from Finding 4 and the
+   regulator-stress follow-up).
+2. *New in-house captures (X1 Yoga, HDA).* The Linux-side EE captures must be
+   regenerated after Finding 9 — the FIR changed for every profile, so any
+   pre-Finding-9 EE capture no longer reflects the shipped chain. Capture all
+   profiles through the live EE chain for the confirmatory dialog EE↔DAX
+   comparison; add higher-level stimuli to wake the MBC / regulator out of
+   dormancy (entries 6, 4/5); capture the stereo stimuli on `dynamic`/`movie`
+   for the surround mapping (entry 2). Tooling: `tools/measure_dax/` (Windows
+   capture) and `tools/measure_ee/` (Linux loopback).
+3. *User-contributed data.* The X1 Yoga is an HDA device and is corpus-frozen
+   on several fields, so some entries can only be falsified by other
+   hardware/XMLs: a SoundWire device for entry 3 and the SoundWire dialog
+   mapping; a device with `ieq-amount≠10` for the Finding 9 residual; a device
+   with `regulator-timbre-preservation≠0.75` or a differing
+   `regulator-distortion-slope` for entries 4/5. The converter's
+   `_UNMODELED_FEATURES` warning already nudges users to report XMLs whose
+   `regulator-overdrive`/`relaxation-amount` deviate from the corpus constants.
+   Track the asks on a GitHub issue (cf. issue #14 for the VBE follow-up).
+
+Any EE↔DAX measurement is decided on on-device ground truth, the offline
+pre-screens are only a filter, and changing a default mapping requires a
+second-device confirmation (the bar Finding 9 met).
+
 ### Follow-ups to close the gap to DAX
 
 The cheap, deterministic, XML-only experiments have been exhausted —
