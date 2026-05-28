@@ -1062,6 +1062,15 @@ back to 4096 taps, slightly *worsens* band accuracy. The
 `--fir-interp/--fir-fftsize/--fir-dc-anchor` flags added to test this are
 temporary scaffolding, to be reverted.
 
+Re-checked after the IEQ down-weight landed (in case the old full-weight
+HF error had masked a construction benefit): on the new, flatter
+`amount/100` target the current-vs-full-construction spread is *smaller*,
+not larger — audible-band (>100 Hz) RMS 0.47 dB vs 0.60 dB on the old
+curve. Expected: construction governs realisation fidelity (already
+~0.06 dB to the band points), not the target, so it cannot close the
+residual ~1 dB EE−DAX gap, which is a target/DAX-internal difference.
+Topic closed regardless of baseline — do not reopen without new evidence.
+
 **Mixed phase is rejected on latency (corroborates Finding 2).** His
 notebook ships causality=0.4 (mixed phase); his published RePhase IRs
 carry ~20 ms latency. Both have identical *magnitude* to minimum phase
