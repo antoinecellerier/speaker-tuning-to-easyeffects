@@ -8,17 +8,42 @@ tuning. The "shape" of the data here is the public DAX3 schema; the
 from __future__ import annotations
 
 import math
+import os
 import struct
 import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from scipy.signal import freqz
 
 # Make the converter importable from any test module.
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="run tests marked `slow` (e.g. the ee_to_pipewire corpus tier, "
+             "which validates every discovered XML's PW conf through lv2info "
+             "— minutes on a large corpus). ATMOS_RUN_SLOW=1 does the same.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `slow`-marked tests unless opted in via --run-slow / ATMOS_RUN_SLOW."""
+    if config.getoption("--run-slow") or os.environ.get("ATMOS_RUN_SLOW"):
+        return
+    skip_slow = pytest.mark.skip(
+        reason="slow: pass --run-slow or set ATMOS_RUN_SLOW=1 to run"
+    )
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)
 
 
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own

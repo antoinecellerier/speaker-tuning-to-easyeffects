@@ -40,6 +40,13 @@ from ee_to_pipewire import (
 )
 from tests.corpus.test_corpus import CORPUS, _skip_if_no_corpus
 
+# This tier runs the full XML→conf pipeline plus an lv2info subprocess for
+# every discovered XML (thousands on a populated corpus) — minutes of
+# wall-clock. Gated behind `slow`: `pytest --run-slow` or ATMOS_RUN_SLOW=1.
+# The fast structural invariants still run by default via
+# `tests/test_ee_to_pipewire.py` on the synthetic fixture.
+pytestmark = pytest.mark.slow
+
 VALIDATE_CONF_SCRIPT = (
     Path(__file__).resolve().parents[2]
     / "tools" / "measure_pw" / "validate_conf.py"

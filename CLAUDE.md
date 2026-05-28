@@ -11,7 +11,14 @@ A few things about this repo that aren't obvious from reading the code:
   the test code auto-discovers the same way the script does (NTFS
   mounts and CWD); set `ATMOS_CORPUS_DIR=/path/to/xmls` to override
   discovery, or do nothing and the corpus tier will skip cleanly when
-  no corpus is reachable. When changing math (FIR generation,
+  no corpus is reachable. The `ee_to_pipewire` corpus tier
+  (`tests/corpus/test_ee_to_pipewire_corpus.py`) additionally
+  validates every discovered XML's PipeWire conf through `lv2info`,
+  which is minutes of wall-clock on a populated corpus, so it's
+  marked `slow` and **skipped unless you pass `--run-slow`** (or set
+  `ATMOS_RUN_SLOW=1`); its fast structural invariants still run by
+  default via `tests/test_ee_to_pipewire.py` on the synthetic
+  fixture. When changing math (FIR generation,
   coefficient decoding, gain staging, unit conversions, filter
   design), add or extend a unit test — ad-hoc numpy/scipy scripts
   under `localresearch/` are still fine for exploration, but if a

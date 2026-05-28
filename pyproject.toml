@@ -2,3 +2,6 @@
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra"
+markers = [
+    "slow: expensive test (e.g. the ee_to_pipewire corpus tier, which runs every discovered XML's PW conf through lv2info). Skipped unless --run-slow or ATMOS_RUN_SLOW=1.",
+]
