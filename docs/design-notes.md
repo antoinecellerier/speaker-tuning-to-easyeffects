@@ -1158,10 +1158,10 @@ are live, shipping defaults.
 | # | Factor (`dolby_to_easyeffects.py`) | XML field | Why it's a guess | Path status | What would falsify it |
 |---|---|---|---|---|---|
 | 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA, `:1746`/`:2594`); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire, `:1725`); bell centered 2.5 kHz, Q≈0.7 | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | a **pink-noise** pre-screen is null/confounded (see roadmap): the cleanest DE contrast (`movie` amount=5 vs `game` amount=0, identical IEQ+AO target) shows ~0.01 dB RMS in-band — no static speech bell — while same-target profiles differ up to ~4 dB RMS from per-profile MI voicing (Finding 1). DAX's DE is evidently speech-gated, so it needs a **speech / speech-shaped stimulus** and ideally a same-profile DE-on-vs-off capture (the current battery has neither) |
-| 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`:1681`/`:2599`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | an M/S-residual probe on the stereo-correlated / stereo-pink stimuli, but a number→spatial-param mapping is hard to ground-truth — low priority |
+| 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`:1681`/`:2599`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | **not testable on in-hand data:** the captured battery uses *correlated* pink (`stimulus_pink.wav`, corr +1.0, no Side), so the widener is a no-op — and indeed surr=96 (`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical residual side/mid (≈ −35 dB). Needs the decorrelated `stimulus_stereo_pink` captured in stereo (Phase 3); a number→spatial-param mapping is still hard to ground-truth — low priority |
 | 3 | Convolver SoundWire headroom restore: `peak_db * 0.5` (`:2682`) | (none — post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | the 0.5 is chosen to "recover brightness"; not XML-derived | **default audible** on SoundWire | a SoundWire-device DAX capture (Snapdragon X / Yoga Slim 7x) |
-| 4 | Regulator slope→ratio: slope read `/16` (`:1268`), then `ratio = 1/(1−slope)` (`:2020`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | a bass-burst capture comparing gain-reduction-vs-level on devices with differing slope values |
-| 5 | Regulator timbre→knee: timbre read `/16` (`:1270`), then `knee = −6·timbre` dB (`:2024`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | the `−6` dB maximum knee is a pure guess; the field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | a device whose XML carries `timbre≠0.75`, plus a capture |
+| 4 | Regulator slope→ratio: slope read `/16` (`:1268`), then `ratio = 1/(1−slope)` (`:2020`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | **not testable on this device:** the X1 Yoga is `distortion-slope=16` on *every* profile, so there is no operating-point variation to fit `1/(1−slope)`. Needs a device with differing slope values + a bass-burst capture comparing gain-reduction-vs-level (Phase 4) |
+| 5 | Regulator timbre→knee: timbre read `/16` (`:1270`), then `knee = −6·timbre` dB (`:2024`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | the `−6` dB maximum knee is a pure guess; the field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | **not testable on this device:** the X1 Yoga is `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre` scaling has a single operating point. Needs a device whose XML carries `timbre≠0.75`, plus a capture (Phase 4) |
 | 6 | MBC ratio `1/(coeff/32768)` (`:1839`/`:1864`); time constants via Q15 with `block_size=256` → 187.5 blocks/s (`:1810`) | `mb-compressor-tuning` 6-tuples | the Q15 format and 256-sample block size are assumed from common DSP practice and only sanity-checked numerically, never measured | **dormant** — the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) | loud/dynamic content that drives the MBC, then measure attack/release/ratio against DAX |
 | 7 | Volume-leveler→autogain window: `max-history = 40−amount·4` / `30−amount·5` (`:1787`/`:1798`) | `volume-leveler-amount` (0–10) | the window formula is invented | **bypassed by default** (HDA); active only in the conservative SoundWire path | a capture of DAX's MI-steered leveler (non-LTI — hard) |
 
@@ -1187,10 +1187,18 @@ case — a fixed scaling in the default path, measurable against a DAX capture:
    cross-profile differencing on pink is the wrong test. Validating the 6/8 dB
    ceiling needs a speech / speech-shaped stimulus and, because MI voicing
    differs per profile, a *same-profile* DE-on-vs-off capture rather than a
-   cross-profile comparison. Surround (entry 2) and the regulator (entries 4/5)
-   have in-hand data too, though both are expected to be partly inconclusive
-   (the spatial mapping; the known DAX bass-control gap from Finding 4 and the
-   regulator-stress follow-up).
+   cross-profile comparison. **Surround (entry 2) — screened, not testable
+   offline.** The captured battery uses correlated pink (`stimulus_pink`,
+   corr +1.0), which has no Side component for the widener to act on; the
+   surr=96 (`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical
+   residual side/mid (≈ −35 dB). Falsifying the `/20` mapping needs the
+   decorrelated `stimulus_stereo_pink` captured in stereo (Phase 3).
+   **Regulator (entries 4/5) — not testable on this device.** The X1 Yoga is
+   `distortion-slope=16` and `timbre-preservation=12` (=0.75) on every profile,
+   so there is no operating-point variation to fit `1/(1−slope)` or `−6·timbre`;
+   these need a device with non-default values (Phase 4), independent of
+   stimulus. Net: of the offline pre-screens, only the dialog enhancer had
+   screenable in-hand data, and it came back negative/refining.
 2. *New in-house captures (X1 Yoga, HDA).* The Linux-side EE captures must be
    regenerated after Finding 9 — the FIR changed for every profile, so any
    pre-Finding-9 EE capture no longer reflects the shipped chain. Capture all
