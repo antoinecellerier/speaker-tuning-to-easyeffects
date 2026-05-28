@@ -14,6 +14,14 @@ Converts Dolby Atmos DAX3 tuning XML from Windows drivers into [EasyEffects](htt
 
 If you test it on other hardware, please open an issue with your device model and audio codec subsystem ID (`cat /proc/asound/card*/codec* | grep Subsystem`).
 
+## Staying up to date
+
+Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md), and each version is published as a [GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases). To be notified when a new version ships, click **Watch → Custom → Releases** at the top of the GitHub page.
+
+Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the `filter-chain` conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
+
+Each generated preset and `.conf` is stamped with the version that produced it (a `_generator` field in the preset JSON, a `# version:` line in the conf; `--version` prints it), so you can always tell what made a given file when reporting an issue.
+
 ## Quick start
 
 1. Install dependencies (see [Dependencies](#dependencies) below for your distro). TL;DR: you need Python 3 with NumPy and SciPy.

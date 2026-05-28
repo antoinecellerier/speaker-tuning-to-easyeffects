@@ -36,6 +36,8 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
+from _version import get_version
+
 try:
     from rich.console import Console
     from rich.theme import Theme
@@ -987,6 +989,7 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
         return path, "would-write"
     output_dir.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
+        "_generator": f"dolby_to_easyeffects.py {get_version()}",
         "output": {"blocklist": [], "plugins_order": []},
     }, indent=4) + "\n")
     return path, "written"
@@ -2245,6 +2248,7 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
     disabled = disabled or set()
     emitted = set()
     preset = {
+        "_generator": f"dolby_to_easyeffects.py {get_version()}",
         "output": {
             "blocklist": [],
             "convolver#0": make_convolver(kernel_name, output_gain=convolver_gain),
@@ -2350,6 +2354,12 @@ def main():
         description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
         epilog=epilog,
         formatter_class=formatter_class,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_version()}",
+        help="show version (git describe) and exit",
     )
     parser.add_argument(
         "xml_file",

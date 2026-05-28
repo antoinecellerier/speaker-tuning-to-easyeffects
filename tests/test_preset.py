@@ -91,6 +91,18 @@ def test_preset_has_output_section(generated):
     assert "plugins_order" in preset["output"]
 
 
+def test_preset_carries_generator_provenance(generated):
+    """The preset is stamped with a `_generator` provenance string so a
+    user (or an issue report) can tell which version produced it. It must
+    sit alongside `output`, not inside the EasyEffects plugin tree."""
+    preset, _ = generated
+    assert "_generator" in preset
+    assert preset["_generator"].startswith("dolby_to_easyeffects.py ")
+    assert "_generator" not in preset["output"]
+    # `output` and `_generator` are the only top-level keys.
+    assert set(preset) == {"_generator", "output"}
+
+
 def test_preset_round_trips_through_json(generated):
     """The preset must be JSON-serialisable in both directions — any
     non-serialisable value introduced by a future plugin builder breaks
