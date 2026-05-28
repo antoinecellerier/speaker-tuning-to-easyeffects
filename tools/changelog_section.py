@@ -42,6 +42,25 @@ def extract_section(text: str, version: str) -> str | None:
     return "\n".join(lines[start:end]).strip()
 
 
+def reflow(text: str) -> str:
+    """Merge soft-wrapped continuation lines into their parent line.
+
+    GitHub renders release notes (and issues/comments) with GFM hard line
+    breaks — every ``\\n`` becomes a ``<br>`` — so a bullet wrapped across
+    several physical lines in CHANGELOG.md would render broken mid-sentence.
+    Each line indented with leading whitespace is a soft-wrap continuation
+    of the line above it, so fold it back in; headings, blank lines, and
+    new ``- `` list items (all unindented) are left untouched.
+    """
+    out: list[str] = []
+    for line in text.split("\n"):
+        if line[:1].isspace() and out and out[-1].strip():
+            out[-1] = out[-1].rstrip() + " " + line.strip()
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -61,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: no '## {args.version}' section in {args.file}", file=sys.stderr)
         return 1
 
-    print(section)
+    print(reflow(section))
     return 0
 
 
