@@ -410,7 +410,10 @@ def build_reference(xml_path: Path, profile: str, curve: str) -> Reference:
         xml_path, endpoint_type="internal_speaker",
         operating_mode="normal", profile_type=profile,
     )
-    scale = ieq_amount / 10.0
+    # ieq-amount is a percentage (amount/100), matching the shipped
+    # converter since Finding 9; this reference must track the current
+    # default, not the old amount/10 full-weight reading.
+    scale = ieq_amount / 100.0
     ao_L = np.array(ao_left, dtype=float) / 16.0
     ao_R = np.array(ao_right, dtype=float) / 16.0
     curve_key = f"ieq_{curve}"
