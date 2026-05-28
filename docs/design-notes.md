@@ -1157,7 +1157,7 @@ are live, shipping defaults.
 
 | # | Factor (`dolby_to_easyeffects.py`) | XML field | Why it's a guess | Path status | What would falsify it |
 |---|---|---|---|---|---|
-| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA, `:1746`/`:2594`); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire, `:1725`); bell centered 2.5 kHz, Q≈0.7 | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | the X1 Yoga DAX capture battery already covers these profiles at three DE amounts (0/3/5) — compare the 2–5 kHz residual DE-on vs DE-off: does DAX lift the speech band, and does the lift scale with `amount`? |
+| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA, `:1746`/`:2594`); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire, `:1725`); bell centered 2.5 kHz, Q≈0.7 | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | a **pink-noise** pre-screen is null/confounded (see roadmap): the cleanest DE contrast (`movie` amount=5 vs `game` amount=0, identical IEQ+AO target) shows ~0.01 dB RMS in-band — no static speech bell — while same-target profiles differ up to ~4 dB RMS from per-profile MI voicing (Finding 1). DAX's DE is evidently speech-gated, so it needs a **speech / speech-shaped stimulus** and ideally a same-profile DE-on-vs-off capture (the current battery has neither) |
 | 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`:1681`/`:2599`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | an M/S-residual probe on the stereo-correlated / stereo-pink stimuli, but a number→spatial-param mapping is hard to ground-truth — low priority |
 | 3 | Convolver SoundWire headroom restore: `peak_db * 0.5` (`:2682`) | (none — post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | the 0.5 is chosen to "recover brightness"; not XML-derived | **default audible** on SoundWire | a SoundWire-device DAX capture (Snapdragon X / Yoga Slim 7x) |
 | 4 | Regulator slope→ratio: slope read `/16` (`:1268`), then `ratio = 1/(1−slope)` (`:2020`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | a bass-burst capture comparing gain-reduction-vs-level on devices with differing slope values |
@@ -1175,12 +1175,21 @@ case — a fixed scaling in the default path, measurable against a DAX capture:
 1. *Offline pre-screen, on data already in hand.* Recompute the current
    converter's target without the stage under test, subtract from the matching
    DAX capture, and read the residual — the same offline screen that flagged
-   the `ieq-amount` weight before any new measurement. The dialog enhancer
-   (entry 1) is the strongest candidate: the X1 Yoga DAX battery already spans
-   DE amounts 0/3/5, so the speech-band residual can be compared across
-   profiles now. Surround (entry 2) and the regulator (entries 4/5) have
-   in-hand data too, though both are expected to be partly inconclusive (the
-   spatial mapping; the known DAX bass-control gap from Finding 4 and the
+   the `ieq-amount` weight before any new measurement. **Dialog enhancer (entry
+   1) — done, result negative/refining.** Across the X1 Yoga pink battery, the
+   profiles that differ only in DE amount do not differ in steady-state
+   magnitude: `movie` (amount=5) vs `game` (amount=0) is ~0.01 dB RMS in-band,
+   and `dynamic`/`movie`/`game` all sit within ~1 dB RMS despite DE 5/5/0 — far
+   below the modelled ~1.25 dB bell. Meanwhile profiles with *identical* IEQ+AO
+   (`music` vs `game`, both DE off) differ by ~4 dB RMS, i.e. per-profile MI
+   voicing (Finding 1, non-LTI) dwarfs and is uncorrelated with DE amount. So
+   the DE is content-adaptive (speech-gated): pink cannot excite it, and
+   cross-profile differencing on pink is the wrong test. Validating the 6/8 dB
+   ceiling needs a speech / speech-shaped stimulus and, because MI voicing
+   differs per profile, a *same-profile* DE-on-vs-off capture rather than a
+   cross-profile comparison. Surround (entry 2) and the regulator (entries 4/5)
+   have in-hand data too, though both are expected to be partly inconclusive
+   (the spatial mapping; the known DAX bass-control gap from Finding 4 and the
    regulator-stress follow-up).
 2. *New in-house captures (X1 Yoga, HDA).* The Linux-side EE captures must be
    regenerated after Finding 9 — the FIR changed for every profile, so any
