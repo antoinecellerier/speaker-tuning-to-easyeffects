@@ -1039,6 +1039,98 @@ the LSP-cascade-plus-Saturator chain when the XML carries
 step if a listening test confirms the captured improvement is
 audible.
 
+### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue #13)
+
+Issue #13 (taprobane99) opened arguing our 20-band → FIR construction was
+wrong and biquad-fitting was right. The biquad-vs-FIR question was settled
+in the thread (the cepstral FIR sits within 0.34 dB of the target; biquad
+fits leave 10–16 dB ripple). But reproducing his follow-up work surfaced
+two substantive points — one that doesn't matter, and one that does.
+
+**Construction details don't matter (rejected).** He proposed PCHIP
+interpolation (vs our linear-in-dB over log-f), a large cepstral FFT
+(65536 vs `FIR_LENGTH`), and explicit DC/Nyquist anchoring. An offline
+pre-screen plus an on-device measured sweep (build the 4096-tap min-phase
+FIR each way, capture through the live EE chain with
+`tools/measure_ee/sweep_variants.sh`, score vs the X1 Yoga DAX pink
+capture) put all three within <0.3 dB of the current construction; a
+"construction-only" variant measured 12.30 dB EE−DAX RMS vs the baseline's
+12.04 — i.e. no movement. Our cepstral FIR already realises the target
+within ~0.06 dB and linear-in-dB interpolation does not Gibbs-ring; the
+larger FFT only changes <80 Hz (masked by the 100 Hz HP) and, truncated
+back to 4096 taps, slightly *worsens* band accuracy. The
+`--fir-interp/--fir-fftsize/--fir-dc-anchor` flags added to test this are
+temporary scaffolding, to be reverted.
+
+**Mixed phase is rejected on latency (corroborates Finding 2).** His
+notebook ships causality=0.4 (mixed phase); his published RePhase IRs
+carry ~20 ms latency. Both have identical *magnitude* to minimum phase
+(0.00 dB) but add 6–20 ms group delay and pre-ring. We keep pure
+min-phase (causality=1.0, zero added latency) — the same hybrid-phase
+character Finding 2 saw in DAX and ruled out on the no-latency constraint.
+
+**The IEQ is applied at ~10× too much weight (the real finding).** He
+replaced our full-weight `IEQ + AO` with `AO + 0.10·(IEQ − mean(IEQ))`,
+noting the full IEQ "dominates the impulse." Measured on-device (X1 Yoga,
+dynamic/balanced, pink, norm @1 kHz, in-band 200–18 kHz):
+
+| variant | EE−DAX RMS | EE−DAX max |
+|---|--:|--:|
+| baseline `IEQ+AO` | 12.04 | 26.03 |
+| `AO + 0.10·IEQ` | **1.03** | **3.94** |
+| `AO + 0.25·IEQ` | 2.38 | 5.30 |
+
+Down-weighting collapses the long-standing EE↔DAX treble gap: per-band
+19.7 kHz goes −28.2 → −1.5 dB, 13.9 kHz −16.7 → −0.6, 11.25 kHz −9.7 →
++0.1, costing ≤1 dB in two already-good mid bands (328 Hz, 4.7 kHz). This
+is the gap Findings 4/6/7 attributed to "fixed DAX-internal HF voicing
+outside the XML" — but it is largely **our own interpretation error**: we
+apply the full IEQ as a static EQ.
+
+**Where the weight comes from: `ieq-amount` is a percentage, not a /10
+scale.** The converter maps `ieq-amount` → `amount/10` (corpus value 10 →
+scale 1.0 → full IEQ). Reading the same field as a *percentage*,
+`amount/100`, gives 10 → 0.10 — exactly his weight, and exactly the
+offline optimum (a fine weight sweep minimises in-band EE−DAX RMS at
+w=0.100, rising on both sides). Corpus support: `ieq-amount` is 10 on
+every internal-speaker profile but 8 on some headphone profiles, so it is
+a real per-endpoint field consistent with a percentage. The mean-centering
+he added is **not** load-bearing for the spectral match — centered and
+uncentered give identical normalised shape (it shifts only broadband
+level, removed by normalisation / the convolver's peak handling). So the
+essential candidate correction is one line: `scale = ieq_amount/100`, not
+`/10`.
+
+**Why a small static weight works — `mi-ieq-steering-enable`.** The IEQ
+profile carries `mi-ieq-steering-enable=1`: DAX applies the IEQ through
+content-adaptive Media Intelligence steering, not a static EQ (the same MI
+steering the converter already flags as non-LTI and unreproducible). A low
+static weight (~amount/100) approximates the *steady-state* of that
+dynamic stage — so the percentage reading is itself a steady-state
+approximation, but XML-grounded rather than a magic number.
+
+**Status — ADOPTED.** The default mapping is now `scale = ieq_amount/100`
+(`dolby_to_easyeffects.py`), down from `amount/10`. Evidence: device-1 DAX
+match (this finding) plus a second device — taprobane99's Yoga Slim 7x,
+where two independent methods (his cepstral notebook at 10% and his RePhase
+hand-tuning, the latter landing on flat HF: 19.7 kHz at −8.5 dB rel. 234 Hz,
+not the −43 dB of full-weight IEQ) reach the same down-weight. The
+generated default IR is byte-identical to the on-device-validated 0.10
+variant. The temporary investigation flags (`--ieq-weight`/`--ieq-center`,
+`--fir-interp`/`--fir-fftsize`/`--fir-dc-anchor`) and the `make_fir`
+construction parametrisation are reverted — construction tweaks measured
+negligible, mixed phase is rejected on latency.
+
+**Residual open question (falsifiable).** Every speaker DAX capture we have
+uses `amount=10`, so we cannot yet distinguish "amount/100 as a true
+percentage" from "≈0.10 constant for speakers". The `/100` form is the
+XML-grounded reading (it reduces to the confirmed 0.10 at amount=10 and
+tracks the corpus variation — `amount=8` on some headphone profiles → 8%).
+A DAX capture from a device with `ieq-amount≠10` would confirm or falsify
+the percentage interpretation; until then `/100` is a hypothesis that fits
+all current evidence, per the standing principle that the XML→parameter
+mappings are empirically falsifiable.
+
 ### Follow-ups to close the gap to DAX
 
 The cheap, deterministic, XML-only experiments have been exhausted —

@@ -2547,8 +2547,15 @@ def main():
             profile_type=profile_type,
         )
 
-        scale = ieq_amount / 10.0
-        print(f"ieq-amount: {ieq_amount}/10 (scale: {scale:.2f})")
+        # ieq-amount is a percentage: amount=10 -> the IEQ voicing is applied
+        # at 10% weight on top of the audio-optimizer correction, not as a
+        # full-depth EQ. DAX steers the IEQ via Media Intelligence
+        # (mi-ieq-steering-enable), so a small static weight approximates its
+        # steady-state; full weight (the old amount/10 reading) over-applied
+        # the IEQ and crashed the HF match to DAX by up to ~28 dB. See
+        # docs/design-notes.md "Finding 9".
+        scale = ieq_amount / 100.0
+        print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
 
         # Audio-optimizer curves in dB
         ao_db_left = np.array(ao_left) / 16.0

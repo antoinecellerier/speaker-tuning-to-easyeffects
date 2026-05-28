@@ -202,7 +202,7 @@ Output files:
 
 - **IEQ and audio-optimizer values**: stored in **1/16 dB** units. Divide by 16 to get dB. Confirmed by `geq_maximum_range=192` = 12 dB (standard graphic EQ range).
 - **Speaker PEQ gains**: already in dB (float attributes in XML like `gain="-4.000000"`).
-- **ieq-amount**: 0–10 scale where 10 = full strength. Not 0–16 despite other values using /16 convention.
+- **ieq-amount**: a **percentage** weight on the IEQ voicing — `10` means the IEQ curve is applied at 10% on top of the audio-optimizer correction (`scale = amount/100`), not as a full-depth EQ. (Earlier versions read it as `amount/10` = full strength; that over-applied the IEQ and diverged from DAX by up to ~28 dB in the treble. DAX steers the IEQ dynamically via Media Intelligence — `mi-ieq-steering-enable` — so a small static weight approximates its steady-state. See `docs/design-notes.md` "Finding 9".)
 
 ### IEQ target curves are composite targets, not filter gains
 
@@ -250,7 +250,7 @@ The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samp
     <profile type="dynamic">              ← also: movie, music, game, voice
       <tuning-cp>
         <ieq-enable value="1"/>           ← enabled for dynamic, music
-        <ieq-amount value="10"/>          ← 0-10 scale
+        <ieq-amount value="10"/>          ← percentage weight (10 = 10%)
         <ieq-bands-set preset="ieq_balanced"/>
         <volume-leveler-enable value="1"/>
         <volume-leveler-amount value="2"/>  ← 0-10 (aggressiveness)
