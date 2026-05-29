@@ -2237,14 +2237,28 @@ def make_multiband_compressor(mb_comp, freqs):
     if n_bands < 1:
         return None
 
-    def decode_band(bg):
+    def decode_band(i, bg):
+        # i is the band index, used only to name the band in fallback warnings;
+        # this runs in the emit/builder path (once per band), not the main()
+        # diagnostics re-decode, so each warning fires at most once per run.
         xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
         threshold = thresh_raw / 16.0
         # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
         gain_frac = gain_raw / 32768.0
-        ratio = 1.0 / gain_frac if gain_frac > 0.01 else 100.0
+        if gain_frac > 0.01:
+            ratio = 1.0 / gain_frac
+        else:
+            ratio = 100.0  # out-of-range gain → clamp to practical max
+            cprint("warn", f"  Warning: MBC band {i} gain coeff {gain_raw} "
+                   f"out of range — clamping ratio to {ratio:.0f}:1")
         attack_ms = decode_mbc_time_constant(attack_raw)
+        if not 0 < attack_raw < 32768:
+            cprint("warn", f"  Warning: MBC band {i} attack coeff {attack_raw} "
+                   f"out of range — using {attack_ms:.0f} ms fallback")
         release_ms = decode_mbc_time_constant(release_raw)
+        if not 0 < release_raw < 32768:
+            cprint("warn", f"  Warning: MBC band {i} release coeff {release_raw} "
+                   f"out of range — using {release_ms:.0f} ms fallback")
         makeup = makeup_raw / 16.0
         return {
             "xover_idx": xover_idx,
@@ -2255,7 +2269,7 @@ def make_multiband_compressor(mb_comp, freqs):
             "makeup": makeup,
         }
 
-    decoded = [decode_band(bg) for bg in band_groups[:n_bands]]
+    decoded = [decode_band(i, bg) for i, bg in enumerate(band_groups[:n_bands])]
 
     # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
     # band i+1's lower edge is the same frequency. Only the first n_bands - 1

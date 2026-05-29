@@ -101,6 +101,55 @@ def test_make_multiband_compressor_clamps_extreme_ratio():
     assert out["band0"]["ratio"] == 100.0
 
 
+def test_make_multiband_compressor_warns_on_out_of_range_coeffs(capsys):
+    """A silent value-replacing fallback (clamped ratio, fallback time
+    constant) must surface in the log naming the band and raw coeff —
+    the fallback *value* is kept, only a warning is added. The warning
+    fires in the builder/emit path (make_multiband_compressor), once per
+    band, not in main()'s diagnostics re-decode.
+
+    band0: out-of-range gain → ratio clamp warning.
+    band1: out-of-range attack + release coeffs → two time-constant warnings.
+    band2: all coeffs in range → no warning.
+    """
+    mb = synthetic_mb_comp(group_count=3, bands=[
+        # gain_frac < 0.01 → ratio clamp; attack/release in range (no time warn)
+        (7, -160, 100, 30000, 32500, 0),
+        # attack=0 and release=32768 are both out of range → two time warnings;
+        # gain in range so no ratio warning here
+        (14, -160, 16384, 0, 32768, 0),
+        # everything in range → silent
+        (20, -160, 16384, 30000, 32500, 0),
+    ])
+    out = make_multiband_compressor(mb, SYNTHETIC_FREQS_20)
+    err = capsys.readouterr().out
+
+    # Fallback values are unchanged.
+    assert out["band0"]["ratio"] == 100.0
+    assert out["band1"]["attack-time"] == 100.0
+    assert out["band1"]["release-time"] == 100.0
+
+    # Warnings name the affected band and the raw coeff.
+    assert "MBC band 0 gain coeff 100" in err
+    assert "MBC band 1 attack coeff 0" in err
+    assert "MBC band 1 release coeff 32768" in err
+
+    # The in-range band is silent, and each warning fires exactly once.
+    assert "MBC band 2" not in err
+    assert err.count("out of range") == 3
+
+
+def test_make_multiband_compressor_no_warn_on_normal_coeffs(capsys):
+    """In-range coefficients (the common corpus case) print no fallback
+    warning — the warning is reserved for genuine out-of-range guards.
+    """
+    mb = synthetic_mb_comp(group_count=1, bands=[
+        (20, -160, 16384, 30000, 32500, 0),
+    ])
+    make_multiband_compressor(mb, SYNTHETIC_FREQS_20)
+    assert "out of range" not in capsys.readouterr().out
+
+
 # --- warn_unmodeled_features: watching-only XML fields ---
 
 def _capture_warnings(monkeypatch, profile_xml: str) -> list[str]:
