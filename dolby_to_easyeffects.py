@@ -2226,6 +2226,58 @@ def _disabled_band() -> dict:
     }
 
 
+def decode_mbc_bands(mb_comp):
+    """Decode Dolby mb-compressor band_groups into per-band dynamics dicts.
+
+    Single source of truth for the MBC band decode: both
+    ``make_multiband_compressor`` (the LSP builder) and the main()
+    diagnostics printer (`_report_parsed_profile`) call this so they can
+    never drift. Returns a list of dicts, one per emitted band, each with
+    keys: ``xover_idx``, ``threshold`` (dB), ``ratio`` (x:1),
+    ``attack_ms``, ``release_ms``, ``makeup`` (dB).
+
+    PURE — no printing or warnings. The R5 out-of-range fallback warnings
+    (ratio clamp, attack/release Q15-range fallbacks) are emitted by the
+    builder only, so they fire exactly once per band per run (this decode
+    is also called by the silent diagnostics path). Out-of-range values
+    are still *handled* here (ratio clamps to 100.0, time constants fall
+    back via ``decode_mbc_time_constant``) so the returned values match
+    what the builder emits — the builder just additionally warns.
+
+    Band selection mirrors the builder: at most ``group_count`` bands,
+    capped by the number of band_groups parsed and LSP's 8-band limit.
+    Returns ``[]`` when there is nothing to decode.
+    """
+    if not mb_comp:
+        return []
+
+    band_groups = mb_comp["band_groups"]
+    n_bands = min(mb_comp["group_count"], len(band_groups), 8)
+    if n_bands < 1:
+        return []
+
+    decoded = []
+    for bg in band_groups[:n_bands]:
+        xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
+        threshold = thresh_raw / DB_FIXED_POINT_SCALE
+        # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
+        gain_frac = gain_raw / Q15_SCALE
+        # out-of-range gain → clamp to practical max (builder warns)
+        ratio = 1.0 / gain_frac if gain_frac > 0.01 else 100.0
+        attack_ms = decode_mbc_time_constant(attack_raw)
+        release_ms = decode_mbc_time_constant(release_raw)
+        makeup = makeup_raw / DB_FIXED_POINT_SCALE
+        decoded.append({
+            "xover_idx": xover_idx,
+            "threshold": threshold,
+            "ratio": ratio,
+            "attack_ms": attack_ms,
+            "release_ms": release_ms,
+            "makeup": makeup,
+        })
+    return decoded
+
+
 def make_multiband_compressor(mb_comp, freqs):
     """Multi-band compressor mapping from Dolby mb-compressor-tuning.
 
@@ -2256,44 +2308,28 @@ def make_multiband_compressor(mb_comp, freqs):
     if not mb_comp:
         return None
 
-    band_groups = mb_comp["band_groups"]
-    n_bands = min(mb_comp["group_count"], len(band_groups), 8)
+    decoded = decode_mbc_bands(mb_comp)
+    n_bands = len(decoded)
     if n_bands < 1:
         return None
+    band_groups = mb_comp["band_groups"]
 
-    def decode_band(i, bg):
-        # i is the band index, used only to name the band in fallback warnings;
-        # this runs in the emit/builder path (once per band), not the main()
-        # diagnostics re-decode, so each warning fires at most once per run.
-        xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
-        threshold = thresh_raw / DB_FIXED_POINT_SCALE
-        # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
-        gain_frac = gain_raw / Q15_SCALE
-        if gain_frac > 0.01:
-            ratio = 1.0 / gain_frac
-        else:
-            ratio = 100.0  # out-of-range gain → clamp to practical max
+    # R5 fallback warnings about the EMITTED dynamics. decode_mbc_bands is
+    # pure/silent (it is also called by the main() diagnostics, which must
+    # not re-warn), so the warnings live here in the builder path only —
+    # firing exactly once per affected band per run. Walk the decoded bands
+    # alongside their raw band_groups to inspect the original coefficients.
+    for i, (b, bg) in enumerate(zip(decoded, band_groups[:n_bands])):
+        _, _, gain_raw, attack_raw, release_raw, _ = bg
+        if not gain_raw / Q15_SCALE > 0.01:
             cprint("warn", f"  Warning: MBC band {i} gain coeff {gain_raw} "
-                   f"out of range — clamping ratio to {ratio:.0f}:1")
-        attack_ms = decode_mbc_time_constant(attack_raw)
+                   f"out of range — clamping ratio to {b['ratio']:.0f}:1")
         if not 0 < attack_raw < Q15_SCALE:
             cprint("warn", f"  Warning: MBC band {i} attack coeff {attack_raw} "
-                   f"out of range — using {attack_ms:.0f} ms fallback")
-        release_ms = decode_mbc_time_constant(release_raw)
+                   f"out of range — using {b['attack_ms']:.0f} ms fallback")
         if not 0 < release_raw < Q15_SCALE:
             cprint("warn", f"  Warning: MBC band {i} release coeff {release_raw} "
-                   f"out of range — using {release_ms:.0f} ms fallback")
-        makeup = makeup_raw / DB_FIXED_POINT_SCALE
-        return {
-            "xover_idx": xover_idx,
-            "threshold": threshold,
-            "ratio": ratio,
-            "attack_ms": attack_ms,
-            "release_ms": release_ms,
-            "makeup": makeup,
-        }
-
-    decoded = [decode_band(i, bg) for i, bg in enumerate(band_groups[:n_bands])]
+                   f"out of range — using {b['release_ms']:.0f} ms fallback")
 
     # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
     # band i+1's lower edge is the same frequency. Only the first n_bands - 1
@@ -2778,9 +2814,14 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
         tag = "  [experimental]" if mb_comp["group_count"] == 1 else ""
         print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s){tag}")
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
-        n_bands_print = mb_comp["group_count"]
-        for i, bg in enumerate(mb_comp["band_groups"][:n_bands_print]):
-            xover_idx = bg[0]
+        # Print FROM the single-source decode — no inline re-decode, no
+        # warnings (those fire in make_multiband_compressor). xover_hz is a
+        # display concern derived here from the stored xover_idx + band
+        # position, exactly as before.
+        decoded = decode_mbc_bands(mb_comp)
+        n_bands_print = len(decoded)
+        for i, b in enumerate(decoded):
+            xover_idx = b["xover_idx"]
             if i == n_bands_print - 1:
                 # Sentinel in the last band — the band runs to Nyquist
                 xover_hz = "full-band" if n_bands_print == 1 else "Nyquist"
@@ -2788,15 +2829,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
                 xover_hz = f"{freqs[xover_idx]} Hz"
             else:
                 xover_hz = "?"
-            thresh = bg[1] / DB_FIXED_POINT_SCALE
-            ratio_frac = bg[2] / Q15_SCALE
-            ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
-            attack = decode_mbc_time_constant(bg[3])
-            release = decode_mbc_time_constant(bg[4])
-            makeup = bg[5] / DB_FIXED_POINT_SCALE
-            print(f"  band {i}: xover={xover_hz}, thresh={thresh:+.1f} dB, "
-                  f"ratio={ratio:.2f}:1, attack={attack:.2f} ms, "
-                  f"release={release:.2f} ms, makeup={makeup:+.1f} dB")
+            print(f"  band {i}: xover={xover_hz}, thresh={b['threshold']:+.1f} dB, "
+                  f"ratio={b['ratio']:.2f}:1, attack={b['attack_ms']:.2f} ms, "
+                  f"release={b['release_ms']:.2f} ms, makeup={b['makeup']:+.1f} dB")
 
     if regulator:
         print(f"\nRegulator (per-band limiter):")

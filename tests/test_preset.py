@@ -29,6 +29,7 @@ from dolby_to_easyeffects import (
     FIR_LENGTH,
     SAMPLE_RATE,
     _disabled_band,
+    decode_mbc_bands,
     make_fir,
     make_multiband_compressor,
     make_peq_eq,
@@ -299,6 +300,35 @@ def test_disabled_band_trap_keys_across_both_builders():
                     f"{label} band{i}: disabled band enable-band is not False"
                 assert b == _disabled_band(), \
                     f"{label} band{i}: disabled band drifted from _disabled_band()"
+
+
+def test_decode_mbc_bands_is_single_source_for_builder():
+    """M-DUP-PRINT: decode_mbc_bands is the one decode both the LSP builder
+    and the main() diagnostics consume. Lock in that the values the builder
+    emits (after its rounding) match decode_mbc_bands exactly, so the two
+    can never silently drift apart again.
+
+    The second band uses an out-of-range gain coeff (0) so the ratio-clamp
+    path (decode -> 100.0) is covered too — the case where the old inline
+    diagnostics re-decode printed inf instead of the emitted 100.
+    """
+    mb = synthetic_mb_comp(group_count=2, bands=[
+        (10, -48, 16384, 30000, 32500, -32),   # in-range: ratio ~2:1
+        (20, -96, 0, 30000, 32500, 16),         # gain coeff 0 -> ratio clamps to 100
+    ])
+    bands = decode_mbc_bands(mb)
+    assert len(bands) == 2
+    assert bands[1]["ratio"] == 100.0, \
+        "out-of-range gain must clamp to 100.0, not inf"
+
+    mbc = make_multiband_compressor(mb, SYNTHETIC_FREQS_20)
+    for i, b in enumerate(bands):
+        emitted = mbc[f"band{i}"]
+        assert emitted["attack-threshold"] == round(b["threshold"], 4)
+        assert emitted["attack-time"] == round(b["attack_ms"], 4)
+        assert emitted["release-time"] == round(b["release_ms"], 4)
+        assert emitted["ratio"] == round(b["ratio"], 4)
+        assert emitted["makeup"] == round(b["makeup"], 4)
 
 
 # --- TRAP: PEQ output-gain compensation for clipping/loudness ---
