@@ -204,3 +204,45 @@ def test_warn_existing_unmodeled_features_still_fire(monkeypatch):
     """)
     assert any("Dynamic Speaker Optimization" in m for m in out)
     assert any("advanced speaker virtualizer" in m for m in out)
+
+
+class TestIntAttr:
+    """_int_attr() — safe int read of a ``value=`` attribute.
+
+    Centralises the ``int(el.get("value"))`` idiom so a missing element or a
+    present-but-blank/absent attribute degrades to a default instead of raising
+    AttributeError/TypeError (neither caught by the CLI handler), while
+    genuinely non-integer data still raises a clean ValueError (which is).
+    """
+
+    def test_missing_element_returns_default(self):
+        assert dolby_to_easyeffects._int_attr(None, default=7) == 7
+
+    def test_missing_element_defaults_to_none(self):
+        assert dolby_to_easyeffects._int_attr(None) is None
+
+    def test_absent_attribute_returns_default(self):
+        el = ET.fromstring("<foo/>")
+        assert dolby_to_easyeffects._int_attr(el, default=-5) == -5
+
+    def test_empty_attribute_returns_default(self):
+        el = ET.fromstring('<foo value=""/>')
+        assert dolby_to_easyeffects._int_attr(el, default=3) == 3
+
+    def test_normal_value_parsed(self):
+        el = ET.fromstring('<foo value="42"/>')
+        assert dolby_to_easyeffects._int_attr(el, default=0) == 42
+
+    def test_negative_value_parsed(self):
+        # The raw 1/16-dB integers the schema uses are frequently negative.
+        el = ET.fromstring('<foo value="-320"/>')
+        assert dolby_to_easyeffects._int_attr(el) == -320
+
+    def test_garbage_value_raises_valueerror(self):
+        el = ET.fromstring('<foo value="not-an-int"/>')
+        with pytest.raises(ValueError):
+            dolby_to_easyeffects._int_attr(el)
+
+    def test_custom_attribute_name(self):
+        el = ET.fromstring('<foo count="9"/>')
+        assert dolby_to_easyeffects._int_attr(el, default=0, name="count") == 9

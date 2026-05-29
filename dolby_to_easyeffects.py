@@ -1079,6 +1079,24 @@ def resolve_xml_value(element, constants):
     return ""
 
 
+def _int_attr(element, default=None, name="value"):
+    """Read an integer ``name=`` attribute, degrading to ``default``.
+
+    Returns ``default`` when ``element`` is None or the attribute is absent
+    or empty. Centralises the ``int(el.get("value"))`` idiom, which
+    otherwise raises ``TypeError`` on a present element with a missing or
+    blank ``value=`` — a plausible hand-edited or schema-variant shape that
+    the CLI top-level did not catch. A present, non-empty but non-integer
+    value still raises ``ValueError`` (surfaced cleanly by the CLI handler).
+    """
+    if element is None:
+        return default
+    raw = element.get(name)
+    if raw is None or raw == "":
+        return default
+    return int(raw)
+
+
 def parse_xml(path: Path, endpoint_type="internal_speaker",
               operating_mode="normal", profile_type=None):
     tree = ET.parse(path)
@@ -1140,9 +1158,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if cp is not None:
         enable = cp.find("ieq-enable")
         if enable is not None and enable.get("value") == "1":
-            amt = cp.find("ieq-amount")
-            if amt is not None:
-                ieq_amount = int(amt.get("value"))
+            ieq_amount = _int_attr(cp.find("ieq-amount"), default=ieq_amount)
 
     vlldp = profile.find("tuning-vlldp")
 
@@ -1192,10 +1208,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             vl_in = cp.find("volume-leveler-in-target")
             vl_out = cp.find("volume-leveler-out-target")
             vol_leveler = {
-                "enable": int(vl_enable.get("value")),
-                "amount": int(vl_amount.get("value")) if vl_amount is not None else 0,
-                "in_target": int(vl_in.get("value")) / 16.0 if vl_in is not None else -20.0,
-                "out_target": int(vl_out.get("value")) / 16.0 if vl_out is not None else -20.0,
+                "enable": _int_attr(vl_enable, default=0),
+                "amount": _int_attr(vl_amount, default=0),
+                "in_target": _int_attr(vl_in, default=-320) / 16.0,   # -320/16 = -20.0 dBFS
+                "out_target": _int_attr(vl_out, default=-320) / 16.0,
             }
 
     # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
@@ -1206,16 +1222,15 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if cp is not None:
         volmax = cp.find("volmax-boost")
         if volmax is not None:
-            volmax_boost = int(volmax.get("value")) / 16.0
+            volmax_boost = _int_attr(volmax, default=0) / 16.0
 
     # Dialog enhancer settings (from tuning-cp)
     dialog_enhancer = None
     if cp is not None:
         de_enable = cp.find("dialog-enhancer-enable")
         if de_enable is not None and de_enable.get("value") == "1":
-            de_amount = cp.find("dialog-enhancer-amount")
             dialog_enhancer = {
-                "amount": int(de_amount.get("value")) if de_amount is not None else 5,
+                "amount": _int_attr(cp.find("dialog-enhancer-amount"), default=5),
             }
 
     # Surround virtualizer settings (from tuning-cp)
@@ -1223,9 +1238,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if cp is not None:
         sr_enable = cp.find("surround-decoder-enable")
         if sr_enable is not None and sr_enable.get("value") == "1":
-            sr_boost = cp.find("surround-boost")
             surround = {
-                "boost": int(sr_boost.get("value")) / 16.0 if sr_boost is not None else 0.0,
+                "boost": _int_attr(cp.find("surround-boost"), default=0) / 16.0,
             }
 
     # Multi-band compressor settings (from tuning-vlldp)
@@ -1234,19 +1248,22 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if mbc_enable is not None and mbc_enable.get("value") == "1":
         mbc_tuning = vlldp.find("mb-compressor-tuning")
         if mbc_tuning is not None:
-            group_count = int(mbc_tuning.find("group_count").get("value"))
             band_groups = []
             for i in range(4):
                 bg = mbc_tuning.find(f"band_group_{i}")
                 if bg is not None:
                     band_groups.append(parse_csv_ints(bg.get("value")))
+            # group_count is present on every corpus XML; default to the
+            # number of band groups actually found if a variant omits it.
+            group_count = _int_attr(mbc_tuning.find("group_count"),
+                                    default=len(band_groups))
             target_power = vlldp.find("mb-compressor-target-power-level")
             # Also grab regulator stress for additional context
             reg_stress = vlldp.find("regulator-stress-amount")
             mb_comp = {
                 "group_count": group_count,
                 "band_groups": band_groups,
-                "target_power": int(target_power.get("value")) / 16.0 if target_power is not None else -5.0,
+                "target_power": _int_attr(target_power, default=-80) / 16.0,   # -80/16 = -5.0 dB
                 "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
             }
 
@@ -1265,18 +1282,18 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             reg_stress = vlldp.find("regulator-stress-amount")
             stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
             reg_slope = vlldp.find("regulator-distortion-slope")
-            slope = int(reg_slope.get("value")) / 16.0 if reg_slope is not None else 1.0
+            slope = _int_attr(reg_slope, default=16) / 16.0   # 16/16 = 1.0
             reg_timbre = vlldp.find("regulator-timbre-preservation")
-            timbre = int(reg_timbre.get("value")) / 16.0 if reg_timbre is not None else 0.75
+            timbre = _int_attr(reg_timbre, default=12) / 16.0   # 12/16 = 0.75
             # `regulator-overdrive` and `regulator-relaxation-amount` are read
             # for visibility (debug print + watch warn) but not yet mapped to
             # any LSP plugin parameter — the corpus shows them as constants
             # (overdrive=0, relaxation=96 in 1/16-dB units) so we have no
             # signal to disambiguate the right mapping.
             reg_overdrive = vlldp.find("regulator-overdrive")
-            overdrive = int(reg_overdrive.get("value")) if reg_overdrive is not None else 0
+            overdrive = _int_attr(reg_overdrive, default=0)
             reg_relax = vlldp.find("regulator-relaxation-amount")
-            relaxation = int(reg_relax.get("value")) if reg_relax is not None else 96
+            relaxation = _int_attr(reg_relax, default=96)
             regulator = {
                 "threshold_high": th,
                 "threshold_low": tl,
