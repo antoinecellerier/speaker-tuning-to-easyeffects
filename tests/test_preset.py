@@ -28,9 +28,12 @@ import pytest
 from dolby_to_easyeffects import (
     FIR_LENGTH,
     SAMPLE_RATE,
+    _disabled_band,
     make_fir,
+    make_multiband_compressor,
     make_peq_eq,
     make_preset,
+    make_regulator,
     save_wav_stereo,
 )
 from tests.conftest import (
@@ -258,6 +261,44 @@ def test_regulator_compression_mode_is_downward_on_every_band(generated):
     for i in range(8):
         band = reg[f"band{i}"]
         assert band["compression-mode"] == "Downward"
+
+
+def test_disabled_band_trap_keys_across_both_builders():
+    """The LSP "band off" dict is shared via _disabled_band() (finding S1).
+
+    Exercise active AND disabled bands of both make_multiband_compressor and
+    make_regulator, and assert the trap-fix values survive on every band:
+    compression-mode "Downward" (LSP defaults to "Upward"), boost-amount 0.0
+    (LSP's upward-compression default must stay off), and enable-band False on
+    disabled bands. Disabled bands must match _disabled_band() exactly, so a
+    dropped/reordered key in the shared helper turns the build red.
+    """
+    # group_count=2 -> bands 0-1 active, bands 2-7 disabled.
+    mbc = make_multiband_compressor(
+        synthetic_mb_comp(group_count=2, bands=[
+            (10, -160, 16384, 30000, 32500, 0),
+            (20, -160, 16384, 30000, 32500, 0),
+        ]),
+        SYNTHETIC_FREQS_20,
+    )
+    # One zone (all thresholds equal and < 0) -> band0 active, bands 1-7 off.
+    reg = make_regulator(synthetic_regulator(threshold_high=[-6.0] * 20),
+                         SYNTHETIC_FREQS_20)
+
+    for label, comp in (("MBC", mbc), ("regulator", reg)):
+        bands = [comp[f"band{i}"] for i in range(8)]
+        assert any(b["compressor-enable"] for b in bands), f"{label}: no active band"
+        assert any(not b["compressor-enable"] for b in bands), f"{label}: no disabled band"
+        for i, b in enumerate(bands):
+            assert b["compression-mode"] == "Downward", \
+                f"{label} band{i}: compression-mode {b['compression-mode']!r} (LSP default Upward)"
+            assert b["boost-amount"] == 0.0, \
+                f"{label} band{i}: boost-amount {b['boost-amount']} (upward-comp must stay off)"
+            if not b["compressor-enable"]:
+                assert b["enable-band"] is False, \
+                    f"{label} band{i}: disabled band enable-band is not False"
+                assert b == _disabled_band(), \
+                    f"{label} band{i}: disabled band drifted from _disabled_band()"
 
 
 # --- TRAP: PEQ output-gain compensation for clipping/loudness ---

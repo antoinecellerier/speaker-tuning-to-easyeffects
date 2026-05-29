@@ -2139,6 +2139,45 @@ def decode_mbc_time_constant(coeff, block_size=256):
     return tau * 1000.0  # seconds to ms
 
 
+def _disabled_band() -> dict:
+    """The LSP 'band off' parameter dict, shared by make_multiband_compressor
+    and make_regulator (the literal was byte-identical in both).
+
+    Key order and the trap-fix values are load-bearing: the preset JSON
+    preserves insertion order, and design-notes track compression-mode
+    "Downward" (over LSP's "Upward" default), boost-amount 0.0, and
+    enable-band False as the LSP defaults that must be explicitly overridden.
+    Returns a fresh dict each call so each band gets its own object.
+    """
+    return {
+        "enable-band": False,
+        "compressor-enable": False,
+        "mute": False,
+        "solo": False,
+        "attack-threshold": -12.0,
+        "attack-time": 20.0,
+        "release-threshold": -80.01,
+        "release-time": 100.0,
+        "ratio": 1.0,
+        "knee": -6.0,
+        "makeup": 0.0,
+        "compression-mode": "Downward",
+        "sidechain-type": "Internal",
+        "sidechain-mode": "RMS",
+        "sidechain-source": "Middle",
+        "stereo-split-source": "Left/Right",
+        "sidechain-lookahead": 0.0,
+        "sidechain-reactivity": 10.0,
+        "sidechain-preamp": 0.0,
+        "sidechain-custom-lowcut-filter": False,
+        "sidechain-custom-highcut-filter": False,
+        "sidechain-lowcut-frequency": 10.0,
+        "sidechain-highcut-frequency": 20000.0,
+        "boost-threshold": -60.0,
+        "boost-amount": 0.0,
+    }
+
+
 def make_multiband_compressor(mb_comp, freqs):
     """Multi-band compressor mapping from Dolby mb-compressor-tuning.
 
@@ -2261,33 +2300,7 @@ def make_multiband_compressor(mb_comp, freqs):
             result[bandn] = band
         else:
             # Disabled bands
-            result[bandn] = {
-                "enable-band": False,
-                "compressor-enable": False,
-                "mute": False,
-                "solo": False,
-                "attack-threshold": -12.0,
-                "attack-time": 20.0,
-                "release-threshold": -80.01,
-                "release-time": 100.0,
-                "ratio": 1.0,
-                "knee": -6.0,
-                "makeup": 0.0,
-                "compression-mode": "Downward",
-                "sidechain-type": "Internal",
-                "sidechain-mode": "RMS",
-                "sidechain-source": "Middle",
-                "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 0.0,
-                "sidechain-reactivity": 10.0,
-                "sidechain-preamp": 0.0,
-                "sidechain-custom-lowcut-filter": False,
-                "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": 10.0,
-                "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -60.0,
-                "boost-amount": 0.0,
-            }
+            result[bandn] = _disabled_band()
 
     return result
 
@@ -2426,33 +2439,7 @@ def make_regulator(regulator, freqs, volmax_boost=0.0):
             result[bandn] = band
         else:
             # Disabled band
-            result[bandn] = {
-                "enable-band": False,
-                "compressor-enable": False,
-                "mute": False,
-                "solo": False,
-                "attack-threshold": -12.0,
-                "attack-time": 20.0,
-                "release-threshold": -80.01,
-                "release-time": 100.0,
-                "ratio": 1.0,
-                "knee": -6.0,
-                "makeup": 0.0,
-                "compression-mode": "Downward",
-                "sidechain-type": "Internal",
-                "sidechain-mode": "RMS",
-                "sidechain-source": "Middle",
-                "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 0.0,
-                "sidechain-reactivity": 10.0,
-                "sidechain-preamp": 0.0,
-                "sidechain-custom-lowcut-filter": False,
-                "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": 10.0,
-                "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -60.0,
-                "boost-amount": 0.0,
-            }
+            result[bandn] = _disabled_band()
 
     return result
 
