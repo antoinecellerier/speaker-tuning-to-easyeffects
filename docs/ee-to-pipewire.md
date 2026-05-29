@@ -101,10 +101,15 @@ Net result:
 
 The hardware speaker sink's `node.name` is auto-detected at conversion
 time via the same `pw-dump` probe `dolby_to_easyeffects.py --autoload`
-uses (Audio/Sink nodes whose `device.icon_name == audio-speakers`,
-which excludes HDMI / BT / USB). `--target-sink <node.name>` overrides;
-`--target-sink ''` falls back to a v1 virtual-sink emission for users
-on WirePlumber < 0.5 or with a non-standard policy.
+uses: Audio/Sink nodes tagged `device.icon_name == audio-speakers`
+(which excludes HDMI / BT / USB). If nothing is tagged — some laptops
+fall back to a generic UCM2 profile that omits the speaker icon
+(issue #18) — it falls back to a relaxed tier of internal analog sinks;
+a single relaxed candidate is used as the target with a warning, and an
+ambiguous one leaves the target unset (pass `--target-sink`).
+`--target-sink <node.name>` overrides; `--target-sink ''` falls back to
+a v1 virtual-sink emission for users on WirePlumber < 0.5 or with a
+non-standard policy.
 
 ## Plugin coverage
 

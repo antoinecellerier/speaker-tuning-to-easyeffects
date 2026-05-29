@@ -811,31 +811,61 @@ def format_conf(stages: list[Stage], links: list[dict],
 def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     """Return (chosen_sink_name, warnings) for the smart-filter target.
 
-    Reuses ``dolby_to_easyeffects.find_speaker_sinks()`` (same probe as
-    the EasyEffects autoload pathway: ``pw-dump`` filtered to
-    ``Audio/Sink`` nodes whose ``device.icon_name`` is
-    ``audio-speakers``, which excludes HDMI / Bluetooth / USB headsets).
-    Returns ``(None, [reason])`` if no unique speaker sink can be
-    chosen — the caller surfaces that as an error and prompts for
-    ``--target-sink``.
+    Uses ``dolby_to_easyeffects.select_speaker_sinks()`` (same probe as the
+    EasyEffects autoload pathway): ``pw-dump`` filtered to ``Audio/Sink``
+    nodes, preferring those tagged ``device.icon_name == audio-speakers`` (the
+    "strict" tier, which excludes HDMI / Bluetooth / headsets). When nothing is
+    tagged as a speaker — e.g. a laptop whose UCM2 profile omits the speaker
+    icon (issue #18) — it falls back to a "relaxed" tier of internal analog
+    sinks; a single relaxed candidate is used, with a warning. Returns
+    ``(None, [reasons])`` when no unique sink can be chosen — the caller
+    surfaces that, falls back to the v1 virtual-sink conf, and asks the user to
+    pass ``--target-sink``.
     """
     try:
-        from dolby_to_easyeffects import find_speaker_sinks
+        from dolby_to_easyeffects import select_speaker_sinks, _sink_diag_line
     except Exception as e:  # pragma: no cover — defensive
         return None, [f"could not import speaker probe: {e}"]
-    sinks = find_speaker_sinks()
-    if not sinks:
+
+    # Terse, description-less form of the shared diagnostic (stderr warnings).
+    def _diag(sink: dict) -> str:
+        return _sink_diag_line(sink, with_description=False)
+
+    sel = select_speaker_sinks()
+    tier, selected, all_sinks = sel["tier"], sel["selected"], sel["all_sinks"]
+
+    if tier == "strict":
+        if len(selected) == 1:
+            return selected[0]["name"], []
         return None, [
-            "no internal-speaker sink found via pw-dump "
-            "(no PipeWire daemon running, or no Audio/Sink with "
-            "device.icon_name=audio-speakers)"
+            f"multiple speaker sinks found ({len(selected)}): "
+            + ", ".join(s["name"] for s in selected)
+            + "; pass --target-sink to pick one"
         ]
-    names = [s["name"] for s in sinks if s.get("name")]
-    if len(names) == 1:
-        return names[0], []
+
+    if tier == "relaxed":
+        if len(selected) == 1:
+            sink = selected[0]
+            return sink["name"], [
+                "no sink tagged device.icon_name=audio-speakers; using the "
+                f"only internal analog sink {_diag(sink)}; pass --target-sink "
+                "to override"
+            ]
+        return None, [
+            f"multiple internal analog sinks found ({len(selected)}): "
+            + ", ".join(_diag(s) for s in selected)
+            + "; pass --target-sink to pick one"
+        ]
+
+    # tier == "none"
+    if not all_sinks:
+        return None, [
+            "no Audio/Sink nodes found via pw-dump (no PipeWire daemon running?)"
+        ]
     return None, [
-        f"multiple speaker sinks found ({len(names)}): "
-        + ", ".join(names)
+        "no internal-speaker sink found (none tagged "
+        "device.icon_name=audio-speakers, and no internal analog output); "
+        "sinks seen: " + ", ".join(_diag(s) for s in all_sinks)
         + "; pass --target-sink to pick one"
     ]
 
@@ -1066,12 +1096,14 @@ def main(argv: list[str] | None = None) -> int:
               "--target-sink)", file=sys.stderr)
     else:
         target_sink, detect_warnings = _autodetect_speaker_sink()
+        # Warnings print on both paths: a relaxed-tier match returns a name
+        # *and* a warning explaining the fallback.
+        for w in detect_warnings:
+            print(f"[smart-filter] {w}", file=sys.stderr)
         if target_sink:
             print(f"[smart-filter] target sink: {target_sink} "
                   "(autodetected)", file=sys.stderr)
         else:
-            for w in detect_warnings:
-                print(f"[smart-filter] {w}", file=sys.stderr)
             print("[smart-filter] falling back to v1 virtual-sink conf "
                   "(apps will target effect_input."
                   f"{safe_node_name}); pass --target-sink "

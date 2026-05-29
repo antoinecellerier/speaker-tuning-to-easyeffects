@@ -30,6 +30,23 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- `--autoload-sink NODE_NAME` (repeatable) — bind autoload to an explicit
+  PipeWire sink, bypassing speaker detection. Mirrors `ee_to_pipewire.py`'s
+  `--target-sink`.
+
+### Fixed
+
+- Autoload now finds internal speakers that PipeWire doesn't tag
+  `audio-speakers` (some laptops fall back to a generic UCM2 profile that omits
+  the icon, so the built-in speaker shows up as `audio-card-analog` and the old
+  strict filter silently matched nothing). Detection falls back to a relaxed
+  tier of internal analog sinks, prompting when several are found and listing
+  every sink it saw. `ee_to_pipewire.py`'s smart-filter target gets the same
+  fallback.
+  ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
+
 ## v2026.05 — 2026-05-28
 
 ### Changed

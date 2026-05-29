@@ -915,15 +915,27 @@ def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> li
     return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
 
 
-def find_speaker_sinks() -> list[dict]:
-    """Find internal speaker output sinks from PipeWire.
+# Speaker-sink detection for autoload / smart-filter targeting.
+#
+# NOTE: this is the device-detection (structural) path, not the audio-math
+# path, so the "every emitted parameter must trace to an XML field" invariant
+# (CLAUDE.md) does NOT apply here — runtime PipeWire node selection has no XML
+# provenance. The heuristics below are pragmatic and always overridable by the
+# user (--autoload-sink here, --target-sink in ee_to_pipewire.py).
 
-    Returns a list of dicts with 'name', 'description', and 'profile' keys,
-    corresponding to the PipeWire node.name, node.description, and
-    device.profile.description properties used by EasyEffects autoload.
+# device.icon_name values that mark an output we never treat as the internal
+# speaker, even under the relaxed tier.
+_NON_SPEAKER_ICONS = {"audio-headphones", "audio-headset"}
 
-    Only returns sinks with the 'audio-speakers' device icon, excluding
-    HDMI/DisplayPort outputs.
+
+def _enumerate_audio_sinks() -> list[dict]:
+    """Return every PipeWire Audio/Sink node with the props we classify on.
+
+    This is the single ``pw-dump`` boundary; tests monkeypatch it to feed
+    synthetic sink lists. Each dict carries 'name', 'description', 'profile'
+    (the fields EasyEffects autoload needs) plus 'icon_name', 'bus', and 'api'
+    (used to tell internal speakers from HDMI / Bluetooth / headsets and to
+    explain the choice in diagnostics).
     """
     try:
         result = subprocess.run(
@@ -932,21 +944,215 @@ def find_speaker_sinks() -> list[dict]:
         data = json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
         return []
+    if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
+        return []
 
     sinks = []
     for obj in data:
         props = obj.get("info", {}).get("props", {})
         if props.get("media.class") != "Audio/Sink":
             continue
-        # Only include sinks with the speaker icon (excludes HDMI, headphones, etc.)
-        if props.get("device.icon_name") != "audio-speakers":
-            continue
         sinks.append({
             "name": props.get("node.name", ""),
             "description": props.get("node.description", ""),
             "profile": props.get("device.profile.description", ""),
+            "icon_name": props.get("device.icon_name", ""),
+            "bus": props.get("device.bus", ""),
+            "api": props.get("device.api", ""),
         })
     return sinks
+
+
+def _classify_sink(sink: dict) -> str:
+    """Classify a sink as 'strict', 'relaxed', or 'excluded'.
+
+    'strict'   — tagged as an internal speaker (device.icon_name ==
+                 'audio-speakers'); the only tier used when tagging is correct.
+    'relaxed'  — an internal *analog* output that isn't tagged as a speaker but
+                 also isn't obviously HDMI / Bluetooth / a headset. Fallback for
+                 laptops whose UCM2 profile omits the speaker icon (issue #18:
+                 the generic HDA HiFi-analog.conf sets no DeviceIcon, so
+                 WirePlumber assigns the generic 'audio-card-analog' icon).
+    'excluded' — everything else: HDMI/DisplayPort/SPDIF, Bluetooth, headsets,
+                 and virtual / loopback / combine sinks.
+    """
+    if sink.get("icon_name") == "audio-speakers":
+        return "strict"
+
+    name_l = sink.get("name", "").lower()
+    icon_l = sink.get("icon_name", "").lower()
+    profile_l = sink.get("profile", "").lower()
+
+    # Must be a real ALSA output sink (excludes virtual/loopback/combine sinks
+    # and our own effect_input.* chain node).
+    if not name_l.startswith("alsa_output"):
+        return "excluded"
+    # Not Bluetooth.
+    if sink.get("api") == "bluez5" or "bluez" in name_l:
+        return "excluded"
+    # Not HDMI / DisplayPort / SPDIF (digital passthrough). Match on node.name
+    # and icon, and also on the profile description ("Digital Stereo (HDMI)",
+    # "... (IEC958)", DisplayPort/SPDIF variants) so a digital output whose
+    # node.name lacks the usual hdmi/iec958 token is still excluded.
+    _DIGITAL = ("hdmi", "iec958", "spdif", "s/pdif", "displayport")
+    if ("hdmi" in name_l or "iec958" in name_l or "hdmi" in icon_l
+            or any(m in profile_l for m in _DIGITAL)):
+        return "excluded"
+    # Not headphones / a headset.
+    if sink.get("icon_name") in _NON_SPEAKER_ICONS:
+        return "excluded"
+    if "headphone" in name_l or "headset" in name_l:
+        return "excluded"
+    return "relaxed"
+
+
+def _relaxed_sort_key(sink: dict) -> tuple:
+    """Preference order for relaxed candidates (lower sorts first).
+
+    Tie-break only — never excludes. Prefer internal buses (pci/soundwire) over
+    usb/unknown, then the exact issue-#18 symptom (audio-card-analog).
+    """
+    bus_rank = 0 if sink.get("bus") in ("pci", "soundwire") else 1
+    icon_rank = 0 if sink.get("icon_name") == "audio-card-analog" else 1
+    return (bus_rank, icon_rank, sink.get("name", ""))
+
+
+def select_speaker_sinks() -> dict:
+    """Select internal-speaker sink(s) from PipeWire, with tier reporting.
+
+    Returns a dict {'tier', 'selected', 'all_sinks'}:
+      - tier 'strict':  one or more sinks tagged device.icon_name=audio-speakers.
+      - tier 'relaxed': no strict match, but internal analog sink(s) found
+                        (sorted by preference). The caller decides whether to
+                        auto-apply (a unique candidate) or prompt (ambiguous).
+      - tier 'none':    no candidate at all.
+    'selected' and 'all_sinks' both hold full enumerated dicts (name,
+    description, profile, icon_name, bus, api) so callers can both write
+    autoload entries and render diagnostics. ('all_sinks' is everything seen.)
+    """
+    all_sinks = _enumerate_audio_sinks()
+    # Single classification pass — keeps the strict/relaxed/excluded partition
+    # total and mutually exclusive (no double classify, no drift between arms).
+    by_tier: dict[str, list[dict]] = {"strict": [], "relaxed": [], "excluded": []}
+    for s in all_sinks:
+        by_tier[_classify_sink(s)].append(s)
+    if by_tier["strict"]:
+        return {"tier": "strict", "selected": by_tier["strict"], "all_sinks": all_sinks}
+    if by_tier["relaxed"]:
+        relaxed = sorted(by_tier["relaxed"], key=_relaxed_sort_key)
+        return {"tier": "relaxed", "selected": relaxed, "all_sinks": all_sinks}
+    return {"tier": "none", "selected": [], "all_sinks": all_sinks}
+
+
+def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
+    """One-line diagnostic: the sink's node.name (what --autoload-sink/
+    --target-sink take) plus icon/bus detail, and optionally a human
+    description, to identify the device. Shared by both converters so their
+    candidate/diagnostic lines stay in lockstep."""
+    desc = sink.get("description") or ""
+    desc_part = f'  "{desc}"' if (with_description and desc) else ""
+    return (f"node.name={sink.get('name', '?')}{desc_part}  "
+            f"(icon={sink.get('icon_name') or '?'}, bus={sink.get('bus') or '?'})")
+
+
+def _print_sink_candidates(sinks: list[dict]) -> None:
+    """Print a numbered candidate list (shared by the picker and skip paths)."""
+    for i, s in enumerate(sinks, 1):
+        cprint("dim", f"  [{i}] {_sink_diag_line(s)}")
+
+
+def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
+    """Prompt for a 1-based choice among already-listed `candidates`, or None.
+
+    The caller is expected to have printed the numbered candidate list. Only
+    prompts when both stdin AND stdout are TTYs — piping stdout (e.g.
+    ``--autoload | tee log``) would otherwise block on a prompt the user can't
+    see — and treats EOF / interrupt / empty / invalid input as a skip, so
+    non-interactive runs (pipes, CI, pytest) never block.
+    """
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    try:
+        raw = input(f"Select speaker sink [1-{len(candidates)}], "
+                    "or Enter to skip: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if not raw:
+        return None
+    try:
+        idx = int(raw)
+    except ValueError:
+        cprint("warn", f"  Not a number: {raw!r} — skipping autoload.")
+        return None
+    if not (1 <= idx <= len(candidates)):
+        cprint("warn", f"  Out of range: {idx} — skipping autoload.")
+        return None
+    return candidates[idx - 1]
+
+
+def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[dict]:
+    """Resolve which sink(s) to write autoload entries for.
+
+    Honors the --autoload-sink override first; otherwise runs tiered speaker
+    detection (strict audio-speakers tag → relaxed internal-analog fallback)
+    and prints diagnostics explaining the choice. Returns a list of sink dicts
+    (with name/description/profile keys) to write, or [] to skip autoload (with
+    the reason already printed to the user).
+    """
+    # Explicit override: bypass detection entirely.
+    if override_names:
+        by_name = {s["name"]: s for s in _enumerate_audio_sinks()}
+        resolved = []
+        for name in override_names:
+            sink = by_name.get(name)
+            if sink is None:
+                cprint("warn", f"  --autoload-sink {name!r}: not currently in "
+                               "pw-dump; using the name as given.")
+                sink = {"name": name, "description": name, "profile": ""}
+            resolved.append(sink)
+        return resolved
+
+    sel = select_speaker_sinks()
+    tier = sel["tier"]
+
+    if tier == "strict":
+        return sel["selected"]
+
+    if tier == "relaxed":
+        candidates = sel["selected"]
+        cprint("warn", "\nNo sink is tagged as an internal speaker "
+                       "(device.icon_name=audio-speakers).")
+        if len(candidates) == 1:
+            sink = candidates[0]
+            cprint("warn", "  Falling back to the only internal analog output found:")
+            cprint("dim", f"    {_sink_diag_line(sink)}")
+            cprint("dim", "  If this is wrong, re-run with --autoload-sink <node.name>.")
+            return [sink]
+        # Ambiguous: list, then prompt on a TTY (never under --dry-run).
+        cprint("warn", f"  Found {len(candidates)} internal analog sinks:")
+        _print_sink_candidates(candidates)
+        chosen = None if dry_run else _prompt_pick_sink(candidates)
+        if chosen is not None:
+            return [chosen]
+        cprint("dim", "  Re-run with --autoload-sink <node.name> (repeatable) to choose.")
+        return []
+
+    # tier == "none"
+    all_sinks = sel["all_sinks"]
+    if not all_sinks:
+        cprint("warn", "\nWarning: no Audio/Sink nodes found via pw-dump; "
+                       "cannot configure autoload.")
+        cprint("dim", "  Is PipeWire running? Run this from your logged-in "
+                      "desktop session.")
+    else:
+        cprint("warn", "\nWarning: no internal-speaker sink found (none tagged "
+                       "device.icon_name=audio-speakers, and no internal analog "
+                       "output).")
+        cprint("head", "  Audio/Sink nodes seen:")
+        _print_sink_candidates(all_sinks)
+        cprint("dim", "  Re-run with --autoload-sink <node.name> to bind autoload manually.")
+    return []
 
 
 def write_autoload(autoload_dir: Path, device_name: str, device_description: str,
@@ -2462,6 +2668,19 @@ def main():
         help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
     )
     parser.add_argument(
+        "--autoload-sink",
+        action="append",
+        default=[],
+        metavar="NODE_NAME",
+        help="explicit PipeWire sink node.name to bind autoload to, bypassing "
+             "speaker-sink detection (repeatable). Use this when auto-detection "
+             "picks the wrong output or finds none — e.g. a laptop whose "
+             "internal speaker is mis-tagged (no audio-speakers device icon). "
+             "Find the name with 'pw-dump | grep node.name', or run with "
+             "--autoload to print the candidate list. Mirrors "
+             "ee_to_pipewire.py's --target-sink.",
+    )
+    parser.add_argument(
         "--no-autoload-bypass",
         dest="autoload_bypass",
         action="store_false",
@@ -2751,11 +2970,8 @@ def main():
     # Autoload configuration
     if args.autoload and all_preset_names:
         autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
-        sinks = find_speaker_sinks()
-        if not sinks:
-            cprint("warn", "Warning: no speaker sinks found via pw-dump; cannot configure autoload.")
-            cprint("warn", "  Is PipeWire running? Try running the script while logged into your desktop session.")
-        else:
+        sinks = _resolve_autoload_sinks(args.autoload_sink, args.dry_run)
+        if sinks:
             cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
             verb = "Would write" if args.dry_run else "Wrote"
             for sink in sinks:
@@ -2768,7 +2984,12 @@ def main():
                     dry_run=args.dry_run,
                 )
                 cprint("ok", f"  {verb} {path}")
-                print(f"  Device: {sink['description']} ({sink['profile']})")
+                print(f"  Device: {sink['description'] or sink['name']} ({sink['profile']})")
+                if not sink["profile"]:
+                    cprint("warn", "    No device-profile description for this "
+                                   "sink; EasyEffects matches autoload by "
+                                   "node.name + profile, so this entry may not "
+                                   "load automatically.")
 
         # Fallback preset: neutralize the Dolby chain on any non-speaker sink
         # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload

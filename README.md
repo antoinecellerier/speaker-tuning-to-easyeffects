@@ -53,6 +53,7 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 - `--all-profiles` — generate presets for all profiles in the selected endpoint/mode (9 profiles × 3 IEQ curves = 27 presets)
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
+- `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a laptop whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
@@ -90,7 +91,7 @@ python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
     --all-profiles --autoload Dolby-Dynamic-Balanced
 ```
 
-This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matching EasyEffects' autoload convention (`{node.name}:{device.profile.description}.json`). Speaker sinks are detected from PipeWire via `pw-dump`, filtering on the `audio-speakers` device icon to exclude HDMI/DisplayPort outputs. The script must be run from a desktop session with PipeWire running.
+This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matching EasyEffects' autoload convention (`{node.name}:{device.profile.description}.json`). Speaker sinks are detected from PipeWire via `pw-dump`: first the sinks tagged with the `audio-speakers` device icon (excluding HDMI/DisplayPort/Bluetooth). If none are tagged — some laptops lack a device-specific UCM2 profile and fall back to a generic one that doesn't set the speaker icon — the script falls back to a relaxed tier of internal analog outputs (still excluding HDMI/Bluetooth/headsets), auto-applying a single match, prompting you to choose when several are found, and listing every sink it saw (with its icon) so you can see why. Pass `--autoload-sink NODE_NAME` to bind a specific sink yourself. The script must be run from a desktop session with PipeWire running.
 
 EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing an empty `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. If EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip both steps if you manage this yourself.
 
