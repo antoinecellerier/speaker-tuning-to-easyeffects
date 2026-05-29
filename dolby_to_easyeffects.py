@@ -1767,18 +1767,28 @@ def save_wav_stereo(path, fir_left, fir_right):
 
 # --- EasyEffects preset builders ---
 
-def make_band(freq: float, gain: float, q=1.5) -> dict:
+def _eq_band(*, frequency, gain, q, slope, lsp_type) -> dict:
+    """One EQ band in EE PEQ schema order. ``mode``/``mute``/``solo``/``width``
+    are EE-schema fillers (topology, not tuning) — defined once here so a future
+    EE-schema tweak lands in a single place. The per-band builders below pass
+    only the values that differ (frequency/gain/q/slope/type)."""
     return {
-        "frequency": freq,
-        "gain": round(gain, 4),
+        "frequency": frequency,
+        "gain": gain,
         "mode": "RLC (BT)",
         "mute": False,
         "q": q,
-        "slope": "x1",
+        "slope": slope,
         "solo": False,
-        "type": "Bell",
+        "type": lsp_type,
         "width": 4.0,
     }
+
+
+def make_band(freq: float, gain: float, q=1.5) -> dict:
+    return _eq_band(
+        frequency=freq, gain=round(gain, 4), q=q, slope="x1", lsp_type="Bell"
+    )
 
 
 def make_convolver(kernel_name: str, output_gain: float = 0.0):
@@ -1797,6 +1807,24 @@ def make_convolver(kernel_name: str, output_gain: float = 0.0):
     }
 
 
+# Dolby HP/LP ``order=N`` → LSP user-facing slope ``x{N/2}`` (LSP internally
+# doubles the slope so nSlope equals the filter order; see make_hp_band).
+_ORDER_TO_LSP_SLOPE = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
+
+
+def _make_passfilter(freq: float, order: int, lsp_type: str) -> dict:
+    """Shared HP/LP pass-filter band. ``lsp_type`` selects the LSP ``type``
+    label ("Hi-pass"/"Lo-pass"); the rest is identical between directions
+    (see make_hp_band / make_lp_band for the slope-doubling rationale)."""
+    return _eq_band(
+        frequency=freq,
+        gain=0.0,
+        q=0.707,
+        slope=_ORDER_TO_LSP_SLOPE.get(order, "x4"),
+        lsp_type=lsp_type,
+    )
+
+
 def make_hp_band(freq: float, order: int) -> dict:
     """High-pass filter band for speaker protection.
 
@@ -1806,20 +1834,10 @@ def make_hp_band(freq: float, order: int) -> dict:
     ``para_equalizer.cpp:167``), and ``calc_rlc_filter`` then builds
     ``nSlope/2`` cascaded 2nd-order sections at the user-Q — so internal
     ``nSlope`` equals filter order. So Dolby ``order=N`` maps to LSP
-    user-facing slope ``x{N/2}``. Corpus has order ∈ {2, 4, 8}.
+    user-facing slope ``x{N/2}`` (see ``_ORDER_TO_LSP_SLOPE``). Corpus has
+    order ∈ {2, 4, 8}.
     """
-    slope_map = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
-    return {
-        "frequency": freq,
-        "gain": 0.0,
-        "mode": "RLC (BT)",
-        "mute": False,
-        "q": 0.707,
-        "slope": slope_map.get(order, "x4"),
-        "solo": False,
-        "type": "Hi-pass",
-        "width": 4.0,
-    }
+    return _make_passfilter(freq, order, "Hi-pass")
 
 
 def _shelf_q_from_s(gain: float, s: float) -> float:
@@ -1836,19 +1854,22 @@ def _shelf_q_from_s(gain: float, s: float) -> float:
     return 1.0 / math.sqrt(max(denom, 0.01))
 
 
+def _make_shelf(freq: float, gain: float, s: float, lsp_type: str) -> dict:
+    """Shared low/high-shelf band. ``lsp_type`` selects the LSP ``type``
+    label ("Lo-shelf"/"Hi-shelf"); the Q-from-S derivation is identical in
+    both directions (``_shelf_q_from_s`` is symmetric in shelf direction)."""
+    return _eq_band(
+        frequency=freq,
+        gain=round(gain, 4),
+        q=round(_shelf_q_from_s(gain, s), 4),
+        slope="x1",
+        lsp_type=lsp_type,
+    )
+
+
 def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
     """Low-shelf filter band from Dolby PEQ type 4."""
-    return {
-        "frequency": freq,
-        "gain": round(gain, 4),
-        "mode": "RLC (BT)",
-        "mute": False,
-        "q": round(_shelf_q_from_s(gain, s), 4),
-        "slope": "x1",
-        "solo": False,
-        "type": "Lo-shelf",
-        "width": 4.0,
-    }
+    return _make_shelf(freq, gain, s, "Lo-shelf")
 
 
 def make_hishelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
@@ -1860,17 +1881,7 @@ def make_hishelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
     type-3 filters observed, typically a +2-5 dB presence lift around
     2.7 kHz. Experimental path — not yet audibly validated.
     """
-    return {
-        "frequency": freq,
-        "gain": round(gain, 4),
-        "mode": "RLC (BT)",
-        "mute": False,
-        "q": round(_shelf_q_from_s(gain, s), 4),
-        "slope": "x1",
-        "solo": False,
-        "type": "Hi-shelf",
-        "width": 4.0,
-    }
+    return _make_shelf(freq, gain, s, "Hi-shelf")
 
 
 def make_lp_band(freq: float, order: int) -> dict:
@@ -1878,22 +1889,11 @@ def make_lp_band(freq: float, order: int) -> dict:
 
     Mirror of make_hp_band with LSP's "Lo-pass" mode — same LSP slope
     doubling convention (see make_hp_band docstring), so order N maps
-    to slope ``x{N/2}``. Rare: a few hundred LP filters across the corpus,
-    mostly order=8 tweeter-guard rolloff. Experimental path — not yet
-    audibly validated.
+    to slope ``x{N/2}`` via ``_ORDER_TO_LSP_SLOPE``. Rare: a few hundred LP
+    filters across the corpus, mostly order=8 tweeter-guard rolloff.
+    Experimental path — not yet audibly validated.
     """
-    slope_map = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
-    return {
-        "frequency": freq,
-        "gain": 0.0,
-        "mode": "RLC (BT)",
-        "mute": False,
-        "q": 0.707,
-        "slope": slope_map.get(order, "x4"),
-        "solo": False,
-        "type": "Lo-pass",
-        "width": 4.0,
-    }
+    return _make_passfilter(freq, order, "Lo-pass")
 
 
 def make_peq_eq(peq_filters):
