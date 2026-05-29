@@ -99,6 +99,8 @@ sessions shipped bugs that only showed on real content.
 - **Comparison plots:** verify every curve is actually visible — set
   z-order, plot reference curves last with dashes / a distinct colour, and
   check both axis extremes. Hidden-curve bugs cause repeated re-render cycles.
+- **Co-locate definitions with use** — a constant or helper sits by its user,
+  grouped by meaning, not piled at module top (module-wide values excepted).
 
 ## Past rabbit holes worth skipping
 
