@@ -1342,8 +1342,35 @@ def _int_attr(element, default=None, name="value"):
     return int(raw)
 
 
+@dataclass
+class ParsedTuning:
+    """Everything parse_xml extracts from one DAX3 endpoint/profile.
+
+    Field order matches the legacy 12-tuple this replaced. Values are a mix of
+    raw schema ints (freqs, curves, ao_left/ao_right, ieq_amount) and
+    already-dB-scaled fields (vol_leveler, surround, volmax_boost); main() and
+    the converters apply the remaining /16 and /100 scalings (see M-COUP in
+    docs for the layering).
+    """
+    freqs: list[int]
+    curves: dict[str, list[int]]
+    ieq_amount: int
+    ao_left: list[int]
+    ao_right: list[int]
+    peq_filters: list[dict]
+    vol_leveler: dict | None
+    dialog_enhancer: dict | None
+    surround: dict | None
+    mb_comp: dict | None
+    regulator: dict | None
+    volmax_boost: float
+
+
 def parse_xml(path: Path, endpoint_type="internal_speaker",
-              operating_mode="normal", profile_type=None):
+              operating_mode="normal", profile_type=None) -> ParsedTuning:
+    """Parse a DAX3 tuning XML into a ``ParsedTuning`` (see that dataclass for
+    the fields and their units). Raises ``ValueError`` with an actionable
+    message for unsupported schema variants or missing required elements."""
     tree = ET.parse(path)
     root = tree.getroot()
     constant = root.find("constant")
@@ -1576,7 +1603,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
     warn_unmodeled_features(profile)
 
-    return freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost
+    return ParsedTuning(
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
+        vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost,
+    )
 
 
 # Newer-pipeline DSP blocks observed in the corpus that the script does not
@@ -2868,7 +2898,7 @@ def main():
         cprint("head", f"Endpoint: {args.endpoint} (mode={args.mode})")
         cprint("head", f"Profile: {profile_type or '(first)'}")
 
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters, vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost = parse_xml(
+        parsed = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
@@ -2882,20 +2912,20 @@ def main():
         # steady-state; full weight (the old amount/10 reading) over-applied
         # the IEQ and crashed the HF match to DAX by up to ~28 dB. See
         # docs/design-notes.md "Finding 9".
-        scale = ieq_amount / 100.0
-        print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
+        scale = parsed.ieq_amount / 100.0
+        print(f"ieq-amount: {parsed.ieq_amount}% (scale: {scale:.2f})")
 
         # Audio-optimizer curves in dB
-        ao_db_left = np.array(ao_left) / 16.0
-        ao_db_right = np.array(ao_right) / 16.0
-        float_freqs = np.array(freqs, dtype=float)
+        ao_db_left = np.array(parsed.ao_left) / 16.0
+        ao_db_right = np.array(parsed.ao_right) / 16.0
+        float_freqs = np.array(parsed.freqs, dtype=float)
 
         print(f"\nAudio-optimizer (dB):")
         print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
         print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
         print(f"\nPEQ filters (kept as parametric EQ):")
-        for pf in peq_filters:
+        for pf in parsed.peq_filters:
             spk = "L" if pf["speaker"] == 0 else "R"
             if pf["type"] in (7, 9):
                 print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
@@ -2908,34 +2938,34 @@ def main():
             elif pf["type"] == 1:
                 print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
-        if dialog_enhancer:
-            gain = dialog_enhancer["amount"] / 16.0 * 6.0
-            print(f"\nDialog enhancer: amount={dialog_enhancer['amount']}, "
+        if parsed.dialog_enhancer:
+            gain = parsed.dialog_enhancer["amount"] / 16.0 * 6.0
+            print(f"\nDialog enhancer: amount={parsed.dialog_enhancer['amount']}, "
                   f"mapped to +{gain:.1f} dB @ 2.5 kHz")
 
-        if surround:
-            base = min(surround["boost"] / 20.0, 0.5)
-            print(f"\nSurround virtualizer: boost={surround['boost']:.1f} dB, "
+        if parsed.surround:
+            base = min(parsed.surround["boost"] / 20.0, 0.5)
+            print(f"\nSurround virtualizer: boost={parsed.surround['boost']:.1f} dB, "
                   f"mapped to stereo-base={base:.2f}")
 
-        if vol_leveler:
-            print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
-            print(f"  amount: {vol_leveler['amount']}")
-            print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
-            print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
+        if parsed.vol_leveler:
+            print(f"\nVolume leveler: {'enabled' if parsed.vol_leveler['enable'] else 'disabled'}")
+            print(f"  amount: {parsed.vol_leveler['amount']}")
+            print(f"  in-target: {parsed.vol_leveler['in_target']:.1f} dB")
+            print(f"  out-target: {parsed.vol_leveler['out_target']:.1f} dB")
 
-        if mb_comp:
-            tag = "  [experimental]" if mb_comp["group_count"] == 1 else ""
-            print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s){tag}")
-            print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
-            n_bands_print = mb_comp["group_count"]
-            for i, bg in enumerate(mb_comp["band_groups"][:n_bands_print]):
+        if parsed.mb_comp:
+            tag = "  [experimental]" if parsed.mb_comp["group_count"] == 1 else ""
+            print(f"\nMulti-band compressor: {parsed.mb_comp['group_count']} band(s){tag}")
+            print(f"  target-power-level: {parsed.mb_comp['target_power']:.1f} dB")
+            n_bands_print = parsed.mb_comp["group_count"]
+            for i, bg in enumerate(parsed.mb_comp["band_groups"][:n_bands_print]):
                 xover_idx = bg[0]
                 if i == n_bands_print - 1:
                     # Sentinel in the last band — the band runs to Nyquist
                     xover_hz = "full-band" if n_bands_print == 1 else "Nyquist"
-                elif 0 <= xover_idx < len(freqs):
-                    xover_hz = f"{freqs[xover_idx]} Hz"
+                elif 0 <= xover_idx < len(parsed.freqs):
+                    xover_hz = f"{parsed.freqs[xover_idx]} Hz"
                 else:
                     xover_hz = "?"
                 thresh = bg[1] / 16.0
@@ -2948,25 +2978,25 @@ def main():
                       f"ratio={ratio:.2f}:1, attack={attack:.2f} ms, "
                       f"release={release:.2f} ms, makeup={makeup:+.1f} dB")
 
-        if regulator:
+        if parsed.regulator:
             print(f"\nRegulator (per-band limiter):")
-            print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
-            print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
-            print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
-            print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
-            print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
-            print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (watched; not yet mapped)")
-            print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (watched; not yet mapped)")
+            print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in parsed.regulator['threshold_high']]}")
+            print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in parsed.regulator['threshold_low']]}")
+            print(f"  stress (dB):         {[f'{x:+.1f}' for x in parsed.regulator['stress']]}")
+            print(f"  distortion-slope:    {parsed.regulator.get('distortion_slope', 1.0):.2f}")
+            print(f"  timbre-preservation: {parsed.regulator.get('timbre_preservation', 0.75):.2f}")
+            print(f"  overdrive (raw):     {parsed.regulator.get('overdrive', 0)}  (watched; not yet mapped)")
+            print(f"  relaxation (raw):    {parsed.regulator.get('relaxation', 96)}  (watched; not yet mapped)")
 
-        if volmax_boost <= 0:
+        if parsed.volmax_boost <= 0:
             slot = "value is 0, no boost to apply"
         elif "volmax" in disabled:
             slot = "disabled via --disable volmax"
-        elif regulator and "regulator" not in disabled:
+        elif parsed.regulator and "regulator" not in disabled:
             slot = "applied as regulator output-gain"
         else:
             slot = "applied as limiter input-gain"
-        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB ({slot})")
+        print(f"\nvolmax-boost: {parsed.volmax_boost:+.1f} dB ({slot})")
         print()
 
         ieq_presets = {
@@ -2976,11 +3006,11 @@ def main():
         }
 
         for preset_name, curve_key in ieq_presets.items():
-            if curve_key not in curves:
+            if curve_key not in parsed.curves:
                 cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
                 continue
 
-            gains_raw = curves[curve_key]
+            gains_raw = parsed.curves[curve_key]
             ieq_db = np.array(gains_raw) / 16.0 * scale
 
             # Combined target: IEQ + audio-optimizer (summed in dB)
@@ -3005,11 +3035,11 @@ def main():
                 save_wav_stereo(irs_path, fir_left, fir_right)
 
             # Create preset (kernel-name is the WAV filename stem)
-            preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
-                                          dialog_enhancer, surround, mb_comp, regulator,
-                                          freqs, convolver_gain=convolver_gain,
+            preset, emitted = make_preset(preset_name, parsed.peq_filters, parsed.vol_leveler,
+                                          parsed.dialog_enhancer, parsed.surround, parsed.mb_comp, parsed.regulator,
+                                          parsed.freqs, convolver_gain=convolver_gain,
                                           is_soundwire=is_soundwire,
-                                          volmax_boost=volmax_boost,
+                                          volmax_boost=parsed.volmax_boost,
                                           disabled=disabled)
             for name in emitted:
                 filters_by_profile.setdefault(name, set()).add(profile_label)
@@ -3027,7 +3057,7 @@ def main():
                       f"(FIR peak was {peak_db:+.1f} dB, restoring 50%)")
             print(f"  {curve_key} combined IEQ+AO curve (left channel):")
             print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
-            for i, f in enumerate(freqs):
+            for i, f in enumerate(parsed.freqs):
                 print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
 
             # Verify FIR frequency response
@@ -3035,7 +3065,7 @@ def main():
             fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
             mag_db = 20.0 * np.log10(np.abs(H) + 1e-12)
             cprint("dim", f"\n  FIR verification (left, normalized to peak=0):")
-            for i, f in enumerate(freqs):
+            for i, f in enumerate(parsed.freqs):
                 idx = np.argmin(np.abs(fft_freqs - f))
                 cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
                       f"actual: {mag_db[idx]:+6.1f}  "

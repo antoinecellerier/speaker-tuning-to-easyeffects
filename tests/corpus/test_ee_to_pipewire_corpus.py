@@ -65,9 +65,16 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
     except ValueError as e:
         pytest.skip(f"{xml_path.name}: parser rejected by design: {e}")
 
-    (freqs, curves, _ieq_amount, ao_left, ao_right, peq_filters,
-     vol_leveler, dialog_enhancer, surround, mb_comp, regulator,
-     _volmax_boost) = result
+    freqs = result.freqs
+    curves = result.curves
+    ao_left = result.ao_left
+    ao_right = result.ao_right
+    peq_filters = result.peq_filters
+    vol_leveler = result.vol_leveler
+    dialog_enhancer = result.dialog_enhancer
+    surround = result.surround
+    mb_comp = result.mb_comp
+    regulator = result.regulator
 
     if not curves:
         pytest.skip(f"{xml_path.name}: no IEQ curves")

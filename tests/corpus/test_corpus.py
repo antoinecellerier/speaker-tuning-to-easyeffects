@@ -30,6 +30,7 @@ from dolby_to_easyeffects import (
     DOLBY_FILENAME_RE,
     FIR_LENGTH,
     SAMPLE_RATE,
+    ParsedTuning,
     _NON_DAX3_FILENAME_SUFFIXES,
     _ntfs_family_mountpoints,
     _resolve_driver_store,
@@ -162,11 +163,18 @@ def test_corpus_xml_parses_and_runs_pipeline(tmp_path, xml_path):
     except ValueError as e:
         pytest.skip(f"{xml_path.name}: parser rejected by design: {e}")
     assert result is not None
-    assert len(result) == 12
+    assert isinstance(result, ParsedTuning)
 
-    (freqs, curves, _ieq_amount, ao_left, ao_right, peq_filters,
-     vol_leveler, dialog_enhancer, surround, mb_comp, regulator,
-     _volmax_boost) = result
+    freqs = result.freqs
+    curves = result.curves
+    ao_left = result.ao_left
+    ao_right = result.ao_right
+    peq_filters = result.peq_filters
+    vol_leveler = result.vol_leveler
+    dialog_enhancer = result.dialog_enhancer
+    surround = result.surround
+    mb_comp = result.mb_comp
+    regulator = result.regulator
 
     # --- shape invariants ---
     assert len(freqs) == 20
