@@ -468,3 +468,100 @@ def test_ee_autodetect_none(monkeypatch):
     name, warnings = pw._autodetect_speaker_sink()
     assert name is None
     assert warnings
+
+
+# --- Smart-amp firmware-load gate (issue #17) -------------------------------
+#
+# Some laptops (e.g. Yoga Pro 9i, TI TAS2563/2781 smart amps) leave their
+# woofers muted until an ALSA control is switched on. The parser turns
+# ``amixer -c N contents`` text into gate records; the detector wraps it with
+# the card scan; the warning is what the user actually sees.
+
+# A realistic `amixer -c N contents` excerpt with the gate among other controls.
+SAMPLE_AMIXER_CONTENTS = """\
+numid=1,iface=MIXER,name='Master Playback Volume'
+  ; type=INTEGER,access=rw---R--,values=1,min=0,max=87,step=0
+  : values=87
+numid=3,iface=MIXER,name='Speaker Force Firmware Load'
+  ; type=BOOLEAN,access=rw------,values=1
+  : values=off
+numid=4,iface=MIXER,name='Headphone Playback Switch'
+  ; type=BOOLEAN,access=rw------,values=2
+  : values=on,on
+"""
+
+
+def test_parse_firmware_gate_among_other_controls():
+    assert d.parse_firmware_gate_controls(SAMPLE_AMIXER_CONTENTS) == [
+        ("3", "Speaker Force Firmware Load", False)
+    ]
+
+
+@pytest.mark.parametrize("value,expected_on", [
+    ("off", False), ("on", True), ("0", False), ("1", True),
+])
+def test_parse_firmware_gate_value(value, expected_on):
+    text = (
+        "numid=3,iface=MIXER,name='Speaker Force Firmware Load'\n"
+        "  ; type=BOOLEAN,access=rw------,values=1\n"
+        f"  : values={value}\n"
+    )
+    assert d.parse_firmware_gate_controls(text) == [
+        ("3", "Speaker Force Firmware Load", expected_on)
+    ]
+
+
+@pytest.mark.parametrize("text", [
+    "",
+    "garbage\nlines with no controls\n",
+    # A real control block, but not a firmware gate.
+    "numid=5,iface=MIXER,name='Master Playback Volume'\n  : values=50\n",
+])
+def test_parse_firmware_gate_absent_or_malformed(text):
+    assert d.parse_firmware_gate_controls(text) == []
+
+
+def test_detect_firmware_gates_no_amixer(monkeypatch):
+    """A missing `amixer` binary must yield [] rather than raising."""
+    def fake_run(*a, **k):
+        raise FileNotFoundError("amixer")
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    assert d.detect_speaker_firmware_gates() == []
+
+
+@pytest.mark.parametrize("value,expected_on", [
+    ("off", False), ("0", False), ("on", True), ("1", True),
+])
+def test_detect_firmware_gates_demo_env(monkeypatch, value, expected_on):
+    """DEMO_FIRMWARE_GATE injects a synthetic gate (state = the value)."""
+    monkeypatch.setenv("DEMO_FIRMWARE_GATE", value)
+    gates = d.detect_speaker_firmware_gates()
+    assert len(gates) == 1 and gates[0].on is expected_on
+
+
+def _gate(on):
+    return d.FirmwareGate(
+        card_index="0", card_id="sofhdadsp", numid="3",
+        name="Speaker Force Firmware Load", on=on,
+    )
+
+
+def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
+    monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
+    d.warn_speaker_firmware_gate([_gate(on=False)])
+    out = capsys.readouterr().out
+    assert "amixer -c sofhdadsp cset name='Speaker Force Firmware Load' on" in out
+    assert "sudo alsactl store" in out  # one-liner persistence
+    # self-check commands: control state, kernel log, firmware blob presence
+    assert "cget name='Speaker Force Firmware Load'" in out
+    assert "journalctl -k" in out
+    assert "/lib/firmware/TAS2" in out
+    assert "TAS2" in out          # names the amp / firmware blob
+    assert "#17" in out           # firmware-specific feedback ask (dim, not a CTA)
+
+
+@pytest.mark.parametrize("gates", [[], [_gate(on=True)]])
+def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
+    monkeypatch.setattr(d, "_CONSOLE", None)
+    d.warn_speaker_firmware_gate(gates)
+    assert capsys.readouterr().out == ""

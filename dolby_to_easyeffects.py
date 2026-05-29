@@ -243,6 +243,23 @@ class SpeakerPin:
 
 
 @dataclass
+class FirmwareGate:
+    """A smart-amp firmware-load ALSA control that gates the speakers.
+
+    On laptops whose woofers run through a TI TAS2563/2781 smart amplifier,
+    the firmware does not auto-load and the amp stays muted until an ALSA
+    control ("Speaker Force Firmware Load") is switched on (issue #17). This
+    is a kernel/ALSA-side gate — nothing in the DAX XML hints at it — so the
+    preset can be perfect while the bass speakers are silent.
+    """
+    card_index: str      # ALSA card index, e.g. "0"
+    card_id: str         # ALSA card short id, e.g. "sofhdadsp" (stable across boots)
+    numid: str           # control numid, e.g. "3"
+    name: str            # control name, e.g. "Speaker Force Firmware Load"
+    on: bool             # current state
+
+
+@dataclass
 class SpeakerInfo:
     """Collected audio hardware information for --speaker-info."""
     product: str = ""
@@ -258,6 +275,8 @@ class SpeakerInfo:
     sdw_amplifiers: list[str] = field(default_factory=list)
     # Speaker pins (HDA or SoundWire)
     speakers: list[SpeakerPin] = field(default_factory=list)
+    # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
+    firmware_gates: list[FirmwareGate] = field(default_factory=list)
 
     @property
     def bus_type(self) -> str:
@@ -357,6 +376,136 @@ def _detect_hda_speakers(info: SpeakerInfo):
             ))
 
 
+# A smart-amp firmware-load gate is an ALSA control (not a DAX field) that
+# must be on before TI TAS2563/2781 amplifiers will drive the woofers.
+# Matched by name: "Speaker Force Firmware Load" is the one Lenovo laptops
+# expose (issue #17); the pattern is loosened to the "...Force Firmware Load"
+# family so sibling controls match too. Extend here if more turn up.
+_FIRMWARE_GATE_NAME_RE = re.compile(r"force firmware load", re.I)
+_AMIXER_CONTROL_HEAD_RE = re.compile(r"numid=(\d+),.*?name='([^']*)'")
+
+
+def parse_firmware_gate_controls(amixer_contents: str) -> list[tuple[str, str, bool]]:
+    """Extract firmware-load gate controls from ``amixer -c N contents`` text.
+
+    Each control prints as a block:
+
+        numid=3,iface=MIXER,name='Speaker Force Firmware Load'
+          ; type=BOOLEAN,access=rw------,values=1
+          : values=off
+
+    Returns ``(numid, name, on)`` per name-matched control. Pure text parsing
+    so it can be unit-tested without hardware.
+    """
+    gates: list[tuple[str, str, bool]] = []
+    for block in re.split(r"(?=^numid=)", amixer_contents, flags=re.MULTILINE):
+        head = _AMIXER_CONTROL_HEAD_RE.match(block)
+        if not head:
+            continue
+        numid, name = head.group(1), head.group(2)
+        if not _FIRMWARE_GATE_NAME_RE.search(name):
+            continue
+        val = re.search(r":\s*values=(\w+)", block)
+        on = val is not None and val.group(1).lower() in ("on", "1", "true")
+        gates.append((numid, name, on))
+    return gates
+
+
+def detect_speaker_firmware_gates() -> list[FirmwareGate]:
+    """Scan ALSA cards for smart-amp firmware-load gate controls.
+
+    Reads each card's raw control list via ``amixer -c <N> contents`` (the
+    same tool the SoundWire fallback already shells out to) and returns a
+    FirmwareGate per matching control. Empty when amixer is absent or no
+    gate exists.
+    """
+    # Demo/preview hook (same ATMOS_* convention as the test corpus env vars):
+    # inject a synthetic gate so the issue-#17 warning can be previewed on a
+    # machine without a TI smart amp. The value is the gate *state*:
+    # DEMO_FIRMWARE_GATE=off (or 0) shows the muted case a user would see
+    # (the warning fires); =on (or 1) shows the already-enabled, silent case.
+    demo = os.environ.get("DEMO_FIRMWARE_GATE")
+    if demo:
+        on = demo.strip().lower() in ("on", "1", "true")
+        return [FirmwareGate(card_index="0", card_id="sofhdadsp", numid="3",
+                             name="Speaker Force Firmware Load", on=on)]
+
+    gates: list[FirmwareGate] = []
+    for card_dir in sorted(Path("/proc/asound").glob("card*")):
+        m = re.match(r"card(\d+)$", card_dir.name)
+        if not m:
+            continue  # skips the /proc/asound/cards file and oddly-named dirs
+        idx = m.group(1)
+        id_file = card_dir / "id"
+        card_id = id_file.read_text().strip() if id_file.is_file() else idx
+        try:
+            result = subprocess.run(
+                ["amixer", "-c", idx, "contents"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except FileNotFoundError:
+            return gates  # amixer not installed — nothing more to scan
+        except subprocess.TimeoutExpired:
+            continue
+        for numid, name, on in parse_firmware_gate_controls(result.stdout):
+            gates.append(FirmwareGate(
+                card_index=idx, card_id=card_id, numid=numid, name=name, on=on,
+            ))
+    return gates
+
+
+def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
+    """Warn — with copy-paste fixes — about any firmware-load gate that's off.
+
+    Silent when no gate is off (the gate is either absent or already enabled,
+    so the speakers aren't muted on its account).
+    """
+    off = [g for g in gates if not g.on]
+    if not off:
+        return
+    g0 = off[0]  # representative gate for the verify examples
+
+    cprint("warn", f"\n{'=' * 60}")
+    cprint("warn", "⚠  Smart-amp firmware gate is OFF — your bass/woofer speakers")
+    cprint("warn", "   may be silent even though the EasyEffects preset is correct.")
+    cprint("dim", "Many laptops drive their woofers through a TI TAS2563/2781 smart")
+    cprint("dim", "amplifier whose firmware does not auto-load; the amp stays muted")
+    cprint("dim", "upstream of the preset until this ALSA control is switched on.")
+    print()
+    # Enable now: no root needed — the active logind session already holds an
+    # ACL on /dev/snd/control*. Persist with `alsactl store`, which saves the
+    # state that alsa-restore.service replays at boot (the standard ALSA path).
+    cprint("dim", "1. Enable it now (no root needed) and listen for the bass to return:")
+    for g in off:
+        cprint("cta", f"     amixer -c {g.card_id} cset name='{g.name}' on")
+    print()
+    cprint("dim", "2. If that worked, persist it across reboots — saves the ALSA state")
+    cprint("dim", "   that alsa-restore replays at boot:")
+    cprint("cta", "     sudo alsactl store")
+    print()
+    cprint("dim", "   (If it still doesn't survive a reboot — alsa-restore can race the")
+    cprint("dim", "   driver on some setups — fall back to a systemd --user oneshot that")
+    cprint("dim", "   runs the amixer command above at login.)")
+    print()
+    cprint("dim", "3. Self-check — confirm the control stuck and the firmware loaded:")
+    cprint("cta", f"     amixer -c {g0.card_id} cget name='{g0.name}'")
+    cprint("cta", "     journalctl -k -b | grep -iE 'tas2|firmware'")
+    cprint("cta", "     ls -l /lib/firmware/TAS2*.bin")
+    cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
+    print()
+    cprint("dim", "   Still no bass, and the log shows 'Direct firmware load for")
+    cprint("dim", "   TAS2XXX….bin failed' or no such file exists? The per-device blob")
+    cprint("dim", "   is missing — distro linux-firmware lags newer laptops. Extract it")
+    cprint("dim", "   from your Windows audio driver or TI's TAS2781-LINUX package and")
+    cprint("dim", "   drop it into /lib/firmware.")
+    print()
+    # Keep the feedback ask (it gates whether we automate this) but as a dim
+    # line, not a second call-to-action — main()'s general "report back" CTA
+    # right below is the single prominent one, and covers this too.
+    cprint("dim", "Did toggling this fix your bass (or not)? A note on issue #17 lets us")
+    cprint("dim", "gauge whether to automate it — use the report-back link just below.")
+
+
 def _gather_speaker_info() -> SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
     import platform
@@ -398,6 +547,10 @@ def _gather_speaker_info() -> SpeakerInfo:
         _detect_soundwire_speakers(info)
     elif info.bus_type == "hda":
         _detect_hda_speakers(info)
+
+    # Bus-agnostic: a TI smart-amp firmware gate sits on the SOF/HDA card
+    # regardless of how the speakers themselves are wired.
+    info.firmware_gates = detect_speaker_firmware_gates()
 
     return info
 
@@ -450,6 +603,17 @@ def _print_speaker_info(info: SpeakerInfo):
     # PCM playback devices
     sections.append(("PCM playback devices",
                       [f"  pcm{dev}p: {name}" for dev, name in info.pcm_devices]))
+
+    # Smart-amp firmware gate (TI TAS2563/2781 "Speaker Force Firmware Load")
+    if info.firmware_gates:
+        gate_lines = [
+            f"  {g.name}: {'on' if g.on else 'OFF — bass speakers may be silent'}"
+            f"  (card {g.card_id})"
+            for g in info.firmware_gates
+        ]
+    else:
+        gate_lines = ["  (no firmware-gated amplifier detected)"]
+    sections.append(("Speaker amplifier firmware", gate_lines))
 
     # Speaker layout estimate
     sections.append(("Speaker layout estimate", [f"  {info.layout_summary}"]))
@@ -3339,6 +3503,12 @@ def main():
         cprint("dim", "These emissions are reproduced directly from the Dolby tuning and")
         cprint("dim", "verified numerically, but have not yet been audibly validated by")
         cprint("cta", "a user with an affected device. Feedback is especially helpful.")
+
+    # Capability warning: some laptops gate their woofers behind a smart-amp
+    # firmware-load ALSA control (issue #17). Only relevant when tuning the
+    # internal speakers — irrelevant for headphone/other endpoints.
+    if args.endpoint == "internal_speaker":
+        warn_speaker_firmware_gate(detect_speaker_firmware_gates())
 
     print()
     cprint("cta", "How does it sound? Please report back (good or bad) at")
