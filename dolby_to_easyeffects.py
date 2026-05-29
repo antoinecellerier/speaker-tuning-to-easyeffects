@@ -1363,7 +1363,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             "driver package but are for mic processing only."
         )
 
-    freqs = parse_csv_ints(constant.find("band_20_freq").get("fs_48000"))
+    band_20_freq = constant.find("band_20_freq")
+    if band_20_freq is None:
+        raise ValueError(
+            f"{path.name}: <constant> has no <band_20_freq> child — cannot "
+            "read the 20-band frequency grid. This XML uses a DAX3 schema "
+            "variant this script does not support."
+        )
+    freqs = parse_csv_ints(band_20_freq.get("fs_48000"))
 
     curves = {}
     for el in constant:
@@ -1413,8 +1420,19 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             ieq_amount = _int_attr(cp.find("ieq-amount"), default=ieq_amount)
 
     vlldp = profile.find("tuning-vlldp")
+    if vlldp is None:
+        raise ValueError(
+            f"{path.name}: profile '{profile.get('type') or '(first)'}' has "
+            "no <tuning-vlldp> — no audio-optimizer, PEQ, or MBC data to read. "
+            "This XML uses a DAX3 schema variant this script does not support."
+        )
 
     ao_bands = vlldp.find("audio-optimizer-bands")
+    if ao_bands is None:
+        raise ValueError(
+            f"{path.name}: tuning-vlldp has no <audio-optimizer-bands>. "
+            "This XML uses a DAX3 schema variant this script does not support."
+        )
     ch_00 = ao_bands.find("ch_00")
     ch_01 = ao_bands.find("ch_01")
     if ch_00 is None or ch_01 is None:
@@ -3131,7 +3149,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (FileNotFoundError, RuntimeError, ValueError) as e:
+    except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")
         sys.exit(1)

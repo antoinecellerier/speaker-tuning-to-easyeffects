@@ -21,6 +21,7 @@ import dolby_to_easyeffects
 from dolby_to_easyeffects import (
     decode_mbc_time_constant,
     make_multiband_compressor,
+    parse_xml,
     warn_unmodeled_features,
 )
 from tests.conftest import SYNTHETIC_FREQS_20, synthetic_mb_comp
@@ -246,3 +247,52 @@ class TestIntAttr:
     def test_custom_attribute_name(self):
         el = ET.fromstring('<foo count="9"/>')
         assert dolby_to_easyeffects._int_attr(el, default=0, name="count") == 9
+
+
+class TestParseXmlGuards:
+    """parse_xml() — required-element guards (finding R1).
+
+    A schema variant or truncated XML that is missing ``band_20_freq``,
+    ``tuning-vlldp``, or ``audio-optimizer-bands`` must fail with a clean,
+    actionable ``ValueError`` (which the CLI handler catches and prints),
+    not a bare ``AttributeError`` from an unguarded ``.find(...).get(...)``
+    chain (which escapes as a traceback). ``pytest.raises(ValueError)``
+    also fails if the old AttributeError behavior regresses.
+    """
+
+    def _write(self, tmp_path, body):
+        p = tmp_path / "variant.xml"
+        p.write_text(body)
+        return p
+
+    def test_missing_band_20_freq_raises_valueerror(self, tmp_path):
+        # <constant> present but no <band_20_freq> child.
+        p = self._write(tmp_path, "<root><constant/></root>")
+        with pytest.raises(ValueError, match="band_20_freq"):
+            parse_xml(p)
+
+    def test_missing_tuning_vlldp_raises_valueerror(self, tmp_path):
+        # Reaches the profile, but the profile has no <tuning-vlldp>.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default"/>
+              </endpoint>
+            </root>
+        """)
+        with pytest.raises(ValueError, match="tuning-vlldp"):
+            parse_xml(p)
+
+    def test_missing_audio_optimizer_bands_raises_valueerror(self, tmp_path):
+        # <tuning-vlldp> present but no <audio-optimizer-bands> child.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default"><tuning-vlldp/></profile>
+              </endpoint>
+            </root>
+        """)
+        with pytest.raises(ValueError, match="audio-optimizer-bands"):
+            parse_xml(p)
