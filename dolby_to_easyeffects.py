@@ -1581,8 +1581,17 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             tl_el = reg_tuning.find("threshold_low")
             th_val = resolve_xml_value(th_el, constant)
             tl_val = resolve_xml_value(tl_el, constant)
-            th = [x / 16.0 for x in parse_csv_ints(th_val)] if th_val else [0.0] * 20
-            tl = [x / 16.0 for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * 20
+            th = [x / 16.0 for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
+            tl = [x / 16.0 for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
+            # make_regulator walks `th` and indexes `freqs` at positions
+            # derived from it; a length mismatch would IndexError deep in the
+            # zone loop. Fail loud here instead.
+            if len(th) != len(freqs):
+                raise ValueError(
+                    f"{path.name}: regulator threshold_high has {len(th)} "
+                    f"values but the band grid has {len(freqs)} — the "
+                    "regulator zone mapping requires one threshold per band."
+                )
             reg_stress = vlldp.find("regulator-stress-amount")
             stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
             reg_slope = vlldp.find("regulator-distortion-slope")

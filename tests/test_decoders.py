@@ -324,3 +324,32 @@ class TestParseXmlGuards:
         """)
         with pytest.raises(ValueError, match="band_group_0 has 5 values"):
             parse_xml(p)
+
+    def test_regulator_threshold_length_mismatch_raises_valueerror(self, tmp_path):
+        # Regulator enabled with a threshold_high whose length (3) differs
+        # from the band grid (5 freqs). make_regulator indexes freqs[] at
+        # positions derived from threshold_high, so a mismatch would
+        # IndexError deep in the zone loop. Guarded at parse time (finding
+        # R6) so the failure names both lengths instead of escaping as an
+        # opaque IndexError.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default">
+                  <tuning-vlldp>
+                    <audio-optimizer-bands>
+                      <ch_00 value="0,0,0,0,0"/>
+                      <ch_01 value="0,0,0,0,0"/>
+                    </audio-optimizer-bands>
+                    <regulator-speaker-dist-enable value="1"/>
+                    <regulator-tuning>
+                      <threshold_high value="-96,-96,-96"/>
+                    </regulator-tuning>
+                  </tuning-vlldp>
+                </profile>
+              </endpoint>
+            </root>
+        """)
+        with pytest.raises(ValueError, match=r"threshold_high has 3 values but the band grid has 5"):
+            parse_xml(p)
