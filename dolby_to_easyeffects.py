@@ -1482,19 +1482,27 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         for f in vlldp.findall(".//speaker-peq-filters/filter"):
             if f.get("enabled") == "0":
                 continue
-            ftype = int(f.get("type"))
+            try:
+                ftype = int(f.get("type"))
+            except (TypeError, ValueError):
+                cprint("warn", f"  Warning: PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
+                continue
             if ftype not in (1, 3, 4, 6, 7, 8, 9):
                 cprint("warn", f"  Warning: unknown PEQ filter type {ftype}, skipping")
                 continue
-            peq_filters.append({
-                "speaker": int(f.get("speaker")),
-                "type": ftype,
-                "f0": float(f.get("f0")),
-                "gain": float(f.get("gain", "0")),
-                "q": float(f.get("q", "0.707")),
-                "s": float(f.get("s", "1.0")),
-                "order": int(f.get("order", "0")),
-            })
+            try:
+                peq_filters.append({
+                    "speaker": int(f.get("speaker")),
+                    "type": ftype,
+                    "f0": float(f.get("f0")),
+                    "gain": float(f.get("gain", "0")),
+                    "q": float(f.get("q", "0.707")),
+                    "s": float(f.get("s", "1.0")),
+                    "order": int(f.get("order", "0")),
+                })
+            except (TypeError, ValueError):
+                cprint("warn", "  Warning: PEQ filter has missing/garbage f0/speaker/order, skipping")
+                continue
 
     # Volume leveler settings (from tuning-cp of the selected profile)
     vol_leveler = None

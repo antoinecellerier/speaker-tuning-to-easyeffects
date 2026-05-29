@@ -353,3 +353,34 @@ class TestParseXmlGuards:
         """)
         with pytest.raises(ValueError, match=r"threshold_high has 3 values but the band grid has 5"):
             parse_xml(p)
+
+    def test_malformed_peq_filter_row_warns_and_skips(self, tmp_path, capsys):
+        # One valid <filter> row and one malformed row (missing f0). The
+        # malformed row must warn-and-skip — matching the loop's existing
+        # unknown-type skip (finding R9) — instead of crashing the whole
+        # run with an uncaught TypeError, so the valid row still survives.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default">
+                  <tuning-vlldp>
+                    <audio-optimizer-bands>
+                      <ch_00 value="0,0,0,0,0"/>
+                      <ch_01 value="0,0,0,0,0"/>
+                    </audio-optimizer-bands>
+                    <speaker-peq-filters>
+                      <filter speaker="0" type="1" f0="1000" gain="3" q="1.0"/>
+                      <filter speaker="0" type="1" gain="3" q="1.0"/>
+                    </speaker-peq-filters>
+                  </tuning-vlldp>
+                </profile>
+              </endpoint>
+            </root>
+        """)
+        result = parse_xml(p)
+        # Valid row survives, malformed row dropped.
+        assert len(result.peq_filters) == 1
+        assert result.peq_filters[0]["f0"] == 1000.0
+        # Warn-and-skip emitted a message naming the problem.
+        assert "skipping" in capsys.readouterr().out
