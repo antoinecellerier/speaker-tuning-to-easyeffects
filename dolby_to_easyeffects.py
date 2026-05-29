@@ -23,6 +23,7 @@ Output chain:
 
 import argparse
 import configparser
+import contextlib
 import json
 import math
 import os
@@ -1194,6 +1195,29 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
     return []
 
 
+@contextlib.contextmanager
+def _atomic_write(path: Path):
+    """Yield a same-directory temp path, then os.replace it into place when the
+    block completes — so a crash mid-write can't leave a truncated file that
+    EasyEffects would silently fail to load. The dotfile temp name keeps a
+    leftover from a failed write out of EE's ``*.json`` / ``*.irs`` scan. The
+    single home for the temp-then-rename pattern; callers fill the temp however
+    they like (text, WAV, configparser)."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        yield tmp
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, path)
+
+
+def _atomic_write_text(path: Path, data: str) -> None:
+    """Atomically write text to ``path`` (see _atomic_write)."""
+    with _atomic_write(path) as tmp:
+        tmp.write_text(data)
+
+
 def write_autoload(autoload_dir: Path, device_name: str, device_description: str,
                    device_profile: str, preset_name: str, dry_run: bool = False) -> Path:
     """Write an EasyEffects autoload config file for a device/route → preset mapping.
@@ -1210,7 +1234,7 @@ def write_autoload(autoload_dir: Path, device_name: str, device_description: str
     if dry_run:
         return path
     autoload_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    _atomic_write_text(path, json.dumps({
         "device": device_name,
         "device-description": device_description,
         "device-profile": device_profile,
@@ -1233,7 +1257,7 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
     if dry_run:
         return path, "would-write"
     output_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    _atomic_write_text(path, json.dumps({
         "_generator": f"dolby_to_easyeffects.py {get_version()}",
         "output": {"blocklist": [], "plugins_order": []},
     }, indent=4) + "\n")
@@ -1281,7 +1305,7 @@ def set_autoload_fallback(rc_path: Path, preset_name: str,
     parser.set(section, "outputAutoloadingUsesFallback", "true")
 
     rc_path.parent.mkdir(parents=True, exist_ok=True)
-    with rc_path.open("w", encoding="utf-8") as f:
+    with _atomic_write(rc_path) as tmp, tmp.open("w", encoding="utf-8") as f:
         parser.write(f, space_around_delimiters=False)
     return "patched", existing_preset
 
@@ -1775,7 +1799,8 @@ def save_wav_stereo(path: Path, fir_left: np.ndarray,
                     fir_right: np.ndarray) -> None:
     """Save stereo impulse response as 32-bit float WAV."""
     stereo = np.column_stack([fir_left, fir_right]).astype(np.float32)
-    wavfile.write(str(path), SAMPLE_RATE, stereo)
+    with _atomic_write(path) as tmp:
+        wavfile.write(str(tmp), SAMPLE_RATE, stereo)
 
 
 # --- EasyEffects preset builders ---
@@ -2928,7 +2953,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             filters_by_profile.setdefault(name, set()).add(profile_label)
         out_path = args.output_dir / f"{preset_name}.json"
         if not args.dry_run:
-            out_path.write_text(json.dumps(preset, indent=4) + "\n")
+            _atomic_write_text(out_path, json.dumps(preset, indent=4) + "\n")
 
         all_preset_names.append(preset_name)
 

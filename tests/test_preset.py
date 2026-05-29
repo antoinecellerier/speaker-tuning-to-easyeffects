@@ -28,6 +28,8 @@ import pytest
 from dolby_to_easyeffects import (
     FIR_LENGTH,
     SAMPLE_RATE,
+    _atomic_write,
+    _atomic_write_text,
     _disabled_band,
     decode_mbc_bands,
     make_fir,
@@ -421,3 +423,43 @@ def test_plugin_order_starts_with_convolver(generated):
 def test_limiter_is_last_in_plugin_order(generated):
     preset, _ = generated
     assert preset["output"]["plugins_order"][-1] == "limiter#0"
+
+
+# --- Atomic writes ---
+# Output files are written via a same-dir temp + os.replace so a crash
+# mid-write can't leave a truncated .json/.irs that EasyEffects would
+# silently fail to load.
+
+def test_atomic_write_text_creates_file(tmp_path):
+    path = tmp_path / "preset.json"
+    _atomic_write_text(path, "hello\n")
+    assert path.read_text() == "hello\n"
+
+
+def test_atomic_write_text_overwrites_existing(tmp_path):
+    path = tmp_path / "preset.json"
+    path.write_text("old content")
+    _atomic_write_text(path, "new content")
+    assert path.read_text() == "new content"
+
+
+def test_atomic_write_text_leaves_no_temp_file(tmp_path):
+    path = tmp_path / "preset.json"
+    _atomic_write_text(path, "data")
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "preset.json"]
+    assert leftovers == [], f"unexpected leftover files: {leftovers}"
+
+
+def test_atomic_write_aborts_cleanly_on_error(tmp_path):
+    """A failure mid-write must leave neither a temp file nor a clobbered
+    target — the existing file (if any) stays intact and os.replace never
+    runs. This is the single-implementation guarantee _atomic_write owns."""
+    path = tmp_path / "preset.json"
+    path.write_text("original")
+    with pytest.raises(RuntimeError):
+        with _atomic_write(path) as tmp:
+            tmp.write_text("partial")
+            raise RuntimeError("write failed")
+    assert path.read_text() == "original", "target must not be clobbered"
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "preset.json"]
+    assert leftovers == [], f"temp file left behind: {leftovers}"
