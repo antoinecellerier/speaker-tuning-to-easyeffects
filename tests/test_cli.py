@@ -360,6 +360,59 @@ def test_find_tuning_xml_no_matching_xml_includes_sdw_in_message(monkeypatch, tm
         find_tuning_xml(tmp_path)
 
 
+# --- find_tuning_xml: multi-candidate version selection (R8) ---
+# When several XMLs match the hardware, find_tuning_xml parses each once and
+# keeps the highest tuning_version. A candidate whose version is malformed
+# (bad/missing) must sort last AND list without crashing the display loop.
+
+
+def _write_hda_candidate(directory, version_attr):
+    """Create a DEV_*_SUBSYS_* XML matching the synthetic HDA codec below.
+
+    version_attr is the raw `value` attribute string for <tuning_version>,
+    or None to omit the attribute entirely (a malformed candidate).
+    """
+    attr = "" if version_attr is None else f' value="{version_attr}"'
+    name = f"DEV_0287_SUBSYS_17AA22E6_v{version_attr or 'none'}.xml"
+    path = directory / name
+    path.write_text(f"<tuning><tuning_version{attr}/></tuning>")
+    return path
+
+
+def _patch_single_hda_match(monkeypatch, driver_store):
+    """Wire find_tuning_xml so a single HDA codec drives candidate matching
+    against XMLs in driver_store."""
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+    )
+
+
+def test_find_tuning_xml_selects_highest_version(monkeypatch, tmp_path):
+    """Several matching XMLs → the highest tuning_version is returned."""
+    _patch_single_hda_match(monkeypatch, tmp_path)
+    _write_hda_candidate(tmp_path, "3")
+    winner = _write_hda_candidate(tmp_path, "12")
+    _write_hda_candidate(tmp_path, "7")
+    assert find_tuning_xml(tmp_path) == winner
+
+
+def test_find_tuning_xml_malformed_version_does_not_crash(monkeypatch, tmp_path):
+    """A malformed-version candidate (missing `value`) must not raise in the
+    display loop and must still lose to a valid higher-version candidate.
+    """
+    _patch_single_hda_match(monkeypatch, tmp_path)
+    _write_hda_candidate(tmp_path, None)  # missing value → sorts last
+    winner = _write_hda_candidate(tmp_path, "9")
+    # Should not raise (display path is now robust to the bad version).
+    assert find_tuning_xml(tmp_path) == winner
+
+
 def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     """No NTFS mounts and an empty CWD → FileNotFoundError at
     dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic

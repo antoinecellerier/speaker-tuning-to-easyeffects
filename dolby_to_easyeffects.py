@@ -846,26 +846,34 @@ def find_tuning_xml(windows_root: Path):
         )
 
     if len(candidates) > 1:
-        # Prefer the highest tuning version from the XML metadata
-        def xml_sort_key(path):
+        # Prefer the highest tuning version from the XML metadata. Parse each
+        # candidate once, recording both the numeric version (sort key) and
+        # the raw value string (display); on a parse/decode failure both fall
+        # back to 0 / "?" so the malformed candidate sorts last and prints
+        # without crashing the listing.
+        def parse_version(path):
+            # ver is the raw value string for display; version is its int form
+            # for sorting (0 when absent/non-numeric, so it sorts last).
             try:
-                root = ET.parse(path).getroot()
-                tv = root.find("tuning_version")
-                version = int(tv.get("value", "0")) if tv is not None else 0
-            except (ET.ParseError, ValueError, AttributeError):
-                version = 0
-            return version
-
-        candidates.sort(key=xml_sort_key, reverse=True)
-        cprint("head", "Multiple matching XMLs found, using highest tuning version:")
-        for c in candidates:
-            try:
-                root = ET.parse(c).getroot()
-                tv = root.find("tuning_version")
+                tv = ET.parse(path).getroot().find("tuning_version")
                 ver = tv.get("value", "?") if tv is not None else "?"
-            except ET.ParseError:
-                ver = "?"
-            if c == candidates[0]:
+            except (ET.ParseError, ValueError, AttributeError):
+                return path, 0, "?"
+            try:
+                version = int(tv.get("value", "0")) if tv is not None else 0
+            except (ValueError, AttributeError):
+                version = 0
+            return path, version, ver
+
+        ranked = sorted(
+            (parse_version(c) for c in candidates),
+            key=lambda pv: pv[1],
+            reverse=True,
+        )
+        candidates = [path for path, _version, _ver in ranked]
+        cprint("head", "Multiple matching XMLs found, using highest tuning version:")
+        for i, (c, _version, ver) in enumerate(ranked):
+            if i == 0:
                 cprint("ok", f"  → {c} (tuning_version={ver})")
             else:
                 print(f"    {c} (tuning_version={ver})")
