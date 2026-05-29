@@ -1549,7 +1549,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             for i in range(4):
                 bg = mbc_tuning.find(f"band_group_{i}")
                 if bg is not None:
-                    band_groups.append(parse_csv_ints(bg.get("value")))
+                    group = parse_csv_ints(bg.get("value"))
+                    if len(group) != 6:
+                        raise ValueError(
+                            f"{path.name}: band_group_{i} has {len(group)} "
+                            "values, expected 6 (xover, threshold, ratio, "
+                            "attack, release, makeup)."
+                        )
+                    band_groups.append(group)
             # group_count is present on every corpus XML; default to the
             # number of band groups actually found if a variant omits it.
             group_count = _int_attr(mbc_tuning.find("group_count"),

@@ -296,3 +296,31 @@ class TestParseXmlGuards:
         """)
         with pytest.raises(ValueError, match="audio-optimizer-bands"):
             parse_xml(p)
+
+    def test_band_group_wrong_length_raises_valueerror(self, tmp_path):
+        # MBC enabled with a band_group_0 carrying 5 ints instead of the
+        # 6 the per-band decode unpacks (xover, threshold, ratio, attack,
+        # release, makeup). Validated at parse time so the failure names
+        # the offending band instead of a bare "not enough values to
+        # unpack" from decode_band.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default">
+                  <tuning-vlldp>
+                    <audio-optimizer-bands>
+                      <ch_00 value="0,0,0,0,0"/>
+                      <ch_01 value="0,0,0,0,0"/>
+                    </audio-optimizer-bands>
+                    <mb-compressor-enable value="1"/>
+                    <mb-compressor-tuning>
+                      <band_group_0 value="1,2,3,4,5"/>
+                    </mb-compressor-tuning>
+                  </tuning-vlldp>
+                </profile>
+              </endpoint>
+            </root>
+        """)
+        with pytest.raises(ValueError, match="band_group_0 has 5 values"):
+            parse_xml(p)
