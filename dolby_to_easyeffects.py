@@ -1366,6 +1366,11 @@ class ParsedTuning:
     volmax_boost: float
 
 
+# DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
+# (gains, thresholds, targets, slope/timbre); divide by this to get dB.
+DB_FIXED_POINT_SCALE = 16.0
+
+
 def parse_xml(path: Path, endpoint_type="internal_speaker",
               operating_mode="normal", profile_type=None) -> ParsedTuning:
     """Parse a DAX3 tuning XML into a ``ParsedTuning`` (see that dataclass for
@@ -1515,8 +1520,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             vol_leveler = {
                 "enable": _int_attr(vl_enable, default=0),
                 "amount": _int_attr(vl_amount, default=0),
-                "in_target": _int_attr(vl_in, default=-320) / 16.0,   # -320/16 = -20.0 dBFS
-                "out_target": _int_attr(vl_out, default=-320) / 16.0,
+                "in_target": _int_attr(vl_in, default=-320) / DB_FIXED_POINT_SCALE,   # -320/16 = -20.0 dBFS
+                "out_target": _int_attr(vl_out, default=-320) / DB_FIXED_POINT_SCALE,
             }
 
     # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
@@ -1527,7 +1532,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if cp is not None:
         volmax = cp.find("volmax-boost")
         if volmax is not None:
-            volmax_boost = _int_attr(volmax, default=0) / 16.0
+            volmax_boost = _int_attr(volmax, default=0) / DB_FIXED_POINT_SCALE
 
     # Dialog enhancer settings (from tuning-cp)
     dialog_enhancer = None
@@ -1544,7 +1549,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         sr_enable = cp.find("surround-decoder-enable")
         if sr_enable is not None and sr_enable.get("value") == "1":
             surround = {
-                "boost": _int_attr(cp.find("surround-boost"), default=0) / 16.0,
+                "boost": _int_attr(cp.find("surround-boost"), default=0) / DB_FIXED_POINT_SCALE,
             }
 
     # Multi-band compressor settings (from tuning-vlldp)
@@ -1575,7 +1580,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             mb_comp = {
                 "group_count": group_count,
                 "band_groups": band_groups,
-                "target_power": _int_attr(target_power, default=-80) / 16.0,   # -80/16 = -5.0 dB
+                "target_power": _int_attr(target_power, default=-80) / DB_FIXED_POINT_SCALE,   # -80/16 = -5.0 dB
                 "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
             }
 
@@ -1589,8 +1594,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             tl_el = reg_tuning.find("threshold_low")
             th_val = resolve_xml_value(th_el, constant)
             tl_val = resolve_xml_value(tl_el, constant)
-            th = [x / 16.0 for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
-            tl = [x / 16.0 for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
+            th = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
+            tl = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
             # make_regulator walks `th` and indexes `freqs` at positions
             # derived from it; a length mismatch would IndexError deep in the
             # zone loop. Fail loud here instead.
@@ -1603,9 +1608,9 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             reg_stress = vlldp.find("regulator-stress-amount")
             stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
             reg_slope = vlldp.find("regulator-distortion-slope")
-            slope = _int_attr(reg_slope, default=16) / 16.0   # 16/16 = 1.0
+            slope = _int_attr(reg_slope, default=16) / DB_FIXED_POINT_SCALE   # 16/16 = 1.0
             reg_timbre = vlldp.find("regulator-timbre-preservation")
-            timbre = _int_attr(reg_timbre, default=12) / 16.0   # 12/16 = 0.75
+            timbre = _int_attr(reg_timbre, default=12) / DB_FIXED_POINT_SCALE   # 12/16 = 0.75
             # `regulator-overdrive` and `regulator-relaxation-amount` are read
             # for visibility (debug print + watch warn) but not yet mapped to
             # any LSP plugin parameter — the corpus shows them as constants
@@ -1618,7 +1623,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             regulator = {
                 "threshold_high": th,
                 "threshold_low": tl,
-                "stress": [x / 16.0 for x in stress],
+                "stress": [x / DB_FIXED_POINT_SCALE for x in stress],
                 "distortion_slope": slope,
                 "timbre_preservation": timbre,
                 "overdrive": overdrive,
@@ -1716,6 +1721,11 @@ def interpolate_curve_db(band_freqs, band_gains_db, fft_freqs):
                      left=band_gains_db[0], right=band_gains_db[-1])
 
 
+# Floor added to a linear magnitude before 20*log10 so a true zero maps to a
+# large finite negative dB instead of -inf (keeps FIR peak/verification finite).
+LOG_MAG_FLOOR = 1e-12
+
+
 def make_fir(band_freqs, gains_db, normalize=True):
     """Generate a minimum-phase FIR filter from a target dB curve.
 
@@ -1750,7 +1760,7 @@ def make_fir(band_freqs, gains_db, normalize=True):
     fir = np.fft.irfft(H_min, n=n)
 
     peak_mag = np.max(np.abs(H_min))
-    peak_db = 20.0 * np.log10(peak_mag + 1e-12)
+    peak_db = 20.0 * np.log10(peak_mag + LOG_MAG_FLOOR)
 
     if normalize:
         if peak_mag > 0:
@@ -2063,7 +2073,7 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
     amount = dialog_enhancer["amount"]
 
     if is_soundwire:
-        gain_presence = round(amount / 16.0 * 8.0, 2)
+        gain_presence = round(amount / DB_FIXED_POINT_SCALE * 8.0, 2)
         gain_clarity = round(gain_presence * 0.6, 2)
         if gain_presence <= 0:
             return None
@@ -2084,7 +2094,7 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
             },
         }
 
-    gain = round(amount / 16.0 * 6.0, 2)
+    gain = round(amount / DB_FIXED_POINT_SCALE * 6.0, 2)
     if gain <= 0:
         return None
 
@@ -2148,7 +2158,15 @@ def make_autogain(vol_leveler, conservative=False):
     }
 
 
-def decode_mbc_time_constant(coeff, block_size=256):
+# Dolby DSP coefficients (MBC gain/attack/release) are Q15 fixed point:
+# the stored int divided by 2^15 gives the fractional value; 2^15 is "unity".
+Q15_SCALE = 32768.0
+# The Dolby MB compressor operates per block of this many samples (not per
+# sample), so time-constant decoding converts via blocks-per-second.
+MBC_BLOCK_SIZE = 256
+
+
+def decode_mbc_time_constant(coeff, block_size=MBC_BLOCK_SIZE):
     """Decode a Dolby time constant coefficient to milliseconds.
 
     Dolby stores time constants as exponential smoothing coefficients
@@ -2156,11 +2174,17 @@ def decode_mbc_time_constant(coeff, block_size=256):
     coeff/32768 = (1 - alpha), where alpha = 1 - exp(-1/(tau * blocks_per_sec)).
     """
     blocks_per_sec = SAMPLE_RATE / block_size
-    one_minus_alpha = coeff / 32768.0
+    one_minus_alpha = coeff / Q15_SCALE
     if one_minus_alpha <= 0.0 or one_minus_alpha >= 1.0:
         return 100.0  # fallback
     tau = -1.0 / (blocks_per_sec * math.log(one_minus_alpha))
     return tau * 1000.0  # seconds to ms
+
+
+# LSP MBC/limiter release-threshold floor: parked just under -80 dB so the
+# release stage effectively never re-triggers. Shared by the disabled and
+# active band builders.
+MBC_RELEASE_THRESHOLD_FLOOR = -80.01
 
 
 def _disabled_band() -> dict:
@@ -2180,7 +2204,7 @@ def _disabled_band() -> dict:
         "solo": False,
         "attack-threshold": -12.0,
         "attack-time": 20.0,
-        "release-threshold": -80.01,
+        "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
         "release-time": 100.0,
         "ratio": 1.0,
         "knee": -6.0,
@@ -2242,9 +2266,9 @@ def make_multiband_compressor(mb_comp, freqs):
         # this runs in the emit/builder path (once per band), not the main()
         # diagnostics re-decode, so each warning fires at most once per run.
         xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
-        threshold = thresh_raw / 16.0
+        threshold = thresh_raw / DB_FIXED_POINT_SCALE
         # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
-        gain_frac = gain_raw / 32768.0
+        gain_frac = gain_raw / Q15_SCALE
         if gain_frac > 0.01:
             ratio = 1.0 / gain_frac
         else:
@@ -2252,14 +2276,14 @@ def make_multiband_compressor(mb_comp, freqs):
             cprint("warn", f"  Warning: MBC band {i} gain coeff {gain_raw} "
                    f"out of range — clamping ratio to {ratio:.0f}:1")
         attack_ms = decode_mbc_time_constant(attack_raw)
-        if not 0 < attack_raw < 32768:
+        if not 0 < attack_raw < Q15_SCALE:
             cprint("warn", f"  Warning: MBC band {i} attack coeff {attack_raw} "
                    f"out of range — using {attack_ms:.0f} ms fallback")
         release_ms = decode_mbc_time_constant(release_raw)
-        if not 0 < release_raw < 32768:
+        if not 0 < release_raw < Q15_SCALE:
             cprint("warn", f"  Warning: MBC band {i} release coeff {release_raw} "
                    f"out of range — using {release_ms:.0f} ms fallback")
-        makeup = makeup_raw / 16.0
+        makeup = makeup_raw / DB_FIXED_POINT_SCALE
         return {
             "xover_idx": xover_idx,
             "threshold": threshold,
@@ -2315,7 +2339,7 @@ def make_multiband_compressor(mb_comp, freqs):
                 "solo": False,
                 "attack-threshold": round(b["threshold"], 4),
                 "attack-time": round(b["attack_ms"], 4),
-                "release-threshold": -80.01,
+                "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
                 "release-time": round(b["release_ms"], 4),
                 "ratio": round(b["ratio"], 4),
                 "knee": -6.0,
@@ -2451,7 +2475,7 @@ def make_regulator(regulator, freqs, volmax_boost=0.0):
                 "solo": False,
                 "attack-threshold": round(threshold, 4),
                 "attack-time": 1.0,  # very fast for limiting
-                "release-threshold": -80.01,
+                "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
                 "release-time": 50.0,
                 "ratio": round(ratio, 4),
                 "knee": round(knee, 4),
@@ -2735,7 +2759,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
     if dialog_enhancer:
-        gain = dialog_enhancer["amount"] / 16.0 * 6.0
+        gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
         print(f"\nDialog enhancer: amount={dialog_enhancer['amount']}, "
               f"mapped to +{gain:.1f} dB @ 2.5 kHz")
 
@@ -2764,12 +2788,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
                 xover_hz = f"{freqs[xover_idx]} Hz"
             else:
                 xover_hz = "?"
-            thresh = bg[1] / 16.0
-            ratio_frac = bg[2] / 32768.0
+            thresh = bg[1] / DB_FIXED_POINT_SCALE
+            ratio_frac = bg[2] / Q15_SCALE
             ratio = 1.0 / ratio_frac if ratio_frac > 0.01 else float('inf')
             attack = decode_mbc_time_constant(bg[3])
             release = decode_mbc_time_constant(bg[4])
-            makeup = bg[5] / 16.0
+            makeup = bg[5] / DB_FIXED_POINT_SCALE
             print(f"  band {i}: xover={xover_hz}, thresh={thresh:+.1f} dB, "
                   f"ratio={ratio:.2f}:1, attack={attack:.2f} ms, "
                   f"release={release:.2f} ms, makeup={makeup:+.1f} dB")
@@ -2825,7 +2849,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             continue
 
         gains_raw = curves[curve_key]
-        ieq_db = np.array(gains_raw) / 16.0 * scale
+        ieq_db = np.array(gains_raw) / DB_FIXED_POINT_SCALE * scale
 
         # Combined target: IEQ + audio-optimizer (summed in dB)
         combined_left = ieq_db + ao_db_left
@@ -2877,7 +2901,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # Verify FIR frequency response
         H = np.fft.rfft(fir_left, n=FIR_LENGTH)
         fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
-        mag_db = 20.0 * np.log10(np.abs(H) + 1e-12)
+        mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
         cprint("dim", f"\n  FIR verification (left, normalized to peak=0):")
         for i, f in enumerate(freqs):
             idx = np.argmin(np.abs(fft_freqs - f))
@@ -3129,8 +3153,8 @@ def main():
         scale = tuning.ieq_amount / 100.0
 
         # Audio-optimizer curves in dB
-        ao_db_left = np.array(tuning.ao_left) / 16.0
-        ao_db_right = np.array(tuning.ao_right) / 16.0
+        ao_db_left = np.array(tuning.ao_left) / DB_FIXED_POINT_SCALE
+        ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE
         float_freqs = np.array(tuning.freqs, dtype=float)
 
         _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled)
