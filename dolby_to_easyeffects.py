@@ -2609,6 +2609,22 @@ def make_preset(kernel_name, peq_filters, vol_leveler=None,
     return preset, emitted
 
 
+class _HelpHintParser(argparse.ArgumentParser):
+    """ArgumentParser that appends a --help pointer to usage errors, so a
+    bad/unknown flag gets the same 'Run with --help' nudge that runtime
+    errors get from the top-level handler. Mirrors argparse's default
+    error(): usage synopsis to stderr, then 'prog: error: message', exit 2.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(
+            2,
+            f"{self.prog}: error: {message}\n"
+            "Run with --help to see usage and all options.\n",
+        )
+
+
 def main():
     # --no-color must be honored before argparse prints --help; pre-scan
     # argv so the formatter falls back to plain when requested.
@@ -2619,7 +2635,7 @@ def main():
             f"Tip: install {' and '.join(_MISSING_COLOR_DEPS)} for colored output "
             "(see README for distro packages)."
         )
-    parser = argparse.ArgumentParser(
+    parser = _HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
         epilog=epilog,
         formatter_class=formatter_class,
@@ -2773,10 +2789,12 @@ def main():
     elif args.xml_file:
         xml_path = args.xml_file
     else:
-        try:
-            windows_root = autoprobe_dolby_source()
-        except FileNotFoundError as err:
-            parser.error(str(err))
+        # An auto-detection miss/ambiguity is an environment condition, not
+        # CLI misuse — let it propagate to the top-level handler so it prints
+        # as a clean error (no usage banner) that points at --help. Routing it
+        # through parser.error() would slap the usage synopsis on top and exit
+        # 2, framing it as a syntax error the user can't fix by reading usage.
+        windows_root = autoprobe_dolby_source()
         xml_path = find_tuning_xml(windows_root)
         cprint("ok", f"Auto-detected: {xml_path}")
 
@@ -3115,4 +3133,5 @@ if __name__ == "__main__":
         main()
     except (FileNotFoundError, RuntimeError, ValueError) as e:
         cprint("err", f"Error: {e}")
+        cprint("cta", "Run with --help to see usage and all options.")
         sys.exit(1)

@@ -240,6 +240,9 @@ def test_xml_and_windows_are_mutually_exclusive(tmp_path):
     result = _run_script(str(fake_xml), "--windows", str(fake_dir))
     assert result.returncode == 2
     assert "specify either" in result.stderr.lower() or "not both" in result.stderr.lower()
+    # Genuine CLI misuse keeps the usage banner and points at --help.
+    assert "usage:" in result.stderr.lower()
+    assert "--help" in result.stderr
 
 
 def test_disable_rejects_unknown_filter():
@@ -249,6 +252,8 @@ def test_disable_rejects_unknown_filter():
     result = _run_script("--disable", "nonexistent-filter")
     assert result.returncode == 2
     assert "nonexistent-filter" in result.stderr or "invalid choice" in result.stderr
+    # Argparse errors should carry the --help pointer (_HelpHintParser).
+    assert "--help" in result.stderr
 
 
 def test_nonexistent_xml_path_fails_cleanly(tmp_path):
