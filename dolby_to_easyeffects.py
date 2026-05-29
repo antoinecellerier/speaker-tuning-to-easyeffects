@@ -1151,6 +1151,13 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             )
     else:
         profile = endpoint.find("profile")
+        if profile is None:
+            raise ValueError(
+                f"{path.name}: endpoint type='{endpoint_type}' "
+                f"operating_mode='{operating_mode}' has no <profile> "
+                "elements to default to. Pass --profile TYPE, or use "
+                "--list to see this XML's endpoints and profiles."
+            )
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10
