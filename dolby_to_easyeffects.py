@@ -1699,7 +1699,7 @@ _UNMODELED_FEATURES = [
 ]
 
 
-def warn_unmodeled_features(profile):
+def warn_unmodeled_features(profile: ET.Element) -> None:
     """Emit a one-line warning per unmodeled-but-enabled DSP block."""
     for xpath, active, message in _UNMODELED_FEATURES:
         el = profile.find(xpath)
@@ -1709,7 +1709,8 @@ def warn_unmodeled_features(profile):
 
 # --- FIR generation ---
 
-def interpolate_curve_db(band_freqs, band_gains_db, fft_freqs):
+def interpolate_curve_db(band_freqs: np.ndarray, band_gains_db: np.ndarray,
+                         fft_freqs: np.ndarray) -> np.ndarray:
     """Interpolate a gain curve (in dB) to FFT frequency bins.
 
     Uses log-frequency interpolation with linear dB values.
@@ -1726,7 +1727,8 @@ def interpolate_curve_db(band_freqs, band_gains_db, fft_freqs):
 LOG_MAG_FLOOR = 1e-12
 
 
-def make_fir(band_freqs, gains_db, normalize=True):
+def make_fir(band_freqs: np.ndarray, gains_db: np.ndarray,
+             normalize: bool = True) -> tuple[np.ndarray, float]:
     """Generate a minimum-phase FIR filter from a target dB curve.
 
     Uses homomorphic processing: the minimum-phase impulse response
@@ -1769,7 +1771,8 @@ def make_fir(band_freqs, gains_db, normalize=True):
     return fir, peak_db
 
 
-def save_wav_stereo(path, fir_left, fir_right):
+def save_wav_stereo(path: Path, fir_left: np.ndarray,
+                    fir_right: np.ndarray) -> None:
     """Save stereo impulse response as 32-bit float WAV."""
     stereo = np.column_stack([fir_left, fir_right]).astype(np.float32)
     wavfile.write(str(path), SAMPLE_RATE, stereo)
@@ -1801,7 +1804,7 @@ def make_band(freq: float, gain: float, q=1.5) -> dict:
     )
 
 
-def make_convolver(kernel_name: str, output_gain: float = 0.0):
+def make_convolver(kernel_name: str, output_gain: float = 0.0) -> dict:
     """Convolver plugin config referencing an IR by name.
 
     EasyEffects 8.x uses kernel-name (filename stem without extension),
@@ -1906,7 +1909,7 @@ def make_lp_band(freq: float, order: int) -> dict:
     return _make_passfilter(freq, order, "Lo-pass")
 
 
-def make_peq_eq(peq_filters):
+def make_peq_eq(peq_filters: list[dict]) -> dict | None:
     """Parametric EQ for the explicit speaker PEQ from Dolby.
 
     Handles filter types: 1 (bell), 4 (low-shelf), 7/9 (high-pass),
@@ -2010,7 +2013,7 @@ def make_peq_eq(peq_filters):
     }
 
 
-def make_stereo_tools(surround):
+def make_stereo_tools(surround: dict | None) -> dict | None:
     """Stereo widening mapped from Dolby surround virtualizer.
 
     Dolby's surround decoder/virtualizer creates a wider stereo image
@@ -2054,7 +2057,8 @@ def make_stereo_tools(surround):
     }
 
 
-def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
+def make_dialog_enhancer(dialog_enhancer: dict | None,
+                         is_soundwire: bool = False) -> dict | None:
     """Dialog enhancer mapped as a broad speech-band EQ boost.
 
     Dolby's dialog enhancer (DE) isolates speech frequencies and
@@ -2110,7 +2114,8 @@ def make_dialog_enhancer(dialog_enhancer, is_soundwire=False):
     }
 
 
-def make_autogain(vol_leveler, conservative=False):
+def make_autogain(vol_leveler: dict | None,
+                  conservative: bool = False) -> dict | None:
     """Autogain plugin mapping from Dolby volume leveler.
 
     The Dolby volume leveler brings quiet passages up to a target loudness.
@@ -2166,7 +2171,7 @@ Q15_SCALE = 32768.0
 MBC_BLOCK_SIZE = 256
 
 
-def decode_mbc_time_constant(coeff, block_size=MBC_BLOCK_SIZE):
+def decode_mbc_time_constant(coeff: int, block_size: int = MBC_BLOCK_SIZE) -> float:
     """Decode a Dolby time constant coefficient to milliseconds.
 
     Dolby stores time constants as exponential smoothing coefficients
@@ -2226,7 +2231,7 @@ def _disabled_band() -> dict:
     }
 
 
-def decode_mbc_bands(mb_comp):
+def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
     """Decode Dolby mb-compressor band_groups into per-band dynamics dicts.
 
     Single source of truth for the MBC band decode: both
@@ -2278,7 +2283,8 @@ def decode_mbc_bands(mb_comp):
     return decoded
 
 
-def make_multiband_compressor(mb_comp, freqs):
+def make_multiband_compressor(mb_comp: dict | None,
+                              freqs: list[int]) -> dict | None:
     """Multi-band compressor mapping from Dolby mb-compressor-tuning.
 
     The Dolby MB compressor uses raw DSP coefficients in 6-tuples:
@@ -2403,7 +2409,8 @@ def make_multiband_compressor(mb_comp, freqs):
     return result
 
 
-def make_regulator(regulator, freqs, volmax_boost=0.0):
+def make_regulator(regulator: dict | None, freqs: list[int],
+                   volmax_boost: float = 0.0) -> dict | None:
     """Per-band limiter mapped from Dolby regulator-tuning.
 
     The Dolby regulator is a 20-band limiter that prevents speaker
@@ -2567,7 +2574,7 @@ def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
     }
 
 
-def make_limiter(input_gain=0.0):
+def make_limiter(input_gain: float = 0.0) -> dict:
     """Brickwall output limiter to catch any remaining overshoot.
 
     Placed at the very end of the chain as a safety net. Uses the LSP
@@ -2635,10 +2642,13 @@ EXPERIMENTAL_MARKERS = {
 }
 
 
-def make_preset(kernel_name, peq_filters, vol_leveler=None,
-                dialog_enhancer=None, surround=None, mb_comp=None,
-                regulator=None, freqs=None, convolver_gain=0.0,
-                is_soundwire=False, volmax_boost=0.0, disabled=None):
+def make_preset(kernel_name: str, peq_filters: list[dict],
+                vol_leveler: dict | None = None,
+                dialog_enhancer: dict | None = None, surround: dict | None = None,
+                mb_comp: dict | None = None, regulator: dict | None = None,
+                freqs: list[int] | None = None, convolver_gain: float = 0.0,
+                is_soundwire: bool = False, volmax_boost: float = 0.0,
+                disabled: set[str] | None = None) -> tuple[dict, set[str]]:
     """Build a preset dict.
 
     Returns (preset, emitted) where emitted is the set of
