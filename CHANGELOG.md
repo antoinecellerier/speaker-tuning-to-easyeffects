@@ -38,6 +38,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- Autoload now works on cards whose output *route* description differs from
+  their *profile* description. EasyEffects keys entries on the route (e.g.
+  `Speaker`), but the script wrote the profile, so on any such card (observed
+  on a classic `analog-stereo` card reporting `Analog Stereo`) the entry never
+  matched and the `Nothing` fallback won, leaving the Dolby correction silently
+  unapplied. Cards where the two coincide were unaffected. The filename now
+  uses the route read from `pw-dump`; sinks with an unresolvable route are
+  skipped with an explanation.
+  ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
 - Autoload now finds internal speakers that PipeWire doesn't tag
   `audio-speakers` (some laptops fall back to a generic UCM2 profile that omits
   the icon, so the built-in speaker shows up as `audio-card-analog` and the old
