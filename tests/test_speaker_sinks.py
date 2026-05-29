@@ -208,7 +208,104 @@ def test_enumerate_parses_pwdump(monkeypatch):
     monkeypatch.setattr(d.subprocess, "run", fake_run)
     sinks = d._enumerate_audio_sinks()
     assert len(sinks) == 1
-    assert sinks[0] == IDEAPAD_ANALOG
+    # No Device object in the dump, so the route can't be resolved → "".
+    assert sinks[0] == {**IDEAPAD_ANALOG, "route": ""}
+
+
+def test_enumerate_resolves_route_for_analog_stereo(monkeypatch):
+    """#18: a classic analog-stereo card whose active output route is "Speaker".
+
+    EasyEffects keys autoload on the route description, so 'route' must be
+    "Speaker" even though the card *profile* is "Analog Stereo" — filing the
+    entry under the profile is the bug that made the Nothing fallback win.
+    """
+    dump = [
+        {"type": "PipeWire:Interface:Device", "id": 50, "info": {"params": {"Route": [
+            {"direction": "Output", "device": 0, "description": "Speaker"},
+            {"direction": "Input", "device": 1, "description": "Internal Microphone"},
+        ]}}},
+        {"type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink",
+            "node.name": IDEAPAD_ANALOG["name"],
+            "node.description": IDEAPAD_ANALOG["description"],
+            "device.profile.description": "Analog Stereo",
+            "device.icon_name": IDEAPAD_ANALOG["icon_name"],
+            "device.bus": "pci",
+            "device.api": "alsa",
+            "device.id": 50,
+            "card.profile.device": 0,
+        }}},
+    ]
+
+    def fake_run(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
+
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    sinks = d._enumerate_audio_sinks()
+    assert len(sinks) == 1
+    assert sinks[0]["profile"] == "Analog Stereo"
+    assert sinks[0]["route"] == "Speaker"
+
+
+def test_enumerate_route_matches_profile_on_ucm_hifi(monkeypatch):
+    """UCM 'HiFi' cards expose profile == route == "Speaker"; route stays "Speaker"
+    (the dev-machine case — confirms the new resolution doesn't regress it)."""
+    dump = [
+        {"type": "PipeWire:Interface:Device", "id": 48, "info": {"params": {"Route": [
+            {"direction": "Output", "device": 3, "description": "Speaker"},
+        ]}}},
+        {"type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink",
+            "node.name": "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink",
+            "node.description": "Speaker",
+            "device.profile.description": "Speaker",
+            "device.icon_name": "audio-speakers",
+            "device.bus": "pci",
+            "device.api": "alsa",
+            "device.id": 48,
+            "card.profile.device": 3,
+        }}},
+    ]
+
+    def fake_run(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
+
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    sinks = d._enumerate_audio_sinks()
+    assert sinks[0]["profile"] == "Speaker"
+    assert sinks[0]["route"] == "Speaker"
+
+
+def test_enumerate_route_empty_when_unresolved(monkeypatch):
+    """No matching Output route (only an Input route here) → 'route' is "".
+
+    The profile is deliberately NOT used as a fallback: keying an autoload entry
+    on the profile is exactly the #18 mismatch, so the caller skips such sinks.
+    """
+    dump = [
+        {"type": "PipeWire:Interface:Device", "id": 7, "info": {"params": {"Route": [
+            {"direction": "Input", "device": 0, "description": "Mic"},
+        ]}}},
+        {"type": "PipeWire:Interface:Node", "info": {"props": {
+            "media.class": "Audio/Sink",
+            "node.name": "alsa_output.usb-Some_DAC-00.analog-stereo",
+            "node.description": "Some USB DAC Analog Stereo",
+            "device.profile.description": "Analog Stereo",
+            "device.icon_name": "audio-card-analog",
+            "device.bus": "usb",
+            "device.api": "alsa",
+            "device.id": 7,
+            "card.profile.device": 0,
+        }}},
+    ]
+
+    def fake_run(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
+
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    sinks = d._enumerate_audio_sinks()
+    assert sinks[0]["profile"] == "Analog Stereo"
+    assert sinks[0]["route"] == ""
 
 
 @pytest.mark.parametrize("exc", [

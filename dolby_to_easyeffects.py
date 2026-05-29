@@ -932,10 +932,23 @@ def _enumerate_audio_sinks() -> list[dict]:
     """Return every PipeWire Audio/Sink node with the props we classify on.
 
     This is the single ``pw-dump`` boundary; tests monkeypatch it to feed
-    synthetic sink lists. Each dict carries 'name', 'description', 'profile'
-    (the fields EasyEffects autoload needs) plus 'icon_name', 'bus', and 'api'
-    (used to tell internal speakers from HDMI / Bluetooth / headsets and to
-    explain the choice in diagnostics).
+    synthetic sink lists. Each dict carries 'name', 'description', 'profile',
+    and 'route' (the fields EasyEffects autoload needs) plus 'icon_name', 'bus',
+    and 'api' (used to tell internal speakers from HDMI / Bluetooth / headsets
+    and to explain the choice in diagnostics).
+
+    'profile' is the card *profile* description (e.g. "Analog Stereo"); 'route'
+    is the active output *route* description (e.g. "Speaker"). EasyEffects keys
+    its autoload files on the route description — the node's
+    ``device_route_description``, taken from the SPA_PARAM_Route ``description``
+    — not the profile. On UCM "HiFi" cards the two happen to coincide
+    ("Speaker"), but on a classic ``analog-stereo`` card the profile is
+    "Analog Stereo" while the active output route is still "Speaker", so an
+    autoload entry filed under the profile never matches and the fallback wins
+    (issue #18). 'route' is "" when the active output route can't be resolved
+    (virtual sinks, or an older pw-dump that omits Device params); the autoload
+    caller skips such sinks rather than fall back to the profile, since guessing
+    a filename EE won't match just silently recreates the #18 failure.
     """
     try:
         result = subprocess.run(
@@ -947,15 +960,41 @@ def _enumerate_audio_sinks() -> list[dict]:
     if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
         return []
 
+    # Map PipeWire Device id -> {card-profile-device index -> output route
+    # description}. A sink node carries 'device.id' (its Device object) and
+    # 'card.profile.device' (the route's device index within that card), so we
+    # can resolve the active output route description EasyEffects matches on.
+    routes_by_device: dict = {}
+    for obj in data:
+        if not str(obj.get("type", "")).endswith("Device"):
+            continue
+        dev_id = obj.get("id")
+        if dev_id is None:
+            continue
+        params = obj.get("info", {}).get("params", {})
+        out_routes = {}
+        for route in params.get("Route", []) or []:
+            if route.get("direction") != "Output":
+                continue
+            dev_idx = route.get("device")
+            desc = route.get("description")
+            if dev_idx is not None and desc:
+                out_routes[dev_idx] = desc
+        if out_routes:
+            routes_by_device[dev_id] = out_routes
+
     sinks = []
     for obj in data:
         props = obj.get("info", {}).get("props", {})
         if props.get("media.class") != "Audio/Sink":
             continue
+        route = routes_by_device.get(props.get("device.id"), {}).get(
+            props.get("card.profile.device"))
         sinks.append({
             "name": props.get("node.name", ""),
             "description": props.get("node.description", ""),
             "profile": props.get("device.profile.description", ""),
+            "route": route or "",
             "icon_name": props.get("device.icon_name", ""),
             "bus": props.get("device.bus", ""),
             "api": props.get("device.api", ""),
@@ -1108,8 +1147,8 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
             sink = by_name.get(name)
             if sink is None:
                 cprint("warn", f"  --autoload-sink {name!r}: not currently in "
-                               "pw-dump; using the name as given.")
-                sink = {"name": name, "description": name, "profile": ""}
+                               "pw-dump, so its output route is unknown.")
+                sink = {"name": name, "description": name, "profile": "", "route": ""}
             resolved.append(sink)
         return resolved
 
@@ -2975,21 +3014,30 @@ def main():
             cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
             verb = "Would write" if args.dry_run else "Wrote"
             for sink in sinks:
+                # EasyEffects keys the autoload file on the active output route
+                # description (node.name + route), not the card profile — see
+                # _enumerate_audio_sinks() and issue #18. Without the route we
+                # can't predict the filename EE will look for; guessing the
+                # profile silently recreates #18 on classic analog cards, so
+                # skip and say why rather than write a file that never matches.
+                route = sink.get("route", "")
+                if not route:
+                    cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
+                                   "its active output route from PipeWire, which is "
+                                   "what EasyEffects matches autoload on. Re-run "
+                                   "with this device as the active output, or set "
+                                   "the autoload profile manually in EasyEffects.")
+                    continue
                 path = write_autoload(
                     args.autoload_dir,
                     sink["name"],
                     sink["description"],
-                    sink["profile"],
+                    route,
                     autoload_preset,
                     dry_run=args.dry_run,
                 )
                 cprint("ok", f"  {verb} {path}")
-                print(f"  Device: {sink['description'] or sink['name']} ({sink['profile']})")
-                if not sink["profile"]:
-                    cprint("warn", "    No device-profile description for this "
-                                   "sink; EasyEffects matches autoload by "
-                                   "node.name + profile, so this entry may not "
-                                   "load automatically.")
+                print(f"  Device: {sink['description'] or sink['name']} ({route})")
 
         # Fallback preset: neutralize the Dolby chain on any non-speaker sink
         # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload
