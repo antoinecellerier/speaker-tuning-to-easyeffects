@@ -25,19 +25,27 @@ while read -r id; do
 done < <(pactl list short modules | awk -v s="${SINK_NAME}" \
     '$2 == "module-null-sink" && $0 ~ ("sink_name="s) {print $1}')
 
-# 2. restore easyeffectsrc ---------------------------------------------------
+# 2. quit EE BEFORE restoring the rc ----------------------------------------
+
+# EE 8.x persists [Presets] + [StreamOutputs] on shutdown. If we restore the
+# backup while EE is still running, the subsequent `easyeffects -q` writes the
+# live (test) state back over our restore — leaving the user on whatever preset
+# the capture battery last loaded. Mirror setup_null_sink.sh's ordering: quit
+# first, restore second, so nothing clobbers the restored rc.
+if pgrep -f "easyeffects.*service-mode" >/dev/null 2>&1; then
+    easyeffects -q || true
+    sleep 0.5
+fi
+
+# 3. restore easyeffectsrc (EE is stopped, so the restore sticks) ------------
 
 if [[ -f "${SAVED_RC}" ]]; then
     mv -f "${SAVED_RC}" "${EE_RC}"
     echo "restored ${EE_RC} from backup"
 fi
 
-# 3. restart EE so it picks up the restored config --------------------------
+# 4. restart EE so it picks up the restored config --------------------------
 
-if pgrep -f "easyeffects.*service-mode" >/dev/null 2>&1; then
-    easyeffects -q || true
-    sleep 0.5
-fi
 nohup easyeffects --hide-window --service-mode \
     >"${STATE_DIR}/ee.log" 2>&1 &
 echo "restarted easyeffects (service mode)"
