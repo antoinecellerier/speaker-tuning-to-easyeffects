@@ -484,3 +484,68 @@ def test_dolby_filename_regex_matches_dax3_filenames(filename):
 ])
 def test_dolby_filename_regex_rejects_non_dax3(filename):
     assert DOLBY_FILENAME_RE.search(filename) is None
+
+
+# --- Device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml) ---
+# The end-of-run CTA points users at a GitHub issue form so "works on my
+# hardware" reports arrive in a consistent shape (device + --speaker-info
+# block). Two cheap locks: the CTA constant must target the form, and the
+# form the URL names must exist, parse, and still require the two fields a
+# report is useless without.
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_report_form_url_targets_device_report_template():
+    assert "issues/new?template=device-report.yml" in dolby_to_easyeffects._REPORT_FORM_URL
+
+
+def test_device_report_form_is_valid():
+    yaml = pytest.importorskip("yaml")
+
+    # Derive the filename from the CTA URL so a rename can't silently split
+    # the constant from the file it names.
+    template = dolby_to_easyeffects._REPORT_FORM_URL.split("template=", 1)[1]
+    form_path = _REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / template
+    assert form_path.is_file(), f"{form_path} (named by _REPORT_FORM_URL) is missing"
+
+    form = yaml.safe_load(form_path.read_text())
+    assert form.get("name")
+    body = form.get("body")
+    assert isinstance(body, list) and body
+
+    required = {
+        f["id"] for f in body
+        if isinstance(f, dict) and f.get("validations", {}).get("required")
+    }
+    assert {"device", "speaker-info"} <= required
+
+
+def test_speaker_info_output_is_version_stamped(monkeypatch, capsys):
+    """`--speaker-info` prefixes a version line: users paste that block into
+    the issue form, so the maintainer can tell which build was tested."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    monkeypatch.setattr(dolby_to_easyeffects, "get_version", lambda: "vTEST-42")
+    monkeypatch.setattr(dolby_to_easyeffects, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(dolby_to_easyeffects, "_print_speaker_info", lambda info: None)
+
+    dolby_to_easyeffects.report_speaker_info()
+
+    out = capsys.readouterr().out
+    assert "speaker-tuning-to-easyeffects vTEST-42" in out
+
+
+@pytest.mark.parametrize("content,expected", [
+    ('PRETTY_NAME="Fedora Linux 44 (Workstation Edition)"\nID=fedora\n',
+     "Fedora Linux 44 (Workstation Edition)"),
+    ('NAME="Arch Linux"\nPRETTY_NAME=Arch Linux\n', "Arch Linux"),  # unquoted
+    ('ID=void\n', ""),                                              # no PRETTY_NAME key
+])
+def test_get_distro_pretty_name_parses(tmp_path, content, expected):
+    p = tmp_path / "os-release"
+    p.write_text(content)
+    assert dolby_to_easyeffects.get_distro_pretty_name(p) == expected
+
+
+def test_get_distro_pretty_name_missing_file(tmp_path):
+    assert dolby_to_easyeffects.get_distro_pretty_name(tmp_path / "nope") == ""

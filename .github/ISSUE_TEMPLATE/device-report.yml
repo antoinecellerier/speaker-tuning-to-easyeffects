@@ -1,0 +1,42 @@
+name: Device report
+description: Report what works or doesn't on your hardware
+title: "<replace with your device name>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report your experience ... it really helps improve the project!
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      placeholder: Brand, model, and machine-type code (if you have one)
+    validations:
+      required: true
+  - type: textarea
+    id: speaker-info
+    attributes:
+      label: "`--speaker-info` output"
+      description: Run `python3 dolby_to_easyeffects.py --speaker-info` and paste the whole block.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: xml-source
+    attributes:
+      label: Where did you get the tuning XML, and did the script auto-detect it?
+      placeholder: |
+        Auto-detected from my mounted Windows partition
+        — or — Extracted the driver package
+        — or — Passed the XML path manually
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: How does it sound? Anything else?
+      description: >-
+        Profiles you used, quality vs. the Windows Dolby app, and any fix you
+        needed (smart-amp firmware gate, manual autoload, distro quirk).
+    validations:
+      required: false

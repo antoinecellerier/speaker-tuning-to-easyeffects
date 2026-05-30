@@ -265,6 +265,7 @@ class SpeakerInfo:
     product: str = ""
     family: str = ""
     kernel: str = ""
+    distro: str = ""
     sound_cards: list[str] = field(default_factory=list)
     hda_codecs: list[tuple[str, str, str]] = field(default_factory=list)
     soundwire_devices: list[tuple[str, str]] = field(default_factory=list)
@@ -506,11 +507,30 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
     cprint("dim", "gauge whether to automate it — use the report-back link just below.")
 
 
+def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
+    """Read PRETTY_NAME from /etc/os-release (e.g. "Fedora Linux 44"), or "".
+
+    Only PRETTY_NAME — no hostname, machine-id, or serials. A missing or
+    unreadable file, or an absent key, yields "" so the caller drops the line.
+    """
+    try:
+        text = Path(os_release).read_text()
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.startswith("PRETTY_NAME="):
+            value = line.split("=", 1)[1].strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            return value
+    return ""
+
+
 def _gather_speaker_info() -> SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
     import platform
 
-    info = SpeakerInfo(kernel=platform.release())
+    info = SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
 
     # System identity
     for attr, path in [("product", "/sys/class/dmi/id/product_name"),
@@ -565,6 +585,8 @@ def _print_speaker_info(info: SpeakerInfo):
         lines.append(f"  Product: {info.product}")
     if info.family:
         lines.append(f"  Family:  {info.family}")
+    if info.distro:
+        lines.append(f"  OS:      {info.distro}")
     lines.append(f"  Kernel:  {info.kernel}")
     sections.append(("System", lines))
 
@@ -626,6 +648,10 @@ def _print_speaker_info(info: SpeakerInfo):
 
 def report_speaker_info():
     """Report detected audio hardware and speaker layout."""
+    # Version-stamp the block: users paste this verbatim into the device-report
+    # issue form, so the maintainer can see which build was tested.
+    cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
+    print()
     info = _gather_speaker_info()
     _print_speaker_info(info)
 
@@ -1845,6 +1871,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 # element and returns True if the feature is *active* in this profile;
 # message takes the same element and returns the warning text.
 _REPORT_URL = "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues"
+# The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml). The
+# end-of-run CTA points here so "works on my hardware" reports arrive in a
+# consistent shape; _REPORT_URL above stays the generic target for the mid-run
+# feature-gap warnings, which aren't device reports.
+_REPORT_FORM_URL = (
+    "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
+    "/issues/new?template=device-report.yml"
+)
 
 _UNMODELED_FEATURES = [
     (".//dynamic_speaker_optimization_enable",
@@ -3511,8 +3545,8 @@ def main():
         warn_speaker_firmware_gate(detect_speaker_firmware_gates())
 
     print()
-    cprint("cta", "How does it sound? Please report back (good or bad) at")
-    cprint("cta", "  https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues")
+    cprint("cta", "How does it sound? Please report back (good or bad):")
+    cprint("cta", f"  {_REPORT_FORM_URL}")
 
 
 if __name__ == "__main__":
