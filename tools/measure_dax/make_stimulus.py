@@ -440,6 +440,108 @@ def make_bass_burst(level_dbfs_peak: float,
     return stereo, meta
 
 
+# ----- stepped sine (per-frequency, multi-pass: static EQ vs adaptive) -----
+
+# Probe grid: every Dolby band centre plus the geometric midpoint between each
+# adjacent pair (39 points). Dense enough to sample the magnitude *between* the
+# 20 band centres (the linear-vs-PCHIP interpolation question, issue #13) while
+# still landing one probe exactly on every band centre.
+STEPPED_TONE_S = 1.0       # held duration per tone (>= ~47 cycles at 47 Hz)
+STEPPED_GAP_S = 0.4        # silence between tones — lets the dynamics relax
+STEPPED_FADE_MS = 10.0
+STEPPED_SETTLE_S = 0.4     # analyzer skips this much of each tone (attack) before
+                           # reading the steady-state amplitude
+# Each pass plays the whole grid once, in a different order. The response at a
+# frequency that is invariant across passes is the static EQ; the part that
+# shifts with arrival order is the leveler / regulator / MI steering (adaptive).
+STEPPED_PASSES = ("ascending", "descending", "shuffled")
+
+
+def _stepped_grid() -> np.ndarray:
+    bands = np.array(BAND_CENTERS, dtype=float)
+    mids = np.sqrt(bands[:-1] * bands[1:])
+    return np.unique(np.concatenate([bands, mids]))
+
+
+def make_stepped_sine(level_dbfs_peak: float, seed: int = 7
+                      ) -> tuple[np.ndarray, dict]:
+    """Stepped-sine probe: one held tone per probe frequency, the whole grid
+    repeated in several orderings (ascending / descending / shuffled).
+
+    Unlike the multitone (all tones at once) this isolates one frequency at a
+    time, so the leveler/regulator act on a single tone; and unlike a one-shot
+    stepped sweep, repeating the grid in different orders lets the analyzer
+    separate the *static* EQ (invariant across passes) from the *adaptive*
+    dynamics (response that depends on what tone preceded it). Pair the loud and
+    quiet variants to map the level-dependent (dynamics-driven) gain — the
+    dominant EE-vs-DAX gap in the treble (#11).
+
+    Each tone is snapped to an exact FFT bin of its own held window so the
+    steady-state single-bin DFT reads back a clean amplitude. Returns
+    ``(stereo, meta)``; ``meta['segments']`` lists per-tone
+    ``{freq_hz, pass, start_sample, len_sample}`` (start indices into the
+    generated signal) for the analyzer.
+    """
+    grid = _stepped_grid()
+    asc = np.argsort(grid)
+    rng = np.random.default_rng(seed)
+    shuffled = asc.copy()
+    rng.shuffle(shuffled)
+    orders = {"ascending": asc, "descending": asc[::-1], "shuffled": shuffled}
+
+    n_tone = int(round(STEPPED_TONE_S * SR))
+    n_gap = int(round(STEPPED_GAP_S * SR))
+    fade_n = int(round(STEPPED_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    t = np.arange(n_tone) / SR
+    amp = 10.0 ** (level_dbfs_peak / 20.0)
+
+    pieces: list[np.ndarray] = [np.zeros(n_gap, dtype=np.float64)]  # lead-in
+    segments: list[dict] = []
+    cursor = n_gap
+    for pass_name in STEPPED_PASSES:
+        for idx in orders[pass_name]:
+            f = float(grid[idx])
+            # snap to an exact bin of the held window for a clean single-bin DFT
+            bin_k = max(1, round(f * n_tone / SR))
+            f_snap = bin_k * SR / n_tone
+            tone = amp * np.sin(2.0 * np.pi * f_snap * t)
+            tone[:fade_n] *= fade
+            tone[-fade_n:] *= fade[::-1]
+            segments.append({
+                "freq_hz": f_snap, "pass": pass_name,
+                "start_sample": cursor, "len_sample": n_tone,
+            })
+            pieces.append(tone)
+            pieces.append(np.zeros(n_gap, dtype=np.float64))
+            cursor += n_tone + n_gap
+
+    mono = np.concatenate(pieces).astype(np.float32)
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    peak = float(np.max(np.abs(stereo)))
+    if peak >= 1.0:
+        stereo *= (10 ** (-0.5 / 20.0)) / peak
+    meta = {
+        "kind": "stepped",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEPPED_GAP_S,
+        "level_dbfs_peak": level_dbfs_peak,
+        "tone_s": STEPPED_TONE_S,
+        "gap_s": STEPPED_GAP_S,
+        "fade_ms": STEPPED_FADE_MS,
+        "settle_s": STEPPED_SETTLE_S,
+        "passes": list(STEPPED_PASSES),
+        "n_probe_freqs": int(grid.size),
+        "segments": segments,
+        "seed": seed,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
 # ----- entry point -----
 
 def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
@@ -502,6 +604,15 @@ def main() -> None:
     write_stimulus("stimulus_bass_burst", stereo, meta)
     stereo, meta = make_bass_burst(level_dbfs_peak=-25.0)
     write_stimulus("stimulus_bass_burst_quiet", stereo, meta)
+
+    # stepped sine — one held tone per probe frequency, the grid repeated in
+    # ascending / descending / shuffled order. The cross-pass-invariant part of
+    # each tone's response is the static EQ; the order-dependent part is the
+    # adaptive dynamics. Loud (-18) + quiet (-42) bracket the level dependence.
+    stereo, meta = make_stepped_sine(level_dbfs_peak=-18.0)
+    write_stimulus("stimulus_stepped", stereo, meta)
+    stereo, meta = make_stepped_sine(level_dbfs_peak=-42.0)
+    write_stimulus("stimulus_stepped_quiet", stereo, meta)
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")

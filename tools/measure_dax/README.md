@@ -43,12 +43,20 @@ so it works without flags as long as you keep the artifacts together.
 | `stimulus_pink.wav` | −18 dBFS RMS | steady-state magnitude after the leveler settles |
 | `stimulus_pink_quiet.wav` | −42 dBFS RMS | pink noise at low input level |
 | `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers; per-band amplitude + phase via single-bin DFT |
+| `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency (39: the 20 band centers + the midpoint between each pair), the whole grid replayed ascending / descending / shuffled. Per-frequency steady-state amplitude via single-bin DFT. The cross-pass mean is the static EQ; the cross-pass span is the adaptive (order-dependent) dynamics. |
+| `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input — brackets the level-dependent treble gain |
 
 The first round of captures (sweep at −18 dBFS only) showed that DAX3
 is non-LTI: the leveler / regulator engage during the sweep, contaminating
 the deconvolved IR. The pink and multitone stimuli are designed to give
 the leveler something stationary to settle on, isolating the steady-state
-EQ from the time-varying dynamics.
+EQ from the time-varying dynamics. The stepped-sine goes one step further:
+because the same grid is replayed in different orders, the part of each
+tone's response that is invariant across passes is the static EQ, while the
+part that shifts with what preceded it is the adaptive processing — so a
+single capture separates the two. It also samples *between* the band
+centers, the one thing pink/multitone (band-center-only) can't (issue #13:
+linear-vs-PCHIP interpolation is only distinguishable between bands).
 
 ## End-to-end flow
 
@@ -115,12 +123,12 @@ all five stimuli per profile in one go):
 
 ```powershell
 # off baseline (Dolby Atmos toggled OFF in Dolby Access)
-foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone') {
+foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone','stepped','stepped_quiet') {
     python capture_dax.py --stimulus stimulus_$s.wav --label off
 }
 
 # Then for each Dolby profile (toggle in Dolby Access UI between blocks):
-foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone') {
+foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone','stepped','stepped_quiet') {
     python capture_dax.py --stimulus stimulus_$s.wav --label dynamic
 }
 # … repeat for movie, music, game, voice

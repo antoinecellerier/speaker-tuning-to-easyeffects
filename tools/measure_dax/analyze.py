@@ -10,6 +10,9 @@ dispatches on `stimulus_kind`, and emits:
                  (`spectrum_pink_<label>.npz`) + magnitude summary.
   - multitone  → per-tone amplitude readout via Goertzel
                  (`tones_multitone_<label>.npz`) + per-band table.
+  - stepped    → per-frequency steady-state amplitude across passes
+                 (`stepped_<label>.npz`); cross-pass mean = static EQ,
+                 cross-pass span = adaptive dynamics + between-band table.
 
 If `--xml`/`--profile`/`--curve` are given, also runs a comparison
 against the FIR our converter would generate from that XML, saving
@@ -346,6 +349,68 @@ def analyze_multitone(loopback: np.ndarray, sr: int,
     )
 
 
+# ----- stepped-sine analysis (per-frequency, static-vs-adaptive split) -----
+
+@dataclass
+class SteppedResult:
+    freqs_hz: np.ndarray            # unique probe frequencies (sorted)
+    passes: list                    # pass names, in play order
+    # amp_db[pass][freq] per channel, peak-normalized over all probes/passes
+    amp_db_L: np.ndarray            # shape (n_pass, n_freq)
+    amp_db_R: np.ndarray
+    static_db_L: np.ndarray         # per-freq mean across passes (≈ static EQ)
+    static_db_R: np.ndarray
+    adaptive_span_L: np.ndarray     # per-freq max-min across passes (≈ adaptive)
+    adaptive_span_R: np.ndarray
+
+
+def _stepped_amp_one(seg_capture: np.ndarray, sr: int, freq: float) -> float:
+    """Steady-state single-bin DFT amplitude of one held-tone segment."""
+    if seg_capture.size < sr // 20:
+        return -np.inf
+    amp, _ = _single_bin_dft(seg_capture, sr, freq)
+    return 20.0 * np.log10(amp + 1e-30)
+
+
+def analyze_stepped(loopback: np.ndarray, sr: int, stim_meta: dict
+                    ) -> SteppedResult:
+    """Per-segment steady-state amplitude, grouped by (pass, frequency).
+
+    Each tone is read after a settle skip (so the leveler/regulator attack is
+    excluded and we capture its steady state on that tone). Grouping by pass
+    gives, per frequency: the cross-pass mean (the order-invariant static EQ)
+    and the cross-pass span (how much arrival order moved it — the adaptive
+    dynamics)."""
+    segments = stim_meta.get("segments", [])
+    passes = stim_meta.get("passes", [])
+    settle_s = float(stim_meta.get("settle_s", 0.4))
+    skip = int(settle_s * sr)
+    freqs = np.array(sorted({s["freq_hz"] for s in segments}), dtype=float)
+    f_index = {f: i for i, f in enumerate(freqs)}
+    p_index = {p: i for i, p in enumerate(passes)}
+
+    amp_L = np.full((len(passes), freqs.size), np.nan)
+    amp_R = np.full((len(passes), freqs.size), np.nan)
+    for s in segments:
+        a, n = s["start_sample"], s["len_sample"]
+        win = loopback[a + skip:a + n]
+        pi, fi = p_index[s["pass"]], f_index[s["freq_hz"]]
+        amp_L[pi, fi] = _stepped_amp_one(win[:, 0], sr, s["freq_hz"])
+        amp_R[pi, fi] = _stepped_amp_one(win[:, 1], sr, s["freq_hz"])
+
+    # peak-normalize each channel over all measured probes
+    amp_L -= np.nanmax(amp_L)
+    amp_R -= np.nanmax(amp_R)
+    return SteppedResult(
+        freqs_hz=freqs, passes=list(passes),
+        amp_db_L=amp_L, amp_db_R=amp_R,
+        static_db_L=np.nanmean(amp_L, axis=0),
+        static_db_R=np.nanmean(amp_R, axis=0),
+        adaptive_span_L=np.nanmax(amp_L, axis=0) - np.nanmin(amp_L, axis=0),
+        adaptive_span_R=np.nanmax(amp_R, axis=0) - np.nanmin(amp_R, axis=0),
+    )
+
+
 # ----- helpers (FFT mag + group delay) -----
 
 def _windowed_mag_db(ir: np.ndarray, n_fft: int, sr: int
@@ -405,11 +470,15 @@ class Reference:
 
 
 def build_reference(xml_path: Path, profile: str, curve: str) -> Reference:
-    (freqs, curves, ieq_amount, ao_left, ao_right, _peq, _vl,
-     _de, _surr, _mbc, _reg, _vm) = parse_xml(
+    tuning = parse_xml(
         xml_path, endpoint_type="internal_speaker",
         operating_mode="normal", profile_type=profile,
     )
+    freqs = tuning.freqs
+    curves = tuning.curves
+    ieq_amount = tuning.ieq_amount
+    ao_left = tuning.ao_left
+    ao_right = tuning.ao_right
     # ieq-amount is a percentage (amount/100), matching the shipped
     # converter since Finding 9; this reference must track the current
     # default, not the old amount/10 full-weight reading.
@@ -712,6 +781,28 @@ def process(loopback_path: Path, xml_path: Path | None,
                                         np.log(res.freqs_hz), amp_db)
                 if _maybe_plot_steady(f_grid, cap_at_grid, ref, ch, title, png):
                     summary.append(f"    wrote {png.name}")
+
+    elif kind == "stepped":
+        res = analyze_stepped(capture, sr, sm)
+        summary.append(f"  passes: {', '.join(res.passes)}  "
+                       f"({res.freqs_hz.size} probe freqs)")
+        for ch in channels:
+            static = res.static_db_L if ch == "L" else res.static_db_R
+            span = res.adaptive_span_L if ch == "L" else res.adaptive_span_R
+            amp = res.amp_db_L if ch == "L" else res.amp_db_R
+            out_path = out_dir / f"stepped_{tag}_{label}_{ch}.npz"
+            np.savez(out_path, freqs_hz=res.freqs_hz, passes=res.passes,
+                     amp_db=amp, static_db=static, adaptive_span_db=span)
+            summary.append("")
+            summary.append(f"  channel {ch}:  wrote {out_path.name}")
+            summary.append("    (static = cross-pass mean ≈ EQ; "
+                           "span = cross-pass max−min ≈ adaptive dynamics)")
+            summary.append(f"    {'freq':>7}  {'static':>7}  {'adapt-span':>10}")
+            for i, f in enumerate(res.freqs_hz):
+                summary.append(f"    {int(f):>6} Hz  {static[i]:+6.2f}  "
+                               f"{span[i]:>9.2f}")
+            summary.append(f"    max adaptive span: {np.nanmax(span):.2f} dB "
+                           f"@ {int(res.freqs_hz[np.nanargmax(span)])} Hz")
 
     else:
         summary.append(f"  unknown stimulus kind: {kind!r}, skipping.")
