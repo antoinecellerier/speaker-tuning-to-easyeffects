@@ -95,7 +95,8 @@ sessions shipped bugs that only showed on real content.
 - **GitHub issue/PR comments:** draft for review first (sourced,
   to-the-point, actionable), then post with the footer
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)` — same
-  as commits get `Co-Authored-By`.
+  as commits get `Co-Authored-By`. Cite commits by full unquoted SHA —
+  backticks suppress GitHub's auto-link (full over short for unambiguity).
 - **Comparison plots:** verify every curve is actually visible — set
   z-order, plot reference curves last with dashes / a distinct colour, and
   check both axis extremes. Hidden-curve bugs cause repeated re-render cycles.
