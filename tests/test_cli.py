@@ -413,6 +413,50 @@ def test_find_tuning_xml_malformed_version_does_not_crash(monkeypatch, tmp_path)
     assert find_tuning_xml(tmp_path) == winner
 
 
+# --- find_tuning_xml: PCI-keyed (Apple Boot Camp / Intel Mac) match — issue #21 ---
+# Apple's Boot Camp DAX tunings are named by the audio function's PCI subsystem
+# in device-first order, e.g. PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_72708086
+# (106B = Apple). That token has the opposite byte order from an HDA codec
+# subsystem, so it must match against the PCI subsystem id, not /proc/asound's
+# vendor-first codec subsystem. A dummy non-matching HDA codec is supplied so the
+# "no audio hardware" guard passes (mirrors a real Mac, which still enumerates a
+# codec — just not one whose subsystem matches the filename).
+
+_MAC_XML_NAME = "PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_72708086.xml"
+
+
+def _patch_mac_pci_match(monkeypatch, driver_store, pci_subsys):
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("8086FFFF", "DEADBEEF", "Dummy non-matching codec")],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: pci_subsys
+    )
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+    )
+
+
+def test_find_tuning_xml_matches_apple_pci_subsystem(monkeypatch, tmp_path):
+    """PCI subsystem 106B:1880 → token 1880106B → matches the Mac filename."""
+    xml = tmp_path / _MAC_XML_NAME
+    xml.write_text("<tuning><tuning_version value='1'/></tuning>")
+    _patch_mac_pci_match(monkeypatch, tmp_path, ("106B", "1880"))
+    assert find_tuning_xml(tmp_path) == xml
+
+
+def test_find_tuning_xml_apple_pci_subsystem_mismatch_does_not_match(monkeypatch, tmp_path):
+    """A different PCI subsystem must not match the Mac filename (no false
+    positive) — neither the HDA codec subsystem nor the PCI token line up."""
+    (tmp_path / _MAC_XML_NAME).write_text("<tuning/>")
+    _patch_mac_pci_match(monkeypatch, tmp_path, ("8086", "1234"))
+    with pytest.raises(FileNotFoundError, match="No matching DAX3 tuning XML"):
+        find_tuning_xml(tmp_path)
+
+
 def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     """No NTFS mounts and an empty CWD → FileNotFoundError at
     dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic
@@ -469,6 +513,8 @@ def test_autoprobe_raises_when_multiple_candidates_no_hardware_match(monkeypatch
     # Lenovo IdeaPad text-vendor SUBSYS — see issue #4 (taprobane99).
     "AUCD_DEV_0C29_SUBSYS_IDEA4002_ADCM_SUBSYS_IDEA4002.xml",
     "AUCD_DEV_0C29_SUBSYS_idea4002_ADCM_SUBSYS_idea4002.xml",  # case-insensitive
+    # Apple Boot Camp / Intel Mac PCI-keyed name — see issue #21 (taprobane99).
+    "PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_72708086.xml",
 ])
 def test_dolby_filename_regex_matches_dax3_filenames(filename):
     assert DOLBY_FILENAME_RE.search(filename) is not None

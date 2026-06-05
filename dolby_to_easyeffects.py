@@ -960,18 +960,20 @@ def find_tuning_xml(windows_root: Path):
     # HDA subsystem IDs for matching DEV_*_SUBSYS_*.xml files
     hda_subsys_ids = {s.upper() for _, s, _name in hda_codecs}
 
-    # SoundWire: build expected SUBSYS value from PCI subsystem ID.
-    # Dolby filenames encode it as {pci_subsys_device}{pci_subsys_vendor},
-    # e.g. PCI subsystem 17AA:2339 -> SUBSYS_233917AA
+    # PCI subsystem match token. Dolby PCI-keyed filenames — SoundWire on newer
+    # Intel platforms, and Apple Boot Camp tunings on Intel Macs (issue #21) —
+    # encode it as {pci_subsys_device}{pci_subsys_vendor}, e.g. PCI subsystem
+    # 17AA:2339 -> SUBSYS_233917AA, or Apple 106B:1880 -> SUBSYS_1880106B. (HDA
+    # codec filenames instead use the codec's own subsystem, vendor-first.)
     if sdw_devices and pci_subsys is None:
         raise RuntimeError(
             "SoundWire devices detected but could not determine PCI subsystem ID. "
             "Cannot safely select a tuning XML."
         )
-    sdw_subsys_id = None
+    pci_subsys_id = None
     if pci_subsys:
         vendor, device = pci_subsys
-        sdw_subsys_id = f"{device}{vendor}".upper()
+        pci_subsys_id = f"{device}{vendor}".upper()
 
     # SoundWire manufacturer+function pairs for matching
     sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
@@ -1004,6 +1006,16 @@ def find_tuning_xml(windows_root: Path):
                 if match and match.group(1) in hda_subsys_ids:
                     candidates.append(xml_file)
                     continue
+                # PCI-keyed fallback for Apple Boot Camp tunings on Intel Macs
+                # (issue #21), e.g. PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_...,
+                # whose first SUBSYS token is the audio function's PCI subsystem
+                # in device-first order (106B = Apple), not an HDA codec
+                # subsystem. Tentative — unverified on real T2-Mac Linux
+                # hardware. Additive and safe: HDA/SoundWire filenames use the
+                # opposite byte order, so this cannot mis-match them.
+                if match and pci_subsys_id and match.group(1) == pci_subsys_id:
+                    candidates.append(xml_file)
+                    continue
 
             # Match SoundWire-style: SOUNDWIRE_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
             # or SOUNDWIRE_SDCAFUNCTION_NN_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
@@ -1015,13 +1027,13 @@ def find_tuning_xml(windows_root: Path):
                 man = sdw_match.group(1)
                 func = sdw_match.group(2)
                 subsys = sdw_match.group(3)
-                if (man, func) in sdw_man_func and subsys == sdw_subsys_id:
+                if (man, func) in sdw_man_func and subsys == pci_subsys_id:
                     candidates.append(xml_file)
                     continue
 
             # Match SDW_XXXX_SUBSYS_YYYYYYYY_... style
             sdw_alt = re.search(r"^SDW_[0-9A-F]+_SUBSYS_([0-9A-F]{8})", name)
-            if sdw_alt and sdw_subsys_id and sdw_alt.group(1) == sdw_subsys_id:
+            if sdw_alt and pci_subsys_id and sdw_alt.group(1) == pci_subsys_id:
                 candidates.append(xml_file)
                 continue
 
