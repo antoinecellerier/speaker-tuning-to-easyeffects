@@ -85,11 +85,18 @@ derivable tuning being silently dropped — each falls into one of three buckets
   per-profile selector pointing at one of the IEQ curves already read from
   `<constant>` (we emit all three; we just don't honour the per-profile default).
 
-The one forward-looking item: `bass-enhancer-*` is the only ignored block that is
-both understandable and cleanly derivable (explicit `boost`/`cutoff`/`width` →
-Calf `bass_enhancer`), but it is disabled in every corpus XML, so it stays a
-defensive "if a future driver enables it" candidate (cf. cross-device-findings
-§14), not a current gap.
+On bass enhancement specifically: `bass-enhancer-*` and `virtual-bass-*` are not
+merely disabled in every profile (`bass-enhancer-enable`/`virtual-bass-mode` are
+`0` across all ~38k occurrences in the corpus) — their supporting fields
+(`cutoff`, `width`, `mix-freqs`, `src-freqs`, `subgains`) are *frozen identical*
+across hundreds of speaker designs, so unlike the AO / MBC / regulator values
+they carry no per-device signal to derive. The bass enhancement DAX audibly
+applies is a non-XML engine baseline, not per-device tuning — investigated at
+length in **Finding 8** (incl. the `--enable-vbe` experiment), with the opt-in
+baseline tracked in issue #14. So there is nothing simplified-schema-specific to
+add here; the explicit `boost`/`cutoff`/`width` look mappable to Calf
+`bass_enhancer` but, being corpus-frozen, would be a hardcoded baseline rather
+than derived tuning.
 
 ## Plugin chain order
 
