@@ -12,7 +12,7 @@ Converts Dolby Atmos DAX3 tuning XML from Windows drivers into [EasyEffects](htt
 | Lenovo Yoga Pro 9 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
 | ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
 | ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
-| ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author (primary development target) |
+| ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author |
 
 If you test it on other hardware, please [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml) — run `python3 dolby_to_easyeffects.py --speaker-info` and paste the output.
 
