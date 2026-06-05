@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,22 @@ def _is_dax3_xml(name: str) -> bool:
     if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
         return False
     return bool(DOLBY_FILENAME_RE.search(name))
+
+
+def _is_simplified_schema(xml_path: Path) -> bool:
+    """True if any audio-optimizer-bands uses the simplified gain_l layout.
+
+    Full-schema XMLs name the AO channels ch_00..ch_07 throughout and never
+    contain a <gain_l>; simplified-schema XMLs (issue #22) use gain_l/gain_r.
+    Since the simplified variant is now supported, a parse failure on one of
+    these is a real regression to fail on — not a by-design rejection to skip.
+    """
+    try:
+        root = ET.parse(xml_path).getroot()
+    except ET.ParseError:
+        return False
+    return any(ao.find("gain_l") is not None
+               for ao in root.iter("audio-optimizer-bands"))
 
 
 def _xmls_under(directory: Path) -> list[Path]:
@@ -152,15 +169,22 @@ def test_corpus_xml_parses_and_runs_pipeline(tmp_path, xml_path):
     → save_wav_stereo → IRS shape. One parse per XML keeps the
     parametrized run honest on a corpus of thousands.
 
-    A small fraction of corpus XMLs use simplified schema variants that
-    the parser intentionally rejects (`ValueError`); those skip rather
-    than fail so they can't mask real regressions in the rest.
+    A small fraction of corpus XMLs use schema variants the parser
+    intentionally rejects (`ValueError`); those skip rather than fail so
+    they can't mask real regressions in the rest. The simplified gain_l/gain_r
+    schema (issue #22) is *not* one of them — it is supported, so a parse
+    failure on such an XML fails the test instead of skipping.
     """
     _skip_if_no_corpus()
 
     try:
         result = parse_xml(xml_path)
     except ValueError as e:
+        if _is_simplified_schema(xml_path):
+            raise AssertionError(
+                f"{xml_path.name}: simplified-schema XML (gain_l/gain_r) must "
+                f"parse now (issue #22), but parse_xml raised: {e}"
+            ) from e
         pytest.skip(f"{xml_path.name}: parser rejected by design: {e}")
     assert result is not None
     assert isinstance(result, ParsedTuning)

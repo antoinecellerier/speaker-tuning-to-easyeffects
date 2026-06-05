@@ -37,6 +37,60 @@ DAX3 splits processing into two stages, reflected in the XML under `tuning-cp` a
 
 The generated EasyEffects chain mirrors this split as closely as LV2 plugins allow.
 
+### Simplified-schema XMLs: `gain_l`/`gain_r` audio-optimizer (issue #22)
+
+Some Lenovo drivers (xml_version ~3.2.x — e.g. ThinkPad X1 Carbon Gen 8) ship a
+*simplified* DAX3 schema the converter now supports (`parse_xml`, audio-optimizer
+block). Two things differ from the full schema:
+
+- **`<audio-optimizer-bands>` names the channels `gain_l`/`gain_r`/`gain_c`/…**
+  (a 10-channel surround layout) instead of `ch_00`..`ch_07`. They are the same
+  20-band, 1/16-dB correction arrays resolved through the same `value=`/`preset=`
+  mechanism, so for a 2-channel speaker `gain_l`→left, `gain_r`→right. The
+  measured value range matches the full schema's `ch_00`/`ch_01` (single-digit dB
+  typical, up to ~30 dB on a worst-case band), corroborating the shared encoding;
+  per the XML-only invariant the units stay a hypothesis until a DAX capture
+  confirms on device.
+- **No `mb-compressor-*` and no `speaker-peq-*` blocks** — the simplified variant
+  omits MBC and speaker PEQ entirely. The existing enable-gates skip them
+  gracefully (no `equalizer#0` / `multiband_compressor#0` in the output). The
+  regulator and every `tuning-cp` block (dialog, surround, leveler, volmax) are
+  unchanged; `regulator-tuning` is still one threshold per band, so
+  `make_regulator` needs no special-casing.
+
+**Gotcha:** a simplified profile carries *two* `<audio-optimizer-bands>` — a
+zeroed one under `tuning-cp` and the real correction under `tuning-vlldp`.
+`parse_xml` reads the `tuning-vlldp` one (correct). A `.//audio-optimizer-bands`
+XPath matches the `tuning-cp` zeros first and will wrongly read the AO as flat —
+match the container (`tuning-vlldp`) explicitly when inspecting these files.
+
+**What else we don't read — audited (issue #22).** Beyond MBC/PEQ (absent), the
+simplified `tuning-cp`/`tuning-vlldp` carry many elements the converter ignores.
+A sweep of the simplified corpus (~2,100 profiles) confirms none is active,
+derivable tuning being silently dropped — each falls into one of three buckets:
+
+- **Gated off in every profile** (inert defaults): `bass-enhancer-*`,
+  `bass-extraction-*`, `virtual-bass-*` (`virtual-bass-mode=0`),
+  `graphic-equalizer-*`, `volume-modeler-*`, `process-optimizer-*`,
+  `dialog-enhancer-ducking`, `height-filter-mode` — all `*-enable=0`. The level
+  controls `pregain`/`postgain`/`system-gain`/`calibration-boost` are all `0`.
+- **Active but not modelable in a static LV2 chain** (already out of scope): the
+  legacy `output-mode-partial-{surround,height}-virtualizer-enable` (the surround
+  one is partially approximated by `stereo_tools` from `surround-boost`; the
+  FFT-domain part isn't reproducible) and the `mi-*-steering-enable` flags
+  (Media-Intelligence real-time content steering — nothing static to bake).
+  `virtualizer-*-speaker-angle` is inert geometry without an active virtualizer.
+- **Already covered via another element**: `regulator-enable` (CP) — the
+  regulator is mapped from the VLLDP `regulator-tuning`; `ieq-bands-set` — a
+  per-profile selector pointing at one of the IEQ curves already read from
+  `<constant>` (we emit all three; we just don't honour the per-profile default).
+
+The one forward-looking item: `bass-enhancer-*` is the only ignored block that is
+both understandable and cleanly derivable (explicit `boost`/`cutoff`/`width` →
+Calf `bass_enhancer`), but it is disabled in every corpus XML, so it stays a
+defensive "if a future driver enables it" candidate (cf. cross-device-findings
+§14), not a current gap.
+
 ## Plugin chain order
 
 Current order (see `make_preset` in `dolby_to_easyeffects.py`):

@@ -433,3 +433,86 @@ class TestParseXmlGuards:
         assert result.peq_filters[0]["f0"] == 1000.0
         # Warn-and-skip emitted a message naming the problem.
         assert "skipping" in capsys.readouterr().out
+
+
+class TestSimplifiedSchema:
+    """parse_xml() — simplified-schema DAX3 support (issue #22).
+
+    Older Lenovo drivers (xml_version ~3.2.x; e.g. ThinkPad X1 Carbon Gen 8)
+    ship a simplified DAX3 schema: the per-channel audio-optimizer correction
+    lives under <gain_l>/<gain_r> (a 10-channel surround layout) instead of
+    <ch_00>..<ch_07>, and the MBC and speaker-PEQ blocks are omitted entirely.
+    The regulator block is unchanged (still one threshold per band). parse_xml
+    maps gain_l→left / gain_r→right onto the same audio-optimizer slots as
+    ch_00/ch_01 — they share the identical value=/preset= encoding — so these
+    XMLs produce a convolver (+ regulator) preset instead of being rejected.
+    """
+
+    def _write(self, tmp_path, body):
+        p = tmp_path / "simplified.xml"
+        p.write_text(body)
+        return p
+
+    # A 5-band simplified profile: gain_l/gain_r in place of ch_00/ch_01, the
+    # surround channels alongside (ignored for a 2-channel speaker), a matching
+    # 5-value regulator, and no MBC or speaker-PEQ blocks.
+    _SIMPLIFIED = """
+        <root>
+          <constant><band_20_freq fs_48000="100,200,400,800,1600"/></constant>
+          <endpoint type="internal_speaker" operating_mode="normal">
+            <profile type="dynamic">
+              <tuning-vlldp>
+                <audio-optimizer-bands>
+                  <gain_l value="10,20,-30,0,5"/>
+                  <gain_r value="-5,0,30,-20,-10"/>
+                  <gain_c value="0,0,0,0,0"/>
+                </audio-optimizer-bands>
+                <regulator-speaker-dist-enable value="1"/>
+                <regulator-tuning>
+                  <threshold_high value="-96,-80,-64,-48,0"/>
+                </regulator-tuning>
+              </tuning-vlldp>
+            </profile>
+          </endpoint>
+        </root>
+    """
+
+    def test_gain_l_r_accepted_as_audio_optimizer(self, tmp_path, capsys):
+        result = parse_xml(self._write(tmp_path, self._SIMPLIFIED))
+        # gain_l → left, gain_r → right, decoded to the same raw-int form
+        # ch_00/ch_01 produce (resolve_xml_value + parse_csv_ints).
+        assert result.ao_left == [10, 20, -30, 0, 5]
+        assert result.ao_right == [-5, 0, 30, -20, -10]
+        # The simplified variant has no MBC and no speaker PEQ.
+        assert result.mb_comp is None
+        assert result.peq_filters == []
+        # A one-line notice tells the user which schema path fired.
+        assert "simplified" in capsys.readouterr().out
+
+    def test_regulator_maps_without_adaptation(self, tmp_path):
+        # The simplified regulator is still one threshold per band, so the
+        # existing make_regulator path applies unchanged — no special-casing.
+        result = parse_xml(self._write(tmp_path, self._SIMPLIFIED))
+        assert result.regulator is not None
+        assert len(result.regulator["threshold_high"]) == 5
+
+    def test_audio_optimizer_without_ch_or_gain_still_raises(self, tmp_path):
+        # audio-optimizer-bands present but carrying neither ch_00/ch_01 nor
+        # gain_l/gain_r (only a surround channel) is genuinely unsupported and
+        # must still fail with a clean, named ValueError.
+        body = """
+            <root>
+              <constant><band_20_freq fs_48000="100,200,400,800,1600"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="dynamic">
+                  <tuning-vlldp>
+                    <audio-optimizer-bands>
+                      <gain_c value="0,0,0,0,0"/>
+                    </audio-optimizer-bands>
+                  </tuning-vlldp>
+                </profile>
+              </endpoint>
+            </root>
+        """
+        with pytest.raises(ValueError, match="neither ch_00/ch_01 nor"):
+            parse_xml(self._write(tmp_path, body))

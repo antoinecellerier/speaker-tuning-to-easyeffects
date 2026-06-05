@@ -32,6 +32,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- Simplified-schema DAX3 XMLs are now supported. Some Lenovo drivers
+  (xml_version ~3.2.x — e.g. the ThinkPad X1 Carbon Gen 8) name the per-channel
+  audio-optimizer correction `<gain_l>`/`<gain_r>` instead of `<ch_00>`/`<ch_01>`
+  and ship no multi-band-compressor or speaker-PEQ blocks; the script previously
+  rejected them as an unsupported schema variant. It now maps `gain_l`→left /
+  `gain_r`→right (the same 20-band, 1/16-dB encoding, resolved the same way) and
+  emits a convolver + regulator preset, warning that MBC and PEQ are absent in
+  this variant. The regulator and all `tuning-cp` blocks (dialog, surround,
+  leveler, volmax) are unchanged.
+  ([#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
 - `--autoload-sink NODE_NAME` (repeatable) — bind autoload to an explicit
   PipeWire sink, bypassing speaker detection. Mirrors `ee_to_pipewire.py`'s
   `--target-sink`.

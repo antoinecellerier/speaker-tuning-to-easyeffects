@@ -1687,21 +1687,35 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             f"{path.name}: tuning-vlldp has no <audio-optimizer-bands>. "
             "This XML uses a DAX3 schema variant this script does not support."
         )
-    ch_00 = ao_bands.find("ch_00")
-    ch_01 = ao_bands.find("ch_01")
-    if ch_00 is None or ch_01 is None:
+    # Per-channel audio-optimizer correction. Full-schema DAX3 names the
+    # channels <ch_00>..<ch_07>; simplified-schema XMLs (older Lenovo drivers,
+    # xml_version ~3.2.x — e.g. ThinkPad X1 Carbon Gen 8, see issue #22) store
+    # the same 20-band, 1/16-dB arrays under a <gain_l>/<gain_r>/<gain_c>/…
+    # surround layout instead. Both resolve through the identical value=/preset=
+    # mechanism, so for a 2-channel speaker gain_l→left, gain_r→right. The
+    # simplified variant also omits the MBC and speaker-PEQ blocks; those are
+    # handled by the enable-gates below (absent element → block skipped).
+    left_band = ao_bands.find("ch_00")
+    right_band = ao_bands.find("ch_01")
+    simplified_ao = left_band is None or right_band is None
+    if simplified_ao:
+        left_band = ao_bands.find("gain_l")
+        right_band = ao_bands.find("gain_r")
+    if left_band is None or right_band is None:
         found_tags = sorted({c.tag for c in ao_bands})
         raise ValueError(
-            f"{path.name}: audio-optimizer-bands has no ch_00/ch_01 — "
-            f"found {found_tags or '[]'} instead. This XML uses a simplified "
-            "DAX3 schema variant that this script does not support (no MBC, "
-            "no speaker PEQ, different channel naming). Pick another "
-            "endpoint/profile, use a full-schema XML from your device's "
-            "current driver, or open an issue if you need this variant "
+            f"{path.name}: audio-optimizer-bands has neither ch_00/ch_01 nor "
+            f"gain_l/gain_r — found {found_tags or '[]'} instead. This XML uses "
+            "a DAX3 schema variant this script does not support. Pick another "
+            "endpoint/profile, or open an issue if you need this variant "
             "supported."
         )
-    ao_left = parse_csv_ints(resolve_xml_value(ch_00, constant))
-    ao_right = parse_csv_ints(resolve_xml_value(ch_01, constant))
+    if simplified_ao:
+        cprint("warn", f"  {path.name}: simplified-schema DAX3 "
+                       "(gain_l/gain_r audio-optimizer) — this variant has no "
+                       "multi-band compressor or speaker PEQ.")
+    ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
+    ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 
     peq_filters = []
     peq_enable = vlldp.find("speaker-peq-enable")
