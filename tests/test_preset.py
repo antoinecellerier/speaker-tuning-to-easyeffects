@@ -21,6 +21,7 @@ classes of test run on the same fixture and live in the same file.
 """
 
 import json
+import math
 
 import numpy as np
 import pytest
@@ -32,12 +33,19 @@ from dolby_to_easyeffects import (
     _atomic_write_text,
     _disabled_band,
     decode_mbc_bands,
+    make_autogain,
+    make_bass_enhancer,
+    make_dialog_enhancer,
     make_fir,
     make_multiband_compressor,
     make_peq_eq,
     make_preset,
     make_regulator,
+    make_stereo_tools,
     save_wav_stereo,
+    set_autoload_fallback,
+    write_autoload,
+    write_bypass_preset,
 )
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
@@ -463,3 +471,292 @@ def test_atomic_write_aborts_cleanly_on_error(tmp_path):
     assert path.read_text() == "original", "target must not be clobbered"
     leftovers = [p.name for p in tmp_path.iterdir() if p.name != "preset.json"]
     assert leftovers == [], f"temp file left behind: {leftovers}"
+
+
+# --- LOCK-IN: make_autogain SoundWire (conservative) branch ---
+# The conservative path is the ONLY non-bypassed autogain emission in the
+# codebase; lock its derivations (target = out_target - 6, history =
+# max(40 - amount*4, 15), -50 dB silence gate) so an edit can't silently
+# turn the safe SoundWire leveler into the HDA pumping trap.
+
+_LEVELER = {"enable": True, "amount": 5, "out_target": -16.0}
+
+
+def test_autogain_conservative_branch_active_with_derived_settings():
+    ag = make_autogain(dict(_LEVELER), conservative=True)
+    assert ag["bypass"] is False
+    assert ag["target"] == -22.0             # out_target - 6.0
+    assert ag["maximum-history"] == 20       # max(40 - amount*4, 15)
+    assert ag["silence-threshold"] == -50.0
+    assert ag["reference"] == "Geometric Mean (MSI)"
+
+
+def test_autogain_conservative_history_floor_is_15():
+    ag = make_autogain({"enable": True, "amount": 10, "out_target": -16.0},
+                       conservative=True)
+    assert ag["maximum-history"] == 15       # max(40 - 40, 15)
+
+
+def test_autogain_disabled_leveler_returns_none():
+    off = {"enable": False, "amount": 5, "out_target": -16.0}
+    assert make_autogain(off, conservative=True) is None
+    assert make_autogain(off) is None
+    assert make_autogain(None) is None
+
+
+def test_autogain_silence_threshold_hda_vs_conservative():
+    """HDA keeps the bypassed plugin's silence gate at -70 dB and the
+    unshifted target; conservative raises the gate to -50 dB so the
+    active leveler can't ride up on background noise."""
+    hda = make_autogain(dict(_LEVELER))
+    cons = make_autogain(dict(_LEVELER), conservative=True)
+    assert hda["bypass"] is True
+    assert hda["silence-threshold"] == -70.0
+    assert hda["target"] == -16.0            # out_target unshifted
+    assert hda["maximum-history"] == 10      # max(30 - amount*5, 10)
+    assert cons["silence-threshold"] == -50.0
+
+
+# --- LOCK-IN: make_dialog_enhancer gain derivations ---
+
+def test_dialog_enhancer_hda_gain_formula():
+    """HDA: a single presence bell at 2.5 kHz, gain = amount/16 * 6 dB
+    (rounded to 2 decimals -> 1.88 for amount=5)."""
+    de = make_dialog_enhancer({"enable": True, "amount": 5, "boost": 4.0})
+    assert de["num-bands"] == 1
+    assert de["split-channels"] is False
+    band = de["left"]["band0"]
+    assert band["frequency"] == 2500.0
+    assert band["gain"] == round(5 / 16 * 6.0, 2)  # 1.88
+    assert de["left"] == de["right"]               # mirrored channels
+
+
+def test_dialog_enhancer_soundwire_two_band_variant():
+    """SoundWire: stronger 8 dB scale plus a 4 kHz clarity bell at
+    0.6x the presence gain."""
+    de = make_dialog_enhancer({"enable": True, "amount": 5, "boost": 4.0},
+                              is_soundwire=True)
+    assert de["num-bands"] == 2
+    presence = de["left"]["band0"]
+    clarity = de["left"]["band1"]
+    assert presence["frequency"] == 2500.0
+    assert presence["gain"] == 2.5     # round(5/16 * 8, 2)
+    assert clarity["frequency"] == 4000.0
+    assert clarity["gain"] == 1.5      # round(2.5 * 0.6, 2)
+    assert de["left"] == de["right"]
+
+
+def test_dialog_enhancer_zero_amount_returns_none():
+    zero = {"enable": True, "amount": 0, "boost": 0.0}
+    assert make_dialog_enhancer(zero) is None
+    assert make_dialog_enhancer(zero, is_soundwire=True) is None
+    assert make_dialog_enhancer(None) is None
+
+
+# --- LOCK-IN: make_regulator multi-zone behaviour ---
+# The existing trap tests only exercise the single-zone ([-6]*20) path;
+# these lock the zone grouping, the geometric-mean split frequencies, the
+# >8-zone merge rule, and the slope/timbre/threshold>=0 mappings.
+
+def test_regulator_three_zone_split_frequencies_geometric_mean():
+    th = [-6.0] * 7 + [-12.0] * 7 + [-3.0] * 6
+    reg = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20)
+    active = [reg[f"band{i}"] for i in range(8)
+              if reg[f"band{i}"]["compressor-enable"]]
+    assert len(active) == 3
+    assert reg["band0"]["attack-threshold"] == -6.0
+    assert "split-frequency" not in reg["band0"]   # band 0 has no split
+    assert reg["band1"]["attack-threshold"] == -12.0
+    # split = geometric mean of the zone-boundary band frequencies:
+    # sqrt(freqs[6] * freqs[7]) = sqrt(315 * 400) -> 355.0
+    assert reg["band1"]["split-frequency"] == round(math.sqrt(315 * 400), 1)
+    assert reg["band2"]["attack-threshold"] == -3.0
+    # sqrt(freqs[13] * freqs[14]) = sqrt(2500 * 4000) -> 3162.3
+    assert reg["band2"]["split-frequency"] == round(math.sqrt(2500 * 4000), 1)
+    for i in range(3, 8):
+        assert reg[f"band{i}"] == _disabled_band()
+
+
+def test_regulator_merges_excess_zones_keeping_less_aggressive_threshold():
+    """10 alternating 2-band runs -> 10 zones; two merges bring it down
+    to the 8-band LSP limit. The merge rule keeps max(z1, z2): a -6 zone
+    merged with a -12 zone must land on -6 (less aggressive), never -12.
+    """
+    th = ([-6.0] * 2 + [-12.0] * 2) * 5
+    reg = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20)
+    assert all(reg[f"band{i}"]["compressor-enable"] for i in range(8))
+    # band0 absorbed indices 0-5 (the -6/-12/-6 runs) at max() = -6.0.
+    assert reg["band0"]["attack-threshold"] == -6.0
+    # Next zone starts at index 6: split at sqrt(freqs[5] * freqs[6]).
+    assert reg["band1"]["attack-threshold"] == -12.0
+    assert reg["band1"]["split-frequency"] == round(math.sqrt(250 * 315), 1)
+
+
+@pytest.mark.parametrize("slope,expected_ratio", [
+    (0.5, 2.0),     # ratio = 1 / (1 - slope)
+    (1.0, 100.0),   # slope >= 1 -> hard-limiter cap
+    (0.0, 1.0),     # slope <= 0 -> bypass ratio
+])
+def test_regulator_distortion_slope_maps_to_ratio(slope, expected_ratio):
+    reg = make_regulator(
+        synthetic_regulator([-6.0] * 20, distortion_slope=slope),
+        SYNTHETIC_FREQS_20)
+    assert reg["band0"]["ratio"] == expected_ratio
+
+
+def test_regulator_timbre_maps_to_knee():
+    reg = make_regulator(
+        synthetic_regulator([-6.0] * 20, timbre_preservation=0.5),
+        SYNTHETIC_FREQS_20)
+    assert reg["band0"]["knee"] == -3.0   # knee = -6 * timbre
+
+
+def test_regulator_nonnegative_threshold_disables_band():
+    """A zone with threshold >= 0 dB can never trigger; its band slot is
+    kept (with split point) but compressor-enable is False to save CPU."""
+    th = [-6.0] * 10 + [0.0] * 10
+    reg = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20)
+    assert reg["band0"]["compressor-enable"] is True
+    assert reg["band1"]["compressor-enable"] is False
+    assert reg["band1"]["attack-threshold"] == 0.0
+    assert reg["band1"]["enable-band"] is True
+
+
+# --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---
+
+def test_mbc_band1_split_frequency_from_xover_idx():
+    """A 2-band tuning with crossover idx 10 splits at freqs[10] (800 Hz
+    on the synthetic grid); the sidechain low/highcut edges follow it."""
+    mbc = make_multiband_compressor(
+        synthetic_mb_comp(group_count=2, bands=[
+            (10, -160, 16384, 30000, 32500, 0),
+            (20, -160, 16384, 30000, 32500, 0),
+        ]),
+        SYNTHETIC_FREQS_20)
+    assert mbc["band1"]["split-frequency"] == 800.0   # freqs[10]
+    assert mbc["band1"]["enable-band"] is True
+    assert mbc["band1"]["sidechain-lowcut-frequency"] == 800.0
+    assert mbc["band0"]["sidechain-highcut-frequency"] == 800.0
+    assert "split-frequency" not in mbc["band0"]
+
+
+def test_mbc_out_of_range_xover_falls_back_to_500():
+    mbc = make_multiband_compressor(
+        synthetic_mb_comp(group_count=2, bands=[
+            (25, -160, 16384, 30000, 32500, 0),   # 25 >= len(freqs) = 20
+            (20, -160, 16384, 30000, 32500, 0),
+        ]),
+        SYNTHETIC_FREQS_20)
+    assert mbc["band1"]["split-frequency"] == 500.0
+
+
+# --- LOCK-IN: make_bass_enhancer scope derivation ---
+
+@pytest.mark.parametrize("hp_freq,expected_scope", [
+    (120.0, 240.0),   # scope = 2 * hp_freq
+    (200.0, 300.0),   # capped at 300 Hz
+])
+def test_bass_enhancer_scope_tracks_hp_freq(hp_freq, expected_scope):
+    be = make_bass_enhancer(hp_freq)
+    assert be["scope"] == expected_scope
+    assert be["amount"] == 12.0   # default drive
+
+
+def test_preset_soundwire_no_hp_falls_back_to_100hz_scope():
+    """make_preset's SoundWire path with no HP filter in the PEQ uses the
+    100 Hz default -> scope 200."""
+    preset, emitted = make_preset(kernel_name="X", peq_filters=[],
+                                  is_soundwire=True)
+    assert preset["output"]["bass_enhancer#0"]["scope"] == 200.0
+    assert "bass-enhancer" in emitted
+
+
+# --- LOCK-IN: make_stereo_tools base scaling ---
+
+@pytest.mark.parametrize("boost,expected_base", [
+    (4, 0.2),
+    (16, 0.5),   # min(boost/20, 0.5) cap
+])
+def test_stereo_tools_base_from_boost(boost, expected_base):
+    st = make_stereo_tools({"enable": True, "boost": boost})
+    assert st["stereo-base"] == expected_base
+    assert st["mode"] == "LR > LR (Stereo Default)"
+
+
+def test_stereo_tools_zero_boost_returns_none():
+    assert make_stereo_tools({"enable": True, "boost": 0}) is None
+    assert make_stereo_tools(None) is None
+
+
+# --- LOCK-IN: make_preset convolver_gain pass-through ---
+
+def test_make_preset_passes_convolver_gain_through():
+    preset, _ = make_preset(kernel_name="X", peq_filters=[],
+                            convolver_gain=2.5)
+    assert preset["output"]["convolver#0"]["output-gain"] == 2.5
+
+
+# --- LOCK-IN: autoload artifacts (device binding + fallback preset/rc) ---
+
+def test_write_autoload_filename_and_payload(tmp_path):
+    path = write_autoload(
+        tmp_path,
+        device_name="alsa_output.pci-0000_00_1f.3/analog-stereo",
+        device_description="Built-in Audio",
+        device_profile="output:analog-stereo",
+        preset_name="Dolby-Balanced")
+    # '/' is path-unsafe: EE's AutoloadManager swaps it for '_' in the
+    # filename only; the JSON payload keeps the original names.
+    assert path.name == ("alsa_output.pci-0000_00_1f.3_analog-stereo"
+                         ":output:analog-stereo.json")
+    assert json.loads(path.read_text()) == {
+        "device": "alsa_output.pci-0000_00_1f.3/analog-stereo",
+        "device-description": "Built-in Audio",
+        "device-profile": "output:analog-stereo",
+        "preset-name": "Dolby-Balanced",
+    }
+
+
+def test_write_bypass_preset_kept_when_existing(tmp_path):
+    """A user's hand-built preset of the same name must never be
+    clobbered — status 'kept', content untouched."""
+    existing = tmp_path / "Bypass.json"
+    existing.write_text('{"hand": "built"}')
+    path, status = write_bypass_preset(tmp_path, "Bypass")
+    assert status == "kept"
+    assert path == existing
+    assert path.read_text() == '{"hand": "built"}'
+
+
+def test_write_bypass_preset_writes_minimal_preset(tmp_path):
+    path, status = write_bypass_preset(tmp_path, "Bypass")
+    assert status == "written"
+    data = json.loads(path.read_text())
+    assert data["output"] == {"blocklist": [], "plugins_order": []}
+    assert data["_generator"].startswith("dolby_to_easyeffects.py ")
+
+
+def test_set_autoload_fallback_already_configured_leaves_file_untouched(tmp_path):
+    rc = tmp_path / "easyeffectsrc"
+    original = ("[Window]\n"
+                "outputAutoloadingFallbackPreset=HandPicked\n"
+                "outputAutoloadingUsesFallback=true\n")
+    rc.write_text(original)
+    status, existing = set_autoload_fallback(rc, "Bypass")
+    assert status == "already-configured"
+    assert existing == "HandPicked"
+    assert rc.read_text() == original   # file not rewritten
+
+
+def test_set_autoload_fallback_patches_and_preserves_camelcase(tmp_path):
+    rc = tmp_path / "easyeffectsrc"
+    status, existing = set_autoload_fallback(rc, "Bypass")
+    assert status == "patched"
+    assert existing == ""
+    text = rc.read_text()
+    # optionxform=str: keys keep EE's camelCase (configparser's default
+    # would lowercase them and EE would not see the setting). Written
+    # with space_around_delimiters=False, matching EE's own format.
+    assert "[Window]" in text
+    assert "outputAutoloadingFallbackPreset=Bypass" in text
+    assert "outputAutoloadingUsesFallback=true" in text

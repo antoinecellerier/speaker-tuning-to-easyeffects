@@ -26,6 +26,8 @@ from ee_to_pipewire import (
     CALF_BE_URI,
     CALF_ST_URI,
     EE_FTYPE_TO_LSP,
+    EE_LIMITER_MODE,
+    EE_MBC_GLOBAL_MODE,
     EE_ST_MODE,
     build_chain,
     db_to_lin,
@@ -388,6 +390,45 @@ def test_emit_stereo_tools_control_symbols_match_calf():
     assert set(stage.nodes[0]["control"].keys()) == expected
 
 
+@pytest.mark.parametrize("label,expected_int", [
+    ("Herm Thin", 0), ("Herm Wide", 1), ("Herm Tail", 2), ("Herm Duck", 3),
+    ("Exp Thin", 4), ("Exp Wide", 5), ("Exp Tail", 6), ("Exp Duck", 7),
+    ("Line Thin", 8), ("Line Wide", 9), ("Line Tail", 10), ("Line Duck", 11),
+])
+def test_emit_limiter_each_mode_label_maps(label, expected_int):
+    """Per-label sentinel against limiter.cpp:52 limiter_oper_modes[] —
+    same pattern as the stereo_tools mode test. A drifted entry would
+    silently swap the limiter's inter-sample interpolation shape.
+    """
+    plugin = {
+        "bypass": False, "mode": label,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "threshold": -1.0, "lookahead": 1.0, "attack": 1.0, "release": 5.0,
+        "stereo-link": 100.0, "alr": False, "gain-boost": False,
+    }
+    stage = emit_limiter(plugin)
+    assert stage.nodes[0]["control"]["mode"] == expected_int
+    assert EE_LIMITER_MODE[label] == expected_int
+
+
+@pytest.mark.parametrize("label,expected_int", [
+    ("Classic", 0), ("Modern", 1), ("Linear Phase", 2),
+])
+def test_emit_mb_compressor_each_global_mode_maps(label, expected_int):
+    """Per-label sentinel against mb_compressor.cpp:113
+    mb_global_comp_modes[]. 'Linear Phase' would add latency, so an
+    off-by-one here breaks the project's zero-added-latency invariant.
+    """
+    plugin = {
+        "bypass": False, "compressor-mode": label,
+        "input-gain": 0.0, "output-gain": 0.0,
+        "dry": -80.01, "wet": 0.0, "envelope-boost": "None",
+    }
+    stage = emit_mb_compressor(plugin, "mbc")
+    assert stage.nodes[0]["control"]["mode"] == expected_int
+    assert EE_MBC_GLOBAL_MODE[label] == expected_int
+
+
 def test_build_chain_includes_bass_enhancer_and_stereo_tools():
     """End-to-end: a preset whose plugins_order includes both new keys
     must yield two extra emitted nodes (one per emitter). Catches the
@@ -531,6 +572,24 @@ def test_mbc_round_trip_4_decimals(generated):
 
     # Sidechain mode is enum-mapped — RMS should land on integer 1.
     assert mbc_controls["scm_0"] == 1
+
+
+def test_peq_g_out_round_trips_output_gain(generated):
+    """The PEQ output-gain is the clipping-compensation trim whose
+    derivation test_preset.py locks in; here we lock that the conf's
+    `g_out` carries it as a linear gain (BIND_LV2_PORT_DB), mirroring
+    the MBC round-trip pattern above.
+    """
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    peq_controls = _extract_node_control(conf, "peq")
+    src = preset["output"]["equalizer#0"]
+    # The fixture's +4 dB bell forces a non-zero trim, so this round-trip
+    # can't pass vacuously on a 0 dB / 1.0-linear identity.
+    assert src["output-gain"] != 0.0
+    assert abs(lin_to_db(peq_controls["g_out"]) - src["output-gain"]) < 1e-4
 
 
 def test_regulator_distinct_from_mbc(generated):
