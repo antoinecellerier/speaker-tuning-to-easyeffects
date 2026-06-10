@@ -103,9 +103,12 @@ than derived tuning.
 Current order (see `make_preset` in `dolby_to_easyeffects.py`):
 
 ```
-Convolver → Stereo Tools → Equalizer (PEQ) → Dialog Enhancer EQ
-    → Autogain → MB Compressor → Regulator → Limiter
+Convolver → [Bass Enhancer] → Stereo Tools → Equalizer (PEQ)
+    → Dialog Enhancer EQ → Autogain → MB Compressor → Regulator → Limiter
 ```
+
+(`Bass Enhancer` is emitted only for SoundWire devices — see the harmonic
+bass restoration discussion under Finding 8.)
 
 Rationale for the non-obvious ordering decisions:
 
@@ -119,10 +122,11 @@ Rationale for the non-obvious ordering decisions:
 
 - **A brickwall limiter is appended at the chain end** (commit `1b14bc1`) even
   though the regulator already performs per-band limiting. Cross-device data
-  (`docs/cross-device-findings.md` §6) shows 53% of devices use
-  `regulator-distortion-slope=16` — a true brickwall — while the other 47% use a
-  softer slope. The explicit LSP limiter is redundant on the brickwall-slope
-  devices and essential on the rest.
+  (`docs/cross-device-findings.md` §13, expanded 1050-XML cohort) shows ~95% of
+  devices use `regulator-distortion-slope=16` — a true brickwall — while the
+  rest use a softer slope. (The original 196-file cohort suggested a 53/47
+  split; the expanded corpus revised it.) The explicit LSP limiter is redundant
+  on the brickwall-slope devices and essential on the rest.
 
 - **Dialog enhancer runs before the volume leveler** (commit `1709e5d`). Dolby
   boosts speech energy before measuring loudness so the leveler doesn't over-react
@@ -229,8 +233,12 @@ to produce — i.e. the DSP math executes correctly. (`vsXML` is
 internal consistency, not interpretation correctness; see the
 "note on metrics" in Finding 7 for why this distinction matters.)
 The 11.84 dB EE-vs-DAX residual recorded in Finding 6 is therefore
-not implementation drift; per Findings 6 / 7 it's dominated by
-fixed DAX-internal behavior outside the published XML.
+not implementation drift. (At the time of this measurement it was
+attributed, per Findings 6/7, to fixed DAX-internal behavior outside
+the published XML; Finding 9 later showed it was dominated by the
+converter's own `ieq-amount` scaling error, since fixed — the
+remaining EE-vs-DAX residual is ~1 dB RMS at HF plus the LF/leveler
+gap.)
 
 For the rows still marked "open" in the table above (MBC and limiter
 character knobs), the practical guidance is: defaults are safe at
@@ -279,8 +287,12 @@ development device (ALC287 22E6):
 These are reasonable values for a two-band music compressor.
 
 **FIR accuracy**. The minimum-phase cepstral method used to generate the IEQ +
-audio-optimizer impulse response produces **exact** frequency response at all 20
-Dolby band centers (error < 0.001 dB). The FIR is properly minimum-phase (100% of
+audio-optimizer impulse response is **exact on its 4096-point design grid**
+(error < 1e-6 dB — though design and evaluation share that grid, so the number
+is circular by construction). Evaluated at the exact 20 Dolby band-center
+frequencies the error is **≤ 0.06 dB**, all of it FFT-bin quantization (e.g.
+the 47 Hz center snaps to the 46.875 Hz bin on a steep per-band slope) —
+consistent with Finding 9's ~0.06 dB figure. The FIR is properly minimum-phase (100% of
 the energy is in the first half of the 4096 taps), has no significant tail ringing,
 and extrapolates flat beyond the band edges. 4096 taps (~85 ms at 48 kHz) is
 sufficient for 20-band EQ correction.
@@ -336,7 +348,7 @@ Five stimulus kinds:
   *and phase* via single-bin DFT.
 
 Captured on a ThinkPad X1 Yoga Gen 7 (Realtek ALC287, subsystem 17AA:22E6 —
-matches the development XML at `localresearch/DEV_0287_SUBSYS_17AA22E6_*`).
+matches the development tuning XML, `DEV_0287` keyed `SUBSYS_17AA22E6`).
 
 ### Finding 1: DAX3 is non-LTI for our stimuli
 
@@ -381,7 +393,13 @@ is closest to linear-phase (+8.6 dB) — likely a deliberate choice for
 speech, where flat group delay preserves consonant transients. The
 sweep_quiet variant looks more min-phase-like across profiles, but this
 is most plausibly an artifact of the leveler's asymmetric response to a
-quiet sweep, not a real phase shift.
+quiet sweep, not a real phase shift. (The same caveat applies, in lesser
+degree, to the absolute ratios: Finding 1 shows these sweeps carry
+time-varying gain, which Farina deconvolution folds into pre-/post-peak
+energy, biasing the ratio toward linear-phase-looking. The multitone
+capture's per-band phase is the cleaner signal if this characterization
+ever becomes load-bearing; no converter decision rests on it — min-phase
+is forced by the latency constraint regardless.)
 
 This rules out our generated FIR matching DAX3's exact phase behaviour
 in any profile. Per the no-added-latency constraint we don't switch our
@@ -390,6 +408,12 @@ the right trade-off for an EQ correction filter, and we accept that this
 diverges from Dolby's choice.
 
 ### Finding 3: DAX3 doesn't faithfully implement the published XML curves
+
+> **Superseded in part by Finding 9.** These captures predate the
+> `ieq-amount`/100 correction, and the hypothesis list below omitted the
+> branch that later proved true — a field we *do* read but mis-scaled.
+> The HF residual described here was largely the converter's own
+> interpretation error, not a DAX-side stage.
 
 Each profile's captured spectrum vs **its own** balanced FIR target,
 between-band magnitude residual on a 200-point log grid (47–19688 Hz):
@@ -402,11 +426,17 @@ between-band magnitude residual on a 200-point log grid (47–19688 Hz):
 | game    | 11.8 / 37.2 | 7.3 / 24.6 | 7.5 / 28.1 | 7.8 / 26.7 |
 | voice   | 9.8 / 30.8 | 9.6 / 30.2 | 9.6 / 31.8 | 9.9 / 33.1 |
 
-(`RMS / max` in dB; captured spectrum minus our FIR's frequency response.)
+(`RMS / max` in dB; captured spectrum minus our FIR's frequency response.
+Caveat: the reference is the IEQ + AO FIR only — it excludes the XML's own
+speaker-PEQ block (a 100 Hz 4th-order HP plus ±3–4 dB bells at 280/400/516 Hz),
+which DAX presumably also applies. Below ~100 Hz the XML itself mandates up
+to ~26 dB of deviation from this reference, so part of the RMS/max figures at
+the 47 Hz end of the grid is expected by construction. The HF conclusions are
+unaffected — the speaker-PEQ has no content above 516 Hz.)
 
 For comparison, the synthetic LTI test (apply our FIR to the stimulus,
 deconvolve, compare to original) recovers within **0.06 dB RMS / 0.36 dB
-max** — three orders of magnitude tighter. The captured DAX3 response is
+max** — two orders of magnitude tighter. The captured DAX3 response is
 genuinely far from what our FIR predicts, not a measurement artifact.
 
 The bulk of the residual sits at HF (>5 kHz). At 19688 Hz the captured
@@ -417,16 +447,21 @@ suggests either (a) DAX3 ships a separate HF-shaping stage we're not
 modelling, (b) the audio_optimizer block is a target-response curve that
 DAX3 inverts internally rather than applying directly, or (c) the
 specific IEQ "Balanced" curve in Dolby Access doesn't correspond to the
-`ieq_balanced` block in the XML. Finding 4 (below) rules (c) out via a
-Linux-side EE-loopback capture of the same XML; disambiguating (a) vs
-(b) still needs either a Dolby-side reference or a stripped-down
-single-block tuning XML.
+`ieq_balanced` block in the XML. Finding 4 (below) shows (c) cannot
+explain the gap; disambiguating (a) vs (b) still needs either a
+Dolby-side reference or a stripped-down single-block tuning XML.
 
 The Music profile fits its XML target most closely (RMS 5–7 dB).
 Dynamic, Movie, Game cluster around 7–12 dB RMS. Voice deviates the
 most (9–10 dB RMS).
 
 ### Finding 4: EE-on-Linux follows the XML; the gap is on DAX's side
+
+> **Superseded in part by Finding 9.** The EE column below was captured
+> under the old `ieq-amount`/10 scaling; Finding 9's /100 correction — an
+> XML-only fix — later collapsed the 19.7 kHz residual from −28 dB to
+> −1.5 dB. "The gap is on DAX's side" did not survive: the dominant term
+> was ours.
 
 With the new `tools/measure_ee/` Linux-side capture (same 5 stimuli,
 same `analyze.py`, same XML reference), we can place EE and DAX side by
@@ -451,19 +486,30 @@ the EE battery and the DAX battery through `analyze.py` — see
 EE follows the converter's XML interpretation within ≤3 dB across most
 of the band — same shape, same band centers, same depths. DAX
 diverges most where the XML target is most extreme (deep HF rolloff
-in `ieq_balanced + audio_optimizer`): at 19.7 kHz the XML target
-predicts roughly −43 dB, EE applies −27 dB (the FIR doesn't reach the
-target's depth), and DAX applies +1 dB.
+in `ieq_balanced + audio_optimizer`): at 19.7 kHz the combined target
+under the then-current scaling predicts ≈ −26 dB **relative to 1 kHz**,
+EE applies −27.5 dB — the FIR realises the target — and DAX applies
++0.7 dB. (An earlier revision quoted the target as "−43 dB, which the
+FIR doesn't reach"; that figure was normalized to the curve peak at
+234 Hz while this table is normalized at 1 kHz — a mixed-normalization
+slip that manufactured a 16 dB FIR shortfall which doesn't exist.)
 
-This rules out hypothesis (c) from Finding 3 (the wrong `ieq_*` curve)
-— our converter and EE agree on which curve is in play, and they
-agree on its magnitude shape. The remaining hypotheses are (a) DAX
+Hypothesis (c) from Finding 3 (the wrong `ieq_*` curve) cannot explain
+the gap — though not for the reason an earlier revision gave ("our
+converter and EE agree on which curve is in play": EE applies whatever
+curve the converter chose, so their agreement is exactly the `vsXML`
+circularity Finding 7's note on metrics warns about, and no Linux-side
+capture can show which curve Dolby Access selects). The sound argument
+is curve similarity: all three `ieq_*` curves in this XML carry
+near-identical deep HF rolloff (−42…−43 dB at 19688 Hz, rel-peak,
+under the then-current scaling), so no curve swap could close a ~28 dB
+HF residual. The remaining hypotheses are (a) DAX
 ships a separate HF-shaping stage we're not modeling, or (b) DAX
 treats `audio_optimizer` as a target-response that it inverts before
 applying. Loopback can't distinguish them without a controlled
 single-block A/B (e.g., a tuning XML stripped down to a single block
-at a time), but the gap is unambiguously on DAX's side, not the
-converter's.
+at a time). At the time this read as a DAX-side gap; per Finding 9 the
+dominant term was the converter's own `ieq-amount` scaling.
 
 The 47 Hz deviation (−8 dB EE vs −28 dB DAX, both relative to 1 kHz)
 is partly the EE chain's `equalizer#0 band0` HP at 100 Hz / x2 slope
@@ -476,9 +522,15 @@ with leveler boost rather than steady-state EQ.
 
 ### Finding 5: No HF-shaping XML block was missed
 
+> **Superseded in part by Finding 9.** "Cannot be falsified without data
+> outside the XML" did not survive: the decisive fix (`ieq-amount` read
+> as a percentage) was XML-only. The schema audit below remains valid —
+> no skipped element carries HF data — but the gap it was trying to
+> explain was largely converter-side.
+
 A schema audit of the corpus XMLs (every element appearing under
-`tuning-cp` and `tuning-vlldp` across `localresearch/` devices,
-checked against what `parse_xml` reads) found **no candidate
+`tuning-cp` and `tuning-vlldp` across the local corpus of device
+XMLs, checked against what `parse_xml` reads) found **no candidate
 HF-shaping element that the converter ignores**. The
 elements `parse_xml` skips are bass-side
 (`bass-enhancer-*`, `bass-extraction-*`, `virtual-bass-*`),
@@ -502,6 +554,15 @@ falsified without data outside the XML; the deterministic
 "XML-only filter chain" property cannot close it.
 
 ### Finding 6: Hypothesis (b) is rejected; hypothesis (a) lives outside the XML
+
+> **Superseded in part by Finding 9.** The "fixed DAX-side HF behavior"
+> conclusion below was falsified: the profile-independent HF residual was
+> the converter mis-scaling the *shared* `ieq_balanced` component
+> (`ieq-amount` read as /10 instead of /100) — a candidate this finding's
+> own data hints at (the music-profile parenthetical below shows the
+> residual tracking IEQ curve content) but which never made the hypothesis
+> list. The variant-matrix rejection of hypothesis (b) — the AO sign —
+> stands and remains load-bearing.
 
 A 2×2 deterministic variant matrix was run across all 5 profiles to
 disambiguate Finding 4's remaining hypotheses (a) vs (b). The variants
@@ -560,13 +621,13 @@ Per-band residuals on `add+min` reveal the gap structure:
 
 The HF gap above ~10 kHz is **profile-independent** — same shape,
 similar magnitudes regardless of which `IEQ + AO` target is in play.
-This is the canonical signature of a **fixed** HF behavior on
-DAX's side that is not parameterised in the published tuning XML.
-Combined with Finding 5 (no candidate HF-shaping XML element was
-missed), the only remaining explanation for the HF residual is a
-DAX-internal processing stage outside the XML — likely a built-in
-treble-region behavior calibrated per-platform but not exposed
-through the tuning files we consume.
+This was read at the time as the canonical signature of a **fixed** HF
+behavior on DAX's side not parameterised in the published tuning XML —
+"the only remaining explanation". That inference had a gap: a mis-scaled
+*shared* curve component produces the same profile-independent signature,
+and the music parenthetical above (residual tracking the IEQ curve
+content) pointed that way. Finding 9 confirmed it: the residual was
+dominated by the converter's own `ieq-amount` scaling.
 
 The mid-frequency biases (+3 dB at 234 Hz, +4 dB at 2.25 kHz,
 roughly profile-independent) point at a similar story: EE applies
@@ -585,19 +646,21 @@ on Windows).
 
 ### Implications for the converter
 
-Our `make_fir` produces a faithful min-phase FIR of `IEQ + audio_optimizer`
-within ≤0.001 dB of the band-center target — the math is correct. What
-we cannot reproduce on Linux without additional reverse-engineering:
+Our `make_fir` produces a faithful min-phase FIR of `IEQ + audio_optimizer` —
+exact on its design grid, ≤0.06 dB at the exact band centers (bin
+quantization) — the math is correct. What we cannot reproduce on Linux
+without additional reverse-engineering:
 
 1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
    ~42 ms of group delay, ruled out by the no-added-latency constraint.
-2. **DAX3's apparent flatter HF response.** Finding 6 rejects
-   hypothesis (b): the variant matrix shows `IEQ − AO` is +7–20 dB
-   *worse* than `IEQ + AO` on every profile. Finding 5 makes
-   hypothesis (a) implausible within the XML (no missed element).
-   What remains is a fixed DAX-internal processing stage outside
-   the published tuning XML. Closing it requires data we don't
-   have (e.g. a stripped-down single-block A/B on Windows).
+2. **DAX3's apparent flatter HF response — since closed by Finding 9.**
+   Findings 5/6 narrowed this to "a fixed DAX-internal stage outside
+   the XML" (after rejecting the AO-sign hypothesis (b) via the variant
+   matrix); Finding 9 then showed the dominant term was the converter's
+   own `ieq-amount` scaling — an XML-only fix that took the EE−DAX HF
+   residual from ~12 dB to ~1 dB RMS. What genuinely remains outside
+   the XML: that last ~1 dB at HF, and the LF/leveler gap (Finding 9's
+   residual table).
 3. **DAX3's non-LTI dynamics** (leveler, regulator engaging during
    playback). EasyEffects' autogain is bypassed by default already
    (see "Why autogain is bypassed by default" above) — adding a
@@ -640,8 +703,8 @@ positive = EE louder than DAX:
 | ieq-window 100–10k | −18.0  |  +3.1  |  +4.2 | −3.2 | −10.7  | −10.6 | −10.5 |
 | no-HP              | +16.9  |  +2.4  |  +4.2 | −3.1 |  −9.3  | −16.1 | −28.1 |
 
-(Reproduce: `localresearch/measure_ee/spec_freqgap.tsv` + a converter
-patched to re-introduce the four flags. The TSV uses unique per-variant
+(Reproduce: a per-variant spec TSV driving `tools/measure_ee/capture_battery.py`
+plus a converter patched to re-introduce the four flags. Use unique per-variant
 preset prefixes (`DolbyFG1…DolbyFG8`) to defeat EasyEffects' convolver
 IRS-cache by kernel name — without unique kernel names, EE silently
 reuses the previous variant's cached IR even after the .irs file is
@@ -738,11 +801,14 @@ right interpretation it doesn't explain the bulk of the gap. α
 and γ are pareto trades: they swap one band's error for
 another. The pattern across α/β/γ — partial movement, no
 sweep that lands every band closer — is the same pattern
-Finding 6 saw with the AO-sign and phase variants, and it's
-consistent with Finding 6's conclusion: the residual is
+Finding 6 saw with the AO-sign and phase variants, and it was
+read as consistent with Finding 6's conclusion: the residual is
 dominated by DAX-internal behavior outside the published XML
 (a fixed HF voicing + the leveler), not a single wrong XML
-rule on our side.
+rule on our side. (Superseded: Finding 9 found exactly that —
+a single wrong XML rule on our side, `ieq-amount` read /10
+instead of /100. β above was the near-miss: right mechanism,
+wrong field semantics.)
 
 **Caveat.** This conclusion is conditional on the experimental
 data we have. We have DAX captures for one device / one driver
@@ -759,9 +825,9 @@ temporary flags were removed; if the experiment ever needs to
 be re-run, re-add them per the patch in the git history of this
 finding.
 
-Per-variant captures retained under
-`localresearch/measure_ee/variants/{baseline, clamp_pm{20,15,10,6},
-ieq_cap10, ieq_window_100_10k, no_hp}/`.
+Per-variant captures were retained in the local (gitignored) research
+area; note they predate Finding 9's scaling fix, so per the capture-validity
+rule they are stale for any new EE↔DAX comparison — re-capture instead.
 
 **β follow-up: cross-profile validation.** β was the most
 plausible candidate from the single-profile sweep, so it was
@@ -785,10 +851,9 @@ shape).
 | game    | +1.89 | +1.53 | +1.62 | +0.69 | +1.63 | +2.00 | +2.00 | +2.00 | +9.69 | +23.0 |
 | voice   | −1.99 | +1.53 | +1.62 | +0.69 | +1.63 | +2.00 | +2.00 | +2.00 | +9.69 | +19.2 |
 
-(Reproduce: `localresearch/measure_ee/spec_beta_profiles.tsv` +
-the temporary `--ieq-amount-as-cap` flag. Plot:
-`localresearch/_beta_cross_profile.png` — pink-noise overlay
-of DAX vs baseline vs β across all five profiles.)
+(Reproduce: a per-profile spec TSV + the temporary
+`--ieq-amount-as-cap` flag, then overlay the DAX vs baseline vs β
+pink-noise spectra across all five profiles.)
 
 The signature is striking: β shifts EE by **almost identically
 the same dB amount per band on every profile** (the +9.69–9.78
@@ -821,11 +886,16 @@ right reading but not all of it; a second mechanism (likely the
 fixed HF voicing in DAX from Finding 6) accounts for the
 remaining ~18 dB.
 
-**Updated stance on β.** Cross-profile consistency materially
-strengthens the case that β reflects how DAX actually
-interprets `ieq-amount`. The single-profile result was already
+**Updated stance on β.** (Calibration, added in review: the ≤0.1 dB
+cross-profile consistency is close to guaranteed by construction — β
+perturbs only the shared `ieq_balanced` component, so the EE-side
+delta is identical per profile, and Finding 6 had already shown the
+baseline residual is profile-independent. The genuinely new
+information in this table is the two sign-crossing regressions and a
+re-confirmation of capture repeatability, not independent evidence
+for the cap reading.) The single-profile result was already
 the cleanest of the five hypotheses; the cross-profile result
-shows the improvement is *structural*, not coincidental. We
+confirms the improvement is *structural*, not coincidental. We
 still don't change the default because:
 
   - We have one device's data. The XML schema interpretation
@@ -853,7 +923,7 @@ device."
 ### Finding 8: DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
 
 The bass-burst stimulus that closed the regulator-stress investigation
-(Finding 7 item 1) surfaced an unrelated finding on the DAX side. The
+(Follow-ups item 5 below) surfaced an unrelated finding on the DAX side. The
 50 Hz capture region (loud, peak −5 dBFS) shows a textbook
 missing-fundamental harmonic complex:
 
@@ -879,7 +949,7 @@ the X1 Yoga (and other HDA devices) get no harmonic-generation stage
 at all. The capture used the bass-burst stimulus in
 `tools/measure_dax/make_stimulus.py:make_bass_burst` (sustained sine
 tones at 50 / 80 / 120 / 180 Hz, ±5 / −25 dBFS peak) — the same battery
-that closed Finding 7 item 1.
+that closed the regulator-stress investigation (Follow-ups item 5).
 
 This is a **non-LTI** processing-stage gap, distinct from the LTI EQ-curve
 gap analyzed in Findings 4–7. It would be invisible to pink-noise
@@ -992,10 +1062,13 @@ DAX's profile is much weaker on evens — DAX's harmonic generator
 appears to use a near-symmetric nonlinearity that emphasizes odd
 harmonics, while Calf's distortion model produces both.
 
-The flag was reverted from the converter's CLI surface. The `make_bass_enhancer`
-function retains its `src_freqs` parameter (XML-derived, corpus-frozen) so
-that if a future architectural revisit ships VBE-on-HDA via a different
-plugin / topology, the band-bounds plumbing is already in place.
+The flag was reverted from the converter's CLI surface, along with the
+band-bounds plumbing it used. (An earlier revision of this note claimed
+`make_bass_enhancer` retains a `src_freqs` parameter — it does not, and
+never did in a committed revision; the current signature is
+`(hp_freq, amount)`.) A future architectural revisit shipping VBE-on-HDA
+via a different plugin/topology would need to re-derive the band bounds
+from the XML's `bass-enhancer-*` fields.
 
 **Calf Saturator (architectural alternative for PipeWire-conf path).** A
 PoC offline test (`lv2apply` driving Calf Saturator on the bass-burst
@@ -1016,9 +1089,10 @@ Saturator at 180 Hz is ~13 dB cleaner than Calf BassEnhancer (−31 vs
 profile. The reason is identical to BassEnhancer's: Calf Saturator's
 internal `lp_pre_freq` is also a soft (~12 dB/oct) rolloff, so out-of-band
 content above 160 Hz still passes through enough to generate harmonics.
-Calf Saturator additionally leaks 2nd-harmonic ≈11 dB stronger than
+Calf Saturator additionally leaks 2nd-harmonic ≈15 dB stronger than
 DAX's profile at 50 Hz (3rd-vs-2nd ratio +11 dB for Saturator,
-+26 dB for DAX) — Calf's distortion model is not purely symmetric.
++26 dB for DAX, with comparable 3rd-harmonic levels) — Calf's
+distortion model is not purely symmetric.
 
 Even harder drive (`drive=8`) and tighter post-band (`lp_post=600`)
 amplify the harmonic complex but don't change the relative ratios.
@@ -1030,7 +1104,7 @@ Calf Saturator (BWC mode at slope `x16` ≈192 dB/oct on input edges,
 [35, 160] Hz, with Calf Saturator's internal pre/post filters disabled
 to avoid double-filtering. Final output Δ3 (3rd harmonic vs
 fundamental) at 180 Hz: **−56 dB** — vs Calf BassEnhancer's −18 dB
-ceiling, a 38 dB improvement, and within 17 dB of DAX's −74 dB clean
+ceiling, a 38 dB improvement, and within 18 dB of DAX's −74 dB clean
 profile. The 50 Hz / 80 Hz odd-vs-even ratios are also strongly
 odd-dominated (3rd-vs-2nd at +56 dB / +16 dB respectively), confirming
 Calf Saturator's `drive` produces a near-symmetric saturation when fed
@@ -1121,7 +1195,7 @@ within ~0.06 dB and linear-in-dB interpolation does not Gibbs-ring; the
 larger FFT only changes <80 Hz (masked by the 100 Hz HP) and, truncated
 back to 4096 taps, slightly *worsens* band accuracy. The
 `--fir-interp/--fir-fftsize/--fir-dc-anchor` flags added to test this are
-temporary scaffolding, to be reverted.
+temporary scaffolding (since reverted — see Status below).
 
 Re-checked after the IEQ down-weight landed (in case the old full-weight
 HF error had masked a construction benefit): on the new, flatter
@@ -1218,13 +1292,13 @@ are live, shipping defaults.
 
 | # | Factor (`dolby_to_easyeffects.py`) | XML field | Why it's a guess | Path status | What would falsify it |
 |---|---|---|---|---|---|
-| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA, `:1746`/`:2594`); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire, `:1725`); bell centered 2.5 kHz, Q≈0.7 | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | a **pink-noise** pre-screen is null/confounded (see roadmap): the cleanest DE contrast (`movie` amount=5 vs `game` amount=0, identical IEQ+AO target) shows ~0.01 dB RMS in-band — no static speech bell — while same-target profiles differ up to ~4 dB RMS from per-profile MI voicing (Finding 1). DAX's DE is evidently speech-gated, so it needs a **speech / speech-shaped stimulus** and ideally a same-profile DE-on-vs-off capture (the current battery has neither) |
-| 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`:1681`/`:2599`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | **not testable on in-hand data:** the captured battery uses *correlated* pink (`stimulus_pink.wav`, corr +1.0, no Side), so the widener is a no-op — and indeed surr=96 (`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical residual side/mid (≈ −35 dB). Needs the decorrelated `stimulus_stereo_pink` captured in stereo (Phase 3); a number→spatial-param mapping is still hard to ground-truth — low priority |
-| 3 | Convolver SoundWire headroom restore: `peak_db * 0.5` (`:2682`) | (none — post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | the 0.5 is chosen to "recover brightness"; not XML-derived | **default audible** on SoundWire | a SoundWire-device DAX capture (Snapdragon X / Yoga Slim 7x) |
-| 4 | Regulator slope→ratio: slope read `/16` (`:1268`), then `ratio = 1/(1−slope)` (`:2020`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | **not testable on this device:** the X1 Yoga is `distortion-slope=16` on *every* profile, so there is no operating-point variation to fit `1/(1−slope)`. Needs a device with differing slope values + a bass-burst capture comparing gain-reduction-vs-level (Phase 4) |
-| 5 | Regulator timbre→knee: timbre read `/16` (`:1270`), then `knee = −6·timbre` dB (`:2024`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | the `−6` dB maximum knee is a pure guess; the field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | **not testable on this device:** the X1 Yoga is `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre` scaling has a single operating point. Needs a device whose XML carries `timbre≠0.75`, plus a capture (Phase 4) |
-| 6 | MBC ratio `1/(coeff/32768)` (`:1839`/`:1864`); time constants via Q15 with `block_size=256` → 187.5 blocks/s (`:1810`) | `mb-compressor-tuning` 6-tuples | the Q15 format and 256-sample block size are assumed from common DSP practice and only sanity-checked numerically, never measured | **dormant** — the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) | loud/dynamic content that drives the MBC, then measure attack/release/ratio against DAX |
-| 7 | Volume-leveler→autogain window: `max-history = 40−amount·4` / `30−amount·5` (`:1787`/`:1798`) | `volume-leveler-amount` (0–10) | the window formula is invented | **bypassed by default** (HDA); active only in the conservative SoundWire path | a capture of DAX's MI-steered leveler (non-LTI — hard) |
+| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB (HDA); `* 8.0` dB + a 4 kHz clarity bell at `*0.6` (SoundWire); bell centered 2.5 kHz, Q≈0.7 (`make_dialog_enhancer`) | `dialog-enhancer-amount` (0–16) | the XML gives only an amount; the dB ceiling (6/8), center, Q and clarity ratio are all converter-chosen — nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1` (X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3; off on `music`/`game`) | a **pink-noise** pre-screen is null/confounded (see roadmap): the cleanest DE contrast (`movie` amount=5 vs `game` amount=0, identical IEQ+AO target) shows ~0.01 dB RMS in-band — no static speech bell — while same-target profiles differ up to ~4 dB RMS from per-profile MI voicing (Finding 1). DAX's DE is evidently speech-gated, so it needs a **speech / speech-shaped stimulus** and ideally a same-profile DE-on-vs-off capture (the current battery has neither) |
+| 2 | Surround→stereo-base: `min(boost/20.0, 0.5)` (`make_stereo_tools`) | `surround-boost` (1/16 dB) | the `/20` divisor and 0.5 cap are invented; Dolby surround is a spatial renderer, EE `stereo_tools` is a linear M/S balance | emitted when surround present (X1 Yoga: `surround-boost=96` on `dynamic`/`movie`) | **not testable on in-hand data:** the captured battery uses *correlated* pink (`stimulus_pink.wav`, corr +1.0, no Side), so the widener is a no-op — and indeed surr=96 (`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical residual side/mid (≈ −35 dB). Needs the decorrelated `stimulus_stereo_pink` captured in stereo (Phase 3); a number→spatial-param mapping is still hard to ground-truth — low priority |
+| 3 | Convolver SoundWire headroom restore: `peak_db * 0.5` (`_emit_ieq_presets`) | (none — post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | the 0.5 is chosen to "recover brightness"; not XML-derived | **default audible** on SoundWire | a SoundWire-device DAX capture (Snapdragon X / Yoga Slim 7x) |
+| 4 | Regulator slope→ratio: slope read `/16` (`parse_xml`), then `ratio = 1/(1−slope)` (`make_regulator`) | `regulator-distortion-slope` | the `/16` reading is assumed by analogy to the dB fields; `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | **not testable on this device:** the X1 Yoga is `distortion-slope=16` on *every* profile, so there is no operating-point variation to fit `1/(1−slope)`. Needs a device with differing slope values + a bass-burst capture comparing gain-reduction-vs-level (Phase 4) |
+| 5 | Regulator timbre→knee: timbre read `/16` (`parse_xml`), then `knee = −6·timbre` dB (`make_regulator`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | the `−6` dB maximum knee is a pure guess; the field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | **not testable on this device:** the X1 Yoga is `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre` scaling has a single operating point. Needs a device whose XML carries `timbre≠0.75`, plus a capture (Phase 4) |
+| 6 | MBC ratio `1/(coeff/32768)` (`decode_mbc_bands`); time constants via Q15 with `block_size=256` → 187.5 blocks/s (`decode_mbc_time_constant`) | `mb-compressor-tuning` 6-tuples | the Q15 format and 256-sample block size are assumed from common DSP practice and only sanity-checked numerically, never measured | **dormant** — the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) | loud/dynamic content that drives the MBC, then measure attack/release/ratio against DAX |
+| 7 | Volume-leveler→autogain window: `max-history = 40−amount·4` / `30−amount·5` (`make_autogain`) | `volume-leveler-amount` (0–10) | the window formula is invented | **bypassed by default** (HDA); active only in the conservative SoundWire path | a capture of DAX's MI-steered leveler (non-LTI — hard) |
 
 Confirmed for contrast: the `/16`-dB convention is verified (issue #15) and the
 `/32768` Q15 decode is at least numerically consistent with first-order
@@ -1280,24 +1354,37 @@ case — a fixed scaling in the default path, measurable against a DAX capture:
 
 Any EE↔DAX measurement is decided on on-device ground truth, the offline
 pre-screens are only a filter, and changing a default mapping requires a
-second-device confirmation (the bar Finding 9 met).
+second-device confirmation. (Finding 9 met it via convergent second-device
+evidence — two independent methods on a Yoga Slim 7x — though not yet a
+second DAX *capture*; its "residual open question" tracks what a capture
+would add.)
 
 ### Follow-ups to close the gap to DAX
 
-The cheap, deterministic, XML-only experiments have been exhausted —
-hypothesis (b) is rejected (Finding 6), no missed XML block (Finding
-5), 5-profile coverage is in (Finding 6). What remains needs either
-data outside the XML or a relaxation of the determinism / latency
-constraints.
+When this list was assembled, the cheap, deterministic, XML-only
+experiments looked exhausted — hypothesis (b) rejected (Finding 6), no
+missed XML block (Finding 5), 5-profile coverage in (Finding 6).
+Finding 9 then closed most of the HF gap with exactly such an experiment
+(a re-reading of a field we already parsed), so "exhausted" was wrong.
+What remains *after* Finding 9 — the ~1 dB HF residual and the
+LF/leveler gap — needs either data outside the XML or a relaxation of
+the determinism / latency constraints. (Item numbering is stable across
+revisions and referenced elsewhere; items are grouped by status, not
+numeric order.)
 
 **Still actionable, no constraint change:**
 
 1. **Stripped-down single-block tuning XML A/B on Windows.** Disable
    everything except IEQ in a tuning XML and capture DAX, then add
-   AO, then add per-band PEQ, etc. Pinpoints which DAX stage is
-   adding the fixed HF/mid behavior we cannot derive from the XML.
+   AO, then add per-band PEQ, etc. Originally motivated by the
+   pre-Finding-9 HF/mid gap, which is now mostly closed; still the
+   sharpest tool for what remains — pinpointing which DAX stage
+   carries the ~1 dB HF residual and the LF/leveler behavior — but
+   weigh the (unchanged) risk against that much smaller payoff.
    Risk: needs driver-level XML replacement, could brick DAX on
    the test machine until restoration. Scope before attempting.
+
+**Closed, no constraint change — kept as a permanent finding:**
 
 5. **`regulator-stress-amount` mapping investigated and rejected.**
    Issue #11 raised whether DAX's "tier-2" adaptive sub-models
@@ -1408,19 +1495,24 @@ constraints.
    the published XML" property but produces a Linux preset that
    audibly matches Windows. Could be opt-in via a flag so the
    principled path stays the default. The variant matrix in Finding
-   6 plus the per-band table identify the specific dB targets such
-   a tuner would need to hit (e.g. flatten the HF rolloff above
-   ~10 kHz, soften the +4 dB at 2.25 kHz, lift 5–6 kHz).
+   6 identified per-band dB targets *under the pre-Finding-9 scaling*
+   (flatten HF above ~10 kHz, soften +4 dB at 2.25 kHz, lift 5–6 kHz)
+   — those targets are obsolete, and tuning to them today would
+   re-introduce the error Finding 9 removed. A tuner now would fit
+   against fresh post-Finding-9 captures (target: the ~1 dB HF
+   residual and the LF/leveler gap in Finding 9's table).
 
 **Closed by the variant sweep (Finding 6 / 7) — kept here as
-historical record; do not re-litigate without new evidence:**
+historical record; do not re-litigate without new evidence. (All
+pre-Finding-9: the HF residual these variants traded against is now
+largely closed by the `/100` reading.)**
 
   - "Try `IEQ − AO`" — rejected; +7–20 dB worse on every profile.
   - "Run on the other 4 profiles" — done; HF gap is profile-independent.
   - "Audit the XML schema for missed HF-shaping blocks" — done;
     none found (Finding 5).
   - "Soften the HP at 100 Hz from `x2` to `x1`" — the test XML's
-    HP is XML-driven (order=4 → x2), not the line-1581 filler
+    HP is XML-driven (order=4 → x2), not the `make_peq_eq` filler
     path; softening would diverge from the deterministic mapping.
     `no-HP` variant in Finding 7 confirms HP is responsible for
     ~25 dB at 47 Hz — removing it overshoots DAX, so HP topology
@@ -1434,10 +1526,12 @@ historical record; do not re-litigate without new evidence:**
   - "Reinterpret `ieq-amount` as a +/- dB cap (β)" — Finding 7;
     *cleanest candidate* — every band moves toward DAX (no
     regression), 19.7 kHz gains +9.7 dB. Not adopted because
-    the 19.7 kHz gap is still 18 dB after applying it, so β
-    alone can't be the rule we're missing. Worth revisiting if
-    a second device's DAX captures show the same per-band
-    improvement.
+    the 19.7 kHz gap was still 18 dB after applying it. Since
+    settled by Finding 9: the percentage reading (`/100`) achieves
+    the down-weight through a simpler XML-grounded rule and closes
+    the residual β couldn't. Re-litigating the cap reading on top
+    of `/100` would double-count the down-weight — closed, not
+    "worth revisiting".
   - "Apply IEQ only inside a frequency window (γ)" — Finding 7;
     pareto trade — biggest HF reduction (−10.5 dB at 19.7 kHz),
     but 47 Hz blows out from −8 to −18 dB EE−DAX.
@@ -1456,10 +1550,15 @@ re-proposed:
 - **Custom SOF DSP topology with FIR + DRC modules.** See `docs/alternative-pipelines.md`
   Option 2. Highest offload potential, but requires rebuilding signed firmware and
   custom topology files — too much maintenance burden for a workstation tool.
-- **Parametric-EQ approximation of the IEQ curve** (instead of FIR). Produced ±4–5 dB
-  ripple between Dolby's 20 band centers regardless of how the solver was tuned.
-  See the README's "IEQ target curves are composite targets" table for the full
-  comparison.
+- **Parametric-EQ approximation of the IEQ curve** (instead of FIR). Produced
+  large inter-band ripple regardless of how the solver was tuned — see the
+  README's "IEQ target curves are composite targets" table for the corrected
+  peak/RMS figures. (Those fits were measured against the pre-Finding-9
+  full-weight IEQ target; today's `/100` target is far flatter in its IEQ
+  component, so the quoted magnitudes overstate the current gap. The
+  conclusion stands regardless: the AO component keeps full per-band swings,
+  and the min-phase FIR realises the composite target exactly at zero
+  latency and negligible CPU, so a PEQ approximation has no upside.)
 - **Auto-trimming the convolver IR to its audible length.** Issue #11 noted that the
   4096-tap (~85 ms) IR has a long sub-noise-floor tail. A sweep across 729 FIRs from
   11 device groups (Realtek HDA, Senary, Qualcomm, AMD, ThinkPad / IdeaPad / AIO
