@@ -500,10 +500,10 @@ converter and EE agree on which curve is in play": EE applies whatever
 curve the converter chose, so their agreement is exactly the `vsXML`
 circularity Finding 7's note on metrics warns about, and no Linux-side
 capture can show which curve Dolby Access selects). The sound argument
-is curve similarity: all three `ieq_*` curves in this XML carry
-near-identical deep HF rolloff (−42…−43 dB at 19688 Hz, rel-peak,
-under the then-current scaling), so no curve swap could close a ~28 dB
-HF residual. The remaining hypotheses are (a) DAX
+is curve similarity: all three `ieq_*` curves in this XML carry the
+same deep HF rolloff (−37…−43 dB at 19688 Hz rel-peak under the
+then-current scaling: balanced −43.3, warm −40.6, detailed −37.3), so
+no curve swap could close a ~28 dB HF residual. The remaining hypotheses are (a) DAX
 ships a separate HF-shaping stage we're not modeling, or (b) DAX
 treats `audio_optimizer` as a target-response that it inverts before
 applying. Loopback can't distinguish them without a controlled
