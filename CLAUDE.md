@@ -68,12 +68,9 @@ sessions shipped bugs that only showed on real content.
 - **Capture validity.** DAX captures are converter-independent and stay
   valid across edits. EE-side captures go stale after any FIR/scaling
   change — regenerate before an EE↔DAX compare.
-- **Listen for** (symptom → past trap): clipping / level jumps (convolver
-  autogain +50 dB, MBC output-gain) · pumping on quiet→loud (why autogain
-  is bypassed) · ripple / muddy mids / harsh highs (parametric-bell IEQ
-  stacking, replaced by FIR) · loudness loss (over-conservative PEQ
-  output-gain / headroom trims) · noise-floor boost in silence (LSP MBC
-  upward-compression default).
+- **Listen for** the symptom → past-trap checklist in the **/audio-validate**
+  skill (step 5, "Listening pass") — that list is the single source; don't
+  duplicate or fork it here.
 
 ## Repo etiquette
 
