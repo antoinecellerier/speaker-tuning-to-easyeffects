@@ -2,12 +2,17 @@
 """Convert an EasyEffects output preset (the JSON `dolby_to_easyeffects.py`
 emits) into a PipeWire `filter-chain` `.conf`.
 
-v1 scope (deliberately tight; see docs/alternative-pipelines.md):
+Scope (see docs/ee-to-pipewire.md for full detail):
   - convolver, equalizer (PEQ), equalizer (dialog), multiband_compressor
-    (MBC + regulator), and limiter are translated.
-  - bass_enhancer, stereo_tools, and non-bypassed autogain are skipped
-    with a warning.
-  - Stereo only. No 4-channel upmix, no WirePlumber routing rules.
+    (MBC + regulator), and limiter are translated (LSP-backed);
+    bass_enhancer and stereo_tools are translated (Calf-backed).
+  - autogain is not translatable (EE-native libebur128, no LV2
+    equivalent): bypassed instances are skipped silently, non-bypassed
+    ones skipped with a warning.
+  - Stereo only; no 4-channel upmix. By default the conf is a
+    WirePlumber 0.5+ smart filter pinned to the auto-detected
+    internal-speaker sink (--target-sink overrides; '' gives a plain
+    v1 virtual sink).
 
 Reads the EE preset JSON, walks `plugins_order`, dispatches each plugin
 to a stage emitter, generates pair-wise stereo links, and writes a
@@ -914,7 +919,7 @@ def _print_next_steps(stream, output_path: Path | None,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Convert an EasyEffects output preset to a PipeWire "
-                    "filter-chain .conf (v1; see docs/alternative-pipelines.md).",
+                    "filter-chain .conf (see docs/ee-to-pipewire.md).",
     )
     parser.add_argument(
         "--version",

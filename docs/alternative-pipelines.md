@@ -10,12 +10,20 @@ Lake-P, Realtek ALC287, SOF firmware (`sof-hda-dsp`), PipeWire 1.4.10.
 ## Current pipeline (all software, via EasyEffects)
 
 ```
-Audio → Convolver (FIR) → Equalizer (IIR) → MB Compressor → Regulator → Autogain → Speaker
-            IEQ + AO       HP + PEQ bells      dynamics      limiter    vol leveler
+Audio → Convolver → [Bass Enh.] → Stereo Tools → Equalizer → Dialog EQ
+          IEQ+AO    SoundWire     M/S widening   HP + PEQ    speech bell
+
+      → Autogain → MB Compressor → Regulator → Limiter → Speaker
+        leveler      dynamics      per-band    brickwall
+        (bypassed)                 limiter     −1 dBFS
 ```
 
-All five stages run as LV2 plugins inside the EasyEffects process, which sits in the
-PipeWire graph as a filter node.
+(See `docs/design-notes.md` "Plugin chain order" for the rationale; the bass
+enhancer is emitted only for SoundWire devices, and autogain ships bypassed.)
+The stages run inside the EasyEffects process, which sits in the PipeWire
+graph as a filter node — all LV2 plugins except autogain, which is EE-native
+(libebur128); that distinction is why `ee_to_pipewire.py` can translate every
+stage but a non-bypassed autogain.
 
 ## Option 1: Intel SOF DSP — IIR EQ on the playback path
 
@@ -47,8 +55,10 @@ At ~24 bytes per biquad section plus header overhead, this fits comfortably in t
 ### What cannot run on it
 
 - **FIR convolver** (IEQ + audio-optimizer): the loaded topology has no FIR EQ
-  component. The IEQ target curve requires FIR for accurate reproduction (IIR
-  approximation of the 20-band curve produces ±4–5 dB ripple).
+  component. The IEQ target curve requires FIR for accurate reproduction (the
+  best biquad fits measured ~11–16 dB peak / ~1.6–2 dB RMS error against the
+  20-band composite target — see the README's "IEQ target curves are composite
+  targets" table).
 - **Multiband compressor / regulator / autogain**: the generic HDA topology
   doesn't load DRC modules.
 
@@ -108,8 +118,9 @@ The script could gain a `--sof-peq` option that:
 4. Removes the corresponding EQ stage from the EasyEffects preset (so it's not
    applied twice)
 
-The remaining EasyEffects preset would be: Convolver → MB Compressor →
-Regulator → Autogain (4 plugins instead of 5).
+The remaining EasyEffects preset would keep every other stage (convolver,
+stereo tools, dialog EQ, autogain, MBC, regulator, limiter — plus the bass
+enhancer on SoundWire) and drop only the offloaded speaker-PEQ equalizer.
 
 ## Option 2: Custom SOF topology with FIR EQ and DRC
 

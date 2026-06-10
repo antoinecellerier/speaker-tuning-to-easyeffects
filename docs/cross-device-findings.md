@@ -7,7 +7,7 @@ The original cohort was **196 DAX3 tuning files** spanning **3 Realtek codec var
 packages. A 2026-04-22 expansion pulled in four more Lenovo audio-driver packages
 (`ext_lenovo_AIO_rtk`, `ext_thinkpad_AIO_rtk`, `ext_capg_thinkpad`,
 `ext_amd_thinkpad_AIO`) for a total of **1050 tuning XMLs / 15551 profile rows**
-spanning **9 Realtek codec variants plus SoundWire**. The README documents how the
+spanning **11 Realtek codec DEV IDs plus SoundWire**. The README documents how the
 script handles one specific device; this doc captures what's universal across the
 ecosystem and what varies from device to device, so readers can judge which parts
 of the pipeline are portable and which are tuned.
@@ -19,6 +19,14 @@ Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):
 | ALC257 | 236     | 19 (8%)     | 150 (64%)    |
 | ALC285 | 27      | 0 (0%)      | 14 (52%)     |
 | ALC287 | 81      | 4 (5%)      | 63 (78%)     |
+
+> **Known inconsistency (review 2026-06):** this table's columns don't
+> reconcile — per row, enabled + disabled ≠ Devices (169/236, 14/27, 67/81),
+> and the Devices column sums to 344 against the 196 files above and the 250
+> dynamic-profile rows in §2. The per-codec *enabled* counts (19/0/4 → 23
+> total) do match §2 and are the load-bearing numbers; the Devices and
+> disabled columns need a re-count against the original package set before
+> being relied on.
 
 Expanded 1050-XML cohort — XML count per codec (not dynamic-profile count):
 
@@ -72,8 +80,11 @@ non-zero system/pre/post gains because none of them exist in the wild.
 
 ## 2. Multi-band compressor — the minority feature
 
-Only **23 of 196 devices** (12%) enable the MB compressor on the `dynamic` profile.
-This is the most important finding: **MBC is the exception, not the rule.**
+Only **23 of 196 files** (12%) enable the MB compressor on the `dynamic` profile
+— equivalently 23 of the 250 dynamic-profile *rows* (9%), since some files carry
+several endpoint modes; both denominators appear in this doc, so both rates are
+given here once. This is the most important finding: **MBC is the exception,
+not the rule.**
 
 | Profile              | MBC=1 | MBC=0 |
 |----------------------|-------|-------|
@@ -126,7 +137,10 @@ The decoder was 2-band-only until commit `07612e9`. It now emits `group_count` b
 
 ### Compressor ratio diversity
 
-Devices that do enable MBC show wide ratio variation:
+Devices that do enable MBC show wide ratio variation. (Cluster table — the
+Devices column sums to 21 of the 23 dynamic-profile MBC enables; whether the
+2 missing devices fall outside these clusters or were dropped from the table
+needs a re-count.)
 
 | Ratio  | Threshold    | Makeup  | Devices |
 |--------|--------------|---------|---------|
@@ -231,15 +245,20 @@ The `regulator-distortion-slope` (1/16 scale) controls how hard the regulator li
 | 6 (0.375)    | 1.6:1                 | 4              |
 | 8 (0.50)     | 2:1 — moderate        | 27             |
 | 12 (0.75)    | 4:1 — firm            | 6              |
-| **16 (1.00)**| **∞:1 — hard limiter**| **103 (53%)**  |
+| **16 (1.00)**| **∞:1 — hard limiter**| **103 (71%)**  |
+
+(The table accounts for 146 of the 196 original-cohort files — 50 are
+unaccounted and need a re-count; percentages here are within-table. On the
+expanded 1050-XML cohort, slope=16 rises to ~95% — see §13.)
 
 The development device uses slope=16 (hard limiter), which is the **most common**
 setting. The hard limiter mode means the regulator acts as a brickwall at its threshold.
 
 **Implication for pipeline design:** when slope=16 the regulator is a brickwall
-limiter, so for 53% of devices the regulator *is* the brickwall limiter. The explicit
-output limiter added to the EasyEffects chain is redundant on those devices and
-essential on the remaining 47%. See `docs/design-notes.md` for why both exist.
+limiter, so for the large majority of devices (~95% on the expanded cohort) the
+regulator *is* the brickwall limiter. The explicit output limiter added to the
+EasyEffects chain is redundant on those devices and essential on the soft-slope
+minority. See `docs/design-notes.md` for why both exist.
 
 **Real-world evidence the regulator chain matters.** On a Snapdragon X Yoga Slim
 7x running Linux without DSP-level Dolby protection,
@@ -456,6 +475,9 @@ exercise both axes significantly further.
 | `book`                  |   20  | Book-pose convertibles                                 |
 | `flat`                  |   20  | Flat-on-desk orientation                               |
 
+(Rows sum to 15455 of the 15551 total profile rows; ~96 rows in rarer modes
+are not broken out above.)
+
 The script only ever reads `operating_mode="normal"` (the `--mode` default). On
 convertibles, Dolby ships distinct tunings per hinge pose — the "normal" fallback
 is fine for the clamshell case, but users of Yoga-class devices would need
@@ -521,7 +543,7 @@ The 2026-04-26 expansion (Lenovo IdeaPad-Slim-5x-Gen-9 / IdeaPad-5x-2-in-1-14 /
 ThinkPad-X13s-Gen-1 driver packages, ~798 additional tuning XMLs) introduced
 several DSP blocks that don't appear in the original Realtek/Intel cohort. The
 script does not implement any of them. Two are flagged at parse time via
-`warn_unmodeled_features` (`dolby_to_easyeffects.py:~1275`); the rest are
+`warn_unmodeled_features` in `dolby_to_easyeffects.py`; the rest are
 inactive across the entire 1848-XML corpus and silently dropped.
 
 | Block                                              | Element(s)                                                                   | Active in corpus                          | Status                                                                                                  |
@@ -536,11 +558,15 @@ inactive across the entire 1848-XML corpus and silently dropped.
 | Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 310, **enabled in 0**          | Defensive — bass-extraction itself is universally off.                                                  |
 | Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue #22), unrelated to the downmix matrix here. |
 
-The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` deliberately
-flags only the two rare-but-real cases (DSO, advanced virtualizer). Adding the
-universally-present-but-never-enabled defensive entries would be noise — they
-fire on every run for no gain. If a future driver release flips one of them
-on, the corpus sweep will catch it before the warning needs to.
+The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` carries the two
+rare-but-real cases above (DSO, advanced virtualizer) plus four watch-only
+fields (`peak-level`, `ieq-bands-set`, `regulator-overdrive`,
+`regulator-relaxation-amount`) that warn only when an XML deviates from the
+corpus constants — silent on every shipped tuning today. The
+universally-present-but-never-enabled defensive elements in the table above
+are deliberately *not* listed — they'd fire on every run for no gain. If a
+future driver release flips one of them on, the corpus sweep will catch it
+before the warning needs to.
 
 ### Why these aren't implemented
 
