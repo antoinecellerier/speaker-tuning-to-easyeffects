@@ -156,3 +156,41 @@ def test_is_minimum_phase_helper_rejects_linear_phase_fir():
     spectrum = target.astype(complex)
     fir_naive = np.fft.fftshift(np.fft.irfft(spectrum, n=4096))
     assert not is_minimum_phase(fir_naive, tol=1e-3)
+
+
+# --- inter-band ripple ---
+
+def test_make_fir_interband_ripple_bounded():
+    """The realized FIR magnitude must track the linear-in-dB target
+    *between* the 20 band centers, not just at them — the symptom half
+    of the IEQ bell-stacking trap (a PEQ-bell realisation of the same
+    curve leaves 10-16 dB inter-band ripple; the cepstral FIR must not).
+    Evaluated on a zero-padded 65536-point grid so behavior between the
+    4096-point design bins is visible.
+    """
+    gains = [0.0, -10.0, 19.0, -16.0, 8.0, -10.0, 14.0, -3.0, 6.0, -12.0,
+             10.0, -8.0, 12.0, -15.0, 5.0, -7.0, 9.0, -20.0, 4.0, -26.0]
+    fir, _ = make_fir(SYNTHETIC_FREQS_20, gains, normalize=False)
+    n_fft = 65536
+    mag_db = 20.0 * np.log10(
+        np.maximum(np.abs(np.fft.rfft(fir, n=n_fft)), 1e-12))
+    f = np.fft.rfftfreq(n_fft, d=1.0 / SAMPLE_RATE)
+    target = interpolate_curve_db(
+        np.array(SYNTHETIC_FREQS_20, dtype=float),
+        np.array(gains, dtype=float), f)
+    # Two regimes: below ~500 Hz the 11.7 Hz design-bin spacing is sparse
+    # relative to the band intervals, so a deliberately extreme curve
+    # (±19 dB adjacent-band swings) measures up to ~2.4 dB between bins;
+    # above 500 Hz the bins are dense and the construction tracks within
+    # a fraction of a dB. The bounds below leave headroom over those
+    # measured values while staying far under the 10–16 dB failure mode.
+    lo_band = (f >= SYNTHETIC_FREQS_20[0]) & (f < 500.0)
+    hi_band = (f >= 500.0) & (f <= SYNTHETIC_FREQS_20[-1])
+    err_lo = np.abs(mag_db[lo_band] - target[lo_band])
+    err_hi = np.abs(mag_db[hi_band] - target[hi_band])
+    assert float(np.max(err_lo)) < 4.0, (
+        f"LF inter-band ripple {np.max(err_lo):.2f} dB at "
+        f"{f[lo_band][np.argmax(err_lo)]:.0f} Hz")
+    assert float(np.max(err_hi)) < 1.0, (
+        f"HF inter-band ripple {np.max(err_hi):.2f} dB at "
+        f"{f[hi_band][np.argmax(err_hi)]:.0f} Hz")

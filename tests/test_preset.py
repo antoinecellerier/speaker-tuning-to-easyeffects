@@ -37,6 +37,7 @@ from dolby_to_easyeffects import (
     make_bass_enhancer,
     make_dialog_enhancer,
     make_fir,
+    make_limiter,
     make_multiband_compressor,
     make_peq_eq,
     make_preset,
@@ -431,6 +432,17 @@ def test_plugin_order_starts_with_convolver(generated):
 def test_limiter_is_last_in_plugin_order(generated):
     preset, _ = generated
     assert preset["output"]["plugins_order"][-1] == "limiter#0"
+
+
+def test_limiter_threshold_is_minus_one_dbfs():
+    """The chain-end brickwall sits at −1 dBFS for inter-sample-peak
+    headroom (gain-staging budget table in docs/design-notes.md). A
+    drift here changes the output ceiling on every preset."""
+    lim = make_limiter()
+    assert lim["threshold"] == -1.0
+    # volmax fallback injects into input-gain, never the threshold
+    assert make_limiter(input_gain=6.0)["threshold"] == -1.0
+    assert make_limiter(input_gain=6.0)["input-gain"] == 6.0
 
 
 # --- Atomic writes ---

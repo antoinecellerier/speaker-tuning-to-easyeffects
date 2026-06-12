@@ -744,6 +744,19 @@ def test_conf_starts_with_context_modules(generated):
     assert ' filename = "/' in conf or "filename = \"/" in conf
 
 
+def test_conf_declares_stereo_audio(generated):
+    """The converter is stereo-only (CLAUDE.md); the filter-chain args
+    must pin audio.channels = 2 with an FL/FR position so WirePlumber
+    never negotiates a different channel count around the chain."""
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    assert re.search(r"audio\.channels\s*=\s*2", conf), conf[:400]
+    assert re.search(r"audio\.position\s*=\s*\[\s*FL\s*FR\s*\]", conf) or \
+        '"FL"' in conf and '"FR"' in conf
+
+
 def test_irs_path_baked_absolute(generated):
     preset, irs_path = generated
     chain = build_chain(preset, irs_path.parent, must_exist=False)
