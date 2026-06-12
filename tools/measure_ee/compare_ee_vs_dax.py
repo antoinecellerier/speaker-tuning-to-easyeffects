@@ -87,10 +87,24 @@ def _normalize(curve: np.ndarray, f: np.ndarray, ref_hz: float = 1000.0
     return curve - float(np.interp(ref_hz, f, curve))
 
 
-def _read_pink(npz_path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Returns (f, eq_gain_db). Falls back to mag_db if eq_gain_db is empty."""
+def _read_pink(npz_path: Path, absolute: bool = False
+               ) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (f, eq_gain_db). Falls back to mag_db if eq_gain_db is empty.
+
+    With absolute=True, reads the un-normalized capture−stimulus transfer
+    (`eq_gain_db_raw`, written by analyze.py revisions that support
+    --absolute); errors out on older npz files, which only carry
+    peak-normalized curves and cannot answer absolute-level questions.
+    """
     z = np.load(str(npz_path))
     f = z["f"].astype(float)
+    if absolute:
+        if "eq_gain_db_raw" not in z.files:
+            raise SystemExit(
+                f"{npz_path.name}: no eq_gain_db_raw — re-run analyze.py "
+                "(current revision) on the capture, with the stimulus wav "
+                "reachable, to get absolute-level curves.")
+        return f, z["eq_gain_db_raw"].astype(float)
     eq = z["eq_gain_db"].astype(float) if "eq_gain_db" in z.files else None
     if eq is None or not np.any(eq):
         eq = z["mag_db"].astype(float)
@@ -147,8 +161,8 @@ def _residual_stats(f: np.ndarray, c_ee: np.ndarray, c_dax: np.ndarray
 
 
 def _maybe_plot(f: np.ndarray, c_ee: np.ndarray, c_dax: np.ndarray,
-                title: str, png_path: Path, extra: tuple | None = None
-                ) -> bool:
+                title: str, png_path: Path, extra: tuple | None = None,
+                ylabel: str = "dB (normalized at 1 kHz)") -> bool:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -165,7 +179,7 @@ def _maybe_plot(f: np.ndarray, c_ee: np.ndarray, c_dax: np.ndarray,
         f_x, c_x, lbl = extra
         ax1.semilogx(f_x, c_x, ":", color="0.4", lw=0.9, label=lbl)
     ax1.axvspan(200, 18000, color="0.95", alpha=0.5, zorder=-1)
-    ax1.set_ylabel("dB (normalized at 1 kHz)")
+    ax1.set_ylabel(ylabel)
     ax1.set_title(title)
     ax1.legend(loc="lower left", fontsize=8)
     ax1.grid(True, which="both", alpha=0.3)
@@ -231,6 +245,17 @@ def main() -> int:
     ap.add_argument("--norm-hz", type=float, default=1000.0,
                     help="Reference frequency at which both curves are "
                          "set to 0 dB (default 1000 Hz)")
+    ap.add_argument("--absolute", action="store_true",
+                    help="Compare un-normalized absolute transfer (dB) "
+                         "instead of normalizing at --norm-hz. Spectrum "
+                         "(pink-family) captures only. Valid only when "
+                         "both captures were taken at pinned unity volume "
+                         "(Windows master volume 100%%, no EE output-gain "
+                         "offset) — broadband level differences are the "
+                         "signal here (e.g. the PEQ anti-clipping trim, "
+                         "design-notes catalogue entry 8), and any volume "
+                         "offset between the two chains lands directly in "
+                         "the residual.")
     args = ap.parse_args()
 
     out_dir = args.out_dir or args.ee_dir
@@ -261,7 +286,8 @@ def main() -> int:
     summary_lines = [
         f"EE dir:  {args.ee_dir}",
         f"DAX dir: {args.dax_dir}",
-        f"normalized at: {args.norm_hz:.0f} Hz",
+        ("absolute transfer (un-normalized; volumes must be pinned)"
+         if args.absolute else f"normalized at: {args.norm_hz:.0f} Hz"),
         "",
     ]
     for kind, tag, ch in common:
@@ -271,12 +297,16 @@ def main() -> int:
         png = out_dir / f"compare_ee_vs_dax_{kind}_{tag}_{ch}.png"
         txt = out_dir / f"compare_ee_vs_dax_{kind}_{tag}_{ch}.txt"
         if kind == "spectrum":
-            f_ee, c_ee = _read_pink(ee_path)
-            f_dax, c_dax = _read_pink(dax_path)
+            f_ee, c_ee = _read_pink(ee_path, absolute=args.absolute)
+            f_dax, c_dax = _read_pink(dax_path, absolute=args.absolute)
         elif kind == "ir":
+            if args.absolute:
+                continue  # deconvolved IRs carry no absolute level
             f_ee, c_ee = _read_ir_mag(ee_path)
             f_dax, c_dax = _read_ir_mag(dax_path)
         elif kind == "tones":
+            if args.absolute:
+                continue  # tones npz stores peak-normalized amplitudes
             # Multitone: per-band amplitude — already discrete, plot as
             # markers on the same band axis.
             f_ee, c_ee = _read_tones(ee_path)
@@ -284,8 +314,11 @@ def main() -> int:
         else:
             continue
 
-        c_ee_n = _normalize(c_ee, f_ee, args.norm_hz)
-        c_dax_n = _normalize(c_dax, f_dax, args.norm_hz)
+        if args.absolute:
+            c_ee_n, c_dax_n = c_ee, c_dax
+        else:
+            c_ee_n = _normalize(c_ee, f_ee, args.norm_hz)
+            c_dax_n = _normalize(c_dax, f_dax, args.norm_hz)
 
         # Resample DAX to EE's grid for residual computation
         if kind != "tones":
@@ -295,12 +328,14 @@ def main() -> int:
         stats = _residual_stats(f_ee, c_ee_n, c_dax_on_ee)
 
         ex_for_plot: tuple | None = None
-        if args.xml is not None and kind != "tones":
+        if args.xml is not None and kind != "tones" and not args.absolute:
             tgt = tgt_l if ch == "L" else tgt_r
             tgt_norm = tgt - float(np.interp(args.norm_hz, bf, tgt))
             ex_for_plot = (bf, tgt_norm, "XML target")
 
-        _maybe_plot(f_ee, c_ee_n, c_dax_on_ee, title, png, ex_for_plot)
+        _maybe_plot(f_ee, c_ee_n, c_dax_on_ee, title, png, ex_for_plot,
+                    ylabel=("dB (absolute transfer)" if args.absolute
+                            else "dB (normalized at 1 kHz)"))
         if kind == "tones":
             band_table = _band_table(f_ee, c_ee_n, f_dax, c_dax_n,
                                       bands=f_ee)

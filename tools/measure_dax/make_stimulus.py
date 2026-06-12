@@ -37,10 +37,14 @@ diagonal response (L→L, R→R), which is what compare.py expects.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
+from scipy.signal import resample_poly
 
 SR = 48000
 # Write to the current working directory so users can keep stimuli
@@ -440,6 +444,155 @@ def make_bass_burst(level_dbfs_peak: float,
     return stereo, meta
 
 
+# ----- speech (dialog-enhancer probe) -----
+
+# DAX's dialog enhancer is speech-gated by Media Intelligence — a content
+# classifier — so pink noise cannot excite it (design-notes, unvalidated-
+# scaling entry 1: the pink pre-screen came back null/confounded). This
+# stimulus exists to trip that gate. Primary source is espeak-ng synthesis
+# (clearly speech to any classifier); when espeak-ng isn't installed we
+# fall back to LTASS-shaped noise with syllabic modulation, which may NOT
+# register as speech — the capture protocol must verify the DE-on vs
+# DE-off contrast is nonzero before drawing conclusions, whichever source
+# was used. The wav is generated once and played on both capture sides,
+# so cross-machine espeak determinism is not required; meta records the
+# source and synthesizer version for provenance.
+SPEECH_T = 12.0            # match the stationary stimuli: leveler settles ~5 s in
+SPEECH_PAUSE_S = 0.35      # inter-sentence gap when tiling the clip
+SPEECH_FADE_MS = 10.0
+SPEECH_TEXT = (
+    "The quick brown fox jumps over the lazy dog. "
+    "She sells sea shells by the sea shore, and the shells she sells "
+    "are surely sea shells. We promptly judged antique ivory buckles "
+    "for the next prize. A loud voice carries clearly across the room."
+)
+SPEECH_FALLBACK_SEED = 11
+SPEECH_SYLLABIC_HZ = 4.0   # fallback: amplitude-modulation rate of natural speech
+
+
+def _synthesize_espeak(text: str) -> tuple[np.ndarray, str] | None:
+    """Synthesize `text` with espeak-ng (or espeak); return (mono @ SR,
+    version string), or None when no synthesizer is installed/working."""
+    exe = shutil.which("espeak-ng") or shutil.which("espeak")
+    if exe is None:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        wav = Path(td) / "speech.wav"
+        proc = subprocess.run(
+            [exe, "-v", "en-us", "-s", "165", "-w", str(wav), text],
+            capture_output=True, text=True)
+        if proc.returncode != 0 or not wav.is_file():
+            return None
+        sr_in, data = wavfile.read(str(wav))
+    if data.dtype.kind == "i":
+        mono = data.astype(np.float64) / float(np.iinfo(data.dtype).max)
+    else:
+        mono = data.astype(np.float64)
+    if mono.ndim > 1:
+        mono = mono.mean(axis=1)
+    if sr_in != SR:
+        from math import gcd
+        g = gcd(SR, int(sr_in))
+        mono = resample_poly(mono, SR // g, int(sr_in) // g)
+    ver = subprocess.run([exe, "--version"], capture_output=True, text=True)
+    version = (ver.stdout or ver.stderr).strip().splitlines()[0] if ver.returncode == 0 else "unknown"
+    return mono, version
+
+
+def _speech_shaped_noise(n: int, seed: int) -> np.ndarray:
+    """LTASS-like shaped noise with syllabic AM and sentence pauses.
+
+    Spectrum: ~flat 100–500 Hz, −9 dB/oct above 500 Hz, 4th-order
+    rolloff below 100 Hz — a coarse long-term-average speech spectrum.
+    Envelope: raised-cosine AM at the ~4 Hz syllabic rate plus a 350 ms
+    pause every ~3 s. A statistical stand-in only; see the speech-gate
+    caveat in the section comment.
+    """
+    rng = np.random.default_rng(seed)
+    white = rng.standard_normal(n)
+    spec = np.fft.rfft(white)
+    f = np.fft.rfftfreq(n, 1.0 / SR)
+    mag_db = np.zeros_like(f)
+    hi = f > 500.0
+    mag_db[hi] = -9.0 * np.log2(f[hi] / 500.0)
+    lo = (f > 0) & (f < 100.0)
+    mag_db[lo] = -24.0 * np.log2(100.0 / f[lo])
+    mag_db[f == 0] = -120.0
+    sig = np.fft.irfft(spec * 10.0 ** (mag_db / 20.0), n)
+    t = np.arange(n) / SR
+    am = 0.55 + 0.45 * np.cos(2.0 * np.pi * SPEECH_SYLLABIC_HZ * t)
+    pause = np.ones(n)
+    n_pause = int(round(SPEECH_PAUSE_S * SR))
+    for start_s in np.arange(2.8, n / SR - SPEECH_PAUSE_S, 3.0):
+        i0 = int(round(start_s * SR))
+        ramp = min(n_pause // 4, 480)
+        win = np.ones(n_pause)
+        win[:ramp] = 0.5 * (1.0 + np.cos(np.pi * np.arange(ramp) / ramp))
+        win[-ramp:] = win[ramp - 1::-1]
+        pause[i0:i0 + n_pause] *= 1.0 - win[: max(0, min(n_pause, n - i0))]
+    return sig * am * pause
+
+
+def make_speech(level_dbfs_rms: float = -18.0) -> tuple[np.ndarray, dict]:
+    """Speech stimulus, stereo L=R (dialog is center-panned content).
+
+    Active-segment RMS is normalized to `level_dbfs_rms` (the pink-battery
+    operating point) with a −1 dBFS peak guard.
+    """
+    n_total = int(round(SPEECH_T * SR))
+    synth = _synthesize_espeak(SPEECH_TEXT)
+    if synth is not None:
+        clip, version = synth
+        source = "espeak"
+        n_pause = int(round(SPEECH_PAUSE_S * SR))
+        reps: list[np.ndarray] = []
+        filled = 0
+        while filled < n_total:
+            reps.append(clip)
+            reps.append(np.zeros(n_pause))
+            filled += clip.size + n_pause
+        mono = np.concatenate(reps)[:n_total]
+    else:
+        mono = _speech_shaped_noise(n_total, SPEECH_FALLBACK_SEED)
+        source, version = "shaped_noise", None
+
+    fade_n = int(round(SPEECH_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    mono[:fade_n] *= fade
+    mono[-fade_n:] *= fade[::-1]
+
+    # normalize active RMS (samples above −40 dB of clip peak count as active)
+    peak = float(np.max(np.abs(mono))) + 1e-30
+    active = np.abs(mono) > peak * 10.0 ** (-40.0 / 20.0)
+    rms = float(np.sqrt(np.mean(mono[active] ** 2))) if active.any() else peak
+    mono *= 10.0 ** (level_dbfs_rms / 20.0) / (rms + 1e-30)
+    peak = float(np.max(np.abs(mono)))
+    headroom = 10.0 ** (-1.0 / 20.0)
+    if peak > headroom:
+        mono *= headroom / peak
+
+    tail = np.zeros(int(round(STEADY_TAIL * SR)))
+    mono = np.concatenate([mono, tail]).astype(np.float32)
+    stereo = np.column_stack([mono, mono]).astype(np.float32)
+    meta = {
+        "kind": "speech",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEADY_TAIL,
+        "level_dbfs_rms_active": level_dbfs_rms,
+        "source": source,
+        "synthesizer_version": version,
+        "text": SPEECH_TEXT if source == "espeak" else None,
+        "seed": None if source == "espeak" else SPEECH_FALLBACK_SEED,
+        "analysis_window_start_seconds": 6.0,
+        "analysis_window_end_seconds": 11.0,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
 # ----- stepped sine (per-frequency, multi-pass: static EQ vs adaptive) -----
 
 # Probe grid: every Dolby band centre plus the geometric midpoint between each
@@ -613,6 +766,22 @@ def main() -> None:
     write_stimulus("stimulus_stepped", stereo, meta)
     stereo, meta = make_stepped_sine(level_dbfs_peak=-42.0)
     write_stimulus("stimulus_stepped_quiet", stereo, meta)
+
+    # stepped sine, MBC-waking level. The dev-device XML decodes both MBC
+    # band thresholds to ≈ −6.4 dBFS (see docs/design-notes.md, "dynamics
+    # dormant" measurement: the −18/−42 batteries never cross them). A
+    # −2 dBFS-peak tone (−5 dBFS RMS) crosses that knee by ~1.4 dB even at
+    # unity chain gain, and engages the regulator/limiter at boosted bands
+    # — intended: this variant exists to characterise the dynamics
+    # constants (catalogue entries 6/11). With −18 and −42 it spans the
+    # gain-reduction-vs-level curve.
+    stereo, meta = make_stepped_sine(level_dbfs_peak=-2.0)
+    write_stimulus("stimulus_stepped_loud", stereo, meta)
+
+    # speech — dialog-enhancer probe (catalogue entry 1). DE is
+    # speech-gated by Media Intelligence; pink can't excite it.
+    stereo, meta = make_speech(level_dbfs_rms=-18.0)
+    write_stimulus("stimulus_speech", stereo, meta)
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")

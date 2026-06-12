@@ -32,6 +32,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- Measurement tooling for the unvalidated-scaling capture campaign
+  (design-notes catalogue entries 1/2/6/8/11; no change to generated
+  presets): a speech stimulus (`stimulus_speech`, espeak-ng synthesis with a
+  shaped-noise fallback) for the speech-gated dialog enhancer, an MBC-waking
+  `stimulus_stepped_loud` (−2 dBFS peak), a side/mid widening readout for
+  the stereo stimuli (which the analyzer previously skipped as unknown
+  kinds), and an absolute-level mode (`compare_ee_vs_dax.py --absolute`,
+  with un-normalized transfer curves now stored by `analyze.py`) for
+  broadband-level questions like the PEQ anti-clipping trim.
+
 - Simplified-schema DAX3 XMLs are now supported. Some Lenovo drivers
   (xml_version ~3.2.x — e.g. the ThinkPad X1 Carbon Gen 8) name the per-channel
   audio-optimizer correction `<gain_l>`/`<gain_r>` instead of `<ch_00>`/`<ch_01>`

@@ -8,6 +8,9 @@ dispatches on `stimulus_kind`, and emits:
                  plus a magnitude / group-delay / phase summary.
   - pink       → averaged spectrum over the stationary window
                  (`spectrum_pink_<label>.npz`) + magnitude summary.
+                 speech / stereo_pink / stereo_correlated_pink share this
+                 path; the stereo kinds add a side/mid widening readout
+                 (`sm_db` / `sm_delta_db` in the npz).
   - multitone  → per-tone amplitude readout via Goertzel
                  (`tones_multitone_<label>.npz`) + per-band table.
   - stepped    → per-frequency steady-state amplitude across passes
@@ -200,6 +203,21 @@ class PinkResult:
     eq_gain_db_R: np.ndarray
     window_start_s: float
     window_end_s: float
+    # Side/mid balance — populated only for genuinely stereo (L≠R) stimuli.
+    # sm_db is the captured 10·log10(S/M) PSD ratio per bin; sm_delta_db
+    # subtracts the stimulus's own S/M, i.e. the chain's net widening
+    # transfer (what stereo_tools' stereo-base mapping — design-notes
+    # catalogue entry 2 — is supposed to predict). None for L=R stimuli,
+    # where S is numerical noise.
+    sm_db: np.ndarray | None = None
+    sm_delta_db: np.ndarray | None = None
+    # Un-normalized capture−stimulus transfer (absolute dB, valid when
+    # both capture chains are digital loopbacks at pinned unity volume).
+    # The normalized eq_gain_db curves above lose broadband level, which
+    # is exactly the observable for the PEQ anti-clipping trim
+    # (design-notes catalogue entry 8). None without the stimulus file.
+    eq_gain_db_raw_L: np.ndarray | None = None
+    eq_gain_db_raw_R: np.ndarray | None = None
 
 
 def _averaged_psd(x: np.ndarray, sr: int, win_s: float = 0.5
@@ -242,6 +260,8 @@ def analyze_pink(loopback: np.ndarray, sr: int,
     # *before* peak-normalizing — the ratio recovers the system EQ.
     eq_L = np.zeros_like(mag_db_L_raw)
     eq_R = np.zeros_like(mag_db_R_raw)
+    sm_db = sm_delta_db = None
+    eq_L_abs = eq_R_abs = None
     if stimulus_path is not None and stimulus_path.is_file():
         sr_s, stim = _read_wav_float(stimulus_path)
         if sr_s == sr and stim.shape[0] >= n1:
@@ -251,6 +271,18 @@ def analyze_pink(loopback: np.ndarray, sr: int,
             ref_R_raw = 10.0 * np.log10(spsd_R + 1e-30)
             eq_L = mag_db_L_raw - ref_L_raw
             eq_R = mag_db_R_raw - ref_R_raw
+            eq_L_abs = eq_L.copy()
+            eq_R_abs = eq_R.copy()
+            if stim_meta.get("stereo_mode") not in (None, "symmetric"):
+                _, psd_M = _averaged_psd((seg[:, 0] + seg[:, 1]) / 2.0, sr)
+                _, psd_S = _averaged_psd((seg[:, 0] - seg[:, 1]) / 2.0, sr)
+                _, spsd_M = _averaged_psd(
+                    (stim[n0:n1, 0] + stim[n0:n1, 1]) / 2.0, sr)
+                _, spsd_S = _averaged_psd(
+                    (stim[n0:n1, 0] - stim[n0:n1, 1]) / 2.0, sr)
+                sm_db = 10.0 * np.log10((psd_S + 1e-30) / (psd_M + 1e-30))
+                stim_sm = 10.0 * np.log10((spsd_S + 1e-30) / (spsd_M + 1e-30))
+                sm_delta_db = sm_db - stim_sm
 
     # Peak-normalize each curve over the in-band region for plotting.
     mask = (f >= 50) & (f <= 18000)
@@ -264,6 +296,8 @@ def analyze_pink(loopback: np.ndarray, sr: int,
         f=f, mag_db_L=mag_L, mag_db_R=mag_R,
         eq_gain_db_L=eq_L, eq_gain_db_R=eq_R,
         window_start_s=win_start, window_end_s=win_end,
+        sm_db=sm_db, sm_delta_db=sm_delta_db,
+        eq_gain_db_raw_L=eq_L_abs, eq_gain_db_raw_R=eq_R_abs,
     )
 
 
@@ -699,7 +733,15 @@ def process(loopback_path: Path, xml_path: Path | None,
                 if _maybe_plot_sweep(res, ref, ch, png):
                     summary.append(f"    wrote {png.name}")
 
-    elif kind == "pink":
+    elif kind in ("pink", "speech", "stereo_pink", "stereo_correlated_pink"):
+        # All four share the pink analysis: long-term PSD ratio vs the
+        # stimulus. For speech, pauses/modulation cancel in the ratio
+        # since stimulus and capture carry the same envelope; the
+        # dialog-enhancer signal (catalogue entry 1) is the speech-band
+        # lift in eq_gain between a DE-on and a DE-off capture. For the
+        # stereo (L≠R) stimuli — previously skipped as unknown kinds —
+        # analyze_pink additionally emits the side/mid widening transfer
+        # (catalogue entry 2, the stereo-base mapping).
         stim_path = Path(sidecar.get("stimulus", {}).get("path", ""))
         if not stim_path.is_file():
             located = _resolve_resource(stim_path.name, loopback_path)
@@ -709,11 +751,25 @@ def process(loopback_path: Path, xml_path: Path | None,
                            stim_path if stim_path.is_file() else None)
         summary.append(f"  steady-state spectrum window: "
                        f"{res.window_start_s:.1f}-{res.window_end_s:.1f} s")
+        if res.sm_delta_db is not None:
+            in_band = (res.f >= 200) & (res.f <= 18000)
+            med = float(np.median(res.sm_delta_db[in_band]))
+            summary.append(
+                f"  side/mid widening (capture S/M − stimulus S/M, "
+                f"median 200 Hz–18 kHz): {med:+.2f} dB")
         for ch in channels:
             mag = res.mag_db_L if ch == "L" else res.mag_db_R
             eq = res.eq_gain_db_L if ch == "L" else res.eq_gain_db_R
+            eq_raw = (res.eq_gain_db_raw_L if ch == "L"
+                      else res.eq_gain_db_raw_R)
             spec_path = out_dir / f"spectrum_{tag}_{label}_{ch}.npz"
-            np.savez(spec_path, f=res.f, mag_db=mag, eq_gain_db=eq)
+            arrays = dict(f=res.f, mag_db=mag, eq_gain_db=eq)
+            if eq_raw is not None:
+                arrays["eq_gain_db_raw"] = eq_raw
+            if res.sm_db is not None:
+                arrays["sm_db"] = res.sm_db
+                arrays["sm_delta_db"] = res.sm_delta_db
+            np.savez(spec_path, **arrays)
             summary.append("")
             summary.append(f"  channel {ch}:")
             summary.append(f"    wrote {spec_path.name}")
