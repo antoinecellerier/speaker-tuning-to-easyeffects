@@ -114,8 +114,8 @@ sessions shipped bugs that only showed on real content.
 
 Turns the generated EE preset into a PipeWire `filter-chain` `.conf` for
 users not running EE. **Stereo only.** Covers convolver / PEQ / dialog /
-MBC / regulator / limiter (LSP-backed) plus `bass_enhancer` / `stereo_tools`
-(Calf-backed). Not translated: non-bypassed `autogain` (EE's native
+MBC / regulator / limiter (LSP-backed) plus `bass_enhancer` (Calf-backed).
+Not translated: non-bypassed `autogain` (EE's native
 libebur128 has no LV2 equivalent — warns and skips) and 4-channel upmix.
 By default it copies the `.irs` next to the conf and emits a WirePlumber
 0.5+ smart filter pinned to the auto-detected internal-speaker sink
