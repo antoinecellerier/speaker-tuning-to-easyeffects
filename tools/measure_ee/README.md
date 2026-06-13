@@ -21,13 +21,33 @@ Two extra traps caught us during the retry:
    `~/.config/easyeffects/db/easyeffectsrc` (per
    `easyeffects_db_streamoutputs.kcfg`'s `<kcfgfile name="easyeffects/db/easyeffectsrc"/>`),
    *not* the legacy `~/.config/easyeffects/easyeffectsrc`. Editing the
-   wrong one is silently ignored.
+   wrong one is silently ignored, and a stale legacy top-level file can
+   linger from old runs — don't trust or edit it.
 
 2. **WirePlumber overrides `pw-record --target`.** It treats the flag as
    a hint and routes your "capture from monitor" stream to the system
    default capture source (the mic) regardless. The fix is
    `pw-record --target 0` (no auto-link) plus a manual `pw-link
    <source-monitor> <recorder-input>`. `smoke.py` does this for you.
+
+## Verifying EE 8.x config (don't get misled)
+
+When auditing whether EE is applying the current preset:
+
+- **Autoload entries live in the db / in-memory, NOT in
+  `~/.config/easyeffects/autoload/{output,input}/*.json`.** That flat-file
+  layout is EE 6/7; grepping it on EE 8.x wrongly concludes "no autoload
+  configured." The GUI's Autoloading page is authoritative, and an entry
+  shown there may not be flushed to `db/easyeffectsrc` until a clean EE quit
+  (KConfig writes lazily). On disk you'll typically only see the fallback
+  keys (`outputAutoloadingFallbackPreset`, `outputAutoloadingUsesFallback`).
+- **`[StreamOutputs] plugins=…` in `db/easyeffectsrc` is the *live* applied
+  chain** — the most reliable on-disk check that a regenerated preset took
+  effect (e.g. confirm a removed stage is gone).
+- **EE doesn't watch preset files.** After re-running the converter, the
+  running service keeps the *old* in-memory chain until you reload —
+  `easyeffects -l <PresetName>` (no mic-indicator pop). The `_generator`
+  stamp inside each preset JSON tells you which converter version wrote it.
 
 ## Files
 
