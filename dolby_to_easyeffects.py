@@ -12,7 +12,6 @@ directly implements the exact target frequency response.
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
   - bass_enhancer#0: psychoacoustic bass via harmonic generation
-  - stereo_tools#0: surround virtualizer (stereo widening from surround-boost)
   - equalizer#0: speaker PEQ bells + high-pass (parametric filters from Dolby)
   - equalizer#1: dialog enhancer (speech presence boost from dialog-enhancer settings)
   - autogain#0: volume leveler (from volume-leveler settings)
@@ -2270,48 +2269,18 @@ def make_peq_eq(peq_filters: list[dict]) -> dict | None:
     }
 
 
-def make_stereo_tools(surround: dict | None) -> dict | None:
-    """Stereo widening mapped from Dolby surround virtualizer.
-
-    Dolby's surround decoder/virtualizer creates a wider stereo image
-    from stereo content. We approximate this using the Calf Stereo
-    Tools plugin's stereo-base parameter, which controls the Mid/Side
-    balance to widen or narrow the stereo field.
-
-    surround-boost (0-16 in 1/16 dB scale) maps to stereo-base:
-      0 dB → 0.0 (no widening)
-      6 dB → 0.3 (moderate widening)
-    Kept conservative to avoid phase artifacts on laptop speakers.
-    """
-    if not surround or surround["boost"] <= 0:
-        return None
-
-    # Map surround-boost (dB) to stereo-base (0-1 range).
-    # 6 dB boost → 0.3 stereo-base (moderate widening).
-    # Cap at 0.5 to prevent excessive widening artifacts.
-    base = min(surround["boost"] / 20.0, 0.5)
-
-    return {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "balance-in": 0.0,
-        "balance-out": 0.0,
-        "softclip": False,
-        "mutel": False,
-        "muter": False,
-        "phasel": False,
-        "phaser": False,
-        "mode": "LR > LR (Stereo Default)",
-        "side-level": 0.0,
-        "side-balance": 0.0,
-        "middle-level": 0.0,
-        "middle-panorama": 0.0,
-        "stereo-base": round(base, 2),
-        "delay": 0.0,
-        "sc-level": 1.0,
-        "stereo-phase": 0.0,
-    }
+# NOTE: there is deliberately no surround→stereo-widening builder. Earlier
+# revisions mapped `surround-boost` to a Calf Stereo Tools `stereo-base`
+# widening (commit 82d7f3d). A 2026-06-13 DAX capture on the X1 Yoga
+# falsified that mapping: on 2-channel content DAX applies *zero* stereo
+# widening — `surround-boost=96` (movie) is identical to `surround-boost=0`
+# (game) to 0.01 dB RMS in both L and R, and leaves the L/R correlation
+# untouched (no magnitude M/S rebalance, no phase decorrelation). The field
+# is a virtualization/surround-render depth control that is dormant without
+# a multichannel/object bed, not a stereo-width knob — so the faithful
+# stereo-playback behaviour is to not widen. See docs/design-notes.md,
+# unvalidated-scaling entry 2. (ee_to_pipewire.py keeps `emit_stereo_tools`
+# as a translator for any preset that still carries a stereo_tools block.)
 
 
 def make_dialog_enhancer(dialog_enhancer: dict | None,
@@ -2878,8 +2847,6 @@ DISABLEABLE_FILTERS = {
                       "drops the harmonic bass generator"),
     "dialog": ("vocals over-boosted or harsh in the presence region",
                "drops the 2.5 kHz speech-band EQ"),
-    "stereo": ("phasey or hollow stereo image",
-               "drops the surround widener"),
     "high-shelf": ("harsh or sibilant high frequencies",
                    "drops Dolby's type-3 high-shelf boost (experimental)"),
     "lo-pass": ("highs sound rolled off / dull",
@@ -2901,7 +2868,7 @@ EXPERIMENTAL_MARKERS = {
 
 def make_preset(kernel_name: str, peq_filters: list[dict],
                 vol_leveler: dict | None = None,
-                dialog_enhancer: dict | None = None, surround: dict | None = None,
+                dialog_enhancer: dict | None = None,
                 mb_comp: dict | None = None, regulator: dict | None = None,
                 freqs: list[int] | None = None, convolver_gain: float = 0.0,
                 is_soundwire: bool = False, volmax_boost: float = 0.0,
@@ -2935,13 +2902,10 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         preset["output"]["plugins_order"].append("bass_enhancer#0")
         emitted.add("bass-enhancer")
 
-    # Stereo widening early in chain (before EQ changes the spectrum)
-    if "stereo" not in disabled:
-        st = make_stereo_tools(surround)
-        if st:
-            preset["output"]["stereo_tools#0"] = st
-            preset["output"]["plugins_order"].append("stereo_tools#0")
-            emitted.add("stereo")
+    # No stereo widening: `surround-boost` is a virtualization-render-depth
+    # control, dormant on 2-channel content — DAX applies no stereo widening
+    # on stereo playback (design-notes entry 2). Earlier revisions emitted a
+    # stereo_tools#0 widener here.
 
     effective_peq = peq_filters
     if "high-shelf" in disabled:
@@ -3067,9 +3031,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
               f"mapped to +{gain:.1f} dB @ 2.5 kHz")
 
     if surround:
-        base = min(surround["boost"] / 20.0, 0.5)
-        print(f"\nSurround virtualizer: boost={surround['boost']:.1f} dB, "
-              f"mapped to stereo-base={base:.2f}")
+        print(f"\nSurround virtualizer: boost={surround['boost']:.1f} dB — "
+              "not mapped (DAX applies no stereo widening on 2-ch content; "
+              "see design-notes entry 2)")
 
     if vol_leveler:
         print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
@@ -3133,7 +3097,6 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     peq_filters = tuning.peq_filters
     vol_leveler = tuning.vol_leveler
     dialog_enhancer = tuning.dialog_enhancer
-    surround = tuning.surround
     mb_comp = tuning.mb_comp
     regulator = tuning.regulator
     freqs = tuning.freqs
@@ -3176,7 +3139,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
 
         # Create preset (kernel-name is the WAV filename stem)
         preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
-                                      dialog_enhancer, surround, mb_comp, regulator,
+                                      dialog_enhancer, mb_comp, regulator,
                                       freqs, convolver_gain=convolver_gain,
                                       is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,

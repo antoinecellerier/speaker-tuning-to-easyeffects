@@ -30,6 +30,20 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Changed
+
+- **[AUDIBLE]** Stereo image is no longer artificially widened. On
+  `dynamic`/`movie` profiles the converter used to add a Calf Stereo Tools
+  widener (mapped from Dolby's `surround-boost`), pushing the side channel up
+  ~4 dB for a wider-but-sometimes-hollow image. A Windows DAX capture
+  (2026-06-13) showed Dolby applies **no** stereo widening on 2-channel
+  content — `surround-boost` is a multichannel-virtualization control that's
+  dormant without a surround/object bed, not a stereo-width knob — so the
+  mapping was removed. Stereo playback now matches Dolby's actual 2-channel
+  output. The `--disable stereo` flag is gone (nothing to disable). Re-run the
+  script to regenerate your presets. Detail: `docs/design-notes.md`
+  unvalidated-scaling entry 2.
+
 ### Added
 
 - Measurement tooling for the unvalidated-scaling capture campaign

@@ -80,7 +80,6 @@ def generated(tmp_path):
         peq_filters=peq,
         vol_leveler={"enable": True, "amount": 5, "out_target": -16.0},
         dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
-        surround={"enable": True, "boost": 4},
         mb_comp=mb,
         regulator=reg,
         freqs=SYNTHETIC_FREQS_20,
@@ -193,9 +192,12 @@ def test_emit_bass_enhancer_control_symbols_match_calf():
 
 
 def test_emit_stereo_tools_mode_enum_complete():
-    """Every mode label `make_stereo_tools` could ever write must map
-    to a Calf integer. The seven labels are stable (defined in
-    StereoTools.ttl scale points), so this is a regression sentinel.
+    """Every Calf StereoTools mode label the `emit_stereo_tools`
+    translator might encounter in a preset must map to a Calf integer.
+    The seven labels are stable (defined in StereoTools.ttl scale
+    points), so this is a regression sentinel. (The converter no longer
+    emits stereo_tools — design-notes entry 2 — but the translator stays
+    for hand-edited / legacy presets.)
     """
     expected_count = 7
     assert len(EE_ST_MODE) == expected_count

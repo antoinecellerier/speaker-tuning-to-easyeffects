@@ -76,7 +76,6 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 | `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
-| `stereo` | Phasey or hollow stereo image. Drops the surround widener. |
 | `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf (Lenovo AIO-RTK XMLs around 2.7 kHz, +2–5 dB). **Experimental** path — reproduction of the Dolby tuning is numerically verified, but has not yet been audibly validated. Feedback welcome. |
 | `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass (rare; a few ALC274 SKUs). **Experimental**, same caveat as `high-shelf`. |
 
@@ -185,17 +184,18 @@ The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
 
 ### Output: EasyEffects presets
 
-Each preset contains up to nine plugins chained in order (eight on HDA devices — the bass enhancer is SoundWire-only):
+Each preset contains up to eight plugins chained in order (seven on HDA devices — the bass enhancer is SoundWire-only):
 
 1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
 2. **Bass Enhancer** — harmonic bass generator (Calf Bass Enhancer) restoring perceived low end on SoundWire speakers whose XML carries an IEQ-only curve; emitted only for SoundWire devices
-3. **Stereo Tools** — stereo widening via Mid/Side balance (Calf Stereo Tools), mapped from Dolby's surround-boost; enabled on dynamic/movie profiles
-4. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, shelves, and HP/LP) per channel from the vlldp section
-5. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
-6. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
-7. **Multiband Compressor** — multi-band dynamics processing mapped from Dolby's `mb-compressor-tuning` coefficients; emits 1 to 4 bands based on the XML's `group_count` (dominated by 2-band tunings in the wild, but 3- and 4-band tunings — including voice-profile speech compression and music-profile per-band makeup — are also supported)
-8. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges; also the primary slot where Dolby's `volmax-boost` is applied as `output-gain` (typically +6 dB of loudness makeup)
-9. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks; fallback slot for `volmax-boost` when the regulator isn't emitted
+3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, shelves, and HP/LP) per channel from the vlldp section
+4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
+5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
+6. **Multiband Compressor** — multi-band dynamics processing mapped from Dolby's `mb-compressor-tuning` coefficients; emits 1 to 4 bands based on the XML's `group_count` (dominated by 2-band tunings in the wild, but 3- and 4-band tunings — including voice-profile speech compression and music-profile per-band makeup — are also supported)
+7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges; also the primary slot where Dolby's `volmax-boost` is applied as `output-gain` (typically +6 dB of loudness makeup)
+8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks; fallback slot for `volmax-boost` when the regulator isn't emitted
+
+Dolby's `surround-boost` is **not** mapped to stereo widening: a 2026-06 DAX capture showed Dolby applies no stereo-width change on 2-channel content (it's a multichannel-virtualization control, dormant without a surround/object bed). Earlier versions added a Calf Stereo Tools widener here; see [`docs/design-notes.md`](docs/design-notes.md) (unvalidated-scaling entry 2).
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
@@ -387,8 +387,8 @@ The following XML fields are present but deliberately ignored — they are alway
 - `virtual-bass-*` — always disabled
 - `volume-modeler-*` — always disabled
 - `graphic-equalizer-*` — always disabled (user-facing 20-band GEQ)
-- `surround-decoder-center-spreading-enable` — surround upmix sub-parameter
-- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry (stereo-base mapping is simpler)
+- `surround-boost`, `surround-decoder-*-enable`, `surround-decoder-center-spreading-enable` — surround virtualizer / upmix (a render-depth control, not a stereo-width knob; DAX applies no widening on 2-ch content — design-notes entry 2)
+- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry
 - `mi-*-steering-enable` — Media Intelligence auto-steering flags
 - `output-mode` / `mix_matrix` / `processing_mode` — speaker routing
 - `init-info` blocks — DSP buffer/capacity sizing

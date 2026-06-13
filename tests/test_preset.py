@@ -42,7 +42,6 @@ from dolby_to_easyeffects import (
     make_peq_eq,
     make_preset,
     make_regulator,
-    make_stereo_tools,
     save_wav_stereo,
     set_autoload_fallback,
     write_autoload,
@@ -90,7 +89,6 @@ def generated(tmp_path):
         peq_filters=peq,
         vol_leveler={"enable": True, "amount": 5, "out_target": -16.0},
         dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
-        surround={"enable": True, "boost": 4},
         mb_comp=mb,
         regulator=reg,
         freqs=SYNTHETIC_FREQS_20,
@@ -683,21 +681,22 @@ def test_preset_soundwire_no_hp_falls_back_to_100hz_scope():
     assert "bass-enhancer" in emitted
 
 
-# --- LOCK-IN: make_stereo_tools base scaling ---
+# --- LOCK-IN: no surround→stereo widening is emitted ---
+# A 2026-06-13 DAX capture (design-notes entry 2) falsified the old
+# surround-boost → stereo_tools widening: DAX applies no stereo widening on
+# 2-ch content. The converter must never emit a stereo_tools stage, and
+# `make_preset` must not accept a `surround` argument.
 
-@pytest.mark.parametrize("boost,expected_base", [
-    (4, 0.2),
-    (16, 0.5),   # min(boost/20, 0.5) cap
-])
-def test_stereo_tools_base_from_boost(boost, expected_base):
-    st = make_stereo_tools({"enable": True, "boost": boost})
-    assert st["stereo-base"] == expected_base
-    assert st["mode"] == "LR > LR (Stereo Default)"
+def test_no_stereo_tools_emitted(generated):
+    preset, _ = generated
+    order = preset["output"]["plugins_order"]
+    assert not any("stereo_tools" in p for p in order), order
+    assert "stereo_tools#0" not in preset["output"]
 
 
-def test_stereo_tools_zero_boost_returns_none():
-    assert make_stereo_tools({"enable": True, "boost": 0}) is None
-    assert make_stereo_tools(None) is None
+def test_make_preset_rejects_surround_kwarg():
+    import inspect
+    assert "surround" not in inspect.signature(make_preset).parameters
 
 
 # --- LOCK-IN: make_preset convolver_gain pass-through ---

@@ -582,9 +582,11 @@ device measurements or undocumented Dolby DSP internals:
 - **Advanced speaker virtualizer** is an FFT-domain HRTF-style spatializer.
   The 8-int rendering config (`103,32568,6698,5090,1,1,1,1`) is opaque, and
   no LSP/EE plugin reproduces this kind of processing. The legacy
-  `output-mode-partial-*-virtualizer-enable` blocks were already approximated
-  only as a stereo widener via `surround-boost → stereo_tools`; the advanced
-  variant is the same problem one generation later.
+  `output-mode-partial-*-virtualizer-enable` blocks were once approximated
+  as a stereo widener via `surround-boost → stereo_tools`, but a 2026-06 DAX
+  capture showed Dolby applies no stereo widening on 2-channel content, so
+  that mapping was removed (design-notes entry 2); the advanced variant is the
+  same unreproducible spatializer one generation later.
 
 The warning is the honest outcome: the user knows what's being dropped, and a
 future device-level investigation can wire in something better.

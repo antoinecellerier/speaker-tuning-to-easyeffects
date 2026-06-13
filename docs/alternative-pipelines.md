@@ -10,13 +10,17 @@ Lake-P, Realtek ALC287, SOF firmware (`sof-hda-dsp`), PipeWire 1.4.10.
 ## Current pipeline (all software, via EasyEffects)
 
 ```
-Audio → Convolver → [Bass Enh.] → Stereo Tools → Equalizer → Dialog EQ
-          IEQ+AO    SoundWire     M/S widening   HP + PEQ    speech bell
+Audio → Convolver → [Bass Enh.] → Equalizer → Dialog EQ
+          IEQ+AO    SoundWire     HP + PEQ    speech bell
 
       → Autogain → MB Compressor → Regulator → Limiter → Speaker
         leveler      dynamics      per-band    brickwall
         (bypassed)                 limiter     −1 dBFS
 ```
+
+(A `Stereo Tools` M/S widener mapped from `surround-boost` used to sit after
+the bass enhancer; removed 2026-06 — DAX applies no stereo widening on 2-ch
+content. See `docs/design-notes.md` entry 2.)
 
 (See `docs/design-notes.md` "Plugin chain order" for the rationale; the bass
 enhancer is emitted only for SoundWire devices, and autogain ships bypassed.)

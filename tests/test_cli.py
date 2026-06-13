@@ -45,7 +45,7 @@ SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_easyeffects.py"
 
 def _full_inputs():
     """A complete plugin set (PEQ with all relevant types, MBC,
-    regulator, dialog, surround, leveler) so every --disable target has
+    regulator, dialog, leveler) so every --disable target has
     something to drop.
     """
     peq = synthetic_peq_filters([
@@ -67,7 +67,6 @@ def _full_inputs():
         peq_filters=peq,
         vol_leveler={"enable": True, "amount": 5, "out_target": -16.0},
         dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
-        surround={"enable": True, "boost": 4},
         mb_comp=mb,
         regulator=reg,
         freqs=SYNTHETIC_FREQS_20,
@@ -92,7 +91,7 @@ def test_disable_choices_match_documented_set():
     """
     expected = {
         "volmax", "mbc", "regulator", "bass-enhancer", "dialog",
-        "stereo", "high-shelf", "lo-pass",
+        "high-shelf", "lo-pass",
     }
     assert set(DISABLEABLE_FILTERS) == expected
 
@@ -120,10 +119,16 @@ def test_disable_dialog_drops_dialog_enhancer():
     assert "dialog" not in emitted
 
 
-def test_disable_stereo_drops_stereo_widener():
-    preset, emitted = _build(disabled={"stereo"})
+def test_no_stereo_widener_ever_emitted():
+    """The surround→stereo_tools widening was removed (design-notes entry
+    2 — DAX applies no widening on 2-ch content). No invocation, with or
+    without --disable, should ever produce a stereo_tools stage, and
+    `stereo` is no longer a --disable choice.
+    """
+    preset, emitted = _build()
     assert "stereo_tools#0" not in preset["output"]
     assert "stereo" not in emitted
+    assert "stereo" not in DISABLEABLE_FILTERS
 
 
 def test_disable_high_shelf_drops_type3_filters():
