@@ -22,10 +22,31 @@ from dolby_to_easyeffects import (
 )
 from tests.conftest import (
     biquad_response_db,
+    lsp_rlc_bell,
     rbj_bell,
     rbj_hishelf,
     rbj_loshelf,
 )
+
+
+def _half_gain_bw_hz(b, a, f0, gain_db, fs=48000):
+    """Realized −half-gain bandwidth (Hz) of a peaking biquad: the width
+    between the two points where the response crosses gain_db/2."""
+    f = np.geomspace(f0 / 8, min(f0 * 8, fs / 2 - 1), 20000)
+    mag = biquad_response_db(b, a, f, fs=fs)
+    sig = (mag if gain_db > 0 else -mag) - abs(gain_db) / 2.0
+    i0 = int(np.argmin(np.abs(f - f0)))
+    lo = hi = None
+    for i in range(i0, 0, -1):
+        if sig[i] >= 0 > sig[i - 1]:
+            lo = float(np.interp(0.0, [sig[i - 1], sig[i]], [f[i - 1], f[i]]))
+            break
+    for i in range(i0, len(f) - 1):
+        if sig[i] >= 0 > sig[i + 1]:
+            hi = float(np.interp(0.0, [sig[i + 1], sig[i]], [f[i + 1], f[i]]))
+            break
+    assert lo is not None and hi is not None and hi > lo
+    return hi - lo
 
 
 # --- structural checks: type/mode strings and parameter passthrough ---
@@ -172,6 +193,36 @@ def test_bell_peak_matches_at_centre(f0, gain):
     b, a = rbj_bell(band["frequency"], band["gain"], band["q"])
     db = biquad_response_db(b, a, [f0])
     assert db[0] == pytest.approx(gain, abs=0.05)
+
+
+# --- LSP RLC (BT) bell: what EE actually realizes (q-mode finding) ---
+
+@pytest.mark.parametrize("f0,q,gain", [
+    (280.0, 2.0, 3.0), (400.0, 4.6, 4.0), (516.0, 1.5, -4.0),  # dev-device PEQ
+    (1000.0, 0.707, 6.0),
+])
+def test_rlc_bell_peak_matches_at_centre(f0, q, gain):
+    """LSP RLC (BT) bell shares the RBJ peak: |H(f0)| = gain dB exactly,
+    for boosts and cuts alike."""
+    b, a = lsp_rlc_bell(f0, gain, q)
+    assert biquad_response_db(b, a, [f0])[0] == pytest.approx(gain, abs=0.02)
+
+
+def test_rlc_bell_flat_at_zero_gain():
+    b, a = lsp_rlc_bell(1000.0, 0.0, 4.0)
+    f = np.geomspace(20, 20000, 200)
+    assert np.max(np.abs(biquad_response_db(b, a, f))) < 1e-6
+
+
+@pytest.mark.parametrize("f0,q,gain", [(400.0, 4.6, 4.0), (1000.0, 3.0, 6.0)])
+def test_rlc_bell_wider_than_rbj_at_high_q(f0, q, gain):
+    """The q-mode finding: at the same numeric q (q>1) LSP's RLC (BT) bell
+    is materially wider than the RBJ cookbook bell — same peak, broader
+    skirt. This is why the analytical pre-screen must model RLC, not RBJ.
+    """
+    bw_rlc = _half_gain_bw_hz(*lsp_rlc_bell(f0, gain, q), f0, gain)
+    bw_rbj = _half_gain_bw_hz(*rbj_bell(f0, gain, q), f0, gain)
+    assert bw_rlc > bw_rbj * 1.15   # ~25% wider at q=4.6; comfortably >15%
 
 
 @pytest.mark.parametrize("f0,gain", [(8000.0, 6.0), (3000.0, 12.0), (5000.0, -4.0)])

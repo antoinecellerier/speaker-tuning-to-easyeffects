@@ -52,7 +52,7 @@ from _wavio import read as wav_read  # noqa: E402
 
 # Reuse the verified RBJ + LSP RLC math from the test suite.
 from conftest import (  # noqa: E402  type: ignore[import-not-found]
-    rbj_bell, rbj_hishelf, rbj_loshelf, biquad_response_db,
+    lsp_rlc_bell, rbj_hishelf, rbj_loshelf, biquad_response_db,
 )
 
 SR = 48000
@@ -130,8 +130,18 @@ def _band_response_db(band: dict, freqs: np.ndarray, fs: int = SR
     if btype == "Off":
         return np.zeros_like(freqs, dtype=float)
     if btype == "Bell":
-        b, a = rbj_bell(f0, gain, q)
+        # EE realizes bells via LSP's RLC (BT), not the RBJ cookbook — the
+        # two share the peak gain but RLC is ~25% wider at high Q (up to
+        # ~0.6 dB off-peak on the dev device's q=4.6 bell). Using the RLC
+        # model here makes the offline pre-screen match what the live
+        # plugin does. See docs/design-notes.md audit table (q-mode).
+        b, a = lsp_rlc_bell(f0, gain, q)
         return biquad_response_db(b, a, freqs, fs=fs)
+    # NOTE: shelves still use RBJ. EE realizes them as RLC (BT) too, but the
+    # RLC-shelf coefficient form isn't verified against the plugin yet; the
+    # dev-device PEQ has no shelf, and shelves only appear on the rare
+    # experimental high-shelf path. Revisit if a shelf-bearing device's
+    # EE↔analytical residual matters.
     if btype == "Hi-shelf":
         b, a = rbj_hishelf(f0, gain, q)
         return biquad_response_db(b, a, freqs, fs=fs)

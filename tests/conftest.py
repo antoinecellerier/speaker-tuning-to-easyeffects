@@ -78,6 +78,28 @@ def rbj_bell(f0, gain_db, q, fs=48000):
             np.array([1.0, a1 / a0, a2 / a0]))
 
 
+def lsp_rlc_bell(f0, gain_db, q, fs=48000):
+    """LSP para-equalizer RLC (BT) peaking-EQ biquad — what EasyEffects
+    actually realizes for a Bell band (mode "RLC (BT)"), NOT the RBJ
+    cookbook. Per lsp-dsp-units Filter.cpp FLT_BT_RLC_BELL (slope 1): an
+    analog prototype H(s) = (s² + kt·s + 1)/(s² + kb·s + 1) — kt/kb set by
+    a gain-angle — bilinear-transformed with a prewarp at f0. Peak gain is
+    exactly gain_db at f0, but the bell is ~25% wider than the RBJ bell at
+    the same numeric q for q>1 (the q-mode convention difference; see
+    docs/design-notes.md audit table)."""
+    g = 10 ** (gain_db / 20.0)
+    angle = math.atan(g)
+    k = 2.0 * (1.0 / g + g) / (1.0 + 2.0 * q)
+    kt = k * math.sin(angle)
+    kb = k * math.cos(angle)
+    c = 1.0 / math.tan(math.pi * f0 / fs)   # prewarped bilinear (cotangent)
+    c2 = c * c
+    a0 = c2 + kb * c + 1.0
+    b = np.array([c2 + kt * c + 1.0, 2.0 - 2.0 * c2, c2 - kt * c + 1.0]) / a0
+    a = np.array([1.0, (2.0 - 2.0 * c2) / a0, (c2 - kb * c + 1.0) / a0])
+    return b, a
+
+
 def rbj_hishelf(f0, gain_db, q, fs=48000):
     """RBJ audio cookbook high-shelf biquad."""
     a = 10 ** (gain_db / 40.0)
