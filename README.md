@@ -48,6 +48,7 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
+- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
@@ -64,6 +65,23 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 - `--no-color` — disable colored terminal output
 
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
+
+### Troubleshooting: a preset that sounds like nothing
+
+If you generated a preset, loaded it, and hear no difference versus bypass, the preset itself is usually fine — the cause is almost always something in the EasyEffects setup around it. Run:
+
+```
+python3 dolby_to_easyeffects.py --doctor
+```
+
+It checks the common causes and prints a pasteable report:
+
+- **EasyEffects 7** — version 8 changed the preset format, so on EasyEffects 7 the speaker-correction filter loads nothing and the preset is effectively bypassed. This repo targets EasyEffects 8.x (see the note at the top — install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) if your distro still ships 7).
+- **Wrong install location** — presets written to the Flatpak path while you run the native package (or vice-versa), so EasyEffects never sees them.
+- **A missing impulse file** — the convolver references a `.irs` that isn't in the irs directory, so the speaker correction is silent.
+- **No Dolby preset selected**, or EasyEffects' global bypass (the power-button icon) is on.
+
+A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote.
 
 ### Disabling filters
 

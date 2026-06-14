@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -653,6 +654,423 @@ def report_speaker_info():
     print()
     info = _gather_speaker_info()
     _print_speaker_info(info)
+
+
+# --- Environment self-diagnostics (--doctor) ---------------------------------
+# A generated preset can be flawless yet inaudible because of the *environment*
+# it lands in: EasyEffects 7 (which can't read the v8 preset format), presets
+# written to the Flatpak path while EE runs native (or vice-versa), a missing
+# impulse file so the speaker-correction convolver loads nothing, or simply no
+# Dolby preset selected. --doctor surfaces those deterministically (issue #22),
+# and warn_ee_environment() reuses the same probes to warn at the end of a
+# normal run. The pure helpers below take plain inputs so they're unit-tested
+# without touching the system; the _probe_/_gather_ wrappers do the I/O.
+
+DOCTOR_PASS, DOCTOR_WARN, DOCTOR_FAIL, DOCTOR_UNKNOWN = "PASS", "WARN", "FAIL", "?"
+
+# EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
+# match the speaker-correction convolver regardless of its index. Keep the
+# "kernel-name" literal in step with make_convolver().
+_CONVOLVER_KEY_RE = re.compile(r"^convolver#\d+$")
+
+
+@dataclass
+class CheckResult:
+    """One diagnostic line: a status, a short label, and an actionable detail."""
+    status: str          # DOCTOR_PASS / WARN / FAIL / UNKNOWN
+    label: str
+    detail: str
+
+
+@dataclass
+class DoctorReport:
+    checks: list[CheckResult] = field(default_factory=list)
+    facts: dict = field(default_factory=dict)   # raw probed values, always shown
+    speaker_info: "SpeakerInfo | None" = None
+
+
+def _tilde(path) -> str:
+    """Render a path with $HOME collapsed to ~ — paste-safe (no username)."""
+    s = str(path)
+    home = str(Path.home())
+    return "~" + s[len(home):] if s == home or s.startswith(home + os.sep) else s
+
+
+def parse_ee_version(text: str) -> tuple[int, int, int] | None:
+    """Extract (major, minor, patch) from an EasyEffects version string.
+
+    Keys ONLY on the first ``N.N[.N]`` numeric token, so it's robust to the
+    ``easyeffects ``/``EasyEffects ``/``Version: `` prefix and to case. Patch
+    defaults to 0 when absent. Returns None when there's no version-like token.
+    """
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
+
+
+def ee_version_status(version: tuple[int, int, int] | None,
+                      found: bool) -> CheckResult:
+    """Verdict for the EasyEffects version. FAIL — the only loud error — is
+    reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
+    they're on 7. ``found`` distinguishes "no EE at all" (a valid
+    generating-for-another-machine case → WARN) from "installed but version
+    unreadable" (→ UNKNOWN)."""
+    if version is None:
+        if not found:
+            return CheckResult(DOCTOR_WARN, "EasyEffects version",
+                "not found on PATH or via Flatpak. If you're generating presets "
+                "to copy to another machine, ignore this — otherwise install "
+                "EasyEffects 8 (e.g. the Flathub Flatpak).")
+        return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
+            "EasyEffects is installed but its version couldn't be read — make "
+            "sure it's version 8 or newer.")
+    vstr = ".".join(str(x) for x in version)
+    if version[0] < 8:
+        return CheckResult(DOCTOR_FAIL, "EasyEffects version",
+            f"{vstr} detected — these presets need EasyEffects 8. Version 8 "
+            f"changed the preset format; on {vstr} the speaker-correction filter "
+            "loads nothing, so you'll hear little or no difference. Install "
+            "EasyEffects 8 (the Flathub Flatpak, or your distro's package if it "
+            "ships 8.x).")
+    return CheckResult(DOCTOR_PASS, "EasyEffects version", f"{vstr} (compatible).")
+
+
+def install_status(flatpak_exists: bool, native_exists: bool,
+                   base_is_flatpak: bool, base_display: str,
+                   ee_is_flatpak: bool | None) -> CheckResult:
+    """Verdict for where presets are written vs where EE actually runs.
+    ``ee_is_flatpak`` is which install answered the version probe (None if
+    unknown)."""
+    where = "Flatpak" if base_is_flatpak else "native"
+    if not flatpak_exists and not native_exists:
+        return CheckResult(DOCTOR_WARN, "Install location",
+            f"no EasyEffects data dir found yet; presets go to the {where} "
+            f"location ({base_display}). Launch EasyEffects once, or pass "
+            "--output-dir/--irs-dir.")
+    if ee_is_flatpak is not None:
+        run_where = "Flatpak" if ee_is_flatpak else "native"
+        if run_where != where:
+            return CheckResult(DOCTOR_FAIL, "Install location",
+                f"EasyEffects runs as {run_where} but presets were written to "
+                f"the {where} location ({base_display}) — EE never sees them. "
+                f"Re-run with --output-dir/--irs-dir pointing at the {run_where} "
+                "paths.")
+        return CheckResult(DOCTOR_PASS, "Install location",
+            f"{run_where} install; presets written to {base_display}.")
+    if flatpak_exists and native_exists:
+        return CheckResult(DOCTOR_WARN, "Install location",
+            f"both Flatpak and native data dirs exist; the script writes to the "
+            f"{where} one ({base_display}) — make sure that's the EasyEffects "
+            "you run.")
+    return CheckResult(DOCTOR_PASS, "Install location",
+        f"{where} install; presets written to {base_display}.")
+
+
+def check_preset_kernel(preset_json: dict, irs_stems: set,
+                        preset_name: str) -> CheckResult:
+    """Verify a generated output preset's speaker-correction filter (convolver)
+    references an impulse file (.irs) that actually exists. A missing or
+    misnamed impulse = silent passthrough: the dominant audible block does
+    nothing. ``irs_stems`` are the .irs filename stems present in the irs dir."""
+    label = f"Preset {preset_name}"
+    if not isinstance(preset_json, dict) or not isinstance(
+            preset_json.get("output"), dict):
+        return CheckResult(DOCTOR_FAIL, label,
+            "not a valid EasyEffects output preset (no 'output' section).")
+    conv_keys = [k for k in preset_json["output"] if _CONVOLVER_KEY_RE.match(k)]
+    if not conv_keys:
+        return CheckResult(DOCTOR_WARN, label,
+            "no speaker-correction filter (convolver) in this preset.")
+    conv = preset_json["output"][conv_keys[0]]
+    conv = conv if isinstance(conv, dict) else {}
+    if "kernel-path" in conv and "kernel-name" not in conv:
+        return CheckResult(DOCTOR_FAIL, label,
+            "uses the old EasyEffects 7 'kernel-path' format — these presets "
+            "need EasyEffects 8.")
+    name = conv.get("kernel-name", "")
+    if not name:
+        return CheckResult(DOCTOR_FAIL, label,
+            "the speaker-correction filter has no impulse file set — it's silent.")
+    if name not in irs_stems:
+        return CheckResult(DOCTOR_FAIL, label,
+            f"impulse file '{name}.irs' is missing from the irs dir — the "
+            "speaker-correction filter loads nothing (silent). Re-run the "
+            "script so the .irs is written next to the preset.")
+    if conv.get("bypass") is True:
+        return CheckResult(DOCTOR_WARN, label,
+            f"loads {name}.irs but the speaker-correction filter is bypassed in "
+            "the preset.")
+    return CheckResult(DOCTOR_PASS, label,
+        f"speaker-correction filter loads {name}.irs.")
+
+
+def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
+    """Whether EasyEffects' selected output preset is one this script generated.
+    Reports last-loaded / fallback without over-claiming which is *active*
+    (per-device autoloading lives elsewhere in EE's config)."""
+    gen = set(generated_names)
+    loaded = rc_data.get("last_output_preset", "")
+    fallback = rc_data.get("fallback_preset", "")
+    if not loaded and not fallback:
+        return CheckResult(DOCTOR_WARN, "Selected preset",
+            "EasyEffects has no output preset recorded yet — open it and load a "
+            "Dolby-* preset for the speakers.")
+    if loaded in gen or (rc_data.get("uses_fallback") and fallback in gen):
+        return CheckResult(DOCTOR_PASS, "Selected preset",
+            f"EasyEffects last loaded '{loaded or fallback}'.")
+    return CheckResult(DOCTOR_WARN, "Selected preset",
+        f"EasyEffects' selected output preset is '{loaded or fallback}', which "
+        "this script didn't generate — load a Dolby-* preset in EasyEffects.")
+
+
+def _doctor_summary(checks) -> tuple[int, int, int]:
+    """Count (FAIL, WARN, PASS) across the checks for the summary line."""
+    fail = sum(1 for c in checks if c.status == DOCTOR_FAIL)
+    warn = sum(1 for c in checks if c.status == DOCTOR_WARN)
+    ok = sum(1 for c in checks if c.status == DOCTOR_PASS)
+    return fail, warn, ok
+
+
+def _flatpak_version_text(info_output: str) -> str:
+    """Pull just the ``Version:`` line out of `flatpak info` output. The full
+    blob has other numeric tokens (sizes, refs) that would mis-parse, so we
+    isolate the one line; absent → "" (→ UNKNOWN, never a wrong version)."""
+    for line in info_output.splitlines():
+        if line.strip().lower().startswith("version:"):
+            return line
+    return ""
+
+
+def _probe_ee_version() -> tuple[tuple[int, int, int] | None, bool, str, bool | None]:
+    """Probe the installed EasyEffects version. Read-only, time-bounded, never
+    raises. Returns (version|None, found, source, ee_is_flatpak). Tries the
+    install type _USE_FLATPAK points at first. ``found`` means an EE binary
+    actually answered (so version=None then means 'installed but unreadable')."""
+    def run(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            return None
+        if r.returncode != 0:
+            return None
+        return (r.stdout or "") + "\n" + (r.stderr or "")
+
+    def native():
+        out = run(["easyeffects", "--version"])
+        return (parse_ee_version(out), True) if out is not None else (None, False)
+
+    def flatpak():
+        out = run(["flatpak", "info", _FLATPAK_APP_ID])
+        if out is None:
+            return (None, False)
+        return (parse_ee_version(_flatpak_version_text(out)), True)
+
+    order = ([(True, flatpak), (False, native)] if _USE_FLATPAK
+             else [(False, native), (True, flatpak)])
+    for is_flatpak, probe in order:
+        version, found = probe()
+        if found:
+            src = "flatpak info" if is_flatpak else "easyeffects --version"
+            return version, True, src, is_flatpak
+    return None, False, "", None
+
+
+def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
+                          custom_dirs: bool = False) -> DoctorReport:
+    """Run every probe and assemble a DoctorReport. All I/O is wrapped so a
+    missing binary / unreadable file degrades to a soft line, never a crash."""
+    report = DoctorReport()
+
+    # 1. EasyEffects version / compatibility
+    version, found, source, ee_is_flatpak = _probe_ee_version()
+    report.checks.append(ee_version_status(version, found))
+
+    # 2. Install location (skip the EE-location verdict for custom dirs)
+    if custom_dirs:
+        report.checks.append(CheckResult(DOCTOR_PASS, "Install location",
+            f"custom output dir ({_tilde(output_dir)}) — skipping EasyEffects "
+            "location checks."))
+    else:
+        report.checks.append(install_status(
+            _FLATPAK_BASE.exists(), _NATIVE_BASE.exists(), _USE_FLATPAK,
+            _tilde(_EASYEFFECTS_BASE), ee_is_flatpak))
+
+    # 3. Preset + impulse-file integrity
+    try:
+        irs_stems = {p.stem for p in irs_dir.glob("*.irs")}
+    except OSError:
+        irs_stems = set()
+    try:
+        preset_paths = sorted(output_dir.glob("*.json"))
+    except OSError:
+        preset_paths = []
+    generated_names = [p.stem for p in preset_paths]
+    dolby_presets = [p for p in preset_paths if p.stem != BYPASS_PRESET_NAME]
+    if not dolby_presets:
+        report.checks.append(CheckResult(DOCTOR_WARN, "Generated presets",
+            f"no presets found in {_tilde(output_dir)} — run the script on your "
+            "tuning XML first."))
+    else:
+        for p in dolby_presets:
+            try:
+                data = json.loads(p.read_text())
+            except (OSError, json.JSONDecodeError):
+                report.checks.append(CheckResult(DOCTOR_FAIL, f"Preset {p.stem}",
+                    "could not be read / not valid JSON."))
+                continue
+            report.checks.append(check_preset_kernel(data, irs_stems, p.stem))
+
+    # 4. EasyEffects runtime state (loaded preset, sink, chain)
+    try:
+        rc_text = rc_path.read_text(encoding="utf-8")
+    except OSError:
+        rc_text = ""
+    rc = read_ee_rc(rc_text)
+    # The selected-preset check compares against presets in output_dir; that's
+    # only meaningful when output_dir is where EE actually loads from (default
+    # dirs). Under custom dirs, surface the loaded preset as a fact instead.
+    if rc_text and not custom_dirs:
+        report.checks.append(loaded_preset_status(rc, generated_names))
+
+    # 5. Hardware / codec context (folds in --speaker-info)
+    report.speaker_info = _gather_speaker_info()
+
+    report.facts = {
+        "ee_version": (".".join(map(str, version)) if version else "unknown")
+                      + (f" (via {source})" if source else ""),
+        "ee_running": easyeffects_is_running(),
+        "install": "Flatpak" if _USE_FLATPAK else "native",
+        "output_dir": _tilde(output_dir),
+        "irs_dir": _tilde(irs_dir),
+        "preset_count": len(generated_names),
+        "irs_count": len(irs_stems),
+        "rc_path": _tilde(rc_path),
+        "rc_present": bool(rc_text),
+        "selected_preset": rc.get("last_output_preset", "")
+                           or rc.get("fallback_preset", ""),
+        "output_device": rc.get("output_device", ""),
+        "output_plugins": rc.get("output_plugins", []),
+    }
+    return report
+
+
+def _print_doctor_report(report: DoctorReport) -> None:
+    """Print a compact, paste-safe diagnostic report."""
+    style = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
+             DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
+
+    def emit(c):
+        cprint(style.get(c.status, "dim"), f"  [{c.status:^4}] {c.label}")
+        for line in textwrap.wrap(c.detail, width=72):
+            cprint("dim", f"         {line}")
+
+    cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
+    cprint("head", "=== EasyEffects doctor ===")
+    print()
+    # Per-preset checks collapse to one line when they all pass (a machine can
+    # have dozens of profiles); any problem preset is still listed individually.
+    preset_checks = [c for c in report.checks if c.label.startswith("Preset ")]
+    preset_problems = [c for c in preset_checks if c.status != DOCTOR_PASS]
+    shown_presets = False
+    for c in report.checks:
+        if c.label.startswith("Preset "):
+            if not shown_presets:
+                shown_presets = True
+                ok_n = len(preset_checks) - len(preset_problems)
+                if ok_n:
+                    cprint("ok", f"  [{DOCTOR_PASS:^4}] Presets "
+                                 f"({ok_n}/{len(preset_checks)} load their impulse file)")
+                for pc in preset_problems:
+                    emit(pc)
+            continue
+        emit(c)
+    print()
+    fail, warn, ok = _doctor_summary(report.checks)
+    summary = f"Summary: {fail} FAIL, {warn} WARN, {ok} PASS"
+    cprint("err" if fail else ("warn" if warn else "ok"), summary)
+    print()
+
+    # Raw probed facts — always shown so an issue can be diagnosed remotely even
+    # when a heuristic verdict is UNKNOWN or wrong.
+    f = report.facts
+    cprint("head", "=== Environment (paste this into your issue) ===")
+    print(f"  Tool:         speaker-tuning-to-easyeffects {get_version()}")
+    print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
+          f"running: {'yes' if f.get('ee_running') else 'no'}")
+    print(f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})")
+    print(f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
+          f"{f.get('irs_count', 0)} impulse files")
+    print(f"  Config:       {f.get('rc_path')} "
+          f"({'present' if f.get('rc_present') else 'absent'})")
+    if f.get("selected_preset"):
+        print(f"  Selected:     {f['selected_preset']}")
+    if f.get("output_device"):
+        print(f"  Output sink:  {f['output_device']}")
+    if f.get("output_plugins"):
+        print(f"  Active chain: {', '.join(f['output_plugins'])}")
+    print()
+
+    # What the doctor can't see — guide the user through the manual checks.
+    if not fail:
+        cprint("ok", "No blocking problems detected.")
+    cprint("dim", "If you still hear no difference between the preset and bypass:")
+    cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
+    cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
+    cprint("dim", "  • Confirm system output is the speaker sink and volume is up.")
+    print()
+
+    if report.speaker_info is not None:
+        _print_speaker_info(report.speaker_info)
+
+    cprint("cta", "Still stuck? Paste everything above into an issue:")
+    cprint("cta", f"  {_REPORT_FORM_URL}")
+
+
+def report_doctor(args) -> None:
+    """--doctor entry point: run environment self-diagnostics and print them."""
+    custom_dirs = (args.output_dir != DEFAULT_OUTPUT_DIR
+                   or args.irs_dir != DEFAULT_IRS_DIR)
+    report = _gather_doctor_report(args.output_dir, args.irs_dir,
+                                   DEFAULT_EASYEFFECTS_RC, custom_dirs=custom_dirs)
+    _print_doctor_report(report)
+
+
+def warn_ee_environment(args) -> None:
+    """End-of-run check for a normal generation run: loudly warn if the
+    installed EasyEffects can't use the presets we just wrote. Silent on the
+    happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate."""
+    version, found, _source, ee_is_flatpak = _probe_ee_version()
+    ver = ee_version_status(version, found)
+
+    if ver.status == DOCTOR_FAIL:
+        vstr = ".".join(str(x) for x in version)
+        cprint("err", f"\n{'=' * 60}")
+        cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
+        print()
+        cprint("dim", "EasyEffects changed its preset (filter-chain) format in version 8,")
+        cprint("dim", "and the presets this tool generates use the new format. On version 7")
+        cprint("dim", "they won't load correctly — in particular the speaker-correction")
+        cprint("dim", "filter loads nothing, so you'll hear little or no difference.")
+        print()
+        cprint("dim", "To fix, install EasyEffects 8:")
+        cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
+        cprint("cta", "      flatpak install flathub com.github.wwmm.easyeffects")
+        cprint("dim", "  • Or your distro's own package if it already ships 8.x")
+        cprint("dim", "    (Debian trixie, Ubuntu 24.04+ and Fedora ≤43 still ship 7.x).")
+        return
+
+    if not found:
+        cprint("warn", "\n⚠  Couldn't find EasyEffects — install version 8 to use these "
+                       "presets (e.g. the Flathub Flatpak). Ignore if you're "
+                       "generating for another machine.")
+
+    # Install-location mismatch is only meaningful for the default EE dirs.
+    if (args.output_dir == DEFAULT_OUTPUT_DIR and args.irs_dir == DEFAULT_IRS_DIR):
+        inst = install_status(_FLATPAK_BASE.exists(), _NATIVE_BASE.exists(),
+                              _USE_FLATPAK, _tilde(_EASYEFFECTS_BASE), ee_is_flatpak)
+        if inst.status == DOCTOR_FAIL:
+            cprint("warn", f"\n⚠  {inst.detail}")
 
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
@@ -1473,6 +1891,48 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
     return path, "written"
 
 
+def _ee_rc_parser() -> configparser.ConfigParser:
+    """A ConfigParser configured to read/write an easyeffectsrc faithfully.
+
+    EE uses camelCase keys and INI files with no interpolation; the default
+    parser would lowercase keys (EE then ignores them) and choke on '%'.
+    """
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    parser.optionxform = str
+    return parser
+
+
+def read_ee_rc(rc_text: str) -> dict:
+    """Parse easyeffectsrc text into the fields the diagnostics care about.
+
+    Pure (text in, dict out — no filesystem). Verified key locations against a
+    live EE 8.x rc: the loaded output preset is ``[Presets]
+    lastLoadedOutputPreset``; the global Fallback Preset toggle is the two
+    ``[Window]`` keys; the target sink and active plugin chain are
+    ``[StreamOutputs] outputDevice``/``plugins``. Missing sections/keys fall
+    back to empty/False so callers never KeyError on a partial or older rc.
+    Note there is NO global-bypass key here — that toggle is runtime/GUI only.
+    """
+    parser = _ee_rc_parser()
+    try:
+        parser.read_string(rc_text)
+    except configparser.Error:
+        pass  # garbage rc → all defaults below
+
+    def g(section: str, key: str, default: str = "") -> str:
+        return parser.get(section, key, fallback=default).strip()
+
+    plugins = g("StreamOutputs", "plugins")
+    return {
+        "last_output_preset": g("Presets", "lastLoadedOutputPreset"),
+        "fallback_preset": g("Window", "outputAutoloadingFallbackPreset"),
+        "uses_fallback": g("Window", "outputAutoloadingUsesFallback",
+                           "false").lower() == "true",
+        "output_device": g("StreamOutputs", "outputDevice"),
+        "output_plugins": [p for p in plugins.split(",") if p],
+    }
+
+
 def set_autoload_fallback(rc_path: Path, preset_name: str,
                           dry_run: bool = False) -> tuple[str, str]:
     """Enable EasyEffects' global Fallback Preset toggle in its KConfig file.
@@ -1487,27 +1947,25 @@ def set_autoload_fallback(rc_path: Path, preset_name: str,
       - "patched": file created or keys set/updated.
       - "would-patch": dry-run equivalent of "patched".
     """
-    parser = configparser.ConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str  # EE uses camelCase keys; don't lowercase them
-
+    rc_text = ""
     if rc_path.exists():
-        parser.read(rc_path, encoding="utf-8")
+        try:
+            rc_text = rc_path.read_text(encoding="utf-8")
+        except OSError:
+            rc_text = ""
 
-    section = "Window"
-    existing_preset = ""
-    uses_fallback = False
-    if parser.has_section(section):
-        existing_preset = parser.get(section, "outputAutoloadingFallbackPreset",
-                                     fallback="").strip()
-        uses_fallback = parser.get(section, "outputAutoloadingUsesFallback",
-                                   fallback="false").strip().lower() == "true"
-
-    if uses_fallback and existing_preset:
+    rc = read_ee_rc(rc_text)
+    existing_preset = rc["fallback_preset"]
+    if rc["uses_fallback"] and existing_preset:
         return "already-configured", existing_preset
 
     if dry_run:
         return "would-patch", existing_preset
 
+    parser = _ee_rc_parser()
+    if rc_text:
+        parser.read_string(rc_text)
+    section = "Window"
     if not parser.has_section(section):
         parser.add_section(section)
     parser.set(section, "outputAutoloadingFallbackPreset", preset_name)
@@ -3301,6 +3759,15 @@ def main():
         help="report detected audio hardware and speaker layout, then exit",
     )
     parser.add_argument(
+        "--doctor", "--diagnose",
+        dest="doctor",
+        action="store_true",
+        help="run environment self-diagnostics (EasyEffects version, install "
+             "location, preset/impulse-file integrity, selected preset, "
+             "hardware) and exit — paste the output into an issue if a preset "
+             "seems inaudible",
+    )
+    parser.add_argument(
         "--disable",
         action="append",
         default=[],
@@ -3329,6 +3796,10 @@ def main():
 
     if args.speaker_info:
         report_speaker_info()
+        return
+
+    if args.doctor:
+        report_doctor(args)
         return
 
     # Resolve the XML file path
@@ -3532,6 +4003,12 @@ def main():
     # internal speakers — irrelevant for headphone/other endpoints.
     if args.endpoint == "internal_speaker":
         warn_speaker_firmware_gate(detect_speaker_firmware_gates())
+
+    # Proactively flag an EasyEffects install that can't use what we just wrote
+    # — the failure mode #22 surfaced (a correct preset silently inaudible
+    # because of the environment, e.g. EE 7 or a wrong install location).
+    # Silent on the happy path; reuses --doctor's probes.
+    warn_ee_environment(args)
 
     print()
     cprint("cta", "How does it sound? Please report back (good or bad):")

@@ -27,12 +27,22 @@ import numpy as np
 import pytest
 
 from dolby_to_easyeffects import (
+    DOCTOR_FAIL,
+    DOCTOR_PASS,
+    DOCTOR_UNKNOWN,
+    DOCTOR_WARN,
     FIR_LENGTH,
     SAMPLE_RATE,
+    CheckResult,
     _atomic_write,
     _atomic_write_text,
     _disabled_band,
+    _doctor_summary,
+    check_preset_kernel,
     decode_mbc_bands,
+    ee_version_status,
+    install_status,
+    loaded_preset_status,
     make_autogain,
     make_bass_enhancer,
     make_dialog_enhancer,
@@ -42,6 +52,8 @@ from dolby_to_easyeffects import (
     make_peq_eq,
     make_preset,
     make_regulator,
+    parse_ee_version,
+    read_ee_rc,
     save_wav_stereo,
     set_autoload_fallback,
     write_autoload,
@@ -771,3 +783,200 @@ def test_set_autoload_fallback_patches_and_preserves_camelcase(tmp_path):
     assert "[Window]" in text
     assert "outputAutoloadingFallbackPreset=Bypass" in text
     assert "outputAutoloadingUsesFallback=true" in text
+
+
+# --- doctor / self-diagnostic (issue #22) ---
+#
+# A generated preset can be flawless yet inaudible because of the environment
+# it lands in. These lock in the verdict logic for each failure class. Several
+# are trap regressions: the EE-7 detection and the missing-/legacy-kernel
+# checks guard the exact #22 silent-convolver mechanism.
+
+@pytest.mark.parametrize("text,expected", [
+    ("easyeffects 8.2.1", (8, 2, 1)),     # verified native --version format
+    ("easyeffects 7.1.5", (7, 1, 5)),     # EE 7
+    ("easyeffects 7.0.0", (7, 0, 0)),
+    ("EasyEffects 7.2", (7, 2, 0)),       # prefix/case drift; patch defaults 0
+    ("7.1.4", (7, 1, 4)),                 # bare
+    ("Version: 8.1.0", (8, 1, 0)),        # flatpak info Version: line
+    ("", None),
+    ("command not found", None),
+])
+def test_parse_ee_version(text, expected):
+    assert parse_ee_version(text) == expected
+
+
+def test_ee_version_7_is_loud_fail():
+    """TRAP (#22): EE 7 can't read the v8 preset format — the convolver loads
+    no kernel and the preset is silently inaudible. Every parsed 7.x must FAIL
+    (the only loud banner), citing the v8 fix."""
+    r = ee_version_status((7, 1, 5), found=True)
+    assert r.status == DOCTOR_FAIL
+    assert "EasyEffects 8" in r.detail
+
+
+def test_ee_version_8_passes():
+    assert ee_version_status((8, 2, 1), found=True).status == DOCTOR_PASS
+
+
+def test_ee_version_not_found_warns_not_fails():
+    """No EE at all is a valid 'generating for another machine' case — WARN,
+    never the loud FAIL banner."""
+    assert ee_version_status(None, found=False).status == DOCTOR_WARN
+
+
+def test_ee_version_unparseable_is_unknown_not_fail():
+    """Installed but version unreadable must not trigger the loud <8 banner."""
+    assert ee_version_status(None, found=True).status == DOCTOR_UNKNOWN
+
+
+@pytest.mark.parametrize("flatpak,native,base_fp,ee_fp,expected", [
+    (False, True, False, False, DOCTOR_PASS),    # native install, native run
+    (True, False, True, True, DOCTOR_PASS),      # flatpak install, flatpak run
+    (True, True, False, None, DOCTOR_WARN),      # both dirs present, run unknown
+    (False, False, False, None, DOCTOR_WARN),    # no data dir yet
+    (False, True, False, True, DOCTOR_FAIL),     # write native, EE runs flatpak → mismatch
+])
+def test_install_status(flatpak, native, base_fp, ee_fp, expected):
+    r = install_status(flatpak, native, base_fp, "~/somewhere", ee_fp)
+    assert r.status == expected
+
+
+def test_install_mismatch_fails():
+    """Presets written to the native location while EE runs as Flatpak → EE
+    never sees them."""
+    r = install_status(flatpak_exists=True, native_exists=True,
+                       base_is_flatpak=False, base_display="~/.local/share/easyeffects",
+                       ee_is_flatpak=True)
+    assert r.status == DOCTOR_FAIL
+    assert "never sees them" in r.detail
+
+
+def test_check_preset_kernel_resolves():
+    preset = {"output": {"convolver#0": {"kernel-name": "Dolby-Balanced"}}}
+    assert check_preset_kernel(preset, {"Dolby-Balanced"}, "Dolby-Balanced").status == DOCTOR_PASS
+
+
+def test_check_preset_kernel_missing_irs_fails():
+    """TRAP (#22): kernel-name with no matching .irs = silent passthrough."""
+    preset = {"output": {"convolver#0": {"kernel-name": "Dolby-Balanced"}}}
+    r = check_preset_kernel(preset, set(), "Dolby-Balanced")
+    assert r.status == DOCTOR_FAIL
+    assert "silent" in r.detail
+
+
+def test_check_preset_kernel_no_kernel_name_fails():
+    preset = {"output": {"convolver#0": {}}}
+    assert check_preset_kernel(preset, set(), "X").status == DOCTOR_FAIL
+
+
+def test_check_preset_kernel_legacy_kernel_path_fails():
+    """TRAP: the deprecated EE-7 'kernel-path' key → FAIL (CLAUDE.md: EE 8.x
+    wants kernel-name)."""
+    preset = {"output": {"convolver#0": {"kernel-path": "/x.irs"}}}
+    r = check_preset_kernel(preset, set(), "X")
+    assert r.status == DOCTOR_FAIL
+    assert "EasyEffects 8" in r.detail
+
+
+def test_check_preset_kernel_bypassed_warns():
+    preset = {"output": {"convolver#0": {"kernel-name": "K", "bypass": True}}}
+    assert check_preset_kernel(preset, {"K"}, "K").status == DOCTOR_WARN
+
+
+def test_check_preset_kernel_no_convolver_warns():
+    assert check_preset_kernel({"output": {"equalizer#0": {}}}, set(), "X").status == DOCTOR_WARN
+
+
+def test_check_preset_kernel_invalid_preset_fails():
+    assert check_preset_kernel({"no_output": 1}, set(), "X").status == DOCTOR_FAIL
+
+
+def test_check_real_generated_preset_resolves(generated):
+    """Tie the doctor to the actual generator output: a real make_preset +
+    save_wav_stereo pair must resolve. A future make_convolver key rename
+    turns this red."""
+    preset, irs_path = generated
+    r = check_preset_kernel(preset, {irs_path.stem}, irs_path.stem)
+    assert r.status == DOCTOR_PASS
+
+
+def test_read_ee_rc_extracts_verified_keys():
+    """The live EE 8.x rc: loaded preset under [Presets], fallback under
+    [Window], sink + chain under [StreamOutputs]."""
+    rc = ("[Presets]\n"
+          "lastLoadedOutputPreset=Dolby-Balanced\n"
+          "[Window]\n"
+          "outputAutoloadingFallbackPreset=Nothing\n"
+          "outputAutoloadingUsesFallback=true\n"
+          "[StreamOutputs]\n"
+          "outputDevice=alsa_output.spk\n"
+          "plugins=convolver#0,equalizer#0,limiter#0\n")
+    d = read_ee_rc(rc)
+    assert d["last_output_preset"] == "Dolby-Balanced"
+    assert d["fallback_preset"] == "Nothing"
+    assert d["uses_fallback"] is True
+    assert d["output_device"] == "alsa_output.spk"
+    assert d["output_plugins"] == ["convolver#0", "equalizer#0", "limiter#0"]
+
+
+def test_read_ee_rc_missing_sections_default_safely():
+    d = read_ee_rc("")
+    assert d["last_output_preset"] == ""
+    assert d["uses_fallback"] is False
+    assert d["output_plugins"] == []
+
+
+def test_read_ee_rc_garbage_does_not_crash():
+    assert read_ee_rc("}{ not ini ][").get("last_output_preset") == ""
+
+
+def test_loaded_preset_generated_passes():
+    rc = {"last_output_preset": "Dolby-Balanced", "fallback_preset": "", "uses_fallback": False}
+    assert loaded_preset_status(rc, ["Dolby-Balanced", "Nothing"]).status == DOCTOR_PASS
+
+
+def test_loaded_preset_non_generated_warns():
+    rc = {"last_output_preset": "SomethingElse", "fallback_preset": "", "uses_fallback": False}
+    assert loaded_preset_status(rc, ["Dolby-Balanced"]).status == DOCTOR_WARN
+
+
+def test_doctor_summary_counts():
+    checks = [CheckResult(DOCTOR_FAIL, "a", ""), CheckResult(DOCTOR_WARN, "b", ""),
+              CheckResult(DOCTOR_PASS, "c", ""), CheckResult(DOCTOR_PASS, "d", ""),
+              CheckResult(DOCTOR_UNKNOWN, "e", "")]
+    assert _doctor_summary(checks) == (1, 1, 2)
+
+
+def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
+    """Graceful degradation: no EE binary anywhere → (None, found=False), no
+    exception."""
+    import dolby_to_easyeffects as d
+
+    def boom(*a, **k):
+        raise FileNotFoundError("no such binary")
+
+    monkeypatch.setattr(d.subprocess, "run", boom)
+    version, found, source, ee_fp = d._probe_ee_version()
+    assert version is None and found is False
+
+
+def test_probe_ee_version_degrades_on_timeout(monkeypatch):
+    import dolby_to_easyeffects as d
+
+    def slow(*a, **k):
+        raise d.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
+
+    monkeypatch.setattr(d.subprocess, "run", slow)
+    version, found, _s, _f = d._probe_ee_version()
+    assert version is None and found is False
+
+
+def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
+    import dolby_to_easyeffects as d
+
+    def boom(*a, **k):
+        raise FileNotFoundError("no pgrep")
+
+    monkeypatch.setattr(d.subprocess, "run", boom)
+    assert d.easyeffects_is_running() is False

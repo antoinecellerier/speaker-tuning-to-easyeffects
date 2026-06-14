@@ -234,6 +234,33 @@ def test_help_exits_cleanly():
     assert "Convert Dolby DAX3" in result.stdout
 
 
+def test_doctor_runs_without_xml_and_exits_zero(tmp_path):
+    """`--doctor` is an entry-point mode: it must run with no XML, degrade
+    gracefully when the output/irs dirs are empty, and exit 0."""
+    out = tmp_path / "out"
+    irs = tmp_path / "irs"
+    out.mkdir()
+    irs.mkdir()
+    result = _run_script("--doctor", "--no-color",
+                         "--output-dir", str(out), "--irs-dir", str(irs))
+    assert result.returncode == 0
+    assert "EasyEffects doctor" in result.stdout
+    # No presets in the empty dir → a WARN line, but never a crash.
+    assert "no presets found" in result.stdout.lower()
+
+
+def test_diagnose_alias_runs(tmp_path):
+    """`--diagnose` is an alias for `--doctor` (same dest)."""
+    out = tmp_path / "out"
+    irs = tmp_path / "irs"
+    out.mkdir()
+    irs.mkdir()
+    result = _run_script("--diagnose", "--no-color",
+                         "--output-dir", str(out), "--irs-dir", str(irs))
+    assert result.returncode == 0
+    assert "EasyEffects doctor" in result.stdout
+
+
 def test_xml_and_windows_are_mutually_exclusive(tmp_path):
     """Passing both a positional XML and `--windows` is a usage error.
     Argparse exits with code 2 by convention.

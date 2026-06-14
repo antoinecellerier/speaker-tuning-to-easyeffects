@@ -100,6 +100,29 @@ add here; the explicit `boost`/`cutoff`/`width` look mappable to Calf
 `bass_enhancer` but, being corpus-frozen, would be a hardcoded baseline rather
 than derived tuning.
 
+**Field follow-up — "loads but inaudible" (issue #22, UNCONFIRMED root cause).**
+The reporter (X1 Carbon Gen 8) found the generated preset loaded but produced no
+audible difference. What we have *established*: the generator is correct for his
+hardware. Re-deriving from his actual XML (`DEV_0257_SUBSYS_17AA22B4_…`) shows
+the `gain_l`/`gain_r` curves are substantial (~15 dB p-p, comparable to a
+full-schema device), and `make_fir` on the combined IEQ+AO target yields a
+realized convolver magnitude of ~13 dB p-p across 100 Hz–16 kHz — strongly
+audible; the simplified path shares the validated full-schema FIR/convolver code
+(same `kernel-name`, same min-phase FIR). That the preset *should* be audible
+points away from the script — but the actual reason he hears nothing is **not yet
+confirmed** (awaiting his report). Candidate environmental causes, in rough order
+of likelihood: **EasyEffects 7** (the v8 preset format is incompatible, and the
+convolver key changed `kernel-path`→`kernel-name` between 7 and 8, so on EE 7 the
+convolver — the dominant block — would silently load no kernel while subtler
+blocks still appear "loaded"); Flatpak/native write-vs-run mismatch; a
+missing/misplaced `.irs`; no Dolby preset selected; or global bypass on. Rather
+than hand-hold each user through GUI questions, `--doctor` (and a proactive
+end-of-run warning in normal mode) now surfaces these deterministically — turning
+the hypotheses into something the user's own machine can confirm or rule out. The
+`kernel-path`→`kernel-name` mechanism is intentionally kept out of user-facing
+text (it lives in code/tests/this note); users see a plain-language "install
+EasyEffects 8" message.
+
 ## Plugin chain order
 
 Current order (see `make_preset` in `dolby_to_easyeffects.py`):
