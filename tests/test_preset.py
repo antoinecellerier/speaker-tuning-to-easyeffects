@@ -31,13 +31,16 @@ from dolby_to_easyeffects import (
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
+    BYPASS_PRESET_NAME,
     FIR_LENGTH,
     SAMPLE_RATE,
     CheckResult,
+    DoctorReport,
     _atomic_write,
     _atomic_write_text,
     _disabled_band,
     _doctor_summary,
+    _print_doctor_report,
     check_preset_kernel,
     decode_mbc_bands,
     ee_version_status,
@@ -835,21 +838,22 @@ def test_ee_version_unparseable_is_unknown_not_fail():
     (True, False, True, True, DOCTOR_PASS),      # flatpak install, flatpak run
     (True, True, False, None, DOCTOR_WARN),      # both dirs present, run unknown
     (False, False, False, None, DOCTOR_WARN),    # no data dir yet
-    (False, True, False, True, DOCTOR_FAIL),     # write native, EE runs flatpak → mismatch
+    (False, True, False, True, DOCTOR_WARN),     # write native, detected flatpak → mismatch (WARN, not FAIL)
 ])
 def test_install_status(flatpak, native, base_fp, ee_fp, expected):
     r = install_status(flatpak, native, base_fp, "~/somewhere", ee_fp)
     assert r.status == expected
 
 
-def test_install_mismatch_fails():
-    """Presets written to the native location while EE runs as Flatpak → EE
-    never sees them."""
+def test_install_mismatch_warns_not_fails():
+    """Detected EE build differs from where we wrote. WARN (not FAIL): on a
+    dual-install box the install that answered the probe isn't necessarily the
+    one the user launches, so we can't assert 'never sees them' with certainty."""
     r = install_status(flatpak_exists=True, native_exists=True,
                        base_is_flatpak=False, base_display="~/.local/share/easyeffects",
                        ee_is_flatpak=True)
-    assert r.status == DOCTOR_FAIL
-    assert "never sees them" in r.detail
+    assert r.status == DOCTOR_WARN
+    assert "won't see them" in r.detail
 
 
 def test_check_preset_kernel_resolves():
@@ -941,11 +945,46 @@ def test_loaded_preset_non_generated_warns():
     assert loaded_preset_status(rc, ["Dolby-Balanced"]).status == DOCTOR_WARN
 
 
+def test_loaded_preset_bypass_selected_warns():
+    """TRAP: the silent 'Nothing' bypass preset is in the generated set but is
+    itself a 'sounds like nothing' state — it must WARN, not PASS."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME])
+    assert r.status == DOCTOR_WARN
+    assert BYPASS_PRESET_NAME in r.detail
+
+
+def test_loaded_preset_names_the_matched_fallback_not_the_loaded():
+    """When the PASS is due to the fallback, the message names the fallback,
+    not a non-generated last-loaded preset."""
+    rc = {"last_output_preset": "SomethingElse", "fallback_preset": "Dolby-Balanced",
+          "uses_fallback": True}
+    r = loaded_preset_status(rc, ["Dolby-Balanced"])
+    assert r.status == DOCTOR_PASS
+    assert "Dolby-Balanced" in r.detail and "SomethingElse" not in r.detail
+
+
 def test_doctor_summary_counts():
     checks = [CheckResult(DOCTOR_FAIL, "a", ""), CheckResult(DOCTOR_WARN, "b", ""),
               CheckResult(DOCTOR_PASS, "c", ""), CheckResult(DOCTOR_PASS, "d", ""),
               CheckResult(DOCTOR_UNKNOWN, "e", "")]
-    assert _doctor_summary(checks) == (1, 1, 2)
+    assert _doctor_summary(checks) == (1, 1, 2, 1)
+
+
+def test_doctor_report_unknown_not_summarised_as_clean(monkeypatch, capsys):
+    """TRAP: an UNKNOWN-only report must NOT print the green 'No blocking
+    problems detected' line, and the summary must surface the UNKNOWN count."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    report = DoctorReport(checks=[
+        CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
+                    "installed but version unreadable"),
+    ])
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+    assert "1 UNKNOWN" in out
+    assert "No blocking problems detected." not in out
 
 
 def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
@@ -959,6 +998,29 @@ def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
     monkeypatch.setattr(d.subprocess, "run", boom)
     version, found, source, ee_fp = d._probe_ee_version()
     assert version is None and found is False
+
+
+def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
+    """#22 review: a found-but-unparseable install (e.g. a stale/shim native
+    binary that exits 0 with no version) must NOT mask a healthy EE on the other
+    install — keep probing for a parseable version."""
+    import dolby_to_easyeffects as d
+
+    class R:
+        def __init__(self, rc, out):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    def fake_run(cmd, **k):
+        if cmd[0] == "easyeffects":      # native answers, but no version token
+            return R(0, "easyeffects shim\n")
+        if cmd[0] == "flatpak":          # flatpak info has the real version
+            return R(0, "ID: x\nVersion: 8.2.1\nInstalled: 458.6 MB\n")
+        return R(1, "")
+
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    version, found, source, ee_fp = d._probe_ee_version()
+    assert version == (8, 2, 1) and found is True
+    assert ee_fp is True and source == "flatpak info"
 
 
 def test_probe_ee_version_degrades_on_timeout(monkeypatch):
@@ -979,4 +1041,17 @@ def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
         raise FileNotFoundError("no pgrep")
 
     monkeypatch.setattr(d.subprocess, "run", boom)
+    assert d.easyeffects_is_running() is False
+
+
+def test_easyeffects_is_running_degrades_on_permission_error(monkeypatch):
+    """TRAP: a sandboxed/SELinux host where pgrep raises PermissionError (an
+    OSError that is NOT FileNotFoundError/SubprocessError) must not crash the
+    doctor's fact-gathering."""
+    import dolby_to_easyeffects as d
+
+    def denied(*a, **k):
+        raise PermissionError("operation not permitted")
+
+    monkeypatch.setattr(d.subprocess, "run", denied)
     assert d.easyeffects_is_running() is False

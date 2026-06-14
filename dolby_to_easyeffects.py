@@ -751,11 +751,14 @@ def install_status(flatpak_exists: bool, native_exists: bool,
     if ee_is_flatpak is not None:
         run_where = "Flatpak" if ee_is_flatpak else "native"
         if run_where != where:
-            return CheckResult(DOCTOR_FAIL, "Install location",
-                f"EasyEffects runs as {run_where} but presets were written to "
-                f"the {where} location ({base_display}) — EE never sees them. "
-                f"Re-run with --output-dir/--irs-dir pointing at the {run_where} "
-                "paths.")
+            # WARN, not FAIL: the install that answered the probe isn't
+            # necessarily the one the user launches (dual-install systems), so
+            # we can't assert "EE never sees them" with certainty.
+            return CheckResult(DOCTOR_WARN, "Install location",
+                f"presets were written to the {where} location ({base_display}), "
+                f"but the EasyEffects detected is the {run_where} build — if "
+                "that's the one you run, it won't see them. Re-run with "
+                "--output-dir/--irs-dir for the install you use.")
         return CheckResult(DOCTOR_PASS, "Install location",
             f"{run_where} install; presets written to {base_display}.")
     if flatpak_exists and native_exists:
@@ -808,28 +811,42 @@ def check_preset_kernel(preset_json: dict, irs_stems: set,
 def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
     """Whether EasyEffects' selected output preset is one this script generated.
     Reports last-loaded / fallback without over-claiming which is *active*
-    (per-device autoloading lives elsewhere in EE's config)."""
-    gen = set(generated_names)
+    (per-device autoloading lives elsewhere in EE's config). The empty
+    ``Nothing`` bypass preset is excluded from "generated": having it selected
+    is itself a "sounds like nothing" cause, not a healthy state."""
+    dolby = {n for n in generated_names if n != BYPASS_PRESET_NAME}
     loaded = rc_data.get("last_output_preset", "")
     fallback = rc_data.get("fallback_preset", "")
     if not loaded and not fallback:
         return CheckResult(DOCTOR_WARN, "Selected preset",
             "EasyEffects has no output preset recorded yet — open it and load a "
             "Dolby-* preset for the speakers.")
-    if loaded in gen or (rc_data.get("uses_fallback") and fallback in gen):
+    if loaded == BYPASS_PRESET_NAME:
+        return CheckResult(DOCTOR_WARN, "Selected preset",
+            f"the silent '{BYPASS_PRESET_NAME}' bypass preset is selected — that's "
+            "no processing by design. Load a Dolby-* preset in EasyEffects.")
+    if loaded in dolby:
+        matched = loaded
+    elif rc_data.get("uses_fallback") and fallback in dolby:
+        matched = fallback
+    else:
+        matched = ""
+    if matched:
         return CheckResult(DOCTOR_PASS, "Selected preset",
-            f"EasyEffects last loaded '{loaded or fallback}'.")
+            f"EasyEffects last loaded '{matched}'.")
     return CheckResult(DOCTOR_WARN, "Selected preset",
         f"EasyEffects' selected output preset is '{loaded or fallback}', which "
         "this script didn't generate — load a Dolby-* preset in EasyEffects.")
 
 
-def _doctor_summary(checks) -> tuple[int, int, int]:
-    """Count (FAIL, WARN, PASS) across the checks for the summary line."""
+def _doctor_summary(checks) -> tuple[int, int, int, int]:
+    """Count (FAIL, WARN, PASS, UNKNOWN) across the checks. UNKNOWN is counted
+    so an unverifiable run isn't silently summarised as clean."""
     fail = sum(1 for c in checks if c.status == DOCTOR_FAIL)
     warn = sum(1 for c in checks if c.status == DOCTOR_WARN)
     ok = sum(1 for c in checks if c.status == DOCTOR_PASS)
-    return fail, warn, ok
+    unknown = sum(1 for c in checks if c.status == DOCTOR_UNKNOWN)
+    return fail, warn, ok, unknown
 
 
 def _flatpak_version_text(info_output: str) -> str:
@@ -844,17 +861,19 @@ def _flatpak_version_text(info_output: str) -> str:
 
 def _probe_ee_version() -> tuple[tuple[int, int, int] | None, bool, str, bool | None]:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
-    raises. Returns (version|None, found, source, ee_is_flatpak). Tries the
-    install type _USE_FLATPAK points at first. ``found`` means an EE binary
-    actually answered (so version=None then means 'installed but unreadable')."""
+    raises. Returns (version|None, found, source, ee_is_flatpak).
+
+    Probes the install the script writes to (per _USE_FLATPAK) first, then the
+    other, and prefers a *parseable* version over a found-but-unreadable answer
+    — so a stale/shim binary on one install can't mask a healthy version on the
+    other (issue #22 review). ``found`` means an EE binary actually answered, so
+    version=None with found=True means 'installed but version unreadable'."""
     def run(cmd):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError):
             return None
-        if r.returncode != 0:
-            return None
-        return (r.stdout or "") + "\n" + (r.stderr or "")
+        return ((r.stdout or "") + "\n" + (r.stderr or "")) if r.returncode == 0 else None
 
     def native():
         out = run(["easyeffects", "--version"])
@@ -862,18 +881,21 @@ def _probe_ee_version() -> tuple[tuple[int, int, int] | None, bool, str, bool | 
 
     def flatpak():
         out = run(["flatpak", "info", _FLATPAK_APP_ID])
-        if out is None:
-            return (None, False)
-        return (parse_ee_version(_flatpak_version_text(out)), True)
+        return (parse_ee_version(_flatpak_version_text(out)), True) if out is not None else (None, False)
 
-    order = ([(True, flatpak), (False, native)] if _USE_FLATPAK
-             else [(False, native), (True, flatpak)])
-    for is_flatpak, probe in order:
+    probes = ([(True, flatpak), (False, native)] if _USE_FLATPAK
+              else [(False, native), (True, flatpak)])
+    fallback = (None, False, "", None)   # best found-but-unparseable, in order
+    for is_flatpak, probe in probes:
         version, found = probe()
-        if found:
-            src = "flatpak info" if is_flatpak else "easyeffects --version"
+        if not found:
+            continue
+        src = "flatpak info" if is_flatpak else "easyeffects --version"
+        if version is not None:
             return version, True, src, is_flatpak
-    return None, False, "", None
+        if not fallback[1]:              # remember the first install that answered
+            fallback = (None, True, src, is_flatpak)
+    return fallback
 
 
 def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
@@ -986,9 +1008,12 @@ def _print_doctor_report(report: DoctorReport) -> None:
             continue
         emit(c)
     print()
-    fail, warn, ok = _doctor_summary(report.checks)
-    summary = f"Summary: {fail} FAIL, {warn} WARN, {ok} PASS"
-    cprint("err" if fail else ("warn" if warn else "ok"), summary)
+    fail, warn, ok, unknown = _doctor_summary(report.checks)
+    parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
+    if unknown:
+        parts.append(f"{unknown} UNKNOWN")
+    summary = "Summary: " + ", ".join(parts)
+    cprint("err" if fail else ("warn" if (warn or unknown) else "ok"), summary)
     print()
 
     # Raw probed facts — always shown so an issue can be diagnosed remotely even
@@ -1012,8 +1037,11 @@ def _print_doctor_report(report: DoctorReport) -> None:
     print()
 
     # What the doctor can't see — guide the user through the manual checks.
-    if not fail:
+    if not fail and not unknown:
         cprint("ok", "No blocking problems detected.")
+    elif unknown and not fail:
+        cprint("warn", "Some checks couldn't be verified (the [ ? ] lines above); "
+                       "the rest look OK.")
     cprint("dim", "If you still hear no difference between the preset and bypass:")
     cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
     cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
@@ -1065,12 +1093,16 @@ def warn_ee_environment(args) -> None:
                        "presets (e.g. the Flathub Flatpak). Ignore if you're "
                        "generating for another machine.")
 
-    # Install-location mismatch is only meaningful for the default EE dirs.
-    if (args.output_dir == DEFAULT_OUTPUT_DIR and args.irs_dir == DEFAULT_IRS_DIR):
-        inst = install_status(_FLATPAK_BASE.exists(), _NATIVE_BASE.exists(),
-                              _USE_FLATPAK, _tilde(_EASYEFFECTS_BASE), ee_is_flatpak)
-        if inst.status == DOCTOR_FAIL:
-            cprint("warn", f"\n⚠  {inst.detail}")
+    # Install-location mismatch (only meaningful for the default EE dirs): the
+    # detected EE build differs from where we wrote. Warn so the user can point
+    # --output-dir/--irs-dir at the install they actually run.
+    if (args.output_dir == DEFAULT_OUTPUT_DIR and args.irs_dir == DEFAULT_IRS_DIR
+            and ee_is_flatpak is not None and ee_is_flatpak != _USE_FLATPAK):
+        run_where = "Flatpak" if ee_is_flatpak else "native"
+        where = "Flatpak" if _USE_FLATPAK else "native"
+        cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
+                       f"location, but the {run_where} install was detected — if "
+                       "that's the one you use, it won't see them (run --doctor).")
 
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
@@ -1990,7 +2022,10 @@ def easyeffects_is_running() -> bool:
             capture_output=True, timeout=2,
         )
         return result.returncode == 0
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except (subprocess.SubprocessError, OSError):
+        # OSError covers FileNotFoundError (no pgrep) and PermissionError
+        # (sandboxed/SELinux hosts) — never crash a caller that only wants a
+        # best-effort "is EE up?" (e.g. --doctor's fact-gathering).
         return False
 
 
