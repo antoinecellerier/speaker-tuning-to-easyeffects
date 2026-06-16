@@ -605,3 +605,33 @@ future device-level investigation can wire in something better.
 
 5. **Every device has a unique regulator curve** — 399 distinct threshold patterns,
    confirming these are individually tuned per speaker.
+
+---
+
+## Open follow-ups (from the 2026-06 re-derivation)
+
+Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
+
+1. **Newer-SoundWire regulator gap (code).** `SUBSYS_37A317AA` encodes
+   `regulator-tuning/threshold_high` in an `isolated_band` sub-schema with no
+   `value` attribute, so the parser falls back to `[0.0]*20` and that device
+   gets **no regulator limiting** (9 profiles, §12). The same device already
+   needs DSO and advanced-virtualizer handling (§14). Parse the sub-schema or
+   warn.
+2. **Asymmetric L/R PEQ peak gain (investigate).** ~110 profiles now show a
+   differing L/R peak positive gain (was 0 on the original cohort, §12).
+   Re-check against the script's actual `max(L,R)` output-gain compensation —
+   is global-max adequate, or is per-channel handling needed?
+3. **Voice-AO divergence rate (re-derive).** §8's "97% of devices" is the
+   original-cohort figure; a naïve current-cohort recompute lands ~60% but
+   mixes simplified-schema `gain_l`/`gain_r` XMLs. Re-derive per-endpoint for a
+   clean rate.
+4. **1-band MBC audibility (validate).** Music 1-band MBC band-0 ratios reach
+   ~6:1 at thresholds to −12 dB (§2) — real compression, not just makeup.
+   Audition a high-ratio example; the `mbc-1band` path is still experimental.
+5. **`peak-level` disposition (minor).** Not universal — 244 nonzero rows
+   (−13 dB on 175). It's watch-listed in `_UNMODELED_FEATURES`; confirm that's
+   the right call rather than reading it.
+6. **Re-run on new driver pulls (process).** Regenerate every figure here with
+   [`tools/corpus_audit.py`](../tools/corpus_audit.py) after pulling new
+   packages — the corpus has roughly doubled since the prior derivation.

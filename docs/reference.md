@@ -181,6 +181,9 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   close the gap to DAX".
 - **Second-device confirmation** of any default mapping (the bar to change a
   default is ≥1 second-device capture): cross-device-findings.md.
+- **Corpus / cross-device follow-ups** (newer-SoundWire regulator gap,
+  asymmetric-L/R-peak path, voice-AO re-derivation, 1-band-MBC audibility):
+  cross-device-findings.md "Open follow-ups".
 - **Measurement tooling** to produce the captures: `tools/measure_dax/`
   (Windows DAX), `tools/measure_ee/` (live EE on Linux), `tools/measure_pw/`
   (PipeWire `filter-chain`).
