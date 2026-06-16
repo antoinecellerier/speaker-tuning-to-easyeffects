@@ -2,9 +2,17 @@
 
 > Interpretive analysis of the parameter schema used by Dolby DAX3 tuning XML (distributed publicly as part of Windows audio driver packages), for the purpose of Linux interoperability. No verbatim tuning arrays are reproduced.
 
-Why the generated EasyEffects preset looks the way it does. The README covers *what*
-the script emits; this doc covers the architectural *why*, so future readers don't
-have to reverse-engineer it from commit history.
+Why the generated EasyEffects preset looks the way it does. [reference.md](reference.md)
+covers *what* the script emits (mappings, plugin chain, units, what's not implemented);
+this doc covers the architectural *why*, so future readers don't have to
+reverse-engineer it from commit history.
+
+> **This file is the research log** — findings in roughly the order they were
+> established, including superseded hypotheses kept for the audit trail (see the
+> "Superseded by Finding 9" banners below). For the settled current-state
+> summary, start with [reference.md](reference.md); for the open threads worth
+> picking up, see "Unvalidated converter scaling factors" and "Follow-ups to
+> close the gap to DAX" further down.
 
 ## Dolby's signal flow: CP → VLLDP
 
@@ -294,7 +302,8 @@ The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters
 
 ## Verified math (sanity checks)
 
-A few numerical things the script depends on that aren't documented in the README:
+The sanity-checks behind the values catalogued in [reference.md](reference.md) —
+the derivations and accuracy measurements they rest on:
 
 **Q15 block-rate time constants** (MB compressor attack/release coefficients). Stored
 as exponential smoothing coefficients operating per block (256 samples at 48 kHz =
@@ -1613,6 +1622,13 @@ largely closed by the `/100` reading.)**
 Things that were investigated and explicitly declined, recorded so they don't get
 re-proposed:
 
+- **`filter_coefficients` as an audio EQ source.** The base64-encoded biquad
+  blob in `tuning-vlldp` was investigated as a possible speaker-correction EQ,
+  but the decoded coefficients don't produce sensible audio curves — they are
+  almost certainly VLLDP-internal analysis filters, not an audio-path
+  equaliser. The audio-optimizer + speaker-PEQ parameters already capture the
+  same speaker correction, so nothing is lost by ignoring it. (Listed under
+  "Not implemented" in [reference.md](reference.md).)
 - **Noise gate before the compressor.** Would prevent noise-floor amplification, but
   real content rarely has an audible noise floor at the levels that trigger the
   compressor. Adds complexity for no practical benefit.
@@ -1622,15 +1638,31 @@ re-proposed:
 - **Custom SOF DSP topology with FIR + DRC modules.** See `docs/alternative-pipelines.md`
   Option 2. Highest offload potential, but requires rebuilding signed firmware and
   custom topology files — too much maintenance burden for a workstation tool.
-- **Parametric-EQ approximation of the IEQ curve** (instead of FIR). Produced
-  large inter-band ripple regardless of how the solver was tuned — see the
-  README's "IEQ target curves are composite targets" table for the corrected
-  peak/RMS figures. (Those fits were measured against the pre-Finding-9
-  full-weight IEQ target; today's `/100` target is far flatter in its IEQ
-  component, so the quoted magnitudes overstate the current gap. The
-  conclusion stands regardless: the AO component keeps full per-band swings,
-  and the min-phase FIR realises the composite target exactly at zero
-  latency and negligible CPU, so a PEQ approximation has no upside.)
+- **Parametric-EQ approximation of the IEQ curve** (instead of FIR). The
+  20-value IEQ arrays (e.g. `ieq_balanced`) are the desired *composite*
+  frequency response, not individual filter gains — applied directly as
+  parametric bell gains they stack to +20–30 dB at mid frequencies. Every
+  solver tried left large inter-band ripple (numbers reproduced on the X1
+  Yoga Gen 7 / Realtek 17AA:22E6 dynamic / balanced curve; comparable shape
+  on the IdeaPad XML from issue #4):
+
+  | Approach | Peak error vs target | RMS error vs target |
+  |---|---:|---:|
+  | Raw values as bell gains (Q=1.5) | ~34 dB (cumulative mid boost from overlapping filters) | ~20 dB |
+  | Iterative solver (center-freq only) | ~16 dB between bands (0.1 dB at the 20 centres) | ~2 dB |
+  | Least-squares solver (dense grid) | ~11 dB | ~1.6 dB |
+  | **FIR convolution (current)** | **0.34 dB across audible band, 0.07 dB at the 20 band centres** | **<0.1 dB** |
+
+  (All figures are peak and RMS on the same dense log-frequency grid,
+  20 Hz–22 kHz, 800 points. An earlier revision of this table quoted
+  "±5 / ±4 dB ripple" for the biquad-fit rows and "≤0.06 dB everywhere" for
+  FIR — those mixed peak and RMS metrics across rows.) Those fits were
+  measured against the pre-Finding-9 full-weight IEQ target; today's `/100`
+  target is far flatter in its IEQ component, so the quoted magnitudes
+  overstate the current gap. The conclusion stands regardless: the AO
+  component keeps full per-band swings, and the min-phase FIR realises the
+  composite target exactly at zero latency and negligible CPU, so a PEQ
+  approximation has no upside.
 - **Auto-trimming the convolver IR to its audible length.** Issue #11 noted that the
   4096-tap (~85 ms) IR has a long sub-noise-floor tail. A sweep across 729 FIRs from
   11 device groups (Realtek HDA, Senary, Qualcomm, AMD, ThinkPad / IdeaPad / AIO

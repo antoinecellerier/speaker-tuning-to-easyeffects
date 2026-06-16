@@ -61,8 +61,9 @@ At ~24 bytes per biquad section plus header overhead, this fits comfortably in t
 - **FIR convolver** (IEQ + audio-optimizer): the loaded topology has no FIR EQ
   component. The IEQ target curve requires FIR for accurate reproduction (the
   best biquad fits measured ~11–16 dB peak / ~1.6–2 dB RMS error against the
-  20-band composite target — see the README's "IEQ target curves are composite
-  targets" table).
+  20-band composite target — see the comparison table in
+  [`design-notes.md`](design-notes.md), "Rejected approaches → Parametric-EQ
+  approximation").
 - **Multiband compressor / regulator / autogain**: the generic HDA topology
   doesn't load DRC modules.
 

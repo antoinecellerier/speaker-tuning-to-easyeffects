@@ -7,9 +7,9 @@ The original cohort was **196 DAX3 tuning files** spanning **3 Realtek codec var
 packages. A 2026-04-22 expansion pulled in four more Lenovo audio-driver packages
 (`ext_lenovo_AIO_rtk`, `ext_thinkpad_AIO_rtk`, `ext_capg_thinkpad`,
 `ext_amd_thinkpad_AIO`) for a total of **1050 tuning XMLs / 15551 profile rows**
-spanning **11 Realtek codec DEV IDs plus SoundWire**. The README documents how the
-script handles one specific device; this doc captures what's universal across the
-ecosystem and what varies from device to device, so readers can judge which parts
+spanning **11 Realtek codec DEV IDs plus SoundWire**. [`reference.md`](reference.md)
+documents how the script maps one specific device; this doc captures what's
+universal across the ecosystem and what varies from device to device, so readers can judge which parts
 of the pipeline are portable and which are tuned.
 
 Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):

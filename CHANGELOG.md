@@ -90,6 +90,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   fallback.
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
 
+### Docs
+
+- README restructured into a user-first guide: quick-start-led ordering,
+  collapsible reference sections, a pipeline diagram, and EasyEffects GUI
+  screenshots. The deep DSP/XML internals moved to a new
+  [`docs/reference.md`](docs/reference.md) (the current-state reference for
+  XML→parameter mappings, the plugin chain, units, and what's not
+  implemented); `docs/design-notes.md` is now explicitly the research log.
+  No change to generated output.
+
 ## v2026.05 — 2026-05-28
 
 ### Changed

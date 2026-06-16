@@ -24,8 +24,9 @@ A few things about this repo that aren't obvious from the code.
   falsify them, but the bar to change a default mapping is high (≥1
   second-device capture confirming it generalises across all bands).
   Empirical tuning, if ever wanted, ships opt-in so the XML-only path stays
-  default. Full evidence + the empirical-shortcut and unvalidated-scaling
-  lists: `docs/design-notes.md`.
+  default. Current validated/unvalidated status: `docs/reference.md`; full
+  evidence + the empirical-shortcut and unvalidated-scaling lists:
+  `docs/design-notes.md`.
 - **Zero added latency** over the PipeWire quantum is a hard constraint
   (video lip-sync, interactive use). FIR stays **minimum-phase** — the
   cepstral processing in `make_fir` is load-bearing; a naive inverse-FFT
@@ -124,5 +125,7 @@ auto-runs `validate_conf.py` (lv2info) unless `--no-validate`; full
 equivalence is checked by `tools/measure_pw/`. Full detail:
 `docs/ee-to-pipewire.md`.
 
-Everything else — plugin-chain rationale, gain-staging, unit conversions,
-cross-device findings — lives in `docs/` (README "Further reading").
+Docs are layered (README "Further reading" links all): `docs/reference.md`
+= current-state reference (mappings, plugin chain, units, not-implemented);
+`docs/design-notes.md` = research log (the why; new findings + rejected
+approaches go here); `docs/cross-device-findings.md` = corpus; README = guide.

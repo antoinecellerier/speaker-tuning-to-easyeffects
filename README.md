@@ -1,32 +1,21 @@
 # Dolby DAX3 to EasyEffects Preset Converter
 
-Converts Dolby Atmos DAX3 tuning XML from Windows drivers into [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets for Linux. If your distro still ships EasyEffects 7 (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the preset formats aren't compatible.
+Bring your laptop's Windows speaker tuning to Linux. This script converts the
+Dolby Atmos **DAX3** tuning XML shipped inside Windows audio drivers into
+[EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets — the
+same FIR speaker correction, EQ, and dynamics processing your speakers get on
+Windows, applied at **zero added latency**.
 
-## Tested devices
+> **EasyEffects 8.x required.** If your distro still ships EasyEffects 7
+> (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the
+> [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the EE 7
+> and EE 8 preset formats aren't compatible.
 
-| Device | Codec / Subsystem | Reported by |
-|---|---|---|
-| ASUS Zenbook 14 UX3405CA | Realtek ALC294, 1043:1A63 | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19) |
-| Lenovo IdeaPad Pro 5 14AHP9 (83D3) | Realtek ALC287, 17AA:38D0 | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
-| Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
-| Lenovo Yoga Pro 9 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
-| ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
-| ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
-| ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author |
-
-If you test it on other hardware, please [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml) — run `python3 dolby_to_easyeffects.py --speaker-info` and paste the output.
-
-## Staying up to date
-
-Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md), and each version is published as a [GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases). To be notified when a new version ships, click **Watch → Custom → Releases** at the top of the GitHub page.
-
-Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the `filter-chain` conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
-
-Each generated preset and `.conf` is stamped with the version that produced it (a `_generator` field in the preset JSON, a `# version:` line in the conf; `--version` prints it), so you can always tell what made a given file when reporting an issue.
+**Contents:** [Quick start](#quick-start) · [Staying up to date](#staying-up-to-date) · [Supported devices](#supported-devices) · [Install](#install) · [Usage](#usage) · [Advanced](#advanced) · [How it works](#how-it-works) · [Running the tests](#running-the-tests) · [Further reading](#further-reading)
 
 ## Quick start
 
-1. Install dependencies (see [Dependencies](#dependencies) below for your distro). TL;DR: you need Python 3 with NumPy and SciPy.
+1. Install dependencies (see [Install](#install) for your distro). TL;DR: Python 3 with NumPy and SciPy.
 
 2. Run the script. If your Windows partition is mounted or a driver package is extracted in the current directory, no arguments are needed:
 
@@ -43,7 +32,64 @@ Each generated preset and `.conf` is stamped with the version that produced it (
 
 The `--autoload` option wires EasyEffects to apply the Dolby correction on your internal speaker automatically. Skip it if you'd rather select a preset yourself (Presets → Dolby-Balanced / Dolby-Detailed / Dolby-Warm); see [Autoload](#autoload) for details.
 
-### Options
+![Selecting a generated Dolby preset in EasyEffects](docs/images/ee-preset-select.jpg)
+
+## Staying up to date
+
+Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md), and each version is published as a [GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases). To be notified when a new version ships, click **Watch → Custom → Releases** at the top of the GitHub page.
+
+Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the `filter-chain` conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
+
+Each generated preset and `.conf` is stamped with the version that produced it (a `_generator` field in the preset JSON, a `# version:` line in the conf; `--version` prints it), so you can always tell what made a given file when reporting an issue.
+
+## Supported devices
+
+The converter works on laptop internal speakers whose Windows driver ships a Dolby DAX3 tuning — Realtek and Qualcomm Aqstic HD-Audio codecs and newer SoundWire smart-amp platforms. Confirmed on:
+
+| Device | Codec / Subsystem | Reported by |
+|---|---|---|
+| ASUS Zenbook 14 UX3405CA | Realtek ALC294, 1043:1A63 | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19) |
+| Lenovo IdeaPad Pro 5 14AHP9 (83D3) | Realtek ALC287, 17AA:38D0 | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
+| Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
+| Lenovo Yoga Pro 9 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
+| ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
+| ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
+| ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author |
+
+If you test it on other hardware, please [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml) — run `python3 dolby_to_easyeffects.py --speaker-info` and paste the output.
+
+## Install
+
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome.
+
+<details>
+<summary>Install commands for your distro</summary>
+
+- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich py3-rich-argparse`
+- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
+- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
+
+</details>
+
+If your distro isn't listed or you'd rather not touch system packages, a venv works too:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+`requirements.txt` also pulls in `pytest` so you can run the test suite (`pytest tests/`) from the same venv.
+
+## Usage
+
+### Command-line options
+
+<details>
+<summary>Full flag reference</summary>
 
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--list` — show available endpoints and profiles in the XML, then exit
@@ -64,6 +110,8 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
 
+</details>
+
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
 
 ### Troubleshooting: a preset that sounds like nothing
@@ -79,9 +127,13 @@ It checks the common causes and prints a pasteable report:
 - **EasyEffects 7** — version 8 changed the preset format, so on EasyEffects 7 the speaker-correction filter loads nothing and the preset is effectively bypassed. This repo targets EasyEffects 8.x (see the note at the top — install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) if your distro still ships 7).
 - **Wrong install location** — presets written to the Flatpak path while you run the native package (or vice-versa), so EasyEffects never sees them.
 - **A missing impulse file** — the convolver references a `.irs` that isn't in the irs directory, so the speaker correction is silent.
-- **No Dolby preset selected**, or EasyEffects' global bypass (the power-button icon) is on.
+- **No Dolby preset selected**, or EasyEffects' global bypass is on — the highlighted top-left toggle below.
 
-A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote.
+![EasyEffects' global on/off toggle (top-left, highlighted) — if it's off, every preset is bypassed](docs/images/ee-global-bypass.jpg)
+
+A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote. To check your version directly, see EasyEffects' About dialog:
+
+![Checking the EasyEffects version](docs/images/ee-version.jpg)
 
 ### Disabling filters
 
@@ -99,21 +151,31 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 
 Convolver, PEQ, autogain, and the final brickwall limiter can't be disabled from the CLI — they're the FIR correction, speaker PEQ, volume-leveler placeholder, and safety net respectively.
 
+## Advanced
+
 ### Autoload
 
-The `--autoload` option configures EasyEffects to automatically apply a preset whenever the internal speaker output becomes active:
+`--autoload` configures EasyEffects to apply a preset automatically whenever the internal speaker output becomes active. Generate all presets and autoload one on the speaker:
 
-Generate all presets and autoload Dolby-Dynamic-Balanced on the speaker:
 ```bash
 python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
     --all-profiles --autoload Dolby-Dynamic-Balanced
 ```
 
-This writes a JSON file to `~/.local/share/easyeffects/autoload/output/` matching EasyEffects' autoload convention (`{node.name}:{route}.json`, where `{route}` is the sink's active output route description — e.g. `Speaker` — which is what EasyEffects matches on, not the card profile). Speaker sinks are detected from PipeWire via `pw-dump`: first the sinks tagged with the `audio-speakers` device icon (excluding HDMI/DisplayPort/Bluetooth). If none are tagged — some laptops lack a device-specific UCM2 profile and fall back to a generic one that doesn't set the speaker icon — the script falls back to a relaxed tier of internal analog outputs (still excluding HDMI/Bluetooth/headsets), auto-applying a single match, prompting you to choose when several are found, and listing every sink it saw (with its icon) so you can see why. If the active output route can't be read from PipeWire, that sink is skipped (with an explanation) rather than written with a guessed name EasyEffects wouldn't match. Pass `--autoload-sink NODE_NAME` to bind a specific sink yourself. The script must be run from a desktop session with PipeWire running.
+It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffects/autoload/output/`, detects the speaker sink via `pw-dump`, and also installs an empty `Nothing` bypass preset so non-speaker outputs (HDMI, Bluetooth, USB) don't keep processing the speaker tuning. Run it from a desktop session with PipeWire running; restart EasyEffects afterward if it was already running. Pass `--autoload-sink NODE_NAME` to bind a sink yourself, or `--no-autoload-bypass` to skip the bypass.
 
-EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing an empty `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. If EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip both steps if you manage this yourself.
+![EasyEffects autoload: Dolby-Balanced bound to the speaker output, with Nothing as the global fallback preset](docs/images/ee-autoload.jpg)
 
-### Optional: PipeWire `filter-chain` instead of EasyEffects
+<details>
+<summary>How speaker detection and the bypass fallback work</summary>
+
+The autoload file follows EasyEffects' convention (`{node.name}:{route}.json`, where `{route}` is the sink's active output route description — e.g. `Speaker` — which is what EasyEffects matches on, not the card profile). Speaker sinks are detected from PipeWire via `pw-dump`: first the sinks tagged with the `audio-speakers` device icon (excluding HDMI/DisplayPort/Bluetooth). If none are tagged — some laptops lack a device-specific UCM2 profile and fall back to a generic one that doesn't set the speaker icon — the script falls back to a relaxed tier of internal analog outputs (still excluding HDMI/Bluetooth/headsets), auto-applying a single match, prompting you to choose when several are found, and listing every sink it saw (with its icon) so you can see why. If the active output route can't be read from PipeWire, that sink is skipped (with an explanation) rather than written with a guessed name EasyEffects wouldn't match.
+
+EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing the `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. If EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip both steps if you manage this yourself.
+
+</details>
+
+### PipeWire `filter-chain` instead of EasyEffects
 
 `ee_to_pipewire.py` converts a generated EasyEffects preset into a PipeWire `filter-chain` `.conf` for users who'd rather not run EasyEffects (lower CPU, no GUI, set-and-forget). Disable EasyEffects for this device first to avoid double-processing.
 
@@ -126,32 +188,12 @@ The PW chain loads LV2 plugins from your system: **LSP plugins** (`lsp-plugins-l
 
 The conf attaches to the internal-speaker sink as a WirePlumber 0.5+ smart filter — apps keep targeting the speaker as default, the chain inserts itself transparently, HDMI / Bluetooth / USB outputs bypass automatically, and there's no second volume layer. Covers convolver, PEQ, dialog, multiband compressor, regulator, limiter (LSP-backed) plus `bass_enhancer` / `stereo_tools` (Calf-backed); stereo only. Measures equivalent to the EasyEffects chain to ≤0.5 dB / ≥30 dB S/R on the development device. `autogain` and 4-channel upmix for Snapdragon-class laptops aren't translated — autogain because EE's implementation is native libebur128 with no faithful LV2 equivalent (the converter warns and skips), 4-channel upmix because the chain is stereo-only. Open an issue with your device model, codec subsystem ID, and a link to the OEM's Windows driver download if you need either. Design notes in [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md); equivalence-measurement tooling in [`tools/measure_pw/`](tools/measure_pw/).
 
-### Dependencies
-
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — if installed, the script renders its output and `--help` with semantic colors; without them, output is plain monochrome and everything else still works.
-
-Install on your distro:
-
-- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich py3-rich-argparse`
-- **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
-- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
-
-If your distro isn't listed or you'd rather not touch system packages, a venv works too:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-`requirements.txt` also pulls in `pytest` so you can run the test suite (`pytest tests/`) from the same venv.
-
-## Extracting the XML
+### Extracting the XML
 
 The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
+
+<details>
+<summary>Manual extraction, or from a Lenovo driver EXE (no Windows partition)</summary>
 
 If you prefer to extract the XML manually, it can be found in the Windows driver package at:
 ```
@@ -159,11 +201,7 @@ C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.x
 ```
 Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
 
-### From a Lenovo driver EXE (no Windows partition required)
-
-Download the Lenovo audio driver EXE (e.g. `n4ba126w.exe`) into this project directory. You need [`innoextract`](https://constexpr.org/innoextract/install) installed.
-
-From the project root, run these two commands:
+**From a Lenovo driver EXE.** Download the Lenovo audio driver EXE (e.g. `n4ba126w.exe`) into this project directory. You need [`innoextract`](https://constexpr.org/innoextract/install) installed. From the project root, run:
 
 ```bash
 # 1. Extract only the Dolby tuning XMLs into ./driver-cache/
@@ -175,247 +213,44 @@ python3 dolby_to_easyeffects.py --autoload
 
 If the autoprobe reports ambiguity (e.g. you have several extracted driver trees), pass `--windows ./driver-cache` to point it at the one you want.
 
-## Auto-detection notes
+</details>
 
-### Windows partition or extracted DriverStore
+### Auto-detection notes
 
-Omitting `--windows` and the positional XML triggers the autoprobe. It enumerates NTFS-family mountpoints (`ntfs`, `ntfs3`, `fuseblk`) from `/proc/mounts` and keeps any whose DriverStore contains `dax3_ext_*.inf_*` subdirs — both full system roots like `/mnt/windows/Windows` and drive-root mounts like `/mnt/c` are accepted. If nothing mounted matches, it falls back to a bounded walk of the current directory for any directory whose files include a Dolby-shaped XML (`DEV_*_SUBSYS_*.xml` / `SOUNDWIRE_*_SUBSYS_*.xml` / `SDW_*_SUBSYS_*.xml`, excluding `_settings.xml` companions). That covers the raw `innoextract` layout (`./driver-cache/code$GetExtractPath$/Dolby/03_dax_ext/`) as well as hand-organised collections — no `dax3_ext_*.inf_*` rename required. The walk skips hidden directories, doesn't follow symlinks, and is depth-capped.
+<details>
+<summary>How the script finds your XML, EasyEffects install, and codec</summary>
 
-A single unambiguous match is used. When multiple candidates match, the autoprobe narrows to those containing an XML for your detected audio hardware and uses it if exactly one survives; otherwise it errors with the shortlist so you can pick one via `--windows DIR`.
+**Windows partition or extracted DriverStore.** Omitting `--windows` and the positional XML triggers the autoprobe. It enumerates NTFS-family mountpoints (`ntfs`, `ntfs3`, `fuseblk`) from `/proc/mounts` and keeps any whose DriverStore contains `dax3_ext_*.inf_*` subdirs — both full system roots like `/mnt/windows/Windows` and drive-root mounts like `/mnt/c` are accepted. If nothing mounted matches, it falls back to a bounded walk of the current directory for any directory whose files include a Dolby-shaped XML (`DEV_*_SUBSYS_*.xml` / `SOUNDWIRE_*_SUBSYS_*.xml` / `SDW_*_SUBSYS_*.xml`, excluding `_settings.xml` companions). That covers the raw `innoextract` layout (`./driver-cache/code$GetExtractPath$/Dolby/03_dax_ext/`) as well as hand-organised collections — no `dax3_ext_*.inf_*` rename required. The walk skips hidden directories, doesn't follow symlinks, and is depth-capped. A single unambiguous match is used; when several match, the autoprobe narrows to those containing an XML for your detected audio hardware and uses it if exactly one survives, otherwise erroring with the shortlist so you can pick one via `--windows DIR`.
 
-### Flatpak EasyEffects
+**Flatpak EasyEffects.** The script auto-detects whether EasyEffects is installed via Flatpak or as a native package. If `~/.var/app/com.github.wwmm.easyeffects/config/easyeffects/` exists, it writes presets there; otherwise it falls back to the native `~/.local/share/easyeffects/` path. You can still override with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
 
-The script auto-detects whether EasyEffects is installed via Flatpak or as a native package. If `~/.var/app/com.github.wwmm.easyeffects/config/easyeffects/` exists, it writes presets there; otherwise it falls back to the native `~/.local/share/easyeffects/` path. You can still override with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
+**SoundWire codecs (newer Intel platforms).** Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root (e.g. `/mnt/windows/Windows`), a drive-root mount (e.g. `/mnt/c` — the script looks for a case-insensitive `Windows/` child), *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
 
-### SoundWire codecs (newer Intel platforms)
+</details>
 
-Auto-detection also handles SoundWire-based audio (Lunar Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs). The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). `--windows` accepts either a full Windows system root (e.g. `/mnt/windows/Windows`), a drive-root mount (e.g. `/mnt/c` — the script looks for a case-insensitive `Windows/` child), *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
+## How it works
 
-## What the script does
+The script parses the DAX3 XML's two processing stages and emits a minimum-phase FIR impulse response plus a chain of EasyEffects plugins — every parameter traced back to an XML field, at zero added latency.
 
-### Input: Dolby DAX3 XML
-
-The XML (`DEV_0287_SUBSYS_*.xml`) contains two processing stages:
-
-- **tuning-cp** (Content Processing): software DSP — IEQ, graphic EQ, dialog enhancer, surround decoder, volume leveler
-- **tuning-vlldp** (Very Low Latency Driver Path): hardware-level DSP — audio-optimizer (speaker correction), speaker PEQ, multi-band compressor, regulator
-
-### Output: EasyEffects presets
-
-Each preset contains up to eight plugins chained in order (seven on HDA devices — the bass enhancer is SoundWire-only):
-
-1. **Convolver** — FIR impulse response implementing the combined IEQ target curve + audio-optimizer speaker correction
-2. **Bass Enhancer** — harmonic bass generator (Calf Bass Enhancer) restoring perceived low end on SoundWire speakers whose XML carries an IEQ-only curve; emitted only for SoundWire devices
-3. **Equalizer** — 4th-order high-pass at 100 Hz (speaker protection) + speaker PEQ filters (bells, shelves, and HP/LP) per channel from the vlldp section
-4. **Dialog Enhancer** — broad speech-band EQ boost at 2.5 kHz (second equalizer instance), gain scaled by the Dolby dialog-enhancer-amount; enabled on most profiles except music
-5. **Autogain** — volume leveler mapped from Dolby's volume-leveler settings; **bypassed by default** because without Dolby's MI (Media Intelligence) steering the autogain causes audible distortion on quiet→loud transitions. Settings are preserved so users can enable it manually. Placed before the compressor to match Dolby's CP→VLLDP signal flow
-6. **Multiband Compressor** — multi-band dynamics processing mapped from Dolby's `mb-compressor-tuning` coefficients; emits 1 to 4 bands based on the XML's `group_count` (dominated by 2-band tunings in the wild, but 3- and 4-band tunings — including voice-profile speech compression and music-profile per-band makeup — are also supported)
-7. **Regulator** — per-band limiter (second multiband compressor instance) mapped from Dolby's regulator-tuning thresholds, protecting speakers from distortion at specific frequency ranges; also the primary slot where Dolby's `volmax-boost` is applied as `output-gain` (typically +6 dB of loudness makeup)
-8. **Limiter** — brickwall output limiter at -1 dBFS as a safety net to catch any remaining inter-sample peaks; fallback slot for `volmax-boost` when the regulator isn't emitted
-
-Dolby's `surround-boost` is **not** mapped to stereo widening: a 2026-06 DAX capture showed Dolby applies no stereo-width change on 2-channel content (it's a multichannel-virtualization control, dormant without a surround/object bed). Earlier versions added a Calf Stereo Tools widener here; see [`docs/design-notes.md`](docs/design-notes.md) (unvalidated-scaling entry 2).
-
-Output files:
-- `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` — stereo FIR impulse responses
-- `~/.local/share/easyeffects/output/Dolby-{Balanced,Detailed,Warm}.json` — EasyEffects presets
-
-### EasyEffects 8.x specifics
-
-- Presets: `~/.local/share/easyeffects/output/` (not `~/.config/`)
-- IR files: `~/.local/share/easyeffects/irs/` with `.irs` extension (not `.wav`)
-- Convolver uses `"kernel-name"` (filename stem), not the deprecated `"kernel-path"`
-- Equalizer has no graphic EQ mode — only parametric (LSP plugin)
-
-## Key findings
-
-### Unit conversions
-
-- **IEQ and audio-optimizer values**: stored in **1/16 dB** units. Divide by 16 to get dB. Confirmed by `geq_maximum_range=192` = 12 dB (standard graphic EQ range).
-- **Speaker PEQ gains**: already in dB (float attributes in XML like `gain="-4.000000"`).
-- **ieq-amount**: a **percentage** weight on the IEQ voicing — `10` means the IEQ curve is applied at 10% on top of the audio-optimizer correction (`scale = amount/100`), not as a full-depth EQ. (Earlier versions read it as `amount/10` = full strength; that over-applied the IEQ and diverged from DAX by up to ~28 dB in the treble. DAX steers the IEQ dynamically via Media Intelligence — `mi-ieq-steering-enable` — so a small static weight approximates its steady-state. See `docs/design-notes.md` "Finding 9".)
-
-The `ieq-amount` fix was one of a class: several other converter scaling constants (the dialog-enhancer dB ceiling, the surround `/20`, the regulator slope/knee mappings, the MBC Q15 decode) ship by default but have not yet been confirmed against a DAX capture. They are catalogued, with the measurement that would validate each, in `docs/design-notes.md` "Unvalidated converter scaling factors (the `ieq-amount` class)".
-
-### IEQ target curves are composite targets, not filter gains
-
-The 20-value IEQ arrays (e.g. `ieq_balanced`) represent the **desired composite frequency response**, not individual filter gains. Applying them directly as parametric bell filter gains causes massive overlap stacking (+20–30 dB at mid frequencies).
-
-Approaches tried and their problems (numbers reproduced on the X1 Yoga
-Gen 7 / Realtek 17AA:22E6 dynamic / balanced curve; comparable shape on
-the IdeaPad XML from issue #4):
-
-| Approach | Peak error vs target | RMS error vs target |
-|---|---:|---:|
-| Raw values as bell gains (Q=1.5) | ~34 dB (cumulative boost at mids from overlapping filters) | ~20 dB |
-| Iterative solver (center-freq only) | ~16 dB between bands (0.1 dB at the 20 centres) | ~2 dB |
-| Least-squares solver (dense grid) | ~11 dB | ~1.6 dB |
-| **FIR convolution (current)** | **0.34 dB across audible band, 0.07 dB at the 20 band centres** | **<0.1 dB** |
-
-Earlier revisions of this table quoted "±5 / ±4 dB ripple" for the
-biquad-fit rows and "≤0.06 dB everywhere" for FIR — those mixed peak
-and RMS metrics across rows. The numbers above are all peak and RMS
-on the same dense log-frequency grid (20 Hz–22 kHz, 800 points).
-
-### FIR generation
-
-The script generates minimum-phase FIR filters via cepstral processing:
-
-1. Interpolate the combined IEQ + audio-optimizer target curve to FFT frequency bins
-2. Compute the real cepstrum (IFFT of log-magnitude)
-3. Apply causal windowing to get minimum-phase cepstrum
-4. Reconstruct via FFT → exp → IFFT
-5. Normalize so peak frequency response = 0 dB
-
-The `.irs` files are standard RIFF/WAVE (IEEE float32, stereo, 48 kHz, 4096 samples) with the `.irs` extension that EasyEffects 8.x requires.
-
-### XML structure
-
-```
-<device_data>
-  <constant>
-    <band_20_freq fs_48000="47,141,234,...,19688"/>   20 center frequencies at 48kHz
-    <ieq_balanced target="157,167,218,...,-283"/>       IEQ curve (1/16 dB)
-    <ieq_detailed target="..."/>
-    <ieq_warm target="..."/>
-  </constant>
-  <endpoint type="internal_speaker" operating_mode="normal" fs="48000">
-    <profile type="dynamic">              ← also: movie, music, game, voice
-      <tuning-cp>
-        <ieq-enable value="1"/>           ← enabled for dynamic, music
-        <ieq-amount value="10"/>          ← percentage weight (10 = 10%)
-        <ieq-bands-set preset="ieq_balanced"/>
-        <volume-leveler-enable value="1"/>
-        <volume-leveler-amount value="2"/>  ← 0-10 (aggressiveness)
-        <volume-leveler-in-target value="-320"/>  ← 1/16 dB = -20 dBFS
-        <volume-leveler-out-target value="-320"/>
-        <bass-enhancer-enable value="0"/>
-        <regulator-enable value="1"/>
-        ...
-      </tuning-cp>
-      <tuning-vlldp>
-        <audio-optimizer-enable value="1"/>
-        <audio-optimizer-bands>
-          <ch_00 value="-240,0,160,..."/>  ← per-channel, 1/16 dB
-          <ch_01 value="-240,0,160,..."/>
-        </audio-optimizer-bands>
-        <speaker-peq-filters>
-          <filter speaker="0" type="9" f0="100" order="4"/>        ← HP filter
-          <filter speaker="0" type="1" f0="516" gain="-4.0" q="1.5"/>  ← Bell
-          <filter speaker="0" type="1" f0="280" gain="3.0" q="2.0"/>
-          <filter speaker="0" type="1" f0="400" gain="4.0" q="4.6"/>
-          ...
-        </speaker-peq-filters>
-        <mb-compressor-enable value="1"/>
-        <mb-compressor-tuning>
-          <group_count value="2"/>                              ← 1–4 active bands (dev device: 2)
-          <band_group_0 value="3,-103,19639,24080,32123,32"/>   ← low band (6-tuple)
-          <band_group_1 value="20,-103,19654,22641,30810,32"/>  ← high band
-          <band_group_2 value="20,0,32767,22641,27238,0"/>      ← unused on this device (schema slot)
-          <band_group_3 value="20,0,32767,22641,27238,0"/>      ← unused on this device (schema slot)
-        </mb-compressor-tuning>
-        <mb-compressor-target-power-level value="-80"/>         ← 1/16 dB = -5 dBFS
-        <regulator-speaker-dist-enable value="1"/>
-        <regulator-tuning>
-          <threshold_high value="-160,-144,-128,-80,0,..."/>    ← 1/16 dB per band
-          <threshold_low value="-352,-336,-320,-272,-192,..."/> ← 1/16 dB per band
-        </regulator-tuning>
-        <regulator-stress-amount value="144,144,0,0,0,0,0,0"/> ← 1/16 dB
-        ...
-      </tuning-vlldp>
-    </profile>
-  </endpoint>
+```mermaid
+flowchart LR
+  XML["DAX3 tuning XML<br/>(Windows driver)"] --> P["dolby_to_easyeffects.py<br/>parse CP + VLLDP"]
+  P --> FIR[".irs FIR<br/>impulse response"]
+  P --> PRM["plugin params<br/>EQ · MBC · regulator · limiter"]
+  FIR --> EE["EasyEffects preset"]
+  PRM --> EE
+  EE --> SPK(["laptop speakers"])
 ```
 
-### Profile differences
+The preset is up to eight plugins in order: **Convolver** (FIR speaker correction) → **Bass Enhancer** (SoundWire only) → **Equalizer** (speaker PEQ) → **Dialog Enhancer** → **Autogain** (bypassed by default) → **Multiband Compressor** → **Regulator** (per-band limiter) → **Limiter** (brickwall safety net).
 
-| Profile | IEQ enabled | IEQ curve | Volume leveler | vlldp AO/PEQ | MB compressor |
-|---|---|---|---|---|---|
-| dynamic | yes | ieq_balanced | on (amount 2) | shared | enabled |
-| movie | no | — | off | shared | enabled |
-| music | yes | ieq_balanced | on (amount 2) | shared | enabled |
-| game | no | — | on (amount 2) | shared | enabled |
-| voice | no | — | off | **different** | disabled |
+![A generated preset loaded in EasyEffects, convolver through limiter](docs/images/ee-chain-loaded.jpg)
 
-All non-voice profiles share the same audio-optimizer and speaker PEQ values. The voice profile has different AO tuning and simplified PEQ. The multi-band compressor threshold varies slightly per profile.
+For the full detail, see the docs:
 
-### Multi-band compressor coefficient decoding
-
-The Dolby MB compressor uses `group_count` active bands (1 to 4, capped at LSP MBC's 8-band ceiling) with parameters stored as 6-value tuples of raw DSP coefficients per band. Bands beyond `group_count` are ignored — the XML always allocates 4 `band_group_N` slots, but only the first `group_count` are decoded. Each band's decoded format:
-
-| Index | Field | Units | Example (band 0) | Decoded |
-|-------|-------|-------|-------------------|---------|
-| 0 | Crossover band index | index into 20-freq table | 3 | 328 Hz |
-| 1 | Threshold | 1/16 dB | -103 | -6.4 dB |
-| 2 | Gain coefficient | Q15 fixed-point | 19639 | ratio ≈ 1.67:1 |
-| 3 | Attack coefficient | Q15 block-rate | 24080 | ~17 ms |
-| 4 | Release coefficient | Q15 block-rate | 32123 | ~268 ms |
-| 5 | Makeup gain | 1/16 dB | 32 | +2 dB |
-
-**Gain coefficient → ratio**: `ratio = 1 / (coeff / 32768)`. A value of 32767 (≈1.0) means bypass (1:1 ratio).
-
-**Time constants**: Stored as exponential smoothing coefficients in Q15 format, operating per block (assumed 256 samples at 48 kHz = 187.5 blocks/sec). Decoded via `tau = -1 / (blocks_per_sec * ln(coeff / 32768))`.
-
-**volmax-boost** (`<volmax-boost value="96"/>` in tuning-cp): 96/16 = 6 dB. This defines the maximum gain the Dolby volume leveler may add above its output target, i.e. the ceiling of Dolby's VolMax loudness maximiser. EasyEffects has no MI-steered leveler to apply it dynamically, so the script applies it as a static `output-gain` on the regulator (`multiband_compressor#1`), with a fallback to `input-gain` on the brickwall limiter when the regulator isn't emitted. Can be turned off with `--disable volmax` (see below).
-
-The decoded bands for the development device (2-band tuning):
-- **Band 0** (low, below 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 17 ms, release 268 ms, makeup +2 dB
-- **Band 1** (high, above 328 Hz): threshold -6.4 dB, ratio 1.67:1, attack 14 ms, release 87 ms, makeup +2 dB
-
-Other devices in the corpus ship 3- or 4-band tunings — e.g. a voice profile with 2:1 speech-band compression above 1.3 kHz and 7 kHz, or a music profile using four bands as a per-band makeup stage (1:1 ratios with +1–3 dB per band). See the cross-device findings for distribution.
-
-### Volume leveler → Autogain mapping
-
-The Dolby volume leveler dynamically adjusts gain to maintain a target loudness level. This maps to EasyEffects' autogain plugin, which uses EBU R 128 loudness measurement. **Bypassed by default** — without Dolby's MI (Media Intelligence) content analysis, the autogain causes audible distortion on quiet→loud transitions because it can't anticipate dynamic changes. The Dolby-derived settings are preserved so users can enable it manually:
-
-- **volume-leveler-in/out-target**: -320 in 1/16 dB = -20 dBFS → autogain target of -20 LUFS (matching the Dolby config directly)
-- **volume-leveler-amount** (0–10): controls aggressiveness → mapped to `maximum-history` window (amount 0 → 30s gentle, amount 4+ → 10s aggressive)
-- **Reference**: Geometric Mean (MSI) — combines momentary, short-term, and integrated loudness for balanced behavior
-
-### Regulator → Per-band limiter
-
-The Dolby regulator is a 20-band limiter that prevents speaker distortion by clamping per-band levels to `threshold_high` values (in 1/16 dB). This is mapped to a second EasyEffects multiband compressor instance (`multiband_compressor#1`) configured as a limiter with Peak sidechain and 1 ms attack.
-
-Additional regulator parameters:
-- **`regulator-distortion-slope`** (1/16 scale): controls limiting aggressiveness. Slope 1.0 = hard limiter (ratio 100:1), lower values → softer compression (ratio = 1/(1-slope))
-- **`regulator-timbre-preservation`** (1/16 scale): controls knee softness to preserve tonal balance. Mapped to compressor knee: knee = -6 × timbre dB (0.75 → -4.5 dB knee)
-
-The 20 Dolby bands are grouped into zones with identical thresholds to fit within EasyEffects' 8-band limit. For this device, this produces 5 zones:
-
-| Zone | Frequency range | Threshold |
-|------|----------------|-----------|
-| 0 | below 81 Hz | -10 dB |
-| 1 | 81–182 Hz | -9 dB |
-| 2 | 182–277 Hz | -8 dB |
-| 3 | 277–392 Hz | -5 dB |
-| 4 | above 392 Hz | 0 dB (no limiting) |
-
-The tighter limiting at low frequencies protects laptop speakers from sub-bass distortion they can't reproduce cleanly. The `threshold_low` values (more aggressive thresholds) and `stress-amount` are not currently used — only `threshold_high` is mapped.
-
-## What's not implemented
-
-- **`filter_coefficients`** — base64-encoded biquad blob in `tuning-vlldp`. Investigated but the format doesn't produce sensible audio EQ curves; likely VLLDP-internal analysis filters rather than audio-path EQ. The audio-optimizer + PEQ parameters already capture the same speaker correction.
-- **`regulator-stress-amount`** / **`threshold_low`** — secondary regulator parameters not mapped; only `threshold_high` is used for the per-band limiter.
-
-### Unused XML data (not worth implementing)
-
-The following XML fields are present but deliberately ignored — they are always zero/disabled on this device, are DSP pipeline internals with no EasyEffects equivalent, or relate to multi-channel/subwoofer routing irrelevant for stereo laptop output:
-
-- `pregain`, `postgain`, `calibration-boost`, `system-gain` — all 0 dB gain trims
-- `bass-enhancer-*`, `bass-extraction-*` — always disabled
-- `virtual-bass-*` — always disabled
-- `volume-modeler-*` — always disabled
-- `graphic-equalizer-*` — always disabled (user-facing 20-band GEQ)
-- `surround-boost`, `surround-decoder-*-enable`, `surround-decoder-center-spreading-enable` — surround virtualizer / upmix (a render-depth control, not a stereo-width knob; DAX applies no widening on 2-ch content — design-notes entry 2)
-- `virtualizer-*-speaker-angle`, `height-filter-mode` — virtualizer geometry
-- `mi-*-steering-enable` — Media Intelligence auto-steering flags
-- `output-mode` / `mix_matrix` / `processing_mode` — speaker routing
-- `init-info` blocks — DSP buffer/capacity sizing
-- CP-level `audio-optimizer-bands` (ch_00–ch_07) — always zero; vlldp has the real data
-- CP-level `regulator-tuning` — always zero presets; vlldp has the real data
-- `mb-compressor-agc-enable`, `mb-compressor-slow-gain-enable` — always off
-- `woofer-regulator-*` — no subwoofer in this endpoint
-- `band_20_freq` at 44.1 kHz — script is 48 kHz only
-- `ieq-bands-set` — indicates default IEQ variant; script generates all three
+- **[docs/reference.md](docs/reference.md)** — the current-state reference: every XML→parameter mapping, the plugin chain in detail, units, profile differences, which mappings are DAX-validated, and what's deliberately not implemented (and why).
+- **[docs/design-notes.md](docs/design-notes.md)** — the research log: why the chain is ordered this way, the FIR cepstral construction, what was attempted and rejected, and the open threads worth picking up.
+- **[docs/cross-device-findings.md](docs/cross-device-findings.md)** — empirical analysis across ~1850 DAX3 files: which DSP blocks are universal vs. device-specific.
 
 ## Running the tests
 
@@ -439,9 +274,10 @@ The suite catches structural regressions (FIR not minimum-phase, convolver autog
 
 ## Further reading
 
-In-tree docs with more context on specific aspects:
+In-tree docs and tooling with more context:
 
-- [docs/design-notes.md](docs/design-notes.md) — why the plugin chain is ordered the way it is, gain-staging rationale, why autogain is bypassed by default, and an empirical comparison of our generated FIR against DAX3's actual response on Windows
+- [docs/reference.md](docs/reference.md) — current-state reference: XML→parameter mappings, the plugin chain, units, profile differences, and what's not implemented
+- [docs/design-notes.md](docs/design-notes.md) — research log: why the plugin chain is ordered the way it is, gain-staging rationale, why autogain is bypassed by default, and an empirical comparison of our generated FIR against DAX3's actual response on Windows
 - [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~1850 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
 - [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
 - [docs/ee-to-pipewire.md](docs/ee-to-pipewire.md) — current architecture of the `ee_to_pipewire.py` companion converter: smart-filter routing, self-contained conf layout, plugin coverage, and equivalence guarantees
