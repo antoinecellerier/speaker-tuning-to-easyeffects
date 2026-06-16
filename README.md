@@ -94,7 +94,7 @@ pip install -r requirements.txt
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
-- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
+- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, background-service setup (service mode + autostart), and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
@@ -128,8 +128,11 @@ It checks the common causes and prints a pasteable report:
 - **Wrong install location** — presets written to the Flatpak path while you run the native package (or vice-versa), so EasyEffects never sees them.
 - **A missing impulse file** — the convolver references a `.irs` that isn't in the irs directory, so the speaker correction is silent.
 - **No Dolby preset selected**, or EasyEffects' global bypass is on — the highlighted top-left toggle below.
+- **EasyEffects not running in the background** — the preset only processes audio while EasyEffects is active, so it can vanish after you close the window or reboot. In EasyEffects → Preferences → Background Service (below), enable *Enable service mode* and *Autostart on login*. `--doctor` reports whether both are set.
 
 ![EasyEffects' global on/off toggle (top-left, highlighted) — if it's off, every preset is bypassed](docs/images/ee-global-bypass.jpg)
+
+![EasyEffects Background Service preferences — enable service mode and autostart on login so the preset keeps applying across window-close and reboot](docs/images/ee-background-service.jpg)
 
 A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote. To check your version directly, see EasyEffects' About dialog:
 
@@ -162,7 +165,7 @@ python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
     --all-profiles --autoload Dolby-Dynamic-Balanced
 ```
 
-It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffects/autoload/output/`, detects the speaker sink via `pw-dump`, and also installs an empty `Nothing` bypass preset so non-speaker outputs (HDMI, Bluetooth, USB) don't keep processing the speaker tuning. Run it from a desktop session with PipeWire running; restart EasyEffects afterward if it was already running. Pass `--autoload-sink NODE_NAME` to bind a sink yourself, or `--no-autoload-bypass` to skip the bypass.
+It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffects/autoload/output/`, detects the speaker sink via `pw-dump`, and also installs an empty `Nothing` bypass preset so non-speaker outputs (HDMI, Bluetooth, USB) don't keep processing the speaker tuning. Run it from a desktop session with PipeWire running; restart EasyEffects afterward if it was already running. For the autoload to take effect on every login, also enable Background Service + Autostart on login in EasyEffects' preferences (see [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing)) so EasyEffects is actually running when the speaker becomes active. Pass `--autoload-sink NODE_NAME` to bind a sink yourself, or `--no-autoload-bypass` to skip the bypass.
 
 ![EasyEffects autoload: Dolby-Balanced bound to the speaker output, with Nothing as the global fallback preset](docs/images/ee-autoload.jpg)
 

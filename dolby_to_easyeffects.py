@@ -839,6 +839,37 @@ def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
         "this script didn't generate — load a Dolby-* preset in EasyEffects.")
 
 
+def autostart_status(rc_data: dict) -> CheckResult:
+    """Whether EasyEffects is set to keep running in the background so the
+    preset stays applied. Two Background-Service toggles matter, both persisted
+    in ``[Window]``: ``autostartOnLogin`` (launch at login — default off) and
+    ``enableServiceMode`` (stay active when the window is closed — default on).
+    The preset only processes audio while EasyEffects runs, so if EITHER is off
+    it silently stops applying after a window-close or reboot — a common "it was
+    working, now it sounds like nothing" cause. Both off and a single one off
+    are all problem states, so we name exactly the toggle(s) that are off."""
+    autostart = rc_data.get("autostart_on_login")
+    service = rc_data.get("service_mode")
+    if autostart and service:
+        return CheckResult(DOCTOR_PASS, "Background service",
+            "EasyEffects autostarts as a background service at login — the "
+            "preset applies automatically and survives reboots.")
+    # Name the toggle(s) up front and adjacent, then group the explanations —
+    # inline parentheticals buried the second toggle so it read as one warning.
+    off, why = [], []
+    if not service:
+        off.append("'Enable service mode'")
+        why.append("service mode keeps it running once the window is closed")
+    if not autostart:
+        off.append("'Autostart on login'")
+        why.append("autostart relaunches it after a reboot")
+    return CheckResult(DOCTOR_WARN, "Background service",
+        "EasyEffects won't reliably keep processing in the background, so the "
+        "preset applies only while it's open. In EasyEffects > Preferences > "
+        "Background Service, turn on " + " and ".join(off)
+        + " (" + "; ".join(why) + ").")
+
+
 def _doctor_summary(checks) -> tuple[int, int, int, int]:
     """Count (FAIL, WARN, PASS, UNKNOWN) across the checks. UNKNOWN is counted
     so an unverifiable run isn't silently summarised as clean."""
@@ -954,6 +985,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # dirs). Under custom dirs, surface the loaded preset as a fact instead.
     if rc_text and not custom_dirs:
         report.checks.append(loaded_preset_status(rc, generated_names))
+    # Background-service / autostart is install-global, not output-dir-specific,
+    # so it runs even under custom dirs (unlike the selected-preset check).
+    if rc_text:
+        report.checks.append(autostart_status(rc))
 
     # 5. Hardware / codec context (folds in --speaker-info)
     report.speaker_info = _gather_speaker_info()
@@ -971,6 +1006,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "rc_present": bool(rc_text),
         "selected_preset": rc.get("last_output_preset", "")
                            or rc.get("fallback_preset", ""),
+        "autostart_on_login": rc.get("autostart_on_login", False),
+        "service_mode": rc.get("service_mode", True),
         "output_device": rc.get("output_device", ""),
         "output_plugins": rc.get("output_plugins", []),
     }
@@ -1028,6 +1065,9 @@ def _print_doctor_report(report: DoctorReport) -> None:
           f"{f.get('irs_count', 0)} impulse files")
     print(f"  Config:       {f.get('rc_path')} "
           f"({'present' if f.get('rc_present') else 'absent'})")
+    print(f"  Background:   service mode "
+          f"{'on' if f.get('service_mode') else 'off'}, autostart "
+          f"{'on' if f.get('autostart_on_login') else 'off'}")
     if f.get("selected_preset"):
         print(f"  Selected:     {f['selected_preset']}")
     if f.get("output_device"):
@@ -1939,8 +1979,11 @@ def read_ee_rc(rc_text: str) -> dict:
 
     Pure (text in, dict out — no filesystem). Verified key locations against a
     live EE 8.x rc: the loaded output preset is ``[Presets]
-    lastLoadedOutputPreset``; the global Fallback Preset toggle is the two
-    ``[Window]`` keys; the target sink and active plugin chain are
+    lastLoadedOutputPreset``; the global Fallback Preset toggle and the
+    Background-Service ``autostartOnLogin`` / ``enableServiceMode`` flags are
+    ``[Window]`` keys (``enableServiceMode`` is written only when toggled off —
+    an absent key is the ON default); the target sink and active plugin chain
+    are
     ``[StreamOutputs] outputDevice``/``plugins``. Missing sections/keys fall
     back to empty/False so callers never KeyError on a partial or older rc.
     Note there is NO global-bypass key here — that toggle is runtime/GUI only.
@@ -1960,6 +2003,13 @@ def read_ee_rc(rc_text: str) -> dict:
         "fallback_preset": g("Window", "outputAutoloadingFallbackPreset"),
         "uses_fallback": g("Window", "outputAutoloadingUsesFallback",
                            "false").lower() == "true",
+        "autostart_on_login": g("Window", "autostartOnLogin",
+                                "false").lower() == "true",
+        # enableServiceMode is written only when toggled OFF (non-default);
+        # an absent key is the ON default — hence default "true" here, the
+        # opposite polarity to autostartOnLogin above.
+        "service_mode": g("Window", "enableServiceMode",
+                          "true").lower() == "true",
         "output_device": g("StreamOutputs", "outputDevice"),
         "output_plugins": [p for p in plugins.split(",") if p],
     }
@@ -3997,6 +4047,19 @@ def main():
                     cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
                                    "this file on exit).")
+
+        # Autoload only persists across logins if EasyEffects both starts at
+        # login (autostart) and stays alive in the background (service mode);
+        # nudge toward the prefs, but only when one is off so the fully
+        # configured case stays quiet.
+        try:
+            _rc_text = DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
+        except OSError:
+            _rc_text = ""
+        _rc = read_ee_rc(_rc_text)
+        if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
+            cprint("warn", "  Tip: enable Background Service + Autostart on login in "
+                           "EasyEffects' preferences so this autoloads on every login.")
 
     # End-of-run troubleshooting hint. Only list filters that actually
     # got emitted this run — no point suggesting --disable for

@@ -41,6 +41,7 @@ from dolby_to_easyeffects import (
     _disabled_band,
     _doctor_summary,
     _print_doctor_report,
+    autostart_status,
     check_preset_kernel,
     decode_mbc_bands,
     ee_version_status,
@@ -913,6 +914,8 @@ def test_read_ee_rc_extracts_verified_keys():
           "[Window]\n"
           "outputAutoloadingFallbackPreset=Nothing\n"
           "outputAutoloadingUsesFallback=true\n"
+          "autostartOnLogin=true\n"
+          "enableServiceMode=false\n"
           "[StreamOutputs]\n"
           "outputDevice=alsa_output.spk\n"
           "plugins=convolver#0,equalizer#0,limiter#0\n")
@@ -920,6 +923,9 @@ def test_read_ee_rc_extracts_verified_keys():
     assert d["last_output_preset"] == "Dolby-Balanced"
     assert d["fallback_preset"] == "Nothing"
     assert d["uses_fallback"] is True
+    assert d["autostart_on_login"] is True
+    # enableServiceMode=false is written only when toggled off → service_mode False
+    assert d["service_mode"] is False
     assert d["output_device"] == "alsa_output.spk"
     assert d["output_plugins"] == ["convolver#0", "equalizer#0", "limiter#0"]
 
@@ -928,6 +934,9 @@ def test_read_ee_rc_missing_sections_default_safely():
     d = read_ee_rc("")
     assert d["last_output_preset"] == ""
     assert d["uses_fallback"] is False
+    assert d["autostart_on_login"] is False
+    # opposite polarity to autostart: an absent enableServiceMode is the ON default
+    assert d["service_mode"] is True
     assert d["output_plugins"] == []
 
 
@@ -963,6 +972,39 @@ def test_loaded_preset_names_the_matched_fallback_not_the_loaded():
     r = loaded_preset_status(rc, ["Dolby-Balanced"])
     assert r.status == DOCTOR_PASS
     assert "Dolby-Balanced" in r.detail and "SomethingElse" not in r.detail
+
+
+def test_background_service_both_on_passes():
+    r = autostart_status({"autostart_on_login": True, "service_mode": True})
+    assert r.status == DOCTOR_PASS
+
+
+def test_background_service_service_off_warns_naming_only_service():
+    """TRAP: autostart on but service mode off is a false-PASS risk — the preset
+    stops once the window closes. WARN, and name service mode, NOT autostart."""
+    r = autostart_status({"autostart_on_login": True, "service_mode": False})
+    assert r.status == DOCTOR_WARN
+    assert "Enable service mode" in r.detail
+    assert "Autostart on login" not in r.detail
+
+
+def test_background_service_autostart_off_warns_naming_only_autostart():
+    r = autostart_status({"autostart_on_login": False, "service_mode": True})
+    assert r.status == DOCTOR_WARN
+    assert "Autostart on login" in r.detail
+    assert "Enable service mode" not in r.detail
+
+
+def test_background_service_both_off_warns_naming_both():
+    r = autostart_status({"autostart_on_login": False, "service_mode": False})
+    assert r.status == DOCTOR_WARN
+    assert "Enable service mode" in r.detail and "Autostart on login" in r.detail
+
+
+def test_background_service_missing_keys_warn_safely():
+    """A partial/older dict must not KeyError; missing flags fall to the
+    warn-safe direction."""
+    assert autostart_status({}).status == DOCTOR_WARN
 
 
 def test_doctor_summary_counts():
