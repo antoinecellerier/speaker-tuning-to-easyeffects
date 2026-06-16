@@ -158,7 +158,7 @@ Rationale for the non-obvious ordering decisions:
 
 - **A brickwall limiter is appended at the chain end** (commit `1b14bc1`) even
   though the regulator already performs per-band limiting. Cross-device data
-  (`docs/cross-device-findings.md` §13, expanded 1050-XML cohort) shows ~95% of
+  (`docs/cross-device-findings.md` §6/§13, 2483-XML cohort) shows ~97% of
   devices use `regulator-distortion-slope=16` — a true brickwall — while the
   rest use a softer slope. (The original 196-file cohort suggested a 53/47
   split; the expanded corpus revised it.) The explicit LSP limiter is redundant

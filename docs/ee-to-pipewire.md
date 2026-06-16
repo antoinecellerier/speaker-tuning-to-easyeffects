@@ -238,7 +238,7 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
     that excludes the Speaker port without also unplugging
     headphones, so we can't profile-swap our way out either.
 - **No 4-channel upmix** for Snapdragon-class laptops (Yoga Slim 7x,
-  X13s Gen 1). Every XML in the 1050-file corpus reports
+  X13s Gen 1). Every XML in the corpus reports
   `total_count=2`, including the X13s sibling — the upmix is device
   wisdom encoded outside the XML.  See cross-device-findings.md §14.
 - **No `--launch` flag.** PipeWire's standard reload path is

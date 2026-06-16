@@ -209,6 +209,32 @@ def report(xmls):
     print(f"\nIEQ presets when enabled: {dict(ieq_presets)}")
     print(f"IEQ amounts when enabled: {dict(ieq_amounts.most_common())}")
 
+    def _share_by_profile(field, predicate=None, profs=None):
+        for prof in (profs or [p for p, _ in profiles.most_common(8)]):
+            rs = [r for r in all_rows if r["profile"] == prof
+                  and r.get(field) is not None
+                  and (predicate is None or predicate(r))]
+            if not rs:
+                continue
+            c = Counter(r[field] for r in rs)
+            t = len(rs)
+            top = ", ".join(f"{k}:{v * 100 // t}%" for k, v in c.most_common(6))
+            print(f"  {prof:20} (n={t})  {top}")
+
+    print("\nvl_amount by profile:")
+    _share_by_profile("vl_amount")
+    print("\nIEQ amount by profile (ieq_enable=1):")
+    _share_by_profile("ieq_amount", predicate=lambda r: r.get("ieq_enable") == 1)
+    print("\nDialog-enhancer enabled by profile:")
+    for prof, _ in profiles.most_common(8):
+        rs = [r for r in all_rows if r["profile"] == prof
+              and r.get("dialog_enable") is not None]
+        if rs:
+            en = sum(1 for r in rs if r["dialog_enable"] == 1)
+            print(f"  {prof:20} {en * 100 // len(rs)}% enabled ({en}/{len(rs)})")
+    print("\nDialog-enhancer amount by profile (when enabled):")
+    _share_by_profile("dialog_amount", predicate=lambda r: r.get("dialog_enable") == 1)
+
     print("\nMBC enable by profile:")
     for prof, _ in profiles.most_common(10):
         rows = [r for r in all_rows if r["profile"] == prof]

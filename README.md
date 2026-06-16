@@ -250,7 +250,7 @@ For the full detail, see the docs:
 
 - **[docs/reference.md](docs/reference.md)** — the current-state reference: every XML→parameter mapping, the plugin chain in detail, units, profile differences, which mappings are DAX-validated, and what's deliberately not implemented (and why).
 - **[docs/design-notes.md](docs/design-notes.md)** — the research log: why the chain is ordered this way, the FIR cepstral construction, what was attempted and rejected, and the open threads worth picking up.
-- **[docs/cross-device-findings.md](docs/cross-device-findings.md)** — empirical analysis across ~1850 DAX3 files: which DSP blocks are universal vs. device-specific.
+- **[docs/cross-device-findings.md](docs/cross-device-findings.md)** — empirical analysis across ~2,500 DAX3 files: which DSP blocks are universal vs. device-specific.
 
 ## Running the tests
 
@@ -278,7 +278,7 @@ In-tree docs and tooling with more context:
 
 - [docs/reference.md](docs/reference.md) — current-state reference: XML→parameter mappings, the plugin chain, units, profile differences, and what's not implemented
 - [docs/design-notes.md](docs/design-notes.md) — research log: why the plugin chain is ordered the way it is, gain-staging rationale, why autogain is bypassed by default, and an empirical comparison of our generated FIR against DAX3's actual response on Windows
-- [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~1850 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
+- [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~2,500 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
 - [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
 - [docs/ee-to-pipewire.md](docs/ee-to-pipewire.md) — current architecture of the `ee_to_pipewire.py` companion converter: smart-filter routing, self-contained conf layout, plugin coverage, and equivalence guarantees
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side analysis scripts for measuring DAX3's actual response via WASAPI loopback. Reproduces the empirical comparison in `design-notes.md` on any Lenovo/ThinkPad with DAX3 installed.
