@@ -88,9 +88,6 @@ pip install -r requirements.txt
 
 ### Command-line options
 
-<details>
-<summary>Full flag reference</summary>
-
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
@@ -109,8 +106,6 @@ pip install -r requirements.txt
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `stereo`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
-
-</details>
 
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
 
