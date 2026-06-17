@@ -13,6 +13,12 @@ clearer…) grounded in real-device testing where we have it — keep the DSP
 mechanism as a secondary clause. If a change alters the output but hasn't
 been listened to, say so plainly rather than inventing an impression.
 
+Write for a human skimming a release: keep each entry concise (one tight
+paragraph), plain-language first with the DSP/mechanism as a secondary clause,
+and link out (issue/PR number, docs/design-notes.md) instead of explaining the
+deep why inline. Within each ### section, order entries most-impactful first —
+[AUDIBLE] and user-facing changes above minor or internal ones.
+
 The pre-v2026.05 sections below were reconstructed from git history,
 grouped into the releases that would have been cut at the time.
 -->
@@ -33,84 +39,92 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 ### Changed
 
 - **[AUDIBLE]** Stereo image is no longer artificially widened. On
-  `dynamic`/`movie` profiles the converter used to add a Calf Stereo Tools
-  widener (mapped from Dolby's `surround-boost`), pushing the side channel up
-  ~4 dB for a wider-but-sometimes-hollow image. A Windows DAX capture
-  (2026-06-13) showed Dolby applies **no** stereo widening on 2-channel
-  content — `surround-boost` is a multichannel-virtualization control that's
-  dormant without a surround/object bed, not a stereo-width knob — so the
-  mapping was removed. Stereo playback now matches Dolby's actual 2-channel
-  output. The `--disable stereo` flag is gone (nothing to disable). Re-run the
-  script to regenerate your presets. Detail: `docs/design-notes.md`
-  unvalidated-scaling entry 2.
+  `dynamic`/`movie` profiles the converter used to push the side channel up
+  ~4 dB (a Calf Stereo Tools widener mapped from Dolby's `surround-boost`) for
+  a wider-but-sometimes-hollow image. A Windows DAX capture (2026-06-13) showed
+  Dolby applies **no** widening on 2-channel content — `surround-boost` is a
+  multichannel-virtualization control, not a stereo-width knob — so the mapping
+  (and the now-defunct `--disable stereo` flag) was removed. Stereo now matches
+  Dolby's actual 2-channel output; re-run the script to regenerate your presets.
+  Detail: `docs/design-notes.md` unvalidated-scaling entry 2.
+- A failed hardware auto-detection now prints a plain `Error: …` pointing at
+  `--help`, instead of dumping argparse's full usage banner — which made an
+  environment problem (no tuning found) look like a mistyped command. Genuine
+  flag mistakes still show usage.
 
 ### Added
 
-- Measurement tooling for the unvalidated-scaling capture campaign
-  (design-notes catalogue entries 1/2/6/8/11; no change to generated
-  presets): a speech stimulus (`stimulus_speech`, espeak-ng synthesis with a
-  shaped-noise fallback) for the speech-gated dialog enhancer, an MBC-waking
-  `stimulus_stepped_loud` (−2 dBFS peak), a side/mid widening readout for
-  the stereo stimuli (which the analyzer previously skipped as unknown
-  kinds), and an absolute-level mode (`compare_ee_vs_dax.py --absolute`,
-  with un-normalized transfer curves now stored by `analyze.py`) for
-  broadband-level questions like the PEQ anti-clipping trim.
-
-- Simplified-schema DAX3 XMLs are now supported. Some Lenovo drivers
-  (xml_version ~3.2.x — e.g. the ThinkPad X1 Carbon Gen 8) name the per-channel
-  audio-optimizer correction `<gain_l>`/`<gain_r>` instead of `<ch_00>`/`<ch_01>`
-  and ship no multi-band-compressor or speaker-PEQ blocks; the script previously
-  rejected them as an unsupported schema variant. It now maps `gain_l`→left /
-  `gain_r`→right (the same 20-band, 1/16-dB encoding, resolved the same way) and
-  emits a convolver + regulator preset, warning that MBC and PEQ are absent in
-  this variant. The regulator and all `tuning-cp` blocks (dialog, surround,
-  leveler, volmax) are unchanged.
+- `--doctor` (alias `--diagnose`) self-diagnostic for the most common "it
+  loads but sounds like nothing" reports: it checks the EasyEffects version,
+  install location, per-preset impulse-file integrity, the selected preset, and
+  whether EE is set to run in the background (service mode + autostart), then
+  prints PASS/WARN/FAIL with a pasteable report. Normal runs also warn at the
+  end when the detected EE install can't use the presets just written — e.g.
+  EasyEffects 7, whose older preset format silently bypasses the v8 convolver.
   ([#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
+- Simplified-schema DAX3 XMLs are now supported. Some Lenovo drivers (e.g. the
+  ThinkPad X1 Carbon Gen 8) name the speaker correction `<gain_l>`/`<gain_r>`
+  and ship no multiband-compressor or speaker-PEQ blocks; the script used to
+  reject them. It now maps those to the left/right correction and emits a
+  convolver + regulator preset, warning that MBC and PEQ are absent in this
+  variant.
+  ([#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
+- Warns when a smart-amp firmware gate is muting the woofers. Some laptops
+  (e.g. the Lenovo Yoga Pro 9i) keep the woofers muted until the ALSA control
+  `Speaker Force Firmware Load` is enabled — silent bass that no DAX XML hints
+  at — so `--speaker-info` and the end-of-run summary now detect the gate and
+  print copy-paste fixes.
+  ([#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17))
+- Auto-discovery now matches Apple Boot Camp tuning XMLs (Intel-Mac DAX3
+  tunings key on a device-first PCI subsystem, the opposite byte order from an
+  HDA codec). Tentative — unverified on real T2-Mac Linux hardware.
+  ([#21](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/21))
 - `--autoload-sink NODE_NAME` (repeatable) — bind autoload to an explicit
   PipeWire sink, bypassing speaker detection. Mirrors `ee_to_pipewire.py`'s
   `--target-sink`.
+- Mark additional tested devices: ASUS Zenbook 14 UX3405CA
+  ([#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19))
+  and Lenovo IdeaPad Pro 5 14AHP9
+  ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18)).
+- Measurement tooling for the unvalidated-scaling capture campaign (no change
+  to generated presets): a speech stimulus (`stimulus_speech`) for the dialog
+  enhancer, an MBC-waking `stimulus_stepped_loud`, a side/mid widening readout
+  for the stereo stimuli, and an absolute-level comparison mode
+  (`compare_ee_vs_dax.py --absolute`). Backs design-notes catalogue entries
+  1/2/6/8/11.
 
 ### Fixed
 
-- The newer SoundWire device `SUBSYS_37A317AA` (Lenovo IdeaPad 5x 2-in-1) now
-  gets its per-band regulator limiting. Its `regulator-tuning/threshold_high`
-  stores the thresholds in a per-channel `<ch_00>…<ch_07>` sub-schema the parser
-  didn't read, so the regulator silently fell back to *no* limiting (9 profiles)
-  — leaving that device's small speakers without the per-band excursion guard.
-  The converter now reads the per-channel thresholds (the same `ch_00`/`ch_01`
-  mechanism as the audio optimizer), warning if the L/R channels diverge or the
-  tuning is genuinely empty. **No other device's output changes** (every other
-  device uses the flat `value=`/`preset=` form). This is XML-derived but **not
-  yet verified on the hardware** — if you have this device, re-run the script to
-  regenerate your preset. (Dynamic Speaker Optimization and the advanced
-  virtualizer for this device remain unmodeled — see `docs/cross-device-findings.md`.)
-- Autoload now works on cards whose output *route* description differs from
-  their *profile* description. EasyEffects keys entries on the route (e.g.
-  `Speaker`), but the script wrote the profile, so on any such card (observed
-  on a classic `analog-stereo` card reporting `Analog Stereo`) the entry never
-  matched and the `Nothing` fallback won, leaving the Dolby correction silently
-  unapplied. Cards where the two coincide were unaffected. The filename now
-  uses the route read from `pw-dump`; sinks with an unresolvable route are
-  skipped with an explanation.
+- Autoload now works on cards whose output *route* differs from their *profile*
+  (e.g. a classic `analog-stereo` card reporting `Analog Stereo`). EasyEffects
+  keys entries on the route, but the script wrote the profile, so on such cards
+  the entry never matched and the Dolby correction was silently left unapplied.
+  The filename now uses the route from `pw-dump`; sinks with an unresolvable
+  route are skipped with an explanation.
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
-- Autoload now finds internal speakers that PipeWire doesn't tag
-  `audio-speakers` (some laptops fall back to a generic UCM2 profile that omits
-  the icon, so the built-in speaker shows up as `audio-card-analog` and the old
-  strict filter silently matched nothing). Detection falls back to a relaxed
-  tier of internal analog sinks, prompting when several are found and listing
-  every sink it saw. `ee_to_pipewire.py`'s smart-filter target gets the same
+- Autoload now finds internal speakers PipeWire doesn't tag `audio-speakers`
+  (some laptops use a generic UCM2 profile, so the speaker shows up as
+  `audio-card-analog` and the old strict filter matched nothing). It falls back
+  to a relaxed tier of internal analog sinks, prompting and listing what it saw
+  when several match; `ee_to_pipewire.py`'s smart-filter target gets the same
   fallback.
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
+- A newer SoundWire device, `SUBSYS_37A317AA` (Lenovo IdeaPad 5x 2-in-1), now
+  gets its per-band regulator limiting. Its thresholds live in a per-channel
+  `<ch_00>…<ch_07>` sub-schema the parser didn't read, so the regulator silently
+  fell back to *no* limiting — leaving the small speakers without their per-band
+  excursion guard. **No other device's output changes.** XML-derived but **not
+  yet verified on the hardware** — if you have this device, re-run the script.
+  (Its Dynamic Speaker Optimization and advanced virtualizer remain unmodeled.)
+  Detail: `docs/cross-device-findings.md`.
 
 ### Docs
 
-- README restructured into a user-first guide: quick-start-led ordering,
-  collapsible reference sections, a pipeline diagram, and EasyEffects GUI
-  screenshots. The deep DSP/XML internals moved to a new
-  [`docs/reference.md`](docs/reference.md) (the current-state reference for
-  XML→parameter mappings, the plugin chain, units, and what's not
-  implemented); `docs/design-notes.md` is now explicitly the research log.
-  No change to generated output.
+- README restructured into a user-first guide (quick-start-led, collapsible
+  reference sections, a pipeline diagram, EasyEffects screenshots). The deep
+  DSP/XML internals moved to a new [`docs/reference.md`](docs/reference.md), and
+  `docs/design-notes.md` is now explicitly the research log. No change to
+  generated output.
 
 ## v2026.05 — 2026-05-28
 

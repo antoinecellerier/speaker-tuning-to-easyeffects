@@ -86,6 +86,8 @@ sessions shipped bugs that only showed on real content.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
+- **A user-visible change ships → add a `CHANGELOG.md` entry** under
+  `## Unreleased`. What counts, and how to word it: `.claude/rules/changelog.md`.
 - **Investigation flags are scaffolding.** Once a hypothesis on
   `dolby_to_easyeffects.py` is closed, revert the flag and record the
   finding in design-notes — a permanent finding beats a permanent CLI
@@ -116,14 +118,12 @@ sessions shipped bugs that only showed on real content.
 Turns the generated EE preset into a PipeWire `filter-chain` `.conf` for
 users not running EE. **Stereo only.** Covers convolver / PEQ / dialog /
 MBC / regulator / limiter (LSP-backed) plus `bass_enhancer` (Calf-backed).
-Not translated: non-bypassed `autogain` (EE's native
-libebur128 has no LV2 equivalent — warns and skips) and 4-channel upmix.
-By default it copies the `.irs` next to the conf and emits a WirePlumber
-0.5+ smart filter pinned to the auto-detected internal-speaker sink
-(`--target-sink` overrides; `''` reverts to a v1 virtual sink). It
-auto-runs `validate_conf.py` (lv2info) unless `--no-validate`; full
-equivalence is checked by `tools/measure_pw/`. Full detail:
-`docs/ee-to-pipewire.md`.
+Not translated: non-bypassed `autogain` (no LV2 equivalent — warns and
+skips) and 4-channel upmix. By default it copies the `.irs` beside the
+conf and emits a WirePlumber 0.5+ smart filter pinned to the auto-detected
+internal-speaker sink (`--target-sink` overrides; `''` reverts to a v1
+virtual sink), and auto-runs `validate_conf.py` (lv2info) unless
+`--no-validate`. Equivalence: `tools/measure_pw/`; detail: `docs/ee-to-pipewire.md`.
 
 Docs are layered (README "Further reading" links all): `docs/reference.md`
 = current-state reference (mappings, plugin chain, units, not-implemented);
