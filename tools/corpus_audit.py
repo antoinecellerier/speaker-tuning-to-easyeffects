@@ -242,6 +242,7 @@ def analyse(xml_path):
                             bands.append(parse_csv_ints(bg.get("value", "")))
                     row["band_groups"] = bands
                 row["ao_enable"] = parse_int_attr(vlldp.find("audio-optimizer-enable"))
+                row["peak_level"] = parse_int_attr(vlldp.find("peak-level"))
                 ao = vlldp.find("audio-optimizer-bands")
                 if ao is not None:
                     left, right = ao.find("ch_00"), ao.find("ch_01")
@@ -467,6 +468,16 @@ def report(xmls):
               f"{excl_missing} without both voice and dynamic")
     else:
         print("  no qualifying endpoints")
+
+    # peak-level disposition (cross-device-findings §1 / follow-up #5). It's
+    # watch-listed (not read) in the converter; confirm it stays near-constant
+    # zero so reading it would buy nothing — and so a future deviation is visible.
+    pk = Counter(r.get("peak_level") for r in all_rows if r.get("peak_level") is not None)
+    total_pk = sum(pk.values())
+    nonzero = total_pk - pk.get(0, 0)
+    print("\npeak-level (tuning-vlldp; watch-only in the converter):")
+    print(f"  rows={total_pk}  nonzero={nonzero}  "
+          f"nonzero values={dict(sorted(((k, v) for k, v in pk.items() if k), key=lambda kv: -kv[1]))}")
 
     in_tgt = Counter(r.get("vl_in_target") for r in all_rows
                      if r.get("vl_in_target") is not None)

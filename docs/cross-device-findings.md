@@ -641,9 +641,13 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
 4. **1-band MBC audibility (validate).** Music 1-band MBC band-0 ratios reach
    ~6:1 at thresholds to −12 dB (§2) — real compression, not just makeup.
    Audition a high-ratio example; the `mbc-1band` path is still experimental.
-5. **`peak-level` disposition (minor).** Not universal — 244 nonzero rows
-   (−13 dB on 175). It's watch-listed in `_UNMODELED_FEATURES`; confirm that's
-   the right call rather than reading it.
+5. **`peak-level` disposition (minor).** ✅ **Resolved (2026-06-17): keep
+   watch-only.** Re-derived via `corpus_audit` (peak-level section): 244/27508
+   nonzero (−13 on 175, then −6/−8/−4/−15/−32/−5/−1), i.e. zero on 99.1% of rows.
+   The 1/16-dB→limiter-threshold interpretation is unverified, and mapping it wrong
+   would trade away headroom audibly on the <1% that set it — so watch-listing in
+   `_UNMODELED_FEATURES` (warn on deviation, don't act) is correct. Lives under
+   `tuning-vlldp`; the watch's `.//peak-level` xpath catches it regardless.
 6. **Re-run on new driver pulls (process).** Regenerate every figure here with
    [`tools/corpus_audit.py`](../tools/corpus_audit.py) after pulling new
    packages — the corpus has roughly doubled since the prior derivation.
