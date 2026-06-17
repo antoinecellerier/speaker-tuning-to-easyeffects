@@ -28,6 +28,7 @@ folder of collected XMLs:
 import argparse
 import os
 import re
+import statistics
 import sys
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
@@ -107,6 +108,28 @@ def threshold_schema(th):
     if c0.get("preset"):
         return "ch_preset"
     return "empty"
+
+
+def peq_effective_boost(f):
+    """Per-filter positive headroom demand, matching the converter's
+    output-gain compensation (make_peq_eq): bells contribute
+    ``gain * min(1, 2/q)``, shelves their full gain, both only when gain>0;
+    high-pass/low-pass and cuts contribute 0. Used to size L vs R peak boost."""
+    if f.get("enabled") == "0":
+        return 0.0
+    try:
+        t = int(f.get("type"))
+        g = float(f.get("gain", "0"))
+        q = float(f.get("q", "0.707"))
+    except (TypeError, ValueError):
+        return 0.0
+    if g <= 0:
+        return 0.0
+    if t == 1:
+        return g * min(1.0, 2.0 / q)
+    if t in (3, 4):
+        return g
+    return 0.0
 
 
 # Driver-package wrapper prefixes seen in the wild, used only to bucket files
@@ -216,6 +239,12 @@ def analyse(xml_path):
                     row["peq_shelf_has_q"] = sum(
                         1 for f in flts if f.get("type") == "4" and f.get("q") is not None
                     )
+                    row["peq_peak_l"] = max(
+                        (peq_effective_boost(f) for f in flts if f.get("speaker") == "0"),
+                        default=0.0)
+                    row["peq_peak_r"] = max(
+                        (peq_effective_boost(f) for f in flts if f.get("speaker") == "1"),
+                        default=0.0)
             rows.append(row)
     return rows
 
@@ -349,6 +378,26 @@ def report(xmls):
     print("\nRegulator threshold_high schema (internal_speaker, reg-enable=1):")
     for k, v in reg_schema.most_common():
         print(f"  {k:12} rows={v:6}  devices={len(reg_schema_devs[k])}")
+
+    # PEQ L/R peak-boost asymmetry (cross-device-findings §12 / follow-up #2).
+    # The converter applies one global max(L,R) output-gain (EE has no
+    # per-channel output-gain), which preserves the Dolby-tuned L/R balance;
+    # this sizes the divergence so the doc's magnitude claims regenerate.
+    div = [r for r in all_rows
+           if r.get("peq_peak_l") is not None
+           and abs(r["peq_peak_l"] - r["peq_peak_r"]) > 0.01]
+    print("\nPEQ L/R peak-boost asymmetry (profiles with a PEQ):")
+    if div:
+        deltas = sorted(abs(r["peq_peak_l"] - r["peq_peak_r"]) for r in div)
+        devs = {subsys_of(r["path"]) for r in div}
+        buckets = Counter()
+        for d in deltas:
+            buckets["<1" if d < 1 else "1-2" if d < 2 else "2-4" if d < 4 else ">=4"] += 1
+        print(f"  divergent rows={len(div)}  devices={len(devs)}  "
+              f"median={statistics.median(deltas):.2f} dB  max={deltas[-1]:.2f} dB")
+        print(f"  |L-R| histogram: {dict(buckets)}")
+    else:
+        print("  none")
 
     in_tgt = Counter(r.get("vl_in_target") for r in all_rows
                      if r.get("vl_in_target") is not None)

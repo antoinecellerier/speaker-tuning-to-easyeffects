@@ -412,6 +412,27 @@ def test_peq_output_gain_zero_for_cut_only_chain():
     assert eq["output-gain"] == 0.0
 
 
+def test_peq_output_gain_uses_global_max_across_asymmetric_channels():
+    """Asymmetric L/R bells (the convertible/AIO per-speaker corrections,
+    ~110 corpus profiles) share one output-gain — EE's equalizer has no
+    per-channel output-gain. The single trim must be -max(L,R), applied
+    equally to both channels, which preserves the Dolby-tuned L/R balance
+    at every frequency. A per-channel trim would instead impose a broadband
+    L-vs-R tilt and is what this test forbids: the left/right band gains
+    stay the channel's own value, untouched by the compensation.
+    """
+    peq = synthetic_peq_filters([
+        (0, 1, 1000.0, 6.0, 2.0, 0, 1.0),  # left  +6 dB
+        (1, 1, 1000.0, 2.0, 2.0, 0, 1.0),  # right +2 dB
+    ])
+    eq = make_peq_eq(peq)
+    # Global max of the two channels' effective boost (6 and 2) → -6 dB.
+    assert eq["output-gain"] == pytest.approx(-6.0, abs=0.01)
+    # The per-channel EQ curves are untouched — only the shared trim differs.
+    assert eq["left"]["band0"]["gain"] == pytest.approx(6.0, abs=0.01)
+    assert eq["right"]["band0"]["gain"] == pytest.approx(2.0, abs=0.01)
+
+
 # --- TRAP: HDA autogain bypass ---
 # CLAUDE.md: "Pumping or saturation on quiet → loud transitions — the
 # reason autogain is bypassed by default; re-enabling or moving it

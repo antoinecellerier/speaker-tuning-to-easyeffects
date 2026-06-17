@@ -230,6 +230,31 @@ With these fixes in place, the normal-operation surplus is small enough that con
 sits at target loudness without the regulator triggering, and worst-case quiet-input
 scenarios are caught by the brickwall limiter rather than clipping the output.
 
+### Why the PEQ `output-gain` stays a single global `max(L,R)` (not per-channel)
+
+Every corpus file is an `internal_speaker` per-speaker acoustic correction, and the
+L and R curves legitimately differ where the two physical speakers do. The 2483-XML
+re-derivation surfaced this as real per-channel divergence in the *peak* boost
+(`corpus_audit`'s L/R peak-asymmetry tally, 2026-06-17): **131 profiles / 10 devices**,
+all on Lenovo convertible/AIO SKUs (ALC257/287), never the symmetric clamshells. It
+splits cleanly: ~119 are matched-filter ~1 dB gain trims (median 1.0 dB — ordinary
+per-speaker HF correction), and 12 are *structural* 7 dB cases in convertible `stand`
+pose on `voice_onlinecourse`, where one speaker is high-passed and the other gets a
++15 dB low-mid bell (a per-orientation correction that only appears because the
+expanded cohort added pose-aware tunings).
+
+The converter's anti-clipping trim (`make_peq_eq`) negates the **global `max(L,R)`**
+effective boost into the equalizer's single `output-gain`. That is the correct — and
+only representable — choice: EE's equalizer has per-channel `left`/`right` bands but
+just one `output-gain`. Applying `max(L,R)` equally to both channels shifts them
+together, preserving the Dolby-tuned L/R relationship at every frequency (including
+the 7 dB worst case). A *per-channel* trim (e.g. `-6 dB` L / `-2 dB` R) would impose a
+broadband L-vs-R level tilt Dolby never intended — corrupting the stereo image — and
+isn't expressible as one `output-gain` anyway. The only cost of global-max is extra
+headroom on the quieter channel, which the downstream leveler restores. Follow-up #2
+is therefore resolved as *no code change*; the regression test
+`test_peq_output_gain_uses_global_max_across_asymmetric_channels` locks it in.
+
 ## Plugin parameter audit
 
 Every JSON key our generated preset emits is set explicitly by the

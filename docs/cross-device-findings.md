@@ -446,7 +446,7 @@ defensive-only paths and should be treated as implementation gaps):
 | Code path                                 | Current behaviour                                                        | Current-cohort check                                                              | Status                                                          |
 |-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | 1-band MBC (`group_count=1`)              | Emits LSP `multiband_compressor` with band 0 active (no split frequency) and bands 1-7 disabled; `mbc-1band` experimental marker added to the end-of-run callout | 633 profiles enable MBC with `group_count=1` (§2), dominated by the `music` profile using 1-2:1 ratio with fast attack/release as a loudness maximiser | Experimental — reproduced from the Dolby tuning but not yet audibly validated. `--disable mbc` turns it off. |
-| Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | 8353 profiles have positive PEQ gain; ~110 now show a differing L/R peak positive gain (was 0 on the original cohort) | The `max(L,R)` compensation still handles them, but per-channel peak divergence is now real, not hypothetical — worth a closer look. |
+| Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | `corpus_audit` L/R peak-asymmetry tally: **131 rows / 10 devices** (only ALC257/287, only Lenovo convertible/AIO packages) differ; 119 are ~1 dB matched-filter gain trims (median 1.0 dB), 12 are structural 7 dB cases in convertible `stand` pose | **Resolved (keep global-max).** EE's equalizer has per-channel `left`/`right` bands but a *single* `output-gain`; applying `max(L,R)` equally to both channels preserves the Dolby-tuned L/R relationship at every frequency (incl. the 7 dB worst case). A per-channel trim would impose a broadband L-vs-R tilt and isn't representable as one `output-gain`. The only cost is extra headroom on the quieter channel, which the downstream leveler restores. |
 | Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 616/36827 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
 | Unknown PEQ filter type                   | Warns "unknown PEQ filter type N, skipping" and drops the filter         | No observed filter outside `(1,3,4,6,7,8,9)` on the cohort                          | Inert — types 3/6/8 are now emitted (see §9); the warning remains a guard against future driver releases adding new types |
 
@@ -620,10 +620,12 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    warns) on a genuinely empty tuning. Scope re-derived via `corpus_audit`'s
    `threshold_schema` (9 profiles/1 device; 33,113 others untouched). DSO and the
    advanced virtualizer for that device remain unmodeled (§14).
-2. **Asymmetric L/R PEQ peak gain (investigate).** ~110 profiles now show a
-   differing L/R peak positive gain (was 0 on the original cohort, §12).
-   Re-check against the script's actual `max(L,R)` output-gain compensation —
-   is global-max adequate, or is per-channel handling needed?
+2. **Asymmetric L/R PEQ peak gain (investigate).** ✅ **Resolved (2026-06-17):
+   keep global-max.** Re-derived via `corpus_audit`: 131 rows / 10 devices differ
+   (median 1 dB, max 7 dB; only Lenovo convertible/AIO). EE's equalizer has only a
+   single `output-gain`, and applying `max(L,R)` equally to both channels preserves
+   the per-speaker L/R relationship at every frequency — a per-channel trim would
+   corrupt it. No code change (§12).
 3. **Voice-AO divergence rate (re-derive).** §8's "97% of devices" is the
    original-cohort figure; a naïve current-cohort recompute lands ~60% but
    mixes simplified-schema `gain_l`/`gain_r` XMLs. Re-derive per-endpoint for a

@@ -98,3 +98,17 @@ def test_threshold_schema_classification():
         '<threshold_high><ch_00 value="0,0,0,0"/></threshold_high>')) == "ch_zero"
     assert ts(ET.fromstring(
         '<threshold_high><ch_00 preset="array_20_zero"/></threshold_high>')) == "ch_preset"
+
+
+def test_peq_effective_boost():
+    import xml.etree.ElementTree as ET
+    b = corpus_audit.peq_effective_boost
+    # bell: gain * min(1, 2/q)
+    assert b(ET.fromstring('<filter speaker="0" type="1" gain="6" q="2"/>')) == 6.0
+    assert b(ET.fromstring('<filter speaker="0" type="1" gain="8" q="4"/>')) == 4.0
+    # shelf: full gain
+    assert b(ET.fromstring('<filter speaker="0" type="3" gain="3"/>')) == 3.0
+    # cuts / HP / disabled contribute nothing
+    assert b(ET.fromstring('<filter speaker="0" type="1" gain="-5" q="1"/>')) == 0.0
+    assert b(ET.fromstring('<filter speaker="0" type="7" order="4"/>')) == 0.0
+    assert b(ET.fromstring('<filter speaker="0" type="1" gain="6" q="2" enabled="0"/>')) == 0.0
