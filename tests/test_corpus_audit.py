@@ -112,3 +112,15 @@ def test_peq_effective_boost():
     assert b(ET.fromstring('<filter speaker="0" type="1" gain="-5" q="1"/>')) == 0.0
     assert b(ET.fromstring('<filter speaker="0" type="7" order="4"/>')) == 0.0
     assert b(ET.fromstring('<filter speaker="0" type="1" gain="6" q="2" enabled="0"/>')) == 0.0
+
+
+def test_resolve_value():
+    import xml.etree.ElementTree as ET
+    rv = corpus_audit.resolve_value
+    const = ET.fromstring('<constant><array_20_zero target="0,0,0"/></constant>')
+    assert rv(None, None) is None
+    assert rv(ET.fromstring('<ch_00 value="1,2,3"/>'), const) == "1,2,3"
+    assert rv(ET.fromstring('<ch_00 preset="array_20_zero"/>'), const) == "0,0,0"
+    # value= wins over preset=; unknown preset → None
+    assert rv(ET.fromstring('<ch_00 value="9" preset="array_20_zero"/>'), const) == "9"
+    assert rv(ET.fromstring('<ch_00 preset="missing"/>'), const) is None

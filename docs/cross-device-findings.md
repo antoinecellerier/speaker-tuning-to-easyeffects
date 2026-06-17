@@ -300,10 +300,11 @@ device-specific parameter in the entire chain.
 
 ---
 
-## 8. Audio optimizer — voice profile uses different curves
+## 8. Audio optimizer — voice profile often uses different curves
 
-**Most devices** use a **different audio-optimizer curve for the `voice` profile**
-compared to `dynamic` / `movie` / `music` / `game` (which all share the same curve).
+A **majority of devices** use a **different audio-optimizer curve for the `voice`
+profile** compared to `dynamic` / `movie` / `music` / `game` (which all share the
+same curve) — but it is far from universal in the current cohort.
 
 The voice AO curve typically:
 
@@ -311,12 +312,18 @@ The voice AO curve typically:
 - Adjusts mid-frequency emphasis for speech clarity
 - Shares the same high-frequency rolloff
 
-> The original 196-XML cohort put this at 97% of devices. A naive whole-block
-> comparison over the current cohort (voice vs dynamic `audio-optimizer-bands`
-> serialisation per file) lands nearer 60%, but that mixes the simplified-schema
-> `gain_l`/`gain_r` XMLs (issue #22) and multi-mode files into one bucket, so the
-> exact current-cohort rate needs a methodology-matched re-derivation. The
-> qualitative claim — voice gets its own AO curve on most devices — holds.
+> **Re-derived 2026-06-17** with a methodology-matched query (`corpus_audit`
+> voice-AO divergence: per-endpoint, `internal_speaker`/`normal` only, full-schema
+> only — simplified `gain_l`/`gain_r` XMLs excluded — comparing the resolved voice
+> AO vector vs the dynamic AO vector with exact-integer inequality): **52%
+> per-endpoint (924/1774)** and **63% per-device (396/629)** of devices diverge on
+> at least one endpoint (674 simplified-schema endpoints excluded). This is well
+> below the original 196-XML cohort's **97%** — the drop is real, not a methodology
+> artifact: the newer Lenovo-AIO packages that dominate the current cohort
+> differentiate the voice AO curve far less often (the same direction as the
+> dialog-enhancer enable-rate drop in §5). So the "most devices" claim now holds
+> only as a slim per-device majority, and a large minority (~37%) ship an identical
+> voice AO. Regenerate with [`tools/corpus_audit.py`](../tools/corpus_audit.py).
 
 All non-voice profiles (dynamic, movie, music, game, personalize) share identical AO
 curves. The script processes each profile independently, so the voice preset
@@ -626,10 +633,11 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    single `output-gain`, and applying `max(L,R)` equally to both channels preserves
    the per-speaker L/R relationship at every frequency — a per-channel trim would
    corrupt it. No code change (§12).
-3. **Voice-AO divergence rate (re-derive).** §8's "97% of devices" is the
-   original-cohort figure; a naïve current-cohort recompute lands ~60% but
-   mixes simplified-schema `gain_l`/`gain_r` XMLs. Re-derive per-endpoint for a
-   clean rate.
+3. **Voice-AO divergence rate (re-derive).** ✅ **Resolved (2026-06-17).**
+   Methodology-matched re-derivation (`corpus_audit`, per-endpoint, full-schema,
+   internal_speaker/normal): **52% per-endpoint / 63% per-device** diverge — well
+   below the original 97%. The newer AIO packages differentiate the voice AO curve
+   less often; §8 updated.
 4. **1-band MBC audibility (validate).** Music 1-band MBC band-0 ratios reach
    ~6:1 at thresholds to −12 dB (§2) — real compression, not just makeup.
    Audition a high-ratio example; the `mbc-1band` path is still experimental.

@@ -168,12 +168,30 @@ def parse_csv_ints(s):
     return [int(x.strip()) for x in s.split(",") if x.strip()]
 
 
+def resolve_value(el, const):
+    """Resolve a ``value=`` / ``preset=`` element to its CSV string (mirrors
+    the converter's resolve_xml_value). ``preset=`` names a child of
+    ``<constant>`` whose ``target=`` holds the data. Returns None when absent."""
+    if el is None:
+        return None
+    v = el.get("value")
+    if v:
+        return v
+    preset = el.get("preset")
+    if preset and const is not None:
+        ref = const.find(preset)
+        if ref is not None:
+            return ref.get("target", "")
+    return None
+
+
 def analyse(xml_path):
     try:
         tree = ET.parse(xml_path)
     except ET.ParseError:
         return None
     root = tree.getroot()
+    const = root.find(".//constant")
     rows = []
     for endpoint in root.iter("endpoint"):
         ep_type = endpoint.get("type", "?")
@@ -224,6 +242,17 @@ def analyse(xml_path):
                             bands.append(parse_csv_ints(bg.get("value", "")))
                     row["band_groups"] = bands
                 row["ao_enable"] = parse_int_attr(vlldp.find("audio-optimizer-enable"))
+                ao = vlldp.find("audio-optimizer-bands")
+                if ao is not None:
+                    left, right = ao.find("ch_00"), ao.find("ch_01")
+                    simplified = left is None or right is None
+                    if simplified:
+                        left, right = ao.find("gain_l"), ao.find("gain_r")
+                    row["ao_simplified"] = simplified
+                    # Resolved CSV signature for voice-vs-dynamic comparison;
+                    # None when the AO uses an unsupported channel layout.
+                    if left is not None and right is not None:
+                        row["ao_sig"] = (resolve_value(left, const), resolve_value(right, const))
                 row["reg_enable"] = parse_int_attr(vlldp.find("regulator-enable"))
                 row["reg_slope"] = parse_int_attr(vlldp.find("regulator-distortion-slope"))
                 row["reg_timbre"] = parse_int_attr(vlldp.find("regulator-timbre-preservation"))
@@ -398,6 +427,46 @@ def report(xmls):
         print(f"  |L-R| histogram: {dict(buckets)}")
     else:
         print("  none")
+
+    # Voice audio-optimizer divergence (cross-device-findings §8 / follow-up #3).
+    # Per-endpoint (file + normal mode), full-schema only: does the voice AO
+    # vector differ from the dynamic AO vector? Exact-int (resolved-CSV)
+    # inequality. Also rolled up per device (subsys). The original "97%" was a
+    # per-device figure, so both denominators are printed for a like-for-like.
+    endpoints = defaultdict(dict)  # (path, mode) -> {profile: (ao_sig, simplified)}
+    for r in all_rows:
+        if r["endpoint_type"] != "internal_speaker" or r["operating_mode"] != "normal":
+            continue
+        if "ao_sig" not in r:
+            continue
+        endpoints[(r["path"], r["operating_mode"])][r["profile"]] = (
+            r["ao_sig"], r.get("ao_simplified"))
+    qualifying = diverge = excl_simpl = excl_missing = 0
+    dev_total, dev_div = set(), set()
+    for (path, _mode), profs in endpoints.items():
+        if "voice" not in profs or "dynamic" not in profs:
+            excl_missing += 1
+            continue
+        (v_sig, v_simpl), (d_sig, d_simpl) = profs["voice"], profs["dynamic"]
+        if v_simpl or d_simpl:
+            excl_simpl += 1
+            continue
+        qualifying += 1
+        dev = subsys_of(path)
+        dev_total.add(dev)
+        if v_sig != d_sig:
+            diverge += 1
+            dev_div.add(dev)
+    print("\nVoice audio-optimizer divergence (internal_speaker/normal, full-schema):")
+    if qualifying:
+        print(f"  per-endpoint: {diverge}/{qualifying} "
+              f"({diverge * 100 / qualifying:.0f}%) have voice AO != dynamic AO")
+        print(f"  per-device:   {len(dev_div)}/{len(dev_total)} "
+              f"({len(dev_div) * 100 / len(dev_total):.0f}%) devices diverge on >=1 endpoint")
+        print(f"  excluded: {excl_simpl} simplified-schema endpoints, "
+              f"{excl_missing} without both voice and dynamic")
+    else:
+        print("  no qualifying endpoints")
 
     in_tgt = Counter(r.get("vl_in_target") for r in all_rows
                      if r.get("vl_in_target") is not None)
