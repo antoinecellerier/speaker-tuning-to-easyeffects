@@ -27,6 +27,7 @@ folder of collected XMLs:
 
 import argparse
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
@@ -67,6 +68,45 @@ def codec_of(fn):
     if bn.startswith("SDW"):
         return "SDW"
     return "UNKNOWN"
+
+
+_SUBSYS_RE = re.compile(r"SUBSYS_([0-9A-Za-z]{8})")
+
+
+def subsys_of(fn):
+    """PCI/ACPI subsystem id from the filename (the per-device key), or the
+    basename when none is embedded."""
+    m = _SUBSYS_RE.search(os.path.basename(fn))
+    return m.group(1) if m else os.path.basename(fn)
+
+
+def threshold_schema(th):
+    """Classify how a regulator ``threshold_high`` element encodes its array.
+
+    Returns one of:
+      ``direct``      — ``value=``/``preset=`` on the element itself (flat schema)
+      ``ch_nonzero``  — newer per-channel ``<ch_00>`` with non-zero values
+                        (silently dropped before the per-channel parser landed —
+                        the SUBSYS_37A317AA gap)
+      ``ch_zero``     — per-channel ``<ch_00>`` resolving to all-zero
+      ``ch_preset``   — per-channel ``<ch_00 preset=...>`` reference
+      ``empty``       — no value/preset/ch_00
+      ``None``        — the element is absent
+    """
+    if th is None:
+        return None
+    if th.get("value") or th.get("preset"):
+        return "direct"
+    c0 = th.find("ch_00")
+    if c0 is None:
+        return "empty"
+    v = c0.get("value")
+    if v:
+        nonzero = any(x.strip() not in ("0", "-0") for x in v.split(","))
+        return "ch_nonzero" if nonzero else "ch_zero"
+    if c0.get("preset"):
+        return "ch_preset"
+    return "empty"
 
 
 # Driver-package wrapper prefixes seen in the wild, used only to bucket files
@@ -165,6 +205,9 @@ def analyse(xml_path):
                 row["reg_slope"] = parse_int_attr(vlldp.find("regulator-distortion-slope"))
                 row["reg_timbre"] = parse_int_attr(vlldp.find("regulator-timbre-preservation"))
                 row["reg_spk_dist"] = parse_int_attr(vlldp.find("regulator-speaker-dist-enable"))
+                reg_tuning = vlldp.find("regulator-tuning")
+                if reg_tuning is not None:
+                    row["reg_th_schema"] = threshold_schema(reg_tuning.find("threshold_high"))
                 peq = vlldp.find("speaker-peq-filters")
                 if peq is not None:
                     flts = peq.findall("filter")
@@ -288,6 +331,24 @@ def report(xmls):
     slope = Counter(r.get("reg_slope") for r in all_rows
                     if r.get("reg_slope") is not None)
     print(f"\nRegulator distortion slope: {dict(slope.most_common())}")
+
+    # threshold_high encoding (internal_speaker, regulator enabled): the
+    # ch_nonzero bucket is the newer SoundWire per-channel schema that the
+    # parser dropped to no-limiting before the per-channel reader landed
+    # (docs/cross-device-findings.md §12, follow-up #1).
+    reg_schema = Counter()
+    reg_schema_devs = defaultdict(set)
+    for r in all_rows:
+        if r["endpoint_type"] != "internal_speaker" or r.get("reg_spk_dist") != 1:
+            continue
+        sch = r.get("reg_th_schema")
+        if sch is None:
+            continue
+        reg_schema[sch] += 1
+        reg_schema_devs[sch].add(subsys_of(r["path"]))
+    print("\nRegulator threshold_high schema (internal_speaker, reg-enable=1):")
+    for k, v in reg_schema.most_common():
+        print(f"  {k:12} rows={v:6}  devices={len(reg_schema_devs[k])}")
 
     in_tgt = Counter(r.get("vl_in_target") for r in all_rows
                      if r.get("vl_in_target") is not None)

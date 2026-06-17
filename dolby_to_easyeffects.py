@@ -2100,6 +2100,36 @@ def resolve_xml_value(element, constants):
     return ""
 
 
+def resolve_channel_or_direct(element, constants):
+    """Resolve a CSV array that may live directly on ``element`` or on a
+    per-channel ``<ch_00>..<ch_07>`` sub-element.
+
+    Older/flat DAX3 regulator tunings put the array directly on
+    ``threshold_high``/``threshold_low`` via ``value=``/``preset=``. The newer
+    SoundWire schema (e.g. ``SUBSYS_37A317AA``) nests it per channel instead::
+
+        <threshold_high>
+          <ch_00 value="-282,-294,..." />
+          <ch_01 value="-282,-294,..." />
+          <ch_02 preset="array_20_zero" /> ...
+        </threshold_high>
+
+    Returns the direct value when present, otherwise the ``ch_00`` channel
+    (resolved through the same ``value=``/``preset=`` mechanism as the audio
+    optimizer's ch_00/ch_01), otherwise "". ``ch_00`` is the stereo-limiter
+    reference; callers warn if ``ch_01`` diverges.
+    """
+    direct = resolve_xml_value(element, constants)
+    if direct:
+        return direct
+    if element is None:
+        return ""
+    ch0 = element.find("ch_00")
+    if ch0 is not None:
+        return resolve_xml_value(ch0, constants)
+    return ""
+
+
 def _int_attr(element, default=None, name="value"):
     """Read an integer ``name=`` attribute, degrading to ``default``.
 
@@ -2382,8 +2412,27 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         if reg_tuning is not None:
             th_el = reg_tuning.find("threshold_high")
             tl_el = reg_tuning.find("threshold_low")
-            th_val = resolve_xml_value(th_el, constant)
-            tl_val = resolve_xml_value(tl_el, constant)
+            # The newer SoundWire schema nests per-channel <ch_00>..<ch_07>
+            # arrays under threshold_high/low; resolve_channel_or_direct reads
+            # ch_00. make_regulator is a single stereo limiter that consumes
+            # only threshold_high, so ch_00 is the reference. Warn (rather than
+            # silently picking one) when ch_01 diverges so a future genuinely
+            # L/R-asymmetric device surfaces — ch_00==ch_01 on the only device
+            # with this schema today. (per-band-min would protect both channels
+            # but can over-limit the one that didn't need it — left XML-only for
+            # a later call once such a device exists.)
+            th_val = resolve_channel_or_direct(th_el, constant)
+            tl_val = resolve_channel_or_direct(tl_el, constant)
+            for _el, _name in ((th_el, "threshold_high"), (tl_el, "threshold_low")):
+                _c0 = _el.find("ch_00") if _el is not None else None
+                _c1 = _el.find("ch_01") if _el is not None else None
+                if (_c0 is not None and _c1 is not None
+                        and resolve_xml_value(_c0, constant) != resolve_xml_value(_c1, constant)):
+                    cprint("warn", f"  {path.name}: regulator {_name} ch_00 ≠ ch_01 "
+                                   "(L/R asymmetric); using ch_00 for the stereo limiter.")
+            if not th_val:
+                cprint("warn", f"  {path.name}: regulator enabled but threshold_high "
+                               "has no value/preset/ch_00 — no per-band limiting applied.")
             th = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
             tl = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
             # make_regulator walks `th` and indexes `freqs` at positions

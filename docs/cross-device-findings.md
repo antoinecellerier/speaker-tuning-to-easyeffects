@@ -435,7 +435,7 @@ against the full 2483-XML cohort (2026-06-16):
 |-------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | Default profile (no `--profile` flag)     | `parse_xml` picks `endpoint.find("profile")` (first child)              | 2448/2448 internal_speaker/normal endpoints have `dynamic` first                   | XML where `off` or another no-op profile precedes `dynamic`    |
 | Asymmetric L/R PEQ filter counts          | Missing-channel HP slot fills with 100 Hz/24 dB-oct HP, bell slot with flat 1 kHz bell | 10689 PEQ profiles → 33 with an L/R filter-count diff (12 differ in HP count)     | Per-driver tuning where one channel has filters the other lacks |
-| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting), volmax still routes via regulator | **9 profiles, all on one newer SoundWire device (`SUBSYS_37A317AA`)** now hit the fallback (was 0 originally): its `threshold_high` carries the values in an `isolated_band` sub-schema with no `value` attribute, which the parser doesn't read — so that device currently gets **no regulator limiting**. Implementation gap, not just defensive. | Newer SoundWire regulator schema, or hand-edited / broken regulator tuning |
+| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting), now with a warning; volmax still routes via regulator | **Fixed (2026-06-17).** `threshold_schema` (corpus_audit) confirms exactly **9 profiles on one newer SoundWire device (`SUBSYS_37A317AA`)** stored `threshold_high`/`threshold_low` in a per-channel `<ch_00>…<ch_07>` sub-schema (real non-zero values on ch_00) that the flat `resolve_xml_value` didn't read — so that device got **no regulator limiting**. The other 33,113 reg-enabled internal_speaker profiles use the direct `value=`/`preset=` form (incl. siblings like `384B17AA` whose `threshold_high preset="array_20_zero"` is an intentional zero). `resolve_channel_or_direct` now reads `ch_00`; the `[0.0]*20` fallback only fires on a genuinely empty tuning, and warns when it does. (The doc previously mis-described this as an `isolated_band` sub-schema — `isolated_band` is an unrelated *sibling* element in the older flat schema.) | Genuinely empty / hand-edited / broken regulator tuning |
 | Shelf filter with explicit `q` attribute  | Output-gain compensation now uses full shelf gain (commit `c505864`)    | 192 type-4 shelf filters → 0 with explicit `q`                                     | Driver release that adds `q` to a shelf — previously silently under-compensated |
 | `is_soundwire` filename detection         | Falls back to HDA mode (no bass enhancer, no convolver headroom restore) | All matched XMLs in the corpus have `SOUNDWIRE_…` or `SDW_…` filenames intact      | User manually renames a SoundWire XML before passing it in     |
 | `make_multiband_compressor` 5+ band cap   | `min(group_count, 8)` enforced                                          | Max observed `group_count` = 4 (Dolby schema only allocates `band_group_0..3`)     | Dolby schema extension                                         |
@@ -612,12 +612,14 @@ future device-level investigation can wire in something better.
 
 Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
 
-1. **Newer-SoundWire regulator gap (code).** `SUBSYS_37A317AA` encodes
-   `regulator-tuning/threshold_high` in an `isolated_band` sub-schema with no
-   `value` attribute, so the parser falls back to `[0.0]*20` and that device
-   gets **no regulator limiting** (9 profiles, §12). The same device already
-   needs DSO and advanced-virtualizer handling (§14). Parse the sub-schema or
-   warn.
+1. **Newer-SoundWire regulator gap (code).** ✅ **Resolved (2026-06-17).** The
+   real schema was a per-channel `<ch_00>…<ch_07>` layout (not the `isolated_band`
+   sub-schema this list first claimed — that's an unrelated older-schema sibling).
+   `resolve_channel_or_direct` now reads `ch_00`, recovering real per-band limiting
+   on `SUBSYS_37A317AA`'s 9 profiles; the `[0.0]*20` fallback now only fires (and
+   warns) on a genuinely empty tuning. Scope re-derived via `corpus_audit`'s
+   `threshold_schema` (9 profiles/1 device; 33,113 others untouched). DSO and the
+   advanced virtualizer for that device remain unmodeled (§14).
 2. **Asymmetric L/R PEQ peak gain (investigate).** ~110 profiles now show a
    differing L/R peak positive gain (was 0 on the original cohort, §12).
    Re-check against the script's actual `max(L,R)` output-gain compensation —

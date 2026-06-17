@@ -76,3 +76,25 @@ def test_discover_roots_precedence(monkeypatch):
     assert corpus_audit.discover_roots([]) == ["/env/path"]
     monkeypatch.delenv("ATMOS_CORPUS_DIR", raising=False)
     assert corpus_audit.discover_roots([]) == ["."]
+
+
+def test_subsys_of():
+    assert corpus_audit.subsys_of("SOUNDWIRE_MAN_025D_FUNC_0721_SUBSYS_37A317AA.xml") == "37A317AA"
+    assert corpus_audit.subsys_of("DEV_0287_SUBSYS_17AA22E6.xml") == "17AA22E6"
+    assert corpus_audit.subsys_of("nosubsys.xml") == "nosubsys.xml"
+
+
+def test_threshold_schema_classification():
+    import xml.etree.ElementTree as ET
+    ts = corpus_audit.threshold_schema
+    assert ts(None) is None
+    assert ts(ET.fromstring('<threshold_high value="-96,-80"/>')) == "direct"
+    assert ts(ET.fromstring('<threshold_high preset="arr"/>')) == "direct"
+    assert ts(ET.fromstring('<threshold_high/>')) == "empty"
+    # newer SoundWire per-channel schema, real values → the dropped-before-fix bucket
+    assert ts(ET.fromstring(
+        '<threshold_high><ch_00 value="-282,-294,0,0"/></threshold_high>')) == "ch_nonzero"
+    assert ts(ET.fromstring(
+        '<threshold_high><ch_00 value="0,0,0,0"/></threshold_high>')) == "ch_zero"
+    assert ts(ET.fromstring(
+        '<threshold_high><ch_00 preset="array_20_zero"/></threshold_high>')) == "ch_preset"

@@ -72,6 +72,18 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The newer SoundWire device `SUBSYS_37A317AA` (Lenovo IdeaPad 5x 2-in-1) now
+  gets its per-band regulator limiting. Its `regulator-tuning/threshold_high`
+  stores the thresholds in a per-channel `<ch_00>…<ch_07>` sub-schema the parser
+  didn't read, so the regulator silently fell back to *no* limiting (9 profiles)
+  — leaving that device's small speakers without the per-band excursion guard.
+  The converter now reads the per-channel thresholds (the same `ch_00`/`ch_01`
+  mechanism as the audio optimizer), warning if the L/R channels diverge or the
+  tuning is genuinely empty. **No other device's output changes** (every other
+  device uses the flat `value=`/`preset=` form). This is XML-derived but **not
+  yet verified on the hardware** — if you have this device, re-run the script to
+  regenerate your preset. (Dynamic Speaker Optimization and the advanced
+  virtualizer for this device remain unmodeled — see `docs/cross-device-findings.md`.)
 - Autoload now works on cards whose output *route* description differs from
   their *profile* description. EasyEffects keys entries on the route (e.g.
   `Speaker`), but the script wrote the profile, so on any such card (observed

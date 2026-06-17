@@ -114,7 +114,10 @@ limiter (Peak sidechain, 1 ms attack) from `regulator-tuning` `threshold_high`
 threshold; tighter low-frequency limiting protects laptop speakers from
 sub-bass they can't reproduce. `regulator-distortion-slope` → limiting ratio
 (`1/(1-slope)`); `regulator-timbre-preservation` → knee (`-6 × timbre dB`).
-`threshold_low` and `stress-amount` are not used.
+`threshold_low` and `stress-amount` are not used. `threshold_high` is read from a
+direct `value=`/`preset=` (most devices) or, on the newer SoundWire per-channel
+schema, from its `<ch_00>` sub-element (the `ch_00`/`ch_01` form the audio
+optimizer also uses); an empty tuning falls back to no limiting with a warning.
 
 ## Profile differences
 

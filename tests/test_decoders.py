@@ -22,6 +22,7 @@ from dolby_to_easyeffects import (
     decode_mbc_time_constant,
     make_multiband_compressor,
     parse_xml,
+    resolve_channel_or_direct,
     warn_unmodeled_features,
 )
 from tests.conftest import SYNTHETIC_FREQS_20, synthetic_mb_comp
@@ -516,3 +517,109 @@ class TestSimplifiedSchema:
         """
         with pytest.raises(ValueError, match="neither ch_00/ch_01 nor"):
             parse_xml(self._write(tmp_path, body))
+
+
+class TestResolveChannelOrDirect:
+    """resolve_channel_or_direct() — direct value/preset vs per-channel ch_00.
+
+    Older/flat regulator tunings carry the CSV array directly on
+    threshold_high/low; the newer SoundWire schema nests it under
+    <ch_00>..<ch_07>. The helper reads the direct form when present, else
+    ch_00 (through the same value=/preset= mechanism), else "".
+    """
+
+    _CONST = ET.fromstring('<constant><arr target="9,9,9"/></constant>')
+
+    def test_direct_value(self):
+        el = ET.fromstring('<threshold_high value="1,2,3"/>')
+        assert resolve_channel_or_direct(el, None) == "1,2,3"
+
+    def test_direct_preset(self):
+        el = ET.fromstring('<threshold_high preset="arr"/>')
+        assert resolve_channel_or_direct(el, self._CONST) == "9,9,9"
+
+    def test_ch_00_value(self):
+        el = ET.fromstring(
+            '<threshold_high><ch_00 value="4,5,6"/><ch_01 value="4,5,6"/></threshold_high>')
+        assert resolve_channel_or_direct(el, None) == "4,5,6"
+
+    def test_ch_00_preset(self):
+        el = ET.fromstring('<threshold_high><ch_00 preset="arr"/></threshold_high>')
+        assert resolve_channel_or_direct(el, self._CONST) == "9,9,9"
+
+    def test_direct_value_wins_over_children(self):
+        # A direct value= takes precedence over any ch_00 child.
+        el = ET.fromstring(
+            '<threshold_high value="1,2,3"><ch_00 value="4,5,6"/></threshold_high>')
+        assert resolve_channel_or_direct(el, None) == "1,2,3"
+
+    def test_empty_returns_blank(self):
+        assert resolve_channel_or_direct(ET.fromstring("<threshold_high/>"), None) == ""
+
+    def test_none_returns_blank(self):
+        assert resolve_channel_or_direct(None, None) == ""
+
+
+class TestRegulatorPerChannelSchema:
+    """parse_xml() — newer SoundWire per-channel regulator thresholds.
+
+    The newer SoundWire schema (e.g. SUBSYS_37A317AA) nests threshold_high /
+    threshold_low under per-channel <ch_00>..<ch_07> elements instead of a
+    direct value=/preset=. Before the fix resolve_xml_value returned "" and the
+    regulator silently fell back to [0.0]*N (no per-band limiting). parse_xml
+    now reads ch_00 and warns on L/R divergence or a genuinely empty tuning.
+    """
+
+    def _write(self, tmp_path, body):
+        p = tmp_path / "perchan.xml"
+        p.write_text(body)
+        return p
+
+    def _xml(self, threshold_high_inner):
+        return f"""
+            <root>
+              <constant><band_20_freq fs_48000="100,200,400,800,1600"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="dynamic">
+                  <tuning-vlldp>
+                    <audio-optimizer-bands>
+                      <ch_00 value="0,0,0,0,0"/>
+                      <ch_01 value="0,0,0,0,0"/>
+                    </audio-optimizer-bands>
+                    <regulator-speaker-dist-enable value="1"/>
+                    <regulator-tuning>
+                      <threshold_high>{threshold_high_inner}</threshold_high>
+                    </regulator-tuning>
+                  </tuning-vlldp>
+                </profile>
+              </endpoint>
+            </root>
+        """
+
+    def test_reads_ch_00_not_zero_fallback(self, tmp_path):
+        body = self._xml(
+            '<ch_00 value="-96,-80,-64,-48,0"/>'
+            '<ch_01 value="-96,-80,-64,-48,0"/>'
+            '<ch_02 value="0,0,0,0,0"/>')
+        result = parse_xml(self._write(tmp_path, body))
+        # -96,-80,-64,-48,0 in 1/16-dB units → -6,-5,-4,-3,0 dB — real
+        # limiting, not the [0.0]*5 no-op fallback.
+        assert result.regulator["threshold_high"] == [-6.0, -5.0, -4.0, -3.0, 0.0]
+
+    def test_ch_01_divergence_warns_and_uses_ch_00(self, tmp_path, capsys):
+        body = self._xml(
+            '<ch_00 value="-96,-80,-64,-48,0"/>'
+            '<ch_01 value="-96,-80,-64,-48,16"/>')  # last band differs
+        result = parse_xml(self._write(tmp_path, body))
+        out = capsys.readouterr().out
+        assert "asymmetric" in out
+        # ch_00 is the stereo-limiter reference despite the divergence.
+        assert result.regulator["threshold_high"] == [-6.0, -5.0, -4.0, -3.0, 0.0]
+
+    def test_empty_threshold_high_warns_and_falls_back(self, tmp_path, capsys):
+        # threshold_high present but carrying no value/preset/ch_00 → no
+        # limiting, but the run now says so instead of silently disabling.
+        result = parse_xml(self._write(tmp_path, self._xml("")))
+        out = capsys.readouterr().out
+        assert "no per-band limiting" in out
+        assert result.regulator["threshold_high"] == [0.0] * 5

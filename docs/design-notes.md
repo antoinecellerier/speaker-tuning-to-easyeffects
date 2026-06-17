@@ -131,6 +131,50 @@ the hypotheses into something the user's own machine can confirm or rule out. Th
 text (it lives in code/tests/this note); users see a plain-language "install
 EasyEffects 8" message.
 
+### Per-channel regulator thresholds: newer SoundWire schema (`SUBSYS_37A317AA`)
+
+A second SoundWire schema-variant surfaced in the 2483-XML re-derivation, in the
+regulator block this time rather than the audio optimizer. The newer Lenovo
+IdeaPad-5x-2-in-1 SoundWire tuning (`SUBSYS_37A317AA`) nests
+`regulator-tuning/threshold_high` (and `threshold_low`) under per-channel
+`<ch_00>…<ch_07>` elements instead of carrying a flat `value=`/`preset=` on the
+element itself:
+
+```xml
+<threshold_high>
+  <ch_00 value="-282,-294,-243,-160,0,…,0" />   <!-- real per-band thresholds -->
+  <ch_01 value="-282,-294,-243,-160,0,…,0" />
+  <ch_02 preset="array_20_zero" /> …            <!-- unused channels -->
+</threshold_high>
+```
+
+This is the same per-channel shape as the audio optimizer's `ch_00`/`ch_01`
+(resolved through the identical `value=`/`preset=` mechanism). The flat
+`resolve_xml_value` read nothing off the parent element, so `threshold_high`
+resolved to `""` and the regulator fell back to `[0.0]*20` — **no per-band
+limiting**, the worst failure mode for a speaker-excursion guard. `make_regulator`
+consumes only `threshold_high`, so this alone disabled the device's protection.
+
+`resolve_channel_or_direct` now reads `ch_00` (the stereo limiter is a single
+instance, so ch_00 is the left-channel reference; `make_regulator` is unchanged).
+It warns if `ch_01` diverges and if the tuning is genuinely empty. **Per-band-min**
+across ch_00/ch_01 would protect both channels but can over-limit the one that
+didn't need it, so the choice was left to a future device that actually shows L/R
+asymmetry — on the only device with this schema today, ch_00 == ch_01.
+
+**Why this ships default (XML-only, but single-sample).** The threshold→limiter
+mapping is the same one already validated on the development device; only the parse
+*source* is new, so reading `ch_00` is not a new param hypothesis — and the prior
+behaviour (no limiting) is unambiguously wrong for a protection feature. The
+honesty caveat: this `ch_00`→`threshold_high` reading rests on **exactly one corpus
+device** (no second device with the schema exists to cross-check), and it has not
+been verified on the hardware. Scope was re-derived with `corpus_audit`'s
+`threshold_schema` classifier (9 profiles / 1 device carry the dropped form; 33,113
+other reg-enabled internal_speaker profiles use the flat form and are untouched).
+DSO and the advanced virtualizer for this device remain unmodeled (see
+cross-device-findings §14), so its preset is still incomplete — the regulator fix
+closes the most dangerous gap, not all of them.
+
 ## Plugin chain order
 
 Current order (see `make_preset` in `dolby_to_easyeffects.py`):
