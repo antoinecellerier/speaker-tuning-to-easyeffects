@@ -2399,13 +2399,16 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             group_count = _int_attr(mbc_tuning.find("group_count"),
                                     default=len(band_groups))
             target_power = vlldp.find("mb-compressor-target-power-level")
-            # Also grab regulator stress for additional context
-            reg_stress = vlldp.find("regulator-stress-amount")
+            # Also grab regulator stress for additional context (same
+            # regulator-stress-amount element the regulator block re-reads
+            # below for its own `stress`; named distinctly to keep the two
+            # consumers' intent clear).
+            mbc_reg_stress_el = vlldp.find("regulator-stress-amount")
             mb_comp = {
                 "group_count": group_count,
                 "band_groups": band_groups,
                 "target_power": _int_attr(target_power, default=-80) / DB_FIXED_POINT_SCALE,   # -80/16 = -5.0 dB
-                "reg_stress": parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [],
+                "reg_stress": parse_csv_ints(mbc_reg_stress_el.get("value")) if mbc_reg_stress_el is not None else [],
             }
 
     # Regulator settings (per-band limiter from tuning-vlldp)
@@ -2448,8 +2451,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                     f"values but the band grid has {len(freqs)} — the "
                     "regulator zone mapping requires one threshold per band."
                 )
-            reg_stress = vlldp.find("regulator-stress-amount")
-            stress = parse_csv_ints(reg_stress.get("value")) if reg_stress is not None else [0] * 8
+            reg_stress_el = vlldp.find("regulator-stress-amount")
+            stress = parse_csv_ints(reg_stress_el.get("value")) if reg_stress_el is not None else [0] * 8
             reg_slope = vlldp.find("regulator-distortion-slope")
             slope = _int_attr(reg_slope, default=16) / DB_FIXED_POINT_SCALE   # 16/16 = 1.0
             reg_timbre = vlldp.find("regulator-timbre-preservation")
