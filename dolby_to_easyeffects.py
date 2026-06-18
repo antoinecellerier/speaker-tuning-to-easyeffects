@@ -2254,7 +2254,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             )
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
-    ieq_amount = 10
+    ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
     cp = profile.find("tuning-cp")
     if cp is not None:
         enable = cp.find("ieq-enable")
@@ -2341,11 +2341,12 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             vl_amount = cp.find("volume-leveler-amount")
             vl_in = cp.find("volume-leveler-in-target")
             vl_out = cp.find("volume-leveler-out-target")
+            VOL_LEVELER_TARGET_DEFAULT = -320  # -320/16 = -20.0 dBFS in/out target when absent
             vol_leveler = {
                 "enable": _int_attr(vl_enable, default=0),
                 "amount": _int_attr(vl_amount, default=0),
-                "in_target": _int_attr(vl_in, default=-320) / DB_FIXED_POINT_SCALE,   # -320/16 = -20.0 dBFS
-                "out_target": _int_attr(vl_out, default=-320) / DB_FIXED_POINT_SCALE,
+                "in_target": _int_attr(vl_in, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
+                "out_target": _int_attr(vl_out, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
             }
 
     # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
@@ -2364,6 +2365,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         de_enable = cp.find("dialog-enhancer-enable")
         if de_enable is not None and de_enable.get("value") == "1":
             dialog_enhancer = {
+                # dialog-enhancer-amount: assume 5 when the field is absent
                 "amount": _int_attr(cp.find("dialog-enhancer-amount"), default=5),
             }
 
