@@ -2001,6 +2001,10 @@ def read_ee_rc(rc_text: str) -> dict:
     return {
         "last_output_preset": g("Presets", "lastLoadedOutputPreset"),
         "fallback_preset": g("Window", "outputAutoloadingFallbackPreset"),
+        # EE serialises booleans as the literal KConfig strings "true"/"false",
+        # so `.lower() == "true"` is an exact-format check matching what EE 8.x
+        # writes. If EE ever emitted "1"/"yes" these would read False and the
+        # autoload patch would re-run on every invocation.
         "uses_fallback": g("Window", "outputAutoloadingUsesFallback",
                            "false").lower() == "true",
         "autostart_on_login": g("Window", "autostartOnLogin",
