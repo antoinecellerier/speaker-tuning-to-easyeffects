@@ -32,6 +32,7 @@ from dolby_to_easyeffects import (
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
     BYPASS_PRESET_NAME,
+    CONVOLVER_GAIN_CEILING_DB,
     FIR_LENGTH,
     SAMPLE_RATE,
     CheckResult,
@@ -43,6 +44,7 @@ from dolby_to_easyeffects import (
     _print_doctor_report,
     autostart_status,
     check_preset_kernel,
+    convolver_output_gain,
     decode_mbc_bands,
     ee_version_status,
     install_status,
@@ -742,6 +744,32 @@ def test_make_preset_passes_convolver_gain_through():
     preset, _ = make_preset(kernel_name="X", peq_filters=[],
                             convolver_gain=2.5)
     assert preset["output"]["convolver#0"]["output-gain"] == 2.5
+
+
+# --- LOCK-IN: SoundWire convolver output-gain formula + defensive clamp ---
+# This gain sits ahead of the whole chain; the formula and its positive-side
+# cap guard against the convolver over-gain (+50 dB) trap class.
+
+def test_convolver_output_gain_hda_is_zero():
+    # HDA presets restore no headroom regardless of FIR peak.
+    assert convolver_output_gain(8.0, is_soundwire=False) == 0.0
+
+
+def test_convolver_output_gain_soundwire_restores_half_peak():
+    # SoundWire restores 50% of the FIR peak the normalization removed.
+    assert convolver_output_gain(6.0, is_soundwire=True) == 3.0
+
+
+def test_convolver_output_gain_clamps_large_positive_peak():
+    # An anomalous curve (peak well past 2x the ceiling) is capped, not
+    # passed through as large pre-chain boost.
+    assert convolver_output_gain(40.0, is_soundwire=True) == CONVOLVER_GAIN_CEILING_DB
+
+
+def test_convolver_output_gain_negative_peak_passes_through():
+    # Net-cut curves give negative gain — only reduces level, no clip risk,
+    # so it is not clamped.
+    assert convolver_output_gain(-4.0, is_soundwire=True) == -2.0
 
 
 # --- LOCK-IN: autoload artifacts (device binding + fallback preset/rc) ---

@@ -2661,6 +2661,25 @@ def make_band(freq: float, gain: float, q=1.5) -> dict:
     )
 
 
+# The SoundWire convolver output-gain restores half the headroom FIR peak-
+# normalization removed; cap it because this gain precedes the whole plugin
+# chain, so an anomalous curve with a large positive FIR peak would otherwise
+# inject big pre-chain boost (the convolver over-gain trap the gain-staging
+# budget warns about).
+CONVOLVER_GAIN_CEILING_DB = 12.0
+
+
+def convolver_output_gain(peak_db: float, is_soundwire: bool) -> float:
+    """Convolver output-gain (dB) for a preset. HDA presets restore nothing
+    (0 dB). SoundWire restores 50% of the FIR peak the normalization removed,
+    clamped to ``CONVOLVER_GAIN_CEILING_DB`` on the positive side so a
+    pathological curve can't push large pre-chain gain. Negative peaks (net-cut
+    curves) pass through — they only reduce gain, no clipping risk."""
+    if not is_soundwire:
+        return 0.0
+    return min(peak_db * 0.5, CONVOLVER_GAIN_CEILING_DB)
+
+
 def make_convolver(kernel_name: str, output_gain: float = 0.0) -> dict:
     """Convolver plugin config referencing an IR by name.
 
@@ -3731,7 +3750,13 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # peaks at low-mids; normalizing to that peak pushes presence
         # and treble below their intended level. Restoring 50% keeps
         # the spectral shape while recovering perceived brightness.
-        convolver_gain = peak_db * 0.5 if is_soundwire else 0.0
+        # convolver_output_gain clamps the positive side defensively.
+        convolver_gain = convolver_output_gain(peak_db, is_soundwire)
+        if is_soundwire and peak_db * 0.5 > CONVOLVER_GAIN_CEILING_DB:
+            cprint("warn", f"  {preset_name}: convolver output-gain capped at "
+                           f"{CONVOLVER_GAIN_CEILING_DB:+.0f} dB (FIR peak "
+                           f"{peak_db:+.1f} dB would restore "
+                           f"{peak_db * 0.5:+.1f} dB).")
 
         # Save stereo impulse response
         irs_path = args.irs_dir / f"{preset_name}.irs"

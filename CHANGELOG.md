@@ -117,6 +117,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   yet verified on the hardware** — if you have this device, re-run the script.
   (Its Dynamic Speaker Optimization and advanced virtualizer remain unmodeled.)
   Detail: `docs/cross-device-findings.md`.
+- Hardened the SoundWire convolver output-gain against a pre-chain over-gain
+  trap: it is now capped at +12 dB and warns if a curve would exceed it. That
+  gain restores half the headroom FIR peak-normalization removed and sits ahead
+  of the whole plugin chain, so an anomalous correction curve could in principle
+  inject a large pre-chain boost. No real device reaches the cap — the generated
+  presets are unchanged — but the failure mode is now a loud warning instead of
+  silent clipping.
 
 ### Docs
 
