@@ -3635,11 +3635,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
     print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
 
     # Audio-optimizer curves in dB
-    print(f"\nAudio-optimizer (dB):")
+    print("\nAudio-optimizer (dB):")
     print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
     print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
-    print(f"\nPEQ filters (kept as parametric EQ):")
+    print("\nPEQ filters (kept as parametric EQ):")
     for pf in peq_filters:
         spk = "L" if pf["speaker"] == 0 else "R"
         if pf["type"] in (7, 9):
@@ -3693,7 +3693,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
                   f"release={b['release_ms']:.2f} ms, makeup={b['makeup']:+.1f} dB")
 
     if regulator:
-        print(f"\nRegulator (per-band limiter):")
+        print("\nRegulator (per-band limiter):")
         print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
         print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
         print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
@@ -3801,7 +3801,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         H = np.fft.rfft(fir_left, n=FIR_LENGTH)
         fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
         mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
-        cprint("dim", f"\n  FIR verification (left, normalized to peak=0):")
+        cprint("dim", "\n  FIR verification (left, normalized to peak=0):")
         for i, f in enumerate(freqs):
             idx = np.argmin(np.abs(fft_freqs - f))
             cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
