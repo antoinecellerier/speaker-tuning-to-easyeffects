@@ -77,6 +77,14 @@ def cprint(style: str, text: str = "") -> None:
     _CONSOLE.print(text, style=style)
 
 
+def warn(msg: str) -> None:
+    """Emit a contextual detail warning with the standard ``  Warning: ``
+    prefix, so per-band / per-filter / per-profile warnings read uniformly.
+    Section-level warnings that want their own blank-line spacing call cprint
+    directly."""
+    cprint("warn", f"  Warning: {msg}")
+
+
 def _disable_color() -> None:
     global _CONSOLE
     _CONSOLE = None
@@ -2314,10 +2322,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             try:
                 ftype = int(f.get("type"))
             except (TypeError, ValueError):
-                cprint("warn", f"  Warning: PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
+                warn(f"PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
                 continue
             if ftype not in (1, 3, 4, 6, 7, 8, 9):
-                cprint("warn", f"  Warning: unknown PEQ filter type {ftype}, skipping")
+                warn(f"unknown PEQ filter type {ftype}, skipping")
                 continue
             try:
                 peq_filters.append({
@@ -2330,7 +2338,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                     "order": int(f.get("order", "0")),
                 })
             except (TypeError, ValueError):
-                cprint("warn", "  Warning: PEQ filter has missing/garbage f0/speaker/order, skipping")
+                warn("PEQ filter has missing/garbage f0/speaker/order, skipping")
                 continue
 
     # Volume leveler settings (from tuning-cp of the selected profile)
@@ -3174,14 +3182,14 @@ def make_multiband_compressor(mb_comp: dict | None,
     for i, (b, bg) in enumerate(zip(decoded, band_groups[:n_bands])):
         _, _, gain_raw, attack_raw, release_raw, _ = bg
         if not gain_raw / Q15_SCALE > 0.01:
-            cprint("warn", f"  Warning: MBC band {i} gain coeff {gain_raw} "
-                   f"out of range — clamping ratio to {b['ratio']:.0f}:1")
+            warn(f"MBC band {i} gain coeff {gain_raw} "
+                 f"out of range — clamping ratio to {b['ratio']:.0f}:1")
         if not 0 < attack_raw < Q15_SCALE:
-            cprint("warn", f"  Warning: MBC band {i} attack coeff {attack_raw} "
-                   f"out of range — using {b['attack_ms']:.0f} ms fallback")
+            warn(f"MBC band {i} attack coeff {attack_raw} "
+                 f"out of range — using {b['attack_ms']:.0f} ms fallback")
         if not 0 < release_raw < Q15_SCALE:
-            cprint("warn", f"  Warning: MBC band {i} release coeff {release_raw} "
-                   f"out of range — using {b['release_ms']:.0f} ms fallback")
+            warn(f"MBC band {i} release coeff {release_raw} "
+                 f"out of range — using {b['release_ms']:.0f} ms fallback")
 
     # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
     # band i+1's lower edge is the same frequency. Only the first n_bands - 1
@@ -4030,7 +4038,7 @@ def main():
         if profile_type or args.all_profiles:
             safe_profile = sanitize_profile_type(profile_type or "default")
             if profile_type and safe_profile != profile_type:
-                cprint("warn", f"Warning: sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
+                warn(f"sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
             name_parts.append(safe_profile.title())
         name_base = "-".join(name_parts)
 
