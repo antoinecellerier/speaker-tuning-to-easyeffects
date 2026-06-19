@@ -241,6 +241,13 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   X13s Gen 1). Every XML in the corpus reports
   `total_count=2`, including the X13s sibling — the upmix is device
   wisdom encoded outside the XML.  See cross-device-findings.md §14.
+- **No VBE (virtual bass enhancement) on HDA.** DAX synthesises
+  missing-fundamental bass harmonics on HDA laptops (issue #14) that
+  neither the EE preset nor this conf reproduces. Kept so on purpose —
+  the converter is a faithful 1:1 translation, so closing the gap would
+  make the PW conf deliberately diverge from EE. The two deferred options
+  (cheap-both-paths vs PW-only) and why they're held are in
+  `docs/design-notes.md` (the issue-#14 VBE finding).
 - **No `--launch` flag.** PipeWire's standard reload path is
   `systemctl --user restart pipewire pipewire-pulse`; the script
   prints that as a "[next]" line and lets the user run it.

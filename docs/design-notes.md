@@ -1280,6 +1280,18 @@ the LSP-cascade-plus-Saturator chain when the XML carries
 step if a listening test confirms the captured improvement is
 audible.
 
+**Where this sits after the 2026-06 PW-path review.** The converter is
+kept a faithful 1:1 translation — the PW conf reproduces the EE preset
+and nothing more (the `tools/measure_pw/` equivalence is the contract)
+— so closing the VBE gap is a deliberate-divergence decision, not a
+measurement one. Two shapes if ever taken: (a) *cheap, both paths* —
+enable Calf BassEnhancer on HDA in `make_preset` (today SoundWire-only);
+it keeps EE and PW equal but, per the 24-variant sweep above, caps
+~−20 dB at the 50 Hz 3rd harmonic and is even-dominated, so it only
+weakly approximates DAX's odd-dominated synthesis; (b) *PW-only,
+closer* — the LSP-cascade + Saturator injection above, expressible only
+in the PW path. Both stay deferred.
+
 ### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue #13)
 
 Issue #13 (taprobane99) opened arguing our 20-band → FIR construction was
