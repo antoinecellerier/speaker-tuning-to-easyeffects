@@ -9,6 +9,7 @@ the design-doc's verification anchor (alternative-pipelines.md:371-373).
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import re
@@ -42,6 +43,7 @@ from ee_to_pipewire import (
     lin_to_db,
     main as ee2pw_main,
     _assert_positional,
+    _emit_peq_node,
     _resolve_irs,
     _sanitize_name,
 )
@@ -1241,3 +1243,219 @@ def test_main_explicit_node_name_overrides_derivation(generated, tmp_path):
     conf = out_path.read_text()
     assert 'effect_input.MyChain' in conf
     assert 'Dolby_Balanced' not in conf
+
+
+# ---------------------------------------------------------------------------
+# Systematic coverage guard
+#
+# Schema validation (lv2info) catches *invalid* control symbols, but a key the
+# generator WRITES that the emitter silently IGNORES yields a valid-but-wrong
+# conf that nothing catches. This guard asserts, for every translated plugin,
+# that each audio-affecting key the generator emits is either consumed by the
+# converter's emitter or explicitly marked intentionally-untranslated below.
+# A new generator key that is neither fails the test, forcing a conscious
+# translate-or-classify decision rather than a silent drop.
+# ---------------------------------------------------------------------------
+
+# mb_compressor_stereo exposes no ports for sidechain filtering, sidechain
+# reactivity, the boost knee, per-band mute/solo, or the up/down compression
+# mode. The generator leaves all of them benign (custom SC filters off, mode
+# "Downward", mute/solo False, boost 0), so dropping them is faithful — the
+# target plugin simply cannot express them.
+_MBC_UNTRANSLATED = {
+    "stereo-split",        # mb_compressor_stereo always processes L/R together
+    "mute", "solo",        # always False in generator; no per-band port anyway
+    "compression-mode",    # always "Downward"; no mode port
+    "sidechain-type", "sidechain-source", "stereo-split-source",
+    "sidechain-reactivity",
+    "sidechain-custom-lowcut-filter", "sidechain-custom-highcut-filter",
+    "sidechain-lowcut-frequency", "sidechain-highcut-frequency",
+    "boost-threshold", "boost-amount",
+}
+
+# Keys the converter deliberately does NOT translate, with the reason.
+_INTENTIONALLY_UNTRANSLATED = {
+    "convolver#0": {
+        "input-gain",  # always 0.0; builtin convolver has no input-gain port
+        "ir-width",    # EE stereo-IR width, internal; no PW equivalent
+        "autogain",    # EE convolver auto-normalise flag, internal
+    },
+    "equalizer#0": {"split-channels"},  # para_equalizer_x16_LR is inherently L/R
+    "equalizer#1": {"split-channels"},
+    "multiband_compressor#0": _MBC_UNTRANSLATED,
+    "multiband_compressor#1": _MBC_UNTRANSLATED,
+    "limiter#0": {
+        "oversampling",     # EE-internal; limiter_stereo has no such port
+        "dithering",        # EE-internal
+        "sidechain-type",   # always "Internal"; no external SC wired
+        "sidechain-preamp", # always 0.0
+    },
+    "bass_enhancer#0": set(),
+}
+
+# plugin key -> emitter function(s) whose source defines the consumed keys.
+_EMITTERS_FOR = {
+    "convolver#0": (emit_convolver,),
+    "equalizer#0": (emit_peq, _emit_peq_node),
+    "equalizer#1": (emit_peq, _emit_peq_node),
+    "multiband_compressor#0": (emit_mb_compressor,),
+    "multiband_compressor#1": (emit_mb_compressor,),
+    "limiter#0": (emit_limiter,),
+    "bass_enhancer#0": (emit_bass_enhancer,),
+}
+
+
+def _leaf_param_keys(plugin: dict) -> set[str]:
+    """Flatten a preset plugin dict to its scalar parameter names, descending
+    past the PEQ left/right -> bandN containers and the MBC band0..7 containers
+    so per-band params are compared, not the structural wrappers."""
+    containers = {"left", "right"} | {f"band{i}" for i in range(8)}
+    keys: set[str] = set()
+    for k, v in plugin.items():
+        if k in containers and isinstance(v, dict):
+            if all(not isinstance(sv, dict) for sv in v.values()):
+                keys.update(v.keys())          # MBC: bandN -> {params}
+            else:
+                for sub_v in v.values():       # PEQ: left/right -> bandN -> {params}
+                    if isinstance(sub_v, dict):
+                        keys.update(sub_v.keys())
+        else:
+            keys.add(k)
+    return keys
+
+
+def _consumed_keys(fns) -> set[str]:
+    """Keys the emitter reads, scraped from `plugin.get("X")`/`band.get("X")`
+    literals in its source. Auto-derived so the guard tracks the emitter with
+    no hand-maintained mirror; f-string container reads (band{i}) are handled
+    by _leaf_param_keys descending past the containers."""
+    keys: set[str] = set()
+    for fn in fns:
+        src = inspect.getsource(fn)
+        keys.update(re.findall(r"""\.get\(\s*["']([^"']+)["']""", src))
+    return keys
+
+
+def _coverage_preset(is_soundwire: bool):
+    peq = synthetic_peq_filters([
+        (0, 7, 90.0, 0.0, 0.707, 4, 1.0), (1, 7, 90.0, 0.0, 0.707, 4, 1.0),
+        (0, 1, 1000.0, 4.0, 1.5, 0, 1.0), (1, 1, 1000.0, 4.0, 1.5, 0, 1.0),
+        (0, 4, 200.0, 3.0, 0.707, 0, 1.0), (1, 4, 200.0, 3.0, 0.707, 0, 1.0),
+        (0, 3, 8000.0, 2.0, 0.707, 0, 1.0), (1, 3, 8000.0, 2.0, 0.707, 0, 1.0),
+        (0, 6, 15000.0, 0.0, 0.707, 2, 1.0), (1, 6, 15000.0, 0.0, 0.707, 2, 1.0),
+    ])
+    mb = synthetic_mb_comp(group_count=3, bands=[
+        (10, -160, 16384, 30000, 32500, 0),
+        (100, -160, 16384, 30000, 32500, 0),
+        (1000, -160, 16384, 30000, 32500, 0),
+    ])
+    reg = synthetic_regulator([-6.0] * 20)
+    preset, _ = make_preset(
+        kernel_name="Synthetic", peq_filters=peq,
+        vol_leveler={"enable": True, "amount": 5, "out_target": -16.0},
+        dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
+        mb_comp=mb, regulator=reg, freqs=SYNTHETIC_FREQS_20,
+        is_soundwire=is_soundwire, volmax_boost=3.0,
+    )
+    return preset
+
+
+@pytest.mark.parametrize("is_soundwire", [False, True])
+def test_no_generator_key_silently_dropped(is_soundwire):
+    preset = _coverage_preset(is_soundwire)
+    for key, plugin in preset["output"].items():
+        if key in ("blocklist", "plugins_order") or not isinstance(plugin, dict):
+            continue
+        if key == "autogain#0":
+            # Intentionally not translated at all — EE's native libebur128 has
+            # no LV2 equivalent; build_chain warns and skips it.
+            continue
+        consumed = _consumed_keys(_EMITTERS_FOR[key])
+        ignored = _INTENTIONALLY_UNTRANSLATED.get(key, set())
+        unhandled = _leaf_param_keys(plugin) - consumed - ignored
+        assert not unhandled, (
+            f"{key}: generator writes keys the converter neither reads nor "
+            f"marks untranslated: {sorted(unhandled)}. Either consume them in "
+            f"the emitter or add to _INTENTIONALLY_UNTRANSLATED with a reason."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Targeted round-trips for paths the happy-path fixture skips: the regulator's
+# volmax output-gain, MBC split-frequency / band-enable on bands 1..n, and the
+# experimental PEQ shelf / lo-pass filter types. `_coverage_preset` carries a
+# non-zero volmax_boost and all five filter types, so these aren't vacuous.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def coverage_chain(tmp_path):
+    preset = _coverage_preset(is_soundwire=False)
+    chain = build_chain(preset, tmp_path, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    return preset, conf
+
+
+def test_regulator_volmax_g_out_round_trips(coverage_chain):
+    """The regulator (multiband_compressor#1) carries the volmax-boost on its
+    output-gain — distinct from the MBC (#0), which never does. Lock that it
+    round-trips through the conf's `g_out` as a linear gain."""
+    preset, conf = coverage_chain
+    reg = _extract_node_control(conf, "reg")
+    src = preset["output"]["multiband_compressor#1"]
+    assert src["output-gain"] != 0.0   # volmax_boost=3.0 forces a non-zero trim
+    assert abs(lin_to_db(reg["g_out"]) - src["output-gain"]) < 1e-4
+
+
+def test_mbc_split_frequency_and_band_enable_round_trip(coverage_chain):
+    """The MBC round-trip elsewhere only checks band 0; bands 1..7 carry the
+    crossover `sf_{i}` and the `cbe_{i}` enable toggle. Verify both round-trip
+    from the generated preset to the conf."""
+    preset, conf = coverage_chain
+    mbc = _extract_node_control(conf, "mbc")
+    src = preset["output"]["multiband_compressor#0"]
+    checked = 0
+    for i in range(1, 8):
+        band = src.get(f"band{i}")
+        if not band or "split-frequency" not in band:
+            continue
+        assert abs(mbc[f"sf_{i}"] - band["split-frequency"]) < 1e-4
+        assert mbc[f"cbe_{i}"] == (1 if band["enable-band"] else 0)
+        checked += 1
+    assert checked >= 1, "fixture exercised no split band — test would be vacuous"
+
+
+def test_peq_shelf_lopass_types_and_q_round_trip(coverage_chain):
+    """Exercise the experimental Hi-shelf / Lo-shelf / Lo-pass paths the
+    happy-path test (Hi-pass/Bell only) skips: filter-type integers map via
+    EE_FTYPE_TO_LSP, and Q (identity) + gain (dB->linear) round-trip."""
+    preset, conf = coverage_chain
+    peq = _extract_node_control(conf, "peq")
+    left = preset["output"]["equalizer#0"]["left"]
+    num_bands = preset["output"]["equalizer#0"]["num-bands"]
+    seen = set()
+    for i in range(num_bands):
+        b = left[f"band{i}"]
+        seen.add(b["type"])
+        assert peq[f"ftl_{i}"] == EE_FTYPE_TO_LSP[b["type"]]
+        assert peq[f"ftr_{i}"] == EE_FTYPE_TO_LSP[b["type"]]
+        assert abs(peq[f"ql_{i}"] - b["q"]) < 1e-9
+        assert abs(lin_to_db(peq[f"gl_{i}"]) - b["gain"]) < 1e-4
+    assert {"Hi-shelf", "Lo-shelf", "Lo-pass"} <= seen, (
+        f"experimental shelf/lo-pass paths not exercised; saw {sorted(seen)}"
+    )
+
+
+def test_filter_graph_declares_inputs_and_outputs(generated):
+    """Without `inputs`/`outputs` in filter.graph, PipeWire leaves the chain
+    unconnected (a silent-drop trap flagged in the measure_pw README). Assert
+    both arrays are present and carry node:port references."""
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    for field in ("inputs", "outputs"):
+        m = re.search(rf"\b{field}\s*=\s*\[(.*?)\]", conf, re.DOTALL)
+        assert m, f"filter.graph has no {field} array"
+        assert re.search(r'"[^"]+:[^"]+"', m.group(1)), \
+            f"{field} array carries no node:port reference: {m.group(1)!r}"

@@ -193,6 +193,31 @@ def parse_conf(text: str) -> list[dict]:
 _FILTER_TYPE_OFF = 0
 
 
+def _check_peq_mute(node: dict) -> list[str]:
+    """Cross-check for the xm-MUTE inversion trap on an LSP para_equalizer:
+    a band with an active (non-Off) filter type but `xm=1` is silently muted.
+    `xm` is MUTE (0=active, 1=muted), not enable — inverting it passes the
+    whole PEQ through. Returns one error string per offending band.
+    """
+    errors: list[str] = []
+    ctrl = node["control"]
+    for i in range(32):
+        for side in ("l", "r"):
+            ft = ctrl.get(f"ft{side}_{i}")
+            xm = ctrl.get(f"xm{side}_{i}")
+            if ft is None or xm is None:
+                continue
+            if ft != _FILTER_TYPE_OFF and xm == 1:
+                errors.append(
+                    f"{node['name']}: band {i} ({side}) has filter "
+                    f"type {ft} but xm{side}_{i}=1. xm is MUTE "
+                    "(0=active, 1=muted), so this band is "
+                    "silently bypassed despite being declared as "
+                    "an active filter type."
+                )
+    return errors
+
+
 def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
              ) -> tuple[list[str], list[str]]:
     errors: list[str] = []
@@ -242,25 +267,10 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
                     f"(must be 0 or 1)"
                 )
 
-        # Cross-check: filter-type non-Off must have xm=0 (active).
-        # Targets the bug where xm was inverted and silently muted
-        # every band.
+        # Cross-check: filter-type non-Off must have xm=0 (active). Targets
+        # the bug where xm was inverted and silently muted every band.
         if "para_equalizer" in uri:
-            ctrl = node["control"]
-            for i in range(32):
-                for side in ("l", "r"):
-                    ft = ctrl.get(f"ft{side}_{i}")
-                    xm = ctrl.get(f"xm{side}_{i}")
-                    if ft is None or xm is None:
-                        continue
-                    if ft != _FILTER_TYPE_OFF and xm == 1:
-                        errors.append(
-                            f"{node['name']}: band {i} ({side}) has filter "
-                            f"type {ft} but xm{side}_{i}=1. xm is MUTE "
-                            "(0=active, 1=muted), so this band is "
-                            "silently bypassed despite being declared as "
-                            "an active filter type."
-                        )
+            errors.extend(_check_peq_mute(node))
 
     return errors, warnings
 
