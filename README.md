@@ -1,15 +1,20 @@
-# Dolby DAX3 to EasyEffects Preset Converter
+# Dolby Atmos Speaker Tuning to EasyEffects Presets for Linux
 
 Bring your laptop's Windows speaker tuning to Linux. This script converts the
 Dolby Atmos **DAX3** tuning XML shipped inside Windows audio drivers into
 [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets — the
-same FIR speaker correction, EQ, and dynamics processing your speakers get on
-Windows, applied at **zero added latency**.
+same speaker correction, EQ, and dynamics processing your speakers get there,
+applied at **zero added latency**.
 
 > **EasyEffects 8.x required.** If your distro still ships EasyEffects 7
 > (Debian trixie, Ubuntu 24.04+, Fedora 43 and earlier), install the
 > [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) — the EE 7
 > and EE 8 preset formats aren't compatible.
+
+Don't want to run EasyEffects? The same tuning also runs as a self-contained
+PipeWire `filter-chain` — no GUI, no extra daemon. See
+[PipeWire `filter-chain`](#pipewire-filter-chain-instead-of-easyeffects) under
+Advanced.
 
 **Contents:** [Quick start](#quick-start) · [Staying up to date](#staying-up-to-date) · [Supported devices](#supported-devices) · [Install](#install) · [Usage](#usage) · [Advanced](#advanced) · [How it works](#how-it-works) · [Running the tests](#running-the-tests) · [Further reading](#further-reading)
 
