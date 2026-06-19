@@ -190,8 +190,8 @@ The conf attaches to the internal-speaker sink as a WirePlumber 0.5+ smart filte
 
 The two paths sound the same (measured equivalent above) — choose on everything else:
 
-- **Features → EasyEffects.** A GUI to tweak and switch presets live, and the one stage the PW conf can't reproduce: the volume-leveler / `autogain` (native libebur128, no LV2 equivalent — only matters on SoundWire devices where Dolby enables it).
-- **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects.
+- **Features → EasyEffects.** A GUI to tweak and switch presets live, and the one stage the PW conf can't reproduce: the volume-leveler / `autogain` (native libebur128, no LV2 equivalent). That only matters on SoundWire devices, though — on HDA the generator deliberately leaves autogain bypassed, because enabling its loudness boost there can clip.
+- **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects. Both are light in absolute terms — the DSP is roughly a tenth of one CPU core (well under 1 % of a typical multi-core laptop) — so the memory and feature differences usually matter more than the CPU one.
 - **Latency → a wash.** Both add zero latency over the PipeWire quantum (minimum-phase FIR), and both ran xrun-free at 1024/48 kHz.
 
 Those CPU/RAM figures are device-specific; reproduce them on your own hardware with [`tools/measure_perf/`](tools/measure_perf/) (frequency-invariant `perf`-cycle measurement, since laptop clocks don't hold still).
