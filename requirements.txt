@@ -3,3 +3,4 @@ scipy
 rich
 rich-argparse
 pytest
+pytest-xdist  # optional: parallelizes the slow corpus tier (pytest -n auto)
