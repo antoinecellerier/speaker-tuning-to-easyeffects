@@ -1,7 +1,7 @@
 # Dolby Atmos Speaker Tuning to EasyEffects Presets for Linux
 
 Bring your laptop's Windows speaker tuning to Linux. This script converts the
-Dolby Atmos **DAX3** tuning XML shipped inside Windows audio drivers into
+Dolby Atmos DAX3 tuning XML shipped inside Windows audio drivers into
 [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets — the
 same speaker correction, EQ, and dynamics processing your speakers get there,
 applied at **zero added latency**.
