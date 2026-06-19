@@ -1129,6 +1129,15 @@ def main(argv: list[str] | None = None) -> int:
         rc, output = _validate_conf(conf)
         if rc == -1:
             print(f"[validate] skipped: {output.strip()}", file=sys.stderr)
+            # Without lv2info the plugin set can't be checked, so a missing
+            # runtime dependency would otherwise pass unnoticed — remind the
+            # user what the chain needs.
+            print("[validate] the plugin set wasn't checked — make sure the "
+                  "LV2 plugins this conf uses are installed: LSP "
+                  "(lsp-plugins-lv2) for the PEQ / MBC / limiter, plus Calf "
+                  "(calf-plugins) if it includes bass_enhancer / "
+                  "stereo_tools. Otherwise the chain won't load.",
+                  file=sys.stderr)
         elif rc == 2:
             # Setup error inside validate_conf.py — degraded gracefully.
             print(f"[validate] skipped (setup): {output.strip()}",
@@ -1138,6 +1147,15 @@ def main(argv: list[str] | None = None) -> int:
             print("error: schema validation failed; conf not written",
                   file=sys.stderr)
             return 1
+        elif output.strip():
+            # Validation passed, but validate_conf still emits warnings — most
+            # importantly "no lv2info schema available for <uri>" when a
+            # referenced LSP/Calf plugin isn't installed, so its ports
+            # couldn't be checked. Surface them; otherwise the conf writes
+            # "successfully" while the chain silently fails to load for a
+            # missing runtime dependency.
+            for line in output.strip().splitlines():
+                print(f"[validate] {line}", file=sys.stderr)
 
     if args.dry_run:
         sys.stdout.write(conf)

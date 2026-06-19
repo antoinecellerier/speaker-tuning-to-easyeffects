@@ -180,20 +180,59 @@ EasyEffects applies the last-loaded preset to whatever sink is currently active,
 
 ### PipeWire `filter-chain` instead of EasyEffects
 
-`ee_to_pipewire.py` converts a generated EasyEffects preset into a PipeWire `filter-chain` `.conf` for users who'd rather not run EasyEffects (lower CPU, no GUI, set-and-forget). Disable EasyEffects for this device first to avoid double-processing.
+`ee_to_pipewire.py` converts a generated EasyEffects preset into a self-contained PipeWire `filter-chain` `.conf` — the same tuning, no GUI, lower CPU, set-and-forget. It works whether or not EasyEffects is installed. Design notes and equivalence measurements: [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md).
+
+#### Quick start (PipeWire)
+
+Step 1 is the same generator the EasyEffects flow uses, so its prerequisites carry over: install the Python dependencies (NumPy/SciPy — see [Install](#install)), and locate your tuning XML the same way (auto-discovery, `--windows`, or [manual extraction](#extracting-the-xml); the main [Quick start](#quick-start) and [Usage](#usage) cover the options and which presets get generated). You just skip `--autoload`, which only wires EasyEffects. `ee_to_pipewire.py` itself adds no Python dependencies; its only runtime needs are the LSP/Calf LV2 plugins (see *Plugin dependencies and validation* below).
 
 ```bash
+# 1. Generate the preset JSON (no EasyEffects install required)
+python3 dolby_to_easyeffects.py            # omit --autoload; that only wires EE
+
+# 2. Convert it to a filter-chain conf (the matching .irs is copied beside it)
 python3 ee_to_pipewire.py ~/.local/share/easyeffects/output/Dolby-Balanced.json
+
+# 3. Activate
 systemctl --user restart pipewire pipewire-pulse
+
+# 4. Confirm the sink is loaded
+pw-cli ls Node | grep Dolby_Balanced
 ```
 
-The PW chain loads LV2 plugins from your system: **LSP plugins** (`lsp-plugins-lv2` on Debian/Ubuntu, `lsp-plugins` on Fedora/Arch) for the PEQ / MBC / regulator / limiter, and **Calf plugins** (`calf-plugins`) for the `bass_enhancer` / `stereo_tools` stages when the preset uses them. Both are typical EasyEffects dependencies, so they're already installed if you've used EE. The converter shells out to `lv2info` (`lilv-utils`) to validate the conf against installed plugin metadata before writing it; pass `--no-validate` to skip on systems without lv2info.
+The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; `autogain` and 4-channel upmix aren't translated (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
 
-The conf attaches to the internal-speaker sink as a WirePlumber 0.5+ smart filter — apps keep targeting the speaker as default, the chain inserts itself transparently, HDMI / Bluetooth / USB outputs bypass automatically, and there's no second volume layer. Covers convolver, PEQ, dialog, multiband compressor, regulator, limiter (LSP-backed) plus `bass_enhancer` / `stereo_tools` (Calf-backed); stereo only. Measures equivalent to the EasyEffects chain to ≤0.5 dB / ≥30 dB S/R on the development device. `autogain` and 4-channel upmix for Snapdragon-class laptops aren't translated — autogain because EE's implementation is native libebur128 with no faithful LV2 equivalent (the converter warns and skips), 4-channel upmix because the chain is stereo-only. Open an issue with your device model, codec subsystem ID, and a link to the OEM's Windows driver download if you need either. Design notes in [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md); equivalence-measurement tooling in [`tools/measure_pw/`](tools/measure_pw/).
+- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once.
+- **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
+
+<details>
+<summary>Plugin dependencies and validation</summary>
+
+The chain loads LV2 plugins from your system: **LSP** (`lsp-plugins-lv2` on Debian/Ubuntu, `lsp-plugins` on Fedora/Arch) for the PEQ / MBC / regulator / limiter, and **Calf** (`calf-plugins`) for the `bass_enhancer` / `stereo_tools` stages when the preset uses them. Both are typical EasyEffects dependencies, so they're already present if you've used EE — but if they're missing the chain won't load in PipeWire.
+
+Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate it against installed plugin metadata; that pass also surfaces a **missing plugin** as a `[validate]` warning. If `lv2info` itself isn't installed the converter can't run that check — it prints a reminder to install the plugins instead. Pass `--no-validate` to skip the check entirely.
+
+</details>
+
+<details>
+<summary><code>ee_to_pipewire.py</code> command-line options</summary>
+
+- `preset` (positional) — path to the EasyEffects preset JSON (the output of `dolby_to_easyeffects.py`, e.g. `~/.local/share/easyeffects/output/Dolby-Balanced.json`)
+- `--target-sink NODE_NAME` — hardware sink the filter attaches to as a WirePlumber smart filter (default: auto-detect the internal-speaker sink, the same probe `--autoload` uses). Pass an empty string (`''`) to disable smart-filter routing and emit a v1 virtual sink that apps target directly
+- `--output PATH` — output `.conf` path (default: `~/.config/pipewire/pipewire.conf.d/<node-name>.conf`)
+- `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: `~/.local/share/easyeffects/irs`)
+- `--node-name NAME` / `--node-description DESC` — override the sink's node name / human-readable label (default: derived from the preset filename stem, so converting several presets yields distinct sinks)
+- `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
+- `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
+- `--force` — overwrite the output conf if it already exists
+- `--dry-run` — print the generated conf to stdout instead of writing it
+- `--version` — print the version (`git describe`) and exit
+
+</details>
 
 #### Which should I use?
 
-The two paths sound the same (measured equivalent above) — choose on everything else:
+The two paths sound the same ([measured equivalent](docs/ee-to-pipewire.md#equivalence-to-the-ee-chain)) — choose on everything else:
 
 - **Features → EasyEffects.** A GUI to tweak and switch presets live, and the one stage the PW conf can't reproduce: the volume-leveler / `autogain` (native libebur128, no LV2 equivalent). That only matters on SoundWire devices, though — on HDA the generator deliberately leaves autogain bypassed, because enabling its loudness boost there can clip.
 - **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects. Both are light in absolute terms — the DSP is roughly a tenth of one CPU core (well under 1 % of a typical multi-core laptop) — so the memory and feature differences usually matter more than the CPU one.

@@ -903,6 +903,63 @@ def test_main_no_validate_skips_check(generated, tmp_path, capsys):
     assert rc == 0
 
 
+def test_main_surfaces_validate_warnings_on_pass(generated, tmp_path,
+                                                 monkeypatch, capsys):
+    """Trap: a passing self-check (rc==0) that still carries warnings — e.g.
+    a referenced LSP/Calf plugin isn't installed, so validate_conf couldn't
+    check its ports — must surface those warnings. They were previously
+    swallowed on the rc==0 path, hiding a missing runtime dependency behind
+    a "conf written" success (the chain then silently fails to load).
+    """
+    import ee_to_pipewire
+    warn = ("WARN: mb_compressor: no lv2info schema available for "
+            "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo; skipping")
+    monkeypatch.setattr(ee_to_pipewire, "_validate_conf",
+                        lambda conf: (0, warn + "\n"))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--dry-run",
+    ])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "[validate]" in err
+    assert "no lv2info schema available" in err
+
+
+def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
+                                                        monkeypatch, capsys):
+    """When the self-check is skipped because lv2info isn't installed, the
+    converter can't verify the plugin set is present — so it must remind the
+    user to install LSP / Calf, or the chain silently won't load in PipeWire.
+    """
+    import ee_to_pipewire
+    monkeypatch.setattr(
+        ee_to_pipewire, "_validate_conf",
+        lambda conf: (-1, "lv2info or spa-json-dump not in PATH "
+                          "(install lilv-utils and pipewire)"))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--dry-run",
+    ])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "[validate] skipped" in err
+    assert "lsp-plugins-lv2" in err
+    assert "calf-plugins" in err
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
