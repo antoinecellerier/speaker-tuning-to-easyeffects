@@ -224,6 +224,7 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name / human-readable label (default: derived from the preset filename stem, so converting several presets yields distinct sinks)
 - `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
 - `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
+- `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--force` — overwrite the output conf if it already exists
 - `--dry-run` — print the generated conf to stdout instead of writing it
 - `--version` — print the version (`git describe`) and exit

@@ -961,6 +961,46 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
 
 
 # ---------------------------------------------------------------------------
+# Colored output (rich, optional) — mirrors dolby_to_easyeffects.py
+# ---------------------------------------------------------------------------
+
+def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
+    """With the console disabled (rich absent or --no-color), cprint must
+    still emit the text plainly on stderr — color is decoration, never a
+    gate on the message getting through.
+    """
+    import ee_to_pipewire
+    monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", None)
+    ee_to_pipewire.cprint("err", "diagnostic-xyz")
+    captured = capsys.readouterr()
+    assert "diagnostic-xyz" in captured.err
+    assert captured.out == ""  # diagnostics never touch stdout
+
+
+def test_main_no_color_disables_console(generated, tmp_path, monkeypatch):
+    """`--no-color` must disable the console. monkeypatch sets a sentinel and
+    auto-restores it at teardown, so `_disable_color()`'s global mutation
+    doesn't leak into other tests.
+    """
+    import ee_to_pipewire
+    monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", object())
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--dry-run",
+        "--no-validate",
+        "--no-color",
+    ])
+    assert rc == 0
+    assert ee_to_pipewire._CONSOLE is None
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -1090,6 +1130,44 @@ def test_main_dry_run_retargets_without_copying(generated, tmp_path,
     # The printed conf shows where the IRS *would* land, not the EE path.
     assert str(target_irs) in captured.out
     assert str(irs_path) not in captured.out
+
+
+def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
+    """--dry-run announces where the conf (and IRS copy) *would* land, on
+    stderr — so the conf piped to stdout stays clean."""
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "TestChain.conf"
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(out_path),
+        "--no-validate",
+        "--dry-run",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    target_irs = out_path.parent / "TestChain.irs"
+    assert f"Would write conf: {out_path}" in captured.err
+    assert "Would copy IRS:" in captured.err
+    assert str(target_irs) in captured.err
+    assert "Would write conf" not in captured.out  # never leaks into the conf
+
+
+def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
+                                                        capsys):
+    """A real write reports the destinations (Wrote/Copied) and a numbered
+    Next steps block — the post-[next] presentation."""
+    rc, out_path, _src_irs = _run_main(generated, tmp_path)
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert f"Wrote conf: {out_path}" in err
+    assert "Copied IRS:" in err
+    assert "Next steps:" in err
+    assert "systemctl --user restart pipewire pipewire-pulse" in err
+    assert "[next]" not in err  # old per-line tag is gone
 
 
 def test_main_existing_target_irs_without_force_errors(generated,

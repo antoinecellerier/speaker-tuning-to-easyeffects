@@ -35,6 +35,56 @@ from typing import Callable
 
 from _version import get_version
 
+# Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
+# setup). The console targets stderr so it never pollutes the --dry-run conf
+# on stdout, and resolves the current sys.stderr lazily so capsys can capture
+# it in tests.
+try:
+    from rich.console import Console
+    from rich.theme import Theme
+    _CONSOLE = Console(
+        stderr=True,
+        theme=Theme({
+            "err":  "bold red",
+            "head": "bold cyan",
+            "ok":   "green",
+            "warn": "yellow",
+            "cta":  "bold magenta",
+            "dim":  "dim",
+        }),
+        markup=False,
+        highlight=False,
+    )
+except ImportError:
+    _CONSOLE = None
+
+try:
+    from rich_argparse import RichHelpFormatter as _HelpFormatter
+except ImportError:
+    _HelpFormatter = argparse.HelpFormatter
+
+_MISSING_COLOR_DEPS = []
+if _CONSOLE is None:
+    _MISSING_COLOR_DEPS.append("rich")
+if _HelpFormatter is argparse.HelpFormatter:
+    _MISSING_COLOR_DEPS.append("rich-argparse")
+
+
+def cprint(style: str, text: str = "") -> None:
+    """Print `text` to stderr in the given semantic style, or plain if rich is
+    absent. ``soft_wrap=True`` keeps the text exactly as written (no 80-col
+    reflow) so commands/paths stay on one line and substring-asserting tests
+    hold."""
+    if _CONSOLE is None:
+        print(text, file=sys.stderr)
+        return
+    _CONSOLE.print(text, style=style, soft_wrap=True)
+
+
+def _disable_color() -> None:
+    global _CONSOLE
+    _CONSOLE = None
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 VALIDATE_CONF_SCRIPT = SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"
 
@@ -896,30 +946,51 @@ def _validate_conf(conf_text: str) -> tuple[int, str]:
     return rc.returncode, (rc.stderr or "") + (rc.stdout or "")
 
 
-def _print_next_steps(stream, output_path: Path | None,
-                      node_name: str,
-                      target_object: str | None = None,
-                      irs_path: Path | None = None) -> None:
-    pre = "[next] "
-    print(f"{pre}systemctl --user restart pipewire pipewire-pulse",
-          file=stream)
-    print(f"{pre}To prevent double processing, quit EasyEffects or "
-          "remove its autoload for this device.", file=stream)
-    print(f"{pre}Verify the new sink: pw-cli ls Node | grep "
-          f"{_sanitize_name(node_name)}", file=stream)
+def _print_results(conf_path: Path, irs_path: Path | None,
+                   *, dry_run: bool) -> None:
+    """Report where the conf (and copied IRS) landed — or, under --dry-run,
+    where they *would* land. Always to stderr, so the dry-run conf on stdout
+    stays clean."""
+    if dry_run:
+        cprint("ok", f"Would write conf: {conf_path}")
+        if irs_path is not None:
+            cprint("ok", f"Would copy IRS:   {irs_path}")
+    else:
+        cprint("ok", f"Wrote conf: {conf_path}")
+        if irs_path is not None:
+            cprint("ok", f"Copied IRS: {irs_path}")
+
+
+def _print_next_steps(node_name: str,
+                      target_object: str | None = None) -> None:
+    """The actions to take after a real (non-dry-run) write."""
+    cprint("head", "Next steps:")
+    cprint("cta", "  1. Restart PipeWire:        "
+                  "systemctl --user restart pipewire pipewire-pulse")
+    cprint("cta", "  2. Avoid double-processing: quit EasyEffects "
+                  "(or remove its autoload for this device)")
+    cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
+                  f"{_sanitize_name(node_name)}")
     if target_object:
-        print(f"{pre}Verify routing: pw-link -l | grep {target_object}",
-              file=stream)
-    if output_path is not None:
-        print(f"{pre}Conf written to: {output_path}", file=stream)
-    if irs_path is not None:
-        print(f"{pre}IRS copied to:   {irs_path}", file=stream)
+        cprint("cta", "  4. Verify routing:          "
+                      f"pw-link -l | grep {target_object}")
 
 
 def main(argv: list[str] | None = None) -> int:
+    # --no-color must be honored before argparse renders --help, so pre-scan
+    # argv to pick the help formatter (color itself is disabled after parsing).
+    _argv = sys.argv[1:] if argv is None else argv
+    formatter_class = (argparse.HelpFormatter
+                       if "--no-color" in _argv else _HelpFormatter)
+    epilog = None
+    if _MISSING_COLOR_DEPS:
+        epilog = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+                  + " for colored output (see README for distro packages).")
     parser = argparse.ArgumentParser(
         description="Convert an EasyEffects output preset to a PipeWire "
                     "filter-chain .conf (see docs/ee-to-pipewire.md).",
+        formatter_class=formatter_class,
+        epilog=epilog,
     )
     parser.add_argument(
         "--version",
@@ -1022,16 +1093,23 @@ def main(argv: list[str] | None = None) -> int:
              "preset regenerations propagate automatically, at the cost "
              "of a brittle cross-tree dependency).",
     )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored terminal output",
+    )
     args = parser.parse_args(argv)
+    if args.no_color:
+        _disable_color()
 
     preset_path: Path = args.preset
     if not preset_path.is_file():
-        print(f"error: preset not found: {preset_path}", file=sys.stderr)
+        cprint("err", f"error: preset not found: {preset_path}")
         return 2
     try:
         preset = json.loads(preset_path.read_text())
     except json.JSONDecodeError as e:
-        print(f"error: preset JSON is malformed: {e}", file=sys.stderr)
+        cprint("err", f"error: preset JSON is malformed: {e}")
         return 2
 
     # Default node-name / -description are derived from the preset
@@ -1063,12 +1141,12 @@ def main(argv: list[str] | None = None) -> int:
         chain = build_chain(preset, args.irs_dir.expanduser(),
                             must_exist=not args.dry_run)
     except FileNotFoundError as e:
-        print(f"error: {e}", file=sys.stderr)
+        cprint("err", f"error: {e}")
         return 2
 
     if not chain.stages:
-        print("error: no stages emitted (preset is empty or every plugin "
-              "was skipped)", file=sys.stderr)
+        cprint("err", "error: no stages emitted (preset is empty or every "
+                      "plugin was skipped)")
         return 1
 
     # Resolve where the IRS will live. By default we copy it next to the
@@ -1092,28 +1170,27 @@ def main(argv: list[str] | None = None) -> int:
     # through to autodetection.
     if args.target_sink == "":
         target_sink: str | None = None
-        print("[smart-filter] disabled by --target-sink ''; emitting "
-              "v1 virtual-sink conf (apps will target effect_input."
-              f"{safe_node_name} directly)", file=sys.stderr)
+        cprint("dim", "[smart-filter] disabled by --target-sink ''; emitting "
+                      "v1 virtual-sink conf (apps will target effect_input."
+                      f"{safe_node_name} directly)")
     elif args.target_sink:
         target_sink = args.target_sink
-        print(f"[smart-filter] target sink: {target_sink} (from "
-              "--target-sink)", file=sys.stderr)
+        cprint("ok", f"[smart-filter] target sink: {target_sink} (from "
+                     "--target-sink)")
     else:
         target_sink, detect_warnings = _autodetect_speaker_sink()
         # Warnings print on both paths: a relaxed-tier match returns a name
         # *and* a warning explaining the fallback.
         for w in detect_warnings:
-            print(f"[smart-filter] {w}", file=sys.stderr)
+            cprint("warn", f"[smart-filter] {w}")
         if target_sink:
-            print(f"[smart-filter] target sink: {target_sink} "
-                  "(autodetected)", file=sys.stderr)
+            cprint("ok", f"[smart-filter] target sink: {target_sink} "
+                         "(autodetected)")
         else:
-            print("[smart-filter] falling back to v1 virtual-sink conf "
-                  "(apps will target effect_input."
-                  f"{safe_node_name}); pass --target-sink "
-                  "<node.name> to enable smart-filter routing.",
-                  file=sys.stderr)
+            cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
+                           "conf (apps will target effect_input."
+                           f"{safe_node_name}); pass --target-sink "
+                           "<node.name> to enable smart-filter routing.")
 
     links = emit_links(chain.stages)
     conf = format_conf(chain.stages, links, node_name,
@@ -1123,29 +1200,28 @@ def main(argv: list[str] | None = None) -> int:
                        warnings=chain.warnings)
 
     for w in chain.warnings:
-        print(f"[skip] {w}", file=sys.stderr)
+        cprint("warn", f"[skip] {w}")
 
     if not args.no_validate:
         rc, output = _validate_conf(conf)
         if rc == -1:
-            print(f"[validate] skipped: {output.strip()}", file=sys.stderr)
+            cprint("dim", f"[validate] skipped: {output.strip()}")
             # Without lv2info the plugin set can't be checked, so a missing
             # runtime dependency would otherwise pass unnoticed — remind the
             # user what the chain needs.
-            print("[validate] the plugin set wasn't checked — make sure the "
-                  "LV2 plugins this conf uses are installed: LSP "
-                  "(lsp-plugins-lv2) for the PEQ / MBC / limiter, plus Calf "
-                  "(calf-plugins) if it includes bass_enhancer / "
-                  "stereo_tools. Otherwise the chain won't load.",
-                  file=sys.stderr)
+            cprint("warn", "[validate] the plugin set wasn't checked — make "
+                           "sure the LV2 plugins this conf uses are installed: "
+                           "LSP (lsp-plugins-lv2) for the PEQ / MBC / limiter, "
+                           "plus Calf (calf-plugins) if it includes "
+                           "bass_enhancer / stereo_tools. Otherwise the chain "
+                           "won't load.")
         elif rc == 2:
             # Setup error inside validate_conf.py — degraded gracefully.
-            print(f"[validate] skipped (setup): {output.strip()}",
-                  file=sys.stderr)
+            cprint("dim", f"[validate] skipped (setup): {output.strip()}")
         elif rc != 0:
-            sys.stderr.write(output)
-            print("error: schema validation failed; conf not written",
-                  file=sys.stderr)
+            if output.strip():
+                cprint("err", output.rstrip())
+            cprint("err", "error: schema validation failed; conf not written")
             return 1
         elif output.strip():
             # Validation passed, but validate_conf still emits warnings — most
@@ -1155,16 +1231,22 @@ def main(argv: list[str] | None = None) -> int:
             # "successfully" while the chain silently fails to load for a
             # missing runtime dependency.
             for line in output.strip().splitlines():
-                print(f"[validate] {line}", file=sys.stderr)
+                cprint("warn", f"[validate] {line}")
 
     if args.dry_run:
         sys.stdout.write(conf)
+        would_conf = (args.output.expanduser() if args.output is not None
+                      else (DEFAULT_OUTPUT_DIR
+                            / f"{safe_node_name}.conf").expanduser())
+        would_irs = (target_irs if (src_irs is not None
+                     and src_irs.resolve() != target_irs.resolve())
+                     else None)
+        _print_results(would_conf, would_irs, dry_run=True)
         return 0
 
     assert output_path is not None
     if output_path.exists() and not args.force:
-        print(f"error: {output_path} exists; pass --force to overwrite",
-              file=sys.stderr)
+        cprint("err", f"error: {output_path} exists; pass --force to overwrite")
         return 1
 
     # IRS copy: skip when source and target are the same path (no-op),
@@ -1172,8 +1254,8 @@ def main(argv: list[str] | None = None) -> int:
     copied_irs: Path | None = None
     if src_irs is not None and src_irs.resolve() != target_irs.resolve():
         if target_irs.exists() and not args.force:
-            print(f"error: {target_irs} exists; pass --force to overwrite",
-                  file=sys.stderr)
+            cprint("err", f"error: {target_irs} exists; pass --force to "
+                          "overwrite")
             return 1
         target_irs.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_irs, target_irs)
@@ -1181,9 +1263,8 @@ def main(argv: list[str] | None = None) -> int:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
-    _print_next_steps(sys.stderr, output_path, node_name,
-                      target_object=args.target_object,
-                      irs_path=copied_irs)
+    _print_results(output_path, copied_irs, dry_run=False)
+    _print_next_steps(node_name, target_object=args.target_object)
     return 0
 
 

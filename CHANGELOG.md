@@ -96,6 +96,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   PipeWire `filter-chain` (richer live control vs lower CPU/RAM, both
   zero-added-latency), plus `tools/measure_perf/` to reproduce the figures on
   your own hardware. Numbers + method: `tools/measure_perf/README.md`.
+- Colored terminal output for `ee_to_pipewire.py`, matching the main script
+  (`--no-color` to disable); `--dry-run` now also reports where the conf and
+  IRS would be written.
 
 ### Fixed
 
