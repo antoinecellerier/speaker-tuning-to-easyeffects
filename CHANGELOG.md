@@ -92,6 +92,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   for the stereo stimuli, and an absolute-level comparison mode
   (`compare_ee_vs_dax.py --absolute`). Backs design-notes catalogue entries
   1/2/6/8/11.
+- A "Which should I use?" guide in the README weighing EasyEffects against the
+  PipeWire `filter-chain` (richer live control vs lower CPU/RAM, both
+  zero-added-latency), plus `tools/measure_perf/` to reproduce the figures on
+  your own hardware. Numbers + method: `tools/measure_perf/README.md`.
 
 ### Fixed
 

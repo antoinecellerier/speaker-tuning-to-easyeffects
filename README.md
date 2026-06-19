@@ -186,6 +186,16 @@ The PW chain loads LV2 plugins from your system: **LSP plugins** (`lsp-plugins-l
 
 The conf attaches to the internal-speaker sink as a WirePlumber 0.5+ smart filter — apps keep targeting the speaker as default, the chain inserts itself transparently, HDMI / Bluetooth / USB outputs bypass automatically, and there's no second volume layer. Covers convolver, PEQ, dialog, multiband compressor, regulator, limiter (LSP-backed) plus `bass_enhancer` / `stereo_tools` (Calf-backed); stereo only. Measures equivalent to the EasyEffects chain to ≤0.5 dB / ≥30 dB S/R on the development device. `autogain` and 4-channel upmix for Snapdragon-class laptops aren't translated — autogain because EE's implementation is native libebur128 with no faithful LV2 equivalent (the converter warns and skips), 4-channel upmix because the chain is stereo-only. Open an issue with your device model, codec subsystem ID, and a link to the OEM's Windows driver download if you need either. Design notes in [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md); equivalence-measurement tooling in [`tools/measure_pw/`](tools/measure_pw/).
 
+#### Which should I use?
+
+The two paths sound the same (measured equivalent above) — choose on everything else:
+
+- **Features → EasyEffects.** A GUI to tweak and switch presets live, and the one stage the PW conf can't reproduce: the volume-leveler / `autogain` (native libebur128, no LV2 equivalent — only matters on SoundWire devices where Dolby enables it).
+- **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects.
+- **Latency → a wash.** Both add zero latency over the PipeWire quantum (minimum-phase FIR), and both ran xrun-free at 1024/48 kHz.
+
+Those CPU/RAM figures are device-specific; reproduce them on your own hardware with [`tools/measure_perf/`](tools/measure_perf/) (frequency-invariant `perf`-cycle measurement, since laptop clocks don't hold still).
+
 ### Extracting the XML
 
 The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
@@ -284,6 +294,7 @@ In-tree docs and tooling with more context:
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side analysis scripts for measuring DAX3's actual response via WASAPI loopback. Reproduces the empirical comparison in `design-notes.md` on any Lenovo/ThinkPad with DAX3 installed.
 - [tools/measure_ee/](tools/measure_ee/) — Linux-side counterpart: captures the live EasyEffects pipeline (with our generated preset applied) into the same `loopback_*.{wav,json}` schema, so `tools/measure_dax/analyze.py` and `tools/measure_ee/compare_ee_vs_dax.py` can overlay the EE-on-Linux response next to the DAX-on-Windows reference.
 - [tools/measure_pw/](tools/measure_pw/) — captures and validates the PipeWire `filter-chain` rendering of the same preset (`ee_to_pipewire.py` companion). A `validate_conf.py` deterministic schema check catches inverted bools / unknown ports / out-of-range values without any audio capture, and `compare_ee_vs_pw.py` / `_time_domain.py` overlay the PW captures against the EE-side captures from `tools/measure_ee/`.
+- [tools/measure_perf/](tools/measure_perf/) — measures what the two delivery paths *cost* (where `measure_pw` proves they *sound* the same): EasyEffects vs the PipeWire `filter-chain`, in frequency-invariant `perf` CPU cycles, memory, and xruns. Backs the README "Which should I use?" guidance.
 
 ## References
 
