@@ -90,15 +90,15 @@ quantum, 5 rounds, all 15 windows valid:
 
 **Reading the CPU% column — it is smaller than it looks.** These are
 *one-core-equivalent* percentages (fraction of a *single* core's wall-time),
-**not** a share of the whole CPU: ~10 % of one core is ~0.6 % of this 16-core
-laptop's total capacity. They were also measured on an otherwise-idle machine
+**not** a share of the whole CPU: ~10 % of one core is ~0.6 % of this machine's
+16 logical CPUs. They were also measured on an otherwise-idle machine
 whose clock sat low (~1–2 GHz), so the percentage is relative to a *modest*
 clock — not "10 % of the CPU at full tilt." The real, clock-independent cost is
 the cycle figure: **~0.33–0.37 Gcyc/s marginal ≈ a tenth of one modern core**.
 CPU% is shown only as a familiar (if noisy) cross-check.
 
 Takeaways: the PW chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM**
-(the EasyEffects process alone is ~248 MB of Qt/GUI vs the chain child's
+(EasyEffects' marginal footprint is ~248 MB of Qt/GUI vs the chain child's
 ~56 MB); both run xrun-free with zero added latency. Numbers are device-specific
 — ship the tool so users measure their own; treat these as the reference point,
 not a universal claim.

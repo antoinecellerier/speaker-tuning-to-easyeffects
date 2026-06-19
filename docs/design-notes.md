@@ -1286,11 +1286,13 @@ and nothing more (the `tools/measure_pw/` equivalence is the contract)
 — so closing the VBE gap is a deliberate-divergence decision, not a
 measurement one. Two shapes if ever taken: (a) *cheap, both paths* —
 enable Calf BassEnhancer on HDA in `make_preset` (today SoundWire-only);
-it keeps EE and PW equal but, per the 24-variant sweep above, caps
-~−20 dB at the 50 Hz 3rd harmonic and is even-dominated, so it only
-weakly approximates DAX's odd-dominated synthesis; (b) *PW-only,
-closer* — the LSP-cascade + Saturator injection above, expressible only
-in the PW path. Both stay deferred.
+it keeps EE and PW equal and matches DAX within ~5 dB at 50/80 Hz (the
+bass-burst table above), but it over-synthesises at 180 Hz where DAX is
+clean (the −18 dB regression) and leaks 2nd harmonics where DAX is
+odd-dominated — a decent-but-imperfect approximation, not a faithful
+one; (b) *PW-only, more selective* — the LSP-cascade + Saturator
+injection above, which suppresses the 180 Hz over-synthesis BassEnhancer
+can't, and is expressible only in the PW path. Both stay deferred.
 
 ### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue #13)
 
