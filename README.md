@@ -12,8 +12,8 @@ applied at zero added latency.
 > and EE 8 preset formats aren't compatible.
 
 Don't want to run EasyEffects? The same tuning also runs as a self-contained
-PipeWire `filter-chain` — no GUI, no extra daemon. See
-[PipeWire `filter-chain`](#pipewire-filter-chain-instead-of-easyeffects) under
+PipeWire filter-chain — no GUI, no extra daemon. See
+[PipeWire filter-chain](#pipewire-filter-chain-instead-of-easyeffects) under
 Advanced.
 
 **Contents:** [Quick start](#quick-start) · [Staying up to date](#staying-up-to-date) · [Supported devices](#supported-devices) · [Install](#install) · [Usage](#usage) · [Advanced](#advanced) · [How it works](#how-it-works) · [Running the tests](#running-the-tests) · [Further reading](#further-reading)
@@ -43,7 +43,7 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 
 Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md), and each version is published as a [GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases). To be notified when a new version ships, click **Watch → Custom → Releases** at the top of the GitHub page.
 
-Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the `filter-chain` conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
+Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the filter-chain conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
 
 Each generated preset and `.conf` is stamped with the version that produced it (a `_generator` field in the preset JSON, a `# version:` line in the conf; `--version` prints it), so you can always tell what made a given file when reporting an issue.
 
@@ -178,9 +178,9 @@ EasyEffects applies the last-loaded preset to whatever sink is currently active,
 
 </details>
 
-### PipeWire `filter-chain` instead of EasyEffects
+### PipeWire filter-chain instead of EasyEffects
 
-`ee_to_pipewire.py` converts a generated EasyEffects preset into a self-contained PipeWire `filter-chain` `.conf` — the same tuning, no GUI, lower CPU, set-and-forget. It works whether or not EasyEffects is installed. Design notes and equivalence measurements: [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md).
+`ee_to_pipewire.py` converts a generated EasyEffects preset into a self-contained PipeWire filter-chain `.conf` — the same tuning, no GUI, lower CPU, set-and-forget. It works whether or not EasyEffects is installed. Design notes and equivalence measurements: [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md).
 
 #### Quick start (PipeWire)
 
@@ -338,13 +338,13 @@ In-tree docs and tooling with more context:
 - [docs/ee-to-pipewire.md](docs/ee-to-pipewire.md) — current architecture of the `ee_to_pipewire.py` companion converter: smart-filter routing, self-contained conf layout, plugin coverage, and equivalence guarantees
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side analysis scripts for measuring DAX3's actual response via WASAPI loopback. Reproduces the empirical comparison in `design-notes.md` on any Lenovo/ThinkPad with DAX3 installed.
 - [tools/measure_ee/](tools/measure_ee/) — Linux-side counterpart: captures the live EasyEffects pipeline (with our generated preset applied) into the same `loopback_*.{wav,json}` schema, so `tools/measure_dax/analyze.py` and `tools/measure_ee/compare_ee_vs_dax.py` can overlay the EE-on-Linux response next to the DAX-on-Windows reference.
-- [tools/measure_pw/](tools/measure_pw/) — captures and validates the PipeWire `filter-chain` rendering of the same preset (`ee_to_pipewire.py` companion). A `validate_conf.py` deterministic schema check catches inverted bools / unknown ports / out-of-range values without any audio capture, and `compare_ee_vs_pw.py` / `_time_domain.py` overlay the PW captures against the EE-side captures from `tools/measure_ee/`.
-- [tools/measure_perf/](tools/measure_perf/) — measures what the two delivery paths *cost* (where `measure_pw` proves they *sound* the same): EasyEffects vs the PipeWire `filter-chain`, in frequency-invariant `perf` CPU cycles, memory, and xruns. Backs the README "Which should I use?" guidance.
+- [tools/measure_pw/](tools/measure_pw/) — captures and validates the PipeWire filter-chain rendering of the same preset (`ee_to_pipewire.py` companion). A `validate_conf.py` deterministic schema check catches inverted bools / unknown ports / out-of-range values without any audio capture, and `compare_ee_vs_pw.py` / `_time_domain.py` overlay the PW captures against the EE-side captures from `tools/measure_ee/`.
+- [tools/measure_perf/](tools/measure_perf/) — measures what the two delivery paths *cost* (where `measure_pw` proves they *sound* the same): EasyEffects vs the PipeWire filter-chain, in frequency-invariant `perf` CPU cycles, memory, and xruns. Backs the README "Which should I use?" guidance.
 
 ## References
 
 - [wwmm/easyeffects](https://github.com/wwmm/easyeffects) — preset format reference
 - [shuhaowu/linux-thinkpad-speaker-improvements](https://github.com/shuhaowu/linux-thinkpad-speaker-improvements) — alternative approach using captured impulse responses via WASAPI loopback
-- [taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio](https://github.com/taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio) — downstream port of this script's output to a PipeWire `filter-chain` config with 4-speaker upmix on Snapdragon X (see `docs/alternative-pipelines.md` Option 3)
+- [taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio](https://github.com/taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio) — downstream port of this script's output to a PipeWire filter-chain config with 4-speaker upmix on Snapdragon X (see `docs/alternative-pipelines.md` Option 3)
 - [sklynic/easyeffects-tuf-gaming-a15](https://github.com/sklynic/easyeffects-tuf-gaming-a15) — manual DAX3 EQ extraction for ASUS laptops
 - [mister2d/thinkpad-linux-audio](https://github.com/mister2d/thinkpad-linux-audio/) — extended Dolby pipeline for ThinkPads, built on top of this tooling ([#2](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/2))
