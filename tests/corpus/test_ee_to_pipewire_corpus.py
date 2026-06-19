@@ -72,7 +72,6 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
     peq_filters = result.peq_filters
     vol_leveler = result.vol_leveler
     dialog_enhancer = result.dialog_enhancer
-    surround = result.surround
     mb_comp = result.mb_comp
     regulator = result.regulator
 
@@ -92,7 +91,6 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
         peq_filters=peq_filters,
         vol_leveler=vol_leveler,
         dialog_enhancer=dialog_enhancer,
-        surround=surround,
         mb_comp=mb_comp,
         regulator=regulator,
         freqs=freqs,
