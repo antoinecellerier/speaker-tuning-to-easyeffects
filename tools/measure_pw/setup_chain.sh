@@ -89,11 +89,17 @@ mkdir -p "$CONF_DIR"
 # 1. Generate the conf with playback bound to the ee_capture null sink so
 #    the chain output never auto-routes to the actual speakers during
 #    measurement. The default-sink hand-off below covers the input side.
+#    `--target-sink ''` disables smart-filter mode: ee_to_pipewire.py now
+#    defaults to a WirePlumber smart filter pinned to the *speaker* sink, which
+#    would fight the `--target-object ee_capture` pin (the chain links to both,
+#    yielding "failed to link ports: File exists" + a comb-filtered capture).
+#    A plain v1 virtual sink routed only to ee_capture is what measurement wants.
 python3 "${REPO_ROOT}/ee_to_pipewire.py" \
     "$PRESET_PATH" \
     --output "$CONF_PATH" \
     --node-name "$NODE_NAME" \
     --node-description "$NODE_NAME (PW filter-chain)" \
+    --target-sink '' \
     --target-object ee_capture \
     --force \
     --irs-dir "${HOME}/.local/share/easyeffects/irs"
