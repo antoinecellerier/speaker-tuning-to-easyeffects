@@ -154,18 +154,21 @@ def test_disable_lo_pass_drops_type6_8_filters():
     assert "lo-pass" not in emitted
 
 
-# volmax-boost has two routing slots: regulator output-gain (default —
-# placed last for loudness delivery, not a Dolby-documented topology) or
-# limiter input-gain (fallback, when regulator is disabled or absent).
-# --disable volmax must zero both. The --volmax-slot opt-in re-routes the
-# regulator path (output-gain default vs input-gain; issue #23).
+# volmax-boost has two routing slots: regulator input-gain (default since
+# issue #23 — applied pre-band-limiting so the per-band compression tames the
+# boost; not a Dolby-documented topology) or limiter input-gain (fallback,
+# when the regulator is disabled or absent). --disable volmax must zero both.
+# --volmax-slot re-routes the regulator path (input-gain default vs output-gain).
 
 def test_volmax_lands_on_regulator_when_present():
-    """Sanity: with regulator enabled and volmax NOT disabled, the
-    boost lands on regulator output-gain and the limiter stays at 0.
+    """Sanity: with regulator enabled and volmax NOT disabled, the boost
+    lands on regulator input-gain (the issue #23 default) and the limiter
+    stays at 0.
     """
     preset, emitted = _build(volmax_boost=3.0)
-    assert preset["output"]["multiband_compressor#1"]["output-gain"] == pytest.approx(3.0)
+    reg = preset["output"]["multiband_compressor#1"]
+    assert reg["input-gain"] == pytest.approx(3.0)
+    assert reg["output-gain"] == 0.0
     assert preset["output"]["limiter#0"]["input-gain"] == 0.0
     assert "volmax" in emitted
 
@@ -201,32 +204,36 @@ def test_disable_volmax_zeroes_limiter_slot_too():
     assert "regulator" not in emitted
 
 
-# --volmax-slot opt-in (issue #23): re-routes the regulator's volmax slot
-# from output-gain (default) to input-gain so the per-band downward
-# compression can tame the boost before the brickwall. The default must stay
-# output-gain (the shipped behaviour); the flag only touches the regulator
-# path, never the limiter fallback.
+# --volmax-slot (issue #23): input-gain is the default — the boost rides the
+# regulator input so the per-band downward compression tames it before the
+# brickwall. output-gain opts back into the pre-#23 post-band placement (kept
+# for A/B). The flag only touches the regulator path, never the limiter
+# fallback. (Default flipped to input-gain after a 2nd, aggressive-regulator
+# device — X13, issue #23 — confirmed it stays clean and loud.)
 
-def test_volmax_slot_default_is_output_gain():
-    """Omitting volmax_slot must reproduce the shipped output-gain placement
-    exactly — guards against the investigation flag changing the default.
+def test_volmax_slot_default_is_input_gain():
+    """Omitting volmax_slot routes the boost to the regulator input-gain
+    (the issue #23 default), leaving output-gain at 0 and the limiter at 0,
+    and matches an explicit input-gain — guards against the default regressing.
     """
     default, _ = _build(volmax_boost=3.0)
-    explicit, _ = _build(volmax_boost=3.0, volmax_slot="output-gain")
+    explicit, _ = _build(volmax_boost=3.0, volmax_slot="input-gain")
     reg = "multiband_compressor#1"
-    assert default["output"][reg]["output-gain"] == pytest.approx(3.0)
-    assert default["output"][reg]["input-gain"] == 0.0
+    assert default["output"][reg]["input-gain"] == pytest.approx(3.0)
+    assert default["output"][reg]["output-gain"] == 0.0
+    assert default["output"]["limiter#0"]["input-gain"] == 0.0
     assert explicit["output"][reg] == default["output"][reg]
 
 
-def test_volmax_slot_input_gain_routes_to_regulator_input():
-    """--volmax-slot input-gain moves the boost to the regulator input-gain
-    (pre-band-limiting) and leaves output-gain at 0; the limiter stays 0.
+def test_volmax_slot_output_gain_opts_into_post_band_placement():
+    """--volmax-slot output-gain restores the pre-#23 placement: the boost
+    rides the regulator output-gain (post-band-limiting) with input-gain at 0.
+    Kept as the A/B opt-out, so the routing must stay reachable.
     """
-    preset, emitted = _build(volmax_boost=3.0, volmax_slot="input-gain")
+    preset, emitted = _build(volmax_boost=3.0, volmax_slot="output-gain")
     reg = preset["output"]["multiband_compressor#1"]
-    assert reg["input-gain"] == pytest.approx(3.0)
-    assert reg["output-gain"] == 0.0
+    assert reg["output-gain"] == pytest.approx(3.0)
+    assert reg["input-gain"] == 0.0
     assert preset["output"]["limiter#0"]["input-gain"] == 0.0
     assert "volmax" in emitted
 

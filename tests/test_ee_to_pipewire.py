@@ -1571,7 +1571,7 @@ def _consumed_keys(fns) -> set[str]:
     return keys
 
 
-def _coverage_preset(is_soundwire: bool):
+def _coverage_preset(is_soundwire: bool, volmax_slot: str = "input-gain"):
     peq = synthetic_peq_filters([
         (0, 7, 90.0, 0.0, 0.707, 4, 1.0), (1, 7, 90.0, 0.0, 0.707, 4, 1.0),
         (0, 1, 1000.0, 4.0, 1.5, 0, 1.0), (1, 1, 1000.0, 4.0, 1.5, 0, 1.0),
@@ -1591,6 +1591,7 @@ def _coverage_preset(is_soundwire: bool):
         dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
         mb_comp=mb, regulator=reg, freqs=SYNTHETIC_FREQS_20,
         is_soundwire=is_soundwire, volmax_boost=3.0,
+        volmax_slot=volmax_slot,
     )
     return preset
 
@@ -1617,28 +1618,47 @@ def test_no_generator_key_silently_dropped(is_soundwire):
 
 # ---------------------------------------------------------------------------
 # Targeted round-trips for paths the happy-path fixture skips: the regulator's
-# volmax output-gain, MBC split-frequency / band-enable on bands 1..n, and the
-# experimental PEQ shelf / lo-pass filter types. `_coverage_preset` carries a
-# non-zero volmax_boost and all five filter types, so these aren't vacuous.
+# volmax gain (default slot `input-gain`, plus the `output-gain` opt-out), MBC
+# split-frequency / band-enable on bands 1..n, and the experimental PEQ shelf /
+# lo-pass filter types. `_coverage_preset` carries a non-zero volmax_boost and
+# all five filter types, so these aren't vacuous.
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def coverage_chain(tmp_path):
-    preset = _coverage_preset(is_soundwire=False)
+def _coverage_conf(tmp_path, volmax_slot="input-gain"):
+    preset = _coverage_preset(is_soundwire=False, volmax_slot=volmax_slot)
     chain = build_chain(preset, tmp_path, must_exist=False)
     links = emit_links(chain.stages)
     conf = format_conf(chain.stages, links, "test_node", "test")
     return preset, conf
 
 
-def test_regulator_volmax_g_out_round_trips(coverage_chain):
+@pytest.fixture
+def coverage_chain(tmp_path):
+    return _coverage_conf(tmp_path)
+
+
+def test_regulator_volmax_g_in_round_trips(coverage_chain):
     """The regulator (multiband_compressor#1) carries the volmax-boost on its
-    output-gain — distinct from the MBC (#0), which never does. Lock that it
-    round-trips through the conf's `g_out` as a linear gain."""
+    input-gain by default (issue #23) — distinct from the MBC (#0), which never
+    carries volmax. Lock that it round-trips through the conf's `g_in` as a
+    linear gain."""
     preset, conf = coverage_chain
     reg = _extract_node_control(conf, "reg")
     src = preset["output"]["multiband_compressor#1"]
+    assert src["input-gain"] != 0.0   # volmax_boost=3.0 forces a non-zero trim
+    assert src["output-gain"] == 0.0
+    assert abs(lin_to_db(reg["g_in"]) - src["input-gain"]) < 1e-4
+
+
+def test_regulator_volmax_output_gain_g_out_round_trips(tmp_path):
+    """The `--volmax-slot output-gain` opt-out routes the boost to the
+    regulator output-gain; lock that it round-trips through the conf's `g_out`
+    so the opt-out translation path stays covered."""
+    preset, conf = _coverage_conf(tmp_path, volmax_slot="output-gain")
+    reg = _extract_node_control(conf, "reg")
+    src = preset["output"]["multiband_compressor#1"]
     assert src["output-gain"] != 0.0   # volmax_boost=3.0 forces a non-zero trim
+    assert src["input-gain"] == 0.0
     assert abs(lin_to_db(reg["g_out"]) - src["output-gain"]) < 1e-4
 
 

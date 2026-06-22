@@ -47,19 +47,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   gate silence identically; the gain ride is mapped asymmetrically (slow boost,
   faster attenuation) to match EE (details in `docs/design-notes.md`).
 
-- **`--volmax-slot input-gain`** — opt-in fix for distortion on loud low
-  frequencies. Routes Dolby's `volmax-boost` loudness gain *through* the
-  per-band regulator instead of adding it afterward, so the regulator tames the
-  boosted bass before the brickwall limiter (on the dev device this cut a
-  sustained-bass tone from 11.6% to 0.06% THD while keeping broadband loudness).
-  The default stays `output-gain` — a corpus audit showed most devices have a
-  more aggressive regulator than the one this was validated on, where the opt-in
-  could give back some loudness, so it's not yet the default
-  ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
-  details in `docs/design-notes.md`).
-
 ### Changed
 
+- **[AUDIBLE]** Cleaner low end on loud, bass-heavy content with `volmax`. The
+  `volmax-boost` loudness gain now runs *through* the per-band regulator by
+  default, so it tames the boosted bass before the final limiter instead of
+  distorting it. `--volmax-slot output-gain` restores the old placement. Re-run
+  to regenerate
+  ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
+  measurements and why in `docs/design-notes.md`).
 - **[AUDIBLE]** Stereo image is no longer artificially widened. On
   `dynamic`/`movie` profiles the converter used to push the side channel up
   ~4 dB (a Calf Stereo Tools widener mapped from Dolby's `surround-boost`) for
