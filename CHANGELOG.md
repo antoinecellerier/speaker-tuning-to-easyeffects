@@ -58,6 +58,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+## v2026.06 — 2026-06-22
+
 ### Changed
 
 - **[AUDIBLE]** Cleaner low end on loud, bass-heavy content with `volmax`. The
