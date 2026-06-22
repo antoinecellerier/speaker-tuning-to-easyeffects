@@ -30,8 +30,10 @@ from ee_to_pipewire import (
     EE_LIMITER_MODE,
     EE_MBC_GLOBAL_MODE,
     EE_ST_MODE,
+    LSP_AUTOGAIN_URI,
     build_chain,
     db_to_lin,
+    emit_autogain,
     emit_bass_enhancer,
     emit_convolver,
     emit_limiter,
@@ -433,6 +435,97 @@ def test_emit_mb_compressor_each_global_mode_maps(label, expected_int):
     assert EE_MBC_GLOBAL_MODE[label] == expected_int
 
 
+# ---------------------------------------------------------------------------
+# autogain → LSP autogain_stereo
+# ---------------------------------------------------------------------------
+
+def _active_autogain(**overrides):
+    """A non-bypassed (SoundWire-style) EE autogain block."""
+    plugin = {
+        "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
+        "maximum-history": 20.0, "reference": "Geometric Mean (MSI)",
+        "silence-threshold": -50.0, "target": -22.0,
+    }
+    plugin.update(overrides)
+    return plugin
+
+
+def test_emit_autogain_skips_bypassed():
+    assert emit_autogain({"bypass": True}) is None
+
+
+def test_emit_autogain_uses_autogain_stereo_uri():
+    stage = emit_autogain(_active_autogain())
+    assert stage.nodes[0]["plugin"] == LSP_AUTOGAIN_URI
+
+
+def test_emit_autogain_lkahead_is_zero():
+    """Lookahead is the only latency source (port 41); it must be 0 so the
+    node adds no latency over the PipeWire quantum (hard constraint)."""
+    control = emit_autogain(_active_autogain()).nodes[0]["control"]
+    assert control["lkahead"] == 0.0
+
+
+def test_emit_autogain_weight_is_k_weighted():
+    """K-weighting (enum 5) == EBU R 128, matching EE's libebur128 metering."""
+    control = emit_autogain(_active_autogain()).nodes[0]["control"]
+    assert control["weight"] == 5
+
+
+def test_emit_autogain_level_is_target_not_linear():
+    """`level` is a LUFS (dB-domain) port — the EE target passes through
+    directly. Converting it to a linear gain would silently mis-set the
+    leveler's loudness goal."""
+    control = emit_autogain(_active_autogain(target=-22.0)).nodes[0]["control"]
+    assert control["level"] == -22.0
+    assert control["level"] != db_to_lin(-22.0)
+
+
+def test_emit_autogain_silence_is_threshold_not_linear():
+    control = emit_autogain(
+        _active_autogain(**{"silence-threshold": -50.0})).nodes[0]["control"]
+    assert control["silence"] == -50.0
+
+
+def test_emit_autogain_history_maps_monotonic_and_clamped():
+    """A longer EE maximum-history must yield a longer (gentler) gain-ride,
+    clamped into the tgrow_l/tfall_l port range [10, 10000] ms."""
+    c_short = emit_autogain(
+        _active_autogain(**{"maximum-history": 15.0})).nodes[0]["control"]
+    c_long = emit_autogain(
+        _active_autogain(**{"maximum-history": 40.0})).nodes[0]["control"]
+    assert c_short["tfall_l"] < c_long["tfall_l"]
+    # Extreme history must not exceed the port maximum.
+    c_huge = emit_autogain(
+        _active_autogain(**{"maximum-history": 1e6})).nodes[0]["control"]
+    assert c_huge["tgrow_l"] == 10000.0
+    assert c_huge["tfall_l"] == 10000.0
+
+
+def test_emit_autogain_boost_slower_than_attenuation():
+    """The ride is asymmetric (validated on-device): gain grows (boosts quiet
+    up) more slowly than it falls (attenuates loud down) — anti-pumping, like
+    EE. So tgrow_l >= tfall_l for any non-trivial history."""
+    control = emit_autogain(
+        _active_autogain(**{"maximum-history": 20.0})).nodes[0]["control"]
+    assert control["tgrow_l"] >= control["tfall_l"]
+
+
+def test_emit_autogain_controls_within_lv2_ranges():
+    """Every emitted control symbol must lie within autogain_stereo's
+    lv2info-declared bounds (validate_conf enforces this at the conf level;
+    locked here so a mapping change can't drift out of range)."""
+    ranges = {
+        "level": (-60.0, 0.0), "silence": (-84.0, -36.0),
+        "weight": (0, 5), "lkahead": (0.0, 40.0),
+        "tgrow_l": (10.0, 10000.0), "tfall_l": (10.0, 10000.0),
+    }
+    control = emit_autogain(_active_autogain()).nodes[0]["control"]
+    for sym, val in control.items():
+        lo, hi = ranges[sym]
+        assert lo <= val <= hi, f"{sym}={val} out of [{lo}, {hi}]"
+
+
 def test_build_chain_includes_bass_enhancer_and_stereo_tools():
     """End-to-end: a preset whose plugins_order includes both new keys
     must yield two extra emitted nodes (one per emitter). Catches the
@@ -717,17 +810,20 @@ def test_every_active_plugin_emits_or_warns(generated):
         "limiter#0": {"limiter"},
         "bass_enhancer#0": {"bass"},
         "stereo_tools#0": {"stereo"},
+        "autogain#0": {"autogain"},
     }
     for key in source_keys:
+        if key == "autogain#0" and preset["output"][key].get("bypass"):
+            # Bypassed autogain on HDA is the common case — converter is
+            # allowed to skip it silently. Checked before emitter_targets
+            # so the silent drop doesn't trip the "neither emitted nor
+            # warned" assertion. Active autogain falls through and must emit.
+            continue
         if key in emitter_targets:
             if not emitter_targets[key].intersection(emitted_names):
                 # Must have warned instead.
                 assert any(key in w for w in chain.warnings), \
                     f"{key} neither emitted nor warned"
-            continue
-        if key == "autogain#0" and preset["output"][key].get("bypass"):
-            # Bypassed autogain on HDA is the common case — converter
-            # is allowed to skip silently. Non-bypassed must warn.
             continue
         # Skipped-with-warning categories must be in the warning list.
         assert any(key in w for w in chain.warnings), \
@@ -1020,8 +1116,8 @@ def test_unknown_plugin_key_warns_not_raises():
 
 
 def test_bypassed_autogain_silent_skip():
-    """HDA's bypassed autogain must not emit a warning — it's the
-    expected default state.
+    """HDA's bypassed autogain must be dropped with neither a node nor a
+    warning — it's the expected default state (silent_if_bypassed).
     """
     preset = {
         "output": {
@@ -1031,10 +1127,16 @@ def test_bypassed_autogain_silent_skip():
         }
     }
     chain = build_chain(preset, irs_dir=None, must_exist=False)
+    names = {n["name"] for s in chain.stages for n in s.nodes}
+    assert "autogain" not in names
     assert not any("autogain" in w for w in chain.warnings)
 
 
-def test_active_autogain_emits_warning():
+def test_active_autogain_is_translated():
+    """A non-bypassed autogain is now translated to an autogain_stereo node
+    (it used to be skipped with a 'no LV2 equivalent' warning). Even a sparse
+    block (emit_autogain fills defaults) must emit a node and not warn.
+    """
     preset = {
         "output": {
             "plugins_order": ["autogain#0", "limiter#0"],
@@ -1043,11 +1145,9 @@ def test_active_autogain_emits_warning():
         }
     }
     chain = build_chain(preset, irs_dir=None, must_exist=False)
-    # The warning must name the plugin and explain that no LV2 equivalent
-    # exists (the precise wording is in EE_KEY_DISPATCH and may evolve;
-    # what matters is that a non-bypassed autogain doesn't drop silently).
-    assert any("autogain" in w and "libebur128" in w
-               for w in chain.warnings)
+    names = {n["name"] for s in chain.stages for n in s.nodes}
+    assert "autogain" in names
+    assert not any("autogain" in w for w in chain.warnings)
 
 
 # ---------------------------------------------------------------------------

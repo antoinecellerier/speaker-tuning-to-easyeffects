@@ -237,7 +237,7 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 
 The two paths sound the same ([measured equivalent](docs/ee-to-pipewire.md#equivalence-to-the-ee-chain)) — choose on everything else:
 
-- **Features → EasyEffects.** A GUI to tweak and switch presets live, and the one stage the PW conf can't reproduce: the volume-leveler / `autogain` (native libebur128, no LV2 equivalent). That only matters on SoundWire devices, though — on HDA the generator deliberately leaves autogain bypassed, because enabling its loudness boost there can clip.
+- **Features → EasyEffects.** A GUI to tweak and switch presets live. The volume-leveler / `autogain` (EE-native libebur128) is now translated on the PW side too, to LSP `autogain_stereo` (a K-weighted LUFS AGC) — so it's no longer an EE-only stage. It only ever runs on SoundWire devices anyway; on HDA the generator deliberately leaves autogain bypassed, because enabling its loudness boost there can clip.
 - **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects. Both are light in absolute terms — the DSP is roughly a tenth of one CPU core (well under 1 % of a typical multi-core laptop) — so the memory and feature differences usually matter more than the CPU one.
 - **Latency → a wash.** Both add zero latency over the PipeWire quantum (minimum-phase FIR), and both ran xrun-free at 1024/48 kHz.
 

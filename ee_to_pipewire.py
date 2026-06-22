@@ -4,11 +4,11 @@ emits) into a PipeWire `filter-chain` `.conf`.
 
 Scope (see docs/ee-to-pipewire.md for full detail):
   - convolver, equalizer (PEQ), equalizer (dialog), multiband_compressor
-    (MBC + regulator), and limiter are translated (LSP-backed);
+    (MBC + regulator), limiter, and autogain are translated (LSP-backed);
     bass_enhancer and stereo_tools are translated (Calf-backed).
-  - autogain is not translatable (EE-native libebur128, no LV2
-    equivalent): bypassed instances are skipped silently, non-bypassed
-    ones skipped with a warning.
+  - autogain (EE-native libebur128 volume leveler) → LSP autogain_stereo,
+    a K-weighted loudness AGC. Bypassed instances (the HDA default) are
+    skipped silently; active ones (SoundWire) are translated.
   - Stereo only; no 4-channel upmix. By default the conf is a
     WirePlumber 0.5+ smart filter pinned to the auto-detected
     internal-speaker sink (--target-sink overrides; '' gives a plain
@@ -96,6 +96,9 @@ VALIDATE_CONF_SCRIPT = SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"
 LSP_PEQ_URI = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"
 LSP_MBC_URI = "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo"
 LSP_LIM_URI = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
+# autogain_stereo is a K-weighted (LUFS) loudness AGC — the LV2 equivalent of
+# EE's native libebur128 autogain (volume leveler). See emit_autogain.
+LSP_AUTOGAIN_URI = "http://lsp-plug.in/plugins/lv2/autogain_stereo"
 # Calf plugins back EE's bass_enhancer and stereo_tools modules (verified
 # against the EasyEffects sources in src/{bass_enhancer,stereo_tools}.cpp:
 # both call `lv2_wrapper` with these URIs and bind EE preset keys to the
@@ -491,6 +494,75 @@ def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
     )
 
 
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+# EE's `maximum-history` (libebur128 integration window, seconds) has no
+# 1:1 LSP port — autogain_stereo's loudness periods cap at 2 s. We instead
+# steer the gain-ride *time-constants* (tgrow_l/tfall_l, 10..10000 ms) so a
+# longer EE history yields a slower, gentler ride (monotonic). The two
+# directions are asymmetric, matching EE's measured behaviour: it attenuates
+# loud content quickly but boosts quiet content very slowly (anti-pumping).
+# So `fall` (gain down toward target) is mapped fast and `grow` (gain up) slow.
+# These scales are the load-bearing hypothesis tuned by the on-device EE-vs-PW
+# comparison (docs/design-notes.md, autogain entry): at history=20 s, FALL→4 s
+# matched EE's attenuation to 0.2 dB; GROW is pushed to the 10 s port ceiling
+# to approach EE's much slower (~50 s effective) boost as closely as the port
+# allows.
+AUTOGAIN_FALL_MS_PER_S = 200.0
+AUTOGAIN_GROW_MS_PER_S = 500.0
+
+
+def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
+    """LSP autogain_stereo node — translates EE's autogain (volume leveler).
+
+    EE's autogain is native libebur128 (EBU R 128, K-weighted). autogain_stereo
+    is the LV2 equivalent: a K-weighted loudness AGC. The EE block is derived
+    from Dolby's volume leveler and is emitted active only on SoundWire devices
+    (bypassed-by-design on HDA, where build_chain skips it).
+
+    Port-unit note: `level`/`silence` are dB-domain (LUFS / dBFS) values passed
+    **directly** — NOT linear gains, so no db_to_lin (contrast emit_limiter's
+    `th`/`g_*`). EE `input-gain`/`output-gain` are always 0.0 here and have no
+    main-path port on autogain_stereo (`preamp` is sidechain-only), so they are
+    structurally identity and intentionally not written.
+    """
+    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
+    if plugin.get("bypass", False):
+        return None
+
+    history_s = float(plugin.get("maximum-history", 0.0))
+    grow_ms = _clamp(history_s * AUTOGAIN_GROW_MS_PER_S, 10.0, 10000.0)
+    fall_ms = _clamp(history_s * AUTOGAIN_FALL_MS_PER_S, 10.0, 10000.0)
+    control = {
+        # Desired loudness (LUFS), -60..0.
+        "level": _clamp(float(plugin.get("target", -23.0)), -60.0, 0.0),
+        # Silence gate (dBFS), -84..-36.
+        "silence": _clamp(
+            float(plugin.get("silence-threshold", -72.0)), -84.0, -36.0),
+        # K-weighting (5) == EBU R 128, matching EE's libebur128 metering.
+        "weight": 5,
+        # Zero added latency: lookahead is the only latency source (port 41).
+        "lkahead": 0.0,
+        # Asymmetric long-window ride from EE maximum-history: slow boost
+        # (grow), faster attenuation (fall) — see the constants above.
+        "tgrow_l": grow_ms,
+        "tfall_l": fall_ms,
+    }
+    node = {
+        "type": "lv2",
+        "name": name,
+        "plugin": LSP_AUTOGAIN_URI,
+        "control": control,
+    }
+    return Stage(
+        nodes=[node],
+        in_l=(name, "in_l"), in_r=(name, "in_r"),
+        out_l=(name, "out_l"), out_r=(name, "out_r"),
+    )
+
+
 def emit_bass_enhancer(plugin: dict, name: str = "bass") -> Stage | None:
     """Calf BassEnhancer node.
 
@@ -578,10 +650,11 @@ def emit_stereo_tools(plugin: dict, name: str = "stereo") -> Stage | None:
 class PluginHandler:
     """Dispatch entry for one EE plugin key.
 
-    `emitter=None` marks a key whose v1 implementation is to skip with
-    `skip_warning`. `silent_if_bypassed=True` suppresses the warning
-    when the source plugin is bypassed — used for autogain, where the
-    bypassed state is the HDA default and the user shouldn't be nagged.
+    `emitter=None` marks a key with no translation: it is skipped with
+    `skip_warning`. `silent_if_bypassed=True` suppresses the bypass-skip
+    warning when the source plugin is bypassed — used for autogain, whose
+    bypassed state is the HDA default (the user shouldn't be nagged); when
+    active (SoundWire) it is translated normally.
     """
     emitter: Callable[..., "Stage | None"] | None
     args: tuple = ()
@@ -598,23 +671,11 @@ EE_KEY_DISPATCH: dict[str, PluginHandler] = {
     "limiter#0":              PluginHandler(emit_limiter),
     "bass_enhancer#0":        PluginHandler(emit_bass_enhancer, ("bass",)),
     "stereo_tools#0":         PluginHandler(emit_stereo_tools, ("stereo",)),
-    # autogain stays a hard skip: EE's autogain is a native libebur128
-    # implementation (autogain.cpp computes integrated/short-term loudness
-    # and applies adaptive gain — no LV2 wrapper, no Calf or LSP equivalent
-    # exposes EBU R 128 metering), so there's no faithful PipeWire
-    # filter-chain port. silent_if_bypassed keeps the warning quiet on the
-    # HDA-default bypass; an active autogain is rare (SoundWire only) and
-    # is worth surfacing.
-    "autogain#0": PluginHandler(
-        None,
-        skip_warning=(
-            "autogain#0: not bypassed but the PW route can't translate it "
-            "(EE's autogain is native libebur128, no LV2 equivalent). "
-            "The PW chain will lack volume-leveler behaviour. "
-            "Mostly affects SoundWire devices."
-        ),
-        silent_if_bypassed=True,
-    ),
+    # EE's autogain (native libebur128 volume leveler) → LSP autogain_stereo,
+    # a K-weighted loudness AGC (see emit_autogain). silent_if_bypassed keeps
+    # the bypass-skip quiet on HDA, where bypass is the expected default; on
+    # SoundWire the block is active and now gets translated rather than dropped.
+    "autogain#0": PluginHandler(emit_autogain, silent_if_bypassed=True),
 }
 
 
@@ -653,8 +714,11 @@ def build_chain(preset: dict, irs_dir: Path,
 
         if bypassed:
             # Surface bypass-skip uniformly so users notice if their EE
-            # bypassed-plugin choice silently disappeared.
-            warn(f"{key}: bypassed in source preset; not emitted.")
+            # bypassed-plugin choice silently disappeared — unless
+            # silent_if_bypassed marks bypass as the expected default
+            # (autogain on HDA), where nagging would be noise.
+            if not handler.silent_if_bypassed:
+                warn(f"{key}: bypassed in source preset; not emitted.")
             continue
 
         if key == "convolver#0":

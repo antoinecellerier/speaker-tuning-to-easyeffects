@@ -118,9 +118,10 @@ sessions shipped bugs that only showed on real content.
 
 Turns the generated EE preset into a PipeWire `filter-chain` `.conf` for
 users not running EE. **Stereo only.** Covers convolver / PEQ / dialog /
-MBC / regulator / limiter (LSP-backed) plus `bass_enhancer` (Calf-backed).
-Not translated: non-bypassed `autogain` (no LV2 equivalent — warns and
-skips) and 4-channel upmix. By default it copies the `.irs` beside the
+MBC / regulator / limiter / autogain (LSP-backed) plus `bass_enhancer`
+(Calf-backed). Non-bypassed `autogain` (SoundWire) → LSP `autogain_stereo`
+(K-weighted LUFS AGC, validated EE-vs-PW on-device — design-notes);
+HDA-bypassed autogain is skipped silently. Not translated: 4-channel upmix. By default it copies the `.irs` beside the
 conf and emits a WirePlumber 0.5+ smart filter pinned to the auto-detected
 internal-speaker sink (`--target-sink` overrides; `''` reverts to a v1
 virtual sink), and auto-runs `validate_conf.py` (lv2info) unless

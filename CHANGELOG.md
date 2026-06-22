@@ -38,6 +38,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- **Volume leveler now translated to the PipeWire chain.** A non-bypassed
+  `autogain` (EE-native libebur128, active only on SoundWire devices) is now
+  emitted as LSP `autogain_stereo` (a K-weighted LUFS loudness AGC) instead of
+  being dropped with a "no LV2 equivalent" warning — so `ee_to_pipewire.py` can
+  reproduce every stage of the EE chain. Zero added latency (`lkahead=0`).
+  Validated EE-vs-PW on-device: both level to the same target (−22.00 LUFS) and
+  gate silence identically; the gain ride is mapped asymmetrically (slow boost,
+  faster attenuation) to match EE (details in `docs/design-notes.md`).
+
 - **`--volmax-slot input-gain`** — opt-in fix for distortion on loud low
   frequencies. Routes Dolby's `volmax-boost` loudness gain *through* the
   per-band regulator instead of adding it afterward, so the regulator tames the

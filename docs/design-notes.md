@@ -437,6 +437,111 @@ The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters
    root cause. Shipping bypassed keeps the settings available for users who want
    to enable it manually without re-running the script.
 
+## Translating active autogain to LSP `autogain_stereo` (PW converter)
+
+The "no LV2 equivalent" rationale that kept `ee_to_pipewire.py` from translating
+a non-bypassed autogain was stale. LSP's `autogain_stereo` is a K-weighted (LUFS)
+loudness AGC — the same EBU R 128 weighting EE's native libebur128 autogain uses
+— so the volume leveler *can* be reproduced in the PW filter-chain. Active
+autogain is emitted only on SoundWire devices (HDA bypasses it — see "Why
+autogain is bypassed by default" above), so this closes a gap that only ever
+affected the SoundWire PW path; the bypassed-HDA case is still skipped silently.
+
+**Port mapping** (`emit_autogain`; the EE block comes from `make_autogain`'s
+conservative path):
+
+| EE autogain field | `autogain_stereo` port | Value |
+|---|---|---|
+| `target` (LUFS) | `level` | direct, clamped [−60, 0] |
+| `silence-threshold` (dB) | `silence` | direct, clamped [−84, −36] |
+| EBU R 128 weighting | `weight` | `5` (K-weighted) |
+| (latency constraint) | `lkahead` | `0.0` |
+| `maximum-history` (s) | `tfall_l` (ms) — gain *down* | `maximum-history · 200 ms/s`, clamped [10, 10000] |
+| `maximum-history` (s) | `tgrow_l` (ms) — gain *up* | `maximum-history · 500 ms/s`, clamped [10, 10000] |
+
+`level`/`silence` are dB-domain ports passed **directly** — not linear gains, so
+no `db_to_lin` (the easy bug; contrast the limiter's `th`). EE
+`input-gain`/`output-gain` are always 0.0 and have no main-path port (`preamp`
+is sidechain-only), so they're structurally identity and not written.
+
+**Zero added latency.** `autogain_stereo` reports latency only through its
+lookahead; `lkahead=0` keeps it at zero over the PipeWire quantum (the hard
+constraint). `validate_conf.py`/lv2info confirms all six emitted controls are in
+range.
+
+**The `maximum-history`→ride-time scaling, and why it's asymmetric.** EE's
+`maximum-history` is a libebur128 *integration window* in seconds (15–40 s on the
+active SoundWire path; unvalidated-scaling entry 7); `autogain_stereo` has no
+equivalent window port (`lperiod` caps at 2 s), so a longer EE history is mapped
+onto a slower gain ride via the gain time-constants `tgrow_l`/`tfall_l`
+(longer = gentler; monotonic). The on-device proof (below) showed EE's leveler is
+**asymmetric** — it attenuates loud content quickly but boosts quiet content very
+slowly (anti-pumping) — so the two directions get different global scales:
+`tfall_l = maximum-history · 200 ms/s` (gain down) and `tgrow_l =
+maximum-history · 500 ms/s` (gain up), both a single device-independent transfer
+(so XML-derivable, no per-device tuning), clamped to the [10, 10000] ms port range.
+
+**On-device proof (2026-06-22, EE-vs-PW, X1 Yoga ALC287 HDA rig).** Method: an
+*autogain-only* preset (every other stage stripped from `plugins_order`, so only
+the leveler acts — no convolver/MBC/limiter confounds), `target=-22 LUFS`,
+`maximum-history=20 s`, played as a loud(-16)→quiet(-34)→loud(-16)→silence pink
+battery through both the live EE chain and the PW filter-chain rendering of the
+*same* preset, captured via the `tools/measure_ee` + `tools/measure_pw`
+null-sink route, compared as output integrated-LUFS / RMS-envelope trajectories
+(`localresearch/measure_ee/autogain_proof/`). Results:
+
+- **Loudness target — exact.** Both chains settled the loud segments to **−22.00
+  LUFS** (= target) and matched each other to **0.2 dB** RMS. Validates `level`.
+- **Silence gate — identical.** Both fully gated silence (−199.9 dBFS, no
+  noise-floor boost). Validates `silence`.
+- **Attenuation — matched.** Loud-content gain reduction agreed (~−8.5 dB, 0.2 dB
+  apart) at `tfall_l`=4 s (history 20 s · 200 ms/s).
+- **Boost — close, port-limited.** The 12 s quiet segment: EE boosted +2.1 dB, PW
+  +3.5 dB after splitting grow from fall and pushing `tgrow_l` to its 10 s ceiling
+  (symmetric 4 s grow had given +9.9 dB). Residual EE−PW ≈ 1.4 dB (0.4 LUFS on the
+  settled tail), erring slightly *faster*: LSP's 10 s `tgrow_l` ceiling cannot
+  reach EE's ~50 s effective grow, a bounded, documented divergence.
+- **Zero added latency — confirmed.** EE and PW capture onsets were identical
+  (0.30 s); the autogain node adds no latency over the quantum (`lkahead=0`,
+  also lv2info-confirmed).
+
+**Verdict: adopt, on by default.** The leveler is faithfully reproduced on the two
+properties that determine loudness delivery (target convergence, silence gating)
+and on attenuation dynamics; the only residual is a ≤1.4 dB faster boost on
+sustained quiet content, capped by the LSP grow-time ceiling. Related EE-side
+autogain scalings: unvalidated-scaling entries 7 (window formula) and 10
+(conservative offsets).
+
+**Full-chain clipping check (2026-06-22) — does this re-introduce the HDA
+distortion?** A second EE-vs-PW capture on the *full* HDA chain (steep IEQ+AO
+convolver → … → autogain → MBC → regulator → limiter@−1 dBFS) with autogain
+**force-enabled** — recreating the exact scenario that motivated the HDA bypass
+("Why autogain is bypassed by default" above). Stimulus: 6 s settle → 18 s
+deep-quiet (−45 dBFS, gain ramps up) → hard loud onset (−8 dBFS, leftover gain
+overshoots). Findings:
+
+- **No clipping on either chain.** Both EE and PW: zero full-scale samples, peak
+  pinned at −1.00 dBFS. The brickwall limiter holds the output regardless of
+  autogain. So the HDA-bypass motivation is **loudness pumping** (the leveler
+  over-boosts quiet content, the onset then slams the limiter/MBC), **not digital
+  clipping** — refining the hedged "saturation/pumping" wording above.
+- **PW does not worsen it; it's gentler.** On the loud-onset transient EE≈PW
+  (both −1.00 peak, ~0 % ceiling-pinned, crest 14.8 vs 14.9 dB). On the deep-quiet
+  boost PW applied *less* gain than EE (+12.5 vs +18.4 dB) — the **reverse** of the
+  isolated near-target result. Cause: LSP autogain's `drift` dead-band (12 dB
+  default) stops correcting within ~12 dB of target, so on very-quiet content
+  (>12 dB below target) PW under-boosts vs EE's full correction. Less boost → less
+  leftover gain → less overshoot, so PW is no harsher than EE in the worst case.
+- **Non-monotonic vs EE:** PW≈EE near target (isolated test), PW<EE far below it
+  (drift dead-band). Bounded both ways.
+
+Net: translating autogain adds no clip risk, and the HDA default-bypass stays a
+*quality* (anti-pumping) choice, not a safety one — and is untouched by this work,
+which only translates the already-active SoundWire case (quiet typically near
+target, where the drift dead-band barely bites). The `drift`/`max_amp` knobs
+(left at LSP defaults) are the levers if PW's deep-quiet tracking is ever revisited.
+Captures/driver: `localresearch/measure_ee/autogain_fullchain/`.
+
 ## Verified math (sanity checks)
 
 The sanity-checks behind the values catalogued in [reference.md](reference.md) —

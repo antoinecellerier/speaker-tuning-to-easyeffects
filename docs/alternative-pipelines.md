@@ -26,8 +26,9 @@ content. See `docs/design-notes.md` entry 2.)
 enhancer is emitted only for SoundWire devices, and autogain ships bypassed.)
 The stages run inside the EasyEffects process, which sits in the PipeWire
 graph as a filter node — all LV2 plugins except autogain, which is EE-native
-(libebur128); that distinction is why `ee_to_pipewire.py` can translate every
-stage but a non-bypassed autogain.
+(libebur128). `ee_to_pipewire.py` translates a non-bypassed autogain to LSP
+`autogain_stereo` (the LV2 loudness-AGC equivalent), so it can now reproduce
+every stage of the EE chain.
 
 ## Option 1: Intel SOF DSP — IIR EQ on the playback path
 
@@ -179,7 +180,10 @@ Already installed on the development system:
 | Autogain / loudness  | SPA plugin: `libspa-filter-graph-plugin-ebur128.so`       |
 
 LV2 plugins are also available (LSP plugin suite: `mb_compressor`,
-`sc_mb_limiter_stereo`, etc.) but LADSPA is simpler for filter-chain configs.
+`sc_mb_limiter_stereo`, `autogain_stereo` for loudness, etc.) but LADSPA is
+simpler for filter-chain configs. (`ee_to_pipewire.py` takes the LV2 route —
+it uses LSP `autogain_stereo` rather than the `ebur128` SPA plugin for the
+volume leveler.)
 
 ### Example config skeleton
 
