@@ -1947,6 +1947,48 @@ re-proposed:
   ~16 KB per file with no audible or perceptible-latency change. Not worth the
   maintenance cost of a threshold parameter that would invite future "is this
   audible?" re-litigation each time the cepstral construction is touched.
+- **An *unused* EasyEffects built-in to cover a dropped DAX feature**
+  (EE-built-in plugin gap audit, 2026-06-22 — the primary-converter counterpart
+  to the PW-converter audit that closed the autogain gap, see "Translating
+  active autogain to LSP `autogain_stereo`"). The PW converter can host any LV2
+  plugin, so that audit's question was "is there a better plugin?" — answered
+  once (autogain). The EE preset can't: EasyEffects is **not** a generic LV2/
+  LADSPA host — it draws each effect's controls by hand and exposes only a
+  curated built-in set (the experimental "Native window of effects" /
+  "Update frequency — Related to LV2 plugins" toggles only surface the *bundled*
+  LSP/Calf plugins' own GUIs, not arbitrary loading; EE
+  [Discussion #2928](https://github.com/wwmm/easyeffects/discussions/2928),
+  [Issue #1433](https://github.com/wwmm/easyeffects/issues/1433)). So the only
+  question is "does an unused built-in better represent a DAX feature we drop?"
+  — and across all ~19 unused effects (Exciter, Crystalizer, Maximizer,
+  Loudness, Bass Loudness, Crossfeed, Speech Processor, …) the answer is no, for
+  three reasons that recur:
+  - **Corpus-dormant** — virtual-bass, graphic-EQ, volume-modeler are disabled
+    on every corpus XML with frozen params (no per-device signal); a Bass
+    Loudness / Loudness / Exciter mapping would be pure invention against
+    XML-only derivability.
+  - **Validated to zero effect** — surround/height widening: a DAX capture
+    showed Dolby applies no stereo widening on 2-ch content, so the old
+    `stereo_tools` mapping was *removed* (see "Unvalidated converter scaling
+    factors" entry 2). Re-adding via Crossfeed/Stereo Tools re-introduces a
+    falsified effect.
+  - **Content-gated, not static** — DAX's dialog enhancer is MI-steered, not a
+    static spectral boost (EE treats speech and pink identically; see
+    "Unvalidated converter scaling factors" entry 1). Our static PEQ bell
+    already *over-applies*; an Exciter is *more* static invention, not a better
+    match.
+
+  The one genuine functional gap is **Dynamic Speaker Optimization** (DSO —
+  excursion-aware bass limiting, active on 1 newer SoundWire XML; see
+  [cross-device-findings.md](cross-device-findings.md) newer-pipeline DSP
+  blocks). It is a real, enabled feature with no representation, but it fails
+  both bars: the `dynamic-speaker-optimization-amount`/`-speaker-interval` →
+  MBC-band-0 threshold transfer is opaque (Dolby driver-size excursion model →
+  no derivable mapping), it exists on a single device (unvalidatable), and a
+  crude MBC band-0 limiter would add the pumping DSO is built to avoid. Left
+  warned-at-parse, not mapped — the correct state. Net: the remaining fidelity
+  work is device-gated *tuning* of plugins already in the chain ("Unvalidated
+  converter scaling factors"), not new plugins.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp
