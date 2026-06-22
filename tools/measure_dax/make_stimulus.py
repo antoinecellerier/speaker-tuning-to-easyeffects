@@ -1,38 +1,38 @@
 #!/usr/bin/env python3
 """Generate the full stimulus suite for DAX3 measurement.
 
-Outputs (in this directory):
-    stimulus_sweep.wav        + .json   exp sweep, -18 dBFS peak
-    stimulus_sweep_quiet.wav  + .json   exp sweep, -42 dBFS peak
-    stimulus_pink.wav         + .json   pink noise, -18 dBFS RMS
-    stimulus_pink_quiet.wav   + .json   pink noise, -42 dBFS RMS
-    stimulus_multitone.wav    + .json   summed band-center tones, -18 dBFS RMS
-    inverse_sweep.npy                   matched inverse for both sweep stimuli
+Outputs (written to the current working directory), each with a
+matching `.json` sidecar:
 
-The five stimuli probe DAX3 from different angles:
+  LTI / steady-state magnitude probes (-18 dBFS, with -42 dBFS quiet
+  controls to bracket the leveler's level dependence):
+    stimulus_sweep[_quiet]       exp sweep (Farina); inverse_sweep.npy
+                                 is the shared matched inverse
+    stimulus_pink[_quiet]        stationary pink noise
+    stimulus_multitone           summed tones at the 20 Dolby band centers
+                                 (per-band Goertzel readout, no leakage)
 
-  - sweep (-18 dBFS): the original Farina test. Recovers a true LTI IR
-    if the system is LTI, otherwise produces an artifact-laden estimate.
-    Already shown to push DAX3's leveler/regulator into non-LTI behavior.
+  Stereo M/S probes (-18 dBFS):
+    stimulus_stereo_pink         decorrelated L/R (M≈S, max entropy)
+    stimulus_stereo_correlated   music-like (M≫S) operating point
 
-  - sweep_quiet (-42 dBFS): same sweep at a much lower input level.
-    Tests whether the leveler is *less* aggressive when the input is
-    quiet (it might also be more aggressive — leveler's job is to bring
-    quiet up).
+  Dynamics-engaging probes — loud enough to cross the MBC / regulator /
+  brickwall thresholds the -18/-42 battery leaves dormant:
+    stimulus_bass_burst[_quiet]  sustained 50/80/120/180 Hz bursts at
+                                 -5 / -25 dBFS peak — the bass-band
+                                 regulator / volmax low-end probe
+    stimulus_stepped[_quiet]     one held tone per probe frequency, grid
+                                 repeated asc/desc/shuffled (-18/-42 dBFS)
+    stimulus_stepped_loud        same grid at -2 dBFS peak — wakes the MBC knee
+    stimulus_speech              espeak (or LTASS-noise fallback) — the
+                                 Media-Intelligence dialog-enhancer probe
 
-  - pink (-18 dBFS RMS): stationary pink noise. After the leveler has
-    settled (~5 s), average the loopback spectrum. Recovers steady-state
-    magnitude only — no phase, no IR.
+The non-LTI dynamics (compressor, regulator, brickwall) only engage on
+the loud bass_burst / stepped_loud variants; the LTI battery leaves them
+dormant (see docs/design-notes.md "dynamics dormant" measurement).
 
-  - pink_quiet (-42 dBFS RMS): pink at low level, again to bracket
-    leveler behavior.
-
-  - multitone (-18 dBFS RMS): sum of 20 pure tones at the Dolby band
-    centers. Per-band magnitude readout via Goertzel — no spectral
-    leakage between bands. The cleanest steady-state magnitude probe.
-
-Stereo stimuli are L=R (centered mono content) — recovers DAX3's
-diagonal response (L→L, R→R), which is what compare.py expects.
+Stereo stimuli are L=R (centered mono) except the stereo_* probes;
+analyze.py / compare.py key off each sidecar's `stereo_mode`.
 """
 from __future__ import annotations
 

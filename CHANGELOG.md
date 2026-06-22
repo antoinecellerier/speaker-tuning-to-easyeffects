@@ -36,6 +36,19 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- **`--volmax-slot input-gain`** — opt-in fix for distortion on loud low
+  frequencies. Routes Dolby's `volmax-boost` loudness gain *through* the
+  per-band regulator instead of adding it afterward, so the regulator tames the
+  boosted bass before the brickwall limiter (on the dev device this cut a
+  sustained-bass tone from 11.6% to 0.06% THD while keeping broadband loudness).
+  The default stays `output-gain` — a corpus audit showed most devices have a
+  more aggressive regulator than the one this was validated on, where the opt-in
+  could give back some loudness, so it's not yet the default
+  ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
+  details in `docs/design-notes.md`).
+
 ### Changed
 
 - **[AUDIBLE]** Stereo image is no longer artificially widened. On

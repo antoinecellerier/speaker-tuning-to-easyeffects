@@ -221,7 +221,7 @@ Each stage in the chain is a potential gain trap. The key decisions:
 | Convolver (FIR peak-normalized) | 0 dB | Script normalizes the FIR so peak frequency response = 0 dB |
 | Convolver plugin `autogain` | **explicitly `false`** | EasyEffects' default is `true`, which re-normalizes by RMS power. Our minimum-phase FIR concentrates energy at the peak sample → RMS power ≈ 0.00001 → the default would apply a **+50 dB boost**. Commit `5973326` disables it. |
 | PEQ `output-gain` | narrowband-scaled | Compensates for the highest PEQ bell gain, but scaled down for narrow-Q bells because a Q=4.6 bell only boosts a thin slice of spectrum. Commit `c36907c` relaxed this from full compensation. |
-| Regulator `output-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost` (the volume-leveler's loudness-maximiser ceiling) is applied here as a static approximation of VolMax. Primary slot: `multiband_compressor#1.output-gain`. If the regulator is disabled or absent, the gain falls back to `limiter#0.input-gain`. Can be turned off with `--disable volmax`. Commit `19a1f99` had removed a prior (wrongly-placed) mapping to MBC output-gain; this re-adds it in a topologically correct spot. |
+| Regulator `output-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost` (volume-leveler loudness ceiling), applied statically. Default slot: `multiband_compressor#1.output-gain` (falls back to `limiter#0.input-gain` when the regulator is absent). `--disable volmax` turns it off; `--volmax-slot input-gain` re-routes it ahead of the regulator (opt-in). The output-gain placement is for **loudness delivery, not Dolby-derived**, and on loud low frequencies it can drive the brickwall into distortion. Full finding, on-device metrics, and corpus verdict: **["volmax-boost slot" below](#volmax-boost-slot-issue-23).** |
 | MBC upward compression | **0 dB** | LSP plugin defaults enable upward compression below `boost-threshold=-72 dB`. Dolby's compressor is purely downward. Commit `e454711` disables it on both MBC instances. |
 | Regulator upward compression | **0 dB** | Same LSP default issue — upward compression on a *limiter* is especially wrong. Also fixed in `e454711`. |
 | Output limiter | −1 dBFS | Final catch-all for inter-sample peaks after everything else. |
@@ -229,6 +229,64 @@ Each stage in the chain is a potential gain trap. The key decisions:
 With these fixes in place, the normal-operation surplus is small enough that content
 sits at target loudness without the regulator triggering, and worst-case quiet-input
 scenarios are caught by the brickwall limiter rather than clipping the output.
+
+### `volmax-boost` slot: `output-gain` (default) vs `input-gain` (opt-in, issue #23) {#volmax-boost-slot-issue-23}
+
+**Symptom.** [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)
+(ThinkPad X13 Gen 6) reported audible distortion on loud *low* frequencies with volmax
+on, gone with `--disable volmax`.
+
+**Mechanism.** `volmax-boost` is Dolby's volume-leveler ceiling — a +6 dB *dynamic*
+gain, rendered here as a *static* gain (no MI-steered leveler to replicate). On the
+default `output-gain` slot it's added *after* the regulator's per-band limiting, so it
+feeds the −1 dBFS brickwall directly; on loud content the loudest band clips.
+
+**The output-gain placement is not Dolby-derived** (corrects a prior claim). Commit
+`a50f61d` called it "mirroring Dolby's VolMax placement inside the VLLDP pipeline" — an
+assertion with no Dolby source. `volmax-boost` lives in `tuning-cp` (the CP stage, next
+to `volume-leveler-*`), so applying it at the *output* of a VLLDP-stage regulator is
+upside-down vs CP→VLLDP order. Output-gain *is* defensible on **loudness delivery**
+(last stage before the brickwall → the makeup reaches the output, the issue #9 goal),
+not topology. (The XML child-element order is canonical/alphabetical, not signal-flow,
+so it doesn't source the within-stage order either.)
+
+**`--volmax-slot input-gain`** moves the boost *ahead* of the regulator's per-band
+downward compression, so the boosted low end is tamed before the brickwall. Both
+backends carry it (EE `input-gain` ↔ LSP `g_in` in `ee_to_pipewire`).
+
+**On-device A/B** (dev device = X1 Yoga G7 `17AA22E6`; 2026-06-22; live-EE loopback via
+`tools/measure_ee/`):
+- Sustained 234 Hz tone at the FIR peak (−2 dBFS): output-gain → **11.6% THD**
+  (brickwall clipping); input-gain → **0.06% THD**, for a **1.46 dB** level cost at that
+  band. Audibly decisive on a swept tone (clean hum vs reedy buzz).
+- Integrated LUFS on broadband pink (loud −13.8 / moderate −18.7 LUFS): **identical
+  between slots, 0 dB give-back.** The loudness uplift is preserved on broadband
+  content; the give-back is confined to sustained single-band bass.
+
+**Why the 0 dB give-back is a best-case artifact** (`corpus_audit.py`, 2026-06-22; 7620
+active-band FOCUS = dynamic/movie/music/game rows):
+- **slope=16** (hard brickwall) on 72–92% of profiles → ratio isn't the differentiator,
+  thresholds are.
+- **threshold_high active-min**: corpus median **−18 dB** (p10 −26, p90 −12). The dev
+  device sits at **−10 dB** — *less* aggressive than **91–94%** of FOCUS profiles, and
+  its regulator independently under-engages (entries 6/11). It barely grabs the boost →
+  0 dB loss. On a typical/aggressive regulator, input-gain compresses the boost harder →
+  real loudness-loss / pumping we did **not** measure.
+- **The X13 itself**: active-min **−24 dB**, 10 active bands, slope 16 — far more
+  aggressive than the dev device; near the corpus median-to-aggressive band.
+- **High boost (+8/+9 dB)** concentrates in `voice`, which usually has no active
+  band-limiting → the worst boost×aggressiveness overlap is limited; the risk population
+  is `dynamic`/`movie`/`game` at +8 dB over an aggressive regulator.
+- **Same X13 subsys (`17AA2344`) ships two tunings in the wild**: the device-specific
+  package (`tuning_version=24`, active −24/−19 regulator — what we analyzed) and a
+  generic `dax3_ext_rtk` copy (`tuning_version=1`, all-zero/inert regulator). Input-gain
+  only does anything when the regulator is active.
+
+**Decision.** Keep `output-gain` the **default** (one best-case-device measurement
+doesn't clear the XML-only-default + ≥2-device bars); ship `input-gain` as a documented
+**opt-in** (`--volmax-slot`). **Promote to default only after an aggressive-regulator
+device confirms it stays clean *and* loud** — issue #23's X13 reporter is the in-flight
+2nd-device test (asked to confirm distortion gone + no loudness-loss/pumping).
 
 ### Why the PEQ `output-gain` stays a single global `max(L,R)` (not per-channel)
 

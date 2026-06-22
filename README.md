@@ -110,6 +110,7 @@ pip install -r requirements.txt
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `stereo`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
+- `--volmax-slot {output-gain,input-gain}` — where the loudness boost (`volmax-boost`) is injected. Default `output-gain`. Use `input-gain` if the boost adds audible distortion on loud low frequencies — it keeps the loudness uplift but routes it through the per-band limiter first. See [Disabling filters](#disabling-filters).
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
 
@@ -145,7 +146,7 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 
 | Name | What to try if you hear... |
 |------|----------------------------|
-| `volmax` | Output is too loud / the final limiter is pumping on loud masters. Drops the static loudness boost derived from Dolby's `volmax-boost` (typically +6 dB). |
+| `volmax` | Output is too loud / the final limiter is pumping on loud masters. Drops the static loudness boost derived from Dolby's `volmax-boost` (typically +6 dB). *If the problem is specifically distortion on loud **low** frequencies, try `--volmax-slot input-gain` first* — it keeps the loudness boost but routes it through the per-band limiter, which tames the boosted bass before the brickwall (it can give back a little loudness on devices with an aggressive regulator). |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
 | `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |

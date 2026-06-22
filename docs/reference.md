@@ -52,7 +52,7 @@ enhancer is SoundWire-only):
 | 4 | **Dialog Enhancer** | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz (2nd equalizer instance); on most profiles except music |
 | 5 | **Autogain** | `volume-leveler-*` | Volume leveler; **bypassed by default** (see below). Placed before the compressor to match Dolby's CP→VLLDP flow |
 | 6 | **Multiband Compressor** | `mb-compressor-tuning` | 1–4 bands of dynamics processing per `group_count` |
-| 7 | **Regulator** | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter (2nd MBC instance); primary slot for `volmax-boost` as `output-gain` (≈+6 dB) |
+| 7 | **Regulator** | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter (2nd MBC instance); default slot for `volmax-boost` as `output-gain` (≈+6 dB). `--volmax-slot input-gain` moves the boost to `input-gain` (opt-in, see below) |
 | 8 | **Limiter** | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS safety net; fallback slot for `volmax-boost` when the regulator isn't emitted |
 
 **`surround-boost` is not mapped to stereo widening** — a 2026-06 DAX
@@ -107,6 +107,16 @@ the ceiling of Dolby's MI-steered VolMax. With no MI leveler to apply it
 dynamically, the script applies it statically as `output-gain` on the
 regulator, falling back to the brickwall limiter's `input-gain` when the
 regulator isn't emitted. Disable with `--disable volmax`.
+
+The default `output-gain` placement is **not Dolby-derived** — it's chosen so
+the boost actually reaches the output (loudness, issue #9); `volmax-boost` is
+itself a CP-stage leveler ceiling, so applying it at a VLLDP-stage regulator's
+output is a pragmatic approximation. `--volmax-slot input-gain` (opt-in) moves
+the boost ahead of the regulator's per-band downward compression, which tames
+the boosted low end before the brickwall — it eliminates a measured low-end
+distortion (issue #23) at the cost of some loudness on devices with an
+aggressive regulator. Default stays `output-gain` pending validation on such a
+device; see design-notes.
 
 **Regulator → per-band limiter.** A second MBC instance configured as a
 limiter (Peak sidechain, 1 ms attack) from `regulator-tuning` `threshold_high`

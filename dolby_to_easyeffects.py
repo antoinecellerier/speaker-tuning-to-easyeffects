@@ -3264,7 +3264,8 @@ def make_multiband_compressor(mb_comp: dict | None,
 
 
 def make_regulator(regulator: dict | None, freqs: list[int],
-                   volmax_boost: float = 0.0) -> dict | None:
+                   volmax_boost: float = 0.0,
+                   volmax_slot: str = "output-gain") -> dict | None:
     """Per-band limiter mapped from Dolby regulator-tuning.
 
     The Dolby regulator is a 20-band limiter that prevents speaker
@@ -3288,8 +3289,9 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     docs/design-notes.md "Follow-ups" entry on regulator-stress for
     the empirical work that closed that hypothesis.
 
-    volmax_boost is applied as `output-gain`; see `make_preset` for how
-    that interacts with the rest of the chain.
+    volmax_boost lands on `output-gain` by default; `volmax_slot="input-gain"`
+    routes it ahead of the per-band compression instead (the issue #23
+    investigation). See `make_preset` for how that interacts with the chain.
     """
     if not regulator:
         return None
@@ -3340,11 +3342,21 @@ def make_regulator(regulator: dict | None, freqs: list[int],
         zones[min_idx] = (z1[0], z2[1], merged_thresh)
         del zones[min_idx + 1]
 
-    # Build the multiband compressor (used as limiter: ratio=100:1, fast attack)
+    # Build the multiband compressor (used as limiter: ratio=100:1, fast attack).
+    # volmax_slot picks which gain slot carries the static volmax-boost:
+    # output-gain (default) applies it post-band-limiting, just before the
+    # brickwall, so it delivers the full loudness makeup (issue #9); input-gain
+    # applies it pre-band-limiting, letting the per-band downward compression
+    # tame the boosted low end before the brickwall (issue #23). Which is the
+    # better tradeoff is an open, measured question — neither placement is
+    # Dolby-documented (volmax-boost is a CP-stage leveler ceiling; both slots
+    # are pragmatic approximations). Any non-"input-gain" value keeps default.
+    boost = round(volmax_boost, 1)
+    on_input = volmax_slot == "input-gain"
     result = {
         "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": round(volmax_boost, 1),
+        "input-gain": boost if on_input else 0.0,
+        "output-gain": 0.0 if on_input else boost,
         "dry": -80.01,
         "wet": 0.0,
         "compressor-mode": "Modern",
@@ -3500,6 +3512,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 mb_comp: dict | None = None, regulator: dict | None = None,
                 freqs: list[int] | None = None, convolver_gain: float = 0.0,
                 is_soundwire: bool = False, volmax_boost: float = 0.0,
+                volmax_slot: str = "output-gain",
                 disabled: set[str] | None = None) -> tuple[dict, set[str]]:
     """Build a preset dict.
 
@@ -3575,14 +3588,19 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
             if mb_comp and mb_comp["group_count"] == 1:
                 emitted.add("mbc-1band")
 
-    # volmax-boost injection: regulator output-gain is the primary slot
-    # (matches Dolby VolMax topology). If the regulator is disabled or
-    # absent from the XML, fall back to limiter#0 input-gain so the boost
-    # still happens. Never both.
+    # volmax-boost injection: regulator output-gain is the default slot —
+    # placed last (before the brickwall) so it delivers the loudness makeup
+    # (issue #9), not because Dolby documents that placement (volmax-boost is
+    # a CP-stage volume-leveler ceiling; this is a pragmatic approximation).
+    # If the regulator is disabled or absent from the XML, fall back to
+    # limiter#0 input-gain so the boost still happens. Never both. volmax_slot
+    # only re-routes the regulator path (output-gain vs input-gain); the
+    # limiter fallback is unaffected.
     apply_volmax = volmax_boost if "volmax" not in disabled else 0.0
     reg = None
     if "regulator" not in disabled:
-        reg = make_regulator(regulator, freqs, volmax_boost=apply_volmax)
+        reg = make_regulator(regulator, freqs, volmax_boost=apply_volmax,
+                             volmax_slot=volmax_slot)
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
@@ -3617,7 +3635,8 @@ class _HelpHintParser(argparse.ArgumentParser):
         )
 
 
-def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
+def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
+                           volmax_slot="output-gain"):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax). Side-effect-free apart from stdout — split out of main() so the
@@ -3707,7 +3726,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled):
     elif "volmax" in disabled:
         slot = "disabled via --disable volmax"
     elif regulator and "regulator" not in disabled:
-        slot = "applied as regulator output-gain"
+        slot = f"applied as regulator {volmax_slot}"
     else:
         slot = "applied as limiter input-gain"
     print(f"\nvolmax-boost: {volmax_boost:+.1f} dB ({slot})")
@@ -3777,6 +3796,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                                       freqs, convolver_gain=convolver_gain,
                                       is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
+                                      volmax_slot=args.volmax_slot,
                                       disabled=disabled)
         for name in emitted:
             filters_by_profile.setdefault(name, set()).add(profile_label)
@@ -3955,6 +3975,20 @@ def main():
              "--disable mbc if you dislike the compressor character.",
     )
     parser.add_argument(
+        "--volmax-slot",
+        choices=["output-gain", "input-gain"],
+        default="output-gain",
+        help="which regulator gain slot carries the static volmax-boost. "
+             "'output-gain' (default) applies it post-band-limiting — the full "
+             "loudness makeup, straight into the brickwall. 'input-gain' applies "
+             "it pre-band-limiting so the regulator's per-band compression tames "
+             "the boosted low end before the brickwall: try it if volmax adds "
+             "audible distortion on loud low frequencies (issue #23). It can cost "
+             "some loudness on devices with an aggressive regulator. Neither "
+             "placement is Dolby-documented; no effect when the regulator is "
+             "disabled/absent (the boost then lands on limiter#0 input-gain).",
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="disable colored terminal output",
@@ -4069,7 +4103,8 @@ def main():
         ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE
         float_freqs = np.array(tuning.freqs, dtype=float)
 
-        _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled)
+        _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
+                               args.volmax_slot)
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
                           float_freqs, scale, is_soundwire, disabled, args,
