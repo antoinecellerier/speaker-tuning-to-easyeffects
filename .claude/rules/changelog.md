@@ -5,10 +5,14 @@ paths:
 
 # Editing CHANGELOG.md
 
-Add an entry for any user-visible change — audible output, a new/changed flag
-or feature, a user-facing bug fix, or new-device support. Skip internal-only
-churn (refactors, tests, research-log notes). New entries go under
-`## Unreleased` only, in the matching `### Changed/Added/Fixed/Docs` section.
+Add an entry only for a meaningful user-facing functional change — audible
+output, a new/changed flag or feature, a user-facing bug fix, or code-level
+new-device support (new detection/handling) — or an in-depth research
+conclusion worth surfacing. Skip everything else: refactors, tests,
+research-log notes, and plain docs edits — including just recording a
+confirmed device in the README's supported-devices table, which is a docs
+edit, not a functional change. New entries go under `## Unreleased` only, in
+the matching `### Changed/Added/Fixed/Docs` section.
 
 Word them per the conventions in the comment at the top of `CHANGELOG.md`:
 concise and human-readable, most-impactful-first within each section, and
