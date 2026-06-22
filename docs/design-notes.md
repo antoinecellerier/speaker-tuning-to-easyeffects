@@ -255,13 +255,23 @@ downward compression, so the boosted low end is tamed before the brickwall. Both
 backends carry it (EE `input-gain` ↔ LSP `g_in` in `ee_to_pipewire`).
 
 **On-device A/B** (dev device = X1 Yoga G7 `17AA22E6`; 2026-06-22; live-EE loopback via
-`tools/measure_ee/`):
-- Sustained 234 Hz tone at the FIR peak (−2 dBFS): output-gain → **11.6% THD**
-  (brickwall clipping); input-gain → **0.06% THD**, for a **1.46 dB** level cost at that
-  band. Audibly decisive on a swept tone (clean hum vs reedy buzz).
-- Integrated LUFS on broadband pink (loud −13.8 / moderate −18.7 LUFS): **identical
-  between slots, 0 dB give-back.** The loudness uplift is preserved on broadband
-  content; the give-back is confined to sustained single-band bass.
+`tools/measure_ee/`).
+
+*Distortion* — sustained 234 Hz tone at the FIR peak (−2 dBFS): output-gain
+**11.6% THD** (brickwall clipping), input-gain **0.06% THD**, for a **1.46 dB** level
+cost at that band. Audibly decisive on a swept tone (clean hum vs reedy buzz).
+
+*Loudness* (integrated LUFS — the proper #9 check), 3-way on broadband pink:
+
+| pink stimulus | no-volmax | output-gain | input-gain |
+|---|---|---|---|
+| Loud master (peak −0.5 dBFS) | −19.8 | −13.8 (+6.0) | −13.8 (+6.0) |
+| Moderate (peak −5.4 dBFS) | −24.7 | −18.7 (+6.0) | −18.7 (+6.0) |
+
+Both slots add the **full +6.0 dB** over no-volmax and are **identical (0 dB give-back)**
+at both levels — **no loudness impact on normally-loud program material**. Input-gain's
+cost is confined to sustained FIR-peak bass (the 1.46 dB above); broadband content never
+engages the regulator enough to lose it.
 
 **Why the 0 dB give-back is a best-case artifact** (`corpus_audit.py`, 2026-06-22; 7620
 active-band FOCUS = dynamic/movie/music/game rows):
