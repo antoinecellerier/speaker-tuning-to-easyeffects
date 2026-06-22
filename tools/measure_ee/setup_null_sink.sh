@@ -45,12 +45,30 @@ echo "${SINK_ID}" > "${STATE_FILE}"
 
 # 2. quit any running EE BEFORE editing the rc -------------------------------
 
-# EE 8.x persists [StreamOutputs] on shutdown — if we edit while it's
-# still running, `easyeffects -q` then writes the live `outputDevice`
-# (the user's hw sink) back over our edit. Quit first, edit second.
-if pgrep -f "easyeffects.*service-mode" >/dev/null 2>&1; then
+# EE 8.x persists [StreamOutputs] on shutdown — if we edit while it's still
+# running, its shutdown writes the live `outputDevice` (the user's hw sink)
+# back over our edit. Quit first, edit second.
+#
+# Quit ANY instance, not just `--service-mode`. A running *GUI* instance also
+# owns `easyeffects_sink`; leaving it up means the service-mode instance we
+# start below can't take over the sink and the capture route silently breaks
+# (ee_capture never gets fed — peak_gain ≈ -inf on the smoke gate). `pgrep -x`
+# matches the process name, covering GUI and service-mode alike. Guard on
+# something actually running: `easyeffects -q` with no live instance just
+# launches a fresh empty GUI.
+if pgrep -x easyeffects >/dev/null 2>&1; then
     easyeffects -q || true
-    sleep 0.5
+    # Wait for EE to actually exit — its sink node disappearing is the reliable
+    # signal (the `-q` launcher process itself can linger). Hard-kill as a
+    # fallback so the sink is free for the new instance below.
+    for _ in $(seq 1 20); do
+        pw-cli ls Node 2>/dev/null | grep -q "easyeffects_sink" || break
+        sleep 0.2
+    done
+    if pw-cli ls Node 2>/dev/null | grep -q "easyeffects_sink"; then
+        pkill -x easyeffects || true
+        sleep 1.0
+    fi
 fi
 
 # 3. easyeffectsrc -----------------------------------------------------------
