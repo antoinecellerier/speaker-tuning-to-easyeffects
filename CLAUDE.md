@@ -86,9 +86,10 @@ sessions shipped bugs that only showed on real content.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
-- **A meaningful user-facing functional change or in-depth research
-  conclusion ships → add a `CHANGELOG.md` entry** under `## Unreleased`; plain
-  docs edits don't. What counts and how to word it: `.claude/rules/changelog.md`.
+- **A meaningful user-facing functional change, a newly reported/tested
+  device, or an in-depth research conclusion ships → add a `CHANGELOG.md`
+  entry** under `## Unreleased`; other plain docs edits don't. What counts and
+  how to word it: `.claude/rules/changelog.md`.
 - **Investigation flags are scaffolding.** Once a hypothesis on
   `dolby_to_easyeffects.py` is closed, revert the flag and record the
   finding in design-notes — a permanent finding beats a permanent CLI

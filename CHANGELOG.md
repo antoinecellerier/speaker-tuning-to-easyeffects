@@ -109,9 +109,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   PipeWire sink, bypassing speaker detection. Mirrors `ee_to_pipewire.py`'s
   `--target-sink`.
 - Mark additional tested devices: ASUS Zenbook 14 UX3405CA
-  ([#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19))
-  and Lenovo IdeaPad Pro 5 14AHP9
-  ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18)).
+  ([#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19)),
+  Lenovo IdeaPad Pro 5 14AHP9
+  ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18)),
+  and ThinkPad X13 Gen 6 Intel
+  ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)).
 - Measurement tooling for the unvalidated-scaling capture campaign (no change to
   generated presets): new loud/speech stimuli, a stereo widening readout, and an
   absolute-level comparison mode (`compare_ee_vs_dax.py --absolute`).
