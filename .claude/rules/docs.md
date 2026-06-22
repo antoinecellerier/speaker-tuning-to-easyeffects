@@ -18,6 +18,12 @@ and the placement discipline.)
   link to the docs instead. Keep safety-critical or searchable text outside
   `<details>` (collapsed text isn't matched by in-page find and anchors into it
   are unreliable).
+  - **Flags list / troubleshooting rows are one line each**, objectively: a flag
+    entry = *what it does* + *when you'd reach for it* (+ default, if any);
+    a troubleshooting row = *symptom* → *which flag*. No DSP mechanism, no
+    measurement numbers, no device IDs — link to reference/design-notes for the
+    why. If you're writing a second sentence of mechanism, it belongs in the
+    docs, not the README.
 - **docs/reference.md** = a technically-inclined user asking "what does the
   converter do *now*" — settled facts only (mappings, chain, units,
   not-implemented).

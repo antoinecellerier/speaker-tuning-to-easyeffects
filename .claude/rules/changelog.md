@@ -11,14 +11,22 @@ new-device support (new detection/handling) — or an in-depth research
 conclusion worth surfacing. Skip everything else: refactors, tests,
 research-log notes, and plain docs edits — including just recording a
 confirmed device in the README's supported-devices table, which is a docs
-edit, not a functional change. New entries go under `## Unreleased` only, in
-the matching `### Changed/Added/Fixed/Docs` section.
+edit, not a functional change. New entries — and any edits, including
+wording cleanup/retrofits — go under `## Unreleased` only, in the matching
+`### Changed/Added/Fixed/Docs` section. The dated `## vYYYY.MM` sections are
+frozen release history: never reword them (their text shipped in a GitHub
+Release).
 
-Word them per the conventions in the comment at the top of `CHANGELOG.md`:
-concise and human-readable, most-impactful-first within each section, and
-`[AUDIBLE]` honesty (only claim a listening impression if it was heard
-on-device). Link out to the issue/PR and `docs/design-notes.md` for the deep
-why instead of explaining it inline.
+Word them per the spec in the comment at the top of `CHANGELOG.md` — it is
+objective; follow it literally, don't approximate. The shape: WHAT changed
+(user-facing) → optional one-clause mechanism → optional flag/"re-run to
+regenerate" → link; `<= 3` sentences / ~50 words; most-impactful-first within
+each section; `[AUDIBLE]` honesty (claim an impression only if heard on-device).
+Measurement numbers, device IDs, corpus stats, plugin internals, and provenance
+do **not** go inline — they live in `docs/design-notes.md`/`reference.md` behind
+the link. The comment carries a worked too-long-vs-tight example; match the
+tight one. If an entry needs more than three sentences, that's the signal the
+surplus belongs in design-notes, not here.
 
 Cutting a release — moving Unreleased entries into a dated `## vYYYY.MM`
 heading, then tagging and pushing — is maintainer-initiated; don't do it unless

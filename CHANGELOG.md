@@ -6,18 +6,40 @@ Maintainers — to cut a release:
   2. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
   3. .github/workflows/release.yml publishes the GitHub Release, pulling
      the notes from this file's matching section.
-Keep entries reverse-chronological (newest at the top). Tag any entry
-that changes the generated preset's sound with **[AUDIBLE]**, and for
-those, lead with what a listener actually notices (dull, harsh, louder,
-clearer…) grounded in real-device testing where we have it — keep the DSP
-mechanism as a secondary clause. If a change alters the output but hasn't
-been listened to, say so plainly rather than inventing an impression.
+Keep entries reverse-chronological (newest at the top). Within each ### section,
+order most-impactful first — [AUDIBLE] and user-facing changes above minor or
+internal ones. Section order follows the same idea: lead with the section
+carrying the most user-facing change (as v2026.05 leads with Changed).
 
-Write for a human skimming a release: keep each entry concise (one tight
-paragraph), plain-language first with the DSP/mechanism as a secondary clause,
-and link out (issue/PR number, docs/design-notes.md) instead of explaining the
-deep why inline. Within each ### section, order entries most-impactful first —
-[AUDIBLE] and user-facing changes above minor or internal ones.
+Each entry has a FIXED SHAPE, in this order, and stops there:
+  1. WHAT changed, in user-facing terms. For [AUDIBLE]: the effect a listener
+     notices (dull, harsh, louder, clearer). Otherwise: the flag, feature, or
+     fixed symptom.
+  2. (optional) ONE clause of mechanism — the "how", never the "why".
+  3. (optional) the user knob — flag name / how to opt out / "re-run to regenerate".
+  4. a link — issue/PR number, plus docs/design-notes.md for the full why.
+Hard ceiling: <= 3 sentences (~50 words). If it won't fit, the overflow IS the
+"deep why" — move it to docs/design-notes.md and link; do not inline it.
+
+Keep these OUT of the entry (they live in design-notes / reference, behind the
+link): measurement numbers (THD, LUFS, dB), specific device IDs / PCI-subsystem
+codes, corpus statistics, plugin/library internals (LSP/Calf node names,
+lkahead, libebur128…), and DSP derivation. Provenance ("confirmed on a ThinkPad
+X13") is already in the linked issue/commit — don't restate it.
+
+[AUDIBLE] honesty: claim a listening impression ONLY if it was actually heard
+on-device; if the output changed but wasn't listened to, say so plainly.
+
+Worked example — too long (deep why inline, fails the ceiling):
+  - **[AUDIBLE]** Cleaner low end on loud bass. volmax-boost now rides the
+    regulator input so per-band compression tames it before the brickwall; on
+    the dev device this cut a 234 Hz tone from 11.6% to 0.06% THD with broadband
+    loudness unchanged, and a corpus audit of threshold_high (median -18 dB)…
+Same change, tight (overflow moved behind the link):
+  - **[AUDIBLE]** Cleaner low end on loud, bass-heavy content with volmax. The
+    boost now runs through the per-band regulator, which tames it before the
+    final limiter instead of distorting. --volmax-slot output-gain restores the
+    old placement. ([#23]; measurements and why in docs/design-notes.md)
 
 The pre-v2026.05 sections below were reconstructed from git history,
 grouped into the releases that would have been cut at the time.
@@ -36,17 +58,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
-### Added
-
-- **Volume leveler now translated to the PipeWire chain.** A non-bypassed
-  `autogain` (EE-native libebur128, active only on SoundWire devices) is now
-  emitted as LSP `autogain_stereo` (a K-weighted LUFS loudness AGC) instead of
-  being dropped with a "no LV2 equivalent" warning — so `ee_to_pipewire.py` can
-  reproduce every stage of the EE chain. Zero added latency (`lkahead=0`).
-  Validated EE-vs-PW on-device: both level to the same target (−22.00 LUFS) and
-  gate silence identically; the gain ride is mapped asymmetrically (slow boost,
-  faster attenuation) to match EE (details in `docs/design-notes.md`).
-
 ### Changed
 
 - **[AUDIBLE]** Cleaner low end on loud, bass-heavy content with `volmax`. The
@@ -57,14 +68,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
   measurements and why in `docs/design-notes.md`).
 - **[AUDIBLE]** Stereo image is no longer artificially widened. On
-  `dynamic`/`movie` profiles the converter used to push the side channel up
-  ~4 dB (a Calf Stereo Tools widener mapped from Dolby's `surround-boost`) for
-  a wider-but-sometimes-hollow image. A Windows DAX capture (2026-06-13) showed
-  Dolby applies **no** widening on 2-channel content — `surround-boost` is a
-  multichannel-virtualization control, not a stereo-width knob — so the mapping
-  (and the now-defunct `--disable stereo` flag) was removed. Stereo now matches
-  Dolby's actual 2-channel output; re-run the script to regenerate your presets.
-  Detail: `docs/design-notes.md` unvalidated-scaling entry 2.
+  `dynamic`/`movie` profiles the converter used to push the sides wider (a
+  widener mapped from Dolby's `surround-boost`), sometimes hollowing the image;
+  a Windows DAX capture showed Dolby does no widening on 2-channel content, so
+  the mapping and the defunct `--disable stereo` flag were removed. Re-run to
+  regenerate (detail in `docs/design-notes.md`).
 - A failed hardware auto-detection now prints a plain `Error: …` pointing at
   `--help`, instead of dumping argparse's full usage banner — which made an
   environment problem (no tuning found) look like a mistyped command. Genuine
@@ -72,26 +80,26 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- `--doctor` (alias `--diagnose`) self-diagnostic for the most common "it
-  loads but sounds like nothing" reports: it checks the EasyEffects version,
-  install location, per-preset impulse-file integrity, the selected preset, and
-  whether EE is set to run in the background (service mode + autostart), then
-  prints PASS/WARN/FAIL with a pasteable report. Normal runs also warn at the
-  end when the detected EE install can't use the presets just written — e.g.
-  EasyEffects 7, whose older preset format silently bypasses the v8 convolver.
+- **Volume leveler now reproduced in the PipeWire `filter-chain`.** A
+  non-bypassed SoundWire `autogain`, previously dropped with a "no LV2
+  equivalent" warning, is now emitted as an LSP loudness AGC, so
+  `ee_to_pipewire.py` covers every stage of the EE chain. Zero added latency,
+  validated EE-vs-PW on-device (details in `docs/design-notes.md`).
+- `--doctor` (alias `--diagnose`) — self-diagnostic for "it loads but sounds
+  like nothing" reports: checks the EasyEffects version, install, impulse-file
+  integrity, the selected preset, and background-service setup, then prints a
+  pasteable PASS/WARN/FAIL report. Normal runs also warn when the detected EE
+  install can't use the presets (e.g. EE 7 bypasses the v8 convolver).
   ([#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
-- Simplified-schema DAX3 XMLs are now supported. Some Lenovo drivers (e.g. the
-  ThinkPad X1 Carbon Gen 8) name the speaker correction `<gain_l>`/`<gain_r>`
-  and ship no multiband-compressor or speaker-PEQ blocks; the script used to
-  reject them. It now maps those to the left/right correction and emits a
-  convolver + regulator preset, warning that MBC and PEQ are absent in this
-  variant.
+- Simplified-schema DAX3 XMLs are now supported (some Lenovo drivers, e.g. the
+  ThinkPad X1 Carbon Gen 8, were previously rejected). The converter maps their
+  single speaker correction to the left/right channels and emits a convolver +
+  regulator preset, warning that MBC and PEQ are absent in this variant.
   ([#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
 - Warns when a smart-amp firmware gate is muting the woofers. Some laptops
   (e.g. the Lenovo Yoga Pro 9i) keep the woofers muted until the ALSA control
-  `Speaker Force Firmware Load` is enabled — silent bass that no DAX XML hints
-  at — so `--speaker-info` and the end-of-run summary now detect the gate and
-  print copy-paste fixes.
+  `Speaker Force Firmware Load` is enabled, so `--speaker-info` and the
+  end-of-run summary now detect the gate and print copy-paste fixes.
   ([#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17))
 - Auto-discovery now matches Apple Boot Camp tuning XMLs (Intel-Mac DAX3
   tunings key on a device-first PCI subsystem, the opposite byte order from an
@@ -104,12 +112,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19))
   and Lenovo IdeaPad Pro 5 14AHP9
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18)).
-- Measurement tooling for the unvalidated-scaling capture campaign (no change
-  to generated presets): a speech stimulus (`stimulus_speech`) for the dialog
-  enhancer, an MBC-waking `stimulus_stepped_loud`, a side/mid widening readout
-  for the stereo stimuli, and an absolute-level comparison mode
-  (`compare_ee_vs_dax.py --absolute`). Backs design-notes catalogue entries
-  1/2/6/8/11.
+- Measurement tooling for the unvalidated-scaling capture campaign (no change to
+  generated presets): new loud/speech stimuli, a stereo widening readout, and an
+  absolute-level comparison mode (`compare_ee_vs_dax.py --absolute`).
 - A "Which should I use?" guide in the README weighing EasyEffects against the
   PipeWire `filter-chain` (richer live control vs lower CPU/RAM, both
   zero-added-latency), plus `tools/measure_perf/` to reproduce the figures on
@@ -120,34 +125,27 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
-- Autoload now works on cards whose output *route* differs from their *profile*
-  (e.g. a classic `analog-stereo` card reporting `Analog Stereo`). EasyEffects
-  keys entries on the route, but the script wrote the profile, so on such cards
-  the entry never matched and the Dolby correction was silently left unapplied.
-  The filename now uses the route from `pw-dump`; sinks with an unresolvable
-  route are skipped with an explanation.
+- Autoload now works on cards whose output *route* differs from their *profile*.
+  EasyEffects keys entries on the route but the script wrote the profile, so on
+  such cards the Dolby correction was silently never applied; the filename now
+  uses the route, and sinks with an unresolvable route are skipped with an
+  explanation.
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
 - Autoload now finds internal speakers PipeWire doesn't tag `audio-speakers`
-  (some laptops use a generic UCM2 profile, so the speaker shows up as
-  `audio-card-analog` and the old strict filter matched nothing). It falls back
-  to a relaxed tier of internal analog sinks, prompting and listing what it saw
+  (some laptops use a generic UCM2 profile, so the old strict filter matched
+  nothing). It falls back to a relaxed tier of internal analog sinks, prompting
   when several match; `ee_to_pipewire.py`'s smart-filter target gets the same
   fallback.
   ([#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18))
-- A newer SoundWire device, `SUBSYS_37A317AA` (Lenovo IdeaPad 5x 2-in-1), now
-  gets its per-band regulator limiting. Its thresholds live in a per-channel
-  `<ch_00>…<ch_07>` sub-schema the parser didn't read, so the regulator silently
-  fell back to *no* limiting — leaving the small speakers without their per-band
-  excursion guard. **No other device's output changes.** XML-derived but **not
-  yet verified on the hardware** — if you have this device, re-run the script.
-  (Its Dynamic Speaker Optimization and advanced virtualizer remain unmodeled.)
-  Detail: `docs/cross-device-findings.md`.
-- Hardened the SoundWire convolver output-gain against a pre-chain over-gain
-  trap: it is now capped at +12 dB and warns if a curve would exceed it. That
-  gain restores half the headroom FIR peak-normalization removed and sits ahead
-  of the whole plugin chain, so an anomalous correction curve could in principle
-  inject a large pre-chain boost. No real device reaches the cap — the generated
-  presets are unchanged — but the failure mode is now a loud warning instead of
+- A newer SoundWire device (Lenovo IdeaPad 5x 2-in-1) now gets its per-band
+  regulator limiting; its thresholds lived in a sub-schema the parser didn't
+  read, so the small speakers silently ran without their excursion guard. No
+  other device's output changes; XML-derived but not yet verified on the
+  hardware — if you have this device, re-run the script. (Detail in
+  `docs/cross-device-findings.md`.)
+- Hardened the SoundWire convolver's pre-chain gain: now capped at +12 dB with a
+  warning if a correction curve would exceed it. No real device reaches the cap
+  (presets are unchanged) — the failure mode is now a loud warning instead of
   silent clipping.
 
 ### Docs
