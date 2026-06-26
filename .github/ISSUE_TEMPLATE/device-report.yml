@@ -1,6 +1,7 @@
 name: Device report
 description: Report what works or doesn't on your hardware
 title: "<replace with your device name>"
+labels: ["device report"]
 body:
   - type: markdown
     attributes:
