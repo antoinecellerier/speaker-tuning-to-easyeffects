@@ -1436,13 +1436,53 @@ def autoprobe_dolby_source() -> Path:
     )
 
 
-def find_tuning_xml(windows_root: Path):
+def _scan_speaker_tunings_by_manufacturer(xml_files, sdw_man_ids):
+    """Content-validate DAX3 XMLs when no filename matched the hardware.
+
+    Parses each candidate's ``<endpoint type>`` and ``<security-key>`` (the
+    authoritative hardware binding, e.g.
+    ``SOUNDWIRE\\SDCA_FUNCTION_10&MAN_01FA&FUNC_3556&…&SUBSYS_CA0A144D``) and
+    keeps ``internal_speaker`` tunings whose ``MAN`` token is a manufacturer
+    physically present on this machine. Returns a sorted list of
+    ``(path, man, subsys)``; ``subsys`` is the security-key's PCI subsystem
+    token (``"?"`` if absent), which the caller uses to pick the exact
+    per-device match. Generic untuned tunings (empty security-key, hence no
+    ``MAN`` token) are skipped, as are unreadable/malformed files.
+    """
+    guesses = []
+    for xml_file in xml_files:
+        try:
+            root = ET.parse(xml_file).getroot()
+        except (ET.ParseError, OSError):
+            continue
+        ep = root.find(".//endpoint")
+        if ep is None or ep.get("type") != "internal_speaker":
+            continue
+        sk = root.find("./setting/security-key")
+        key = (sk.get("value", "") if sk is not None else "").upper()
+        man_m = re.search(r"MAN_([0-9A-F]{4})", key)
+        if not man_m or man_m.group(1) not in sdw_man_ids:
+            continue
+        sub_m = re.search(r"SUBSYS_([0-9A-Z]{8})", key)
+        guesses.append((xml_file, man_m.group(1), sub_m.group(1) if sub_m else "?"))
+    return sorted(guesses)
+
+
+def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     """Find the DAX3 tuning XML matching this machine's audio hardware.
 
     Searches the Windows DriverStore for DAX3 tuning XMLs and matches
     against:
     - HDA codec subsystem IDs from /proc/asound (traditional HDA codecs)
     - SoundWire device IDs + PCI subsystem ID (newer Intel platforms)
+
+    When no filename matches, a tuning whose security-key's PCI subsystem
+    equals this machine's is selected automatically (authoritative). Failing
+    that, with ``best_guess`` set, fall back to the only internal-speaker tuning
+    whose security-key manufacturer matches a detected SoundWire manufacturer (a
+    warned, unverified guess). With several such candidates the raised error
+    lists them so the user can pass one as the positional XML path argument
+    rather than waiting on a code fix.
     """
     hda_codecs = get_hda_codec_ids()
     sdw_devices = get_soundwire_ids()
@@ -1472,8 +1512,20 @@ def find_tuning_xml(windows_root: Path):
         vendor, device = pci_subsys
         pci_subsys_id = f"{device}{vendor}".upper()
 
-    # SoundWire manufacturer+function pairs for matching
+    # SoundWire match tokens. The strong key is (manufacturer, part) — Dolby's
+    # filename FUNC token usually equals the Linux SoundWire part id (all 29
+    # corpus Qualcomm MAN_025D tunings). But it need NOT: on Cirrus cs35l56
+    # platforms (issue #26) the filename is FUNC_3556 while sysfs reports parts
+    # 3557 (amps) / 4245 (codec), and the XML's own security-key confirms 3556
+    # is a device id, SUBSYS_<pci> the per-device key. So FUNC is *preferred,
+    # not required*: we first match (man, part) exactly (sdw_man_func), and only
+    # if nothing matches that way fall back to PCI-subsystem + manufacturer
+    # (sdw_man_ids). That keeps the old behaviour verbatim where FUNC equals a
+    # part — important because some Lenovo SKUs ship two tunings sharing
+    # MAN+SUBSYS but differing in FUNC (e.g. SUBSYS_383917AA: FUNC_0721 vs
+    # FUNC_1320); the exact (man, part) tier still disambiguates those.
     sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
+    sdw_man_ids = {m for m, _p in sdw_man_func}
 
     driver_store = _resolve_driver_store(windows_root)
     if driver_store is None:
@@ -1490,10 +1542,16 @@ def find_tuning_xml(windows_root: Path):
     if not xml_dirs:
         xml_dirs = [driver_store]
     candidates = []
+    # SoundWire files matched by PCI subsystem + manufacturer but whose FUNC is
+    # NOT a detected part id (FUNC preferred-not-required; see note above).
+    sdw_pci_only = []
+    # Every DAX3-eligible file enumerated, reused by the content scan on no-match.
+    scanned_files = []
     for dax_dir in xml_dirs:
         for xml_file in sorted(dax_dir.glob("*.[xX][mM][lL]")):
             if xml_file.name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
                 continue
+            scanned_files.append(xml_file)
             name = xml_file.name.upper()
 
             # Match HDA-style: DEV_XXXX_SUBSYS_YYYYYYYY_...
@@ -1515,17 +1573,21 @@ def find_tuning_xml(windows_root: Path):
                     continue
 
             # Match SoundWire-style: SOUNDWIRE_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
-            # or SOUNDWIRE_SDCAFUNCTION_NN_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ
+            # or SOUNDWIRE_SDCAFUNCTION_NN_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ.
+            # ZZZZZZZZ is the PCI subsystem (device-first, unique per SKU).
+            # Exact (man, part) is a strong match; a non-part FUNC drops to the
+            # PCI-subsystem fallback (sdw_pci_only) — see the token note above.
             sdw_match = re.search(
                 r"MAN_([0-9A-F]{4})_FUNC_([0-9A-F]{4})_SUBSYS_([0-9A-F]{8})",
                 name,
             )
             if sdw_match:
-                man = sdw_match.group(1)
-                func = sdw_match.group(2)
-                subsys = sdw_match.group(3)
-                if (man, func) in sdw_man_func and subsys == pci_subsys_id:
-                    candidates.append(xml_file)
+                man, func, subsys = sdw_match.group(1, 2, 3)
+                if subsys == pci_subsys_id and man in sdw_man_ids:
+                    if (man, func) in sdw_man_func:
+                        candidates.append(xml_file)
+                    else:
+                        sdw_pci_only.append(xml_file)
                     continue
 
             # Match SDW_XXXX_SUBSYS_YYYYYYYY_... style
@@ -1534,15 +1596,71 @@ def find_tuning_xml(windows_root: Path):
                 candidates.append(xml_file)
                 continue
 
+    # No exact (man, part) / HDA / Apple match: accept the PCI-subsystem fallback.
+    if not candidates and sdw_pci_only:
+        candidates = sdw_pci_only
+        if len(sdw_pci_only) > 1:
+            warn(
+                "Multiple SoundWire tunings share this PCI subsystem with a "
+                "non-part FUNC; selecting the highest tuning_version. Pass the "
+                "XML path explicitly if the result sounds wrong."
+            )
+
     if not candidates:
         hda_info = ", ".join(f"vendor={v} subsys={s}" for v, s, _name in hda_codecs)
         sdw_info = ", ".join(f"man={m} part={p}" for m, p in sdw_devices)
         pci_info = f"pci_subsys={pci_subsys}" if pci_subsys else "no PCI subsystem"
-        raise FileNotFoundError(
-            f"No matching DAX3 tuning XML found in {driver_store}. "
+        detected = (
             f"Detected HDA codecs: {hda_info or 'none'}; "
             f"SoundWire devices: {sdw_info or 'none'}; {pci_info}"
         )
+
+        # No filename matched. Fall back to *content*: parse each XML's
+        # security-key and keep internal-speaker tunings whose manufacturer is
+        # present (issue #26). Nothing to guess from on a pure-HDA machine.
+        guesses = (
+            _scan_speaker_tunings_by_manufacturer(scanned_files, sdw_man_ids)
+            if sdw_man_ids
+            else []
+        )
+
+        # Authoritative content match: the security-key's own PCI subsystem
+        # equals this machine's. As specific as a filename SUBSYS match, so use
+        # it automatically even without --best-guess — covers a tuning whose
+        # filename convention we don't parse but whose security-key we do.
+        exact = [g for g in guesses if pci_subsys_id and g[2] == pci_subsys_id]
+        if len(exact) == 1:
+            path = exact[0][0]
+            cprint("ok", f"Matched tuning XML (by security-key PCI subsystem): {path}")
+            return path
+
+        if best_guess and len(guesses) == 1:
+            path, man, subsys = guesses[0]
+            warn(
+                f"--best-guess: no exact hardware match; using the only "
+                f"internal-speaker tuning for manufacturer {man} — {path.name} "
+                f"(SUBSYS_{subsys}). Unverified: matched by manufacturer only, "
+                f"not by device id."
+            )
+            cprint("ok", f"Matched tuning XML (best-guess): {path}")
+            return path
+
+        lines = [f"No matching DAX3 tuning XML found in {driver_store}. {detected}"]
+        if guesses:
+            if best_guess and len(guesses) > 1:
+                lines.append(
+                    f"\n--best-guess found {len(guesses)} internal-speaker tunings "
+                    f"for your manufacturer and will not guess between them — pass "
+                    f"one as the positional XML path argument:"
+                )
+            else:
+                lines.append(
+                    f"\n{len(guesses)} internal-speaker tuning(s) match your "
+                    f"manufacturer — pass one as the positional XML path argument "
+                    f"(or re-run with --best-guess if there is exactly one):"
+                )
+            lines += [f"  {p}   # MAN_{m} SUBSYS_{s}" for p, m, s in guesses]
+        raise FileNotFoundError("\n".join(lines))
 
     if len(candidates) > 1:
         # Prefer the highest tuning version from the XML metadata. Parse each
@@ -3874,6 +3992,15 @@ def main():
              "suitable source",
     )
     parser.add_argument(
+        "--best-guess",
+        action="store_true",
+        help="if auto-detection finds no exact hardware match, fall back to the "
+             "only internal-speaker tuning whose manufacturer is present "
+             "(unverified — matched by manufacturer, not device id). With "
+             "several such candidates it lists them so you can pass one as the "
+             "positional XML path. No effect when an exact match is found",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
@@ -4021,7 +4148,7 @@ def main():
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
     elif args.windows:
-        xml_path = find_tuning_xml(args.windows)
+        xml_path = find_tuning_xml(args.windows, best_guess=args.best_guess)
         cprint("ok", f"Auto-detected: {xml_path}")
     elif args.xml_file:
         xml_path = args.xml_file
@@ -4032,7 +4159,7 @@ def main():
         # through parser.error() would slap the usage synopsis on top and exit
         # 2, framing it as a syntax error the user can't fix by reading usage.
         windows_root = autoprobe_dolby_source()
-        xml_path = find_tuning_xml(windows_root)
+        xml_path = find_tuning_xml(windows_root, best_guess=args.best_guess)
         cprint("ok", f"Auto-detected: {xml_path}")
 
     xml_basename = Path(xml_path).name.upper()

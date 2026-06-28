@@ -539,6 +539,190 @@ def test_find_tuning_xml_apple_pci_subsystem_mismatch_does_not_match(monkeypatch
         find_tuning_xml(tmp_path)
 
 
+# --- find_tuning_xml: SoundWire match keys on PCI subsystem, not FUNC — issue #26 ---
+# Samsung Galaxy Book6 Ultra (Cirrus cs35l56): the tuning filename is
+# SOUNDWIRE_SDCAFUNCTION_10_MAN_01FA_FUNC_3556_SUBSYS_CA0A144D.xml, but sysfs
+# reports SoundWire parts 3557 (amps) / 4245 (codec) — neither equals Dolby's
+# FUNC_3556 (a device id, per the XML's own security-key). Matching must key on
+# the PCI subsystem (CA0A144D, unique per SKU) + manufacturer present, NOT on
+# (man, part). The only HDA codec on these systems is the Intel HDMI codec.
+
+_GB6_XML_NAME = "SOUNDWIRE_SDCAFUNCTION_10_MAN_01FA_FUNC_3556_SUBSYS_CA0A144D.xml"
+
+
+def _patch_soundwire_match(monkeypatch, driver_store, sdw_devices, pci_subsys):
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("80862822", "80860101", "Intel HDMI")],  # HDMI only, no match
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: sdw_devices)
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: pci_subsys
+    )
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+    )
+
+
+def test_find_tuning_xml_soundwire_matches_despite_func_not_a_part_id(monkeypatch, tmp_path):
+    """Regression lock for #26: FUNC_3556 ∉ detected parts {3557, 4245}, but the
+    PCI subsystem CA0A144D and manufacturer 01FA match → the file is selected."""
+    xml = tmp_path / _GB6_XML_NAME
+    xml.write_text("<tuning><tuning_version value='2'/></tuning>")
+    _patch_soundwire_match(
+        monkeypatch, tmp_path, [("01FA", "3557"), ("01FA", "4245")], ("144D", "CA0A")
+    )
+    assert find_tuning_xml(tmp_path) == xml
+
+
+def test_find_tuning_xml_soundwire_wrong_pci_does_not_match(monkeypatch, tmp_path):
+    """A sibling SKU's tuning (different PCI subsystem) must not match — the PCI
+    subsystem is the per-device key, so F020144D ≠ CA0A144D rejects it."""
+    (tmp_path / "SOUNDWIRE_MAN_01FA_FUNC_3556_SUBSYS_F020144D.xml").write_text("<x/>")
+    _patch_soundwire_match(
+        monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "CA0A")
+    )
+    with pytest.raises(FileNotFoundError, match="No matching DAX3 tuning XML"):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_soundwire_wrong_manufacturer_does_not_match(monkeypatch, tmp_path):
+    """The manufacturer guard still bites: a Qualcomm (025D) filename whose
+    SUBSYS happens to equal our PCI token must not match a Cirrus-only machine."""
+    (tmp_path / "SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_CA0A144D.xml").write_text("<x/>")
+    _patch_soundwire_match(
+        monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "CA0A")
+    )
+    with pytest.raises(FileNotFoundError, match="No matching DAX3 tuning XML"):
+        find_tuning_xml(tmp_path)
+
+
+def test_find_tuning_xml_soundwire_func_disambiguates_same_subsys(monkeypatch, tmp_path):
+    """Regression guard for the relaxed match: some Lenovo SKUs ship two tunings
+    sharing MAN+SUBSYS but differing in FUNC (e.g. SUBSYS_383917AA: FUNC_0721 vs
+    FUNC_1320). The exact (man, part) tier must still pick the FUNC that equals
+    the detected part — NOT fall through to highest-version selection, which here
+    would wrongly pick the FUNC_0721 file. Locks that FUNC stays a preferred key
+    where it equals a part id (the Qualcomm corpus), not dropped."""
+    right = tmp_path / "SOUNDWIRE_MAN_025D_FUNC_1320_SUBSYS_383917AA.xml"
+    right.write_text("<tuning><tuning_version value='5'/></tuning>")
+    wrong = tmp_path / "SOUNDWIRE_MAN_025D_FUNC_0721_SUBSYS_383917AA.xml"
+    wrong.write_text("<tuning><tuning_version value='99'/></tuning>")  # higher version
+    _patch_soundwire_match(
+        monkeypatch, tmp_path, [("025D", "1320")], ("17AA", "3839")
+    )
+    assert find_tuning_xml(tmp_path) == right
+
+
+# --- find_tuning_xml: content-validated best-guess fallback (issue #26) ---
+# When no filename matches, parse each candidate's <endpoint type> and
+# <security-key> and surface internal_speaker tunings whose manufacturer is
+# present, so a user on an unmapped convention can self-unblock.
+
+
+def _write_speaker_xml(directory, filename, man, subsys, endpoint_type="internal_speaker"):
+    """Write a minimal DAX3 XML with a security-key encoding MAN/FUNC/SUBSYS.
+
+    Pass man="" to emit an empty security-key (the generic untuned fallback).
+    """
+    if man:
+        key = f"SOUNDWIRE\\SDCA_FUNCTION_10&amp;MAN_{man}&amp;FUNC_3556&amp;SUBSYS_{subsys}"
+    else:
+        key = ""
+    path = directory / filename
+    path.write_text(
+        "<device_data><tuning_version value='1'/>"
+        f"<setting><security-key value=\"{key}\"/></setting>"
+        f"<endpoint type=\"{endpoint_type}\"/></device_data>"
+    )
+    return path
+
+
+def _no_strict_match_dir(tmp_path):
+    """A driver store with two Cirrus internal-speaker tunings (neither's
+    SUBSYS equal to the detected PCI token), a headphone tuning, and a generic
+    empty-security-key fallback. Returns the two device-tuning paths."""
+    a = _write_speaker_xml(tmp_path, _GB6_XML_NAME, "01FA", "CA0A144D")
+    b = _write_speaker_xml(
+        tmp_path, "SOUNDWIRE_MAN_01FA_FUNC_3556_SUBSYS_F020144D.xml", "01FA", "F020144D"
+    )
+    _write_speaker_xml(
+        tmp_path, "Headphone_Default.xml", "01FA", "CA0A144D", endpoint_type="headphone"
+    )
+    _write_speaker_xml(tmp_path, "Speaker_Default_Atmos3.10.xml", "", "")
+    return a, b
+
+
+def test_best_guess_lists_speaker_candidates_excludes_headphone_and_generic(monkeypatch, tmp_path):
+    """No exact match (PCI token DEAD144D matches no file, incl. no security-key
+    PCI match): the error lists both manufacturer-validated internal_speaker
+    tunings as positional XML paths, and lists neither the headphone tuning nor
+    the generic empty-security-key fallback."""
+    a, b = _no_strict_match_dir(tmp_path)
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "DEAD"))
+    with pytest.raises(FileNotFoundError) as exc:
+        find_tuning_xml(tmp_path)
+    msg = str(exc.value)
+    assert str(a) in msg and str(b) in msg
+    assert "--xml" not in msg  # hint is the positional path, not a flag
+    assert "Speaker_Default_Atmos3.10.xml" not in msg  # generic skipped, not listed
+    assert "Headphone_Default.xml" not in msg  # headphone excluded entirely
+
+
+def test_find_tuning_xml_matches_security_key_pci_when_filename_unmapped(monkeypatch, tmp_path):
+    """Authoritative content match: a tuning whose filename carries no
+    recognizable token but whose <security-key> PCI subsystem equals this
+    machine's is auto-selected — even without --best-guess (locks the SUBSYS
+    use the review flagged as discarded)."""
+    xml = _write_speaker_xml(tmp_path, "cirrus_speaker_tuning.xml", "01FA", "CA0A144D")
+    # a sibling SKU whose security-key PCI subsystem does NOT match → ignored
+    _write_speaker_xml(tmp_path, "cirrus_other_sku.xml", "01FA", "F020144D")
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "CA0A"))
+    assert find_tuning_xml(tmp_path) == xml  # no best_guess needed
+
+
+def test_best_guess_autoselects_single_candidate(monkeypatch, tmp_path):
+    """Exactly one manufacturer-validated speaker tuning + --best-guess →
+    auto-select it (warned, unverified)."""
+    xml = _write_speaker_xml(tmp_path, _GB6_XML_NAME, "01FA", "CA0A144D")
+    _write_speaker_xml(tmp_path, "Speaker_Default_Atmos3.10.xml", "", "")  # generic, ignored
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "DEAD"))
+    assert find_tuning_xml(tmp_path, best_guess=True) == xml
+
+
+def test_best_guess_multiple_candidates_does_not_autoselect(monkeypatch, tmp_path):
+    """Several validated candidates + --best-guess → refuse to guess; list them."""
+    _no_strict_match_dir(tmp_path)
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "DEAD"))
+    with pytest.raises(FileNotFoundError, match="will not guess"):
+        find_tuning_xml(tmp_path, best_guess=True)
+
+
+def test_content_scan_skips_unreadable_xml_without_crashing(monkeypatch, tmp_path):
+    """The no-match content scan opens every *.xml; an unreadable or
+    directory-named one must be skipped, not raise an uncaught OSError that
+    masks the clean 'no matching tuning' error."""
+    good = _write_speaker_xml(tmp_path, _GB6_XML_NAME, "01FA", "CA0A144D")
+    (tmp_path / "a_directory.xml").mkdir()  # ET.parse() → IsADirectoryError (OSError)
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "DEAD"))
+    with pytest.raises(FileNotFoundError) as exc:  # not IsADirectoryError
+        find_tuning_xml(tmp_path)
+    assert str(good) in str(exc.value)
+
+
+def test_best_guess_off_by_default_stays_strict(monkeypatch, tmp_path):
+    """Default (best_guess=False) never auto-selects a manufacturer-only guess,
+    even with a single candidate — it raises and lists it for explicit
+    selection. (Uses a non-PCI-matching SUBSYS so the authoritative
+    security-key path doesn't fire.)"""
+    xml = _write_speaker_xml(tmp_path, _GB6_XML_NAME, "01FA", "CA0A144D")
+    _patch_soundwire_match(monkeypatch, tmp_path, [("01FA", "3557")], ("144D", "DEAD"))
+    with pytest.raises(FileNotFoundError) as exc:
+        find_tuning_xml(tmp_path)
+    assert str(xml) in str(exc.value)  # listed as the positional path to use
+
+
 def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     """No NTFS mounts and an empty CWD → FileNotFoundError at
     dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic

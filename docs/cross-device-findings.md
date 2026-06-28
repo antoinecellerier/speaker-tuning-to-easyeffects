@@ -594,6 +594,35 @@ future device-level investigation can wire in something better.
 
 ---
 
+## 15. SoundWire tuning-filename matching — `FUNC` is not the Linux part id
+
+Auto-detection matches a SoundWire tuning by parsing its filename
+(`SOUNDWIRE_[SDCAFUNCTION_NN_]MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml`)
+against `/sys/bus/soundwire/devices` IDs and the HD-Audio controller's PCI
+subsystem. Across the corpus's 29 Qualcomm Aqstic (`MAN_025D`) tunings, `FUNC`
+equals the Linux SoundWire **part id** (e.g. `FUNC_1318` ↔ part `1318`), so the
+original match keyed on `(manufacturer, part) + PCI subsystem`.
+
+A Samsung Galaxy Book6 driver package (Cirrus Logic `MAN_01FA`, cs35l56
+amplifiers; Panther Lake, `xml_version 3.8.0`) falsifies that as a *general*
+rule. Its tuning is `SOUNDWIRE_SDCAFUNCTION_10_MAN_01FA_FUNC_3556_SUBSYS_CA0A144D.xml`,
+yet sysfs reports SoundWire parts `3557` (the six cs35l56 amps) and `4245` (the
+SDCA codec) — **neither equals `FUNC_3556`**. The XML's own `security-key`
+(`SOUNDWIRE\SDCA_FUNCTION_10&MAN_01FA&FUNC_3556&…&SUBSYS_CA0A144D`) confirms
+`FUNC` is a Dolby/Cirrus device id and `SUBSYS_<pci>` is the per-device key: the
+package ships five tunings identical but for `SUBSYS` (`F020144D`, `C1DC144D`,
+`C1DE144D`, `C910144D`, `CA0A144D`) — one per SKU — all `MAN_01FA_FUNC_3556`.
+
+So `FUNC` is now treated as **preferred, not required**: match `(man, part)`
+exactly first, and only when nothing matches that way fall back to PCI
+subsystem + manufacturer (issue #26). The exact tier still matters because some
+Lenovo SKUs ship *two* tunings sharing `MAN`+`SUBSYS` but differing in `FUNC`
+(e.g. `SUBSYS_383917AA`: `FUNC_0721` vs `FUNC_1320`); the detected part still
+disambiguates those. (Galaxy Book6 is XML-derived only — generates cleanly but
+unvalidated by ear, since the maintainer has no access to the hardware.)
+
+---
+
 ## Interesting observations
 
 1. **No Intel Fusion devices found** — the `fusion_ext_intel` driver package shares

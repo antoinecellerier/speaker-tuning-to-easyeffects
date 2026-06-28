@@ -58,6 +58,22 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- `--best-guess`: when auto-detection finds no exact hardware match, fall back
+  to the only internal-speaker tuning whose manufacturer is present (or list the
+  candidates to pass one as the XML path), so a laptop on an unmapped filename
+  convention can still generate a preset instead of erroring
+  ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26)).
+
+### Fixed
+
+- Auto-detection now finds the Dolby tuning on Cirrus cs35l56 SoundWire laptops
+  (e.g. Samsung Galaxy Book6), which the old part-id match missed. No change for
+  already-matched devices; re-run with `--autoload`
+  ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26);
+  why in `docs/cross-device-findings.md`).
+
 ## v2026.06 — 2026-06-22
 
 ### Changed
