@@ -68,6 +68,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--speaker-info` no longer doubles the SoundWire amplifier count (six mono
+  cs35l56 were reported as "12 speakers"); each enumerated amp is counted once,
+  with its channel count probed from the hardware
+  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
 - Auto-detection now finds the Dolby tuning on Cirrus cs35l56 SoundWire laptops
   (e.g. Samsung Galaxy Book6), which the old part-id match missed. No change for
   already-matched devices; re-run with `--autoload`

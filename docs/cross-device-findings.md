@@ -621,6 +621,13 @@ Lenovo SKUs ship *two* tunings sharing `MAN`+`SUBSYS` but differing in `FUNC`
 disambiguates those. (Galaxy Book6 is XML-derived only — generates cleanly but
 unvalidated by ear, since the maintainer has no access to the hardware.)
 
+A diagnosis note from the first field report (issue #27): `--speaker-info` was
+double-counting these amps. Each cs35l56 is a **mono** amplifier (SoundWire
+enumerates one slave per amp chip), so six were reported as "12 speakers". The
+layout estimate now counts each enumerated amp once and probes its channel count
+from the sink data-port DisCo props (`dpN_sink/max_ch`, kernel ABI
+`sysfs-bus-soundwire-slave`) rather than assuming stereo.
+
 ---
 
 ## Interesting observations

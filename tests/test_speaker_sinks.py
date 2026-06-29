@@ -565,3 +565,46 @@ def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
     monkeypatch.setattr(d, "_CONSOLE", None)
     d.warn_speaker_firmware_gate(gates)
     assert capsys.readouterr().out == ""
+
+
+# --- Amp channel count: probe, don't assume (issue #27) ---------------------
+#
+# Six mono cs35l56 SoundWire amps were reported as "12 speakers" because each
+# enumerated amp defaulted to stereo (×2). The count now sums a *probed* per-amp
+# channel count; each SoundWire slave is one amp, default 1.
+
+def test_layout_summary_soundwire_amps_not_doubled():
+    info = d.SpeakerInfo()
+    info.speakers = [d.SpeakerPin(f"sdw:{i}", "cs35l56", "amplifier", channels=1)
+                     for i in range(6)]
+    assert info.layout_summary == "6 speakers → multi-way: 6x amplifier"
+
+
+def test_layout_summary_hda_stereo_pin_unchanged():
+    info = d.SpeakerInfo()
+    info.speakers = [d.SpeakerPin("0x17", "Speaker", "tweeter", channels=2)]
+    assert info.layout_summary == "2 speakers → full-range stereo"
+
+
+def test_layout_summary_multiway_sums_channels_by_role():
+    info = d.SpeakerInfo()
+    info.speakers = [
+        d.SpeakerPin("0x17", "Speaker", "tweeter", channels=2),
+        d.SpeakerPin("0x1d", "Bass Speaker", "woofer", channels=2),
+    ]
+    assert info.layout_summary == "4 speakers → multi-way: 2x tweeter + 2x woofer"
+
+
+def test_amp_channels_from_sysfs(tmp_path):
+    dev = tmp_path / "sdw:0:1:01fa:3557:01:0"
+    sink = dev / "dp1_sink"
+    sink.mkdir(parents=True)
+    (sink / "max_ch").write_text("1\n")
+    assert d._amp_channels_from_sysfs(dev) == 1
+    assert d._amp_channels_from_sysfs(tmp_path / "missing") is None  # no DisCo props
+
+
+def test_read_sysfs_int_tolerates_bad_bytes(tmp_path):
+    p = tmp_path / "max_ch"
+    p.write_bytes(b"\xff\xfe")  # non-UTF-8 sysfs blob → None, not a traceback
+    assert d._read_sysfs_int(p) is None

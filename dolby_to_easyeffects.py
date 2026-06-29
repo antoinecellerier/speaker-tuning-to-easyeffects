@@ -247,7 +247,11 @@ class SpeakerPin:
     node: str            # HDA node ID or SoundWire device name
     control_name: str    # ALSA control name or driver name
     role: str            # "woofer" or "tweeter"
-    stereo: bool = True
+    channels: int = 1    # audio channels this output carries. An HDA codec pin
+                         # can drive a stereo (L+R) speaker = 2; SoundWire instead
+                         # enumerates one slave device per amp chip, so each is a
+                         # single addressable amp → probe it, default 1 (NOT 2 —
+                         # that HDA-style default is what double-counted #27).
 
 
 @dataclass
@@ -299,18 +303,48 @@ class SpeakerInfo:
     def layout_summary(self) -> str:
         if not self.speakers:
             return "Could not determine speaker layout"
-        total = sum(2 if s.stereo else 1 for s in self.speakers)
+        total = sum(s.channels for s in self.speakers)
         by_role: dict[str, int] = {}
         for s in self.speakers:
-            by_role[s.role] = by_role.get(s.role, 0) + (2 if s.stereo else 1)
-        if len(self.speakers) == 1:
+            by_role[s.role] = by_role.get(s.role, 0) + s.channels
+        if len(self.speakers) == 1 and self.speakers[0].channels == 2:
             return f"{total} speakers → full-range stereo"
         parts = " + ".join(f"{n}x {role}" for role, n in by_role.items())
         return f"{total} speakers → multi-way: {parts}"
 
 
+def _read_sysfs_int(path: Path) -> int | None:
+    """Largest integer in a sysfs attribute (handles single values and lists)."""
+    try:
+        nums = [int(n) for n in re.findall(r"\d+", path.read_text())]
+    except (OSError, ValueError):  # ValueError covers non-UTF-8 sysfs bytes
+        return None
+    return max(nums) if nums else None
+
+
+def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
+    """Audio-channel count of a SoundWire amp from its sink data-port DisCo props.
+
+    Each amp sinks audio on a data port whose ``max_ch`` is the DisCo/firmware-
+    declared channel count (``max_ch=1`` ⇒ mono). Reads ``<dev>/dpN_sink/max_ch``
+    (kernel ABI sysfs-bus-soundwire-slave). None when DisCo props aren't exposed.
+    """
+    chans = []
+    for sink in sorted(dev_dir.glob("dp*_sink")):
+        c = _read_sysfs_int(sink / "max_ch")
+        if c:
+            chans.append(c)
+    return max(chans) if chans else None
+
+
 def _detect_soundwire_speakers(info: SpeakerInfo):
-    """Detect speaker amplifiers on the SoundWire bus."""
+    """Detect speaker amplifiers on the SoundWire bus, probing each amp's channels.
+
+    SoundWire enumerates one slave device per amp chip, so each amp counts once;
+    its channel count is *probed* from the sink data-port DisCo props, else 1 —
+    never the old stereo default that double-counted six mono cs35l56 as twelve
+    (issue #27).
+    """
     sdw_path = Path("/sys/bus/soundwire/devices")
     if not sdw_path.is_dir():
         return
@@ -329,11 +363,14 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         lower_driver = driver_name.lower()
 
         if any(p in lower_driver for p in amp_patterns):
+            # One slave = one mono amp; probe channels from sysfs, default 1.
+            channels = _amp_channels_from_sysfs(dev_dir) or 1
             info.sdw_amplifiers.append(f"{dev_dir.name} (driver: {driver_name})")
             info.speakers.append(SpeakerPin(
                 node=dev_dir.name,
                 control_name=driver_name,
                 role="amplifier",
+                channels=channels,
             ))
         else:
             info.sdw_codecs.append(f"{dev_dir.name} (driver: {driver_name})")
@@ -353,7 +390,7 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
                 name = m.group(1)
                 info.sdw_amplifiers.append(f"{name} (from ALSA mixer)")
                 info.speakers.append(SpeakerPin(
-                    node="mixer", control_name=name, role="amplifier",
+                    node="mixer", control_name=name, role="amplifier", channels=1,
                 ))
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
@@ -381,7 +418,7 @@ def _detect_hda_speakers(info: SpeakerInfo):
                 node=node_match.group(1),
                 control_name=ctrl_name,
                 role=role,
-                stereo="Stereo" in block.split("\n", 1)[0],
+                channels=2 if "Stereo" in block.split("\n", 1)[0] else 1,
             ))
 
 
@@ -626,7 +663,7 @@ def _print_speaker_info(info: SpeakerInfo):
         sections.append(("Speaker amplifiers", amp_lines))
     elif info.bus_type == "hda" and info.speakers:
         sections.append(("HDA internal speakers", [
-            f"  {s.node}: {s.control_name} ({s.role}, {'stereo' if s.stereo else 'mono'})"
+            f"  {s.node}: {s.control_name} ({s.role}, {'stereo' if s.channels == 2 else 'mono'})"
             for s in info.speakers
         ]))
 
