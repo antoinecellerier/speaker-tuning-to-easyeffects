@@ -621,12 +621,19 @@ Lenovo SKUs ship *two* tunings sharing `MAN`+`SUBSYS` but differing in `FUNC`
 disambiguates those. (Galaxy Book6 is XML-derived only — generates cleanly but
 unvalidated by ear, since the maintainer has no access to the hardware.)
 
-A diagnosis note from the first field report (issue #27): `--speaker-info` was
-double-counting these amps. Each cs35l56 is a **mono** amplifier (SoundWire
-enumerates one slave per amp chip), so six were reported as "12 speakers". The
-layout estimate now counts each enumerated amp once and probes its channel count
-from the sink data-port DisCo props (`dpN_sink/max_ch`, kernel ABI
-`sysfs-bus-soundwire-slave`) rather than assuming stereo.
+Two diagnosis follow-ups from the first field report (issue #27). (1)
+`--speaker-info` was double-counting these amps: each cs35l56 is a **mono**
+amplifier (SoundWire enumerates one slave per amp chip), so six were reported as
+"12 speakers". The layout estimate now counts each enumerated amp once and
+probes its channel count from the sink data-port DisCo props
+(`dpN_sink/max_ch`, kernel ABI `sysfs-bus-soundwire-slave`) rather than assuming
+stereo. (2) The report's "quiet, smartphone-like" sound is most likely a
+driver/firmware-layer issue, not the preset: per the cs35l56 kernel driver doc a
+missing per-amp `.wmfw`/`.bin` (under `/lib/firmware/cirrus/`) leaves the amp
+playing a **mono mix with no voicing/protection**, and the only authoritative
+signal is the kernel log — no sysfs/debugfs exposes amp audio-state. The
+amplifier-status section in `--speaker-info` gathers that evidence (bind state,
+firmware presence, log markers); on-device confirmation is still pending.
 
 ---
 
@@ -687,3 +694,9 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
 6. **Re-run on new driver pulls (process).** Regenerate every figure here with
    [`tools/corpus_audit.py`](../tools/corpus_audit.py) after pulling new
    packages — the corpus has roughly doubled since the prior derivation.
+7. **Galaxy Book6 quiet-output cause (device-gated).** First cs35l56 field report
+   (issue #27) describes quiet, "smartphone-like" sound on or off the preset.
+   Hypothesis (§15): cs35l56 firmware/voicing not loaded → degraded mono mix,
+   independent of our preset. Awaiting the reporter's `--speaker-info`
+   amplifier-status + kernel-log output to confirm; not reproducible without the
+   hardware.

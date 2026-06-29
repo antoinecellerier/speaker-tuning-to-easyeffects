@@ -272,6 +272,23 @@ class FirmwareGate:
 
 
 @dataclass
+class AmpStatus:
+    """Bind status of one SoundWire amplifier, for the merged amp-status report.
+
+    SoundWire-specific: an amp enumerated on the bus but with no driver bound is
+    the one clear-cut signal we surface (and even then neutrally — it could be a
+    non-amp slave or a still-binding device). Channel count is probed from
+    sysfs. Firmware presence and kernel-log lines are gathered separately and
+    shown as raw evidence for a human to read — no sysfs/debugfs exposes amp
+    audio-state (cs35l56 kernel doc), so we never render a health *verdict*.
+    """
+    node: str            # SoundWire device name (or mixer-control name on fallback)
+    driver: str          # bound driver name, or "" when unbound
+    bound: bool          # driver symlink present
+    channels: int        # probed audio channels (0 = unknown)
+
+
+@dataclass
 class SpeakerInfo:
     """Collected audio hardware information for --speaker-info."""
     product: str = ""
@@ -290,6 +307,13 @@ class SpeakerInfo:
     speakers: list[SpeakerPin] = field(default_factory=list)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
     firmware_gates: list[FirmwareGate] = field(default_factory=list)
+    # Merged amp-status evidence (see "=== Speaker amplifier status ===")
+    amp_status: list[AmpStatus] = field(default_factory=list)
+    amp_firmware: list[str] = field(default_factory=list)     # firmware files present
+    amp_firmware_missing: bool = False  # a loaded driver needs a blob and none was found
+    amp_log: list[tuple[bool, str]] = field(default_factory=list)  # (is_error, log line)
+    amp_log_available: bool = True   # False when the kernel log was unreadable
+    amp_log_grep: str = ""           # grep -iE alternation for the self-check hint
 
     @property
     def bus_type(self) -> str:
@@ -323,11 +347,16 @@ def _read_sysfs_int(path: Path) -> int | None:
 
 
 def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
-    """Audio-channel count of a SoundWire amp from its sink data-port DisCo props.
+    """Best-effort audio-channel count of a SoundWire amp from its sink ports.
 
-    Each amp sinks audio on a data port whose ``max_ch`` is the DisCo/firmware-
-    declared channel count (``max_ch=1`` ⇒ mono). Reads ``<dev>/dpN_sink/max_ch``
-    (kernel ABI sysfs-bus-soundwire-slave). None when DisCo props aren't exposed.
+    Reads ``<dev>/dpN_sink/max_ch`` — the path/attr are confirmed against the
+    kernel ABI ``sysfs-bus-soundwire-slave``. Caveat: ``max_ch`` is the DisCo
+    *maximum supported* channel count (a capability ceiling), not the provisioned
+    count — there is no static sysfs attribute for the latter. For a dedicated
+    mono amp the sink port should declare ``max_ch=1``, but a mono part that
+    advertised a 2-channel-capable port would over-count; unverified without a
+    real capture, which is why the layout line is an *estimate* and the caller
+    falls back to 1 (one enumerated slave = one amp) when this returns None.
     """
     chans = []
     for sink in sorted(dev_dir.glob("dp*_sink")):
@@ -338,18 +367,20 @@ def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
 
 
 def _detect_soundwire_speakers(info: SpeakerInfo):
-    """Detect speaker amplifiers on the SoundWire bus, probing each amp's channels.
+    """Detect speaker amplifiers on the SoundWire bus, with per-amp bind status.
 
     SoundWire enumerates one slave device per amp chip, so each amp counts once;
     its channel count is *probed* from the sink data-port DisCo props, else 1 —
     never the old stereo default that double-counted six mono cs35l56 as twelve
-    (issue #27).
+    (issue #27). Records per-amp bind status into ``info.amp_status`` (an
+    enumerated-but-unbound device is surfaced neutrally — it may be a non-amp
+    slave or one still binding).
     """
     sdw_path = Path("/sys/bus/soundwire/devices")
     if not sdw_path.is_dir():
         return
 
-    amp_patterns = ("rt13", "rt_amp", "max98", "cs35")
+    amp_patterns = _AMP_DRIVER_TOKENS  # single source of amp-family identity
 
     for dev_dir in sorted(sdw_path.iterdir()):
         match = re.match(
@@ -359,7 +390,8 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         if not match:
             continue
         driver_link = dev_dir / "driver"
-        driver_name = driver_link.resolve().name if driver_link.is_symlink() else ""
+        bound = driver_link.is_symlink()
+        driver_name = driver_link.resolve().name if bound else ""
         lower_driver = driver_name.lower()
 
         if any(p in lower_driver for p in amp_patterns):
@@ -371,6 +403,15 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
                 control_name=driver_name,
                 role="amplifier",
                 channels=channels,
+            ))
+            info.amp_status.append(AmpStatus(
+                node=dev_dir.name, driver=driver_name, bound=True, channels=channels,
+            ))
+        elif not bound:
+            # Enumerated SoundWire slave with no driver bound — surfaced
+            # neutrally (could be a non-amp peripheral or one still binding).
+            info.amp_status.append(AmpStatus(
+                node=dev_dir.name, driver="", bound=False, channels=0,
             ))
         else:
             info.sdw_codecs.append(f"{dev_dir.name} (driver: {driver_name})")
@@ -391,6 +432,9 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
                 info.sdw_amplifiers.append(f"{name} (from ALSA mixer)")
                 info.speakers.append(SpeakerPin(
                     node="mixer", control_name=name, role="amplifier", channels=1,
+                ))
+                info.amp_status.append(AmpStatus(
+                    node=name, driver=name, bound=True, channels=1,
                 ))
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
@@ -552,6 +596,170 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
     cprint("dim", "gauge whether to automate it — use the report-back link just below.")
 
 
+# --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
+#
+# Whether the speaker amps are actually live is a smart-amp question, not a
+# SoundWire one: HDA-attached Cirrus (cs35l41) and TI (TAS2781) amps load DSP
+# firmware too, and a cs35l56 with no firmware still plays — but as a quiet
+# "mono mix" with no voicing/protection (cs35l56 kernel doc). No sysfs/debugfs
+# exposes amp audio-state, so the authoritative signal is the kernel log. We
+# gather *evidence* (an enumerated-but-unbound amp is the one hard verdict;
+# firmware files + log markers are shown for a human) keyed by driver, so the
+# engine is generic and adding a device is one registry row.
+
+# One row per smart-amp family: (driver/module name tokens, firmware globs,
+# kernel-log keywords). Empty globs = the family ships no DSP blob. Tokens are
+# matched as substrings of a driver/module name and double as the SoundWire
+# amp-detection patterns, so adding a device is genuinely one row. The max98
+# tokens are the specific *smart*-amp parts, not a bare "max98" — that would also
+# catch the max98090 jack codec and the dumb max98357/360 I2S amps (same reason
+# "rt13" is narrow enough to skip the rt711 codec).
+_AMP_FAMILIES = (
+    (("cs35l",),          ("cirrus/cs35l*",),             ("cs35l", "cirrus")),  # Cirrus (cs35l41 HDA / cs35l56 SoundWire)
+    (("tas2",),           ("TAS2*", "ti/tas2*", "tas2*"), ("tas2",)),            # TI smart amps (issue #17 family)
+    (("rt13", "rt_amp"),  (),                             ("rt13",)),            # Realtek SoundWire amps — no fw blob
+    (("max98373", "max98390", "max98363", "max98396", "max98512"),
+                          (),                             ("max98",)),           # Maxim DSM smart amps — no fw blob
+)
+
+_AMP_DRIVER_TOKENS = tuple(tok for fam in _AMP_FAMILIES for tok in fam[0])
+
+
+def _amp_firmware_profile(driver: str) -> tuple[list[str], list[str]] | None:
+    """(firmware globs under /lib/firmware, kernel-log keywords) for a driver.
+
+    Looks the driver up in ``_AMP_FAMILIES`` — the single source of amp-family
+    identity. None ⇒ not a recognised smart amp.
+    """
+    d = driver.lower()
+    for tokens, globs, keywords in _AMP_FAMILIES:
+        if any(t in d for t in tokens):
+            return (list(globs), list(keywords))
+    return None
+
+
+def _loaded_amp_drivers() -> list[str]:
+    """Loaded kernel modules that look like smart-amp drivers (any bus)."""
+    moddir = Path("/sys/module")
+    if not moddir.is_dir():
+        return []
+    return sorted(m.name for m in moddir.iterdir()
+                  if any(t in m.name.lower() for t in _AMP_DRIVER_TOKENS))
+
+
+def _list_firmware_files(globs: list[str], roots=None) -> list[str]:
+    """Existing firmware files matching globs under /lib/firmware (+ updates/)."""
+    if roots is None:
+        roots = (Path("/lib/firmware"), Path("/lib/firmware/updates"))
+    found = set()
+    for root in roots:
+        for g in globs:
+            for p in root.glob(g):
+                if p.is_file():
+                    found.add(str(p.relative_to(root)))
+    return sorted(found)
+
+
+def _read_kernel_log() -> str | None:
+    """Current-boot kernel log via journalctl then dmesg; None if none readable.
+
+    ``journalctl -o cat`` emits the message text only — no hostname or wall-clock
+    timestamp — so the lines stay safe to paste into a device-report issue (same
+    privacy posture as get_distro_pretty_name; dmesg carries no hostname either).
+    ``errors="replace"`` keeps a stray non-UTF-8 byte from aborting the report,
+    and the timeout is kept short since this runs on the default --doctor path.
+    """
+    for cmd in (["journalctl", "-k", "-b", "-o", "cat", "--no-pager"], ["dmesg"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               errors="replace", timeout=4)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout
+    return None
+
+
+# Hard-error markers, verified verbatim against the cs35l56 driver source (not
+# the doc, whose ".bin file required but not found" is prose the driver never
+# prints): cs35l56_wait_for_firmware_boot() logs "Firmware boot timed out(...)"
+# and cs35l56.c logs "...init_completion timed out..." — both unambiguous
+# DSP-bring-up failures. We do NOT try to classify "healthy": no log line
+# reliably proves firmware loaded (`patched=N` is nuanced; the success strings
+# are Cirrus-only), so a green verdict would mislead. The missing-firmware case
+# is covered by the firmware-presence check, not here. Every other matched line
+# is shown verbatim as evidence for a human to read.
+_AMP_LOG_ERROR_RE = re.compile(
+    r"firmware boot timed out|init_completion timed out", re.I,
+)
+
+
+def _amp_log_is_error(line: str) -> bool:
+    """True when a kernel-log line is an unambiguous amp firmware/init error."""
+    return bool(_AMP_LOG_ERROR_RE.search(line))
+
+
+def scan_amp_log(log_text: str, keywords: list[str]) -> list[tuple[bool, str]]:
+    """(is_error, line) for kernel-log lines mentioning any amp keyword."""
+    if not keywords:
+        return []
+    kw = re.compile("|".join(re.escape(k) for k in keywords), re.I)
+    return [(_amp_log_is_error(line), line.strip())
+            for line in log_text.splitlines() if kw.search(line)]
+
+
+def _gather_amp_evidence(info: SpeakerInfo) -> None:
+    """Populate driver-keyed firmware-presence and kernel-log evidence."""
+    # Driver tokens from both loaded modules and bound SoundWire amps.
+    drivers = _loaded_amp_drivers() + [a.driver for a in info.amp_status if a.driver]
+    profiles = [p for p in (_amp_firmware_profile(d) for d in drivers) if p]
+    if not profiles:
+        return
+    globs = sorted({g for pr in profiles for g in pr[0]})
+    keywords = sorted({k for pr in profiles for k in pr[1]})
+    # Self-check hint derived from the keywords we actually scan, so the printed
+    # `grep` command can't contradict what the report found.
+    info.amp_log_grep = "|".join(keywords)
+    if globs:
+        info.amp_firmware = _list_firmware_files(globs)
+        # A blob-needing driver is loaded but none was found. Decided once here
+        # (not at render) so the flag can't diverge from what we searched for.
+        info.amp_firmware_missing = not info.amp_firmware
+    log = _read_kernel_log()
+    if log is None:
+        info.amp_log_available = False
+    else:
+        info.amp_log = scan_amp_log(log, keywords)
+
+
+def _maybe_demo_amp_status(info: SpeakerInfo) -> bool:
+    """Inject synthetic amp status so the section can be previewed without hardware.
+
+    ``ATMOS_DEMO_AMP_STATUS`` = ``ok`` (healthy 6× cs35l56) / ``unbound`` (one
+    amp with no driver) / ``fail`` (bound but firmware missing + log error).
+    Returns True when a demo was injected (skip real gathering then).
+    """
+    mode = (os.environ.get("ATMOS_DEMO_AMP_STATUS") or "").strip().lower()
+    nodes = [f"sdw:0:1:01fa:3557:01:{i}" for i in range(6)]
+    if mode == "unbound":
+        info.amp_status = [AmpStatus(nodes[0], "", False, 0)]
+        info.amp_status += [AmpStatus(n, "cs35l56", True, 1) for n in nodes[1:]]
+        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
+        info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-…wmfw")]
+    elif mode == "fail":
+        info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
+        info.amp_firmware = []
+        info.amp_firmware_missing = True
+        info.amp_log = [(True, "cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2")]
+    elif mode == "ok":
+        info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
+        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
+        info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-…wmfw")]
+    else:
+        return False  # unset or unknown value → no demo (never fake a healthy report)
+    return True
+
+
 def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
     """Read PRETTY_NAME from /etc/os-release (e.g. "Fedora Linux 44"), or "".
 
@@ -617,7 +825,79 @@ def _gather_speaker_info() -> SpeakerInfo:
     # regardless of how the speakers themselves are wired.
     info.firmware_gates = detect_speaker_firmware_gates()
 
+    # Merged amp-status evidence (firmware presence + kernel-log markers),
+    # unless a demo override is requested for previewing the section.
+    if not _maybe_demo_amp_status(info):
+        _gather_amp_evidence(info)
+
     return info
+
+
+def _amp_status_lines(info: SpeakerInfo) -> list[str]:
+    """Build the compact "Speaker amplifier status" body — raw evidence, no verdict.
+
+    Terse by default (a one-line bound-amp summary) and shows actual kernel-log
+    lines rather than a health verdict, because nothing in the log reliably
+    proves an amp is voicing correctly. Only an enumerated-but-unbound device,
+    an off firmware gate (#17), and a narrow set of unambiguous kernel-log
+    errors are flagged; the rest is shown for the reader to interpret.
+    """
+    lines: list[str] = []
+    bound = [a for a in info.amp_status if a.bound]
+    unbound = [a for a in info.amp_status if not a.bound]
+
+    if bound:
+        drivers = ", ".join(sorted({a.driver for a in bound})) or "unknown"
+        chans = sorted({a.channels for a in bound if a.channels})
+        ch_str = "/".join(f"{c}ch" for c in chans) if chans else "?ch"
+        lines.append(f"  {len(bound)} amplifier(s) bound ({drivers}); {ch_str}")
+    if unbound:
+        # Neutral: an unbound slave may be a non-amp peripheral (jack codec,
+        # DMIC) or one still binding — not necessarily a silent speaker.
+        names = ", ".join(a.node for a in unbound)
+        lines.append(f"  {len(unbound)} SoundWire device(s) with no driver bound "
+                     f"(may be non-amp or still binding): {names}")
+
+    # #17 TI firmware gate, folded into the unified view (HDA or SoundWire).
+    for g in info.firmware_gates:
+        mark = "" if g.on else "⚠ "
+        state = "on" if g.on else "OFF — bass speakers may be silent"
+        lines.append(f"  {mark}{g.name}: {state} (card {g.card_id})")
+
+    # Driver-keyed firmware presence (only when a smart-amp driver is loaded).
+    if info.amp_firmware:
+        extra = f", …+{len(info.amp_firmware) - 1} more" if len(info.amp_firmware) > 1 else ""
+        lines.append(f"  Firmware: {len(info.amp_firmware)} file(s) present "
+                     f"(e.g. {info.amp_firmware[0]}{extra})")
+    elif info.amp_firmware_missing:
+        # Neutral: absence isn't proof — the blob may live outside the searched
+        # roots, or under an SSID-specific name we can't predict.
+        lines.append("  Firmware: none found under /lib/firmware — could not "
+                     "confirm (see the kernel log)")
+
+    # Self-check grep derived from the keywords we actually scanned, so the
+    # printed command can't contradict what the report found.
+    grep = info.amp_log_grep or "cs35l|tas2|cirrus"
+    grep_hint = f"journalctl -k -b | grep -iE '{grep}'"
+
+    # Kernel-log evidence: show the lines, flag only unambiguous errors.
+    if not info.amp_log_available:
+        lines.append(f"  Kernel log: not accessible — run:  {grep_hint}")
+    elif info.amp_log:
+        errors = [l for is_err, l in info.amp_log if is_err]
+        if errors:
+            lines.append("  ⚠ Kernel log — amp firmware/init error:")
+            lines += [f"      {l}" for l in errors[:3]]
+        else:
+            lines.append(f"  Kernel log: {len(info.amp_log)} amp line(s), no error "
+                         "markers — review with:")
+            lines.append(f"      {grep_hint}")
+    elif info.amp_firmware_missing:
+        # Firmware looked missing but the current boot log has no amp lines (e.g.
+        # rotated out) — still point at the log rather than dangle the reference.
+        lines.append(f"  Kernel log: no amp lines this boot — inspect:  {grep_hint}")
+
+    return lines or ["  (no smart amplifier detected)"]
 
 
 def _print_speaker_info(info: SpeakerInfo):
@@ -671,16 +951,10 @@ def _print_speaker_info(info: SpeakerInfo):
     sections.append(("PCM playback devices",
                       [f"  pcm{dev}p: {name}" for dev, name in info.pcm_devices]))
 
-    # Smart-amp firmware gate (TI TAS2563/2781 "Speaker Force Firmware Load")
-    if info.firmware_gates:
-        gate_lines = [
-            f"  {g.name}: {'on' if g.on else 'OFF — bass speakers may be silent'}"
-            f"  (card {g.card_id})"
-            for g in info.firmware_gates
-        ]
-    else:
-        gate_lines = ["  (no firmware-gated amplifier detected)"]
-    sections.append(("Speaker amplifier firmware", gate_lines))
+    # Merged, bus-agnostic amplifier status: per-amp bind/channels/runtime, the
+    # #17 TI firmware gate, driver-keyed firmware presence, and kernel-log
+    # evidence — one section, kept terse (detail only when something's wrong).
+    sections.append(("Speaker amplifier status", _amp_status_lines(info)))
 
     # Speaker layout estimate
     sections.append(("Speaker layout estimate", [f"  {info.layout_summary}"]))

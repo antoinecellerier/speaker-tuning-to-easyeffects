@@ -608,3 +608,178 @@ def test_read_sysfs_int_tolerates_bad_bytes(tmp_path):
     p = tmp_path / "max_ch"
     p.write_bytes(b"\xff\xfe")  # non-UTF-8 sysfs blob → None, not a traceback
     assert d._read_sysfs_int(p) is None
+
+
+# --- Smart-amp firmware/log evidence: bus-agnostic, driver-keyed (issue #27) -
+
+@pytest.mark.parametrize("driver,has_globs,kw", [
+    ("cs35l56", True, "cs35l"),
+    ("snd_soc_cs35l41", True, "cs35l"),   # Cirrus over HDA, not just SoundWire
+    ("snd_soc_tas2781", True, "tas2"),    # TI smart amp (issue #17 family)
+    ("max98373", False, "max98"),         # Maxim DSM — no separate fw blob
+    ("rt1318", False, "rt13"),            # Realtek SoundWire — no separate fw blob
+])
+def test_amp_firmware_profile_known(driver, has_globs, kw):
+    globs, keywords = d._amp_firmware_profile(driver)
+    assert bool(globs) is has_globs
+    assert kw in keywords
+
+
+@pytest.mark.parametrize("driver", [
+    "snd_hda_codec_realtek",
+    "snd_soc_max98090",   # Maxim jack CODEC, not a smart amp
+    "snd_soc_max98357a",  # dumb I2S Class-D amp, no DSP firmware
+])
+def test_amp_firmware_profile_unknown(driver):
+    # 'max98' must not be a bare substring match (it would catch these).
+    assert d._amp_firmware_profile(driver) is None
+
+
+@pytest.mark.parametrize("line,is_error", [
+    # Verified verbatim against the cs35l56 driver source.
+    ("cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2", True),
+    ("cs35l56 sdw:0:3: init_completion timed out (SDW)", True),
+    # benign / nuanced lines are NOT flagged — shown verbatim, never a verdict.
+    # patched=0 in particular is not a failure marker (and was never a success one).
+    ("cs35l56 spi: Calibration disabled due to missing firmware controls", False),
+    ("Direct firmware load for cirrus/cs35l56-x.wmfw failed", False),
+    ("cs35l56: Cirrus Logic CS35L56 Rev B0 OTP3 fw:3.4.4 (patched=0)", False),
+    ("cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-b0-dsp1-misc-aabb.wmfw", False),
+    # The doc's ".bin file required but not found" is prose the driver never
+    # prints — must NOT be treated as a marker (it would be dead code).
+    ("cs35l56 sdw:0:1: .bin file required but not found", False),
+    ("some unrelated kernel message", False),
+])
+def test_amp_log_is_error(line, is_error):
+    assert d._amp_log_is_error(line) is is_error
+
+
+def test_scan_amp_log_filters_and_flags_errors():
+    log = ("kernel: cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw\n"
+           "kernel: random unrelated line\n"
+           "kernel: cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2\n")
+    assert d.scan_amp_log(log, ["cs35l", "cirrus"]) == [
+        (False, "kernel: cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw"),
+        (True, "kernel: cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2"),
+    ]
+    assert d.scan_amp_log(log, []) == []
+
+
+def test_list_firmware_files(tmp_path):
+    (tmp_path / "cirrus").mkdir()
+    (tmp_path / "cirrus" / "cs35l56-b0-dsp1-misc-aabb-amp1.bin").write_text("x")
+    (tmp_path / "cirrus" / "other.bin").write_text("x")
+    found = d._list_firmware_files(["cirrus/cs35l*"], roots=[tmp_path])
+    assert found == ["cirrus/cs35l56-b0-dsp1-misc-aabb-amp1.bin"]
+
+
+# --- Merged "Speaker amplifier status" section: terse, expand on problems ----
+
+def _astat(node, driver="cs35l56", bound=True, channels=1):
+    return d.AmpStatus(node=node, driver=driver, bound=bound, channels=channels)
+
+
+def test_amp_status_lines_healthy_is_terse():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat(f"sdw:{i}") for i in range(6)]
+    info.amp_firmware = ["cirrus/cs35l56-amp1.bin"]
+    info.amp_log = [(False, "DSP1: cirrus/cs35l56.wmfw")]
+    lines = d._amp_status_lines(info)
+    assert lines[0] == "  6 amplifier(s) bound (cs35l56); 1ch"
+    assert not any("⚠" in l for l in lines)
+
+
+def test_amp_status_lines_unbound_is_neutral():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0", bound=False, channels=0), _astat("sdw:1")]
+    lines = d._amp_status_lines(info)
+    assert any("no driver bound" in l and "sdw:0" in l for l in lines)
+    assert not any("⚠" in l for l in lines)  # neutral — not a "silent speaker" alarm
+
+
+def test_amp_status_lines_includes_firmware_gate_off():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3",
+                                          "Speaker Force Firmware Load", on=False)]
+    assert any("Force Firmware Load" in l and "OFF" in l
+               for l in d._amp_status_lines(info))
+
+
+def test_amp_status_lines_flags_log_error_and_missing_firmware():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.amp_firmware = []
+    info.amp_firmware_missing = True
+    info.amp_log = [(True, "Firmware boot timed out(3): HALO_STATE=0x2")]
+    lines = d._amp_status_lines(info)
+    assert any("amp firmware/init error" in l for l in lines)
+    assert any("Firmware boot timed out" in l for l in lines)
+    assert any("none found under /lib/firmware" in l for l in lines)
+
+
+def test_amp_status_lines_no_ok_verdict_when_log_clean():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw")]
+    lines = d._amp_status_lines(info)
+    joined = "\n".join(lines).lower()
+    assert "no error markers" in joined  # points at the raw log
+    # No positive health verdict in any wording — broader than one literal.
+    assert not any(w in joined for w in
+                   ("loaded ok", "firmware ok", "amp ok", "healthy", "all good", "✓"))
+
+
+def test_amp_status_lines_grep_hint_uses_scanned_keywords():
+    # The printed self-check command must match what the report actually scanned.
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0", driver="max98373")]
+    info.amp_log_grep = "max98"
+    info.amp_log = [(False, "max98373 ...: some line")]
+    lines = d._amp_status_lines(info)
+    assert any("grep -iE 'max98'" in l for l in lines)
+    assert not any("cs35l|tas2|cirrus" in l for l in lines)
+
+
+def test_amp_status_lines_missing_firmware_clean_log_still_points_at_log():
+    # Regression: firmware missing + readable-but-empty log must not dangle the
+    # "see the kernel log" reference with nothing below it.
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.amp_firmware_missing = True
+    info.amp_log = []  # readable, but no amp lines this boot
+    lines = d._amp_status_lines(info)
+    assert any("inspect" in l and "journalctl" in l for l in lines)
+
+
+def test_amp_status_lines_log_inaccessible():
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.amp_log_available = False
+    assert any("not accessible" in l for l in d._amp_status_lines(info))
+
+
+def test_amp_status_lines_empty():
+    assert d._amp_status_lines(d.SpeakerInfo()) == ["  (no smart amplifier detected)"]
+
+
+@pytest.mark.parametrize("mode,check", [
+    ("ok", lambda L: any("6 amplifier(s) bound" in l for l in L)
+                     and not any("⚠" in l for l in L)),
+    ("unbound", lambda L: any("no driver bound" in l for l in L)),
+    ("fail", lambda L: any("amp firmware/init error" in l for l in L)),
+])
+def test_demo_amp_status_env(monkeypatch, mode, check):
+    monkeypatch.setenv("ATMOS_DEMO_AMP_STATUS", mode)
+    info = d.SpeakerInfo()
+    assert d._maybe_demo_amp_status(info) is True
+    assert check(d._amp_status_lines(info))
+
+
+@pytest.mark.parametrize("value", ["", "faill", "true", "1"])
+def test_demo_amp_status_unknown_value_is_no_demo(monkeypatch, value):
+    # An unset or typo'd value must NOT silently fake a healthy report.
+    monkeypatch.setenv("ATMOS_DEMO_AMP_STATUS", value)
+    info = d.SpeakerInfo()
+    assert d._maybe_demo_amp_status(info) is False
+    assert info.amp_status == []
