@@ -635,16 +635,42 @@ def test_amp_firmware_profile_unknown(driver):
     assert d._amp_firmware_profile(driver) is None
 
 
+def test_amp_families_failure_markers():
+    # Markers are co-located per family; every blob-loading family carries a
+    # source-verified tell, and Maxim deliberately carries none (its missing DSM
+    # param is silent/non-fatal — we must not invent a marker for it).
+    markers = {fam[0][0]: fam[3] for fam in d._AMP_FAMILIES}
+    assert markers["cs35l"] and markers["tas2"] and markers["rt13"]
+    assert markers["max98373"] == ""
+    # The compiled union must be exactly the non-empty family markers, OR-joined.
+    assert d._AMP_LOG_ERROR_RE.pattern == "|".join(
+        m for m in markers.values() if m)
+
+
 @pytest.mark.parametrize("line,is_error", [
-    # Verified verbatim against the cs35l56 driver source.
+    # cs35l56/57 failure markers — verified verbatim against the driver source
+    # AND printed by the real #27 device (Galaxy Book6 Ultra, missing machine fw).
+    # FIRMWARE_MISSING & friends are the actual #27 tell: our first marker set
+    # (boot/init timeouts only) reported "no errors" on this exact failure.
     ("cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2", True),
     ("cs35l56 sdw:0:3: init_completion timed out (SDW)", True),
+    ("cs35l56 sdw:0:2:01fa:3557:01:5: FIRMWARE_MISSING", True),
+    ("cs35l56 sdw:0:1:01fa:3557:01:2: Calibration disabled due to missing firmware controls", True),
+    ("cs35l56 sdw:0:1:01fa:3557:01:2: Can't read tuning IDs", True),
+    # Other covered families — markers from tas2781-* and rt1320-sdw.c.
+    ("tas2781 i2c-TXNW2781:00: FW download failed = -2", True),
+    ("tas2781 i2c-TXNW2781:00: Request firmware tas2781_RCA1.bin failed", True),
+    ("rt1320 sdw:0:0:025d:1320:00: Failed to load rt1320 firmware", True),
     # benign / nuanced lines are NOT flagged — shown verbatim, never a verdict.
-    # patched=0 in particular is not a failure marker (and was never a success one).
-    ("cs35l56 spi: Calibration disabled due to missing firmware controls", False),
-    ("Direct firmware load for cirrus/cs35l56-x.wmfw failed", False),
-    ("cs35l56: Cirrus Logic CS35L56 Rev B0 OTP3 fw:3.4.4 (patched=0)", False),
+    # patched=0 in particular is not a failure marker (and was never a success one);
+    # the DSP1/Firmware:/regulator lines are normal bring-up chatter from #27.
+    ("cs35l56: Cirrus Logic CS35L57 Rev B2 OTP1 fw:4.2.1 (patched=0)", False),
+    ("cs35l56 sdw:0:1: DSP1: Firmware: 1a00d6 vendor: 0x2 v4.2.1, 42 algorithms", False),
     ("cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-b0-dsp1-misc-aabb.wmfw", False),
+    ("cs35l56 sdw:0:1: supply VDD_A not found, using dummy regulator", False),
+    # The generic loader's "Direct firmware load … failed" is not a driver tell;
+    # we key only on the driver's own prints, so it stays unflagged.
+    ("Direct firmware load for cirrus/cs35l56-x.wmfw failed", False),
     # The doc's ".bin file required but not found" is prose the driver never
     # prints — must NOT be treated as a marker (it would be dead code).
     ("cs35l56 sdw:0:1: .bin file required but not found", False),
@@ -716,6 +742,18 @@ def test_amp_status_lines_flags_log_error_and_missing_firmware():
     assert any("amp firmware/init error" in l for l in lines)
     assert any("Firmware boot timed out" in l for l in lines)
     assert any("none found under /lib/firmware" in l for l in lines)
+    # The error case must also hand over the command to read the full log.
+    assert any("see full log" in l and "journalctl" in l for l in lines)
+
+
+def test_amp_status_lines_log_error_truncation_is_surfaced():
+    # >3 errors: show 3 and say how many were dropped (never a silent cap).
+    info = d.SpeakerInfo()
+    info.amp_status = [_astat("sdw:0")]
+    info.amp_log = [(True, f"cs35l56 sdw:0:{i}: FIRMWARE_MISSING") for i in range(6)]
+    lines = d._amp_status_lines(info)
+    assert sum("FIRMWARE_MISSING" in l for l in lines) == 3
+    assert any("+3 more" in l for l in lines)
 
 
 def test_amp_status_lines_no_ok_verdict_when_log_clean():
@@ -724,7 +762,9 @@ def test_amp_status_lines_no_ok_verdict_when_log_clean():
     info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw")]
     lines = d._amp_status_lines(info)
     joined = "\n".join(lines).lower()
-    assert "no error markers" in joined  # points at the raw log
+    # Points at the raw log AND tells the reader our scan isn't authoritative.
+    assert "no known failure marker" in joined
+    assert "read them yourself" in joined
     # No positive health verdict in any wording — broader than one literal.
     assert not any(w in joined for w in
                    ("loaded ok", "firmware ok", "amp ok", "healthy", "all good", "✓"))

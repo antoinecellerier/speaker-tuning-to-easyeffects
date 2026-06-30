@@ -608,18 +608,48 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
 # engine is generic and adding a device is one registry row.
 
 # One row per smart-amp family: (driver/module name tokens, firmware globs,
-# kernel-log keywords). Empty globs = the family ships no DSP blob. Tokens are
-# matched as substrings of a driver/module name and double as the SoundWire
-# amp-detection patterns, so adding a device is genuinely one row. The max98
-# tokens are the specific *smart*-amp parts, not a bare "max98" — that would also
-# catch the max98090 jack codec and the dumb max98357/360 I2S amps (same reason
-# "rt13" is narrow enough to skip the rt711 codec).
+# kernel-log keywords, kernel-log failure markers). Empty globs = the family
+# ships no DSP blob. Tokens are matched as substrings of a driver/module name
+# and double as the SoundWire amp-detection patterns, so adding a device is
+# genuinely one row. The max98 tokens are the specific *smart*-amp parts, not a
+# bare "max98" — that would also catch the max98090 jack codec and the dumb
+# max98357/360 I2S amps (same reason "rt13" is narrow enough to skip rt711).
+#
+# The failure markers are firmware/tuning/DSP-bring-up error strings verified
+# verbatim against the mainline driver source (file:line cited per family) — NOT
+# the kernel doc, whose ".bin file required but not found" is prose the driver
+# never prints. They classify which collected log lines are failures; "" = no
+# honest tell. Absence of a marker is never a pass: a real cs35l56 report (#27)
+# printed FIRMWARE_MISSING / "Calibration disabled…" / "Can't read tuning IDs"
+# while our first marker set (boot/init timeouts only) reported "no errors",
+# which is exactly why the no-error line tells the reader to eyeball the log.
 _AMP_FAMILIES = (
-    (("cs35l",),          ("cirrus/cs35l*",),             ("cs35l", "cirrus")),  # Cirrus (cs35l41 HDA / cs35l56 SoundWire)
-    (("tas2",),           ("TAS2*", "ti/tas2*", "tas2*"), ("tas2",)),            # TI smart amps (issue #17 family)
-    (("rt13", "rt_amp"),  (),                             ("rt13",)),            # Realtek SoundWire amps — no fw blob
+    # Cirrus cs35l41 (HDA) / cs35l56 / cs35l57 (SoundWire). Markers:
+    # cs35l56-shared.c "FIRMWARE_MISSING" (l.1388), "Can't read tuning IDs"
+    # (l.1424), "Firmware boot timed out" (l.455); cs35l56.c "init_completion
+    # timed out" (l.866/1373); cs-amp-lib.c "Calibration disabled due to missing
+    # firmware controls" (l.140/172, shared lib — also fires for cs35l41).
+    (("cs35l",), ("cirrus/cs35l*",), ("cs35l", "cirrus"),
+     r"firmware_missing|can't read tuning ids"
+     r"|calibration disabled due to missing firmware controls"
+     r"|firmware boot timed out|init_completion timed out"),
+    # TI smart amps (issue #17 family). Markers from tas2781-fmwlib.c /
+    # tas2781-i2c.c: "FW download failed", "Failed to read firmware",
+    # "Request firmware … failed", "Firmware is NULL", "Bin file error".
+    (("tas2",), ("TAS2*", "ti/tas2*", "tas2*"), ("tas2",),
+     r"fw download failed|failed to read firmware|request firmware .* failed"
+     r"|firmware is null|bin file error"),
+    # Realtek SoundWire amps — only rt1320 loads a firmware patch (rt1316/rt1318
+    # are register-only). Markers from rt1320-sdw.c: "Failed to load … firmware",
+    # "FW file doesn't match to device", "Can't find proper FW file name".
+    (("rt13", "rt_amp"), (), ("rt13",),
+     r"failed to load .* firmware|fw file doesn't match to device"
+     r"|can't find proper fw file name"),
+    # Maxim DSM smart amps — no honest firmware-missing tell: only max98390 loads
+    # a DSM calibration param, and a missing file falls through silently
+    # (max98390.c err path), so we collect its log lines but flag nothing.
     (("max98373", "max98390", "max98363", "max98396", "max98512"),
-                          (),                             ("max98",)),           # Maxim DSM smart amps — no fw blob
+     (), ("max98",), ""),
 )
 
 _AMP_DRIVER_TOKENS = tuple(tok for fam in _AMP_FAMILIES for tok in fam[0])
@@ -632,7 +662,7 @@ def _amp_firmware_profile(driver: str) -> tuple[list[str], list[str]] | None:
     identity. None ⇒ not a recognised smart amp.
     """
     d = driver.lower()
-    for tokens, globs, keywords in _AMP_FAMILIES:
+    for tokens, globs, keywords, _markers in _AMP_FAMILIES:
         if any(t in d for t in tokens):
             return (list(globs), list(keywords))
     return None
@@ -680,17 +710,14 @@ def _read_kernel_log() -> str | None:
     return None
 
 
-# Hard-error markers, verified verbatim against the cs35l56 driver source (not
-# the doc, whose ".bin file required but not found" is prose the driver never
-# prints): cs35l56_wait_for_firmware_boot() logs "Firmware boot timed out(...)"
-# and cs35l56.c logs "...init_completion timed out..." — both unambiguous
-# DSP-bring-up failures. We do NOT try to classify "healthy": no log line
-# reliably proves firmware loaded (`patched=N` is nuanced; the success strings
-# are Cirrus-only), so a green verdict would mislead. The missing-firmware case
-# is covered by the firmware-presence check, not here. Every other matched line
-# is shown verbatim as evidence for a human to read.
+# Union of every family's source-verified failure markers (co-located in
+# _AMP_FAMILIES above). We do NOT try to classify "healthy": no log line
+# reliably proves firmware loaded (`patched=N` is nuanced; success strings are
+# vendor-specific), so a green verdict would mislead — and the marker list is
+# deliberately not exhaustive, so the no-error path tells the reader to read the
+# lines themselves. Every matched line is shown verbatim as evidence.
 _AMP_LOG_ERROR_RE = re.compile(
-    r"firmware boot timed out|init_completion timed out", re.I,
+    "|".join(markers for *_, markers in _AMP_FAMILIES if markers), re.I,
 )
 
 
@@ -748,9 +775,15 @@ def _maybe_demo_amp_status(info: SpeakerInfo) -> bool:
         info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-…wmfw")]
     elif mode == "fail":
         info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
-        info.amp_firmware = []
-        info.amp_firmware_missing = True
-        info.amp_log = [(True, "cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2")]
+        # Real #27 shape: generic cirrus blobs are present, but the *machine*
+        # firmware is absent, so the driver logs FIRMWARE_MISSING even though
+        # file-presence looks fine — the log marker, not the count, is the tell.
+        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
+        info.amp_log = [
+            (True, "cs35l56 sdw:0:1:01fa:3557:01:0: FIRMWARE_MISSING"),
+            (True, "cs35l56 sdw:0:1:01fa:3557:01:0: Calibration disabled "
+                   "due to missing firmware controls"),
+        ]
     elif mode == "ok":
         info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
         info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
@@ -868,7 +901,8 @@ def _amp_status_lines(info: SpeakerInfo) -> list[str]:
     if info.amp_firmware:
         extra = f", …+{len(info.amp_firmware) - 1} more" if len(info.amp_firmware) > 1 else ""
         lines.append(f"  Firmware: {len(info.amp_firmware)} file(s) present "
-                     f"(e.g. {info.amp_firmware[0]}{extra})")
+                     f"(e.g. {info.amp_firmware[0]}{extra}); presence is generic — "
+                     "the kernel log decides whether this model's blob loaded")
     elif info.amp_firmware_missing:
         # Neutral: absence isn't proof — the blob may live outside the searched
         # roots, or under an SSID-specific name we can't predict.
@@ -888,9 +922,13 @@ def _amp_status_lines(info: SpeakerInfo) -> list[str]:
         if errors:
             lines.append("  ⚠ Kernel log — amp firmware/init error:")
             lines += [f"      {l}" for l in errors[:3]]
+            # Surface the cap (no silent truncation) and the command to read the
+            # full log — the matched lines are a sample, not the whole story.
+            tail = f" (+{len(errors) - 3} more)" if len(errors) > 3 else ""
+            lines.append(f"      see full log{tail}:  {grep_hint}")
         else:
-            lines.append(f"  Kernel log: {len(info.amp_log)} amp line(s), no error "
-                         "markers — review with:")
+            lines.append(f"  Kernel log: {len(info.amp_log)} amp line(s), no known "
+                         "failure marker — scan isn't exhaustive, so read them yourself:")
             lines.append(f"      {grep_hint}")
     elif info.amp_firmware_missing:
         # Firmware looked missing but the current boot log has no amp lines (e.g.

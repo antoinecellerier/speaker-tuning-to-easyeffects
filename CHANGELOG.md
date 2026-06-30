@@ -62,8 +62,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 - `--speaker-info` now reports an amplifier-status section: per-amp driver bind,
   a probed (not assumed) channel count, and driver-keyed firmware / kernel-log
-  evidence for both HDA and SoundWire smart amps — to help diagnose silent or
-  degraded speakers (subsumes the TI firmware-gate view)
+  evidence for both HDA and SoundWire smart amps. It flags the documented
+  Cirrus/TI/Realtek firmware-missing kernel-log signatures and otherwise points
+  you at the log to read yourself, to help diagnose silent or degraded speakers
+  (subsumes the TI firmware-gate view)
   ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
 - `--best-guess`: when auto-detection finds no exact hardware match, fall back
   to the only internal-speaker tuning whose manufacturer is present (or list the

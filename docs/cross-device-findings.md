@@ -627,13 +627,25 @@ amplifier (SoundWire enumerates one slave per amp chip), so six were reported as
 "12 speakers". The layout estimate now counts each enumerated amp once and
 probes its channel count from the sink data-port DisCo props
 (`dpN_sink/max_ch`, kernel ABI `sysfs-bus-soundwire-slave`) rather than assuming
-stereo. (2) The report's "quiet, smartphone-like" sound is most likely a
-driver/firmware-layer issue, not the preset: per the cs35l56 kernel driver doc a
-missing per-amp `.wmfw`/`.bin` (under `/lib/firmware/cirrus/`) leaves the amp
-playing a **mono mix with no voicing/protection**, and the only authoritative
-signal is the kernel log — no sysfs/debugfs exposes amp audio-state. The
-amplifier-status section in `--speaker-info` gathers that evidence (bind state,
-firmware presence, log markers); on-device confirmation is still pending.
+stereo. (2) The report's "quiet, smartphone-like" sound is a driver/firmware-layer
+issue, not the preset — **now confirmed on-device.** Per the cs35l56 kernel
+driver doc a missing per-amp `.wmfw`/`.bin` (under `/lib/firmware/cirrus/`) leaves
+the amp playing a **mono mix with no voicing/protection**, and the only
+authoritative signal is the kernel log — no sysfs/debugfs exposes amp
+audio-state. The #27 capture bears this out: all six amps load the base DSP ROM,
+then the kernel logs `FIRMWARE_MISSING` / `Calibration disabled due to missing
+firmware controls` / `Can't read tuning IDs` (CS35L57 parts; the machine-specific
+Cirrus tuning is absent on this Fedora 44 build), so the amps run without voicing
+or protection. Root cause is the distro `linux-firmware` gap for this SKU, not
+the converter. Two diagnostic lessons fed back into `--speaker-info`: (a) generic
+`cirrus/cs35l*` blobs were *present* (≈1785 files) while the machine blob was
+missing, so file-presence can't certify — the log is authoritative; and (b) the
+first kernel-log marker set caught only boot/init timeouts and reported "no
+errors" on this exact failure, so the scan now flags the firmware-missing
+signature too (verified verbatim against `cs35l56-shared.c` / `cs-amp-lib.c`,
+with the equivalent TI `tas2781-*` and Realtek `rt1320-sdw.c` firmware-load
+failures), and the clean-log line now tells the reader to eyeball the log rather
+than trust the scan.
 
 ---
 
@@ -694,9 +706,13 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
 6. **Re-run on new driver pulls (process).** Regenerate every figure here with
    [`tools/corpus_audit.py`](../tools/corpus_audit.py) after pulling new
    packages — the corpus has roughly doubled since the prior derivation.
-7. **Galaxy Book6 quiet-output cause (device-gated).** First cs35l56 field report
-   (issue #27) describes quiet, "smartphone-like" sound on or off the preset.
-   Hypothesis (§15): cs35l56 firmware/voicing not loaded → degraded mono mix,
-   independent of our preset. Awaiting the reporter's `--speaker-info`
-   amplifier-status + kernel-log output to confirm; not reproducible without the
-   hardware.
+7. **Galaxy Book6 quiet-output cause (device-gated).** ✅ **Resolved (2026-06-30).**
+   The reporter's `--speaker-info` + kernel log confirmed the §15 hypothesis:
+   the cs35l56/57 amps load the base DSP ROM but log `FIRMWARE_MISSING` /
+   `Calibration disabled…` / `Can't read tuning IDs` — the machine-specific Cirrus
+   tuning is missing on this Fedora 44 build, so they run without voicing, quiet
+   and flat, regardless of the preset. Root cause is the distro `linux-firmware`
+   gap for this SKU (route the reporter there); the converter is not implicated.
+   `--speaker-info` now flags those markers (see §15). Remaining: add Galaxy Book6
+   Ultra to the README tested table once the reporter confirms the diagnostics
+   read true on a fix.
