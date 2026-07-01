@@ -91,7 +91,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   loud bass less than DAX) is re-attributed to gain staging, not regulator
   timing — re-analysis of the June captures falsified the release-timing
   theory, and the v2026.06 `--volmax-slot input-gain` default already feeds
-  the dynamics the hotter signal; on-device re-measurement pending
+  the dynamics the hotter signal; on-device re-measurement shows that narrows
+  but does not close the gap, leaving the band-limiter plugin realization as
+  the open lever
   ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
   evidence in `docs/design-notes.md`).
 
