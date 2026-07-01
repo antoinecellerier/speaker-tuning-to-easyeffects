@@ -85,6 +85,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26);
   why in `docs/cross-device-findings.md`).
 
+### Docs
+
+- Research: the loud-bass dynamics gap vs Dolby (generated presets compressing
+  loud bass less than DAX) is re-attributed to gain staging, not regulator
+  timing — re-analysis of the June captures falsified the release-timing
+  theory, and the v2026.06 `--volmax-slot input-gain` default already feeds
+  the dynamics the hotter signal; on-device re-measurement pending
+  ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
+  evidence in `docs/design-notes.md`).
+
 ## v2026.06 — 2026-06-22
 
 ### Changed
