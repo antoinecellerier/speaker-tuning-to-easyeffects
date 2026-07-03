@@ -33,6 +33,18 @@ body:
     validations:
       required: true
   - type: textarea
+    id: generation-output
+    attributes:
+      label: Preset-generation output
+      description: >-
+        If you're reporting a sound-quality problem, paste the full output of
+        the run that wrote the presets (e.g. `python3 dolby_to_easyeffects.py
+        --autoload`) — it shows the tuning values derived from your XML, which
+        is what a diagnosis needs.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
     id: notes
     attributes:
       label: How does it sound? Anything else?
