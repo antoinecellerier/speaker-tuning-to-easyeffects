@@ -3136,26 +3136,7 @@ def make_band(freq: float, gain: float, q=1.5) -> dict:
     )
 
 
-# The SoundWire convolver output-gain restores half the headroom FIR peak-
-# normalization removed; cap it because this gain precedes the whole plugin
-# chain, so an anomalous curve with a large positive FIR peak would otherwise
-# inject big pre-chain boost (the convolver over-gain trap the gain-staging
-# budget warns about).
-CONVOLVER_GAIN_CEILING_DB = 12.0
-
-
-def convolver_output_gain(peak_db: float, is_soundwire: bool) -> float:
-    """Convolver output-gain (dB) for a preset. HDA presets restore nothing
-    (0 dB). SoundWire restores 50% of the FIR peak the normalization removed,
-    clamped to ``CONVOLVER_GAIN_CEILING_DB`` on the positive side so a
-    pathological curve can't push large pre-chain gain. Negative peaks (net-cut
-    curves) pass through — they only reduce gain, no clipping risk."""
-    if not is_soundwire:
-        return 0.0
-    return min(peak_db * 0.5, CONVOLVER_GAIN_CEILING_DB)
-
-
-def make_convolver(kernel_name: str, output_gain: float = 0.0) -> dict:
+def make_convolver(kernel_name: str) -> dict:
     """Convolver plugin config referencing an IR by name.
 
     EasyEffects 8.x uses kernel-name (filename stem without extension),
@@ -3164,7 +3145,7 @@ def make_convolver(kernel_name: str, output_gain: float = 0.0) -> dict:
     return {
         "bypass": False,
         "input-gain": 0.0,
-        "output-gain": round(output_gain, 2),
+        "output-gain": 0.0,
         "kernel-name": kernel_name,
         "ir-width": 100,
         "autogain": False,
@@ -3378,46 +3359,24 @@ def make_peq_eq(peq_filters: list[dict]) -> dict | None:
 # as a translator for any preset that still carries a stereo_tools block.)
 
 
-def make_dialog_enhancer(dialog_enhancer: dict | None,
-                         is_soundwire: bool = False) -> dict | None:
+def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
     """Dialog enhancer mapped as a broad speech-band EQ boost.
 
     Dolby's dialog enhancer (DE) isolates speech frequencies and
     selectively boosts them. We approximate this with a broad Bell
     filter centered at 2.5 kHz (speech presence region), with gain
-    scaled by the DE amount (0-16 scale).
+    scaled by the DE amount (0-16 scale): amount/16 * 6 dB, giving a
+    maximum of +6 dB.
 
-    For HDA presets: amount/16 * 6 dB, giving a maximum of +6 dB.
-    For SoundWire presets: stronger mapping (amount/16 * 8 dB) plus
-    a second bell at 4 kHz for consonant clarity, compensating for
-    the simpler full-range speakers on newer platforms.
+    (An earlier SoundWire-only variant used a stronger *8 mapping plus
+    a 4 kHz "clarity" bell — removed: it was calibrated against the
+    pre-#13 chain whose over-applied IEQ crushed the treble it was
+    compensating; see design-notes unvalidated-scaling entry 1.)
     """
     if not dialog_enhancer:
         return None
 
     amount = dialog_enhancer["amount"]
-
-    if is_soundwire:
-        gain_presence = round(amount / DB_FIXED_POINT_SCALE * 8.0, 2)
-        gain_clarity = round(gain_presence * 0.6, 2)
-        if gain_presence <= 0:
-            return None
-        return {
-            "bypass": False,
-            "input-gain": 0.0,
-            "output-gain": 0.0,
-            "mode": "IIR",
-            "num-bands": 2,
-            "split-channels": False,
-            "left": {
-                "band0": make_band(2500.0, gain_presence, q=0.7),
-                "band1": make_band(4000.0, gain_clarity, q=1.0),
-            },
-            "right": {
-                "band0": make_band(2500.0, gain_presence, q=0.7),
-                "band1": make_band(4000.0, gain_clarity, q=1.0),
-            },
-        }
 
     gain = round(amount / DB_FIXED_POINT_SCALE * 6.0, 2)
     if gain <= 0:
@@ -3979,7 +3938,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 vol_leveler: dict | None = None,
                 dialog_enhancer: dict | None = None,
                 mb_comp: dict | None = None, regulator: dict | None = None,
-                freqs: list[int] | None = None, convolver_gain: float = 0.0,
+                freqs: list[int] | None = None,
                 is_soundwire: bool = False, volmax_boost: float = 0.0,
                 volmax_slot: str = "input-gain",
                 disabled: set[str] | None = None) -> tuple[dict, set[str]]:
@@ -3997,7 +3956,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         "_generator": f"dolby_to_easyeffects.py {get_version()}",
         "output": {
             "blocklist": [],
-            "convolver#0": make_convolver(kernel_name, output_gain=convolver_gain),
+            "convolver#0": make_convolver(kernel_name),
             "plugins_order": ["convolver#0"],
         }
     }
@@ -4034,7 +3993,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # Dialog enhancer (speech presence boost) before the volume leveler,
     # matching Dolby's CP order: DE → IEQ → Volume Leveler.
     if "dialog" not in disabled:
-        de = make_dialog_enhancer(dialog_enhancer, is_soundwire=is_soundwire)
+        de = make_dialog_enhancer(dialog_enhancer)
         if de:
             preset["output"]["equalizer#1"] = de
             preset["output"]["plugins_order"].append("equalizer#1")
@@ -4239,22 +4198,8 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         combined_right = ieq_db + ao_db_right
 
         # Generate FIR impulse responses
-        fir_left, peak_db_left = make_fir(float_freqs, combined_left, normalize=True)
-        fir_right, peak_db_right = make_fir(float_freqs, combined_right, normalize=True)
-        peak_db = max(peak_db_left, peak_db_right)
-
-        # For SoundWire presets, restore half the headroom that peak
-        # normalization removed. The IEQ-only curve (no AO correction)
-        # peaks at low-mids; normalizing to that peak pushes presence
-        # and treble below their intended level. Restoring 50% keeps
-        # the spectral shape while recovering perceived brightness.
-        # convolver_output_gain clamps the positive side defensively.
-        convolver_gain = convolver_output_gain(peak_db, is_soundwire)
-        if is_soundwire and peak_db * 0.5 > CONVOLVER_GAIN_CEILING_DB:
-            cprint("warn", f"  {preset_name}: convolver output-gain capped at "
-                           f"{CONVOLVER_GAIN_CEILING_DB:+.0f} dB (FIR peak "
-                           f"{peak_db:+.1f} dB would restore "
-                           f"{peak_db * 0.5:+.1f} dB).")
+        fir_left, _ = make_fir(float_freqs, combined_left, normalize=True)
+        fir_right, _ = make_fir(float_freqs, combined_right, normalize=True)
 
         # Save stereo impulse response
         irs_path = args.irs_dir / f"{preset_name}.irs"
@@ -4264,8 +4209,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # Create preset (kernel-name is the WAV filename stem)
         preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
                                       dialog_enhancer, mb_comp, regulator,
-                                      freqs, convolver_gain=convolver_gain,
-                                      is_soundwire=is_soundwire,
+                                      freqs, is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
                                       volmax_slot=args.volmax_slot,
                                       disabled=disabled)
@@ -4280,9 +4224,6 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         verb = "Would write" if args.dry_run else "Wrote"
         cprint("ok", f"{verb} {irs_path}")
         cprint("ok", f"{verb} {out_path}")
-        if convolver_gain != 0.0:
-            print(f"  Convolver output-gain: {convolver_gain:+.1f} dB "
-                  f"(FIR peak was {peak_db:+.1f} dB, restoring 50%)")
         print(f"  {curve_key} combined IEQ+AO curve (left channel):")
         print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
         for i, f in enumerate(freqs):

@@ -716,3 +716,17 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    `--speaker-info` now flags those markers (see §15). Remaining: add Galaxy Book6
    Ultra to the README tested table once the reporter confirms the diagnostics
    read true on a fix.
+8. **Zenbook S14 UX5406SA partial-success report (issue #29, reporter-gated).**
+   First cs42l43-codec device (SoundWire part 0x4243 jack codec + 4× cs35l56,
+   PCI SSID `1043:1E13`) and — unlike the Galaxy Book6 above — *not* a firmware
+   gap: no kernel-log failure markers, and upstream linux-firmware ships this
+   SSID's per-amp Cirrus tuning (`cs35l56-b0-dsp1-misc-10431e13-amp1..4.bin`).
+   Also the first device where the Dolby `FUNC` token should *equal* the amp
+   part id (0x3556) — a clean §15-matching datapoint once the XML filename is
+   confirmed. Reporter symptoms ("too bass boosted", chassis resonance, wonky
+   dynamics; music profile better than dynamic) drove the 2026-07-03 removal of
+   two vestigial SoundWire boosts (design-notes unvalidated-scaling entries
+   1/3) and are the pending A/B for the bass-enhancer default (entry 9 / issue
+   #14) and a candidate second-device loud capture for entries 6/11. Pending
+   from the reporter: generation stdout, the tuning XML, kernel log, A/B
+   results.

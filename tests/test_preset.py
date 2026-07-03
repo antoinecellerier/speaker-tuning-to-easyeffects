@@ -32,7 +32,6 @@ from dolby_to_easyeffects import (
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
     BYPASS_PRESET_NAME,
-    CONVOLVER_GAIN_CEILING_DB,
     FIR_LENGTH,
     SAMPLE_RATE,
     CheckResult,
@@ -44,7 +43,6 @@ from dolby_to_easyeffects import (
     _print_doctor_report,
     autostart_status,
     check_preset_kernel,
-    convolver_output_gain,
     decode_mbc_bands,
     ee_version_status,
     install_status,
@@ -568,8 +566,8 @@ def test_autogain_silence_threshold_hda_vs_conservative():
 
 # --- LOCK-IN: make_dialog_enhancer gain derivations ---
 
-def test_dialog_enhancer_hda_gain_formula():
-    """HDA: a single presence bell at 2.5 kHz, gain = amount/16 * 6 dB
+def test_dialog_enhancer_gain_formula():
+    """A single presence bell at 2.5 kHz, gain = amount/16 * 6 dB
     (rounded to 2 decimals -> 1.88 for amount=5)."""
     de = make_dialog_enhancer({"enable": True, "amount": 5, "boost": 4.0})
     assert de["num-bands"] == 1
@@ -580,25 +578,18 @@ def test_dialog_enhancer_hda_gain_formula():
     assert de["left"] == de["right"]               # mirrored channels
 
 
-def test_dialog_enhancer_soundwire_two_band_variant():
-    """SoundWire: stronger 8 dB scale plus a 4 kHz clarity bell at
-    0.6x the presence gain."""
-    de = make_dialog_enhancer({"enable": True, "amount": 5, "boost": 4.0},
-                              is_soundwire=True)
-    assert de["num-bands"] == 2
-    presence = de["left"]["band0"]
-    clarity = de["left"]["band1"]
-    assert presence["frequency"] == 2500.0
-    assert presence["gain"] == 2.5     # round(5/16 * 8, 2)
-    assert clarity["frequency"] == 4000.0
-    assert clarity["gain"] == 1.5      # round(2.5 * 0.6, 2)
-    assert de["left"] == de["right"]
+def test_dialog_enhancer_has_no_soundwire_variant():
+    """The SoundWire-only *8 mapping + 4 kHz clarity bell is removed
+    (it compensated the pre-#13 over-applied-IEQ treble crush;
+    design-notes unvalidated-scaling entry 1). One mapping for all
+    device families, and no is_soundwire switch to reintroduce it."""
+    import inspect
+    assert "is_soundwire" not in inspect.signature(make_dialog_enhancer).parameters
 
 
 def test_dialog_enhancer_zero_amount_returns_none():
     zero = {"enable": True, "amount": 0, "boost": 0.0}
     assert make_dialog_enhancer(zero) is None
-    assert make_dialog_enhancer(zero, is_soundwire=True) is None
     assert make_dialog_enhancer(None) is None
 
 
@@ -738,38 +729,22 @@ def test_make_preset_rejects_surround_kwarg():
     assert "surround" not in inspect.signature(make_preset).parameters
 
 
-# --- LOCK-IN: make_preset convolver_gain pass-through ---
+# --- LOCK-IN: convolver output-gain is always 0 ---
+# The SoundWire 50%-headroom restore (peak_db * 0.5) is removed: it was
+# calibrated against the pre-#13 chain whose 10x-over-applied IEQ inflated
+# the FIR peak it compensated (design-notes unvalidated-scaling entry 3).
+# The convolver must emit no gain of its own on any device family.
 
-def test_make_preset_passes_convolver_gain_through():
-    preset, _ = make_preset(kernel_name="X", peq_filters=[],
-                            convolver_gain=2.5)
-    assert preset["output"]["convolver#0"]["output-gain"] == 2.5
-
-
-# --- LOCK-IN: SoundWire convolver output-gain formula + defensive clamp ---
-# This gain sits ahead of the whole chain; the formula and its positive-side
-# cap guard against the convolver over-gain (+50 dB) trap class.
-
-def test_convolver_output_gain_hda_is_zero():
-    # HDA presets restore no headroom regardless of FIR peak.
-    assert convolver_output_gain(8.0, is_soundwire=False) == 0.0
+def test_convolver_output_gain_is_zero_for_all_devices():
+    for is_soundwire in (False, True):
+        preset, _ = make_preset(kernel_name="X", peq_filters=[],
+                                is_soundwire=is_soundwire)
+        assert preset["output"]["convolver#0"]["output-gain"] == 0.0
 
 
-def test_convolver_output_gain_soundwire_restores_half_peak():
-    # SoundWire restores 50% of the FIR peak the normalization removed.
-    assert convolver_output_gain(6.0, is_soundwire=True) == 3.0
-
-
-def test_convolver_output_gain_clamps_large_positive_peak():
-    # An anomalous curve (peak well past 2x the ceiling) is capped, not
-    # passed through as large pre-chain boost.
-    assert convolver_output_gain(40.0, is_soundwire=True) == CONVOLVER_GAIN_CEILING_DB
-
-
-def test_convolver_output_gain_negative_peak_passes_through():
-    # Net-cut curves give negative gain — only reduces level, no clip risk,
-    # so it is not clamped.
-    assert convolver_output_gain(-4.0, is_soundwire=True) == -2.0
+def test_make_preset_rejects_convolver_gain_kwarg():
+    import inspect
+    assert "convolver_gain" not in inspect.signature(make_preset).parameters
 
 
 # --- LOCK-IN: autoload artifacts (device binding + fallback preset/rc) ---

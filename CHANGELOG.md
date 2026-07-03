@@ -58,6 +58,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Changed
+
+- **[AUDIBLE]** SoundWire presets are quieter and less mid-forward: two legacy
+  hardcoded boosts — an extra convolver output gain and an inflated
+  dialog-enhancer mapping with an added 4 kHz bell — are removed, as both
+  compensated an IEQ over-application bug fixed in v2026.05. Re-run the script
+  to regenerate; not yet heard on-device (SoundWire hardware pending,
+  [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29);
+  full why in docs/design-notes.md, unvalidated-scaling entries 1/3).
+
 ### Added
 
 - `--speaker-info` now reports an amplifier-status section: per-amp driver bind,
