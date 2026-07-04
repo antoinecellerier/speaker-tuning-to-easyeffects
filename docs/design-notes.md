@@ -454,6 +454,12 @@ The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters
    root cause. Shipping bypassed keeps the settings available for users who want
    to enable it manually without re-running the script.
 
+Field confirmation: issue #25 (ThinkPad E14 Gen 2 AMD, HDA) — with autogain
+manually enabled, the reporter heard crackle exactly and only on short system
+event sounds arriving after silence, i.e. reason 2's quiet→loud case; the
+available mitigation is raising `silence-threshold` toward the −50 dB the
+conservative SoundWire path already ships (HDA generates −70 dB).
+
 ## Translating active autogain to LSP `autogain_stereo` (PW converter)
 
 The "no LV2 equivalent" rationale that kept `ee_to_pipewire.py` from translating

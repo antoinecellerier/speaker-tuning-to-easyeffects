@@ -57,6 +57,7 @@ The converter works on laptop internal speakers whose Windows driver ships a Dol
 | Lenovo IdeaPad Pro 5 14AHP9 (83D3) | Realtek ALC287, 17AA:38D0 | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
 | Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | Lenovo Yoga Pro 9 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
+| ThinkPad E14 Gen 2 AMD (20T6) | Realtek ALC257, 17AA:507F | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) |
 | ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
 | ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [PR7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
 | ThinkPad X1 Yoga Gen 7 | Realtek ALC287, 17AA:22E6 | author |
@@ -140,6 +141,15 @@ It checks the common causes and prints a pasteable report:
 A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote. To check your version directly, see EasyEffects' About dialog:
 
 ![Checking the EasyEffects version](docs/images/ee-version.jpg)
+
+### Troubleshooting: correct but too quiet
+
+If the preset sounds right but quieter than Windows, part of the gap is expected: Dolby's dynamic volume leveler ships bypassed here because without Dolby's content analysis it distorts on quiet→loud transitions ([why](docs/design-notes.md#why-autogain-is-bypassed-by-default)). What to try, in order:
+
+- **Enable the Autogain step** in EasyEffects — the preset ships it configured but bypassed. If notifications or other sounds arriving after silence then crackle, raise its *Silence threshold* to about −50 dB; for still more loudness raise *Target* a few dB, at increased saturation risk.
+- **Allow volume above 100%** in your desktop environment: GNOME — `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`; KDE Plasma — volume applet settings → *Raise maximum volume*; any environment — `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.25`, or pavucontrol. Over-amplification is digital gain applied after the preset's limiter, so extreme values can clip.
+- **Check mixer levels** — in `alsamixer`, Master/PCM/Speaker at 100%.
+- On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling filters](#disabling-filters).
 
 ### Disabling filters
 
