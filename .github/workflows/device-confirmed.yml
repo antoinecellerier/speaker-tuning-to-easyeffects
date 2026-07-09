@@ -117,9 +117,8 @@ jobs:
               git push -u origin ${{ steps.branch.outputs.branch_name }}
               gh pr create --title "Mark <device name> as tested (#${{ github.event.issue.number }})" --body "..."
 
-            In the PR body, reference the issue with "Refs #${{ github.event.issue.number }}"
-            (not "Closes"/"Fixes" — device-report issues often stay open for
-            further back-and-forth, so don't auto-close it).
+            In the PR body, include "Closes #${{ github.event.issue.number }}" so
+            that merging the PR automatically closes the device-report issue.
 
           # Edits are scoped to the two bookkeeping files, so even a prompt
           # injection in the issue body cannot make Claude modify source code
