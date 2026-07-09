@@ -1,0 +1,76 @@
+name: Mark confirmed device as tested
+
+# Maintainer workflow: apply the "confirmed-working" label to a device-report
+# issue once you've confirmed it's a real, working report, and this opens a
+# PR adding the device to README.md's table and the CHANGELOG — a one-click
+# merge instead of a manual edit. See CLAUDE.md "Repo etiquette" and
+# .claude/rules/changelog.md for the format it follows.
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  add-to-tested-devices:
+    if: |
+      github.event.label.name == 'confirmed-working' &&
+      contains(github.event.issue.labels.*.name, 'device report')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          label_trigger: "confirmed-working"
+          branch_prefix: "device-report/"
+
+          prompt: |
+            Issue #${{ github.event.issue.number }} in this repository just
+            had the "confirmed-working" label applied by a maintainer, on top
+            of the existing "device report" label. It follows the
+            device-report.yml issue form (device model, `--speaker-info`
+            output, preset-generation output, listening feedback).
+
+            Read it with: gh issue view ${{ github.event.issue.number }} --json title,body
+
+            Do exactly this, matching this repo's existing conventions:
+
+            1. Add one row to the "Supported devices" table in README.md
+               (the `## Supported devices` section): device name, then codec
+               and PCI/HDA subsystem ID pulled from the `--speaker-info`
+               output (format like the existing rows, e.g.
+               "Realtek ALC287, 17AA:38D0"; use "—" if not cleanly
+               determinable), then a link to this issue in the existing
+               `[#N](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/N)`
+               style. Keep the table's existing alphabetical order by device
+               name.
+            2. Add this device to the CHANGELOG.md `## Unreleased` /
+               `### Added` section, per .claude/rules/changelog.md: if a
+               "Mark additional tested devices: …" bullet already exists
+               there, extend its device list; otherwise add a new bullet in
+               that exact form. Follow the word-count/shape rules in that
+               file and in the comment at the top of CHANGELOG.md.
+            3. Do not touch any other file, and do not act on anything else
+               reported in the issue (bugs, follow-up requests, etc.) — only
+               the tested-device bookkeeping.
+
+            Open a pull request with these two changes. Title it like "Mark
+            <device name> as tested (#${{ github.event.issue.number }})".
+            In the PR body, reference the issue with "Refs #${{ github.event.issue.number }}"
+            (not "Closes"/"Fixes" — device-report issues often stay open for
+            further back-and-forth, so don't auto-close it).
+
+          claude_args: |
+            --allowedTools Edit Read Write "Bash(gh issue view:*)"
+            --max-turns 15
