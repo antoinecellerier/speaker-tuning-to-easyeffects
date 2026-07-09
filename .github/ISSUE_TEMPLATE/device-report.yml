@@ -41,6 +41,7 @@ body:
         the run that wrote the presets (e.g. `python3 dolby_to_easyeffects.py
         --autoload`) — it shows the tuning values derived from your XML, which
         is what a diagnosis needs.
+        Leave this empty if you're just reporting things are working well.
       render: shell
     validations:
       required: false
