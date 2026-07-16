@@ -649,6 +649,34 @@ than trust the scan.
 
 ---
 
+## 16. HDA tuning-filename matching — the codec subsystem id is not unique
+
+HDA-style filenames (`DEV_<codec-device>_SUBSYS_<codec-subsystem>_PCI_SUBSYS_…`)
+were originally matched on the codec subsystem alone, with `tuning_version` as
+the only tiebreak. Issue #33 (IdeaPad Pro 5 14APH8, ALC287, subsystem
+`17AA38C5`) falsified the uniqueness assumption: its driver store ships both
+`DEV_0287_SUBSYS_17AA38C5` (tuning_version 8) and `DEV_0257_SUBSYS_17AA38C5`
+(tuning_version 11) — Lenovo reuses the subsystem id across an ALC287 and an
+ALC257 SKU (a Yoga Slim 7 ProX driver package independently pairs `17AA38C5`
+with an ALC257 in its Fortemedia/SAM `.dat` names). The version tiebreak
+therefore selected the other codec's tuning, which the reporter heard as
+clearly worse.
+
+This is systematic, not a one-off: across the reachable corpus (2836 files,
+2026-07 count via the `tests/corpus` discovery walk), 83 of 766 distinct
+HDA-style subsystems (11%) appear with more than one `DEV` token — all Lenovo
+(`17AA…`), dominated by `0257`/`0287` pairs, with a few three-way splits
+(e.g. `17AA3852`: `0230`/`0257`/`0287`).
+
+The `DEV` token is the codec device id (the low 16 bits of the HDA vendor id,
+`0x10EC0287` → `0287`), so matching now keys on the `(DEV, SUBSYS)` pair, with
+subsystem-only kept as a warned fallback tier — the same
+preferred-not-required tiering as the SoundWire `FUNC` rule (§15).
+`tuning_version` still tiebreaks within a tier (duplicate driver-store copies
+are common).
+
+---
+
 ## Interesting observations
 
 1. **No Intel Fusion devices found** — the `fusion_ext_intel` driver package shares

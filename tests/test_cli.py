@@ -615,6 +615,46 @@ def test_find_tuning_xml_soundwire_func_disambiguates_same_subsys(monkeypatch, t
     assert find_tuning_xml(tmp_path) == right
 
 
+# --- find_tuning_xml: HDA DEV token disambiguates a shared subsystem (#33) ---
+# Lenovo reuses codec subsystem ids across different Realtek codecs: the
+# IdeaPad Pro 5 14APH8's ALC287 (SUBSYS 17AA38C5) shares its subsystem with an
+# ALC257 SKU, and both tunings ship in the same driver store. The (DEV, SUBSYS)
+# pair is the strong key; subsystem-only stays available as a fallback tier.
+
+
+def _patch_idea_pad_pro5(monkeypatch, driver_store):
+    monkeypatch.setattr(
+        dolby_to_easyeffects,
+        "get_hda_codec_ids",
+        lambda: [("10EC0287", "17AA38C5", "Realtek ALC287")],
+    )
+    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(
+        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+    )
+
+
+def test_find_tuning_xml_hda_dev_token_beats_tuning_version(monkeypatch, tmp_path):
+    """Regression lock for #33: the ALC257 tuning shares SUBSYS_17AA38C5 and has
+    the higher tuning_version, but the codec is an ALC287 — the DEV_0287 file
+    must win. Before the fix, version tiebreak picked the wrong codec's tuning."""
+    wrong = tmp_path / "DEV_0257_SUBSYS_17AA38C5_PCI_SUBSYS_382C17AA.xml"
+    wrong.write_text("<tuning><tuning_version value='11'/></tuning>")
+    right = tmp_path / "DEV_0287_SUBSYS_17AA38C5_PCI_SUBSYS_388117AA.xml"
+    right.write_text("<tuning><tuning_version value='8'/></tuning>")
+    _patch_idea_pad_pro5(monkeypatch, tmp_path)
+    assert find_tuning_xml(tmp_path) == right
+
+
+def test_find_tuning_xml_hda_subsys_only_fallback_still_matches(monkeypatch, tmp_path):
+    """A subsystem match whose DEV token equals no detected codec device id must
+    still be selected when nothing better exists (DEV preferred, not required)."""
+    xml = tmp_path / "DEV_0257_SUBSYS_17AA38C5_PCI_SUBSYS_382C17AA.xml"
+    xml.write_text("<tuning><tuning_version value='11'/></tuning>")
+    _patch_idea_pad_pro5(monkeypatch, tmp_path)
+    assert find_tuning_xml(tmp_path) == xml
+
+
 # --- find_tuning_xml: content-validated best-guess fallback (issue #26) ---
 # When no filename matches, parse each candidate's <endpoint type> and
 # <security-key> and surface internal_speaker tunings whose manufacturer is

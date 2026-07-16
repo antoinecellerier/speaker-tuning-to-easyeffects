@@ -91,6 +91,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- **[AUDIBLE]** Auto-detection no longer picks another codec's tuning when two
+  tunings share one codec-subsystem id (Lenovo reuses them across Realtek
+  codecs), which made affected devices sound clearly wrong; the codec device id
+  now disambiguates. Re-run the script to regenerate if yours matched wrongly
+  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
 - `--speaker-info` no longer doubles the SoundWire amplifier count (six mono
   cs35l56 were reported as "12 speakers"); each enumerated amp is counted once,
   with its channel count probed from the hardware

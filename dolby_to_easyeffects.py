@@ -1843,8 +1843,17 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
             "Cannot auto-detect audio hardware."
         )
 
-    # HDA subsystem IDs for matching DEV_*_SUBSYS_*.xml files
+    # HDA match tokens for DEV_*_SUBSYS_*.xml files. The subsystem alone is
+    # NOT unique: Lenovo reuses codec subsystem ids across different Realtek
+    # codecs (issue #33 — IdeaPad Pro 5 14APH8's ALC287 shares SUBSYS 17AA38C5
+    # with an ALC257 SKU, and both tunings ship in the same driver store). The
+    # filename's DEV token is the codec device id (the low 16 bits of the HDA
+    # vendor id, 10EC0287 → 0287), so the strong key is the (DEV, SUBSYS) pair;
+    # a subsystem-only match is kept as a fallback tier in case a filename's
+    # DEV token ever diverges from the codec id (mirrors the SoundWire
+    # FUNC-preferred-not-required tiering below).
     hda_subsys_ids = {s.upper() for _, s, _name in hda_codecs}
+    hda_dev_subsys = {(v.upper()[-4:], s.upper()) for v, s, _name in hda_codecs}
 
     # PCI subsystem match token. Dolby PCI-keyed filenames — SoundWire on newer
     # Intel platforms, and Apple Boot Camp tunings on Intel Macs (issue #21) —
@@ -1891,6 +1900,9 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     if not xml_dirs:
         xml_dirs = [driver_store]
     candidates = []
+    # HDA files whose SUBSYS matches a codec subsystem but whose DEV token is
+    # NOT that codec's device id (see the hda_dev_subsys note above).
+    hda_subsys_only = []
     # SoundWire files matched by PCI subsystem + manufacturer but whose FUNC is
     # NOT a detected part id (FUNC preferred-not-required; see note above).
     sdw_pci_only = []
@@ -1908,7 +1920,11 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
             if "DEV_" in name and "SUBSYS_" in name:
                 match = re.search(r"SUBSYS_([0-9A-F]{8})", name)
                 if match and match.group(1) in hda_subsys_ids:
-                    candidates.append(xml_file)
+                    dev = re.search(r"DEV_([0-9A-F]{4})", name)
+                    if dev and (dev.group(1), match.group(1)) in hda_dev_subsys:
+                        candidates.append(xml_file)
+                    else:
+                        hda_subsys_only.append(xml_file)
                     continue
                 # PCI-keyed fallback for Apple Boot Camp tunings on Intel Macs
                 # (issue #21), e.g. PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_...,
@@ -1944,6 +1960,16 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
             if sdw_alt and pci_subsys_id and sdw_alt.group(1) == pci_subsys_id:
                 candidates.append(xml_file)
                 continue
+
+    # No (DEV, SUBSYS)-exact HDA match: accept the subsystem-only fallback.
+    if not candidates and hda_subsys_only:
+        candidates = hda_subsys_only
+        if len(hda_subsys_only) > 1:
+            warn(
+                "Multiple tunings match the codec subsystem but none match its "
+                "device id; selecting the highest tuning_version. Pass the XML "
+                "path explicitly if the result sounds wrong."
+            )
 
     # No exact (man, part) / HDA / Apple match: accept the PCI-subsystem fallback.
     if not candidates and sdw_pci_only:

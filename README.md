@@ -258,7 +258,7 @@ Those CPU/RAM figures are device-specific; reproduce them on your own hardware w
 
 ### Extracting the XML
 
-The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's subsystem ID from `/proc/asound` and matches it against the XMLs in the DriverStore.
+The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's device and subsystem IDs from `/proc/asound` and matches them against the XMLs in the DriverStore.
 
 <details>
 <summary>Manual extraction, or from a Lenovo driver EXE (no Windows partition)</summary>
@@ -267,7 +267,7 @@ If you prefer to extract the XML manually, it can be found in the Windows driver
 ```
 C:\Windows\System32\DriverStore\FileRepository\dax3_ext_*.inf_*\DEV_*_SUBSYS_*.xml
 ```
-Match the `SUBSYS_` portion of the filename to your audio codec's subsystem ID (visible via `cat /proc/asound/card*/codec* | grep Subsystem`). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
+Match **both** the `DEV_` portion of the filename to your codec's device id (the last four hex digits of `Vendor Id`, e.g. `0x10ec0287` → `DEV_0287`) **and** the `SUBSYS_` portion to its subsystem ID (both visible via `cat /proc/asound/card*/codec* | grep -E 'Vendor|Subsystem'`). The subsystem alone is not enough — Lenovo reuses subsystem IDs across different codecs, and picking the other codec's tuning sounds clearly wrong ([details](docs/cross-device-findings.md)). The `_settings.xml` companion file contains UI/profile defaults and is not needed.
 
 **From a Lenovo driver EXE.** Download the Lenovo audio driver EXE (e.g. `n4ba126w.exe`) into this project directory. You need [`innoextract`](https://constexpr.org/innoextract/install) installed. From the project root, run:
 
