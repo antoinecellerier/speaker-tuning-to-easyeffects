@@ -96,6 +96,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   codecs), which made affected devices sound clearly wrong; the codec device id
   now disambiguates. Re-run the script to regenerate if yours matched wrongly
   ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
+- `--speaker-info` (and XML matching on PCI-keyed filenames) now reports the
+  analog audio controller's PCI subsystem instead of the GPU HDMI function's,
+  which hid the machine SKU id on dual-controller AMD laptops
+  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
 - `--speaker-info` no longer doubles the SoundWire amplifier count (six mono
   cs35l56 were reported as "12 speakers"); each enumerated amp is counted once,
   with its channel count probed from the hardware

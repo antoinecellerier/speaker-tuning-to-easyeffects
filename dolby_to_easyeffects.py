@@ -209,7 +209,32 @@ def _walk_to_pci_subsys(start: Path):
     return None
 
 
-def get_pci_audio_subsystem():
+def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
+    """Rank a sound card for the PCI-subsystem probe: 0 = has a non-HDMI HDA
+    codec (the analog controller quirks and Dolby SKU ids key on), 1 = no HDA
+    codec info (e.g. USB), 2 = HDMI/DP codecs only (a GPU audio function whose
+    PCI subsystem is the GPU's, not the machine SKU's)."""
+    names = []
+    for codec_path in sorted((proc_asound / card_name).glob("codec*")):
+        try:
+            text = codec_path.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if line.startswith("Codec:"):
+                names.append(line.split(":", 1)[1].strip())
+    if not names:
+        return 1
+    if all("HDMI" in n.upper() for n in names):
+        return 2
+    return 0
+
+
+def get_pci_audio_subsystem(
+    sound_class=Path("/sys/class/sound"),
+    proc_asound=Path("/proc/asound"),
+    sdw_bus=Path("/sys/bus/soundwire/devices"),
+):
     """Get the PCI subsystem ID of the audio controller.
 
     Returns (subsys_vendor, subsys_device) as uppercase 4-char hex strings,
@@ -219,23 +244,24 @@ def get_pci_audio_subsystem():
     the controller that actually hosts the speaker amplifiers, rather than
     whichever /sys/class/sound card sorts first (which may be HDMI audio
     on a discrete GPU). Falls back to walking up from sound cards for
-    traditional HDA systems.
+    traditional HDA systems — ranked so the analog codec's controller wins
+    over a GPU HDMI function: on AMD dual-controller laptops card0 is the
+    GPU audio function with its own PCI subsystem id (issue #33: 17AA:3823
+    reported where the analog controller — the id kernel quirks and Dolby
+    PCI-keyed filenames use — was a different device).
     """
-    sdw_bus = Path("/sys/bus/soundwire/devices")
     if sdw_bus.is_dir():
         for dev_dir in sorted(sdw_bus.iterdir()):
             result = _walk_to_pci_subsys(dev_dir)
             if result:
                 return result
 
-    pci_path = Path("/sys/class/sound")
-    if not pci_path.is_dir():
+    if not sound_class.is_dir():
         return None
-    for card_dir in sorted(pci_path.glob("card*")):
-        device_link = card_dir / "device"
-        if not device_link.exists():
-            continue
-        result = _walk_to_pci_subsys(device_link)
+    cards = [c for c in sorted(sound_class.glob("card*")) if (c / "device").exists()]
+    cards.sort(key=lambda c: _card_pci_preference(c.name, proc_asound))
+    for card_dir in cards:
+        result = _walk_to_pci_subsys(card_dir / "device")
         if result:
             return result
     return None

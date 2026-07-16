@@ -655,6 +655,71 @@ def test_find_tuning_xml_hda_subsys_only_fallback_still_matches(monkeypatch, tmp
     assert find_tuning_xml(tmp_path) == xml
 
 
+# --- get_pci_audio_subsystem: prefer the analog controller over GPU HDMI (#33) ---
+# On AMD dual-controller laptops card0 is the GPU audio function, so the old
+# first-card walk reported the GPU's PCI subsystem — not the id kernel quirks
+# and Dolby PCI-keyed filenames use (issue #33 diagnostics showed 17AA:3823
+# where the analog controller was a different device; same pattern on #30).
+
+
+def _make_sound_card(root, name, codec_names, subsys):
+    """Build a fake /sys/class/sound card + /proc/asound codec files."""
+    dev = root / "sys" / name / "device"
+    dev.mkdir(parents=True)
+    vendor, device = subsys
+    (dev / "subsystem_vendor").write_text(f"0x{vendor.lower()}\n")
+    (dev / "subsystem_device").write_text(f"0x{device.lower()}\n")
+    proc_card = root / "proc" / name
+    proc_card.mkdir(parents=True)
+    for i, codec_name in enumerate(codec_names):
+        (proc_card / f"codec#{i}").write_text(f"Codec: {codec_name}\n")
+
+
+def _fake_pci_probe_roots(root):
+    return dict(
+        sound_class=root / "sys",
+        proc_asound=root / "proc",
+        sdw_bus=root / "no-soundwire",
+    )
+
+
+def test_get_pci_audio_subsystem_prefers_analog_over_hdmi(tmp_path):
+    """card0 = GPU HDMI function, card1 = analog codec → the analog
+    controller's subsystem must win despite sorting second."""
+    _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
+    _make_sound_card(tmp_path, "card1", ["Realtek ALC287"], ("17aa", "3881"))
+    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+        **_fake_pci_probe_roots(tmp_path)
+    ) == ("17AA", "3881")
+
+
+def test_get_pci_audio_subsystem_hdmi_only_still_returns(tmp_path):
+    """A machine with only a GPU HDMI card keeps the old behaviour — better a
+    GPU subsystem than none."""
+    _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
+    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+        **_fake_pci_probe_roots(tmp_path)
+    ) == ("17AA", "3823")
+
+
+def test_get_pci_audio_subsystem_rank_order(tmp_path):
+    """Full ranking: analog codec beats codec-less (e.g. USB) beats HDMI-only,
+    regardless of card index order."""
+    _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
+    _make_sound_card(tmp_path, "card1", [], ("1912", "0014"))
+    _make_sound_card(tmp_path, "card2", ["Realtek ALC287"], ("17aa", "3881"))
+    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+        **_fake_pci_probe_roots(tmp_path)
+    ) == ("17AA", "3881")
+    import shutil
+
+    shutil.rmtree(tmp_path / "sys" / "card2")
+    shutil.rmtree(tmp_path / "proc" / "card2")
+    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+        **_fake_pci_probe_roots(tmp_path)
+    ) == ("1912", "0014")
+
+
 # --- find_tuning_xml: content-validated best-guess fallback (issue #26) ---
 # When no filename matches, parse each candidate's <endpoint type> and
 # <security-key> and surface internal_speaker tunings whose manufacturer is
