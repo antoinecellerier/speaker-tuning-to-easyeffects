@@ -30,6 +30,25 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Grant read-only gh access to exactly the issues/PRs the trigger text
+      # references (#N), so "@claude … as suggested in #33" can read #33 but
+      # nothing else. Trigger text is safe to scan: the action only runs for
+      # write-access actors. Passed via env, never inlined into the script —
+      # inlining ${{ …body }} in run: is a shell-injection hole.
+      - name: Allowlist gh reads for issues referenced in the trigger
+        id: refs
+        env:
+          TRIGGER_TEXT: >-
+            ${{ github.event.comment.body
+             || github.event.review.body
+             || github.event.issue.body }}
+        run: |
+          tools=""
+          for n in $(grep -oE '#[0-9]+' <<< "$TRIGGER_TEXT" | tr -d '#' | sort -un); do
+            tools="${tools:+$tools,}Bash(gh issue view $n:*),Bash(gh pr view $n:*),Bash(gh pr diff $n:*)"
+          done
+          echo "allowed_tools=$tools" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -43,8 +62,7 @@ jobs:
           # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
           # prompt: 'Update the pull request description to include a summary of changes.'
 
-          # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr *)'
+          claude_args: ${{ steps.refs.outputs.allowed_tools != '' && format('--allowedTools "{0}"', steps.refs.outputs.allowed_tools) || '' }}
 
