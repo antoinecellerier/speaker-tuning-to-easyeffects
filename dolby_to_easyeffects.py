@@ -1055,8 +1055,8 @@ def report_speaker_info():
 # it lands in: EasyEffects 7 (which can't read the v8 preset format), presets
 # written to the Flatpak path while EE runs native (or vice-versa), a missing
 # impulse file so the speaker-correction convolver loads nothing, no Dolby
-# preset selected, or a kernel series so old it mis-drives the speaker
-# amplifier itself (issue #33). --doctor surfaces those deterministically (#22),
+# preset selected, or a kernel series so old it mis-configures the speaker
+# path itself (issue #33). --doctor surfaces those deterministically (#22),
 # and warn_ee_environment() reuses the same probes to warn at the end of a
 # normal run. The pure helpers below take plain inputs so they're unit-tested
 # without touching the system; the _probe_/_gather_ wrappers do the I/O.
@@ -1132,8 +1132,8 @@ def ee_version_status(version: tuple[int, int, int] | None,
 
 
 # Upstream release month per kernel series (issue #33: a preset can be perfect
-# while an *old kernel* mis-drives the speaker amp — that report was fixed by a
-# 6.12→7.0 kernel upgrade, not a preset change). Month precision is enough for
+# while an *old kernel* mis-configures the speaker path — that report was fixed
+# by a 6.12→7.0 kernel upgrade, not a preset change). Month precision is enough for
 # an age hint. Dates are historical facts, so an aging copy of this tool still
 # ages old kernels correctly; a series newer than the table is assumed recent.
 # Append new series as they release.
@@ -1195,7 +1195,7 @@ def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
     if aged is None:
         if series < min(_KERNEL_SERIES_RELEASES):
             return CheckResult(DOCTOR_WARN, label,
-                f"{sstr} is very old (pre-2021). Laptop speaker-amp support "
+                f"{sstr} is very old (pre-2021). Laptop speaker support "
                 "lands kernel-side; strongly consider a newer kernel.")
         return CheckResult(DOCTOR_UNKNOWN, label, f"{sstr} — unknown series.")
     released, months = aged
@@ -1204,8 +1204,8 @@ def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
         return CheckResult(DOCTOR_PASS, label,
             f"{sstr} (released {released}, ~{months} month{plural} old).")
     return CheckResult(DOCTOR_WARN, label,
-        f"{sstr} was released {released} (~{months} months ago). Speaker-amp "
-        "fixes (new amp drivers, power-management quirks) land kernel-side and "
+        f"{sstr} was released {released} (~{months} months ago). Laptop speaker "
+        "fixes (amp drivers, codec setup, power-management quirks) land kernel-side and "
         "are not always backported to older series — if your speakers sound "
         "thin, muffled or garbled even with EasyEffects off, a newer kernel "
         "(your distro's backports or hardware-enablement/HWE kernel) may fix "
@@ -1625,8 +1625,8 @@ def warn_ee_environment(args) -> None:
 
 
 def warn_old_kernel(release: str | None = None) -> None:
-    """End-of-run hint: an old kernel series can mis-drive laptop speaker
-    amplifiers no matter how good the preset is — issue #33 was fixed by a
+    """End-of-run hint: an old kernel series can mis-configure the speaker
+    path no matter how good the preset is — issue #33 was fixed by a
     kernel upgrade, not a preset change. Silent unless the running series is
     older than _KERNEL_OLD_MONTHS. Mirrors warn_ee_environment."""
     if release is None:
@@ -1640,8 +1640,8 @@ def warn_old_kernel(release: str | None = None) -> None:
     when = f" (released {aged[0]}, ~{aged[1]} months ago)" if aged else ""
 
     cprint("warn", f"\n⚠  Your kernel series {sstr} is old{when}.")
-    cprint("dim", "Laptop speaker amplifiers often need kernel-side fixes (new amp")
-    cprint("dim", "drivers, power-management quirks) that land in newer kernels and")
+    cprint("dim", "Laptop speakers often need kernel-side fixes (amp drivers, codec")
+    cprint("dim", "setup, power-management quirks) that land in newer kernels and")
     cprint("dim", "are not always backported to older series. If your speakers sound")
     cprint("dim", "thin, muffled or garbled even with EasyEffects disabled, a newer")
     cprint("dim", "kernel (your distro's backports or hardware-enablement/HWE kernel)")
@@ -4834,7 +4834,7 @@ def main():
     # internal speakers — irrelevant for headphone/other endpoints.
     if args.endpoint == "internal_speaker":
         warn_speaker_firmware_gate(detect_speaker_firmware_gates())
-        # An old kernel can mis-drive the speaker amp below any preset
+        # An old kernel can mis-configure the speaker path below any preset
         # (issue #33) — hint at it, softly, when the series is old.
         warn_old_kernel()
 

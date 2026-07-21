@@ -1925,12 +1925,20 @@ largely closed by the `/100` reading.)**
 The IdeaPad Pro 5 14APH8 report ([#33]) had "a lot worse than Windows" sound
 with *every* tuning XML in its driver store — bass mostly missing, the rest
 garbled — and was ultimately fixed by a kernel upgrade (Debian's 6.12 LTS →
-7.0), not by any preset change. The machine's analog HDA controller carries
-PCI SSID `17AA:3881`, the key the kernel's TAS2781 smart-amp fixup matches on;
-on 6.12, `--speaker-info` saw no smart amplifier and the kernel log had no
-amp/firmware lines — the amp was being mis-driven (TAS2781 power-management
-regressions are a documented class), and the preset's treble-forward
-correction on top made it sound *worse* than stock.
+7.0), not by any preset change. The reporter's `--speaker-info` output is
+identical on the broken 6.12 and the working 7.0 (same ALC287 codec, one
+stereo speaker pin, no smart-amp driver bound; Lenovo's spec lists plain
+2 W × 2 stereo), so the fix was not new hardware support — the older kernel
+was mis-*configuring* the same codec/speaker path, and 7.0 repaired it. The
+reporter's own research points at power-management changes breaking 6.6-era
+codec/amp setup ("flat sound"), and his analog controller's PCI SSID
+`17AA:3881` matches the kernel's "YB9 dual power mode2" quirk entry, so a PM
+regression or mis-firing quirk is plausible — the exact mechanism isn't
+identifiable from userspace. (An earlier draft of this entry blamed a
+mis-driven TAS2781 smart amp — the SSID is the TAS2781 fixup's match key —
+but the identical working-kernel topology rules that out: this SKU very
+likely has no smart amp at all.) Either way, the preset's treble-forward
+correction on top made the broken baseline sound *worse* than stock.
 
 Lesson: symptoms indistinguishable from a bad preset can originate a layer
 below anything XML-derived — check the drive path before re-litigating the
