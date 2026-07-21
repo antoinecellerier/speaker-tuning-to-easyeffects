@@ -460,6 +460,12 @@ event sounds arriving after silence, i.e. reason 2's quiet→loud case; the
 available mitigation is raising `silence-threshold` toward the −50 dB the
 conservative SoundWire path already ships (HDA generates −70 dB).
 
+Field note: issue #36 (Lenovo IdeaPad Pro 5 14IMH9, HDA) — the reporter
+recommends manually enabling autogain on this device; no further detail
+(root cause, specific content) captured yet, so this isn't a second
+confirmation of the issue #25 mitigation, just a pointer for whoever
+investigates next.
+
 ## Translating active autogain to LSP `autogain_stereo` (PW converter)
 
 The "no LV2 equivalent" rationale that kept `ee_to_pipewire.py` from translating
