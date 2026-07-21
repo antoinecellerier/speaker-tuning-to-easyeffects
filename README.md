@@ -154,6 +154,7 @@ If the preset sounds right but quieter than Windows, part of the gap is expected
 - **Allow volume above 100%** in your desktop environment: GNOME — `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`; KDE Plasma — volume applet settings → *Raise maximum volume*; any environment — `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.25`, or pavucontrol. Over-amplification is digital gain applied after the preset's limiter, so extreme values can clip.
 - **Check mixer levels** — in `alsamixer`, Master/PCM/Speaker at 100%.
 - On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling filters](#disabling-filters).
+- **Speakers thin and quiet even with EasyEffects off** — run `--speaker-info`: a flagged amplifier-firmware error means your distro lacks this machine's speaker firmware, which no preset can fix ([background](docs/cross-device-findings.md); [issue #27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27) links a worked, device-specific example of extracting it from the Windows driver).
 
 ### Disabling filters
 

@@ -647,6 +647,40 @@ with the equivalent TI `tas2781-*` and Realtek `rt1320-sdw.c` firmware-load
 failures), and the clean-log line now tells the reader to eyeball the log rather
 than trust the scan.
 
+**Addendum (2026-07-21, issue #27 follow-up) — first amp-DSP-voiced device.**
+The reporter closed the firmware gap himself by extracting the CS35L57 tuning
+from Samsung's Windows driver
+([write-up](https://github.com/JeanLuX/notebook/blob/main/samsung-galaxy-book6-ultra/AUDIO-CIRRUS-FIRMWARE-EXTRACTION.md));
+result "night and day", near-Windows quality with **no** DAX-derived processing
+at all. Package-layout intel from that write-up: one shared `.wmfw` under `fw/`,
+per-SSID tuning dirs under `tn/` (`CA0A` for his SKU — mirroring the five
+per-SKU `SUBSYS_*` XMLs above), renamed to the linux-firmware convention
+`cs35l57-b2-dsp1-misc-144dca0a-lXuY.{wmfw,bin}`; calibration comes separately
+from EFI variables ("Calibration applied" in the kernel log is the success
+marker).
+
+With the amps properly voiced, the converter's output was reported as a net
+negative: the default preset "degrades the sound dramatically", and with
+`--disable bass-enhancer --disable volmax --disable regulator` it was at best
+neutral (all three were disabled together, so no single-filter attribution —
+a confound to remember before blaming any one default). The likely mechanics,
+all visible in the reporter's pasted stdout: this XML's host-side tuning is
+near-flat (audio-optimizer all-zero on both channels, IEQ ≤ ±1.5 dB, no PEQ
+filters, regulator `threshold_high` flat at 0 dB, stress all-zero) — the
+voicing lives in the Cirrus amp-DSP tuning, not in DAX host processing. A flat
+0 dB `threshold_high` means `make_regulator` disables every band (a threshold
+≥ 0 dBFS never triggers), so the regulator emits but limits nothing and the
+volmax +6 dB riding its input-gain hits the brickwall limiter untamed — the
+issue-#23 "per-band compression tames the boost" rationale silently doesn't
+apply (the generator now warns when this shape occurs). And the default-on
+SoundWire `bass_enhancer` adds harmonics on top of an amp that now does real
+bass management — the second field report against that default (after issue
+#29; design-notes unvalidated-scaling entry 9).
+
+Takeaway: on devices whose DAX host tuning is near-flat because the voicing
+ships in amp firmware, the converter has little to offer once the firmware is
+installed — the honest outcome is "install the firmware, skip the preset".
+
 ---
 
 ## 16. HDA tuning-filename matching — the codec subsystem id is not unique
@@ -741,9 +775,12 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    tuning is missing on this Fedora 44 build, so they run without voicing, quiet
    and flat, regardless of the preset. Root cause is the distro `linux-firmware`
    gap for this SKU (route the reporter there); the converter is not implicated.
-   `--speaker-info` now flags those markers (see §15). Remaining: add Galaxy Book6
-   Ultra to the README tested table once the reporter confirms the diagnostics
-   read true on a fix.
+   `--speaker-info` now flags those markers (see §15). **Closed out (2026-07-21):**
+   the reporter self-fixed the gap by extracting the CS35L57 `.wmfw`/`.bin` from
+   Samsung's Windows driver ([his write-up](https://github.com/JeanLuX/notebook/blob/main/samsung-galaxy-book6-ultra/AUDIO-CIRRUS-FIRMWARE-EXTRACTION.md)),
+   confirming the diagnosis end-to-end. Post-fix preset verdict was *negative* —
+   the device is **not** added to the README tested table; see the §15 addendum
+   for the outcome and mechanism.
 8. **Zenbook S14 UX5406SA partial-success report (issue #29, reporter-gated).**
    First cs42l43-codec device (SoundWire part 0x4243 jack codec + 4× cs35l56,
    PCI SSID `1043:1E13`) and — unlike the Galaxy Book6 above — *not* a firmware

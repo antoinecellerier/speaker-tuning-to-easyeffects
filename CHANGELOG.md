@@ -70,6 +70,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- The generation report now warns when the tuning's regulator never engages
+  (every band threshold at or above 0 dB) yet carries the volmax loudness
+  boost, since the boost then hits the final limiter untamed and can squash
+  loud content; the warning points at `--disable volmax`
+  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
 - Mark additional tested devices: ThinkPad E14 Gen 2 AMD
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)),
   Lenovo Yoga Pro 7 14APH8
@@ -121,6 +126,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Docs
 
+- Field outcome: on the Samsung Galaxy Book6 Ultra, installing the machine's
+  Cirrus speaker firmware (extracted from the Windows driver by the reporter)
+  fixed the speakers outright, and the generated preset then added no audible
+  benefit — that device's voicing lives in the amplifier firmware, not in the
+  Dolby host tuning. README now routes the thin-and-quiet-speakers symptom to
+  `--speaker-info` and the reporter's extraction write-up
+  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27);
+  full analysis in `docs/cross-device-findings.md`).
 - Research: the loud-bass dynamics gap vs Dolby (generated presets compressing
   loud bass less than DAX) is re-attributed to gain staging, not regulator
   timing — re-analysis of the June captures falsified the release-timing
