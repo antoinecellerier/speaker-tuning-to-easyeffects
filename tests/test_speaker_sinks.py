@@ -567,6 +567,30 @@ def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
     assert capsys.readouterr().out == ""
 
 
+# --- Old-kernel end-of-run hint (issue #33) ----------------------------------
+#
+# 6.12 only gets older as wall-clock time passes, so the "old" case is stable;
+# the silent case uses a far-future series (assumed recent by design), never a
+# real recent one that would age past the cutoff and rot the test.
+
+def test_warn_old_kernel_prints_hint(monkeypatch, capsys):
+    monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
+    d.warn_old_kernel("6.12.74+deb13+1-amd64")
+    out = capsys.readouterr().out
+    assert "6.12" in out
+    assert "2024-11" in out                    # names the release month
+    assert "EasyEffects disabled" in out       # the confirm-symptom
+    assert "hardware-enablement/HWE" in out    # the remedy, acronym spelt out
+
+
+@pytest.mark.parametrize("release", ["99.0.0-future", "not-a-kernel"])
+def test_warn_old_kernel_silent_when_recent_or_unparseable(monkeypatch, capsys,
+                                                           release):
+    monkeypatch.setattr(d, "_CONSOLE", None)
+    d.warn_old_kernel(release)
+    assert capsys.readouterr().out == ""
+
+
 # --- Amp channel count: probe, don't assume (issue #27) ---------------------
 #
 # Six mono cs35l56 SoundWire amps were reported as "12 speakers" because each

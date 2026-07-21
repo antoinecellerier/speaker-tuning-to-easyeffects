@@ -22,6 +22,7 @@ classes of test run on the same fixture and live in the same file.
 
 import json
 import math
+from datetime import date
 
 import numpy as np
 import pytest
@@ -46,6 +47,7 @@ from dolby_to_easyeffects import (
     decode_mbc_bands,
     ee_version_status,
     install_status,
+    kernel_age_status,
     loaded_preset_status,
     make_autogain,
     make_bass_enhancer,
@@ -57,6 +59,7 @@ from dolby_to_easyeffects import (
     make_preset,
     make_regulator,
     parse_ee_version,
+    parse_kernel_series,
     read_ee_rc,
     save_wav_stereo,
     set_autoload_fallback,
@@ -856,6 +859,62 @@ def test_ee_version_not_found_warns_not_fails():
 def test_ee_version_unparseable_is_unknown_not_fail():
     """Installed but version unreadable must not trigger the loud <8 banner."""
     assert ee_version_status(None, found=True).status == DOCTOR_UNKNOWN
+
+
+@pytest.mark.parametrize("release,expected", [
+    ("6.12.74+deb13+1-amd64", (6, 12)),   # Debian/LMDE style (#33 reporter)
+    ("6.15.8-arch1-1", (6, 15)),          # Arch style
+    ("5.10.0-35-generic", (5, 10)),       # Ubuntu style
+    ("7.0.0", (7, 0)),
+    ("", None),
+    ("command not found", None),
+])
+def test_parse_kernel_series(release, expected):
+    assert parse_kernel_series(release) == expected
+
+
+# kernel_age_status tests pin `today` so they never go stale as wall-clock
+# time passes. 2026-07-21 is the day #33 closed: 6.12 was 20 months old.
+_KERNEL_TODAY = date(2026, 7, 21)
+
+
+def test_kernel_age_old_lts_warns():
+    """TRAP (#33): Debian 13's 6.12 at 20 months mis-drove the reporter's
+    speaker amp — the preset was blameless. The verdict must WARN, name the
+    release month, and give the confirm-symptom (bad even with EE off)."""
+    r = kernel_age_status("6.12.74+deb13+1-amd64", today=_KERNEL_TODAY)
+    assert r.status == DOCTOR_WARN
+    assert "2024-11" in r.detail
+    assert "EasyEffects off" in r.detail
+
+
+def test_kernel_age_recent_passes():
+    r = kernel_age_status("7.1.3-arch1-1", today=_KERNEL_TODAY)
+    assert r.status == DOCTOR_PASS
+    assert "2026-06" in r.detail
+
+
+def test_kernel_age_boundary_18_months():
+    """6.13 (2025-01) is exactly 18 months old in 2026-07 → still PASS; one
+    month later → WARN."""
+    assert kernel_age_status("6.13.0", today=_KERNEL_TODAY).status == DOCTOR_PASS
+    assert kernel_age_status("6.13.0",
+                             today=date(2026, 8, 1)).status == DOCTOR_WARN
+
+
+def test_kernel_age_newer_than_table_passes():
+    """A series this copy of the tool doesn't know is assumed recent — an
+    aging table must never flag a brand-new kernel."""
+    assert kernel_age_status("9.0.0-future", today=_KERNEL_TODAY).status == DOCTOR_PASS
+
+
+def test_kernel_age_pre_table_warns():
+    assert kernel_age_status("4.19.0-27-amd64",
+                             today=_KERNEL_TODAY).status == DOCTOR_WARN
+
+
+def test_kernel_age_unparseable_is_unknown():
+    assert kernel_age_status("weird", today=_KERNEL_TODAY).status == DOCTOR_UNKNOWN
 
 
 @pytest.mark.parametrize("flatpak,native,base_fp,ee_fp,expected", [

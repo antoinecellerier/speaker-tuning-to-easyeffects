@@ -80,6 +80,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36)),
   Lenovo IdeaPad Pro 5 14APH8
   ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
+- Old-kernel hint: when the running kernel series is more than 18 months old,
+  the end of a run, `--doctor`, and `--speaker-info` now say so and suggest a
+  newer kernel (backports/HWE) — speaker-amp fixes land kernel-side, and one
+  report's bad sound was fixed entirely by a kernel upgrade
+  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
 - `--speaker-info` now reports an amplifier-status section: per-amp driver bind,
   a probed (not assumed) channel count, and driver-keyed firmware / kernel-log
   evidence for both HDA and SoundWire smart amps. It flags the documented

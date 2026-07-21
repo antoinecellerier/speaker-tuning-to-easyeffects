@@ -1907,6 +1907,39 @@ largely closed by the `/100` reading.)**
     pareto trade — biggest HF reduction (−10.5 dB at 19.7 kHz),
     but 47 Hz blows out from −8 to −18 dB EE−DAX.
 
+## Bad sound with a perfect preset: the kernel layer below (issue #33)
+
+The IdeaPad Pro 5 14APH8 report ([#33]) had "a lot worse than Windows" sound
+with *every* tuning XML in its driver store — bass mostly missing, the rest
+garbled — and was ultimately fixed by a kernel upgrade (Debian's 6.12 LTS →
+7.0), not by any preset change. The machine's analog HDA controller carries
+PCI SSID `17AA:3881`, the key the kernel's TAS2781 smart-amp fixup matches on;
+on 6.12, `--speaker-info` saw no smart amplifier and the kernel log had no
+amp/firmware lines — the amp was being mis-driven (TAS2781 power-management
+regressions are a documented class), and the preset's treble-forward
+correction on top made it sound *worse* than stock.
+
+Lesson: symptoms indistinguishable from a bad preset can originate a layer
+below anything XML-derived — check the drive path before re-litigating the
+mapping. This motivated the old-kernel hint (end-of-run banner, `--doctor`
+check, `--speaker-info` annotation). Design choices:
+
+- Kernel series ages are computed from a release-month table
+  (`_KERNEL_SERIES_RELEASES`) rather than a "latest known kernel" constant:
+  release dates are historical facts, so an aging copy of the tool still ages
+  old kernels correctly, and a series newer than the table is assumed recent
+  (never flag a brand-new kernel).
+- Cutoff `_KERNEL_OLD_MONTHS = 18`: a stable distro's kernel is at most
+  ~9 months old on the distro's release day (Debian 13 shipped 6.12 at
+  9 months; Ubuntu LTS GA kernels at ~1 month), so 18 months keeps every
+  fresh install quiet for 9+ months and never fires for rolling/HWE users,
+  while still catching the one real case (#33 fired at 6.12 + 20 months —
+  a 24-month cutoff would have missed it). LTS point releases backport
+  one-line `Cc: stable` quirks, but not the driver-rework /
+  power-management fixes of the class seen here.
+
+[#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
+
 ## Rejected approaches
 
 Things that were investigated and explicitly declined, recorded so they don't get
