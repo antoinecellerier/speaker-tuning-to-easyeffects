@@ -75,7 +75,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo Yoga Pro 7 14APH8
   ([#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30)),
   ASUS TUF Gaming A15
-  ([#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34)).
+  ([#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34)),
+  Lenovo IdeaPad Pro 5 14IMH9
+  ([#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36)).
 - `--speaker-info` now reports an amplifier-status section: per-amp driver bind,
   a probed (not assumed) channel count, and driver-keyed firmware / kernel-log
   evidence for both HDA and SoundWire smart amps. It flags the documented
