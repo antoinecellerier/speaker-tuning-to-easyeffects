@@ -4332,6 +4332,19 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     else:
         slot = "applied as limiter input-gain"
     print(f"\nvolmax-boost: {volmax_boost:+.1f} dB ({slot})")
+    # A band with threshold >= 0 dBFS never triggers, so make_regulator
+    # disables it; if every band is like that, the regulator carries the
+    # volmax boost but tames nothing — the issue-#23 "per-band compression
+    # tames the boost before the brickwall" rationale doesn't apply, and
+    # both volmax slots degenerate to the same untamed brickwall feed
+    # (issue #27 field report; see design-notes).
+    if (volmax_boost > 0 and "volmax" not in disabled
+            and regulator and "regulator" not in disabled
+            and all(t >= 0 for t in regulator["threshold_high"])):
+        cprint("warn", "⚠  This tuning's regulator never engages (every band "
+                       "threshold is >= 0 dB), so the volmax boost reaches "
+                       "the brickwall limiter untamed. If loud content "
+                       "sounds squashed, re-run with --disable volmax.")
     print()
 
 

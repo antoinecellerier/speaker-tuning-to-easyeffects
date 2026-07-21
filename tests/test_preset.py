@@ -42,6 +42,7 @@ from dolby_to_easyeffects import (
     _disabled_band,
     _doctor_summary,
     _print_doctor_report,
+    _report_parsed_profile,
     autostart_status,
     check_preset_kernel,
     decode_mbc_bands,
@@ -663,6 +664,45 @@ def test_regulator_nonnegative_threshold_disables_band():
     assert reg["band1"]["compressor-enable"] is False
     assert reg["band1"]["attack-threshold"] == 0.0
     assert reg["band1"]["enable-band"] is True
+
+
+def test_regulator_all_zero_thresholds_yields_no_active_band():
+    """A flat 0 dB threshold_high (issue #27 field tuning) collapses to a
+    single zone whose band is disabled — the regulator emits but limits
+    nothing, so any volmax boost riding it reaches the brickwall untamed."""
+    reg = make_regulator(synthetic_regulator([0.0] * 20), SYNTHETIC_FREQS_20)
+    assert not any(reg[f"band{i}"]["compressor-enable"] for i in range(8))
+
+
+def _report_tuning(regulator, volmax_boost):
+    """Minimal tuning stand-in for _report_parsed_profile: every optional
+    block is falsy so only the regulator/volmax sections print."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        ieq_amount=10, peq_filters=[], dialog_enhancer=None, surround=None,
+        vol_leveler=None, mb_comp=None, regulator=regulator,
+        volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20)
+
+
+@pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
+    ([0.0] * 20, 6.0, set(), True),            # inert regulator + boost
+    ([-6.0] * 20, 6.0, set(), False),          # regulator actually limits
+    ([0.0] * 20, 0.0, set(), False),           # no boost to warn about
+    ([0.0] * 20, 6.0, {"volmax"}, False),      # boost disabled
+    ([0.0] * 20, 6.0, {"regulator"}, False),   # limiter fallback path
+])
+def test_report_warns_only_when_volmax_rides_inert_regulator(
+        monkeypatch, capsys, threshold_high, volmax_boost, disabled,
+        expect_warn):
+    """The 'regulator never engages' heads-up fires exactly when the volmax
+    boost rides a regulator whose bands are all threshold >= 0 dB."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    _report_parsed_profile(
+        _report_tuning(synthetic_regulator(threshold_high), volmax_boost),
+        [0.0] * 20, [0.0] * 20, 0.1, disabled)
+    out = capsys.readouterr().out
+    assert ("regulator never engages" in out) is expect_warn
 
 
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---
