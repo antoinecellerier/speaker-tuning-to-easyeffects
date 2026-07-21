@@ -324,7 +324,9 @@ untamed feed into the brickwall — the taming rationale doesn't apply at all, a
 dramatically", though confounded with bass-enhancer and regulator disables in the
 same run; cross-device-findings §15 addendum). The generator now prints a heads-up
 when volmax rides a regulator whose bands are all threshold ≥ 0 dB, pointing at
-`--disable volmax`.
+`--disable volmax`. The corner is common, not exotic — roughly 1 in 7 default runs
+corpus-wide, half the corpus counting voice profiles (prevalence sweep and
+methodology in the §15 addendum).
 
 ### Why the PEQ `output-gain` stays a single global `max(L,R)` (not per-channel)
 

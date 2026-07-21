@@ -672,7 +672,19 @@ voicing lives in the Cirrus amp-DSP tuning, not in DAX host processing. A flat
 ≥ 0 dBFS never triggers), so the regulator emits but limits nothing and the
 volmax +6 dB riding its input-gain hits the brickwall limiter untamed — the
 issue-#23 "per-band compression tames the boost" rationale silently doesn't
-apply (the generator now warns when this shape occurs). And the default-on
+apply (the generator now warns when this shape occurs). The shape is common,
+not a Samsung quirk — ad-hoc sweep (2026-07-21, the converter's `parse_xml`
+over the `tests/corpus` discovery walk; 46,336 `internal_speaker` profile rows
+across 3,055 reachable files): the warning condition (regulator emitted,
+volmax > 0, every `threshold_high` ≥ 0 dB) holds on **7.3% of profile rows**,
+**338/979 distinct tunings** on at least one profile, and **142/978 (14.5%)
+on a plain default run** (normal mode, first profile). 201 of the 338 fire
+only on voice-family profiles — consistent with the volmax-in-`voice`
+concentration in the design-notes #23 corpus analysis ("input-gain only does
+anything when the regulator is active"); the default-run cases are
+`dynamic`/`movie` at +5…+9 dB. These are corpus counts, not audibility
+claims: firing means the taming rationale doesn't apply, not proven squash.
+And the default-on
 SoundWire `bass_enhancer` adds harmonics on top of an amp that now does real
 bass management — the second field report against that default (after issue
 #29; design-notes unvalidated-scaling entry 9).
