@@ -58,50 +58,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
-### Changed
-
-- **[AUDIBLE]** SoundWire presets are quieter and less mid-forward: two legacy
-  hardcoded boosts — an extra convolver output gain and an inflated
-  dialog-enhancer mapping with an added 4 kHz bell — are removed, as both
-  compensated an IEQ over-application bug fixed in v2026.05. Re-run the script
-  to regenerate; not yet heard on-device (SoundWire hardware pending,
-  [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29);
-  full why in docs/design-notes.md, unvalidated-scaling entries 1/3).
-
-### Added
-
-- The generation report now warns when the tuning's regulator never engages
-  (every band threshold at or above 0 dB) yet carries the volmax loudness
-  boost, since the boost then hits the final limiter untamed and can squash
-  loud content; the warning points at `--disable volmax`
-  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
-- Mark additional tested devices: ThinkPad E14 Gen 2 AMD
-  ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)),
-  Lenovo Yoga Pro 7 14APH8
-  ([#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30)),
-  ASUS TUF Gaming A15
-  ([#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34)),
-  Lenovo IdeaPad Pro 5 14IMH9
-  ([#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36)),
-  Lenovo IdeaPad Pro 5 14APH8
-  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
-- Old-kernel hint: when the running kernel series is more than 18 months old,
-  the end of a run, `--doctor`, and `--speaker-info` now say so and suggest a
-  newer kernel (backports/HWE) — speaker-amp fixes land kernel-side, and one
-  report's bad sound was fixed entirely by a kernel upgrade
-  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
-- `--speaker-info` now reports an amplifier-status section: per-amp driver bind,
-  a probed (not assumed) channel count, and driver-keyed firmware / kernel-log
-  evidence for both HDA and SoundWire smart amps. It flags the documented
-  Cirrus/TI/Realtek firmware-missing kernel-log signatures and otherwise points
-  you at the log to read yourself, to help diagnose silent or degraded speakers
-  (subsumes the TI firmware-gate view)
-  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
-- `--best-guess`: when auto-detection finds no exact hardware match, fall back
-  to the only internal-speaker tuning whose manufacturer is present (or list the
-  candidates to pass one as the XML path), so a laptop on an unmapped filename
-  convention can still generate a preset instead of erroring
-  ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26)).
+## v2026.07 — 2026-07-21
 
 ### Fixed
 
@@ -114,15 +71,58 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   analog audio controller's PCI subsystem instead of the GPU HDMI function's,
   which hid the machine SKU id on dual-controller AMD laptops
   ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
-- `--speaker-info` no longer doubles the SoundWire amplifier count (six mono
-  cs35l56 were reported as "12 speakers"); each enumerated amp is counted once,
-  with its channel count probed from the hardware
+- `--speaker-info` no longer doubles the SoundWire amplifier count in the
+  speaker-layout estimate; each enumerated amp is counted once, with its
+  channel count probed from the hardware
   ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
 - Auto-detection now finds the Dolby tuning on Cirrus cs35l56 SoundWire laptops
   (e.g. Samsung Galaxy Book6), which the old part-id match missed. No change for
   already-matched devices; re-run with `--autoload`
   ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26);
   why in `docs/cross-device-findings.md`).
+
+### Changed
+
+- **[AUDIBLE]** SoundWire presets are quieter and less mid-forward: two legacy
+  hardcoded boosts are removed, as both compensated an IEQ over-application
+  bug fixed in v2026.05. Re-run the script to regenerate; not yet heard
+  on-device (SoundWire hardware pending,
+  [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29);
+  full why in docs/design-notes.md, unvalidated-scaling entries 1/3).
+
+### Added
+
+- The generation report now warns when the tuning's regulator never engages
+  yet carries the volmax loudness boost, since the boost then hits the final
+  limiter untamed and can squash loud content; the warning points at
+  `--disable volmax`
+  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
+- Old-kernel hint: when the running kernel series is more than 18 months old,
+  the end of a run, `--doctor`, and `--speaker-info` now say so and suggest a
+  newer kernel (distro backports / HWE) — speaker-amp fixes land kernel-side,
+  and one report's bad sound was fixed entirely by a kernel upgrade
+  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
+- `--speaker-info` now reports an amplifier-status section — per-amp driver
+  bind, a probed channel count, and firmware / kernel-log evidence for both
+  HDA and SoundWire smart amps — to help diagnose silent or degraded speakers.
+  Known firmware-missing log signatures are flagged; otherwise it points you
+  at the log to read yourself
+  ([#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)).
+- `--best-guess`: when auto-detection finds no exact hardware match, fall back
+  to the only internal-speaker tuning whose manufacturer is present (or list the
+  candidates to pass one as the XML path), so a laptop on an unmapped filename
+  convention can still generate a preset instead of erroring
+  ([#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26)).
+- Mark additional tested devices: ThinkPad E14 Gen 2 AMD
+  ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)),
+  Lenovo Yoga Pro 7 14APH8
+  ([#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30)),
+  ASUS TUF Gaming A15
+  ([#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34)),
+  Lenovo IdeaPad Pro 5 14IMH9
+  ([#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36)),
+  Lenovo IdeaPad Pro 5 14APH8
+  ([#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33)).
 
 ### Docs
 
@@ -136,11 +136,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   full analysis in `docs/cross-device-findings.md`).
 - Research: the loud-bass dynamics gap vs Dolby (generated presets compressing
   loud bass less than DAX) is re-attributed to gain staging, not regulator
-  timing — re-analysis of the June captures falsified the release-timing
-  theory, and the v2026.06 `--volmax-slot input-gain` default already feeds
-  the dynamics the hotter signal; on-device re-measurement shows that narrows
-  but does not close the gap, leaving the band-limiter plugin realization as
-  the open lever
+  timing. The v2026.06 `--volmax-slot input-gain` default narrows but does not
+  close the gap on re-measurement, leaving the band-limiter realization as the
+  open lever
   ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
   evidence in `docs/design-notes.md`).
 
