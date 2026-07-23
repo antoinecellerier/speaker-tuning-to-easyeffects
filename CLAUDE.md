@@ -59,7 +59,7 @@ sessions shipped bugs that only showed on real content.
 
 - **Validate on device.** Measured ground truth (DAX captures + live-EE
   loopback) decides adoption. Offline analytical scoring (FIR magnitude,
-  `compare_ee_analytical.py`) is a *pre-screen* to narrow the variant set —
+  `tools/measure_ee/compare_ee_analytical.py`) is a *pre-screen* to narrow the variant set —
   never the deciding signal.
 - **Hand off audio first — IMPORTANT.** The measurement tooling mutes
   speakers, reroutes sinks, and swaps presets. YOU MUST ask the user to take
@@ -98,11 +98,10 @@ sessions shipped bugs that only showed on real content.
   `dolby_to_easyeffects.py` is closed, revert the flag and record the
   finding in design-notes — a permanent finding beats a permanent CLI
   surface. (Does not apply to the `tools/` measurement harness — keep that.)
-- **GitHub issue/PR comments:** draft for review first (sourced,
-  to-the-point, actionable), then post with the footer
-  `🤖 Generated with [Claude Code](https://claude.com/claude-code)` — same
-  as commits get `Co-Authored-By`. Cite commits by full unquoted SHA —
-  backticks suppress GitHub's auto-link (full over short for unambiguity).
+- **Issue triage & GitHub comments:** load the **/issue-replies** skill when
+  starting issue triage and before drafting any reply — the draft-for-review
+  flow, assertion/citation rules, and triage asks live there; don't post
+  without it.
 - **Comparison plots:** verify every curve is actually visible — set
   z-order, plot reference curves last with dashes / a distinct colour, and
   check both axis extremes. Hidden-curve bugs cause repeated re-render cycles.
@@ -126,10 +125,11 @@ users not running EE. **Stereo only.** Covers convolver / PEQ / dialog /
 MBC / regulator / limiter / autogain (LSP-backed) plus `bass_enhancer`
 (Calf-backed). Non-bypassed `autogain` (SoundWire) → LSP `autogain_stereo`
 (K-weighted LUFS AGC, validated EE-vs-PW on-device — design-notes);
-HDA-bypassed autogain is skipped silently. Not translated: 4-channel upmix. By default it copies the `.irs` beside the
-conf and emits a WirePlumber 0.5+ smart filter pinned to the auto-detected
-internal-speaker sink (`--target-sink` overrides; `''` reverts to a v1
-virtual sink), and auto-runs `validate_conf.py` (lv2info) unless
+HDA-bypassed autogain is skipped silently. Not translated: 4-channel upmix.
+By default it copies the `.irs` beside the conf and emits a WirePlumber 0.5+
+smart filter pinned to the auto-detected internal-speaker sink
+(`--target-sink` overrides; `''` reverts to a v1 virtual sink), and
+auto-runs `tools/measure_pw/validate_conf.py` (lv2info) unless
 `--no-validate`. Equivalence: `tools/measure_pw/`; detail: `docs/ee-to-pipewire.md`.
 
 Docs are layered (README "Further reading" links all): `docs/reference.md`
