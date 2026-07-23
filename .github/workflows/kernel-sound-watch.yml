@@ -1,0 +1,161 @@
+name: Kernel sound-tree watch
+
+# Weekly watcher for Takashi Iwai's sound.git pull tags (sound-X.Y-rcN,
+# sound-fix-X.Y-rcN, …). Each tag's annotation is the canonical pull-request
+# text Linus receives, so it's the highest-signal changelog for laptop audio
+# quirks. For every tag not seen before, this posts a comment on the
+# "kernel-sound-watch"-labeled tracking issue: watchlist grep hits
+# (.github/kernel-watchlist.txt) up top, full pull text folded below.
+# Judgment about whether a hit matters for an open issue stays with humans
+# (or a Claude session) reading the comment — nothing here needs an API key.
+#
+# State (which tags have been processed) lives in a machine-edited comment on
+# the tracking issue itself, marked <!-- kernel-watch-state -->. That keeps
+# the workflow at `issues: write` only — its token cannot touch repo
+# contents, so there is no writable branch to secure. First run bootstraps:
+# it records all currently-published tags (~500) and alerts on nothing, so
+# enabling the workflow never floods the issue with history.
+#
+# Tag listing uses git.kernel.org (authoritative); the per-tag fetch uses the
+# kernel.googlesource.com mirror because it honors partial-clone filters
+# (~100KB per fetch vs ~280MB from kernel.org, which ignores --filter). If
+# the mirror lags a fresh tag, the fetch fails and the tag is retried on the
+# next run — it is only marked seen after a successful post.
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'  # Mondays 06:23 UTC — pulls land ~weekly at most
+  workflow_dispatch:
+
+concurrency:
+  group: kernel-sound-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read  # checkout, for the watchlist file
+  issues: write   # create/comment on the tracking issue + edit the state comment
+
+env:
+  SOUND_GIT: https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git
+  FETCH_GIT: https://kernel.googlesource.com/pub/scm/linux/kernel/git/tiwai/sound
+  ISSUE_LABEL: kernel-sound-watch
+  WATCHLIST: .github/kernel-watchlist.txt
+  STATE_MARKER: "<!-- kernel-watch-state"
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Detect new sound tags
+        id: detect
+        run: |
+          git ls-remote --tags "$SOUND_GIT" 'sound-*' \
+            | awk '{print $2}' | grep -v '\^{}$' | sed 's|^refs/tags/||' \
+            | sort -u > current-tags.txt
+
+          num=$(gh issue list --label "$ISSUE_LABEL" --state open \
+                  --json number --jq '.[0].number // empty')
+          if [ -z "$num" ]; then
+            gh label create "$ISSUE_LABEL" \
+              --description "Automated watch of the kernel sound tree" \
+              --color 5319e7 || true
+            num=$(gh issue create \
+              --title "Kernel sound-tree watch" \
+              --label "$ISSUE_LABEL" \
+              --body "$(printf '%s\n' \
+                "Automated tracking issue: the kernel-sound-watch workflow posts one comment per new pull tag on [tiwai/sound.git](https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git), with grep hits against [the watchlist](https://github.com/$GITHUB_REPOSITORY/blob/master/.github/kernel-watchlist.txt) highlighted." \
+                "" \
+                "Keep the watchlist current when opening/closing device investigations (see CLAUDE.md). Close this issue to retire the watch (the workflow recreates it if it runs again). The pinned machine-written comment below is the workflow's state — leave it alone.")" \
+              | grep -oE '[0-9]+$')
+          fi
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+
+          sid=$(gh api "repos/$GITHUB_REPOSITORY/issues/$num/comments" --paginate \
+                  --jq ".[] | select(.user.login == \"github-actions[bot]\")
+                            | select(.body | contains(\"$STATE_MARKER\")) | .id" \
+                | head -n1)
+          echo "state_id=$sid" >> "$GITHUB_OUTPUT"
+          if [ -n "$sid" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$sid" --jq .body \
+              | tr -d '\r' \
+              | sed -n "/^$STATE_MARKER\$/,/^-->\$/p" | sed '1d;$d' \
+              | sort -u > seen-tags.txt
+          else
+            # Bootstrap: mark everything published so far as seen, alert on nothing.
+            cp current-tags.txt seen-tags.txt
+          fi
+
+          comm -13 seen-tags.txt current-tags.txt > new-tags.txt
+          : > posted-tags.txt
+          echo "count=$(wc -l < new-tags.txt)" >> "$GITHUB_OUTPUT"
+          echo "New tags:"; cat new-tags.txt
+
+      - name: Post one comment per new tag
+        if: steps.detect.outputs.count != '0'
+        env:
+          ISSUE_NUMBER: ${{ steps.detect.outputs.number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$WATCHLIST" > patterns.txt
+          git init -q soundtree
+          while IFS= read -r tag; do
+            # Tag annotation only — the mirror honors --filter, so this is tiny.
+            if ! git -C soundtree fetch -q --depth=1 --filter=tree:0 \
+                   "$FETCH_GIT" "+refs/tags/$tag:refs/tags/$tag"; then
+              echo "::warning::fetch failed for $tag (mirror lag?) — will retry next run"
+              continue
+            fi
+            git -C soundtree tag -l --format='%(contents)' "$tag" \
+              | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' > msg.txt
+            [ -s msg.txt ] || echo "(no tag annotation)" > msg.txt
+            hits=$(grep -i -F -f patterns.txt msg.txt || true)
+            {
+              echo "## New sound-tree tag: \`$tag\`"
+              echo
+              if [ -n "$hits" ]; then
+                echo "### :rotating_light: Watchlist hits — @$OWNER"
+                echo '```'
+                echo "$hits"
+                echo '```'
+              else
+                echo '_No watchlist hits._'
+              fi
+              echo
+              echo '<details><summary>Full pull-request text</summary>'
+              echo
+              echo '```'
+              cat msg.txt
+              echo '```'
+              echo '</details>'
+              echo
+              echo "_Posted by the kernel-sound-watch workflow. Terms: [\`$WATCHLIST\`](https://github.com/$GITHUB_REPOSITORY/blob/master/$WATCHLIST)._"
+            } > comment.md
+            gh issue comment "$ISSUE_NUMBER" --body-file comment.md
+            echo "$tag" >> posted-tags.txt
+          done < new-tags.txt
+
+      - name: Update state comment
+        if: steps.detect.outputs.count != '0' || steps.detect.outputs.state_id == ''
+        env:
+          ISSUE_NUMBER: ${{ steps.detect.outputs.number }}
+          STATE_ID: ${{ steps.detect.outputs.state_id }}
+        run: |
+          {
+            echo "Machine-written watch state — sound-tree tags already processed. Do not edit."
+            echo "$STATE_MARKER"
+            sort -u seen-tags.txt posted-tags.txt
+            echo "-->"
+          } > state.md
+          if [ -n "$STATE_ID" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$STATE_ID" \
+              -F body=@state.md > /dev/null
+          else
+            gh issue comment "$ISSUE_NUMBER" --body-file state.md
+          fi

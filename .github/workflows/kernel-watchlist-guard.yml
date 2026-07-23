@@ -1,0 +1,48 @@
+name: Kernel watchlist guard
+
+# Anti-drift check for .github/kernel-watchlist.txt: when an issue closes,
+# warn if the watchlist still ties grep terms to it via a "# watch: #NN …"
+# section header — otherwise the weekly kernel-sound-watch keeps grepping for
+# devices whose investigation ended. Headers marked "standing" are lessons
+# that outlive their issue and are exempt. The additions side of drift is
+# covered by a CLAUDE.md rule (triage sessions update the file), not by
+# automation — deciding what's watch-worthy takes judgment.
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Warn if the watchlist still references this issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          file=.github/kernel-watchlist.txt
+          # Header lines naming #N (word-boundary on the number), minus standing ones.
+          matches=$(grep -E "^#.*#${ISSUE_NUMBER}([^0-9]|$)" "$file" | grep -iv 'standing' || true)
+          [ -z "$matches" ] && exit 0
+          {
+            echo "@$OWNER — the kernel sound-tree watchlist (\`$file\`) still ties grep terms to this issue:"
+            echo
+            echo '```'
+            echo "$matches"
+            echo '```'
+            echo
+            echo "Since the issue is closed, either prune those entries or reword the header as \`# watch: standing — …\` if the lesson outlives the issue (see the file header and CLAUDE.md)."
+          } > comment.md
+          gh issue comment "$ISSUE_NUMBER" --body-file comment.md

@@ -1,0 +1,38 @@
+# Kernel sound-tree watchlist — grep terms for the weekly kernel-sound-watch
+# workflow (.github/workflows/kernel-sound-watch.yml), matched case-insensitively
+# as fixed strings against the pull-request text of each new tag on
+# https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git
+#
+# Format: lines starting with # are ignored; every other non-blank line is a
+# grep term. Section headers tie terms to their source:
+#   "# watch: #NN <device> …"  — tied to a GitHub issue; the kernel-watchlist-guard
+#                                workflow warns when #NN is closed while its
+#                                entries are still listed here
+#   "# watch: standing — …"    — lessons that outlive their issue (guard-exempt)
+# Keep this current when opening or closing a device investigation — see
+# CLAUDE.md "Repo etiquette".
+
+# watch: #29 Zenbook S14 — Lunar Lake SoundWire platform, CS35L56 amps
+zenbook
+lunar lake
+lnl
+cs35l56
+rt712
+
+# watch: #25 ThinkPad E14 — HDA Realtek, loudness/autogain crackle
+thinkpad
+
+# watch: standing — ALC287 speaker-path/amp-match regressions (#33 IdeaPad Pro 5 class)
+alc287
+ideapad
+
+# watch: standing — Samsung amp-firmware voicing lesson (#26/#27 Galaxy Book6 Ultra)
+galaxy book
+samsung
+
+# watch: standing — regression risk to confirmed-working devices on churning
+# kernel paths: ASUS TUF A15 (#34) rides AMD ACP (redesigned in 7.2); Zenbook
+# 14 UX3405 (#19/#24) saw adjacent-model quirks land this cycle
+asus tuf
+ux3405
+um3405

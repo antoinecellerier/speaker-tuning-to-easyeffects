@@ -83,6 +83,10 @@ sessions shipped bugs that only showed on real content.
 - **Check for existing CLIs before writing a parser/validator** (`lv2info`,
   `pw-cli`, `spa-json-dump`, `pactl`…). Wrap partial tools; only add custom
   logic for project-specific checks on top.
+- **Device-issue triage updates the kernel watchlist** — opening or closing
+  a device investigation → update `.github/kernel-watchlist.txt` in the same
+  commit (`# watch: #NN` headers; `standing` = outlives the issue). The
+  kernel-sound-watch workflow greps new sound-tree pull tags with it.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
