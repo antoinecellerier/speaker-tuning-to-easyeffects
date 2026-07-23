@@ -264,7 +264,13 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   system-wide trade-off the user opts into; the chain itself still adds
   zero latency over whatever quantum runs. Crackle can also originate
   below PipeWire entirely: the ROG Xbox Ally X (subsys 1043:1384) had
-  playback dropouts from a TAS2781 UEFI-calibration kernel bug, fixed in
-  6.19 / 6.18-stable by
-  [b7e26c8bdae70832d7c4b31ec2995b1812a60169](https://github.com/torvalds/linux/commit/b7e26c8bdae70832d7c4b31ec2995b1812a60169)
-  — rule the kernel out before tuning the graph.
+  playback dropouts tied to TAS2781 UEFI-calibration handling, first
+  quirked to skip the unit's calibration
+  ([b7e26c8bdae70832d7c4b31ec2995b1812a60169](https://github.com/torvalds/linux/commit/b7e26c8bdae70832d7c4b31ec2995b1812a60169),
+  still what vanilla 6.18-stable ships), later superseded in mainline by
+  TI's root-cause fix
+  ([05ac3846ffe5](https://github.com/torvalds/linux/commit/05ac3846ffe5))
+  which Valve backported into its SteamOS 6.16/6.18 kernels — so
+  calibration handling differs by kernel lineage (vanilla-stable skips
+  it, SteamOS/mainline apply it with the fix). Rule the kernel out
+  before tuning the graph.

@@ -71,9 +71,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 - Documented two independent crackle sources on the PipeWire filter-chain
   path: session quanta smaller than the validated 1024 are an untested regime
-  (with a `pw-metadata` isolation step), and the ROG Xbox Ally X has a
-  kernel-side playback-dropout bug fixed in 6.18-stable/6.19 that SteamOS
-  6.16-valve still lacks — rule the kernel out first
+  (with a `pw-metadata` isolation step), and the ROG Xbox Ally X has
+  kernel-side playback-dropout history whose amp-calibration handling differs
+  by kernel lineage (vanilla 6.18-stable skips the unit's calibration; SteamOS
+  and mainline apply it with TI's fix) — rule the kernel out first
   ([#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39);
   details in `docs/ee-to-pipewire.md`).
 
