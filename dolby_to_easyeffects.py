@@ -285,15 +285,19 @@ class SpeakerPin:
 class FirmwareGate:
     """A smart-amp firmware-load ALSA control that gates the speakers.
 
-    On laptops whose woofers run through a TI TAS2563/2781 smart amplifier,
-    the firmware does not auto-load and the amp stays muted until an ALSA
-    control ("Speaker Force Firmware Load") is switched on (issue #17). This
-    is a kernel/ALSA-side gate — nothing in the DAX XML hints at it — so the
-    preset can be perfect while the bass speakers are silent.
+    On some laptops whose woofers run through a TI TAS2563/2781 smart
+    amplifier, the firmware does not auto-load and the amp stays muted until
+    an ALSA control ("Speaker Force Firmware Load") is switched on (issue
+    #17). This is a kernel/ALSA-side gate — nothing in the DAX XML hints at
+    it — so the preset can be perfect while the bass speakers are silent.
+    On other devices the firmware auto-loads fine and flipping the gate is
+    an audible no-op (#39, ROG Xbox Ally X) — the warning stays because the
+    toggle is cheap and harmless, but it says so.
     """
     card_index: str      # ALSA card index, e.g. "0"
     card_id: str         # ALSA card short id, e.g. "sofhdadsp" (stable across boots)
     numid: str           # control numid, e.g. "3"
+    iface: str           # control iface, e.g. "CARD" (modern tas2781) or "MIXER"
     name: str            # control name, e.g. "Speaker Force Firmware Load"
     on: bool             # current state
 
@@ -499,32 +503,38 @@ def _detect_hda_speakers(info: SpeakerInfo):
 # expose (issue #17); the pattern is loosened to the "...Force Firmware Load"
 # family so sibling controls match too. Extend here if more turn up.
 _FIRMWARE_GATE_NAME_RE = re.compile(r"force firmware load", re.I)
-_AMIXER_CONTROL_HEAD_RE = re.compile(r"numid=(\d+),.*?name='([^']*)'")
+_AMIXER_CONTROL_HEAD_RE = re.compile(r"numid=(\d+),iface=(\w+),.*?name='([^']*)'")
 
 
-def parse_firmware_gate_controls(amixer_contents: str) -> list[tuple[str, str, bool]]:
+def parse_firmware_gate_controls(
+        amixer_contents: str) -> list[tuple[str, str, str, bool]]:
     """Extract firmware-load gate controls from ``amixer -c N contents`` text.
 
     Each control prints as a block:
 
-        numid=3,iface=MIXER,name='Speaker Force Firmware Load'
+        numid=3,iface=CARD,name='Speaker Force Firmware Load'
           ; type=BOOLEAN,access=rw------,values=1
           : values=off
 
-    Returns ``(numid, name, on)`` per name-matched control. Pure text parsing
-    so it can be unit-tested without hardware.
+    The iface must be captured, not assumed: modern tas2781 kernels expose
+    these as iface=CARD, and ``amixer cset name=…`` without an iface assumes
+    MIXER and fails with "Cannot find the given element" (issue #39, ROG
+    Xbox Ally X) — the fix command has to spell the iface out.
+
+    Returns ``(numid, iface, name, on)`` per name-matched control. Pure text
+    parsing so it can be unit-tested without hardware.
     """
-    gates: list[tuple[str, str, bool]] = []
+    gates: list[tuple[str, str, str, bool]] = []
     for block in re.split(r"(?=^numid=)", amixer_contents, flags=re.MULTILINE):
         head = _AMIXER_CONTROL_HEAD_RE.match(block)
         if not head:
             continue
-        numid, name = head.group(1), head.group(2)
+        numid, iface, name = head.group(1), head.group(2), head.group(3)
         if not _FIRMWARE_GATE_NAME_RE.search(name):
             continue
         val = re.search(r":\s*values=(\w+)", block)
         on = val is not None and val.group(1).lower() in ("on", "1", "true")
-        gates.append((numid, name, on))
+        gates.append((numid, iface, name, on))
     return gates
 
 
@@ -545,6 +555,7 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
     if demo:
         on = demo.strip().lower() in ("on", "1", "true")
         return [FirmwareGate(card_index="0", card_id="sofhdadsp", numid="3",
+                             iface="CARD",
                              name="Speaker Force Firmware Load", on=on)]
 
     gates: list[FirmwareGate] = []
@@ -564,9 +575,10 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
             return gates  # amixer not installed — nothing more to scan
         except subprocess.TimeoutExpired:
             continue
-        for numid, name, on in parse_firmware_gate_controls(result.stdout):
+        for numid, iface, name, on in parse_firmware_gate_controls(result.stdout):
             gates.append(FirmwareGate(
-                card_index=idx, card_id=card_id, numid=numid, name=name, on=on,
+                card_index=idx, card_id=card_id, numid=numid, iface=iface,
+                name=name, on=on,
             ))
     return gates
 
@@ -594,7 +606,16 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
     # state that alsa-restore.service replays at boot (the standard ALSA path).
     cprint("dim", "1. Enable it now (no root needed) and listen for the bass to return:")
     for g in off:
-        cprint("cta", f"     amixer -c {g.card_id} cset name='{g.name}' on")
+        # iface= is load-bearing: these are iface=CARD controls on modern
+        # kernels, and a bare name= means iface=MIXER to amixer → "Cannot
+        # find the given element" (issue #39). Double-quote the identifier
+        # so the inner 'name' quotes reach amixer's parser — that form also
+        # survives control names containing commas.
+        cprint("cta", f"     amixer -c {g.card_id} cset "
+                      f"\"iface={g.iface},name='{g.name}'\" on")
+    print()
+    cprint("dim", "   No audible change? Then the amp firmware was already active and")
+    cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
     print()
     cprint("dim", "2. If that worked, persist it across reboots — saves the ALSA state")
     cprint("dim", "   that alsa-restore replays at boot:")
@@ -605,9 +626,13 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> None:
     cprint("dim", "   runs the amixer command above at login.)")
     print()
     cprint("dim", "3. Self-check — confirm the control stuck and the firmware loaded:")
-    cprint("cta", f"     amixer -c {g0.card_id} cget name='{g0.name}'")
+    cprint("cta", f"     amixer -c {g0.card_id} cget "
+                  f"\"iface={g0.iface},name='{g0.name}'\"")
+    # No ".bin" suffix in the glob: distros may ship the blobs compressed
+    # (TAS2XXX….bin.zst on SteamOS — the kernel decompresses transparently)
+    # and the narrower pattern would report them "missing" (#39).
     cprint("cta", "     journalctl -k -b | grep -iE 'tas2|firmware'")
-    cprint("cta", "     ls -l /lib/firmware/TAS2*.bin")
+    cprint("cta", "     ls -l /lib/firmware/TAS2*")
     cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
     print()
     cprint("dim", "   Still no bass, and the log shows 'Direct firmware load for")

@@ -58,6 +58,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Fixed
+
+- The smart-amp firmware-gate fix command printed at the end of a run now
+  works on current kernels: it spells out `iface=CARD`, which modern tas2781
+  drivers require (the old form failed with "Cannot find the given element").
+  The firmware self-check also finds compressed `.bin.zst` blobs now, and the
+  hint says what it means if toggling the gate changes nothing
+  ([#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39)).
+
 ### Docs
 
 - Documented two independent crackle sources on the PipeWire filter-chain

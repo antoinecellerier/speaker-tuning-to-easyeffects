@@ -477,12 +477,14 @@ def test_ee_autodetect_none(monkeypatch):
 # ``amixer -c N contents`` text into gate records; the detector wraps it with
 # the card scan; the warning is what the user actually sees.
 
-# A realistic `amixer -c N contents` excerpt with the gate among other controls.
+# A realistic `amixer -c N contents` excerpt with the gate among other
+# controls. The gate is iface=CARD (as modern tas2781 kernels expose it —
+# issue #39) while its neighbours stay iface=MIXER.
 SAMPLE_AMIXER_CONTENTS = """\
 numid=1,iface=MIXER,name='Master Playback Volume'
   ; type=INTEGER,access=rw---R--,values=1,min=0,max=87,step=0
   : values=87
-numid=3,iface=MIXER,name='Speaker Force Firmware Load'
+numid=3,iface=CARD,name='Speaker Force Firmware Load'
   ; type=BOOLEAN,access=rw------,values=1
   : values=off
 numid=4,iface=MIXER,name='Headphone Playback Switch'
@@ -493,7 +495,7 @@ numid=4,iface=MIXER,name='Headphone Playback Switch'
 
 def test_parse_firmware_gate_among_other_controls():
     assert d.parse_firmware_gate_controls(SAMPLE_AMIXER_CONTENTS) == [
-        ("3", "Speaker Force Firmware Load", False)
+        ("3", "CARD", "Speaker Force Firmware Load", False)
     ]
 
 
@@ -501,13 +503,15 @@ def test_parse_firmware_gate_among_other_controls():
     ("off", False), ("on", True), ("0", False), ("1", True),
 ])
 def test_parse_firmware_gate_value(value, expected_on):
+    # iface=MIXER here on purpose: older kernels exposed the gate that way,
+    # and the parser must carry whichever iface it saw into the fix command.
     text = (
         "numid=3,iface=MIXER,name='Speaker Force Firmware Load'\n"
         "  ; type=BOOLEAN,access=rw------,values=1\n"
         f"  : values={value}\n"
     )
     assert d.parse_firmware_gate_controls(text) == [
-        ("3", "Speaker Force Firmware Load", expected_on)
+        ("3", "MIXER", "Speaker Force Firmware Load", expected_on)
     ]
 
 
@@ -541,7 +545,7 @@ def test_detect_firmware_gates_demo_env(monkeypatch, value, expected_on):
 
 def _gate(on):
     return d.FirmwareGate(
-        card_index="0", card_id="sofhdadsp", numid="3",
+        card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",
         name="Speaker Force Firmware Load", on=on,
     )
 
@@ -550,12 +554,19 @@ def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
     monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
     d.warn_speaker_firmware_gate([_gate(on=False)])
     out = capsys.readouterr().out
-    assert "amixer -c sofhdadsp cset name='Speaker Force Firmware Load' on" in out
+    # iface= must be spelled out — bare name= means iface=MIXER to amixer and
+    # fails on the iface=CARD gates modern kernels expose (#39 regression).
+    # Double-quoted identifier with inner name quotes: verified against a
+    # real iface=CARD control; also survives comma-containing names.
+    assert ("amixer -c sofhdadsp cset "
+            "\"iface=CARD,name='Speaker Force Firmware Load'\" on") in out
     assert "sudo alsactl store" in out  # one-liner persistence
     # self-check commands: control state, kernel log, firmware blob presence
-    assert "cget name='Speaker Force Firmware Load'" in out
+    assert "cget \"iface=CARD,name='Speaker Force Firmware Load'\"" in out
     assert "journalctl -k" in out
-    assert "/lib/firmware/TAS2" in out
+    # unsuffixed glob: SteamOS ships the blobs as TAS2XXX….bin.zst (#39)
+    assert "ls -l /lib/firmware/TAS2*" in out
+    assert "/lib/firmware/TAS2*.bin" not in out
     assert "TAS2" in out          # names the amp / firmware blob
     assert "#17" in out           # firmware-specific feedback ask (dim, not a CTA)
 
@@ -750,7 +761,7 @@ def test_amp_status_lines_unbound_is_neutral():
 def test_amp_status_lines_includes_firmware_gate_off():
     info = d.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
-    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3",
+    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=False)]
     assert any("Force Firmware Load" in l and "OFF" in l
                for l in d._amp_status_lines(info))
