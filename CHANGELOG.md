@@ -58,6 +58,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Docs
+
+- Documented two independent crackle sources on the PipeWire filter-chain
+  path: session quanta smaller than the validated 1024 are an untested regime
+  (with a `pw-metadata` isolation step), and the ROG Xbox Ally X has a
+  kernel-side playback-dropout bug fixed in 6.18-stable/6.19 that SteamOS
+  6.16-valve still lacks — rule the kernel out first
+  ([#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39);
+  details in `docs/ee-to-pipewire.md`).
+
 ## v2026.07 — 2026-07-21
 
 ### Fixed

@@ -251,3 +251,20 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
 - **No `--launch` flag.** PipeWire's standard reload path is
   `systemctl --user restart pipewire pipewire-pulse`; the script
   prints that as a "[next]" line and lets the user run it.
+- **Small-quantum systems under load are an unvalidated regime.** The
+  conf pins no quantum/latency properties — the chain runs at whatever
+  quantum the session picked. Perf validation to date is a laptop APU at
+  48 kHz / 1024 quantum, xrun-free (`tools/measure_perf/README.md`
+  reference numbers); a handheld APU running a game at a smaller
+  session quantum is untested, and one Ally X tester hit
+  crackling with `spa.audioconvert: out of buffers` in the log
+  (issue #39). To isolate DSP load, temporarily pin a larger quantum —
+  `pw-metadata -n settings 0 clock.force-quantum 1024` (revert with
+  value `0`). That raises the whole session's base latency, a
+  system-wide trade-off the user opts into; the chain itself still adds
+  zero latency over whatever quantum runs. Crackle can also originate
+  below PipeWire entirely: the ROG Xbox Ally X (subsys 1043:1384) had
+  playback dropouts from a TAS2781 UEFI-calibration kernel bug, fixed in
+  6.19 / 6.18-stable by
+  [b7e26c8bdae70832d7c4b31ec2995b1812a60169](https://github.com/torvalds/linux/commit/b7e26c8bdae70832d7c4b31ec2995b1812a60169)
+  — rule the kernel out before tuning the graph.
