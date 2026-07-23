@@ -101,7 +101,6 @@ jobs:
         if: steps.detect.outputs.count != '0'
         env:
           ISSUE_NUMBER: ${{ steps.detect.outputs.number }}
-          OWNER: ${{ github.repository_owner }}
         run: |
           grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$WATCHLIST" > patterns.txt
           git init -q soundtree
@@ -117,10 +116,12 @@ jobs:
             [ -s msg.txt ] || echo "(no tag annotation)" > msg.txt
             hits=$(grep -i -F -f patterns.txt msg.txt || true)
             {
-              echo "## New sound-tree tag: \`$tag\`"
+              echo "## New sound-tree tag: [\`$tag\`]($SOUND_GIT/tag/?h=$tag)"
+              echo
+              echo "[Tag + pull text]($SOUND_GIT/tag/?h=$tag) · [commit log]($SOUND_GIT/log/?h=$tag) · [lore thread](https://lore.kernel.org/lkml/?q=$tag)"
               echo
               if [ -n "$hits" ]; then
-                echo "### :rotating_light: Watchlist hits — @$OWNER"
+                echo '### :rotating_light: Watchlist hits'
                 echo '```'
                 echo "$hits"
                 echo '```'
