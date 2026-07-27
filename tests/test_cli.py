@@ -25,6 +25,7 @@ import pytest
 import dolby_to_easyeffects
 from dolby_to_easyeffects import (
     DISABLEABLE_FILTERS,
+    ENABLEABLE_FILTERS,
     DOLBY_FILENAME_RE,
     autoprobe_dolby_source,
     find_tuning_xml,
@@ -117,6 +118,43 @@ def test_disable_dialog_drops_dialog_enhancer():
     assert "equalizer#1" not in preset["output"]
     assert "equalizer#0" in preset["output"]
     assert "dialog" not in emitted
+
+
+def test_enable_choices_match_documented_set():
+    """Mirror of the --disable sanity check: --enable's argparse choices
+    ARE ENABLEABLE_FILTERS."""
+    assert set(ENABLEABLE_FILTERS) == {"autogain"}
+
+
+def test_enable_autogain_activates_leveler():
+    """--enable autogain (make_preset enabled={"autogain"}) activates
+    the HDA leveler; default builds keep it bypassed with the -50 dB
+    gate stored so manual GUI enabling gets the issue #25 crackle fix.
+    A bypassed emission is marked in `emitted` (the --enable hint);
+    an active one isn't."""
+    preset, emitted = _build()
+    assert preset["output"]["autogain#0"]["bypass"] is True
+    assert preset["output"]["autogain#0"]["silence-threshold"] == -50.0
+    assert "autogain" in emitted
+    preset_on, emitted_on = _build(enabled={"autogain"})
+    assert preset_on["output"]["autogain#0"]["bypass"] is False
+    assert preset_on["output"]["autogain#0"]["silence-threshold"] == -50.0
+    assert "autogain" not in emitted_on
+    # The marker main() uses to tell "the flag worked" from "the XML's
+    # leveler is disabled, so --enable autogain could not do anything".
+    assert "autogain-active" in emitted_on
+    assert "autogain-active" not in emitted
+
+
+def test_enable_autogain_marker_absent_when_leveler_disabled():
+    """An XML whose volume leveler is disabled emits no autogain stage at
+    all, so --enable can't activate anything — main() warns off the
+    missing marker rather than leaving the flag silently inert."""
+    off = {"enable": False, "amount": 5, "out_target": -16.0}
+    preset, emitted = _build(enabled={"autogain"}, vol_leveler=off)
+    assert "autogain#0" not in preset["output"]
+    assert "autogain-active" not in emitted
+    assert "autogain" not in emitted
 
 
 def test_no_stereo_widener_ever_emitted():

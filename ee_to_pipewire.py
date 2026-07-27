@@ -8,7 +8,8 @@ Scope (see docs/ee-to-pipewire.md for full detail):
     bass_enhancer and stereo_tools are translated (Calf-backed).
   - autogain (EE-native libebur128 volume leveler) → LSP autogain_stereo,
     a K-weighted loudness AGC. Bypassed instances (the HDA default) are
-    skipped silently; active ones (SoundWire) are translated.
+    skipped silently; active ones (SoundWire, or HDA with
+    --enable autogain) are translated.
   - Stereo only; no 4-channel upmix. By default the conf is a
     WirePlumber 0.5+ smart filter pinned to the auto-detected
     internal-speaker sink (--target-sink overrides; '' gives a plain
@@ -512,6 +513,10 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # allows.
 AUTOGAIN_FALL_MS_PER_S = 200.0
 AUTOGAIN_GROW_MS_PER_S = 500.0
+# The history the scales above were fitted and on-device-validated at (the
+# SoundWire path's value). Shorter windows — HDA with --enable autogain —
+# extrapolate; emit_autogain warns rather than claiming equivalence.
+AUTOGAIN_VALIDATED_HISTORY_S = 20.0
 
 
 def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
@@ -519,8 +524,9 @@ def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
 
     EE's autogain is native libebur128 (EBU R 128, K-weighted). autogain_stereo
     is the LV2 equivalent: a K-weighted loudness AGC. The EE block is derived
-    from Dolby's volume leveler and is emitted active only on SoundWire devices
-    (bypassed-by-design on HDA, where build_chain skips it).
+    from Dolby's volume leveler and is emitted active on SoundWire devices
+    and on HDA presets generated with --enable autogain (bypassed-by-default
+    on HDA, where build_chain skips it).
 
     Port-unit note: `level`/`silence` are dB-domain (LUFS / dBFS) values passed
     **directly** — NOT linear gains, so no db_to_lin (contrast emit_limiter's
@@ -533,6 +539,20 @@ def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
         return None
 
     history_s = float(plugin.get("maximum-history", 0.0))
+    # The scales were fitted at the SoundWire history (20 s). HDA presets
+    # built with --enable autogain reach here with a shorter window (10 s at
+    # volume-leveler-amount>=4), which extrapolates below the validated point
+    # — the ride is then ~2x faster than at 20 s, and EE-vs-PW equivalence
+    # has not been re-measured there.
+    if history_s < AUTOGAIN_VALIDATED_HISTORY_S:
+        cprint("warn",
+               f"autogain: maximum-history {history_s:g} s is below the "
+               f"{AUTOGAIN_VALIDATED_HISTORY_S:g} s at which the gain-ride "
+               "mapping was validated;")
+        cprint("warn",
+               "  the PipeWire leveler may ride faster than EasyEffects' on "
+               "this preset. Compare with tools/measure_pw/ before relying "
+               "on equivalence.")
     grow_ms = _clamp(history_s * AUTOGAIN_GROW_MS_PER_S, 10.0, 10000.0)
     fall_ms = _clamp(history_s * AUTOGAIN_FALL_MS_PER_S, 10.0, 10000.0)
     control = {
@@ -654,7 +674,7 @@ class PluginHandler:
     `skip_warning`. `silent_if_bypassed=True` suppresses the bypass-skip
     warning when the source plugin is bypassed — used for autogain, whose
     bypassed state is the HDA default (the user shouldn't be nagged); when
-    active (SoundWire) it is translated normally.
+    active (SoundWire, or --enable autogain) it is translated normally.
     """
     emitter: Callable[..., "Stage | None"] | None
     args: tuple = ()
@@ -673,8 +693,9 @@ EE_KEY_DISPATCH: dict[str, PluginHandler] = {
     "stereo_tools#0":         PluginHandler(emit_stereo_tools, ("stereo",)),
     # EE's autogain (native libebur128 volume leveler) → LSP autogain_stereo,
     # a K-weighted loudness AGC (see emit_autogain). silent_if_bypassed keeps
-    # the bypass-skip quiet on HDA, where bypass is the expected default; on
-    # SoundWire the block is active and now gets translated rather than dropped.
+    # the bypass-skip quiet on HDA, where bypass is the expected default;
+    # active blocks (SoundWire, or --enable autogain) get translated rather
+    # than dropped.
     "autogain#0": PluginHandler(emit_autogain, silent_if_bypassed=True),
 }
 

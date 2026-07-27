@@ -115,8 +115,9 @@ pip install -r requirements.txt
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
-- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `stereo`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
+- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue #23); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling filters](#disabling-filters).
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain` — the volume leveler; recovers most of the loudness gap vs Windows on HDA devices, at some saturation risk on quiet-background content. See [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet).
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
 
@@ -150,7 +151,7 @@ A normal generation run also warns at the end if it detects an EasyEffects versi
 
 If the preset sounds right but quieter than Windows, part of the gap is expected: Dolby's dynamic volume leveler ships bypassed here because without Dolby's content analysis it distorts on quiet→loud transitions ([why](docs/design-notes.md#why-autogain-is-bypassed-by-default)). What to try, in order:
 
-- **Enable the Autogain step** in EasyEffects — the preset ships it configured but bypassed. If notifications or other sounds arriving after silence then crackle, raise its *Silence threshold* to about −50 dB; for still more loudness raise *Target* a few dB, at increased saturation risk.
+- **Re-run the script with `--enable autogain`** — the volume leveler ships bypassed by default and carries most of the loudness gap (~+9 dB measured on program material). The trade-off: without Dolby's content analysis it can audibly saturate when loud sound arrives over a quiet background (why it isn't the default); if you hear that, drop the flag again. For still more loudness raise the Autogain *Target* a few dB in the EasyEffects GUI, at increased saturation risk. If you instead enable Autogain by hand on a preset generated before this option existed, also raise its *Silence threshold* to about −50 dB, or sounds arriving after silence will crackle.
 - **Allow volume above 100%** in your desktop environment: GNOME — `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`; KDE Plasma — volume applet settings → *Raise maximum volume*; any environment — `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.25`, or pavucontrol. Over-amplification is digital gain applied after the preset's limiter, so extreme values can clip.
 - **Check mixer levels** — in `alsamixer`, Master/PCM/Speaker at 100%.
 - On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling filters](#disabling-filters).
@@ -218,7 +219,7 @@ systemctl --user restart pipewire pipewire-pulse
 pw-cli ls Node | grep Dolby_Balanced
 ```
 
-The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; `autogain` and 4-channel upmix aren't translated (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
+The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
 
 - **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once.
 - **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
@@ -253,7 +254,7 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 
 The two paths sound the same ([measured equivalent](docs/ee-to-pipewire.md#equivalence-to-the-ee-chain)) — choose on everything else:
 
-- **Features → EasyEffects.** A GUI to tweak and switch presets live. The volume-leveler / `autogain` (EE-native libebur128) is now translated on the PW side too, to LSP `autogain_stereo` (a K-weighted LUFS AGC) — so it's no longer an EE-only stage. It only ever runs on SoundWire devices anyway; on HDA the generator deliberately leaves autogain bypassed, because enabling its loudness boost there can clip.
+- **Features → EasyEffects.** A GUI to tweak and switch presets live. The volume-leveler / `autogain` (EE-native libebur128) is now translated on the PW side too, to LSP `autogain_stereo` (a K-weighted LUFS AGC) — so it's no longer an EE-only stage. It runs by default on SoundWire devices; on HDA the generator leaves autogain bypassed unless you pass `--enable autogain`, because its loudness boost can audibly saturate on quiet-background content ([why](docs/design-notes.md#why-autogain-is-bypassed-by-default)).
 - **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra daemon. On the development device (X1 Yoga, `Dolby-Balanced`, 48 kHz) the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** (~78 MB vs ~270 MB — the EasyEffects process is mostly Qt/GUI) than running EasyEffects. Both are light in absolute terms — the DSP is roughly a tenth of one CPU core (well under 1 % of a typical multi-core laptop) — so the memory and feature differences usually matter more than the CPU one.
 - **Latency → a wash.** Both add zero latency over the PipeWire quantum (minimum-phase FIR), and both ran xrun-free at 1024/48 kHz.
 

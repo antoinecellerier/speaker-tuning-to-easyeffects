@@ -96,8 +96,8 @@ sessions shipped bugs that only showed on real content.
   how to word it: `.claude/rules/changelog.md`.
 - **Investigation flags are scaffolding.** Once a hypothesis on
   `dolby_to_easyeffects.py` is closed, revert the flag and record the
-  finding in design-notes — a permanent finding beats a permanent CLI
-  surface. (Does not apply to the `tools/` measurement harness — keep that.)
+  finding in design-notes. Exceptions: a user-facing opt-in the finding
+  justifies (`--enable autogain`), and the `tools/` measurement harness.
 - **Issue triage & GitHub comments:** load the **/issue-replies** skill when
   starting issue triage and before drafting any reply — the draft-for-review
   flow, assertion/citation rules, and triage asks live there; don't post
@@ -121,16 +121,10 @@ sessions shipped bugs that only showed on real content.
 ## ee_to_pipewire.py — companion converter
 
 Turns the generated EE preset into a PipeWire `filter-chain` `.conf` for
-users not running EE. **Stereo only.** Covers convolver / PEQ / dialog /
-MBC / regulator / limiter / autogain (LSP-backed) plus `bass_enhancer`
-(Calf-backed). Non-bypassed `autogain` (SoundWire) → LSP `autogain_stereo`
-(K-weighted LUFS AGC, validated EE-vs-PW on-device — design-notes);
-HDA-bypassed autogain is skipped silently. Not translated: 4-channel upmix.
-By default it copies the `.irs` beside the conf and emits a WirePlumber 0.5+
-smart filter pinned to the auto-detected internal-speaker sink
-(`--target-sink` overrides; `''` reverts to a v1 virtual sink), and
-auto-runs `tools/measure_pw/validate_conf.py` (lv2info) unless
-`--no-validate`. Equivalence: `tools/measure_pw/`; detail: `docs/ee-to-pipewire.md`.
+users not running EE. **Stereo only**; 4-channel upmix isn't translated.
+It pins a WirePlumber 0.5+ smart filter to the internal-speaker sink and
+self-validates via `lv2info` — keep both defaults on. Plugin coverage
+(incl. autogain), routing, and flags: `docs/ee-to-pipewire.md`.
 
 Docs are layered (README "Further reading" links all): `docs/reference.md`
 = current-state reference (mappings, plugin chain, units, not-implemented);

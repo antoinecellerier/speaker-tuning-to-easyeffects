@@ -58,6 +58,18 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- New `--enable autogain` flag activates the volume leveler for
+  Windows-level loudness on HDA devices, where it ships bypassed — an
+  on-device attempt to flip the default found its gain ride audibly
+  saturates quiet-background content, so it stays opt-in. Enabling the
+  leveler (by flag or in the EasyEffects GUI) now also gets a raised
+  silence gate that fixes the crackle on short sounds arriving after
+  silence; re-run the script to regenerate
+  ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
+  measurements in `docs/design-notes.md`).
+
 ### Fixed
 
 - The smart-amp firmware-gate fix command printed at the end of a run now

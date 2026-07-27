@@ -511,6 +511,16 @@ def test_emit_autogain_boost_slower_than_attenuation():
     assert control["tgrow_l"] >= control["tfall_l"]
 
 
+def test_emit_autogain_warns_below_validated_history(capsys):
+    """The gain-ride scales were fitted at 20 s (SoundWire). An HDA preset
+    built with --enable autogain arrives at 10 s, which extrapolates — say
+    so rather than implying the measured EE/PW equivalence still holds."""
+    emit_autogain(_active_autogain(**{"maximum-history": 10.0}))
+    assert "maximum-history" in capsys.readouterr().err
+    emit_autogain(_active_autogain(**{"maximum-history": 20.0}))
+    assert capsys.readouterr().err == ""
+
+
 def test_emit_autogain_controls_within_lv2_ranges():
     """Every emitted control symbol must lie within autogain_stereo's
     lv2info-declared bounds (validate_conf enforces this at the conf level;
@@ -699,6 +709,37 @@ def test_regulator_distinct_from_mbc(generated):
     node_names = {n["name"] for s in chain.stages for n in s.nodes}
     assert "mbc" in node_names
     assert "reg" in node_names
+
+
+def test_default_hda_autogain_skips_silently(generated):
+    """The default HDA preset carries a bypassed leveler; the PW
+    converter must skip it without emitting a node or a warning (bypass
+    is the expected default there, not a translation gap)."""
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    node_names = {n["name"] for s in chain.stages for n in s.nodes}
+    assert "autogain" not in node_names
+    assert not [w for w in chain.warnings if "autogain" in w]
+
+
+def test_enable_autogain_preset_chain_emits_autogain(tmp_path):
+    """A preset built with --enable autogain carries an active leveler;
+    the PW chain must carry it — with the EE target and the -50 dB
+    silence gate passed through as dB-domain ports (issue #25)."""
+    preset, _ = make_preset(
+        kernel_name="Synthetic",
+        peq_filters=[],
+        vol_leveler={"enable": True, "amount": 5, "out_target": -16.0},
+        freqs=SYNTHETIC_FREQS_20,
+        enabled={"autogain"},
+    )
+    chain = build_chain(preset, tmp_path, must_exist=False)
+    autogain_nodes = [n for s in chain.stages for n in s.nodes
+                      if n["name"] == "autogain"]
+    assert len(autogain_nodes) == 1
+    control = autogain_nodes[0]["control"]
+    assert control["level"] == -16.0
+    assert control["silence"] == -50.0
 
 
 def test_limiter_threshold_round_trips(generated):

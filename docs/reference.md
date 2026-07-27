@@ -50,7 +50,7 @@ enhancer is SoundWire-only):
 | 2 | **Bass Enhancer** (Calf) | IEQ-only SoundWire curve | Harmonic bass restoration on SoundWire speakers; **SoundWire-only** |
 | 3 | **Equalizer** | `speaker-peq-filters` | 4th-order high-pass at 100 Hz (speaker protection) + per-channel PEQ bells/shelves/HP-LP |
 | 4 | **Dialog Enhancer** | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz (2nd equalizer instance); on most profiles except music |
-| 5 | **Autogain** | `volume-leveler-*` | Volume leveler; **bypassed by default** (see below). Placed before the compressor to match Dolby's CP→VLLDP flow |
+| 5 | **Autogain** | `volume-leveler-*` | Volume leveler; **bypassed by default on HDA** (`--enable autogain` opts in; active on SoundWire — see below). Placed before the compressor to match Dolby's CP→VLLDP flow |
 | 6 | **Multiband Compressor** | `mb-compressor-tuning` | 1–4 bands of dynamics processing per `group_count` |
 | 7 | **Regulator** | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter (2nd MBC instance); default slot for `volmax-boost` is `input-gain` (≈+6 dB, pre-band-limiting). `--volmax-slot output-gain` moves the boost post-band-limiting (opt-out, see below) |
 | 8 | **Limiter** | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS safety net; fallback slot for `volmax-boost` when the regulator isn't emitted |
@@ -78,13 +78,22 @@ biquad fit: design-notes "Rejected approaches → Parametric-EQ approximation"
 (with the peak/RMS error table). The `.irs` files are RIFF/WAVE (IEEE
 float32, stereo, 48 kHz, 4096 samples).
 
-**Volume leveler → Autogain.** Maps to EE's EBU R 128 autogain but is
-**bypassed by default**: without Dolby's MI (Media Intelligence) content
-steering it distorts on quiet→loud transitions. Settings are preserved so
-users can enable it.
-- `volume-leveler-in/out-target` -320 (1/16 dB = -20 dBFS) → -20 LUFS target.
-- `volume-leveler-amount` (0–10) → `maximum-history` window (0 → 30 s gentle,
-  4+ → 10 s aggressive).
+**Volume leveler → Autogain.** Maps to EE's EBU R 128 autogain. On HDA it
+ships **bypassed** (`--enable autogain` opts in): without Dolby's MI (Media
+Intelligence) content steering it boosts legitimate quiet content and loud
+onsets saturate (measured; design-notes "The 2026-07 default-flip
+attempt"). On SoundWire it ships active with gentler settings. Settings are
+always preserved so users can toggle it in the GUI.
+- `volume-leveler-out-target` -320 (1/16 dB = -20 dBFS) → -20 LUFS target;
+  the SoundWire path subtracts a further 6 dB of safety headroom (invented,
+  design-notes entry 10).
+- `volume-leveler-amount` (0–10) → `maximum-history` window. HDA:
+  `max(30 − 5·amount, 10)` s; SoundWire: `max(40 − 4·amount, 15)` s (both
+  formulas invented, design-notes entry 7).
+- `silence-threshold` = -50 dB on both paths — invented but field-confirmed
+  (issue #25) and capture-measured: it stops the leveler winding up its gain
+  over near-silence, which crackled short notification sounds at EE's -70 dB
+  plugin default.
 - autogain `reference` = Geometric Mean (MSI) — combines momentary,
   short-term, and integrated loudness for balanced behaviour.
 
@@ -163,10 +172,13 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   (design-notes Finding 9, issue #13); the min-phase FIR realises the
   composite target to <0.1 dB RMS (synthetic LTI check).
 - **Unvalidated (the "`ieq-amount` class"):** the dialog-enhancer dB ceiling,
-  the surround `/20`, the regulator slope/knee mappings, and the MBC Q15
-  decode all ship by default but are **not yet confirmed against a DAX
-  capture**. Each, with the measurement that would validate it, is
-  catalogued in design-notes "Unvalidated converter scaling factors".
+  the surround `/20`, the regulator slope/knee mappings, the MBC Q15
+  decode, and the autogain window formulas and offsets (design-notes
+  entries 7/10; the −50 dB silence gate within them *is* field-confirmed
+  and capture-measured — issue #25) all ship by default but are **not yet
+  confirmed against a DAX capture**. Each, with the measurement that would
+  validate it, is catalogued in design-notes "Unvalidated converter scaling
+  factors".
 
 ## Not implemented (and why)
 

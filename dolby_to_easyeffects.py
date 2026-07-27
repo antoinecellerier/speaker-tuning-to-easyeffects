@@ -3592,7 +3592,8 @@ def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
 
 
 def make_autogain(vol_leveler: dict | None,
-                  conservative: bool = False) -> dict | None:
+                  conservative: bool = False,
+                  enabled: bool = False) -> dict | None:
     """Autogain plugin mapping from Dolby volume leveler.
 
     The Dolby volume leveler brings quiet passages up to a target loudness.
@@ -3602,13 +3603,18 @@ def make_autogain(vol_leveler: dict | None,
       0 = gentle (long history window)
       10 = aggressive (short history window)
 
-    For HDA presets: bypassed by default because the convolver's steep
-    spectral shape (IEQ + audio-optimizer) creates ~10 dB peak-to-LUFS
-    mismatch that causes distortion without Dolby's MI steering.
+    For HDA presets: bypassed by default. EE's leveler has no equivalent
+    of Dolby's MI steering: it boosts legitimate quiet content (a low
+    background under intermittent speech, ~+14 dB measured) and each loud
+    onset then rides ~4 dB of overshoot into the downstream dynamics —
+    audible saturation, measured independent of `maximum-history`
+    (design-notes). `--enable autogain` (enabled=True) opts in for the
+    ~+9 dB program loudness it brings (issue #25). Either way the silence
+    gate ships at -50 dB — the #25 field-confirmed fix for crackle on
+    short sounds arriving after silence — so manual GUI enabling is safe.
 
-    For SoundWire presets (conservative=True): enabled with gentle settings.
-    The simpler spectral shape (IEQ only, no AO correction) has much less
-    peak-to-LUFS mismatch, so conservative autogain is safe.
+    For SoundWire presets (conservative=True): active with gentler
+    settings — a -6 dB target offset and a longer history window.
     """
     if not vol_leveler or not vol_leveler["enable"]:
         return None
@@ -3618,24 +3624,16 @@ def make_autogain(vol_leveler: dict | None,
 
     if conservative:
         max_history = max(40 - amount * 4, 15)
-        return {
-            "bypass": False,
-            "input-gain": 0.0,
-            "output-gain": 0.0,
-            "maximum-history": max_history,
-            "reference": "Geometric Mean (MSI)",
-            "silence-threshold": -50.0,
-            "target": round(target - 6.0, 1),
-        }
-
-    max_history = max(30 - amount * 5, 10)
+        target -= 6.0
+    else:
+        max_history = max(30 - amount * 5, 10)
     return {
-        "bypass": True,
+        "bypass": not (conservative or enabled),
         "input-gain": 0.0,
         "output-gain": 0.0,
         "maximum-history": max_history,
         "reference": "Geometric Mean (MSI)",
-        "silence-threshold": -70.0,
+        "silence-threshold": -50.0,
         "target": round(target, 1),
     }
 
@@ -4118,6 +4116,16 @@ DISABLEABLE_FILTERS = {
                 "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
 }
 
+# Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
+# --enable NAME activates them on a rebuild. Same contract — adding an
+# entry extends the argparse choices and the end-of-run hint block.
+ENABLEABLE_FILTERS = {
+    "autogain": ("preset sounds right but quieter than Windows",
+                 "activates the volume leveler — most of the loudness gap "
+                 "on HDA, at some saturation risk on quiet-background "
+                 "content (issue #25)"),
+}
+
 # Emission paths that are numerically verified but not yet user-validated
 # on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
 # off with --disable <key>; "mbc-1band" is a marker-only name (no separate
@@ -4138,15 +4146,18 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 freqs: list[int] | None = None,
                 is_soundwire: bool = False, volmax_boost: float = 0.0,
                 volmax_slot: str = "input-gain",
+                enabled: set[str] | None = None,
                 disabled: set[str] | None = None) -> tuple[dict, set[str]]:
     """Build a preset dict.
 
-    Returns (preset, emitted) where emitted is the set of
-    DISABLEABLE_FILTERS names that actually ran in this invocation —
-    i.e. those the user could meaningfully --disable on a rerun.
-    Tracked inline with each emission branch so the set can't drift
-    from what is in the returned dict.
+    Returns (preset, emitted) where emitted is the set of flag-actionable
+    names for a rerun: DISABLEABLE_FILTERS names that actually ran
+    (--disable candidates) plus ENABLEABLE_FILTERS names that shipped
+    present but inactive (--enable candidates). Tracked inline with each
+    emission branch so the set can't drift from what is in the returned
+    dict.
     """
+    enabled = enabled or set()
     disabled = disabled or set()
     emitted = set()
     preset = {
@@ -4199,10 +4210,18 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
     # This lets the compressor and regulator catch any overshoot from the leveler.
-    autogain = make_autogain(vol_leveler, conservative=is_soundwire)
+    autogain = make_autogain(vol_leveler, conservative=is_soundwire,
+                             enabled="autogain" in enabled)
     if autogain:
         preset["output"]["autogain#0"] = autogain
         preset["output"]["plugins_order"].append("autogain#0")
+        if autogain["bypass"]:
+            emitted.add("autogain")  # actionable via --enable on a rerun
+        else:
+            # Marker (not an ENABLEABLE_FILTERS key, so it never reaches the
+            # hint block): lets main() tell "--enable autogain worked" from
+            # "the XML's leveler is disabled, so the flag did nothing".
+            emitted.add("autogain-active")
 
     if "mbc" not in disabled:
         mbc = make_multiband_compressor(mb_comp, freqs)
@@ -4422,6 +4441,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                                       freqs, is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
                                       volmax_slot=args.volmax_slot,
+                                      enabled=set(args.enable),
                                       disabled=disabled)
         for name in emitted:
             filters_by_profile.setdefault(name, set()).add(profile_label)
@@ -4604,6 +4624,21 @@ def main():
              f"Valid names: {', '.join(DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
+    )
+    parser.add_argument(
+        "--enable",
+        action="append",
+        default=[],
+        choices=list(ENABLEABLE_FILTERS),
+        metavar="NAME",
+        help="activate a filter that ships present but inactive "
+             f"(repeatable). Valid names: {', '.join(ENABLEABLE_FILTERS)}. "
+             "Try --enable autogain if the preset sounds right but quieter "
+             "than Windows (issue #25): it recovers most of the loudness "
+             "gap on HDA devices, at the cost of possible saturation when "
+             "loud sound arrives over a quiet background — EasyEffects' "
+             "leveler lacks Dolby's content-aware steering. No effect on "
+             "SoundWire devices, where the leveler is already active.",
     )
     parser.add_argument(
         "--volmax-slot",
@@ -4843,6 +4878,25 @@ def main():
             cprint("dim", f"  {'':<24}    ({effect}{scope})")
         print()
         cprint("dim", "Flags are repeatable, e.g. --disable volmax --disable mbc.")
+
+    # A requested --enable that never produced an active stage is silent
+    # otherwise: make_autogain returns None when the XML's volume leveler is
+    # disabled, so the flag can't do anything and the preset is unchanged.
+    if "autogain" in args.enable and "autogain-active" not in filters_by_profile:
+        print()
+        cprint("warn", "--enable autogain had no effect: this tuning's volume "
+                       "leveler is disabled in the XML,")
+        cprint("warn", "so there is no leveler stage to activate. The preset "
+                       "is unchanged.")
+
+    enable_hints = [k for k in ENABLEABLE_FILTERS if k in filters_by_profile]
+    if enable_hints:
+        print()
+        cprint("dim", "Shipped present but inactive — activate on a rebuild with:")
+        for name in enable_hints:
+            symptom, effect = ENABLEABLE_FILTERS[name]
+            cprint("dim", f"  --enable {name:<15}  # if: {symptom}")
+            cprint("dim", f"  {'':<24}    ({effect})")
 
     experimental = [EXPERIMENTAL_MARKERS[k]
                     for k in EXPERIMENTAL_MARKERS

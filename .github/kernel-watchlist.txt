@@ -19,9 +19,6 @@ lnl
 cs35l56
 rt712
 
-# watch: #25 ThinkPad E14 — HDA Realtek, loudness/autogain crackle
-thinkpad
-
 # watch: standing — ALC287 speaker-path/amp-match regressions (#33 IdeaPad Pro 5 class)
 alc287
 ideapad

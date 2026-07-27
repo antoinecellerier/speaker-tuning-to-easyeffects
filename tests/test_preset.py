@@ -437,23 +437,30 @@ def test_peq_output_gain_uses_global_max_across_asymmetric_channels():
     assert eq["right"]["band0"]["gain"] == pytest.approx(2.0, abs=0.01)
 
 
-# --- TRAP: HDA autogain bypass ---
-# CLAUDE.md: "Pumping or saturation on quiet → loud transitions — the
-# reason autogain is bypassed by default; re-enabling or moving it
-# will likely reintroduce it unless Media Intelligence steering is
-# somehow approximated."
+# --- TRAP: HDA autogain bypass + crackle-safe gate ---
+# The leveler stays bypassed by default on HDA: EE's autogain lacks
+# Dolby's MI steering, so it boosts legitimate quiet content and loud
+# onsets ride ~4 dB of overshoot into the downstream dynamics — audible
+# saturation, measured independent of maximum-history (issue #25 flip
+# attempt, design-notes). --enable autogain is the loudness opt-in.
+# The stored silence gate is -50 dB (not EE's -70 default) so enabling —
+# via flag or GUI — gets the #25 field-confirmed crackle fix.
 
 def test_hda_autogain_is_bypassed(generated):
     """HDA preset (default) emits autogain#0 with bypass=True. Removing
-    that bypass re-introduces the pumping/saturation trap.
+    that bypass re-introduces saturation on quiet-background content.
     """
     preset, _ = generated
     autogain = preset["output"].get("autogain#0")
     assert autogain is not None, \
         "autogain#0 should be present (bypassed) so users can A/B with it"
     assert autogain["bypass"] is True, \
-        "HDA autogain must be bypassed by default — re-enabling it without " \
-        "MI-style steering reintroduces pumping on quiet→loud transitions"
+        "HDA autogain must stay bypassed by default — EE's leveler lacks " \
+        "MI-style steering; loud onsets over a quiet background saturate " \
+        "(measured in the issue #25 default-flip attempt)"
+    assert autogain["silence-threshold"] == -50.0, \
+        "the stored gate must stay -50 dB so manual/flag enabling gets the " \
+        "issue #25 crackle fix; -70 dB crackles on sounds after silence"
 
 
 # --- TRAP: plugin order, limiter as final stage ---
@@ -525,10 +532,10 @@ def test_atomic_write_aborts_cleanly_on_error(tmp_path):
 
 
 # --- LOCK-IN: make_autogain SoundWire (conservative) branch ---
-# The conservative path is the ONLY non-bypassed autogain emission in the
-# codebase; lock its derivations (target = out_target - 6, history =
+# Lock the conservative derivations (target = out_target - 6, history =
 # max(40 - amount*4, 15), -50 dB silence gate) so an edit can't silently
-# turn the safe SoundWire leveler into the HDA pumping trap.
+# strip the SoundWire leveler's extra headroom. Conservative is the only
+# default-active path; HDA activates only via --enable autogain.
 
 _LEVELER = {"enable": True, "amount": 5, "out_target": -16.0}
 
@@ -555,17 +562,30 @@ def test_autogain_disabled_leveler_returns_none():
     assert make_autogain(None) is None
 
 
-def test_autogain_silence_threshold_hda_vs_conservative():
-    """HDA keeps the bypassed plugin's silence gate at -70 dB and the
-    unshifted target; conservative raises the gate to -50 dB so the
-    active leveler can't ride up on background noise."""
+def test_autogain_hda_vs_conservative():
+    """Both branches share the -50 dB silence gate (issue #25); they
+    differ in bypass (HDA ships bypassed), target (HDA unshifted,
+    conservative -6 dB headroom) and history window (HDA shorter)."""
     hda = make_autogain(dict(_LEVELER))
     cons = make_autogain(dict(_LEVELER), conservative=True)
     assert hda["bypass"] is True
-    assert hda["silence-threshold"] == -70.0
+    assert hda["silence-threshold"] == -50.0
     assert hda["target"] == -16.0            # out_target unshifted
     assert hda["maximum-history"] == 10      # max(30 - amount*5, 10)
+    assert cons["bypass"] is False
     assert cons["silence-threshold"] == -50.0
+
+
+def test_autogain_enabled_flag_clears_hda_bypass():
+    """--enable autogain (enabled=True) activates the HDA leveler with
+    otherwise identical settings; it's a no-op on the conservative path,
+    which is already active."""
+    ag = make_autogain(dict(_LEVELER), enabled=True)
+    assert ag["bypass"] is False
+    assert ag["silence-threshold"] == -50.0
+    assert ag["target"] == -16.0
+    cons = make_autogain(dict(_LEVELER), conservative=True, enabled=False)
+    assert cons["bypass"] is False
 
 
 # --- LOCK-IN: make_dialog_enhancer gain derivations ---
