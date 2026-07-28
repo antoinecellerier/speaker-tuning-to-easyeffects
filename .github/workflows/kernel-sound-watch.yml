@@ -10,11 +10,15 @@ name: Kernel sound-tree watch
 # (or a Claude session) reading the comment — nothing here needs an API key.
 #
 # State (which tags have been processed) lives in a machine-edited comment on
-# the tracking issue itself, marked <!-- kernel-watch-state -->. That keeps
-# the workflow at `issues: write` only — its token cannot touch repo
-# contents, so there is no writable branch to secure. First run bootstraps:
-# it records all currently-published tags (~500) and alerts on nothing, so
-# enabling the workflow never floods the issue with history.
+# the tracking issue itself, found by the <!-- kernel-watch-state --> marker
+# line. That keeps the workflow at `issues: write` only — its token cannot
+# touch repo contents, so there is no writable branch to secure. The tag list
+# is rendered readably (folded `<details>`, one tag per line) so a human can
+# glance at what has been checked; parsing just greps whole lines matching
+# `sound-*`, so it needs no delimiters and does not care about the wrapper.
+# First run bootstraps: it records all currently-published tags (~500) and
+# alerts on nothing, so enabling the workflow never floods the issue with
+# history.
 #
 # Tag listing uses git.kernel.org (authoritative); the per-tag fetch uses the
 # kernel.googlesource.com mirror because it honors partial-clone filters
@@ -40,6 +44,9 @@ env:
   FETCH_GIT: https://kernel.googlesource.com/pub/scm/linux/kernel/git/tiwai/sound
   ISSUE_LABEL: kernel-sound-watch
   WATCHLIST: .github/kernel-watchlist.txt
+  # Fingerprint that identifies the state comment. Kept as a bare prefix (no
+  # closing `-->`) so it also matches a comment left in the older layout, where
+  # the marker opened an HTML comment that swallowed the whole tag list.
   STATE_MARKER: "<!-- kernel-watch-state"
   GH_TOKEN: ${{ github.token }}
 
@@ -72,7 +79,7 @@ jobs:
               --body "$(printf '%s\n' \
                 "Automated tracking issue: the kernel-sound-watch workflow posts one comment per new pull tag on [tiwai/sound.git](https://git.kernel.org/pub/scm/linux/kernel/git/tiwai/sound.git), with grep hits against [the watchlist](https://github.com/$GITHUB_REPOSITORY/blob/master/.github/kernel-watchlist.txt) highlighted." \
                 "" \
-                "Keep the watchlist current when opening/closing device investigations (see CLAUDE.md). Close this issue to retire the watch (the workflow recreates it if it runs again). The pinned machine-written comment below is the workflow's state — leave it alone.")" \
+                "Keep the watchlist current when opening/closing device investigations (see CLAUDE.md). Close this issue to retire the watch (the workflow recreates it if it runs again). The machine-written comment below is the workflow's state — it lists every tag already processed, so you can check whether one was seen; leave it alone otherwise.")" \
               | grep -oE '[0-9]+$')
           fi
           echo "number=$num" >> "$GITHUB_OUTPUT"
@@ -83,10 +90,22 @@ jobs:
                 | head -n1)
           echo "state_id=$sid" >> "$GITHUB_OUTPUT"
           if [ -n "$sid" ]; then
+            # Whole-line tag match, not a delimited slice: independent of how the
+            # list is wrapped for display. The prose around it must never leave a
+            # bare tag alone on a line (backticks in the summary keep it safe).
+            # The leading path segment is not slop: the tree really carries a
+            # refs/tags/tags/sound-sdw-kconfig-fixes, and dropping it here would
+            # re-post that tag on every run, since it could never be recorded.
             gh api "repos/$GITHUB_REPOSITORY/issues/comments/$sid" --jq .body \
               | tr -d '\r' \
-              | sed -n "/^$STATE_MARKER\$/,/^-->\$/p" | sed '1d;$d' \
+              | grep -E '^[A-Za-z0-9._+/-]*sound-[A-Za-z0-9._+-]+$' \
               | sort -u > seen-tags.txt
+            if [ ! -s seen-tags.txt ]; then
+              # Treating this as "nothing seen" would post a comment per published
+              # tag (~500). Fail loudly instead — the comment or the parse is broken.
+              echo "::error::state comment $sid parsed to zero tags — refusing to re-bootstrap"
+              exit 1
+            fi
           else
             # Bootstrap: mark everything published so far as seen, alert on nothing.
             cp current-tags.txt seen-tags.txt
@@ -142,17 +161,31 @@ jobs:
             echo "$tag" >> posted-tags.txt
           done < new-tags.txt
 
+      # Runs every time, not just when tags landed: it refreshes "last checked"
+      # on quiet weeks, and migrates a pre-existing state comment to this layout.
       - name: Update state comment
-        if: steps.detect.outputs.count != '0' || steps.detect.outputs.state_id == ''
         env:
           ISSUE_NUMBER: ${{ steps.detect.outputs.number }}
           STATE_ID: ${{ steps.detect.outputs.state_id }}
         run: |
+          sort -u seen-tags.txt posted-tags.txt > state-tags.txt
+          # -V for display only; seen-tags.txt stays plain-sorted for `comm` above.
           {
             echo "Machine-written watch state — sound-tree tags already processed. Do not edit."
-            echo "$STATE_MARKER"
-            sort -u seen-tags.txt posted-tags.txt
-            echo "-->"
+            echo
+            # No "newest tag" here: sort order can't supply one honestly —
+            # `sound-fix-*` and the stray `tags/…` ref both sort after any
+            # version-numbered tag regardless of vintage.
+            echo "$(wc -l < state-tags.txt) tags processed · last checked $(date -u +%Y-%m-%d)"
+            echo
+            echo "$STATE_MARKER -->"
+            echo "<details><summary>Show the full list</summary>"
+            echo
+            echo '```'
+            sort -V state-tags.txt
+            echo '```'
+            echo
+            echo '</details>'
           } > state.md
           if [ -n "$STATE_ID" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$STATE_ID" \
