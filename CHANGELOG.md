@@ -69,6 +69,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   silence; re-run the script to regenerate
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
+- Mark additional tested devices: ThinkPad T14 Gen 7
+  ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)).
 
 ### Fixed
 
