@@ -2003,6 +2003,19 @@ check, `--speaker-info` annotation). Design choices:
   a 24-month cutoff would have missed it). LTS point releases backport
   one-line `Cc: stable` quirks, but not the driver-rework /
   power-management fixes of the class seen here.
+- Keeping the table current is automated (`tools/update_kernel_releases.py`,
+  run weekly by `.github/workflows/kernel-release-table.yml`, one PR per new
+  series). Staleness is the failure mode worth engineering against: since a
+  series above the table's max is treated as recent, a table that stops
+  growing doesn't warn *less accurately*, it silently stops warning at all.
+  The month is taken from the `vX.Y` tag's tagger date on Linus' tree — the
+  only source checked that reproduces all 32 hand-entered rows exactly. The
+  `cdn.kernel.org` tarball mtime was rejected: it lags the tag by up to a
+  day, which lands 5.19 in `2022-08` and 6.18 in `2025-12`, both a month
+  late. The updater is append-only and refuses an implausible batch, an
+  out-of-order date or a partial parse, so a hand correction below the
+  newest entry survives and a broken run fails loudly instead of writing a
+  plausible-looking wrong table.
 
 [#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
 

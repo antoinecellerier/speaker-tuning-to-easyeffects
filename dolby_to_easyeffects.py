@@ -1161,7 +1161,11 @@ def ee_version_status(version: tuple[int, int, int] | None,
 # by a 6.12→7.0 kernel upgrade, not a preset change). Month precision is enough for
 # an age hint. Dates are historical facts, so an aging copy of this tool still
 # ages old kernels correctly; a series newer than the table is assumed recent.
-# Append new series as they release.
+# Each value is that series' `vX.Y` tag date on Linus' tree; new ones are
+# appended by tools/update_kernel_releases.py, which the weekly
+# .github/workflows/kernel-release-table.yml runs to open a PR per release.
+# Edits below the newest entry are never machine-rewritten, so a hand
+# correction sticks.
 _KERNEL_SERIES_RELEASES = {
     (5, 10): "2020-12", (5, 11): "2021-02", (5, 12): "2021-04",
     (5, 13): "2021-06", (5, 14): "2021-08", (5, 15): "2021-10",

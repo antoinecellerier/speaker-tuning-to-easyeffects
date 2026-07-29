@@ -1,0 +1,142 @@
+name: Kernel release-date table
+
+# Weekly top-up of _KERNEL_SERIES_RELEASES in dolby_to_easyeffects.py — the
+# release-month table behind the issue #33 old-kernel hint. When mainline
+# tags a new series, this opens a one-line PR adding it.
+#
+# Why automate it at all: a series above the table's max is deliberately
+# treated as recent, so a stale table doesn't fail — it goes silently dead,
+# permanently exempting every kernel released after the last entry from the
+# 18-month warning. Nothing would ever surface that.
+#
+# The edit is mechanical, so it's a deterministic script (tools/update_kernel_
+# releases.py, stdlib only) rather than a Claude run: no API key, byte-exact
+# output, and its parse/render logic is unit-tested offline in
+# tests/test_kernel_releases.py. The script fails closed — an implausible
+# batch, an out-of-order or future date, or a table it can't fully parse
+# aborts the run instead of writing a plausible-looking wrong table.
+#
+# A scheduled run that fails emails the maintainer, which is the intended
+# notification path for all of those.
+
+on:
+  schedule:
+    - cron: '41 6 * * 2'  # Tuesdays 06:41 UTC — off kernel-sound-watch's Monday slot
+  workflow_dispatch:
+
+concurrency:
+  group: kernel-release-table
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the PR
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  TAG_BASE: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tag/?h=
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Look for newly released kernel series
+        id: scan
+        run: |
+          # stdout is "<series> <YYYY-MM>" per new series, oldest first, and
+          # empty when there's nothing to do. --write edits the file in place;
+          # if the branch turns out to exist we discard it below rather than
+          # fetching upstream twice.
+          python3 tools/update_kernel_releases.py --write \
+            > new-series.txt 2> scan.log || { cat scan.log >&2; exit 1; }
+          cat scan.log >&2
+          if [ ! -s new-series.txt ]; then
+            # scan.log says which series the table already tops out at, so a
+            # quiet week still shows what was checked.
+            cat scan.log >> "$GITHUB_STEP_SUMMARY"
+            echo "found=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Branch is named for the newest series in the batch. If an older
+          # series is still sitting in an open PR, this one supersedes it —
+          # it carries both entries, so merge it and close the other.
+          top=$(tail -n1 new-series.txt | cut -d' ' -f1)
+          echo "found=1" >> "$GITHUB_OUTPUT"
+          echo "top=$top" >> "$GITHUB_OUTPUT"
+          echo "branch=kernel-release/v$top" >> "$GITHUB_OUTPUT"
+          cat new-series.txt
+
+      - name: Skip if this batch was already proposed
+        id: dedupe
+        if: steps.scan.outputs.found == '1'
+        env:
+          BRANCH: ${{ steps.scan.outputs.branch }}
+        run: |
+          # Branch-exists, not PR-open: this also covers a PR the maintainer
+          # closed on purpose, which must not be re-opened every Tuesday.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "$BRANCH already exists — nothing to propose." >> "$GITHUB_STEP_SUMMARY"
+            git checkout -- dolby_to_easyeffects.py
+            echo "proceed=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The real gate. A PR opened with GITHUB_TOKEN does not trigger
+      # tests.yml (GitHub's workflow-recursion guard), so its checks tab would
+      # be empty — the suite has to run here, before the push.
+      - name: Run the test suite against the edit
+        if: steps.dedupe.outputs.proceed == '1'
+        run: |
+          pip install -r requirements.txt
+          pytest tests/
+
+      - name: Open the pull request
+        if: steps.dedupe.outputs.proceed == '1'
+        env:
+          BRANCH: ${{ steps.scan.outputs.branch }}
+        run: |
+          # A plain `run:` git commit has no default identity (unlike
+          # device-confirmed.yml, where the Claude action supplies one).
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          added=$(sed 's/^/- kernel /; s/ \([0-9-]*\)$/ — released \1/' new-series.txt)
+          links=$(cut -d' ' -f1 new-series.txt | sed "s|.*|- [\`v&\`](${TAG_BASE}v&)|")
+          # "7.2 2026-08" -> "7.2 (2026-08)", joined with ", ". paste -d takes
+          # a delimiter *list*, so -d', ' would cycle "," and " " and drop the
+          # space — join on "," and space it afterwards.
+          series=$(sed 's/ / (/; s/$/)/' new-series.txt | paste -sd, | sed 's/,/, /g')
+          title="Add kernel $series to the kernel-age table"
+
+          git checkout -b "$BRANCH"
+          git add dolby_to_easyeffects.py
+          git commit -m "$title"
+          git push -u origin "$BRANCH"
+
+          gh pr create --title "$title" --body "$(printf '%s\n' \
+            "Appends to \`_KERNEL_SERIES_RELEASES\` in \`dolby_to_easyeffects.py\`, which drives the issue #33 old-kernel hint (end-of-run banner, \`--doctor\`, \`--speaker-info\`)." \
+            "" \
+            "$added" \
+            "" \
+            "The month is the \`vX.Y\` tag's tagger date on Linus' tree — the source that reproduces every hand-entered row in the table (see \`docs/design-notes.md\`). Check it against:" \
+            "" \
+            "$links" \
+            "" \
+            "\`pytest tests/\` passed in the run that produced this commit. A PR opened by \`GITHUB_TOKEN\` does not trigger \`tests.yml\`, so this PR's own checks tab stays empty — reopen it or push an empty commit if you want CI to run again." \
+            "" \
+            "No CHANGELOG entry: a data refresh, per \`.claude/rules/changelog.md\`." \
+            "" \
+            "_Opened by the kernel-release-table workflow._")"
