@@ -169,8 +169,11 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
 ## Validated vs unvalidated mappings
 
 - **Validated against DAX captures:** the `ieq-amount` `/100` reading
-  (design-notes Finding 9, issue #13); the min-phase FIR realises the
-  composite target to <0.1 dB RMS (synthetic LTI check).
+  (design-notes Finding 9, issue #13); the simplified-schema
+  `gain_l`/`gain_r` audio-optimizer — 1/16-dB units and per-channel L/R
+  assignment — matches a second device's measured Dolby on/off delta to
+  ~0.7 dB mean (design-notes Finding 10, issue #44); the min-phase FIR
+  realises the composite target to <0.1 dB RMS (synthetic LTI check).
 - **Unvalidated (the "`ieq-amount` class"):** the dialog-enhancer dB ceiling,
   the surround `/20`, the regulator slope/knee mappings, the MBC Q15
   decode, and the autogain window formulas and offsets (design-notes

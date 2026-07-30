@@ -83,6 +83,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Docs
 
+- A second device's Dolby-on/off measurements confirm the converter's
+  speaker-correction curve on the simplified tuning-file variant — the
+  measured Windows response matches the generated filter, so remaining
+  Windows-vs-Linux differences there come from Dolby's adaptive loudness
+  processing (the opt-in `--enable autogain` covers the largest part)
+  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
+  measurements in `docs/design-notes.md`).
 - Documented two independent crackle sources on the PipeWire filter-chain
   path: session quanta smaller than the validated 1024 are an untested regime
   (with a `pw-metadata` isolation step), and the ROG Xbox Ally X has
