@@ -235,10 +235,12 @@ def synthetic_mb_comp(group_count: int, bands):
 
 
 def synthetic_regulator(threshold_high, distortion_slope=1.0,
-                       timbre_preservation=0.75):
+                       timbre_preservation=0.75, isolated_band=None):
     """Build a regulator dict consumed by make_regulator.
 
     `threshold_high` is a 20-element list (one per band) in dB.
+    `isolated_band` is the optional 0/1-per-band list parse_xml stores
+    (None when the XML lacks the field).
     """
     return {
         "threshold_high": list(threshold_high),
@@ -248,4 +250,5 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
         "timbre_preservation": timbre_preservation,
         "overdrive": 0,
         "relaxation": 96,
+        "isolated_band": list(isolated_band) if isolated_band else None,
     }

@@ -3144,6 +3144,20 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             overdrive = _int_attr(reg_overdrive, default=0)
             reg_relax = vlldp.find("regulator-relaxation-amount")
             relaxation = _int_attr(reg_relax, default=96)
+            # `isolated_band` (0/1 per band) feeds the experimental
+            # `--enable coupled-bands` mapping (design-notes Finding 10 /
+            # unvalidated-scaling entry 11 (f)): a second-device capture
+            # showed DAX applying band dynamics on bands whose
+            # threshold_high is 0 dBFS but which the XML marks
+            # non-isolated. The default path ignores this field entirely.
+            iso_el = reg_tuning.find("isolated_band")
+            iso_val = resolve_channel_or_direct(iso_el, constant)
+            isolated = parse_csv_ints(iso_val) if iso_val else None
+            if isolated is not None and len(isolated) != len(freqs):
+                cprint("warn", f"  {path.name}: regulator isolated_band has "
+                               f"{len(isolated)} values for {len(freqs)} "
+                               "bands — ignoring it.")
+                isolated = None
             regulator = {
                 "threshold_high": th,
                 "threshold_low": tl,
@@ -3152,6 +3166,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "timbre_preservation": timbre,
                 "overdrive": overdrive,
                 "relaxation": relaxation,
+                "isolated_band": isolated,
             }
 
     warn_unmodeled_features(profile)
@@ -3890,7 +3905,8 @@ def make_multiband_compressor(mb_comp: dict | None,
 
 def make_regulator(regulator: dict | None, freqs: list[int],
                    volmax_boost: float = 0.0,
-                   volmax_slot: str = "input-gain") -> dict | None:
+                   volmax_slot: str = "input-gain",
+                   couple_bands: bool = False) -> dict | None:
     """Per-band limiter mapped from Dolby regulator-tuning.
 
     The Dolby regulator is a 20-band limiter that prevents speaker
@@ -3913,6 +3929,18 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     print + `_UNMODELED_FEATURES` watch list) but not mapped here. See
     docs/design-notes.md "Follow-ups" entry on regulator-stress for
     the empirical work that closed that hypothesis.
+
+    couple_bands (experimental, `--enable coupled-bands`, issue #44):
+    by default a zone whose threshold_high is >= 0 dBFS is treated as
+    "never triggers" and disabled. A second-device DAX capture showed
+    band dynamics on exactly such bands when the XML marks them
+    non-isolated (`isolated_band` 0). With couple_bands on, a zero-dB
+    zone whose bands are all isolated_band==0 takes its threshold at
+    face value instead — a live limiter at full scale, which engages
+    when upstream gain (e.g. volmax on input-gain) pushes the band past
+    0 dBFS. Zones without isolated data, or containing an
+    isolated_band==1 band, keep the default disabled behaviour. See
+    design-notes Finding 10 / unvalidated-scaling entry 11 (f).
 
     volmax_boost lands on `input-gain` by default (issue #23) so the per-band
     compression tames the boosted low end before the brickwall;
@@ -4004,7 +4032,14 @@ def make_regulator(regulator: dict | None, freqs: list[int],
                 cross_freq = 10.0  # not used for band 0
 
             # Bands with threshold >= 0 dB never trigger; disable to save CPU
+            # — unless the experimental coupled-bands mapping takes the 0 dBFS
+            # threshold at face value on a fully non-isolated zone (docstring).
             is_active = threshold < 0
+            if not is_active and couple_bands:
+                iso = regulator.get("isolated_band")
+                is_active = (iso is not None and
+                             all(iso[k] == 0
+                                 for k in range(zone_start, zone_end + 1)))
             band = {
                 "compressor-enable": is_active,
                 "mute": False,
@@ -4040,6 +4075,19 @@ def make_regulator(regulator: dict | None, freqs: list[int],
             result[bandn] = _disabled_band()
 
     return result
+
+
+def _coupled_bands_eligible(regulator: dict | None) -> bool:
+    """True when the XML carries bands the experimental coupled-bands
+    mapping could activate: threshold_high >= 0 dBFS (excluded from
+    limiting by default) while marked non-isolated (isolated_band == 0).
+    Band-level check used for the end-of-run `--enable` hint; the actual
+    activation in make_regulator is zone-level and can be stricter."""
+    iso = (regulator or {}).get("isolated_band")
+    if not iso:
+        return False
+    return any(t >= 0 and i == 0
+               for t, i in zip(regulator["threshold_high"], iso))
 
 
 def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
@@ -4128,18 +4176,27 @@ ENABLEABLE_FILTERS = {
                  "activates the volume leveler — most of the loudness gap "
                  "on HDA, at some saturation risk on quiet-background "
                  "content (issue #25)"),
+    "coupled-bands": ("loud content turns harsh in ranges the regulator "
+                      "leaves unprotected (often the treble)",
+                      "experimental: engages regulator bands whose XML "
+                      "threshold is 0 dBFS but which are marked "
+                      "non-isolated (isolated_band), limiting them at "
+                      "full scale (issue #44)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
 # on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
 # off with --disable <key>; "mbc-1band" is a marker-only name (no separate
-# flag — users who want it off should pass --disable mbc instead). Used
-# to trigger a targeted "please report" prompt at end-of-run when any of
-# these fired for the current preset.
+# flag — users who want it off should pass --disable mbc instead), and
+# "coupled-bands-active" is the marker make_preset emits when --enable
+# coupled-bands actually engaged a zone (drop the --enable flag to turn it
+# off). Used to trigger a targeted "please report" prompt at end-of-run
+# when any of these fired for the current preset.
 EXPERIMENTAL_MARKERS = {
     "high-shelf": "type-3 high-shelf",
     "lo-pass": "type-6/8 low-pass",
     "mbc-1band": "1-band MBC (group_count=1)",
+    "coupled-bands-active": "coupled-bands regulator (isolated_band)",
 }
 
 
@@ -4250,12 +4307,26 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     reg = None
     if "regulator" not in disabled:
         reg = make_regulator(regulator, freqs, volmax_boost=apply_volmax,
-                             volmax_slot=volmax_slot)
+                             volmax_slot=volmax_slot,
+                             couple_bands="coupled-bands" in enabled)
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
         emitted.add("regulator")
         limiter_boost = 0.0
+        # A band that is enabled at a >= 0 dB threshold can only come from
+        # the coupled-bands mapping — the default path disables those.
+        coupled_fired = any(
+            reg[f"band{i}"]["compressor-enable"]
+            and reg[f"band{i}"]["attack-threshold"] >= 0
+            for i in range(8))
+        if "coupled-bands" in enabled and coupled_fired:
+            # Marker (not an ENABLEABLE_FILTERS key): lets main() tell
+            # "--enable coupled-bands worked" from "nothing to couple in"
+            # — same contract as autogain-active above.
+            emitted.add("coupled-bands-active")
+        elif _coupled_bands_eligible(regulator):
+            emitted.add("coupled-bands")  # actionable via --enable on a rerun
     else:
         limiter_boost = apply_volmax
 
@@ -4286,7 +4357,7 @@ class _HelpHintParser(argparse.ArgumentParser):
 
 
 def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
-                           volmax_slot="input-gain"):
+                           volmax_slot="input-gain", enabled=None):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax). Side-effect-free apart from stdout — split out of main() so the
@@ -4370,6 +4441,10 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
         print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (watched; not yet mapped)")
         print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (watched; not yet mapped)")
+        iso = regulator.get("isolated_band")
+        if iso is not None:
+            print(f"  isolated_band:       {iso}  "
+                  "(experimental: --enable coupled-bands)")
 
     if volmax_boost <= 0:
         slot = "value is 0, no boost to apply"
@@ -4388,7 +4463,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # (issue #27 field report; see design-notes).
     if (volmax_boost > 0 and "volmax" not in disabled
             and regulator and "regulator" not in disabled
-            and all(t >= 0 for t in regulator["threshold_high"])):
+            and all(t >= 0 for t in regulator["threshold_high"])
+            and not ("coupled-bands" in (enabled or set())
+                     and _coupled_bands_eligible(regulator))):
         cprint("warn", "⚠  This tuning's regulator never engages (every band "
                        "threshold is >= 0 dB), so the volmax boost reaches "
                        "the brickwall limiter untamed. If loud content "
@@ -4638,11 +4715,9 @@ def main():
         help="activate a filter that ships present but inactive "
              f"(repeatable). Valid names: {', '.join(ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
-             "than Windows (issue #25): it recovers most of the loudness "
-             "gap on HDA devices, at the cost of possible saturation when "
-             "loud sound arrives over a quiet background — EasyEffects' "
-             "leveler lacks Dolby's content-aware steering. No effect on "
-             "SoundWire devices, where the leveler is already active.",
+             "than Windows (issue #25), or --enable coupled-bands "
+             "(experimental) if loud content turns harsh where the "
+             "per-band limiter is inactive (issue #44).",
     )
     parser.add_argument(
         "--volmax-slot",
@@ -4775,7 +4850,7 @@ def main():
         float_freqs = np.array(tuning.freqs, dtype=float)
 
         _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
-                               args.volmax_slot)
+                               args.volmax_slot, enabled=set(args.enable))
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
                           float_freqs, scale, is_soundwire, disabled, args,
@@ -4892,6 +4967,13 @@ def main():
                        "leveler is disabled in the XML,")
         cprint("warn", "so there is no leveler stage to activate. The preset "
                        "is unchanged.")
+    if ("coupled-bands" in args.enable
+            and "coupled-bands-active" not in filters_by_profile):
+        print()
+        cprint("warn", "--enable coupled-bands had no effect: this tuning's "
+                       "regulator has no 0 dBFS zone whose bands are all")
+        cprint("warn", "marked non-isolated (isolated_band), so there is "
+                       "nothing to couple in. The preset is unchanged.")
 
     enable_hints = [k for k in ENABLEABLE_FILTERS if k in filters_by_profile]
     if enable_hints:

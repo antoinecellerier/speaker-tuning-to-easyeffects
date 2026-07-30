@@ -694,6 +694,71 @@ def test_regulator_all_zero_thresholds_yields_no_active_band():
     assert not any(reg[f"band{i}"]["compressor-enable"] for i in range(8))
 
 
+# --- Experimental --enable coupled-bands (isolated_band, issue #44) ---
+
+def test_regulator_coupled_bands_activates_nonisolated_zero_zone():
+    """With couple_bands on, a 0 dBFS zone whose bands are all
+    isolated_band==0 becomes a live limiter at full scale; zones with a
+    real (negative) threshold are untouched."""
+    th = [-6.0] * 10 + [0.0] * 10
+    reg_dict = synthetic_regulator(th, isolated_band=[1] * 10 + [0] * 10)
+    off = make_regulator(reg_dict, SYNTHETIC_FREQS_20)
+    assert off["band1"]["compressor-enable"] is False
+    on = make_regulator(reg_dict, SYNTHETIC_FREQS_20, couple_bands=True)
+    assert on["band1"]["compressor-enable"] is True
+    assert on["band1"]["attack-threshold"] == 0.0
+    assert on["band0"]["compressor-enable"] is True
+    assert on["band0"]["attack-threshold"] == -6.0
+
+
+def test_regulator_coupled_bands_requires_isolated_data():
+    """No isolated_band in the XML -> the flag is a no-op (nothing to
+    read, so nothing may change)."""
+    th = [-6.0] * 10 + [0.0] * 10
+    reg = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20,
+                         couple_bands=True)
+    assert reg["band1"]["compressor-enable"] is False
+
+
+def test_regulator_coupled_bands_skips_isolated_marked_zone():
+    """A 0 dBFS zone containing any isolated_band==1 band keeps the
+    default disabled behaviour — the hypothesis only covers
+    non-isolated bands."""
+    th = [-6.0] * 10 + [0.0] * 10
+    all_marked = synthetic_regulator(th, isolated_band=[1] * 20)
+    reg = make_regulator(all_marked, SYNTHETIC_FREQS_20, couple_bands=True)
+    assert reg["band1"]["compressor-enable"] is False
+    one_marked = synthetic_regulator(
+        th, isolated_band=[1] * 10 + [0] * 5 + [1] + [0] * 4)
+    reg = make_regulator(one_marked, SYNTHETIC_FREQS_20, couple_bands=True)
+    assert reg["band1"]["compressor-enable"] is False
+
+
+def test_regulator_isolated_data_alone_changes_nothing():
+    """isolated_band data without the flag must leave the default output
+    byte-identical — the XML-only default path is the invariant."""
+    th = [-6.0] * 10 + [0.0] * 10
+    base = make_regulator(synthetic_regulator(th), SYNTHETIC_FREQS_20)
+    with_iso = make_regulator(
+        synthetic_regulator(th, isolated_band=[0] * 20), SYNTHETIC_FREQS_20)
+    assert with_iso == base
+
+
+def test_coupled_bands_eligibility_helper():
+    """_coupled_bands_eligible drives the end-of-run --enable hint: true
+    only when a >= 0 dB band is marked non-isolated."""
+    from dolby_to_easyeffects import _coupled_bands_eligible
+    th = [-6.0] * 10 + [0.0] * 10
+    assert _coupled_bands_eligible(
+        synthetic_regulator(th, isolated_band=[1] * 10 + [0] * 10))
+    assert not _coupled_bands_eligible(synthetic_regulator(th))
+    assert not _coupled_bands_eligible(
+        synthetic_regulator(th, isolated_band=[1] * 20))
+    assert not _coupled_bands_eligible(
+        synthetic_regulator([-6.0] * 20, isolated_band=[0] * 20))
+    assert not _coupled_bands_eligible(None)
+
+
 def _report_tuning(regulator, volmax_boost):
     """Minimal tuning stand-in for _report_parsed_profile: every optional
     block is falsy so only the regulator/volmax sections print."""

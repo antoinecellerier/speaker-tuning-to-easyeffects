@@ -60,6 +60,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag
+  engages the speaker-protection limiter on bands the tuning marks
+  non-isolated but leaves at a 0 dB threshold, so loud content that
+  crosses full scale there is tamed before the final limiter. Not yet
+  heard on device; default presets are unchanged
+  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44),
+  [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27);
+  hypothesis and measurements in `docs/design-notes.md`).
 - New `--enable autogain` flag activates the volume leveler for
   Windows-level loudness on HDA devices, where it ships bypassed — an
   on-device attempt to flip the default found its gain ride audibly

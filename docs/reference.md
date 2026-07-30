@@ -191,6 +191,11 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   "Rejected approaches".)
 - **`regulator-stress-amount` / `threshold_low`** — secondary regulator
   parameters; only `threshold_high` drives the per-band limiter.
+  `isolated_band` is parsed but acts only behind the experimental
+  `--enable coupled-bands` flag: bands at a 0 dB threshold that the XML
+  marks non-isolated join the limiter at full scale (unvalidated
+  hypothesis from a second-device capture — design-notes Finding 10 /
+  entry 11 (f); default output is unchanged).
 - **Always-inert / out-of-scope XML fields** — deliberately ignored because
   they're always zero/disabled on the modelled endpoints, are DSP internals
   with no EasyEffects equivalent, or concern multichannel/subwoofer routing

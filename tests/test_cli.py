@@ -123,7 +123,7 @@ def test_disable_dialog_drops_dialog_enhancer():
 def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
-    assert set(ENABLEABLE_FILTERS) == {"autogain"}
+    assert set(ENABLEABLE_FILTERS) == {"autogain", "coupled-bands"}
 
 
 def test_enable_autogain_activates_leveler():
@@ -143,6 +143,59 @@ def test_enable_autogain_activates_leveler():
     # The marker main() uses to tell "the flag worked" from "the XML's
     # leveler is disabled, so --enable autogain could not do anything".
     assert "autogain-active" in emitted_on
+
+
+def test_enable_coupled_bands_hint_and_active_marker():
+    """--enable coupled-bands mirrors the autogain emitted contract:
+    an eligible-but-inactive regulator (0 dB zone marked non-isolated,
+    flag off) lands "coupled-bands" in emitted for the end-of-run hint;
+    with the flag on, the zone activates at 0 dBFS and the
+    "coupled-bands-active" marker replaces it."""
+    eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
+                                   isolated_band=[1] * 10 + [0] * 10)
+    preset, emitted = _build(regulator=eligible)
+    reg = preset["output"]["multiband_compressor#1"]
+    assert not any(reg[f"band{i}"]["compressor-enable"]
+                   and reg[f"band{i}"]["attack-threshold"] >= 0
+                   for i in range(8))
+    assert "coupled-bands" in emitted
+    assert "coupled-bands-active" not in emitted
+
+    preset_on, emitted_on = _build(regulator=eligible,
+                                   enabled={"coupled-bands"})
+    reg_on = preset_on["output"]["multiband_compressor#1"]
+    assert any(reg_on[f"band{i}"]["compressor-enable"]
+               and reg_on[f"band{i}"]["attack-threshold"] == 0.0
+               for i in range(8))
+    assert "coupled-bands-active" in emitted_on
+    assert "coupled-bands" not in emitted_on
+
+    # No isolated data -> flag requested but nothing to couple: neither
+    # the hint nor the active marker may appear (main() warns off this).
+    plain = synthetic_regulator([-6.0] * 10 + [0.0] * 10)
+    _, emitted_plain = _build(regulator=plain, enabled={"coupled-bands"})
+    assert "coupled-bands" not in emitted_plain
+    assert "coupled-bands-active" not in emitted_plain
+
+
+def test_experimental_markers_cover_coupled_bands_activation():
+    """The active marker doubles as an EXPERIMENTAL_MARKERS key, so an
+    engaged --enable coupled-bands run triggers the end-of-run
+    "please report back" prompt — the flag ships unheard on device and
+    the feedback ask is the validation path. Locks the full marker set
+    so drift in either direction is deliberate."""
+    from dolby_to_easyeffects import EXPERIMENTAL_MARKERS
+    assert set(EXPERIMENTAL_MARKERS) == {
+        "high-shelf", "lo-pass", "mbc-1band", "coupled-bands-active",
+    }
+    eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
+                                   isolated_band=[1] * 10 + [0] * 10)
+    _, emitted = _build(regulator=eligible, enabled={"coupled-bands"})
+    # (_full_inputs ships high-shelf/lo-pass PEQ types, so those markers
+    # fire alongside — membership, not equality.)
+    assert "coupled-bands-active" in emitted & set(EXPERIMENTAL_MARKERS)
+    _, emitted_off = _build(regulator=eligible)
+    assert "coupled-bands-active" not in emitted_off
     assert "autogain-active" not in emitted
 
 
