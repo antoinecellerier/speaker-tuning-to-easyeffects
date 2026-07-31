@@ -1078,72 +1078,14 @@ def main(argv: list[str] | None = None) -> int:
         epilog=epilog,
     )
     parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {get_version()}",
-        help="show version and exit",
-    )
-    parser.add_argument(
         "preset",
         type=Path,
         help="path to the EasyEffects preset JSON (the output of "
              "dolby_to_easyeffects.py, e.g. ~/.local/share/easyeffects/output/"
              "Dolby-Balanced.json)",
     )
-    parser.add_argument(
-        "--irs-dir",
-        type=Path,
-        default=DEFAULT_IRS_DIR,
-        help=f"directory containing the .irs file referenced by the "
-             f"preset's convolver (default: {DEFAULT_IRS_DIR})",
-    )
-    parser.add_argument(
-        "--node-name",
-        default=None,
-        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
-             f"Default: derived from the preset filename stem "
-             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
-             f"converting multiple presets produces distinct sink "
-             f"names without collision. Falls back to "
-             f"{DEFAULT_NODE_NAME!r} if the stem is empty after "
-             f"sanitisation.",
-    )
-    parser.add_argument(
-        "--node-description",
-        default=None,
-        help=f"human-readable node description. Default: derived "
-             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
-             f"falling back to {DEFAULT_NODE_DESCRIPTION!r}.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help=f"output .conf path (default: "
-             f"{DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite the output file if it already exists",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="print the generated conf to stdout instead of writing it; "
-             "missing IRS files become warnings rather than errors",
-    )
-    parser.add_argument(
-        "--target-object",
-        default=None,
-        help="bind the chain's playback to a specific downstream node "
-             "(node.name) instead of letting WirePlumber choose. Useful "
-             "for routing into a measurement null sink. End users "
-             "usually want --target-sink instead, which is set by "
-             "default and uses WirePlumber 0.5+ smart-filter routing "
-             "so apps don't see the chain as a separate sink.",
-    )
-    parser.add_argument(
+    group = parser.add_argument_group("routing")
+    group.add_argument(
         "--target-sink",
         default=None,
         help="hardware sink (node.name) the filter should attach to as "
@@ -1157,16 +1099,56 @@ def main(argv: list[str] | None = None) -> int:
              "v1 virtual-sink conf (apps target effect_input.<name> "
              "directly).",
     )
-    parser.add_argument(
-        "--no-validate",
-        action="store_true",
-        help="skip the schema self-check against lv2info port metadata. "
-             "By default, after generating the conf, ee_to_pipewire shells "
-             "out to tools/measure_pw/validate_conf.py to catch unknown "
-             "port symbols and out-of-range values; pass this flag to "
-             "skip it (e.g. on systems without lv2info installed).",
+    group.add_argument(
+        "--target-object",
+        default=None,
+        help="bind the chain's playback to a specific downstream node "
+             "(node.name) instead of letting WirePlumber choose. Useful "
+             "for routing into a measurement null sink. End users "
+             "usually want --target-sink instead, which is set by "
+             "default and uses WirePlumber 0.5+ smart-filter routing "
+             "so apps don't see the chain as a separate sink.",
     )
-    parser.add_argument(
+    group = parser.add_argument_group("output")
+    group.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help=f"output .conf path (default: "
+             f"{DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
+    )
+    group.add_argument(
+        "--node-name",
+        default=None,
+        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
+             f"Default: derived from the preset filename stem "
+             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
+             f"converting multiple presets produces distinct sink "
+             f"names without collision. Falls back to "
+             f"{DEFAULT_NODE_NAME!r} if the stem is empty after "
+             f"sanitisation.",
+    )
+    group.add_argument(
+        "--node-description",
+        default=None,
+        help=f"human-readable node description. Default: derived "
+             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
+             f"falling back to {DEFAULT_NODE_DESCRIPTION!r}.",
+    )
+    group.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite the output file if it already exists",
+    )
+    group = parser.add_argument_group("impulse response")
+    group.add_argument(
+        "--irs-dir",
+        type=Path,
+        default=DEFAULT_IRS_DIR,
+        help=f"directory containing the .irs file referenced by the "
+             f"preset's convolver (default: {DEFAULT_IRS_DIR})",
+    )
+    group.add_argument(
         "--no-copy-irs",
         action="store_true",
         help="don't copy the .irs next to the generated conf. By default "
@@ -1178,10 +1160,32 @@ def main(argv: list[str] | None = None) -> int:
              "preset regenerations propagate automatically, at the cost "
              "of a brittle cross-tree dependency).",
     )
-    parser.add_argument(
+    group = parser.add_argument_group("general")
+    group.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="skip the schema self-check against lv2info port metadata. "
+             "By default, after generating the conf, ee_to_pipewire shells "
+             "out to tools/measure_pw/validate_conf.py to catch unknown "
+             "port symbols and out-of-range values; pass this flag to "
+             "skip it (e.g. on systems without lv2info installed).",
+    )
+    group.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the generated conf to stdout instead of writing it; "
+             "missing IRS files become warnings rather than errors",
+    )
+    group.add_argument(
         "--no-color",
         action="store_true",
         help="disable colored terminal output",
+    )
+    group.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_version()}",
+        help="show version and exit",
     )
     args = parser.parse_args(argv)
     if args.no_color:

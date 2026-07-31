@@ -100,26 +100,39 @@ pip install -r requirements.txt
 
 ### Command-line options
 
+**Tuning input**
 - `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`); omit to auto-discover via `--windows` or probing
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--best-guess` — if auto-detection finds no exact hardware match, fall back to the only internal-speaker tuning whose manufacturer is present (or list the candidates to pick one with the positional XML path); reach for it when a SoundWire laptop reports "No matching DAX3 tuning XML found"
+
+**Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
 - `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, background service mode + autostart, and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
+
+**Profile selection**
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
 - `--all-profiles` — generate presets for all profiles in the selected endpoint/mode
+
+**Autoload**
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
 - `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a laptop whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
+
+**Output**
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
+
+**Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 - `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
+
+**General**
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
@@ -247,15 +260,23 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 <summary><code>ee_to_pipewire.py</code> command-line options</summary>
 
 - `preset` (positional) — path to the EasyEffects preset JSON (the output of `dolby_to_easyeffects.py`, e.g. `~/.local/share/easyeffects/output/Dolby-Balanced.json`)
+
+**Routing**
 - `--target-sink NODE_NAME` — hardware sink the filter attaches to as a WirePlumber smart filter (default: auto-detect the internal-speaker sink, the same probe `--autoload` uses). Pass an empty string (`''`) to disable smart-filter routing and emit a v1 virtual sink that apps target directly
+
+**Output**
 - `--output PATH` — output `.conf` path (default: `~/.config/pipewire/pipewire.conf.d/<node-name>.conf`)
-- `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: `~/.local/share/easyeffects/irs`)
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name / human-readable label (default: derived from the preset filename stem, so converting several presets yields distinct sinks)
-- `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
-- `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
-- `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--force` — overwrite the output conf if it already exists
+
+**Impulse response**
+- `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: `~/.local/share/easyeffects/irs`)
+- `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
+
+**General**
+- `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
 - `--dry-run` — print the generated conf to stdout instead of writing it
+- `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--version` — print the version and exit
 
 </details>

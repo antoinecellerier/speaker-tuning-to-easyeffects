@@ -4590,20 +4590,15 @@ def main():
         epilog=epilog,
         formatter_class=formatter_class,
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {get_version()}",
-        help="show version and exit",
-    )
-    parser.add_argument(
+    group = parser.add_argument_group("tuning input")
+    group.add_argument(
         "xml_file",
         nargs="?",
         type=Path,
         default=None,
         help="path to the Dolby DAX3 tuning XML (e.g. DEV_0287_SUBSYS_*.xml)",
     )
-    parser.add_argument(
+    group.add_argument(
         "--windows",
         type=Path,
         default=None,
@@ -4614,7 +4609,7 @@ def main():
              "script probe /proc/mounts and the current directory for a "
              "suitable source",
     )
-    parser.add_argument(
+    group.add_argument(
         "--best-guess",
         action="store_true",
         help="if auto-detection finds no exact hardware match, fall back to the "
@@ -4623,50 +4618,50 @@ def main():
              "several such candidates it lists them so you can pass one as the "
              "positional XML path. No effect when an exact match is found",
     )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help=f"EasyEffects output preset directory (default: {DEFAULT_OUTPUT_DIR})",
-    )
-    parser.add_argument(
-        "--irs-dir",
-        type=Path,
-        default=DEFAULT_IRS_DIR,
-        help=f"EasyEffects impulse response directory (default: {DEFAULT_IRS_DIR})",
-    )
-    parser.add_argument(
-        "--prefix",
-        default="Dolby",
-        help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
-    )
-    parser.add_argument(
-        "--endpoint",
-        default="internal_speaker",
-        help="endpoint type from the XML (default: internal_speaker)",
-    )
-    parser.add_argument(
-        "--mode",
-        default="normal",
-        help="endpoint operating mode (default: normal)",
-    )
-    parser.add_argument(
-        "--profile",
-        default=None,
-        help="profile type, e.g. dynamic, music, voice (default: first profile)",
-    )
-    parser.add_argument(
+    group = parser.add_argument_group("inspection")
+    group.add_argument(
         "--list",
         action="store_true",
         help="list available endpoints and profiles, then exit",
     )
-    parser.add_argument(
+    group.add_argument(
+        "--speaker-info",
+        action="store_true",
+        help="report detected audio hardware and speaker layout, then exit",
+    )
+    group.add_argument(
+        "--doctor", "--diagnose",
+        dest="doctor",
+        action="store_true",
+        help="run environment self-diagnostics (EasyEffects version, install "
+             "location, preset/impulse-file integrity, selected preset, "
+             "background service mode + autostart, hardware) and exit — "
+             "paste the output into an issue if a preset seems inaudible",
+    )
+    group = parser.add_argument_group("profile selection")
+    group.add_argument(
+        "--endpoint",
+        default="internal_speaker",
+        help="endpoint type from the XML (default: internal_speaker)",
+    )
+    group.add_argument(
+        "--mode",
+        default="normal",
+        help="endpoint operating mode (default: normal)",
+    )
+    group.add_argument(
+        "--profile",
+        default=None,
+        help="profile type, e.g. dynamic, music, voice (default: first profile)",
+    )
+    group.add_argument(
         "--all-profiles",
         action="store_true",
         help="generate presets for all profiles in the selected endpoint/mode "
              "(profile names are included in the preset names)",
     )
-    parser.add_argument(
+    group = parser.add_argument_group("autoload")
+    group.add_argument(
         "--autoload",
         nargs="?",
         const=True,
@@ -4675,13 +4670,13 @@ def main():
              "Optionally specify the preset name to autoload; "
              "defaults to the first Balanced preset generated",
     )
-    parser.add_argument(
+    group.add_argument(
         "--autoload-dir",
         type=Path,
         default=DEFAULT_AUTOLOAD_DIR,
         help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
     )
-    parser.add_argument(
+    group.add_argument(
         "--autoload-sink",
         action="append",
         default=[],
@@ -4694,7 +4689,7 @@ def main():
              "--autoload to print the candidate list. Mirrors "
              "ee_to_pipewire.py's --target-sink.",
     )
-    parser.add_argument(
+    group.add_argument(
         "--no-autoload-bypass",
         dest="autoload_bypass",
         action="store_false",
@@ -4703,21 +4698,26 @@ def main():
              "you manage the fallback yourself. Existing user setups are "
              "preserved even without this flag.",
     )
-    parser.add_argument(
-        "--speaker-info",
-        action="store_true",
-        help="report detected audio hardware and speaker layout, then exit",
+    group = parser.add_argument_group("output")
+    group.add_argument(
+        "--prefix",
+        default="Dolby",
+        help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
     )
-    parser.add_argument(
-        "--doctor", "--diagnose",
-        dest="doctor",
-        action="store_true",
-        help="run environment self-diagnostics (EasyEffects version, install "
-             "location, preset/impulse-file integrity, selected preset, "
-             "background service mode + autostart, hardware) and exit — "
-             "paste the output into an issue if a preset seems inaudible",
+    group.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"EasyEffects output preset directory (default: {DEFAULT_OUTPUT_DIR})",
     )
-    parser.add_argument(
+    group.add_argument(
+        "--irs-dir",
+        type=Path,
+        default=DEFAULT_IRS_DIR,
+        help=f"EasyEffects impulse response directory (default: {DEFAULT_IRS_DIR})",
+    )
+    group = parser.add_argument_group("filter tweaks")
+    group.add_argument(
         "--disable",
         action="append",
         default=[],
@@ -4728,7 +4728,7 @@ def main():
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
     )
-    parser.add_argument(
+    group.add_argument(
         "--enable",
         action="append",
         default=[],
@@ -4741,7 +4741,7 @@ def main():
              "(experimental) if loud content turns harsh where the "
              "per-band limiter is inactive (issue #44).",
     )
-    parser.add_argument(
+    group.add_argument(
         "--volmax-slot",
         choices=["input-gain", "output-gain"],
         default="input-gain",
@@ -4756,16 +4756,23 @@ def main():
              "Neither placement is Dolby-documented; no effect when the regulator "
              "is disabled/absent (the boost then lands on limiter#0 input-gain).",
     )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        help="disable colored terminal output",
-    )
-    parser.add_argument(
+    group = parser.add_argument_group("general")
+    group.add_argument(
         "--dry-run",
         action="store_true",
         help="run without writing any files to disk (presets, IRs, autoload); "
              "useful for debugging script execution and output",
+    )
+    group.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored terminal output",
+    )
+    group.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_version()}",
+        help="show version and exit",
     )
     args = parser.parse_args()
     if args.no_color:
