@@ -1311,6 +1311,23 @@ def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
     assert "[next]" not in err  # old per-line tag is gone
 
 
+def test_main_skip_next_steps_suppresses_checklist(generated, tmp_path,
+                                                   capsys):
+    """`--skip-next-steps` replaces the next-steps checklist with the
+    one-line activation pointer — dolby_to_pipewire.py relies on it to
+    print its own consolidated activation block instead. The Wrote/Copied
+    report must survive, and a freshly written conf is never left silently
+    inactive."""
+    rc, out_path, _src_irs = _run_main(generated, tmp_path,
+                                       "--skip-next-steps")
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert f"Wrote conf: {out_path}" in err
+    assert "Next steps:" not in err
+    assert ("To activate: systemctl --user restart pipewire pipewire-pulse"
+            in err)
+
+
 def test_main_existing_target_irs_without_force_errors(generated,
                                                        tmp_path, capsys):
     """If the target .irs already exists with different content,

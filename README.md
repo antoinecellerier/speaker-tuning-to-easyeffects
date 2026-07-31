@@ -116,16 +116,16 @@ pip install -r requirements.txt
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
 - `--all-profiles` — generate presets for all profiles in the selected endpoint/mode
 
+**Output**
+- `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
+- `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
+- `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
+
 **Autoload**
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
 - `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a laptop whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
-
-**Output**
-- `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
-- `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
-- `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
@@ -134,6 +134,7 @@ pip install -r requirements.txt
 
 **General**
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
+- `--skip-ee-check` — skip the end-of-run EasyEffects environment check; for workflows that don't target an EasyEffects install (`dolby_to_pipewire.py` passes it automatically)
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
 
@@ -222,11 +223,27 @@ EasyEffects applies the last-loaded preset to whatever sink is currently active,
 
 ### PipeWire filter-chain instead of EasyEffects
 
-`ee_to_pipewire.py` converts a generated EasyEffects preset into a self-contained PipeWire filter-chain `.conf` — the same tuning, no GUI, lower CPU, set-and-forget. It works whether or not EasyEffects is installed. Design notes and equivalence measurements: [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md).
+The same tuning runs as a self-contained PipeWire filter-chain `.conf` — no GUI, lower CPU, set-and-forget, and it works whether or not EasyEffects is installed. `dolby_to_pipewire.py` produces it in one command; under the hood it drives the preset generator and the `ee_to_pipewire.py` converter (design notes and equivalence measurements: [`docs/ee-to-pipewire.md`](docs/ee-to-pipewire.md)).
 
 #### Quick start (PipeWire)
 
-Step 1 is the same generator the EasyEffects flow uses, so its prerequisites carry over: install the Python dependencies (NumPy/SciPy — see [Install](#install)), and locate your tuning XML the same way (auto-discovery, `--windows`, or [manual extraction](#extracting-the-xml); the main [Quick start](#quick-start) and [Usage](#usage) cover the options and which presets get generated). You just skip `--autoload`, which only wires EasyEffects. `ee_to_pipewire.py` itself adds no Python dependencies; its only runtime needs are the LSP/Calf LV2 plugins (see *Plugin dependencies and validation* below).
+One command goes from tuning XML to an active sink: the EasyEffects preset is generated in a throwaway temporary directory (nothing is installed under `~/.local/share/easyeffects`), converted to a conf with the matching `.irs` copied beside it, then PipeWire is restarted and the sink verified. Prerequisites are the generator's Python dependencies (NumPy/SciPy — see [Install](#install)) plus the LSP/Calf LV2 plugins (see *Plugin dependencies and validation* below); the tuning XML is located the same way as the main [Quick start](#quick-start) (auto-discovery, `--windows`, or [manual extraction](#extracting-the-xml)).
+
+```bash
+python3 dolby_to_pipewire.py         # add --no-activate to restart PipeWire yourself
+```
+
+The default converts the **Balanced** voicing — the curve the Windows driver engages by default. `--variant detailed`, `--variant warm`, or `--variant all` pick the others (`all` creates one sink per variant so you can A/B them from sound settings; the voicing curves are Dolby-global, and the device-specific correction applies under every one — [details](docs/cross-device-findings.md)).
+
+The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
+
+- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once.
+- **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
+
+<details>
+<summary>Manual two-step (keep the EasyEffects preset files, full flag surface)</summary>
+
+The wrapper is a thin orchestrator over the two converters — run them yourself when you want the preset JSON / `.irs` kept under `~/.local/share/easyeffects`, or flags the wrapper doesn't expose (`--node-name`, `--target-object`, `--no-copy-irs`, autoload):
 
 ```bash
 # 1. Generate the preset JSON (no EasyEffects install required)
@@ -242,10 +259,9 @@ systemctl --user restart pipewire pipewire-pulse
 pw-cli ls Node | grep Dolby_Balanced
 ```
 
-The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
+`ee_to_pipewire.py` itself adds no Python dependencies; its only runtime needs are the LSP/Calf LV2 plugins.
 
-- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once.
-- **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
+</details>
 
 <details>
 <summary>Plugin dependencies and validation</summary>
@@ -253,6 +269,54 @@ The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparent
 The chain loads LV2 plugins from your system: **LSP** (`lsp-plugins-lv2` on Debian/Ubuntu, `lsp-plugins` on Fedora/Arch) for the PEQ / MBC / regulator / limiter, and **Calf** (`calf-plugins`) for the `bass_enhancer` / `stereo_tools` stages when the preset uses them. Both are typical EasyEffects dependencies, so they're already present if you've used EE — but if they're missing the chain won't load in PipeWire.
 
 Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate it against installed plugin metadata; that pass also surfaces a **missing plugin** as a `[validate]` warning. If `lv2info` itself isn't installed the converter can't run that check — it prints a reminder to install the plugins instead. Pass `--no-validate` to skip the check entirely.
+
+</details>
+
+<details>
+<summary><code>dolby_to_pipewire.py</code> command-line options</summary>
+
+Inherited flags behave exactly as in the script that owns them — the wrapper shares their definitions with `dolby_to_easyeffects.py` (generation) and `ee_to_pipewire.py` (conversion).
+
+**Tuning input** — with neither an XML path nor `--windows`, the script auto-discovers: it probes mounted Windows partitions (`/proc/mounts`) and the current directory for a tuning source
+- `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`)
+- `--windows DIR` — auto-discover the tuning XML from a mounted Windows directory (matches the audio codec subsystem ID from `/proc/asound`)
+- `--best-guess` — fall back to a manufacturer-matched tuning when auto-detection finds no exact hardware match
+
+**Inspection**
+- `--list` — show available endpoints and profiles in the XML, then exit
+- `--speaker-info` — report detected audio hardware and speaker layout, then exit
+- `--doctor` — run the generator's environment self-diagnostics, then exit
+
+**Profile selection**
+- `--endpoint TYPE` — endpoint type from the XML (default: `internal_speaker`)
+- `--mode MODE` — endpoint operating mode (default: `normal`)
+- `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
+- `--all-profiles` — convert every profile in the selected endpoint/mode (each becomes its own sink)
+
+**Variant**
+- `--variant {balanced,detailed,warm,all}` — which IEQ voicing to convert (default: `balanced`, the curve Windows engages by default); `all` creates one sink per variant for A/B from sound settings
+
+**Routing**
+- `--target-sink NODE_NAME` — hardware sink the filter attaches to as a WirePlumber smart filter (default: auto-detect the internal-speaker sink); `''` disables smart-filter routing
+
+**Output**
+- `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` → `Dolby_Balanced`, etc.)
+- `--output-dir DIR` — directory for the generated `.conf` and `.irs` copy (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--force` — overwrite existing conf / `.irs` files
+
+**Activation**
+- `--no-activate` — don't restart PipeWire or verify the sink; print the manual activation steps instead
+
+**Filter tweaks**
+- `--disable NAME` — drop a filter from the generated chain (repeatable); same names as `dolby_to_easyeffects.py`
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable), e.g. `autogain`
+- `--volmax-slot {input-gain,output-gain}` — which regulator gain slot carries the static volmax boost (default: `input-gain`)
+
+**General**
+- `--dry-run` — print the generated conf(s) to stdout; nothing is written outside the staging directory and PipeWire is not restarted
+- `--no-validate` — skip the `lv2info` schema self-check
+- `--no-color` — disable colored terminal output
+- `--version` — print the version and exit
 
 </details>
 
@@ -276,6 +340,7 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 **General**
 - `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
 - `--dry-run` — print the generated conf to stdout instead of writing it
+- `--skip-next-steps` — replace the post-write next-steps checklist with a one-line activation pointer; for callers that handle activation themselves (`dolby_to_pipewire.py` passes it automatically)
 - `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--version` — print the version and exit
 

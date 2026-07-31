@@ -17,6 +17,23 @@ the main script — is in
 this file is the current architecture the script actually ships and
 the load-bearing decisions behind it.
 
+## One-command wrapper (`dolby_to_pipewire.py`)
+
+[`dolby_to_pipewire.py`](../dolby_to_pipewire.py) chains generation and
+conversion for users who never touch EasyEffects: it runs
+`dolby_to_easyeffects.py` with `--output-dir`/`--irs-dir` pointed into a
+`TemporaryDirectory` (so no preset or `.irs` lands under the EasyEffects
+tree), converts the selected variant(s) in-process via this script's
+`main()`, then restarts PipeWire and polls `pw-cli` until the sink
+appears (`--no-activate` opts out). It adds **no conversion logic of its
+own** — everything in this document (output layout, smart-filter
+routing, plugin coverage, validation, limitations) applies unchanged to
+wrapper-produced confs. The staging tempdir is disposable *because* of
+the default IRS-copy behavior described under Output layout; the wrapper
+therefore never passes `--no-copy-irs`. Its CLI is composed from the two
+converters' shared argparse group builders (`add_*_args`), so inherited
+flags can't drift from the scripts that own them.
+
 ## Output layout
 
 | File | Path |
@@ -251,9 +268,13 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   make the PW conf deliberately diverge from EE. The two deferred options
   (cheap-both-paths vs PW-only) and why they're held are in
   `docs/design-notes.md` (the issue-#14 VBE finding).
-- **No `--launch` flag.** PipeWire's standard reload path is
-  `systemctl --user restart pipewire pipewire-pulse`; the script
-  prints that as a "[next]" line and lets the user run it.
+- **No `--launch` flag on this script.** PipeWire's standard reload
+  path is `systemctl --user restart pipewire pipewire-pulse`; the
+  converter prints it in its next-steps checklist and lets the user run
+  it. Activation lives one layer up: `dolby_to_pipewire.py` restarts
+  PipeWire and verifies the sink by default (with `--no-activate` to
+  opt out), passing `--skip-next-steps` here so the checklist isn't
+  printed twice.
 - **Small-quantum systems under load are an unvalidated regime.** The
   conf pins no quantum/latency properties — the chain runs at whatever
   quantum the session picked. Perf validation to date is a laptop APU at

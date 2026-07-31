@@ -252,3 +252,43 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
         "relaxation": 96,
         "isolated_band": list(isolated_band) if isolated_band else None,
     }
+
+
+def write_synthetic_tuning_xml(path: Path) -> Path:
+    """Write a minimal-but-complete DAX3 playback XML that parse_xml()
+    accepts end-to-end: the 20-band grid plus the three ieq_* curves in
+    <constant>, and one internal_speaker/normal endpoint whose dynamic
+    profile carries tuning-cp (IEQ enabled) and the two audio-optimizer
+    channels. All values are synthetic 1/16-dB integers.
+    """
+    freqs = ",".join(str(f) for f in SYNTHETIC_FREQS_20)
+    curves = {
+        "ieq_balanced": ",".join(str(16 * (i % 5 - 2)) for i in range(20)),
+        "ieq_detailed": ",".join(str(16 * (i % 7 - 3)) for i in range(20)),
+        "ieq_warm": ",".join(str(16 * (2 - i % 4)) for i in range(20)),
+    }
+    curve_els = "\n    ".join(
+        f'<{name} target="{vals}"/>' for name, vals in curves.items())
+    ao = ",".join(str(8 * (i % 3 - 1)) for i in range(20))
+    path.write_text(f"""<dax3>
+  <constant>
+    <band_20_freq fs_48000="{freqs}"/>
+    {curve_els}
+  </constant>
+  <endpoint type="internal_speaker" operating_mode="normal">
+    <profile type="dynamic">
+      <tuning-cp>
+        <ieq-enable value="1"/>
+        <ieq-amount value="10"/>
+      </tuning-cp>
+      <tuning-vlldp>
+        <audio-optimizer-bands>
+          <ch_00 value="{ao}"/>
+          <ch_01 value="{ao}"/>
+        </audio-optimizer-bands>
+      </tuning-vlldp>
+    </profile>
+  </endpoint>
+</dax3>
+""", encoding="utf-8")
+    return path

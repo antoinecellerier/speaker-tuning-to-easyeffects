@@ -60,6 +60,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
+  filter-chain sink in one command — the EasyEffects preset is staged in a
+  throwaway directory (no EasyEffects files installed), converted, and
+  PipeWire restarted with the sink verified. `--variant` picks the
+  Balanced (default) / Detailed / Warm voicing or `all`; `--no-activate`
+  skips the restart; new `--skip-ee-check` / `--skip-next-steps` flags on
+  the two underlying scripts support the flow (docs/ee-to-pipewire.md).
 - **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag
   engages the speaker-protection limiter on bands the tuning marks
   non-isolated but leaves at a 0 dB threshold, so loud content that

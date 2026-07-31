@@ -1,6 +1,7 @@
 ---
 paths:
   - "dolby_to_easyeffects.py"
+  - "dolby_to_pipewire.py"
   - "ee_to_pipewire.py"
   - "README.md"
 ---

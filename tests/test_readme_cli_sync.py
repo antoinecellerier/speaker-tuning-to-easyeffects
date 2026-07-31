@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import dolby_to_easyeffects
+import dolby_to_pipewire
 import ee_to_pipewire
 
 REPO = Path(__file__).resolve().parent.parent
@@ -22,6 +23,7 @@ README = (REPO / "README.md").read_text(encoding="utf-8")
 # omission (e.g. measurement-only routing) — never to quiet a failing trap.
 DOLBY_README_OMITS: set[str] = set()
 EE_README_OMITS: set[str] = {"--target-object"}
+WRAPPER_README_OMITS: set[str] = set()
 
 
 def _parser_groups(parser, omits):
@@ -85,6 +87,17 @@ def test_ee_options_list_matches_parser():
     actual = _readme_groups(
         _section(README,
                  "<summary><code>ee_to_pipewire.py</code> command-line "
+                 "options</summary>",
+                 "</details>"))
+    assert actual == expected
+
+
+def test_wrapper_options_list_matches_parser():
+    expected = _parser_groups(dolby_to_pipewire.build_parser([]),
+                              WRAPPER_README_OMITS)
+    actual = _readme_groups(
+        _section(README,
+                 "<summary><code>dolby_to_pipewire.py</code> command-line "
                  "options</summary>",
                  "</details>"))
     assert actual == expected

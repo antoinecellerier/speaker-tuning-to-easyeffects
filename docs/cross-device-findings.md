@@ -84,6 +84,17 @@ handful of newer-schema exceptions are footnoted):
 The script skips bass enhancer, virtual bass, graphic EQ, volume modeler, and
 non-zero system/pre/post gains because none of them meaningfully exist in the wild.
 
+The three IEQ voicing curves themselves are also universal (re-derived
+2026-07-31 by an ad-hoc sweep over the 1,825-XML corpus): every speaker XML —
+1,793 files; the other 32 are `_dmic`/`_amic` microphone tunings with no
+`ieq_*` elements — carries all three of `ieq_balanced` / `ieq_detailed` /
+`ieq_warm`, and each curve's 20-value array is **byte-identical across every
+device**. The variants are Dolby-global voicings, not device tunings; the
+device-specific correction (audio-optimizer + PEQ) applies identically under
+every one. This is the empirical basis for `dolby_to_pipewire.py --variant`'s
+fixed choice list and its `balanced` default (the preset row above: every
+device's profiles select `ieq_balanced`).
+
 ---
 
 ## 2. Multi-band compressor — the minority feature

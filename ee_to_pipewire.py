@@ -1061,6 +1061,154 @@ def _print_next_steps(node_name: str,
                       f"pw-link -l | grep {target_object}")
 
 
+def _make_adder(container, only):
+    """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
+    selected by ``only`` (keyed by primary option string) and records the
+    added actions so dolby_to_pipewire.py can rebuild a child argv from them.
+    Deliberate double of dolby_to_easyeffects._make_adder — importing it here
+    would drag that script's NumPy/SciPy into this one's dependency-free path.
+    """
+    added = []
+
+    def add(*names, **kwargs):
+        if only is None or names[0] in only:
+            added.append(container.add_argument(*names, **kwargs))
+
+    return add, added
+
+
+def add_routing_args(container, *, only=None):
+    """Routing flags (dolby_to_pipewire.py shares --target-sink)."""
+    add, added = _make_adder(container, only)
+    add(
+        "--target-sink",
+        default=None,
+        help="hardware sink (node.name) the filter should attach to as "
+             "a WirePlumber smart filter. When set, apps target this "
+             "sink as usual and the filter inserts itself into the path; "
+             "no virtual-sink stacking, automatic bypass on HDMI / "
+             "Bluetooth / USB outputs. Default: auto-detect the "
+             "internal-speaker sink via pw-dump (same probe "
+             "dolby_to_easyeffects.py --autoload uses). Pass an empty "
+             "string ('') to disable smart-filter mode and emit the "
+             "v1 virtual-sink conf (apps target effect_input.<name> "
+             "directly).",
+    )
+    add(
+        "--target-object",
+        default=None,
+        help="bind the chain's playback to a specific downstream node "
+             "(node.name) instead of letting WirePlumber choose. Useful "
+             "for routing into a measurement null sink. End users "
+             "usually want --target-sink instead, which is set by "
+             "default and uses WirePlumber 0.5+ smart-filter routing "
+             "so apps don't see the chain as a separate sink.",
+    )
+    return added
+
+
+def add_output_args(container, *, only=None):
+    """Output naming/location flags (dolby_to_pipewire.py shares --force)."""
+    add, added = _make_adder(container, only)
+    add(
+        "--output",
+        type=Path,
+        default=None,
+        help=f"output .conf path (default: "
+             f"{DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
+    )
+    add(
+        "--node-name",
+        default=None,
+        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
+             f"Default: derived from the preset filename stem "
+             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
+             f"converting multiple presets produces distinct sink "
+             f"names without collision. Falls back to "
+             f"{DEFAULT_NODE_NAME!r} if the stem is empty after "
+             f"sanitisation.",
+    )
+    add(
+        "--node-description",
+        default=None,
+        help=f"human-readable node description. Default: derived "
+             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
+             f"falling back to {DEFAULT_NODE_DESCRIPTION!r}.",
+    )
+    add(
+        "--force",
+        action="store_true",
+        help="overwrite the output file if it already exists",
+    )
+    return added
+
+
+def add_impulse_response_args(container, *, only=None):
+    """Impulse-response flags — never shared with the wrapper (it stages the
+    .irs in a tempdir and must keep the default copy-beside-conf behavior)."""
+    add, added = _make_adder(container, only)
+    add(
+        "--irs-dir",
+        type=Path,
+        default=DEFAULT_IRS_DIR,
+        help=f"directory containing the .irs file referenced by the "
+             f"preset's convolver (default: {DEFAULT_IRS_DIR})",
+    )
+    add(
+        "--no-copy-irs",
+        action="store_true",
+        help="don't copy the .irs next to the generated conf. By default "
+             "the converter copies the impulse response from --irs-dir "
+             "into the conf's directory and rewrites the convolver "
+             "filename, so the PipeWire chain has no runtime dependency "
+             "on the EasyEffects path layout. Pass this flag to keep the "
+             "conf pointing at the original EE-side .irs (which lets EE "
+             "preset regenerations propagate automatically, at the cost "
+             "of a brittle cross-tree dependency).",
+    )
+    return added
+
+
+def add_general_args(container, *, only=None):
+    """General flags (dolby_to_pipewire.py shares --no-validate)."""
+    add, added = _make_adder(container, only)
+    add(
+        "--no-validate",
+        action="store_true",
+        help="skip the schema self-check against lv2info port metadata. "
+             "By default, after generating the conf, ee_to_pipewire shells "
+             "out to tools/measure_pw/validate_conf.py to catch unknown "
+             "port symbols and out-of-range values; pass this flag to "
+             "skip it (e.g. on systems without lv2info installed).",
+    )
+    add(
+        "--dry-run",
+        action="store_true",
+        help="print the generated conf to stdout instead of writing it; "
+             "missing IRS files become warnings rather than errors",
+    )
+    add(
+        "--skip-next-steps",
+        action="store_true",
+        help="replace the post-write next-steps checklist (restart "
+             "PipeWire, quit EasyEffects, verify the sink) with a one-line "
+             "activation pointer — for callers that handle activation "
+             "themselves; dolby_to_pipewire.py passes this automatically",
+    )
+    add(
+        "--no-color",
+        action="store_true",
+        help="disable colored terminal output",
+    )
+    add(
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_version()}",
+        help="show version and exit",
+    )
+    return added
+
+
 def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     # --no-color must be honored before argparse renders --help, so pre-scan
     # argv to pick the help formatter (color itself is disabled after parsing).
@@ -1084,109 +1232,10 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
              "dolby_to_easyeffects.py, e.g. ~/.local/share/easyeffects/output/"
              "Dolby-Balanced.json)",
     )
-    group = parser.add_argument_group("routing")
-    group.add_argument(
-        "--target-sink",
-        default=None,
-        help="hardware sink (node.name) the filter should attach to as "
-             "a WirePlumber smart filter. When set, apps target this "
-             "sink as usual and the filter inserts itself into the path; "
-             "no virtual-sink stacking, automatic bypass on HDMI / "
-             "Bluetooth / USB outputs. Default: auto-detect the "
-             "internal-speaker sink via pw-dump (same probe "
-             "dolby_to_easyeffects.py --autoload uses). Pass an empty "
-             "string ('') to disable smart-filter mode and emit the "
-             "v1 virtual-sink conf (apps target effect_input.<name> "
-             "directly).",
-    )
-    group.add_argument(
-        "--target-object",
-        default=None,
-        help="bind the chain's playback to a specific downstream node "
-             "(node.name) instead of letting WirePlumber choose. Useful "
-             "for routing into a measurement null sink. End users "
-             "usually want --target-sink instead, which is set by "
-             "default and uses WirePlumber 0.5+ smart-filter routing "
-             "so apps don't see the chain as a separate sink.",
-    )
-    group = parser.add_argument_group("output")
-    group.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help=f"output .conf path (default: "
-             f"{DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
-    )
-    group.add_argument(
-        "--node-name",
-        default=None,
-        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
-             f"Default: derived from the preset filename stem "
-             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
-             f"converting multiple presets produces distinct sink "
-             f"names without collision. Falls back to "
-             f"{DEFAULT_NODE_NAME!r} if the stem is empty after "
-             f"sanitisation.",
-    )
-    group.add_argument(
-        "--node-description",
-        default=None,
-        help=f"human-readable node description. Default: derived "
-             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
-             f"falling back to {DEFAULT_NODE_DESCRIPTION!r}.",
-    )
-    group.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite the output file if it already exists",
-    )
-    group = parser.add_argument_group("impulse response")
-    group.add_argument(
-        "--irs-dir",
-        type=Path,
-        default=DEFAULT_IRS_DIR,
-        help=f"directory containing the .irs file referenced by the "
-             f"preset's convolver (default: {DEFAULT_IRS_DIR})",
-    )
-    group.add_argument(
-        "--no-copy-irs",
-        action="store_true",
-        help="don't copy the .irs next to the generated conf. By default "
-             "the converter copies the impulse response from --irs-dir "
-             "into the conf's directory and rewrites the convolver "
-             "filename, so the PipeWire chain has no runtime dependency "
-             "on the EasyEffects path layout. Pass this flag to keep the "
-             "conf pointing at the original EE-side .irs (which lets EE "
-             "preset regenerations propagate automatically, at the cost "
-             "of a brittle cross-tree dependency).",
-    )
-    group = parser.add_argument_group("general")
-    group.add_argument(
-        "--no-validate",
-        action="store_true",
-        help="skip the schema self-check against lv2info port metadata. "
-             "By default, after generating the conf, ee_to_pipewire shells "
-             "out to tools/measure_pw/validate_conf.py to catch unknown "
-             "port symbols and out-of-range values; pass this flag to "
-             "skip it (e.g. on systems without lv2info installed).",
-    )
-    group.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="print the generated conf to stdout instead of writing it; "
-             "missing IRS files become warnings rather than errors",
-    )
-    group.add_argument(
-        "--no-color",
-        action="store_true",
-        help="disable colored terminal output",
-    )
-    group.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {get_version()}",
-        help="show version and exit",
-    )
+    add_routing_args(parser.add_argument_group("routing"))
+    add_output_args(parser.add_argument_group("output"))
+    add_impulse_response_args(parser.add_argument_group("impulse response"))
+    add_general_args(parser.add_argument_group("general"))
     return parser
 
 
@@ -1358,7 +1407,13 @@ def main(argv: list[str] | None = None) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
     _print_results(output_path, copied_irs, dry_run=False)
-    _print_next_steps(node_name, target_object=args.target_object)
+    if args.skip_next_steps:
+        # Checklist suppressed, but a freshly written conf must never go
+        # unmentioned as inactive — keep the one action that makes it live.
+        cprint("cta", "To activate: systemctl --user restart pipewire "
+                      "pipewire-pulse")
+    else:
+        _print_next_steps(node_name, target_object=args.target_object)
     return 0
 
 

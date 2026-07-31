@@ -4575,36 +4575,38 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         print()
 
 
-def build_parser() -> argparse.ArgumentParser:
-    # --no-color must be honored before argparse prints --help; pre-scan
-    # argv so the formatter falls back to plain when requested.
-    formatter_class = argparse.HelpFormatter if "--no-color" in sys.argv else _HelpFormatter
-    epilog = None
-    if _MISSING_COLOR_DEPS:
-        epilog = (
-            f"Tip: install {' and '.join(_MISSING_COLOR_DEPS)} for colored output "
-            "(see README for distro packages)."
-        )
-    parser = _HelpHintParser(
-        description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
-        epilog=epilog,
-        formatter_class=formatter_class,
-    )
-    group = parser.add_argument_group(
-        "tuning input",
-        description="with neither an XML path nor --windows, the script "
-                    "auto-discovers: it probes mounted Windows partitions "
-                    "(/proc/mounts) and the current directory for a tuning "
-                    "source",
-    )
-    group.add_argument(
+def _make_adder(container, only):
+    """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
+    selected by ``only`` (keyed by primary name: first option string, or the
+    positional's name) and records the added actions so callers — notably
+    dolby_to_pipewire.py — can rebuild a child argv from them generically."""
+    added = []
+
+    def add(*names, **kwargs):
+        if only is None or names[0] in only:
+            added.append(container.add_argument(*names, **kwargs))
+
+    return add, added
+
+
+TUNING_INPUT_DESCRIPTION = (
+    "with neither an XML path nor --windows, the script auto-discovers: it "
+    "probes mounted Windows partitions (/proc/mounts) and the current "
+    "directory for a tuning source"
+)
+
+
+def add_tuning_input_args(container, *, only=None):
+    """Tuning-input flags (group shared with dolby_to_pipewire.py)."""
+    add, added = _make_adder(container, only)
+    add(
         "xml_file",
         nargs="?",
         type=Path,
         default=None,
         help="path to the Dolby DAX3 tuning XML (e.g. DEV_0287_SUBSYS_*.xml)",
     )
-    group.add_argument(
+    add(
         "--windows",
         type=Path,
         default=None,
@@ -4613,7 +4615,7 @@ def build_parser() -> argparse.ArgumentParser:
              "auto-discovers the correct tuning XML by matching the audio "
              "codec subsystem ID from /proc/asound",
     )
-    group.add_argument(
+    add(
         "--best-guess",
         action="store_true",
         help="if auto-detection finds no exact hardware match, fall back to the "
@@ -4622,18 +4624,23 @@ def build_parser() -> argparse.ArgumentParser:
              "several such candidates it lists them so you can pass one as the "
              "positional XML path. No effect when an exact match is found",
     )
-    group = parser.add_argument_group("inspection")
-    group.add_argument(
+    return added
+
+
+def add_inspection_args(container, *, only=None):
+    """Inspection modes (group shared with dolby_to_pipewire.py)."""
+    add, added = _make_adder(container, only)
+    add(
         "--list",
         action="store_true",
         help="list available endpoints and profiles, then exit",
     )
-    group.add_argument(
+    add(
         "--speaker-info",
         action="store_true",
         help="report detected audio hardware and speaker layout, then exit",
     )
-    group.add_argument(
+    add(
         "--doctor", "--diagnose",
         dest="doctor",
         action="store_true",
@@ -4642,30 +4649,40 @@ def build_parser() -> argparse.ArgumentParser:
              "background service mode + autostart, hardware) and exit — "
              "paste the output into an issue if a preset seems inaudible",
     )
-    group = parser.add_argument_group("profile selection")
-    group.add_argument(
+    return added
+
+
+def add_profile_selection_args(container, *, only=None):
+    """Profile-selection flags (group shared with dolby_to_pipewire.py)."""
+    add, added = _make_adder(container, only)
+    add(
         "--endpoint",
         default="internal_speaker",
         help="endpoint type from the XML (default: internal_speaker)",
     )
-    group.add_argument(
+    add(
         "--mode",
         default="normal",
         help="endpoint operating mode (default: normal)",
     )
-    group.add_argument(
+    add(
         "--profile",
         default=None,
         help="profile type, e.g. dynamic, music, voice (default: first profile)",
     )
-    group.add_argument(
+    add(
         "--all-profiles",
         action="store_true",
         help="generate presets for all profiles in the selected endpoint/mode "
              "(profile names are included in the preset names)",
     )
-    group = parser.add_argument_group("autoload")
-    group.add_argument(
+    return added
+
+
+def add_autoload_args(container, *, only=None):
+    """Autoload flags — EasyEffects-only, never shared with the wrapper."""
+    add, added = _make_adder(container, only)
+    add(
         "--autoload",
         nargs="?",
         const=True,
@@ -4674,13 +4691,13 @@ def build_parser() -> argparse.ArgumentParser:
              "Optionally specify the preset name to autoload; "
              "defaults to the first Balanced preset generated",
     )
-    group.add_argument(
+    add(
         "--autoload-dir",
         type=Path,
         default=DEFAULT_AUTOLOAD_DIR,
         help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
     )
-    group.add_argument(
+    add(
         "--autoload-sink",
         action="append",
         default=[],
@@ -4693,7 +4710,7 @@ def build_parser() -> argparse.ArgumentParser:
              "--autoload to print the candidate list. Mirrors "
              "ee_to_pipewire.py's --target-sink.",
     )
-    group.add_argument(
+    add(
         "--no-autoload-bypass",
         dest="autoload_bypass",
         action="store_false",
@@ -4702,26 +4719,36 @@ def build_parser() -> argparse.ArgumentParser:
              "you manage the fallback yourself. Existing user setups are "
              "preserved even without this flag.",
     )
-    group = parser.add_argument_group("output")
-    group.add_argument(
+    return added
+
+
+def add_output_args(container, *, only=None):
+    """Output naming/location flags (dolby_to_pipewire.py shares --prefix)."""
+    add, added = _make_adder(container, only)
+    add(
         "--prefix",
         default="Dolby",
         help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
     )
-    group.add_argument(
+    add(
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
         help=f"EasyEffects output preset directory (default: {DEFAULT_OUTPUT_DIR})",
     )
-    group.add_argument(
+    add(
         "--irs-dir",
         type=Path,
         default=DEFAULT_IRS_DIR,
         help=f"EasyEffects impulse response directory (default: {DEFAULT_IRS_DIR})",
     )
-    group = parser.add_argument_group("filter tweaks")
-    group.add_argument(
+    return added
+
+
+def add_filter_tweak_args(container, *, only=None):
+    """Filter-tweak flags (group shared with dolby_to_pipewire.py)."""
+    add, added = _make_adder(container, only)
+    add(
         "--disable",
         action="append",
         default=[],
@@ -4732,7 +4759,7 @@ def build_parser() -> argparse.ArgumentParser:
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
     )
-    group.add_argument(
+    add(
         "--enable",
         action="append",
         default=[],
@@ -4745,7 +4772,7 @@ def build_parser() -> argparse.ArgumentParser:
              "(experimental) if loud content turns harsh where the "
              "per-band limiter is inactive (issue #44).",
     )
-    group.add_argument(
+    add(
         "--volmax-slot",
         choices=["input-gain", "output-gain"],
         default="input-gain",
@@ -4760,30 +4787,70 @@ def build_parser() -> argparse.ArgumentParser:
              "Neither placement is Dolby-documented; no effect when the regulator "
              "is disabled/absent (the boost then lands on limiter#0 input-gain).",
     )
-    group = parser.add_argument_group("general")
-    group.add_argument(
+    return added
+
+
+def add_general_args(container, *, only=None):
+    """General flags — dolby_to_pipewire.py authors its own equivalents."""
+    add, added = _make_adder(container, only)
+    add(
         "--dry-run",
         action="store_true",
         help="run without writing any files to disk (presets, IRs, autoload); "
              "useful for debugging script execution and output",
     )
-    group.add_argument(
+    add(
+        "--skip-ee-check",
+        action="store_true",
+        help="skip the end-of-run EasyEffects environment check (version and "
+             "install-location warnings) — for workflows that don't target an "
+             "EasyEffects install; dolby_to_pipewire.py passes this "
+             "automatically",
+    )
+    add(
         "--no-color",
         action="store_true",
         help="disable colored terminal output",
     )
-    group.add_argument(
+    add(
         "--version",
         action="version",
         version=f"%(prog)s {get_version()}",
         help="show version and exit",
     )
+    return added
+
+
+def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
+    # --no-color must be honored before argparse prints --help; pre-scan
+    # argv so the formatter falls back to plain when requested.
+    _argv = sys.argv[1:] if argv is None else argv
+    formatter_class = argparse.HelpFormatter if "--no-color" in _argv else _HelpFormatter
+    epilog = None
+    if _MISSING_COLOR_DEPS:
+        epilog = (
+            f"Tip: install {' and '.join(_MISSING_COLOR_DEPS)} for colored output "
+            "(see README for distro packages)."
+        )
+    parser = _HelpHintParser(
+        description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
+        epilog=epilog,
+        formatter_class=formatter_class,
+    )
+    add_tuning_input_args(parser.add_argument_group(
+        "tuning input", description=TUNING_INPUT_DESCRIPTION))
+    add_inspection_args(parser.add_argument_group("inspection"))
+    add_profile_selection_args(parser.add_argument_group("profile selection"))
+    add_output_args(parser.add_argument_group("output"))
+    add_autoload_args(parser.add_argument_group("autoload"))
+    add_filter_tweak_args(parser.add_argument_group("filter tweaks"))
+    add_general_args(parser.add_argument_group("general"))
     return parser
 
 
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
+def main(argv: list[str] | None = None):
+    parser = build_parser(argv)
+    args = parser.parse_args(argv)
     if args.no_color:
         _disable_color()
     disabled = set(args.disable)
@@ -5045,17 +5112,25 @@ def main():
     # — the failure mode #22 surfaced (a correct preset silently inaudible
     # because of the environment, e.g. EE 7 or a wrong install location).
     # Silent on the happy path; reuses --doctor's probes.
-    warn_ee_environment(args)
+    if not args.skip_ee_check:
+        warn_ee_environment(args)
 
     print()
     cprint("cta", "How does it sound? Please report back (good or bad):")
     cprint("cta", f"  {_REPORT_FORM_URL}")
 
 
-if __name__ == "__main__":
+def run_cli(argv: list[str] | None = None) -> int:
+    """main() with the top-level error handling the __main__ block used to
+    inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
     try:
-        main()
+        main(argv)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")
-        sys.exit(1)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run_cli())

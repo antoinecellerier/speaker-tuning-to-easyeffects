@@ -1,0 +1,374 @@
+"""dolby_to_pipewire.py orchestration coverage.
+
+The wrapper contains no per-XML logic — it forwards to the two converters,
+which have their own unit and corpus coverage — so the corpus tier is
+deliberately not extended for it. What needs locking down here is the
+orchestration contract: which flags reach which step (routing units against
+recorders), that the shared-builder argv rebuild round-trips, and that a
+full run leaves nothing behind except the conf + .irs (end-to-end against
+the synthetic tuning XML, always with --no-activate so pytest never
+restarts the developer's PipeWire).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import dolby_to_easyeffects
+import dolby_to_pipewire
+import ee_to_pipewire
+from dolby_to_pipewire import main as wrapper_main
+from tests.conftest import write_synthetic_tuning_xml
+
+SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_pipewire.py"
+
+
+# ---------------------------------------------------------------------------
+# Argparse smoke tests (subprocess)
+# ---------------------------------------------------------------------------
+
+def _run_script(*args, env=None, timeout=120):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+
+
+def test_help_exits_cleanly():
+    """`--help` smokes the composed parser: shared groups imported from both
+    converters plus the wrapper-own variant/activation groups render without
+    duplicate-flag errors."""
+    result = _run_script("--no-color", "--help")
+    assert result.returncode == 0
+    for group in ("tuning input", "inspection", "profile selection",
+                  "variant", "filter tweaks", "routing", "output",
+                  "activation", "general"):
+        assert f"{group}:" in result.stdout
+
+
+def test_bad_variant_is_a_usage_error():
+    result = _run_script("--variant", "loud")
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
+    assert "--help" in result.stderr  # _HelpHintParser nudge
+
+
+def test_xml_and_windows_are_mutually_exclusive(tmp_path):
+    """The wrapper pre-checks the generator's one cross-flag rule so the
+    error is framed before any staging happens."""
+    fake_xml = tmp_path / "fake.xml"
+    fake_xml.write_text("<root/>")
+    fake_dir = tmp_path / "winroot"
+    fake_dir.mkdir()
+    result = _run_script(str(fake_xml), "--windows", str(fake_dir))
+    assert result.returncode == 2
+    assert "not both" in result.stderr
+    assert "--help" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# rebuild_argv: the generic forwarding built on the shared builders
+# ---------------------------------------------------------------------------
+
+def test_rebuild_argv_round_trips_through_the_generator_parser():
+    """Wrapper argv → parse → rebuild_argv → parse with the generator's own
+    parser must preserve every forwarded value (positional, store, append,
+    store_true) while leaving unset flags on the child's defaults."""
+    parser, step1_actions, _ = dolby_to_pipewire._compose_parser([])
+    args = parser.parse_args([
+        "some.xml", "--best-guess", "--endpoint", "headphone",
+        "--disable", "mbc", "--disable", "volmax",
+        "--enable", "autogain", "--prefix", "X",
+    ])
+    child_argv = dolby_to_pipewire.rebuild_argv(step1_actions, args)
+    child = dolby_to_easyeffects.build_parser([]).parse_args(child_argv)
+    assert child.xml_file == Path("some.xml")
+    assert child.best_guess is True
+    assert child.endpoint == "headphone"
+    assert child.disable == ["mbc", "volmax"]
+    assert child.enable == ["autogain"]
+    assert child.prefix == "X"
+    # Untouched flags stay on the generator's defaults, not the wrapper's.
+    assert child.mode == "normal"
+    assert child.profile is None
+    assert child.volmax_slot == "input-gain"
+
+
+def test_rebuild_argv_forwards_empty_target_sink():
+    """`--target-sink ''` (explicit smart-filter opt-out) must survive the
+    rebuild — an empty string is not a default and not skippable."""
+    parser, _, step2_actions = dolby_to_pipewire._compose_parser([])
+    args = parser.parse_args(["--target-sink", ""])
+    child_argv = dolby_to_pipewire.rebuild_argv(step2_actions, args)
+    assert child_argv == ["--target-sink", ""]
+
+
+def test_shared_choices_cannot_drift():
+    """The wrapper reuses the generator's builders, so its --disable/--enable
+    choices are the generator's lists by construction."""
+    wrapper_parser = dolby_to_pipewire.build_parser([])
+    by_dest = {a.dest: a for g in wrapper_parser._action_groups
+               for a in g._group_actions}
+    assert list(by_dest["disable"].choices) == \
+        list(dolby_to_easyeffects.DISABLEABLE_FILTERS)
+    assert list(by_dest["enable"].choices) == \
+        list(dolby_to_easyeffects.ENABLEABLE_FILTERS)
+
+
+# ---------------------------------------------------------------------------
+# Flag routing units (recorders in place of the two converters)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def recorders(monkeypatch):
+    """Replace the generator, the converter, and subprocess with recorders.
+    The fake generator writes the three variant stubs into the --output-dir
+    it was handed, like the real one; the fake pw-cli lists every node."""
+    calls = SimpleNamespace(step1=[], step2=[], commands=[])
+
+    def fake_run_cli(argv):
+        calls.step1.append(list(argv))
+        if "--output-dir" in argv:
+            out = Path(argv[argv.index("--output-dir") + 1])
+            for stem in ("Dolby-Balanced", "Dolby-Detailed", "Dolby-Warm"):
+                (out / f"{stem}.json").write_text("{}")
+                (out / f"{stem}.irs").write_bytes(b"")
+        return 0
+
+    def fake_ee_main(argv):
+        calls.step2.append(list(argv))
+        return 0
+
+    def fake_subprocess_run(cmd, **kwargs):
+        calls.commands.append(list(cmd))
+        return SimpleNamespace(
+            returncode=0,
+            stdout="Dolby_Balanced Dolby_Detailed Dolby_Warm")
+
+    monkeypatch.setattr(dolby_to_easyeffects, "run_cli", fake_run_cli)
+    monkeypatch.setattr(ee_to_pipewire, "main", fake_ee_main)
+    monkeypatch.setattr(dolby_to_pipewire.subprocess, "run",
+                        fake_subprocess_run)
+    monkeypatch.setattr(dolby_to_pipewire.shutil, "which",
+                        lambda name: f"/usr/bin/{name}")
+    return calls
+
+
+def test_routing_staging_and_skip_flags(recorders):
+    """The no-artifacts mechanics: both step-1 dirs point into the same
+    staging tempdir (gone once main returns), --skip-ee-check /
+    --skip-next-steps are always passed, and the poisoned flags
+    (--no-copy-irs, --autoload*) never reach a child."""
+    assert wrapper_main(["--no-activate"]) == 0
+    (step1,) = recorders.step1
+    assert "--skip-ee-check" in step1
+    staging = Path(step1[step1.index("--output-dir") + 1])
+    assert step1[step1.index("--irs-dir") + 1] == str(staging)
+    assert not staging.exists(), "staging tempdir must not outlive main()"
+
+    (step2,) = recorders.step2
+    assert Path(step2[0]) == staging / "Dolby-Balanced.json"
+    assert step2[step2.index("--irs-dir") + 1] == str(staging)
+    assert "--skip-next-steps" in step2
+    for argv in recorders.step1 + recorders.step2:
+        assert "--no-copy-irs" not in argv
+        assert not any(a.startswith("--autoload") for a in argv)
+
+
+def test_routing_variant_selects_stems(recorders):
+    assert wrapper_main(["--variant", "detailed", "--no-activate"]) == 0
+    (step2,) = recorders.step2
+    assert Path(step2[0]).name == "Dolby-Detailed.json"
+
+    recorders.step2.clear()
+    assert wrapper_main(["--variant", "all", "--no-activate"]) == 0
+    stems = [Path(argv[0]).name for argv in recorders.step2]
+    assert stems == ["Dolby-Balanced.json", "Dolby-Detailed.json",
+                     "Dolby-Warm.json"]
+
+
+def test_routing_dry_run_reaches_only_step2_and_skips_activation(recorders):
+    assert wrapper_main(["--dry-run"]) == 0
+    (step1,) = recorders.step1
+    assert "--dry-run" not in step1, \
+        "the generator's --dry-run writes nothing — the tempdir is the " \
+        "no-artifacts mechanism"
+    (step2,) = recorders.step2
+    assert "--dry-run" in step2
+    assert recorders.commands == []
+
+
+def test_routing_no_activate_suppresses_systemctl(recorders):
+    assert wrapper_main(["--no-activate"]) == 0
+    assert recorders.commands == []
+
+
+def test_routing_activation_restarts_once_then_verifies(recorders):
+    assert wrapper_main(["--variant", "all"]) == 0
+    restarts = [c for c in recorders.commands if c[0] == "systemctl"]
+    assert restarts == [["systemctl", "--user", "restart",
+                         "pipewire", "pipewire-pulse"]]
+    assert any(c[:2] == ["pw-cli", "ls"] for c in recorders.commands)
+
+
+def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
+    """No systemd is a legitimate environment: warn with the manual command
+    and exit 0."""
+    def raise_missing(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+    monkeypatch.setattr(dolby_to_pipewire.subprocess, "run", raise_missing)
+    assert wrapper_main([]) == 0
+    err = capsys.readouterr().err
+    assert "systemctl not found" in err
+    assert "systemctl --user restart pipewire pipewire-pulse" in err
+
+
+def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
+    monkeypatch.setattr(
+        dolby_to_pipewire.subprocess, "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout=""))
+    assert wrapper_main([]) == 1
+    assert "restart failed" in capsys.readouterr().err
+
+
+def test_routing_missing_sink_after_restart_is_an_error(recorders,
+                                                        monkeypatch, capsys):
+    """Restart succeeds but the node never appears (classic cause: missing
+    LV2 plugins) — surface it instead of reporting success."""
+    monkeypatch.setattr(
+        dolby_to_pipewire.subprocess, "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
+    monkeypatch.setattr(dolby_to_pipewire.time, "sleep", lambda s: None)
+    assert wrapper_main([]) == 1
+    err = capsys.readouterr().err
+    assert "did not appear" in err
+    assert "Plugin dependencies" in err
+
+
+def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
+    monkeypatch.setattr(ee_to_pipewire, "main",
+                        lambda argv: (recorders.step2.append(argv) or 1))
+    assert wrapper_main(["--variant", "all"]) == 1
+    assert len(recorders.step2) == 1
+    assert recorders.commands == []
+
+
+def test_routing_step1_failure_propagates(recorders, monkeypatch):
+    monkeypatch.setattr(dolby_to_easyeffects, "run_cli", lambda argv: 1)
+    assert wrapper_main([]) == 1
+    assert recorders.step2 == []
+
+
+def test_routing_inspection_short_circuits(recorders):
+    """--list runs the generator against the real environment (no staging
+    dirs) and stops — no conversion, no activation."""
+    assert wrapper_main(["--list"]) == 0
+    (step1,) = recorders.step1
+    assert "--list" in step1
+    assert "--output-dir" not in step1
+    assert recorders.step2 == []
+    assert recorders.commands == []
+
+
+def test_routing_no_matching_preset_errors(recorders, monkeypatch, capsys):
+    """A generator run that emits nothing for the requested variant (curve
+    absent from the XML) must fail with a pointer, not convert nothing
+    silently."""
+    monkeypatch.setattr(dolby_to_easyeffects, "run_cli", lambda argv: 0)
+    assert wrapper_main(["--no-activate"]) == 1
+    assert "no Balanced preset was generated" in capsys.readouterr().err
+    assert recorders.step2 == []
+
+
+def test_routing_output_dir_is_forwarded_absolute(recorders):
+    """A relative --output-dir must reach the converter absolute, or the
+    conf would embed a relative IRS path PipeWire resolves against its own
+    CWD."""
+    assert wrapper_main(["--output-dir", "rel/confs", "--no-activate"]) == 0
+    (step2,) = recorders.step2
+    out = Path(step2[step2.index("--output") + 1])
+    assert out.is_absolute()
+    assert out.name == "Dolby_Balanced.conf"
+    assert out.parent.name == "confs"
+
+
+# ---------------------------------------------------------------------------
+# End-to-end (subprocess, synthetic XML, isolated HOME)
+# ---------------------------------------------------------------------------
+
+def _run_e2e(tmp_path, *args):
+    """Run the wrapper against the synthetic XML with HOME pointed at an
+    empty directory — the no-EE-artifacts claim is asserted against it.
+    Always passes --no-activate and --target-sink '' (no pw-dump probe, no
+    PipeWire restart on the developer's machine)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out = tmp_path / "confs"
+    result = _run_script(
+        str(xml), "--output-dir", str(out), "--target-sink", "",
+        "--no-activate", "--no-color", *args,
+        env={**os.environ, "HOME": str(home)},
+    )
+    return result, home, out
+
+
+def test_e2e_default_writes_only_balanced_pair(tmp_path):
+    result, home, out = _run_e2e(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.name for p in out.iterdir()) == \
+        ["Dolby_Balanced.conf", "Dolby_Balanced.irs"]
+    conf = (out / "Dolby_Balanced.conf").read_text()
+    assert "dolby_to_pipewire-" not in conf, "staging path leaked into conf"
+    assert ".local/share/easyeffects" not in conf
+    assert str(out / "Dolby_Balanced.irs") in conf
+    # The no-EE-artifacts promise: the fake HOME stays untouched.
+    assert list(home.iterdir()) == []
+
+
+def test_e2e_variant_all_writes_three_pairs(tmp_path):
+    result, _home, out = _run_e2e(tmp_path, "--variant", "all")
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.name for p in out.iterdir()) == [
+        "Dolby_Balanced.conf", "Dolby_Balanced.irs",
+        "Dolby_Detailed.conf", "Dolby_Detailed.irs",
+        "Dolby_Warm.conf", "Dolby_Warm.irs",
+    ]
+
+
+def test_e2e_variant_detailed_writes_only_that_pair(tmp_path):
+    result, _home, out = _run_e2e(tmp_path, "--variant", "detailed")
+    assert result.returncode == 0, result.stderr
+    assert sorted(p.name for p in out.iterdir()) == \
+        ["Dolby_Detailed.conf", "Dolby_Detailed.irs"]
+
+
+def test_e2e_dry_run_writes_nothing_and_pipes_the_conf(tmp_path):
+    result, home, out = _run_e2e(tmp_path, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert not out.exists()
+    assert list(home.iterdir()) == []
+    # stdout is the conf alone — the generator's report moved to stderr.
+    assert result.stdout.startswith("# Generated by ee_to_pipewire.py")
+    assert "ieq-amount" not in result.stdout
+    assert "ieq-amount" in result.stderr
+
+
+def test_e2e_next_steps_checklist_is_consolidated(tmp_path):
+    """--no-activate prints the wrapper's single manual block; the
+    converter's own checklist stays suppressed (--skip-next-steps) so the
+    steps appear exactly once."""
+    result, _home, _out = _run_e2e(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.count("Restart PipeWire:") == 1
+    assert "Next steps:" not in result.stderr

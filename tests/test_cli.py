@@ -36,6 +36,7 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    write_synthetic_tuning_xml,
 )
 
 
@@ -440,6 +441,24 @@ def test_nonexistent_xml_path_fails_cleanly(tmp_path):
     assert result.returncode == 1
     combined = result.stdout + result.stderr
     assert "error" in combined.lower() or "no such" in combined.lower()
+
+
+def test_skip_ee_check_gates_environment_warning(monkeypatch, tmp_path, capsys):
+    """`--skip-ee-check` must suppress the end-of-run warn_ee_environment
+    probe (and only that) — dolby_to_pipewire.py relies on it to keep the
+    EasyEffects install hint out of PipeWire-only runs.
+    """
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    calls = []
+    monkeypatch.setattr(dolby_to_easyeffects, "warn_ee_environment",
+                        lambda args: calls.append(args))
+    base = [str(xml),
+            "--output-dir", str(tmp_path / "out"),
+            "--irs-dir", str(tmp_path / "irs")]
+    dolby_to_easyeffects.main(base)
+    assert len(calls) == 1
+    dolby_to_easyeffects.main(base + ["--skip-ee-check"])
+    assert len(calls) == 1
 
 
 # --- find_tuning_xml / autoprobe_dolby_source error-branch coverage ---
