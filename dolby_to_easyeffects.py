@@ -4590,7 +4590,13 @@ def main():
         epilog=epilog,
         formatter_class=formatter_class,
     )
-    group = parser.add_argument_group("tuning input")
+    group = parser.add_argument_group(
+        "tuning input",
+        description="with neither an XML path nor --windows, the script "
+                    "auto-discovers: it probes mounted Windows partitions "
+                    "(/proc/mounts) and the current directory for a tuning "
+                    "source",
+    )
     group.add_argument(
         "xml_file",
         nargs="?",
@@ -4605,9 +4611,7 @@ def main():
         metavar="DIR",
         help="path to a mounted Windows directory (e.g. /mnt/windows/Windows); "
              "auto-discovers the correct tuning XML by matching the audio "
-             "codec subsystem ID from /proc/asound. Omit this flag to let the "
-             "script probe /proc/mounts and the current directory for a "
-             "suitable source",
+             "codec subsystem ID from /proc/asound",
     )
     group.add_argument(
         "--best-guess",

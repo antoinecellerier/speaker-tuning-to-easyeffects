@@ -100,9 +100,9 @@ pip install -r requirements.txt
 
 ### Command-line options
 
-**Tuning input**
-- `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`); omit to auto-discover via `--windows` or probing
-- `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
+**Tuning input** — with neither an XML path nor `--windows`, the script auto-discovers: it probes mounted Windows partitions (`/proc/mounts`) and the current directory for a tuning source
+- `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`)
+- `--windows DIR` — auto-discover the tuning XML from a mounted Windows directory (matches the audio codec subsystem ID from `/proc/asound`)
 - `--best-guess` — if auto-detection finds no exact hardware match, fall back to the only internal-speaker tuning whose manufacturer is present (or list the candidates to pick one with the positional XML path); reach for it when a SoundWire laptop reports "No matching DAX3 tuning XML found"
 
 **Inspection**
