@@ -1061,7 +1061,7 @@ def _print_next_steps(node_name: str,
                       f"pw-link -l | grep {target_object}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     # --no-color must be honored before argparse renders --help, so pre-scan
     # argv to pick the help formatter (color itself is disabled after parsing).
     _argv = sys.argv[1:] if argv is None else argv
@@ -1187,6 +1187,11 @@ def main(argv: list[str] | None = None) -> int:
         version=f"%(prog)s {get_version()}",
         help="show version and exit",
     )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser(argv)
     args = parser.parse_args(argv)
     if args.no_color:
         _disable_color()

@@ -4575,7 +4575,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         print()
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     # --no-color must be honored before argparse prints --help; pre-scan
     # argv so the formatter falls back to plain when requested.
     formatter_class = argparse.HelpFormatter if "--no-color" in sys.argv else _HelpFormatter
@@ -4778,6 +4778,11 @@ def main():
         version=f"%(prog)s {get_version()}",
         help="show version and exit",
     )
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
     if args.no_color:
         _disable_color()
