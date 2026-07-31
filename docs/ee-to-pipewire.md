@@ -142,14 +142,19 @@ override; end users want `--target-sink`.
 | `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost` (typically +6 dB) on `input-gain` (the default slot since issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23); `--volmax-slot output-gain` moves it) when present; if the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead — readers walking the gain stages must check both. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). `amount` is dB in the EE preset, linear in Calf — converted via `db_to_linear` (the `BIND_LV2_PORT_DB` macro). `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct. Triggers on SoundWire devices with small drivers. |
-| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. **Translator retained but no longer triggered by the converter:** since 2026-06 the converter emits no `stereo_tools` (the `surround-boost → stereo_tools` widening was falsified by a DAX capture — design-notes entry 2). This row still applies to any hand-edited or legacy preset that carries a `stereo_tools` block. |
+| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. **Translator retained but no longer triggered:** since 2026-06 the *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block (the `surround-boost → stereo_tools` widening was falsified by a DAX capture — design-notes entry 2), so generated presets never reach this translator. This row still applies to any hand-edited or legacy preset that carries a `stereo_tools` block. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true (unless the preset was generated with `--enable autogain`); emitting a bypassed node would just clutter. |
-| `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`); `autogain_stereo` is the LV2 equivalent — a K-weighted (LUFS) loudness AGC. `target`→`level` and `silence-threshold`→`silence` are dB-domain ports passed **directly** (no `db_to_lin`); `weight=5` (K-weighting = EBU R 128); `lkahead=0` (zero added latency). EE's `maximum-history` (s) drives the gain-ride time-constants asymmetrically — `tfall_l` (gain down, 200 ms/s) faster than `tgrow_l` (gain up, 500 ms/s, anti-pumping) — matching EE's measured behaviour (on-device EE-vs-PW proof in design-notes). EE `input-gain`/`output-gain` are always 0.0 and have no main-path port, so they are not written. Active by default on SoundWire; on HDA only for presets generated with `--enable autogain`. |
+| `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`); `autogain_stereo` is the LV2 equivalent — a K-weighted (LUFS) loudness AGC. `target`→`level` and `silence-threshold`→`silence` are dB-domain ports passed **directly** (no `db_to_lin`), clamped to the port ranges (−60..0 / −84..−36); `weight=5` (K-weighting = EBU R 128); `lkahead=0` (zero added latency). EE's `maximum-history` (s) drives the gain-ride time-constants asymmetrically — `tfall_l` (gain down, 200 ms/s) faster than `tgrow_l` (gain up, 500 ms/s, anti-pumping) — matching EE's measured behaviour (on-device EE-vs-PW proof in design-notes). The mapping was validated at a 20 s history; shorter windows (HDA `--enable autogain` always; SoundWire when `volume-leveler-amount` > 5) surface a warning — on stderr and in the conf-header warning block — that the PW ride may be faster than EE's. EE `input-gain`/`output-gain` are always 0.0 and have no main-path port, so they are not written. Active by default on SoundWire; on HDA only for presets generated with `--enable autogain`. |
 
-Each skipped plugin emits a stderr warning with rationale. The dispatch
-table (`EE_KEY_DISPATCH` in `ee_to_pipewire.py`) marks unknown keys with
-a generic warning rather than crashing — a non-Dolby preset accidentally
-fed in surfaces as warnings, not a traceback.
+Anything the converter cannot express warns on stderr instead of
+dropping silently: unknown plugin keys (a non-Dolby preset fed in
+surfaces as warnings, not a traceback), bypassed plugins (except
+autogain on HDA, where bypass is the expected default), unknown enum
+labels (translated to the fallback integer, with a pointer at the
+`EE_*` table to extend), presets declaring more than 16 EQ bands
+(excess dropped), a nonzero convolver `input-gain` (no builtin port),
+and plugin objects missing from `plugins_order` (never visited by the
+chain builder).
 
 The XML→preset mapping invariant (CLAUDE.md "every parameter must
 trace to an XML field") applies here too: this script translates
@@ -178,6 +183,48 @@ through unchanged. Round-trips to four decimals (locked in by
 | `compressor-enable` (bool)    | `ce_N`      | 1 / 0 |
 | `sidechain-mode` `RMS`/`Peak` | `scm_N`     | enum (`RMS`=1, `Peak`=0; full table in `EE_MBC_SCMODE`) |
 | `sidechain-lookahead` (ms)    | `sla_N`     | identity |
+| `sidechain-preamp` (dB)       | `scp_N`     | `10**(dB/20)` |
+| `compression-mode`            | `cm_N`      | enum (`Downward`=0; full table in `EE_MBC_CM`) — written explicitly because LSP's boost path (below) is live in the other modes |
+| `boost-threshold` (dB)        | `bth_N`     | `10**(dB/20)` — LV2 default is −72 dB; the generator pins −60 dB |
+| `boost-amount` (dB)           | `bsa_N`     | `10**(dB/20)` — LV2 default is +6 dB; the generator pins 0 dB |
+| `sidechain-custom-lowcut-filter` / `-highcut-filter` (bool) | `sclc_N` / `schc_N` | 1 / 0 |
+| `sidechain-lowcut-frequency` / `-highcut-frequency` (Hz) | `sclf_N` / `schf_N` | identity (inert while the custom-filter toggles above stay off) |
+| `stereo-split` (bool)         | `ssplit`    | 1, written only when true (global, not per band) — the port doesn't exist on lsp-plugins < 1.2.3, and the generator always emits false == the port default |
+
+### Known approximations & untranslated parameters
+
+A few EE preset params are deliberately **not** written into the conf.
+For each one the drop is faithful only because the generator-pinned
+value equals the LV2 port default the conf silently inherits — both
+sides are locked by tests (`_INTENTIONALLY_UNTRANSLATED` in
+`tests/test_ee_to_pipewire.py` pins the generator value and the LV2
+default; a slow-tier test cross-checks the pinned defaults against the
+installed plugins via `lv2info`). If either side moves, the build goes
+red and the param must be translated instead.
+
+| EE param | Pinned value | LV2 port (default) |
+|---|---|---|
+| MBC/regulator `mute` / `solo` | `False` | `bm_N` / `bs_N` (0) |
+| MBC/regulator `sidechain-type` | `"Internal"` | `sce_N` (0) — external sidechain is unwired in a filter-chain graph |
+| MBC/regulator `sidechain-source` | `"Middle"` | `scs_N` (0) |
+| MBC/regulator `stereo-split-source` | `"Left/Right"` | `sscs_N` (0); only read when `ssplit` is on |
+| MBC/regulator `sidechain-reactivity` | `10.0` ms | `scr_N` (10) |
+| limiter `oversampling` / `dithering` | `"None"` | `ovs` / `dith` (0) |
+| limiter `sidechain-type` | `"Internal"` | `extsc` (0) |
+| limiter `sidechain-preamp` | `0.0` dB | `scp` (1.0 linear) |
+| convolver `ir-width` / `autogain` | `100` / `False` | *(no port — EE-internal IR preprocessing)* |
+| PEQ/dialog `split-channels` | `True` / `False` | *(no port — the `_lr` plugin always takes explicit L/R bands)* |
+
+Known **approximation** (not default-equivalence): the autogain
+translation. EE's autogain is native libebur128; LSP `autogain_stereo`
+is a different implementation, and only the long-window gain ride is
+derived from the preset (`maximum-history` → `tgrow_l`/`tfall_l`). The
+short-window ride (`tgrow_s`/`tfall_s`), loudness periods, drift limit
+and amplification cap stay at LSP defaults, and EE's `reference`
+loudness-statistic selector (`"Geometric Mean (MSI)"`) has no
+equivalent port. The mapping is on-device validated at a 20 s history
+(design-notes); re-deriving more of it is gated on device measurement
+(CLAUDE.md "Validating audio changes").
 
 ## Equivalence to the EE chain
 
@@ -211,14 +258,22 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
 
 - `tests/test_ee_to_pipewire.py` — DSP math, schema invariants, the
   load-bearing 4-decimal MBC round-trip, IRS-copy semantics, smart-filter
-  property emission, validator-via-`main()` smoke.
+  property emission, validator-via-`main()` smoke. Plus the systematic
+  coverage guard: `make_preset` is swept across every emission-relevant
+  flag combination, and every plugin key / leaf param / enum label the
+  generator can emit must be translated by the converter or carried in
+  `_INTENTIONALLY_UNTRANSLATED` with a default-equivalence proof (see
+  "Known approximations & untranslated parameters" above). A new
+  generator feature that is neither fails the fast tier.
 - `tests/corpus/test_ee_to_pipewire_corpus.py` — runs the full
   XML→preset→PW-conf pipeline against every discovered DAX3 XML
   (auto-discovered from NTFS mounts and CWD; override via
-  `ATMOS_CORPUS_DIR`). Asserts every link endpoint resolves and
-  shells out to `validate_conf.py` when `lv2info` and `spa-json-dump`
-  are installed. Catches "converter crashes on a non-X1-Yoga XML
-  shape" before it reaches a tester.
+  `ATMOS_CORPUS_DIR`). Asserts every link endpoint resolves, that the
+  converter emits **zero warnings** on generated presets (the coverage
+  guard's drift check re-run against real XMLs), and shells out to
+  `validate_conf.py` when `lv2info` and `spa-json-dump` are installed.
+  Catches "converter crashes on a non-X1-Yoga XML shape" before it
+  reaches a tester.
 
 ## Limitations / known gaps
 

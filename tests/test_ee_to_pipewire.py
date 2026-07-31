@@ -9,16 +9,26 @@ the design-doc's verification anchor (alternative-pipelines.md:371-373).
 
 from __future__ import annotations
 
+import copy
+import functools
 import inspect
 import json
 import math
 import re
+import shutil
+import subprocess
+from dataclasses import dataclass
+from typing import Callable
+
+from pathlib import Path
 
 import pytest
 
 from dolby_to_easyeffects import (
     SAMPLE_RATE,
     FIR_LENGTH,
+    DISABLEABLE_FILTERS,
+    ENABLEABLE_FILTERS,
     make_fir,
     make_preset,
     save_wav_stereo,
@@ -26,11 +36,20 @@ from dolby_to_easyeffects import (
 from ee_to_pipewire import (
     CALF_BE_URI,
     CALF_ST_URI,
+    EE_EQMODE_TO_LSP,
+    EE_FMODE_TO_LSP,
+    EE_FSLOPE_TO_LSP,
     EE_FTYPE_TO_LSP,
+    EE_KEY_DISPATCH,
     EE_LIMITER_MODE,
+    EE_MBC_CM,
+    EE_MBC_ENVB,
     EE_MBC_GLOBAL_MODE,
+    EE_MBC_SCMODE,
     EE_ST_MODE,
     LSP_AUTOGAIN_URI,
+    LSP_LIM_URI,
+    LSP_MBC_URI,
     build_chain,
     db_to_lin,
     emit_autogain,
@@ -108,23 +127,14 @@ def test_db_to_lin_round_trip_precision():
         assert math.isclose(lin_to_db(db_to_lin(db)), db, abs_tol=1e-12)
 
 
-def test_ftype_mapping_covers_every_string_emitted_by_dolby():
-    """Every filter type the script can write must map to a non-None
-    LSP integer. If a future make_*_band introduces a new type, this
-    catches it instead of silently emitting the default (Off).
-    """
-    for s in ("Bell", "Hi-pass", "Lo-pass", "Hi-shelf", "Lo-shelf"):
-        assert s in EE_FTYPE_TO_LSP
-        assert EE_FTYPE_TO_LSP[s] != 0  # 0 is Off — these aren't Off
-
-
 def test_assert_positional_passes_in_correct_order():
     _assert_positional(["convolver#0", "equalizer#0", "equalizer#1",
                         "limiter#0"])
 
 
 def test_assert_positional_raises_when_swapped():
-    with pytest.raises(AssertionError):
+    # ValueError, not AssertionError — the contract must survive `python -O`.
+    with pytest.raises(ValueError):
         _assert_positional(["equalizer#1", "equalizer#0"])
 
 
@@ -435,6 +445,117 @@ def test_emit_mb_compressor_each_global_mode_maps(label, expected_int):
     assert EE_MBC_GLOBAL_MODE[label] == expected_int
 
 
+@pytest.mark.parametrize("label,expected_int", [
+    ("Downward", 0), ("Upward", 1), ("Boosting", 2),
+])
+def test_emit_mb_compressor_each_compression_mode_maps(label, expected_int):
+    """Per-label sentinel against mb_compressor.cpp:105 mb_comp_modes[].
+    Up/Boost engage LSP's below-threshold boost path (noise-floor
+    amplification — the e454711 trap), so an off-by-one here is audible.
+    """
+    plugin = {
+        "bypass": False, "compressor-mode": "Modern",
+        "input-gain": 0.0, "output-gain": 0.0,
+        "dry": -80.01, "wet": 0.0, "envelope-boost": "None",
+        "band0": {"compression-mode": label},
+    }
+    stage = emit_mb_compressor(plugin, "mbc")
+    assert stage.nodes[0]["control"]["cm_0"] == expected_int
+    assert EE_MBC_CM[label] == expected_int
+
+
+# ---------------------------------------------------------------------------
+# Unknown-label and untranslatable-value warnings
+# ---------------------------------------------------------------------------
+
+def test_mbc_ssplit_written_only_when_set():
+    """`ssplit` only exists on lsp-plugins >= 1.2.3, and the generator
+    pins stereo-split=False == the port default — so it must be written
+    only when a hand-edited preset enables it, keeping confs loadable on
+    older installed LSP."""
+    stage = emit_mb_compressor({"bypass": False}, "mbc")
+    assert "ssplit" not in stage.nodes[0]["control"]
+    stage = emit_mb_compressor({"bypass": False, "stereo-split": True}, "mbc")
+    assert stage.nodes[0]["control"]["ssplit"] == 1
+
+
+def test_unknown_enum_label_warns_not_silent():
+    """A new EE enum label must warn while falling back — a silent
+    `.get(label, fallback)` would map it to the fallback integer (often
+    0 = Off) with no trace.
+    """
+    stage = emit_limiter({"bypass": False, "mode": "Bogus Mode"})
+    assert stage.nodes[0]["control"]["mode"] == 0
+    assert any("Bogus Mode" in w for w in stage.warnings)
+
+    stage = emit_mb_compressor(
+        {"bypass": False, "band0": {"compression-mode": "Sideways"}}, "mbc")
+    assert stage.nodes[0]["control"]["cm_0"] == 0
+    assert any("Sideways" in w for w in stage.warnings)
+
+
+def test_unknown_enum_label_warning_reaches_chain_warnings():
+    preset = {
+        "output": {
+            "plugins_order": ["limiter#0"],
+            "limiter#0": {"bypass": False, "mode": "Bogus Mode"},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    assert any("Bogus Mode" in w for w in chain.warnings)
+
+
+def test_unknown_enum_label_warning_is_deduped():
+    """16 bands × 2 sides with the same unknown label must produce one
+    warning, not 32."""
+    band = {"type": "Sideways", "frequency": 1000.0, "gain": 0.0, "q": 1.0}
+    plugin = {
+        "bypass": False, "mode": "IIR", "num-bands": 3,
+        "left": {f"band{i}": dict(band) for i in range(3)},
+        "right": {f"band{i}": dict(band) for i in range(3)},
+    }
+    stage = emit_peq(plugin, "peq")
+    assert len([w for w in stage.warnings if "Sideways" in w]) == 1
+
+
+def test_convolver_nonzero_input_gain_warns(tmp_path):
+    """The builtin convolver has no input-gain port; a hand-edited trim
+    must surface instead of silently changing level."""
+    plugin = {"bypass": False, "kernel-name": "x", "input-gain": 3.0}
+    stage = emit_convolver(plugin, tmp_path, must_exist=False)
+    assert any("input-gain" in w for w in stage.warnings)
+    # The generated-preset value (0.0) stays quiet.
+    stage = emit_convolver(
+        {"bypass": False, "kernel-name": "x", "input-gain": 0.0},
+        tmp_path, must_exist=False)
+    assert stage.warnings == []
+
+
+def test_peq_band_overflow_warns():
+    """para_equalizer_x16_lr has 16 bands; a preset declaring more must
+    warn about the dropped tail instead of truncating silently."""
+    plugin = {"bypass": False, "mode": "IIR", "num-bands": 18,
+              "left": {}, "right": {}}
+    stage = emit_peq(plugin, "peq")
+    assert any("caps at 16" in w for w in stage.warnings)
+
+
+def test_orphaned_output_key_warns():
+    """A plugin object missing from plugins_order is never visited by the
+    build_chain loop — it must warn, not vanish."""
+    preset = {
+        "output": {
+            "plugins_order": ["limiter#0"],
+            "limiter#0": {"bypass": False},
+            "equalizer#0": {"bypass": False, "num-bands": 0,
+                            "left": {}, "right": {}},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    assert any("equalizer#0" in w and "plugins_order" in w
+               for w in chain.warnings)
+
+
 # ---------------------------------------------------------------------------
 # autogain → LSP autogain_stereo
 # ---------------------------------------------------------------------------
@@ -511,14 +632,18 @@ def test_emit_autogain_boost_slower_than_attenuation():
     assert control["tgrow_l"] >= control["tfall_l"]
 
 
-def test_emit_autogain_warns_below_validated_history(capsys):
-    """The gain-ride scales were fitted at 20 s (SoundWire). An HDA preset
-    built with --enable autogain arrives at 10 s, which extrapolates — say
-    so rather than implying the measured EE/PW equivalence still holds."""
-    emit_autogain(_active_autogain(**{"maximum-history": 10.0}))
-    assert "maximum-history" in capsys.readouterr().err
-    emit_autogain(_active_autogain(**{"maximum-history": 20.0}))
-    assert capsys.readouterr().err == ""
+def test_emit_autogain_warns_below_validated_history():
+    """The gain-ride scales were fitted at 20 s. Shorter histories (HDA
+    --enable autogain, SoundWire amount>5) extrapolate — say so rather
+    than implying the measured EE/PW equivalence still holds. The caveat
+    rides Stage.warnings like every other emitter caveat (so it reaches
+    the conf header), with the stable prefix the corpus tier's advisory
+    exemption keys on."""
+    stage = emit_autogain(_active_autogain(**{"maximum-history": 10.0}))
+    assert any(w.startswith("autogain: maximum-history")
+               for w in stage.warnings)
+    stage = emit_autogain(_active_autogain(**{"maximum-history": 20.0}))
+    assert stage.warnings == []
 
 
 def test_emit_autogain_controls_within_lv2_ranges():
@@ -681,6 +806,43 @@ def test_mbc_round_trip_4_decimals(generated):
     assert mbc_controls["scm_0"] == 1
 
 
+# --- TRAP: LSP MBC boost path primed by defaults (converter side) ---
+# design-notes "MBC upward compression" (commit e454711): LSP's defaults
+# leave bth at -72 dB and bsa at +6 dB, gated only by cm staying 0 (Down).
+# The generator pins Downward/-60 dB/0 dB on every band; when the converter
+# dropped all three, the conf rode the LV2 defaults — inert today, an
+# audible noise-floor boost the moment any of those defaults moves. Assert
+# the whole cluster (plus the custom-sidechain gate + band edges and the
+# global ssplit) reaches the conf on both MBC instances.
+
+def test_mbc_compression_mode_and_boost_reach_conf(generated):
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    for node, key in (("mbc", "multiband_compressor#0"),
+                      ("reg", "multiband_compressor#1")):
+        controls = _extract_node_control(conf, node)
+        src = preset["output"][key]
+        # ssplit is deliberately absent: generator emits False == port
+        # default, and the port doesn't exist on lsp-plugins < 1.2.3.
+        assert "ssplit" not in controls
+        for i in range(8):
+            band = src[f"band{i}"]
+            assert controls[f"cm_{i}"] == 0, \
+                f"{node} band{i}: compression-mode must land on 0 (Down)"
+            assert abs(lin_to_db(controls[f"bth_{i}"])
+                       - band["boost-threshold"]) < 1e-4
+            assert abs(lin_to_db(controls[f"bsa_{i}"])
+                       - band["boost-amount"]) < 1e-4
+            assert controls[f"sclc_{i}"] == 0
+            assert controls[f"schc_{i}"] == 0
+            assert abs(controls[f"sclf_{i}"]
+                       - band["sidechain-lowcut-frequency"]) < 1e-4
+            assert abs(controls[f"schf_{i}"]
+                       - band["sidechain-highcut-frequency"]) < 1e-4
+
+
 def test_peq_g_out_round_trips_output_gain(generated):
     """The PEQ output-gain is the clipping-compensation trim whose
     derivation test_preset.py locks in; here we lock that the conf's
@@ -832,43 +994,43 @@ def test_every_link_endpoint_resolves(generated):
         assert in_node in node_names, f"link sink {in_node} unknown"
 
 
-def test_every_active_plugin_emits_or_warns(generated):
-    """Every key in source `plugins_order` is either represented by ≥1
-    emitted node or appears in the warnings list. Catches silent drops.
-    """
-    preset, irs_path = generated
-    chain = build_chain(preset, irs_path.parent, must_exist=False)
+def _dispatch_node_names(key: str) -> set[str]:
+    """PW node name(s) a dispatch entry emits, derived from
+    EE_KEY_DISPATCH itself so this can't drift from the real table (the
+    previous hand-written mirror did)."""
+    handler = EE_KEY_DISPATCH[key]
+    if key == "convolver#0":
+        # No `name` argument — probe the emitter for its fixed mono node
+        # names rather than mirroring them by hand.
+        stage = handler.emitter({"kernel-name": "probe"},
+                                Path("/nonexistent"), must_exist=False)
+        return {n["name"] for n in stage.nodes}
+    if handler.args:
+        return {handler.args[0]}
+    return {inspect.signature(handler.emitter).parameters["name"].default}
 
-    emitted_names = {n["name"] for s in chain.stages for n in s.nodes}
-    source_keys = preset["output"]["plugins_order"]
-    # Map each EE key to the PW node name(s) we'd emit for it.
-    emitter_targets = {
-        "convolver#0": {"conv_l", "conv_r"},
-        "equalizer#0": {"peq"},
-        "equalizer#1": {"dialog"},
-        "multiband_compressor#0": {"mbc"},
-        "multiband_compressor#1": {"reg"},
-        "limiter#0": {"limiter"},
-        "bass_enhancer#0": {"bass"},
-        "stereo_tools#0": {"stereo"},
-        "autogain#0": {"autogain"},
-    }
-    for key in source_keys:
-        if key == "autogain#0" and preset["output"][key].get("bypass"):
-            # Bypassed autogain on HDA is the common case — converter is
-            # allowed to skip it silently. Checked before emitter_targets
-            # so the silent drop doesn't trip the "neither emitted nor
-            # warned" assertion. Active autogain falls through and must emit.
-            continue
-        if key in emitter_targets:
-            if not emitter_targets[key].intersection(emitted_names):
-                # Must have warned instead.
+
+def test_every_active_plugin_emits_or_warns(tmp_path):
+    """Every key in source `plugins_order` is either represented by ≥1
+    emitted node or appears in the warnings list, across the whole flag
+    sweep. Catches silent drops.
+    """
+    for sid, preset in _sweep_presets():
+        chain = build_chain(preset, tmp_path, must_exist=False)
+        emitted_names = {n["name"] for s in chain.stages for n in s.nodes}
+        for key in preset["output"]["plugins_order"]:
+            if key == "autogain#0" and preset["output"][key].get("bypass"):
+                # Bypassed autogain on HDA is the expected default — the
+                # converter may skip it silently (silent_if_bypassed).
+                # Active autogain falls through and must emit.
+                continue
+            if key not in EE_KEY_DISPATCH:
                 assert any(key in w for w in chain.warnings), \
-                    f"{key} neither emitted nor warned"
-            continue
-        # Skipped-with-warning categories must be in the warning list.
-        assert any(key in w for w in chain.warnings), \
-            f"{key} silently dropped (no warning)"
+                    f"[{sid}] {key} silently dropped (no warning)"
+                continue
+            if not _dispatch_node_names(key) & emitted_names:
+                assert any(key in w for w in chain.warnings), \
+                    f"[{sid}] {key} neither emitted nor warned"
 
 
 def test_conf_starts_with_context_modules(generated):
@@ -919,13 +1081,13 @@ def test_assert_positional_raises_inside_build_chain():
                             "left": {}, "right": {}, "mode": "IIR"},
         }
     }
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         build_chain(bad_preset, irs_dir=None, must_exist=False)
 
 
 def test_assert_positional_raises_when_mbc_swapped():
     """Same contract as PEQ/dialog: regulator (#1) must follow MBC (#0)."""
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         _assert_positional(
             ["multiband_compressor#1", "multiband_compressor#0"]
         )
@@ -1188,7 +1350,11 @@ def test_active_autogain_is_translated():
     chain = build_chain(preset, irs_dir=None, must_exist=False)
     names = {n["name"] for s in chain.stages for n in s.nodes}
     assert "autogain" in names
-    assert not any("autogain" in w for w in chain.warnings)
+    # The sparse block's maximum-history (0 s) legitimately draws the
+    # validated-history advisory; only a skip-class warning would mean
+    # the plugin was dropped rather than translated.
+    assert not any("skipped" in w or "not emitted" in w
+                   for w in chain.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -1543,69 +1709,141 @@ def test_main_explicit_node_name_overrides_derivation(generated, tmp_path):
 #
 # Schema validation (lv2info) catches *invalid* control symbols, but a key the
 # generator WRITES that the emitter silently IGNORES yields a valid-but-wrong
-# conf that nothing catches. This guard asserts, for every translated plugin,
-# that each audio-affecting key the generator emits is either consumed by the
-# converter's emitter or explicitly marked intentionally-untranslated below.
-# A new generator key that is neither fails the test, forcing a conscious
-# translate-or-classify decision rather than a silent drop.
+# conf that nothing catches. The guards below sweep `make_preset` across every
+# emission-relevant flag combination and assert, for each emitted plugin:
+#   * the plugin key has an EE_KEY_DISPATCH entry (translate-or-classify);
+#   * every leaf param is either consumed by the emitter or carried in
+#     _INTENTIONALLY_UNTRANSLATED with a default-equivalence proof;
+#   * every enum-label string maps through a converter EE_* table;
+#   * each untranslated param's pinned generator value equals the LV2 port
+#     default the conf silently inherits (hermetic fast check against values
+#     pinned from the LSP 1.2.27 meta sources; live lv2info cross-check in
+#     the slow tier).
+# A new generator feature that is neither translated nor classified fails
+# loudly, forcing a conscious decision rather than a silent drop.
 # ---------------------------------------------------------------------------
 
-# mb_compressor_stereo exposes no ports for sidechain filtering, sidechain
-# reactivity, the boost knee, per-band mute/solo, or the up/down compression
-# mode. The generator leaves all of them benign (custom SC filters off, mode
-# "Downward", mute/solo False, boost 0), so dropping them is faithful — the
-# target plugin simply cannot express them.
+
+@dataclass(frozen=True)
+class UntranslatedParam:
+    """A generator-emitted param the converter deliberately does not write.
+
+    What makes the drop faithful is default-equivalence: the pinned
+    generator value (`ee_value`), converted to port units by `to_port`,
+    equals the LV2 default (`lv2_default`) the conf inherits by not
+    writing `port`. `port=None` marks params with no LV2 port at all
+    (EE-internal behaviour), where nothing can drift on the plugin side.
+    """
+    reason: str
+    ee_value: object
+    port: str | None = None           # LV2 symbol; "{i}" template per band
+    lv2_default: float | None = None  # in port units (LSP 1.2.27 meta)
+    to_port: Callable | None = None   # ee_value -> port units
+
+
 _MBC_UNTRANSLATED = {
-    "stereo-split",        # mb_compressor_stereo always processes L/R together
-    "mute", "solo",        # always False in generator; no per-band port anyway
-    "compression-mode",    # always "Downward"; no mode port
-    "sidechain-type", "sidechain-source", "stereo-split-source",
-    "sidechain-reactivity",
-    "sidechain-custom-lowcut-filter", "sidechain-custom-highcut-filter",
-    "sidechain-lowcut-frequency", "sidechain-highcut-frequency",
-    "boost-threshold", "boost-amount",
+    "mute": UntranslatedParam(
+        "always False in generated presets; bm default 0 (unmuted)",
+        False, "bm_{i}", 0.0, int),
+    "solo": UntranslatedParam(
+        "always False; bs default 0", False, "bs_{i}", 0.0, int),
+    "sidechain-type": UntranslatedParam(
+        "external sidechain is unwired in a filter-chain graph; EE pins "
+        "Internal == sce default", "Internal", "sce_{i}", 0.0,
+        {"Internal": 0}.get),
+    "sidechain-source": UntranslatedParam(
+        "EE pins Middle == scs default", "Middle", "scs_{i}", 0.0,
+        {"Middle": 0}.get),
+    "stereo-split-source": UntranslatedParam(
+        "read only when ssplit is on (generator keeps it off); EE pins "
+        "Left/Right == sscs default", "Left/Right", "sscs_{i}", 0.0,
+        {"Left/Right": 0}.get),
+    "sidechain-reactivity": UntranslatedParam(
+        "EE pins 10 ms == scr default", 10.0, "scr_{i}", 10.0, float),
 }
 
-# Keys the converter deliberately does NOT translate, with the reason.
-_INTENTIONALLY_UNTRANSLATED = {
+# Keys the converter deliberately does NOT translate. Every entry is
+# enforced twice: the sweep tests pin the generator-side value, and the
+# default-equivalence tests pin the LV2 side. Add entries only with both
+# proofs (or port=None for params with no LV2 port at all).
+_INTENTIONALLY_UNTRANSLATED: dict[str, dict[str, UntranslatedParam]] = {
     "convolver#0": {
-        "input-gain",  # always 0.0; builtin convolver has no input-gain port
-        "ir-width",    # EE stereo-IR width, internal; no PW equivalent
-        "autogain",    # EE convolver auto-normalise flag, internal
+        "ir-width": UntranslatedParam(
+            "EE-internal stereo-width preprocessing of the IR (EE applies "
+            "it at kernel load; not an LV2 port)", 100),
+        "autogain": UntranslatedParam(
+            "EE convolver auto-normalise flag; stays False (the +50 dB "
+            "LSP-default trap, design-notes) — the PW builtin convolver "
+            "has no such behaviour", False),
     },
-    "equalizer#0": {"split-channels"},  # para_equalizer_x16_LR is inherently L/R
-    "equalizer#1": {"split-channels"},
+    "equalizer#0": {
+        "split-channels": UntranslatedParam(
+            "para_equalizer_x16_lr is inherently two-channel; the "
+            "converter always writes explicit L/R bands", True),
+    },
+    "equalizer#1": {
+        "split-channels": UntranslatedParam(
+            "dialog enhancer writes identical L/R bands, so unsplit and "
+            "split render the same", False),
+    },
     "multiband_compressor#0": _MBC_UNTRANSLATED,
     "multiband_compressor#1": _MBC_UNTRANSLATED,
     "limiter#0": {
-        "oversampling",     # EE-internal; limiter_stereo has no such port
-        "dithering",        # EE-internal
-        "sidechain-type",   # always "Internal"; no external SC wired
-        "sidechain-preamp", # always 0.0
+        "oversampling": UntranslatedParam(
+            "EE pins None == ovs default", "None", "ovs", 0.0,
+            {"None": 0}.get),
+        "dithering": UntranslatedParam(
+            "EE pins None == dith default", "None", "dith", 0.0,
+            {"None": 0}.get),
+        "sidechain-type": UntranslatedParam(
+            "external sidechain unwired; EE pins Internal == extsc "
+            "default", "Internal", "extsc", 0.0, {"Internal": 0}.get),
+        "sidechain-preamp": UntranslatedParam(
+            "EE pins 0 dB == scp default (1.0 linear)", 0.0, "scp", 1.0,
+            db_to_lin),
     },
-    "bass_enhancer#0": set(),
+    "autogain#0": {
+        "reference": UntranslatedParam(
+            "EE libebur128 loudness-statistic selector; autogain_stereo "
+            "has no equivalent port — the autogain mapping is a documented "
+            "approximation (docs/ee-to-pipewire.md), and any retune is "
+            "device-validation-gated (CLAUDE.md)", "Geometric Mean (MSI)"),
+        "input-gain": UntranslatedParam(
+            "always 0.0; autogain_stereo has no main-path input trim "
+            "(preamp is sidechain-only)", 0.0),
+        "output-gain": UntranslatedParam(
+            "always 0.0; no main-path output trim", 0.0),
+    },
+    "bass_enhancer#0": {},
 }
 
-# plugin key -> emitter function(s) whose source defines the consumed keys.
-_EMITTERS_FOR = {
-    "convolver#0": (emit_convolver,),
-    "equalizer#0": (emit_peq, _emit_peq_node),
-    "equalizer#1": (emit_peq, _emit_peq_node),
-    "multiband_compressor#0": (emit_mb_compressor,),
-    "multiband_compressor#1": (emit_mb_compressor,),
-    "limiter#0": (emit_limiter,),
-    "bass_enhancer#0": (emit_bass_enhancer,),
-}
+# Private helpers whose source the key-consumption scraper must also read,
+# keyed by the public emitter that calls them.
+_HELPER_FNS = {emit_peq: (_emit_peq_node,)}
+
+
+def _emitters_for(key: str) -> tuple:
+    """Emitter function(s) for a plugin key, derived from EE_KEY_DISPATCH
+    (the previous hand-maintained mirror went stale and KeyError'd on new
+    keys)."""
+    handler = EE_KEY_DISPATCH[key]
+    return (handler.emitter, *_HELPER_FNS.get(handler.emitter, ()))
+
+
+# The container shapes a plugin dict nests params under: PEQ left/right ->
+# bandN, MBC band0..7. One definition for the three flatteners below —
+# copies drifting apart would make the coverage guards scan different
+# parameter surfaces.
+_BAND_CONTAINERS = {"left", "right"} | {f"band{i}" for i in range(8)}
 
 
 def _leaf_param_keys(plugin: dict) -> set[str]:
     """Flatten a preset plugin dict to its scalar parameter names, descending
     past the PEQ left/right -> bandN containers and the MBC band0..7 containers
     so per-band params are compared, not the structural wrappers."""
-    containers = {"left", "right"} | {f"band{i}" for i in range(8)}
     keys: set[str] = set()
     for k, v in plugin.items():
-        if k in containers and isinstance(v, dict):
+        if k in _BAND_CONTAINERS and isinstance(v, dict):
             if all(not isinstance(sv, dict) for sv in v.values()):
                 keys.update(v.keys())          # MBC: bandN -> {params}
             else:
@@ -1617,19 +1855,55 @@ def _leaf_param_keys(plugin: dict) -> set[str]:
     return keys
 
 
-def _consumed_keys(fns) -> set[str]:
+@functools.lru_cache(maxsize=None)
+def _consumed_keys(fns: tuple) -> frozenset[str]:
     """Keys the emitter reads, scraped from `plugin.get("X")`/`band.get("X")`
     literals in its source. Auto-derived so the guard tracks the emitter with
     no hand-maintained mirror; f-string container reads (band{i}) are handled
-    by _leaf_param_keys descending past the containers."""
+    by _leaf_param_keys descending past the containers. A key read only in a
+    warn branch (convolver input-gain) counts as consumed — surfacing the
+    value is a conscious decision, not a silent drop."""
     keys: set[str] = set()
     for fn in fns:
         src = inspect.getsource(fn)
         keys.update(re.findall(r"""\.get\(\s*["']([^"']+)["']""", src))
-    return keys
+    return frozenset(keys)
 
 
-def _coverage_preset(is_soundwire: bool, volmax_slot: str = "input-gain"):
+def _leaf_values(plugin: dict, pname: str) -> list:
+    """Every value of param `pname` in a plugin dict, at top level or inside
+    the band containers (PEQ left/right -> bandN, MBC band0..7)."""
+    vals = []
+    if pname in plugin:
+        vals.append(plugin[pname])
+    for k, v in plugin.items():
+        if k in _BAND_CONTAINERS and isinstance(v, dict):
+            if pname in v:
+                vals.append(v[pname])
+            for sub in v.values():
+                if isinstance(sub, dict) and pname in sub:
+                    vals.append(sub[pname])
+    return vals
+
+
+def _string_leaves(plugin: dict):
+    """Yield (level, pname, value) for every string leaf; level is "plugin"
+    (top of the plugin dict) or "band" (inside band containers)."""
+    for k, v in plugin.items():
+        if k in _BAND_CONTAINERS and isinstance(v, dict):
+            subs = [sv for sv in v.values() if isinstance(sv, dict)] or [v]
+            for sub in subs:
+                for pk, pv in sub.items():
+                    if isinstance(pv, str):
+                        yield "band", pk, pv
+        elif isinstance(v, str):
+            yield "plugin", k, v
+
+
+def _coverage_preset(is_soundwire: bool = False,
+                     volmax_slot: str = "input-gain",
+                     enabled: set[str] | None = None,
+                     disabled: set[str] | None = None):
     peq = synthetic_peq_filters([
         (0, 7, 90.0, 0.0, 0.707, 4, 1.0), (1, 7, 90.0, 0.0, 0.707, 4, 1.0),
         (0, 1, 1000.0, 4.0, 1.5, 0, 1.0), (1, 1, 1000.0, 4.0, 1.5, 0, 1.0),
@@ -1649,29 +1923,293 @@ def _coverage_preset(is_soundwire: bool, volmax_slot: str = "input-gain"):
         dialog_enhancer={"enable": True, "amount": 5, "boost": 4.0},
         mb_comp=mb, regulator=reg, freqs=SYNTHETIC_FREQS_20,
         is_soundwire=is_soundwire, volmax_boost=3.0,
-        volmax_slot=volmax_slot,
+        volmax_slot=volmax_slot, enabled=enabled, disabled=disabled,
     )
     return preset
 
 
-@pytest.mark.parametrize("is_soundwire", [False, True])
-def test_no_generator_key_silently_dropped(is_soundwire):
-    preset = _coverage_preset(is_soundwire)
+def _sweep_specs() -> list[tuple[str, dict]]:
+    """(id, make_preset kwarg overrides) spanning every emission-relevant
+    flag combination. The disable/enable axes derive from the generator's
+    own DISABLEABLE_FILTERS / ENABLEABLE_FILTERS and are crossed with both
+    device families, so a new flag joins the sweep automatically even when
+    its emission path is SoundWire-only. `enable-coupled-bands` may not
+    fire on the synthetic regulator — that changes band values, never keys
+    or labels, so the coverage claims hold either way."""
+    specs = [
+        ("hda", {}),
+        ("soundwire", {"is_soundwire": True}),
+        ("volmax-output-gain", {"volmax_slot": "output-gain"}),
+    ]
+    for prefix, base in (("", {}), ("soundwire-", {"is_soundwire": True})):
+        specs += [(f"{prefix}enable-{n}", {**base, "enabled": {n}})
+                  for n in sorted(ENABLEABLE_FILTERS)]
+        specs += [(f"{prefix}disable-{n}", {**base, "disabled": {n}})
+                  for n in sorted(DISABLEABLE_FILTERS)]
+    return specs
+
+
+_SWEEP_CACHE: list[tuple[str, dict]] | None = None
+
+
+def _sweep_presets() -> list[tuple[str, dict]]:
+    """Cached (id, preset) pairs for the whole sweep — pure dict building
+    (no FIR/IRS), cheap enough for the fast tier but not worth repeating
+    in every test that scans the full surface. Read-only by convention."""
+    global _SWEEP_CACHE
+    if _SWEEP_CACHE is None:
+        _SWEEP_CACHE = [(sid, _coverage_preset(**kw))
+                        for sid, kw in _sweep_specs()]
+    return _SWEEP_CACHE
+
+
+def _emitted_plugin_keys(preset: dict) -> set[str]:
+    return {k for k, v in preset["output"].items() if isinstance(v, dict)}
+
+
+def test_every_emittable_key_has_dispatch_entry():
+    """A new generator plugin key must get an EE_KEY_DISPATCH entry (or a
+    conscious skip entry) before it ships — at runtime an unknown key is
+    only a stderr warning, which nothing in CI reads."""
+    emittable = set()
+    for sid, preset in _sweep_presets():
+        keys = _emitted_plugin_keys(preset)
+        # plugins_order and the plugin objects must stay in lockstep —
+        # build_chain walks only plugins_order (orphans merely warn).
+        assert keys == set(preset["output"]["plugins_order"]), sid
+        emittable |= keys
+    missing = emittable - set(EE_KEY_DISPATCH)
+    assert not missing, (
+        f"make_preset can emit plugin keys with no converter dispatch "
+        f"entry: {sorted(missing)}")
+
+
+def test_dispatch_dead_keys_are_known():
+    """Inverse direction: dispatch entries no generator path reaches.
+    stereo_tools#0 is deliberate — the widener was removed from the
+    generator (3d35a92) but the translator stays for hand-edited/legacy
+    presets. Anything else joining it means a generator emission path
+    silently died."""
+    emittable = set()
+    for _, preset in _sweep_presets():
+        emittable |= _emitted_plugin_keys(preset)
+    assert set(EE_KEY_DISPATCH) - emittable == {"stereo_tools#0"}
+
+
+@pytest.mark.parametrize("sid", [s for s, _ in _sweep_specs()])
+def test_no_generator_key_silently_dropped(sid):
+    preset = dict(_sweep_presets())[sid]
     for key, plugin in preset["output"].items():
         if key in ("blocklist", "plugins_order") or not isinstance(plugin, dict):
             continue
-        if key == "autogain#0":
-            # Intentionally not translated at all — EE's native libebur128 has
-            # no LV2 equivalent; build_chain warns and skips it.
-            continue
-        consumed = _consumed_keys(_EMITTERS_FOR[key])
-        ignored = _INTENTIONALLY_UNTRANSLATED.get(key, set())
-        unhandled = _leaf_param_keys(plugin) - consumed - ignored
+        assert key in EE_KEY_DISPATCH, (
+            f"{key}: no EE_KEY_DISPATCH entry (see "
+            "test_every_emittable_key_has_dispatch_entry)")
+        consumed = _consumed_keys(_emitters_for(key))
+        entries = _INTENTIONALLY_UNTRANSLATED.get(key, {})
+        stale = consumed & set(entries)
+        assert not stale, (
+            f"{key}: {sorted(stale)} are both consumed by the emitter and "
+            "marked intentionally-untranslated — prune the stale entries.")
+        unhandled = _leaf_param_keys(plugin) - consumed - set(entries)
         assert not unhandled, (
             f"{key}: generator writes keys the converter neither reads nor "
-            f"marks untranslated: {sorted(unhandled)}. Either consume them in "
-            f"the emitter or add to _INTENTIONALLY_UNTRANSLATED with a reason."
+            f"marks untranslated: {sorted(unhandled)}. Either consume them "
+            "in the emitter or add an UntranslatedParam entry with a "
+            "default-equivalence proof."
         )
+
+
+# Where each plugin key's enum-label params live, and which converter table
+# maps them. A brand-new plugin base name KeyErrors here — loudly, so the
+# new plugin's string params get classified rather than skipped.
+_ENUM_PARAM_TABLES = {
+    "convolver": {"plugin": {}, "band": {}},
+    "equalizer": {
+        "plugin": {"mode": EE_EQMODE_TO_LSP},
+        "band": {"type": EE_FTYPE_TO_LSP, "mode": EE_FMODE_TO_LSP,
+                 "slope": EE_FSLOPE_TO_LSP},
+    },
+    "multiband_compressor": {
+        "plugin": {"compressor-mode": EE_MBC_GLOBAL_MODE,
+                   "envelope-boost": EE_MBC_ENVB},
+        "band": {"sidechain-mode": EE_MBC_SCMODE,
+                 "compression-mode": EE_MBC_CM},
+    },
+    "limiter": {"plugin": {"mode": EE_LIMITER_MODE}, "band": {}},
+    "autogain": {"plugin": {}, "band": {}},
+    "bass_enhancer": {"plugin": {}, "band": {}},
+}
+# String params that aren't enum labels at all.
+_NON_ENUM_STRINGS = {"kernel-name"}
+
+
+def test_enum_labels_covered_by_tables():
+    """Every enum-label string the generator can emit must map through the
+    converter's EE_* tables (or carry an UntranslatedParam entry). Derived
+    from the sweep — replaces a hand-typed label list that couldn't see
+    new generator output."""
+    for sid, preset in _sweep_presets():
+        for key, plugin in preset["output"].items():
+            if key in ("blocklist", "plugins_order") \
+                    or not isinstance(plugin, dict):
+                continue
+            tables = _ENUM_PARAM_TABLES[key.split("#")[0]]
+            untranslated = _INTENTIONALLY_UNTRANSLATED.get(key, {})
+            for level, pname, value in _string_leaves(plugin):
+                if pname in _NON_ENUM_STRINGS:
+                    continue
+                table = tables[level].get(pname)
+                if table is not None:
+                    assert value in table, (
+                        f"[{sid}] {key} {pname} = {value!r} is missing "
+                        "from its EE_* table in ee_to_pipewire.py")
+                    if table is EE_FTYPE_TO_LSP:
+                        # 0 is Off — an emitted filter type must never be.
+                        assert table[value] != 0, \
+                            f"[{sid}] {key} {pname} = {value!r} maps to Off"
+                else:
+                    assert pname in untranslated, (
+                        f"[{sid}] {key} {pname} = {value!r}: string param "
+                        "with no enum table and no UntranslatedParam entry")
+
+
+def test_untranslated_params_pinned_ee_values():
+    """Generator drift on a guarded param must fail loud — the drop is
+    only faithful while the generator emits exactly the pinned value."""
+    for key, entries in _INTENTIONALLY_UNTRANSLATED.items():
+        for pname, entry in entries.items():
+            hits = 0
+            for sid, preset in _sweep_presets():
+                plugin = preset["output"].get(key)
+                if not isinstance(plugin, dict):
+                    continue
+                for value in _leaf_values(plugin, pname):
+                    hits += 1
+                    assert value == entry.ee_value, (
+                        f"[{sid}] {key} {pname} = {value!r}; pinned "
+                        f"{entry.ee_value!r}. Translate the param or re-pin "
+                        "after a fresh default-equivalence check.")
+            assert hits, (
+                f"{key} {pname} never appeared in the sweep — stale "
+                "UntranslatedParam entry?")
+
+
+def test_untranslated_pinned_defaults_self_consistent():
+    """The hermetic inert-by-equivalence proof: each pinned generator
+    value, converted to port units, equals the LV2 default the conf
+    inherits by not writing the port. Defaults pinned from the LSP 1.2.27
+    meta sources; the slow tier cross-checks them against live lv2info."""
+    for key, entries in _INTENTIONALLY_UNTRANSLATED.items():
+        for pname, entry in entries.items():
+            if entry.port is None:
+                continue
+            got = float(entry.to_port(entry.ee_value))
+            assert math.isclose(got, entry.lv2_default,
+                                rel_tol=1e-6, abs_tol=1e-9), (
+                f"{key} {pname}: to_port({entry.ee_value!r}) = {got} != "
+                f"pinned LV2 default {entry.lv2_default} — not translating "
+                "it changes the audio.")
+
+
+_URI_FOR_KEY = {
+    "multiband_compressor#0": LSP_MBC_URI,
+    "multiband_compressor#1": LSP_MBC_URI,
+    "limiter#0": LSP_LIM_URI,
+}
+
+
+@functools.lru_cache(maxsize=None)
+def _lv2info_defaults(uri: str) -> dict[str, float]:
+    out = subprocess.run(["lv2info", uri], capture_output=True, text=True,
+                         timeout=60).stdout
+    defaults: dict[str, float] = {}
+    for chunk in re.split(r"\n\s*Port \d+:", out):
+        sym = re.search(r"Symbol:\s+(\S+)", chunk)
+        dfl = re.search(r"Default:\s+([-+0-9.eE]+)", chunk)
+        if sym and dfl:
+            defaults[sym.group(1)] = float(dfl.group(1))
+    return defaults
+
+
+@pytest.mark.slow
+def test_untranslated_lv2_defaults_match_live_lv2info():
+    """Environment drift check: the pinned LV2 defaults above must match
+    the installed plugins' actual .ttl. A distro shipping an LSP version
+    with a changed default would silently change the audio of every conf
+    that omits the port — this is the only test that can see it."""
+    if shutil.which("lv2info") is None:
+        pytest.skip("lv2info not installed")
+    for key, entries in _INTENTIONALLY_UNTRANSLATED.items():
+        uri = _URI_FOR_KEY.get(key)
+        if uri is None:
+            continue
+        defaults = _lv2info_defaults(uri)
+        if not defaults:
+            pytest.skip(f"lv2info returned no ports for {uri}")
+        for pname, entry in entries.items():
+            if entry.port is None:
+                continue
+            sym = entry.port.format(i=1)
+            assert sym in defaults, f"{uri}: no port {sym}"
+            assert math.isclose(defaults[sym], entry.lv2_default,
+                                rel_tol=1e-3, abs_tol=1e-6), (
+                f"{key} {pname} ({sym}): installed LV2 default "
+                f"{defaults[sym]} != pinned {entry.lv2_default} — the "
+                "installed LSP version changes the audio of confs that "
+                "omit this port; translate the param explicitly.")
+
+
+# ---------------------------------------------------------------------------
+# Guard canaries — prove the coverage machinery detects gaps
+#
+# The guards above pass on today's clean state, so their failure branches
+# never run; if an introspection helper silently broke (empty source
+# scrape, a flattener that stops descending), they would keep passing
+# vacuously. These inject synthetic gaps into copies of a sweep preset and
+# assert the detection arithmetic actually flags them.
+# ---------------------------------------------------------------------------
+
+
+def test_consumed_keys_scraper_sees_get_literals():
+    def dummy(plugin):
+        a = plugin.get("alpha", 1.0)
+        b = plugin.get("beta-key")
+        hoisted = "gamma"
+        return a, b, plugin.get(hoisted)  # non-literal: must NOT count
+
+    assert _consumed_keys((dummy,)) == {"alpha", "beta-key"}
+
+
+def test_guard_flags_injected_unknown_plugin_key(tmp_path):
+    preset = copy.deepcopy(_sweep_presets()[0][1])
+    preset["output"]["fancy_new_plugin#0"] = {"bypass": False, "knob": 1.0}
+    preset["output"]["plugins_order"].append("fancy_new_plugin#0")
+    # Static side: the emittable-keys guard's arithmetic must see the new
+    # key as uncovered by the dispatch table.
+    assert (_emitted_plugin_keys(preset) - set(EE_KEY_DISPATCH)
+            == {"fancy_new_plugin#0"})
+    # Runtime side: build_chain must warn, not silently drop the stage.
+    chain = build_chain(preset, tmp_path, must_exist=False)
+    assert any("fancy_new_plugin#0" in w and "unknown" in w
+               for w in chain.warnings)
+
+
+def test_guard_flags_injected_untranslated_param():
+    preset = copy.deepcopy(_sweep_presets()[0][1])
+    mbc = preset["output"]["multiband_compressor#0"]
+    mbc["band0"]["brand-new-knob"] = 3.5
+    mbc["brand-new-top-knob"] = "Fancy Label"
+    consumed = _consumed_keys(_emitters_for("multiband_compressor#0"))
+    classified = set(_INTENTIONALLY_UNTRANSLATED["multiband_compressor#0"])
+    unhandled = _leaf_param_keys(mbc) - consumed - classified
+    # Both the band-level and top-level injections must surface — proving
+    # the flattener descends containers and the guard's set arithmetic
+    # would turn the build red on a real generator addition.
+    assert unhandled == {"brand-new-knob", "brand-new-top-knob"}
+    # The enum walker must surface the new string leaf too.
+    assert (("plugin", "brand-new-top-knob", "Fancy Label")
+            in set(_string_leaves(mbc)))
 
 
 # ---------------------------------------------------------------------------
@@ -1718,6 +2256,50 @@ def test_regulator_volmax_output_gain_g_out_round_trips(tmp_path):
     assert src["output-gain"] != 0.0   # volmax_boost=3.0 forces a non-zero trim
     assert src["input-gain"] == 0.0
     assert abs(lin_to_db(reg["g_out"]) - src["output-gain"]) < 1e-4
+
+
+def test_regulator_coupled_bands_activation_round_trips(tmp_path):
+    """--enable coupled-bands (issue #44) flips `compressor-enable` on at a
+    0 dB attack-threshold inside multiband_compressor#1 — values that ride
+    the generic ce_N/al_N translation. The sweep's enable-coupled-bands
+    variant can't fire the coupling (its synthetic regulator carries no
+    isolated_band data), so this locks the activated values through to the
+    conf: ce=1 with al at 0 dBFS (1.0 linear) on the coupled zone.
+    """
+    eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
+                                   isolated_band=[1] * 10 + [0] * 10)
+
+    def conf_reg(enabled):
+        preset, _ = make_preset(
+            kernel_name="Synthetic",
+            peq_filters=synthetic_peq_filters([
+                (0, 1, 1000.0, 4.0, 1.5, 0, 1.0),
+                (1, 1, 1000.0, 4.0, 1.5, 0, 1.0),
+            ]),
+            regulator=eligible, freqs=SYNTHETIC_FREQS_20,
+            enabled=enabled,
+        )
+        chain = build_chain(preset, tmp_path, must_exist=False)
+        conf = format_conf(chain.stages, emit_links(chain.stages),
+                           "test_node", "test")
+        return preset, _extract_node_control(conf, "reg")
+
+    preset_on, reg_on = conf_reg({"coupled-bands"})
+    src = preset_on["output"]["multiband_compressor#1"]
+    # Generator-side precondition (its own contract is locked in
+    # test_cli.py): band1 is the coupled 0 dB zone.
+    assert src["band1"]["compressor-enable"] is True
+    assert src["band1"]["attack-threshold"] == 0.0
+    assert reg_on["ce_1"] == 1
+    assert abs(reg_on["al_1"] - 1.0) < 1e-9   # 0 dBFS threshold
+    # The ordinary zone still round-trips its real threshold beside it.
+    assert reg_on["ce_0"] == 1
+    assert abs(lin_to_db(reg_on["al_0"]) - (-6.0)) < 1e-4
+
+    # Contrast run without the flag: the 0 dB zone must stay disabled —
+    # proves the assertions above aren't vacuously true of any regulator.
+    _, reg_off = conf_reg(set())
+    assert reg_off["ce_1"] == 0
 
 
 def test_mbc_split_frequency_and_band_enable_round_trip(coverage_chain):

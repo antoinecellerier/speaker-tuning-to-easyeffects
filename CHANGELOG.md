@@ -89,6 +89,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The PipeWire converter now writes the multiband compressor's
+  compression-mode and boost settings explicitly instead of inheriting
+  plugin defaults (same output today, but no longer tied to
+  installed-plugin defaults staying put), and warns on preset content it
+  can't translate instead of dropping it silently. Re-run
+  `ee_to_pipewire.py` to regenerate (`docs/ee-to-pipewire.md`).
 - The smart-amp firmware-gate fix command printed at the end of a run now
   works on current kernels: it spells out `iface=CARD`, which modern tas2781
   drivers require (the old form failed with "Cannot find the given element").

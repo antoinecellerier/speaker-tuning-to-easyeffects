@@ -101,6 +101,23 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
         f"{xml_path.name}: build_chain emitted no stages "
         f"(warnings: {chain.warnings})"
     )
+    # A generated preset must translate cleanly: any converter warning here
+    # (unknown plugin key, unknown enum label, dropped bands, orphaned
+    # output key) means the generator learned to emit something the
+    # converter can't express — the exact drift the fast-tier coverage
+    # guard pins on synthetic presets, re-checked against real XMLs.
+    # Exempted: the autogain validated-history advisory (stable prefix in
+    # emit_autogain) — it flags an unvalidated *mapping range* on a fully
+    # translated preset (SoundWire leveler amount > 5), not a translation
+    # gap. If another legitimate warning class ever fires corpus-wide,
+    # extend the exemption pattern-scoped like this instead of deleting
+    # the assertion.
+    gap_warnings = [w for w in chain.warnings
+                    if not w.startswith("autogain: maximum-history")]
+    assert not gap_warnings, (
+        f"{xml_path.name}: converter warned on a generated preset: "
+        f"{gap_warnings}"
+    )
 
     links = emit_links(chain.stages)
 
