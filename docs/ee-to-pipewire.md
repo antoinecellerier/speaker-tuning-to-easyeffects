@@ -109,7 +109,10 @@ a single relaxed candidate is used as the target with a warning, and an
 ambiguous one leaves the target unset (pass `--target-sink`).
 `--target-sink <node.name>` overrides; `--target-sink ''` falls back to
 a v1 virtual-sink emission for users on WirePlumber < 0.5 or with a
-non-standard policy.
+non-standard policy. Separately, `--target-object <node.name>` binds the
+chain's *playback* to an explicit downstream node (e.g. a measurement
+null sink) instead of letting WirePlumber choose — a measurement-route
+override; end users want `--target-sink`.
 
 ## Plugin coverage
 

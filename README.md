@@ -100,15 +100,16 @@ pip install -r requirements.txt
 
 ### Command-line options
 
+- `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`); omit to auto-discover via `--windows` or probing
 - `--windows DIR` — auto-discover tuning XML from a mounted Windows directory. Omit both this flag and a positional XML path to let the script probe `/proc/mounts` and the current directory automatically
 - `--best-guess` — if auto-detection finds no exact hardware match, fall back to the only internal-speaker tuning whose manufacturer is present (or list the candidates to pick one with the positional XML path); reach for it when a SoundWire laptop reports "No matching DAX3 tuning XML found"
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
-- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, background-service setup (service mode + autostart), and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
+- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (EasyEffects version/compatibility, install location, preset + impulse-file integrity, the selected preset, background service mode + autostart, and hardware) and exit. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`). Convertible laptops (Yoga-class) ship distinct tunings per hinge pose — try `--mode tablet`, `stand`, `tent`, or `lid_close` if `--list` shows them for your device.
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
-- `--all-profiles` — generate presets for all profiles in the selected endpoint/mode (9 profiles × 3 IEQ curves = 27 presets)
+- `--all-profiles` — generate presets for all profiles in the selected endpoint/mode
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
 - `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a laptop whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
@@ -116,11 +117,12 @@ pip install -r requirements.txt
 - `--prefix NAME` — change preset name prefix (default: `Dolby` → `Dolby-Balanced`, etc.)
 - `--output-dir DIR` — EasyEffects preset directory (default: `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default: `~/.local/share/easyeffects/irs/`)
-- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling filters](#disabling-filters) below.
-- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue #23); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling filters](#disabling-filters).
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain` — the volume leveler; recovers most of the loudness gap vs Windows on HDA devices, at some saturation risk on quiet-background content (see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet)); `coupled-bands` — experimental: engages the speaker-protection limiter on bands the tuning marks non-isolated but leaves at a 0 dB threshold, taming them at full scale; reach for it if loud content turns harsh in ranges the regulator doesn't cover ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
+- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue #23); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--no-color` — disable colored terminal output
+- `--version` — print the version and exit
 
 When `--mode` or `--profile` is specified (or `--all-profiles` is used), the preset names include them (e.g. `Dolby-Music-Balanced`, `Dolby-Tablet-Voice-Warm`).
 
@@ -155,10 +157,10 @@ If the preset sounds right but quieter than Windows, part of the gap is expected
 - **Re-run the script with `--enable autogain`** — the volume leveler ships bypassed by default and carries most of the loudness gap (~+9 dB measured on program material). The trade-off: without Dolby's content analysis it can audibly saturate when loud sound arrives over a quiet background (why it isn't the default); if you hear that, drop the flag again. For still more loudness raise the Autogain *Target* a few dB in the EasyEffects GUI, at increased saturation risk. If you instead enable Autogain by hand on a preset generated before this option existed, also raise its *Silence threshold* to about −50 dB, or sounds arriving after silence will crackle.
 - **Allow volume above 100%** in your desktop environment: GNOME — `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`; KDE Plasma — volume applet settings → *Raise maximum volume*; any environment — `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.25`, or pavucontrol. Over-amplification is digital gain applied after the preset's limiter, so extreme values can clip.
 - **Check mixer levels** — in `alsamixer`, Master/PCM/Speaker at 100%.
-- On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling filters](#disabling-filters).
+- On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling and enabling filters](#disabling-and-enabling-filters).
 - **Speakers thin and quiet even with EasyEffects off** — run `--speaker-info`: a flagged amplifier-firmware error means your distro lacks this machine's speaker firmware, which no preset can fix ([background](docs/cross-device-findings.md); [issue #27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27) links a worked, device-specific example of extracting it from the Windows driver).
 
-### Disabling filters
+### Disabling and enabling filters
 
 If the generated preset has audible artifacts on your hardware (saturation, pumping, harsh highs, uncomfortable stereo width), you can rebuild it without specific filters rather than hand-editing the chain inside EasyEffects. Repeat `--disable NAME` as many times as needed:
 
@@ -172,7 +174,14 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 | `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf (Lenovo AIO-RTK XMLs around 2.7 kHz, +2–5 dB). **Experimental** path — reproduction of the Dolby tuning is numerically verified, but has not yet been audibly validated. Feedback welcome. |
 | `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass (rare; a few ALC274 SKUs). **Experimental**, same caveat as `high-shelf`. |
 
-Convolver, PEQ, autogain, and the final brickwall limiter can't be disabled from the CLI — they're the FIR correction, speaker PEQ, volume-leveler placeholder, and safety net respectively.
+The mirror direction: some filters ship in the preset but inactive, and `--enable NAME` switches them on:
+
+| Name | What to try if you hear... |
+|------|----------------------------|
+| `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler — see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet). |
+| `coupled-bands` | Loud content turns harsh in ranges the per-band limiter leaves inactive. **Experimental** — feedback welcome on [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44). |
+
+Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 
 ## Advanced
 
@@ -247,7 +256,7 @@ Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate 
 - `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--force` — overwrite the output conf if it already exists
 - `--dry-run` — print the generated conf to stdout instead of writing it
-- `--version` — print the version (`git describe`) and exit
+- `--version` — print the version and exit
 
 </details>
 

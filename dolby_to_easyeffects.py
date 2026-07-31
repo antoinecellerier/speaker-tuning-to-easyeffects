@@ -4594,7 +4594,7 @@ def main():
         "--version",
         action="version",
         version=f"%(prog)s {get_version()}",
-        help="show version (git describe) and exit",
+        help="show version and exit",
     )
     parser.add_argument(
         "xml_file",
@@ -4714,8 +4714,8 @@ def main():
         action="store_true",
         help="run environment self-diagnostics (EasyEffects version, install "
              "location, preset/impulse-file integrity, selected preset, "
-             "hardware) and exit — paste the output into an issue if a preset "
-             "seems inaudible",
+             "background service mode + autostart, hardware) and exit — "
+             "paste the output into an issue if a preset seems inaudible",
     )
     parser.add_argument(
         "--disable",
@@ -4743,7 +4743,7 @@ def main():
     )
     parser.add_argument(
         "--volmax-slot",
-        choices=["output-gain", "input-gain"],
+        choices=["input-gain", "output-gain"],
         default="input-gain",
         help="which regulator gain slot carries the static volmax-boost. "
              "'input-gain' (default) applies it pre-band-limiting so the "

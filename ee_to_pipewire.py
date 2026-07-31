@@ -1081,13 +1081,13 @@ def main(argv: list[str] | None = None) -> int:
         "--version",
         action="version",
         version=f"%(prog)s {get_version()}",
-        help="show version (git describe) and exit",
+        help="show version and exit",
     )
     parser.add_argument(
         "preset",
         type=Path,
         help="path to the EasyEffects preset JSON (the output of "
-             "dolby_to_easyeffects.py, e.g. ~/.config/easyeffects/output/"
+             "dolby_to_easyeffects.py, e.g. ~/.local/share/easyeffects/output/"
              "Dolby-Balanced.json)",
     )
     parser.add_argument(
