@@ -91,7 +91,7 @@ always preserved so users can toggle it in the GUI.
   `max(30 − 5·amount, 10)` s; SoundWire: `max(40 − 4·amount, 15)` s (both
   formulas invented, design-notes entry 7).
 - `silence-threshold` = -50 dB on both paths — invented but field-confirmed
-  (issue #25) and capture-measured: it stops the leveler winding up its gain
+  (issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)) and capture-measured: it stops the leveler winding up its gain
   over near-silence, which crackled short notification sounds at EE's -70 dB
   plugin default.
 - autogain `reference` = Geometric Mean (MSI) — combines momentary,
@@ -119,14 +119,14 @@ emitted. Disable with `--disable volmax`.
 
 Neither placement is Dolby-derived — `volmax-boost` is itself a CP-stage
 leveler ceiling, so applying it at the VLLDP-stage regulator is a pragmatic
-approximation. The default `input-gain` (issue #23) feeds the boost into the
+approximation. The default `input-gain` (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)) feeds the boost into the
 regulator's per-band downward compression, which tames the boosted low end
 before the brickwall, eliminating a measured low-end distortion. `--volmax-slot
 output-gain` (opt-out) moves the boost after the regulator (the pre-#23
 placement) — the full loudness makeup straight into the brickwall; use it for
 A/B, or to recover loudness if a device's regulator over-tames the bass. The
 default flipped to `input-gain` after a second, aggressive-regulator device
-(ThinkPad X13 Gen 6, issue #23) confirmed it stays clean and loud; see
+(ThinkPad X13 Gen 6, issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)) confirmed it stays clean and loud; see
 design-notes.
 
 **Regulator → per-band limiter.** A second MBC instance configured as a
@@ -169,16 +169,16 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
 ## Validated vs unvalidated mappings
 
 - **Validated against DAX captures:** the `ieq-amount` `/100` reading
-  (design-notes Finding 9, issue #13); the simplified-schema
+  (design-notes Finding 9, issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13)); the simplified-schema
   `gain_l`/`gain_r` audio-optimizer — 1/16-dB units and per-channel L/R
   assignment — matches a second device's measured Dolby on/off delta to
-  ~0.7 dB mean (design-notes Finding 10, issue #44); the min-phase FIR
+  ~0.7 dB mean (design-notes Finding 10, issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)); the min-phase FIR
   realises the composite target to <0.1 dB RMS (synthetic LTI check).
 - **Unvalidated (the "`ieq-amount` class"):** the dialog-enhancer dB ceiling,
   the surround `/20`, the regulator slope/knee mappings, the MBC Q15
   decode, and the autogain window formulas and offsets (design-notes
   entries 7/10; the −50 dB silence gate within them *is* field-confirmed
-  and capture-measured — issue #25) all ship by default but are **not yet
+  and capture-measured — issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)) all ship by default but are **not yet
   confirmed against a DAX capture**. Each, with the measurement that would
   validate it, is catalogued in design-notes "Unvalidated converter scaling
   factors".

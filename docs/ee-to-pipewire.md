@@ -104,7 +104,7 @@ time via the same `pw-dump` probe `dolby_to_easyeffects.py --autoload`
 uses: Audio/Sink nodes tagged `device.icon_name == audio-speakers`
 (which excludes HDMI / BT / USB). If nothing is tagged — some laptops
 fall back to a generic UCM2 profile that omits the speaker icon
-(issue #18) — it falls back to a relaxed tier of internal analog sinks;
+(issue [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18)) — it falls back to a relaxed tier of internal analog sinks;
 a single relaxed candidate is used as the target with a warning, and an
 ambiguous one leaves the target unset (pass `--target-sink`).
 `--target-sink <node.name>` overrides; `--target-sink ''` falls back to
@@ -122,7 +122,7 @@ override; end users want `--target-sink`.
 | `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE** (default 0 = active), not enable — see `emit_peq` in `ee_to_pipewire.py`. EE writes filter type / mode / slope as enum **strings** (`"Bell"`, `"Hi-pass"`, `"RLC (BT)"`, `"x1"` etc.); LSP expects integers — translated via `EE_FTYPE_TO_LSP` / `EE_FMODE_TO_LSP` / `EE_FSLOPE_TO_LSP`. Same pattern recurs for MBC global mode (`EE_MBC_GLOBAL_MODE`), MBC envelope boost (`EE_MBC_ENVB`), MBC sidechain mode (`EE_MBC_SCMODE`), and limiter mode (`EE_LIMITER_MODE`). |
 | `equalizer#1` (dialog) | Same plugin as PEQ | Disambiguated by position in `plugins_order`, not by shape. `_assert_positional` fails loud if reordered. |
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. Per-control mapping in the table below. |
-| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost` (typically +6 dB) on `input-gain` (the default slot since issue #23; `--volmax-slot output-gain` moves it) when present; if the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead — readers walking the gain stages must check both. |
+| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost` (typically +6 dB) on `input-gain` (the default slot since issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23); `--volmax-slot output-gain` moves it) when present; if the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead — readers walking the gain stages must check both. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). `amount` is dB in the EE preset, linear in Calf — converted via `db_to_linear` (the `BIND_LV2_PORT_DB` macro). `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct. Triggers on SoundWire devices with small drivers. |
 | `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. **Translator retained but no longer triggered by the converter:** since 2026-06 the converter emits no `stereo_tools` (the `surround-boost → stereo_tools` widening was falsified by a DAX capture — design-notes entry 2). This row still applies to any hand-edited or legacy preset that carries a `stereo_tools` block. |
@@ -245,7 +245,7 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   `total_count=2`, including the X13s sibling — the upmix is device
   wisdom encoded outside the XML.  See cross-device-findings.md §14.
 - **No VBE (virtual bass enhancement) on HDA.** DAX synthesises
-  missing-fundamental bass harmonics on HDA laptops (issue #14) that
+  missing-fundamental bass harmonics on HDA laptops (issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)) that
   neither the EE preset nor this conf reproduces. Kept so on purpose —
   the converter is a faithful 1:1 translation, so closing the gap would
   make the PW conf deliberately diverge from EE. The two deferred options
@@ -261,7 +261,7 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
   reference numbers); a handheld APU running a game at a smaller
   session quantum is untested, and one Ally X tester hit
   crackling with `spa.audioconvert: out of buffers` in the log
-  (issue #39). To isolate DSP load, temporarily pin a larger quantum —
+  (issue [#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39)). To isolate DSP load, temporarily pin a larger quantum —
   `pw-metadata -n settings 0 clock.force-quantum 1024` (revert with
   value `0`). That raises the whole session's base latency, a
   system-wide trade-off the user opts into; the chain itself still adds

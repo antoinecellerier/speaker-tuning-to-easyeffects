@@ -557,7 +557,7 @@ corpus and silently dropped.
 | Woofer-only regulator                              | `woofer-regulator-enable`, `woofer-regulator-tuning`                         | Present in 1234, **enabled in 0**         | Defensive — would silently drop if a future driver enables it.                                          |
 | Independent regulator mode                         | `regulator-independent-enable`                                               | 1 XML, never enabled                      | Defensive.                                                                                              |
 | Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 1234, **enabled in 0**         | Defensive — bass-extraction itself is universally off.                                                  |
-| Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue #22), unrelated to the downmix matrix here. |
+| Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)), unrelated to the downmix matrix here. |
 
 The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` carries the two
 rare-but-real cases above (DSO, advanced virtualizer) plus four watch-only
@@ -615,13 +615,13 @@ package ships five tunings identical but for `SUBSYS` (`F020144D`, `C1DC144D`,
 
 So `FUNC` is now treated as **preferred, not required**: match `(man, part)`
 exactly first, and only when nothing matches that way fall back to PCI
-subsystem + manufacturer (issue #26). The exact tier still matters because some
+subsystem + manufacturer (issue [#26](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/26)). The exact tier still matters because some
 Lenovo SKUs ship *two* tunings sharing `MAN`+`SUBSYS` but differing in `FUNC`
 (e.g. `SUBSYS_383917AA`: `FUNC_0721` vs `FUNC_1320`); the detected part still
 disambiguates those. (Galaxy Book6 is XML-derived only — generates cleanly but
 unvalidated by ear, since the maintainer has no access to the hardware.)
 
-Two diagnosis follow-ups from the first field report (issue #27). (1)
+Two diagnosis follow-ups from the first field report (issue [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)). (1)
 `--speaker-info` was double-counting these amps: each cs35l56 is a **mono**
 amplifier (SoundWire enumerates one slave per amp chip), so six were reported as
 "12 speakers". The layout estimate now counts each enumerated amp once and
@@ -647,7 +647,7 @@ with the equivalent TI `tas2781-*` and Realtek `rt1320-sdw.c` firmware-load
 failures), and the clean-log line now tells the reader to eyeball the log rather
 than trust the scan.
 
-**Addendum (2026-07-21, issue #27 follow-up) — first amp-DSP-voiced device.**
+**Addendum (2026-07-21, issue [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27) follow-up) — first amp-DSP-voiced device.**
 The reporter closed the firmware gap himself by extracting the CS35L57 tuning
 from Samsung's Windows driver
 ([write-up](https://github.com/JeanLuX/notebook/blob/main/samsung-galaxy-book6-ultra/AUDIO-CIRRUS-FIRMWARE-EXTRACTION.md));
@@ -699,7 +699,7 @@ installed — the honest outcome is "install the firmware, skip the preset".
 
 HDA-style filenames (`DEV_<codec-device>_SUBSYS_<codec-subsystem>_PCI_SUBSYS_…`)
 were originally matched on the codec subsystem alone, with `tuning_version` as
-the only tiebreak. Issue #33 (IdeaPad Pro 5 14APH8, ALC287, subsystem
+the only tiebreak. Issue [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) (IdeaPad Pro 5 14APH8, ALC287, subsystem
 `17AA38C5`) falsified the uniqueness assumption: its driver store ships both
 `DEV_0287_SUBSYS_17AA38C5` (tuning_version 8) and `DEV_0257_SUBSYS_17AA38C5`
 (tuning_version 11) — Lenovo reuses the subsystem id across an ALC287 and an
@@ -793,7 +793,7 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    confirming the diagnosis end-to-end. Post-fix preset verdict was *negative* —
    the device is **not** added to the README tested table; see the §15 addendum
    for the outcome and mechanism.
-8. **Zenbook S14 UX5406SA partial-success report (issue #29, reporter-gated).**
+8. **Zenbook S14 UX5406SA partial-success report (issue [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29), reporter-gated).**
    First cs42l43-codec device (SoundWire part 0x4243 jack codec + 4× cs35l56,
    PCI SSID `1043:1E13`) and — unlike the Galaxy Book6 above — *not* a firmware
    gap: no kernel-log failure markers, and upstream linux-firmware ships this
