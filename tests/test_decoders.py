@@ -153,8 +153,8 @@ def test_make_multiband_compressor_no_warn_on_normal_coeffs(capsys):
 
 # --- warn_unmodeled_features: watching-only XML fields ---
 
-def _capture_warnings(profile_xml: str) -> list[str]:
-    """Messages collect_unmodeled_features returns for a synthetic profile.
+def _capture_warnings(profile_xml: str):
+    """Findings collect_unmodeled_features returns for a synthetic profile.
 
     These used to be captured by monkeypatching cprint, back when the
     collector printed as it went. It returns them now — main() prints them
@@ -180,9 +180,10 @@ def test_warn_silent_on_default_values():
 
 
 def test_warn_peak_level_nonzero_fires_with_db_conversion():
-    """value=-3 → −3/16 ≈ −0.19 dB at the standard convention; the
-    warning should surface both the raw value, the dB conversion, and
-    the report URL.
+    """value=-3 → −3/16 ≈ −0.19 dB at the standard convention. The detail
+    carries the raw value and the dB conversion; the ask carries the one
+    sentence the closing block prints. Neither carries a URL — the block
+    supplies the single link, so a note can't wrap one into unclickability.
     """
     out = _capture_warnings("""
         <profile type="dynamic">
@@ -192,10 +193,11 @@ def test_warn_peak_level_nonzero_fires_with_db_conversion():
         </profile>
     """)
     assert len(out) == 1
-    msg = out[0]
-    assert "peak-level=-3" in msg
-    assert "-0.19 dB" in msg
-    assert "github.com/antoinecellerier" in msg
+    assert out[0].slug == "peak-level"
+    assert "peak-level=-3" in out[0].detail
+    assert "-0.19 dB" in out[0].detail
+    assert out[0].ask
+    assert "http" not in out[0].detail + out[0].ask
 
 
 def test_warn_ieq_bands_set_balanced_does_not_fire():
@@ -232,9 +234,10 @@ def test_warn_ieq_bands_set_unusual_preset_fires():
         </profile>
     """)
     assert len(out) == 1
-    msg = out[0]
-    assert "ieq_warm" in msg
-    assert "github.com/antoinecellerier" in msg
+    assert out[0].slug == "ieq-preset"
+    assert "ieq_warm" in out[0].detail
+    assert out[0].ask
+    assert "http" not in out[0].detail + out[0].ask
 
 
 def test_warn_existing_unmodeled_features_still_fire():
@@ -249,8 +252,12 @@ def test_warn_existing_unmodeled_features_still_fire():
           </tuning-cp>
         </profile>
     """)
-    assert any("Dynamic Speaker Optimization" in m for m in out)
-    assert any("advanced speaker virtualizer" in m for m in out)
+    assert any("Dynamic Speaker Optimization" in f.detail for f in out)
+    assert any("advanced speaker virtualizer" in f.detail for f in out)
+    # Both are dropped no matter what the user does, so they report inline
+    # and carry no ask — a "nothing you can do" line in the closing block
+    # only teaches people to skip it.
+    assert all(f.ask == "" for f in out)
 
 
 class TestIntAttr:

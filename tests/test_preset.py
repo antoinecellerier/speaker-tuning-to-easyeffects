@@ -968,7 +968,7 @@ def test_substage_summary_escalates_under_autogain(capsys, autogain_on, expect):
     out = capsys.readouterr().out
     assert expect in out
     # The ask is only worth making when it can be acted on.
-    assert (d._REPORT_URL in out) is autogain_on
+    assert (d._REPORT_FORM_URL in out) is autogain_on
 
 
 def test_substage_summary_silent_when_there_is_nothing_to_say(capsys):
@@ -978,14 +978,39 @@ def test_substage_summary_silent_when_there_is_nothing_to_say(capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_report_url_is_never_split_across_lines(capsys):
-    """A URL broken by wrapping can't be clicked or copied, which defeats
-    the ask it belongs to."""
+def test_findings_never_carry_a_url(capsys):
+    """A URL inside wrapped prose gets broken mid-string and stops being
+    clickable or copyable — which defeats the ask it belongs to.
+
+    The previous version of this test only exercised the leveler sub-stage
+    branch, which prints its URL on a line of its own and so was never at
+    risk; the four watching-only notes embedded one in their prose and were
+    silently being broken. The block now owns the single link, so the rule
+    is simply that no finding may carry one, which this pins at the source.
+    """
+    import xml.etree.ElementTree as ET
+
     import dolby_to_easyeffects as d
 
-    d._unmodeled_summary([], ["volume-leveler-compressor"], autogain_on=True)
+    found = d.collect_unmodeled_features(ET.fromstring("""
+        <profile type="dynamic">
+          <tuning-cp>
+            <peak-level value="-3"/>
+            <ieq-bands-set preset="ieq_warm"/>
+            <regulator-overdrive value="5"/>
+            <regulator-relaxation-amount value="80"/>
+            <dynamic_speaker_optimization_enable value="1"/>
+          </tuning-cp>
+        </profile>
+    """))
+    assert len(found) == 5, "every watching-only row should have fired"
+    for finding in found:
+        assert "http" not in finding.detail + finding.ask, finding.slug
+
+    # ...and the one link the block itself prints survives wrapping intact.
+    d._unmodeled_summary(found, ["volume-leveler-compressor"], autogain_on=True)
     lines = capsys.readouterr().out.splitlines()
-    assert any(d._REPORT_URL in line for line in lines)
+    assert any(d._REPORT_FORM_URL in line for line in lines)
 
 
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---

@@ -109,6 +109,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The report-back link at the end of a run is clickable again. It is longer
+  than a standard terminal is wide, and coloured output reflowed it mid-URL —
+  as did the four "unusual XML field" notes, which carried their own copy of a
+  link inside wrapped prose. There is now one link and nothing wraps it.
+
 - **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
   whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
   never read, so a profile that ships a curve but declares the optimizer

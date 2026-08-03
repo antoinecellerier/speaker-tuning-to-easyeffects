@@ -1027,6 +1027,22 @@ def test_report_form_url_targets_device_report_template():
     assert "issues/new?template=device-report.yml" in dolby_to_easyeffects._REPORT_FORM_URL
 
 
+def test_report_url_is_not_folded_by_the_console(capsys):
+    """A link broken across lines can't be clicked or copied, which defeats
+    the whole point of the ask.
+
+    rich reflows at the console width unless told not to, and this URL is 103
+    characters — so on an ordinary 80-column terminal the run's main call to
+    action was being folded mid-string. It also meant the output differed
+    depending on whether rich was installed, since the no-rich fallback never
+    wraps. cprint pins soft_wrap; this holds it there.
+    """
+    url = dolby_to_easyeffects._REPORT_FORM_URL
+    dolby_to_easyeffects.cprint("cta", f"  {url}")
+    first = capsys.readouterr().out.splitlines()[0]
+    assert url in first, "the URL must survive on a single line"
+
+
 def test_device_report_form_is_valid():
     yaml = pytest.importorskip("yaml")
 

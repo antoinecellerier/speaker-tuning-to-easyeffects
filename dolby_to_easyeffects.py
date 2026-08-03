@@ -35,6 +35,7 @@ import subprocess
 import sys
 import textwrap
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -99,11 +100,20 @@ if _HelpFormatter is argparse.HelpFormatter:
 
 
 def cprint(style: str, text: str = "") -> None:
-    """Print `text` in the given semantic style, or plain if rich is absent."""
+    """Print `text` in the given semantic style, or plain if rich is absent.
+
+    ``soft_wrap=True`` keeps the text exactly as written, mirroring
+    ee_to_pipewire.py. Without it rich reflows at the console width and folds
+    anything longer — which silently broke the report-back URL (103 chars) mid
+    string on any 80-column terminal, leaving the tool's main call to action
+    unclickable and uncopyable. It also made output depend on whether rich was
+    installed at all, since the fallback above never wraps. Prose that needs
+    wrapping asks for it explicitly via _cprint_wrapped.
+    """
     if _CONSOLE is None:
         print(text)
         return
-    _CONSOLE.print(text, style=style)
+    _CONSOLE.print(text, style=style, soft_wrap=True)
 
 
 def warn(msg: str) -> None:
@@ -2957,6 +2967,39 @@ def _int_attr(element, default=None, name="value"):
     return int(raw)
 
 
+@dataclass(frozen=True)
+class Finding:
+    """One thing a run noticed, printed in two halves with different readers.
+
+    ``detail`` is the technical why. It prints inline, at the detection site,
+    next to the values it explains — the only place it has context. Keeping it
+    out of the closing block is what keeps that block scannable when several
+    things fire at once.
+
+    ``ask`` is what the user reads at the end: ONE short sentence in their
+    terms, either the fix to try or the question we want answered. It is
+    optional, and leaving it empty is the normal case for anything the user
+    cannot act on — a "nothing for you to do" line, in a block whose whole
+    purpose is to prompt action, only teaches people to skip the block. Those
+    findings still print their detail inline, so they still reach us in a
+    pasted report.
+
+    ``kind`` picks the section the ask lands in: "hint" fixes the user's own
+    audio, "ask" is something the project needs from them.
+
+    ``slug`` ties the two halves together — it leads the inline line and
+    trails the end-block one, so either greps to the other — and is the
+    de-duplication key. Keying on rendered text (what main() did before)
+    silently missed repeats whose text embeds a per-profile value, so
+    --all-profiles could print one finding several times with different
+    numbers in it.
+    """
+    slug: str
+    detail: str
+    ask: str = ""
+    kind: str = "hint"
+
+
 @dataclass
 class ParsedTuning:
     """Everything parse_xml extracts from one DAX3 endpoint/profile.
@@ -2996,7 +3039,7 @@ class ParsedTuning:
     # Enabled-but-unreproducible stages, surfaced together at end of run
     # rather than printed here where they'd be buried (see
     # collect_unmodeled_features / _unmodeled_summary).
-    unmodeled_notes: list[str] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     leveler_substages: list[str] = field(default_factory=list)
 
 
@@ -3359,98 +3402,130 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
                                 default=192),
         ao_enabled=ao_enabled,
-        unmodeled_notes=collect_unmodeled_features(profile),
+        findings=collect_unmodeled_features(profile),
         leveler_substages=leveler_substages,
     )
 
 
-# Newer-pipeline DSP blocks observed in the corpus that the script does not
-# model. Warn when they're enabled so users can correlate with audible gaps.
-# The list intentionally omits features that are universally present (e.g.
-# `output-mode-partial-{surround,height}-virtualizer-enable`, MI steering)
-# — those are documented in CLAUDE.md / docs/ and warning on every run would
-# be noise. Only flag rare, enabled-only feature blocks here.
-#
-# Each entry is (xpath, predicate, message). Predicate takes the matched
-# element and returns True if the feature is *active* in this profile;
-# message takes the same element and returns the warning text.
-_REPORT_URL = "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues"
-# The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml). The
-# end-of-run CTA points here so "works on my hardware" reports arrive in a
-# consistent shape; _REPORT_URL above stays the generic target for the mid-run
-# feature-gap warnings, which aren't device reports.
+# The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml).
+# There is exactly one link in the output and this is it. Everything the
+# closing block asks about is device-specific, and acting on any of it needs
+# what this form requires — model, --speaker-info output, the generation log.
+# A second, generic /issues link used to ride the mid-run feature-gap
+# warnings; once those moved into the same closing block it was simply a rival
+# call to action, pointing somewhere reports arrive stripped of that context.
 _REPORT_FORM_URL = (
     "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
     "/issues/new?template=device-report.yml"
 )
 
+
+# Newer-pipeline DSP blocks observed in the corpus that the script does not
+# model. Flag them when they're enabled so users can correlate with audible
+# gaps. The list intentionally omits features that are universally present
+# (e.g. `output-mode-partial-{surround,height}-virtualizer-enable`, MI
+# steering) — those are documented in CLAUDE.md / docs/ and flagging them
+# every run would be noise. Only rare, enabled-only feature blocks belong here.
+#
+# `active` takes the matched element and returns True if the feature is live
+# in this profile; `detail`/`ask` take the same element and return the two
+# halves of the Finding. A row's `ask` sits right here, next to the predicate
+# that raises it, so adding a field states its own urgency and its own handle
+# — there is no central table to keep in sync.
+@dataclass(frozen=True)
+class _UnmodeledFeature:
+    xpath: str
+    slug: str
+    active: Callable[[ET.Element], bool]
+    detail: Callable[[ET.Element], str]
+    # Empty for the two blocks below that the user genuinely cannot act on:
+    # they are dropped whatever anyone does, so they report inline and stay
+    # out of the closing ask.
+    ask: Callable[[ET.Element], str] | None = None
+
+
 _UNMODELED_FEATURES = [
-    (".//dynamic_speaker_optimization_enable",
-     lambda el: el.get("value") == "1",
-     lambda el: "Dynamic Speaker Optimization (excursion-aware bass limiting) "
-                "is set in the XML but not modeled — silently dropped."),
-    (".//advanced-speaker-virtualizer-rendering-config",
-     lambda el: True,  # presence implies the newer virtualizer pipeline is configured
-     lambda el: "advanced speaker virtualizer (newer FFT-domain spatializer) "
-                "is set in the XML but not modeled — silently dropped."),
+    _UnmodeledFeature(
+        ".//dynamic_speaker_optimization_enable", "dso",
+        lambda el: el.get("value") == "1",
+        lambda el: "Dynamic Speaker Optimization (excursion-aware bass "
+                   "limiting) is set in the XML but not modeled — silently "
+                   "dropped."),
+    _UnmodeledFeature(
+        ".//advanced-speaker-virtualizer-rendering-config", "adv-virtualizer",
+        lambda el: True,  # presence implies the newer virtualizer pipeline
+        lambda el: "advanced speaker virtualizer (newer FFT-domain "
+                   "spatializer) is set in the XML but not modeled — silently "
+                   "dropped."),
     # Watching-only fields below: the corpus shows these as effectively
-    # constants and the script doesn't act on them. If a future XML breaks
-    # the assumption we'd like to know — the warnings nudge users to report.
-    (".//peak-level",
-     lambda el: (el.get("value") or "0") != "0",
-     lambda el: (
-         f"peak-level={el.get('value')} (≈ {int(el.get('value', '0')) / 16:+.2f} dB "
-         "at the standard 1/16-dB convention) — this is 0 on every device in our "
-         "corpus, and the script does not currently map it to the limiter "
-         "threshold (interpretation unverified). If audio sounds off, please "
-         f"report at {_REPORT_URL}"
-     )),
-    (".//ieq-bands-set",
-     lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
-     lambda el: (
-         f"ieq-bands-set preset={el.get('preset')!r} — this XML names a "
-         "non-balanced curve as the profile default, but every device in our "
-         "corpus uses 'ieq_balanced'. We still emit the usual "
-         "Balanced/Detailed/Warm presets; you may want to start with the "
-         f"matching variant. Please report at {_REPORT_URL}"
-     )),
-    (".//regulator-overdrive",
-     lambda el: (el.get("value") or "0") != "0",
-     lambda el: (
-         f"regulator-overdrive={el.get('value')} — this is 0 on every "
-         "device we've seen. The script does not currently map it (the "
-         "schema interpretation is unverified for non-zero values). "
-         f"Please report at {_REPORT_URL}"
-     )),
-    (".//regulator-relaxation-amount",
-     lambda el: (el.get("value") or "96") != "96",
-     lambda el: (
-         f"regulator-relaxation-amount={el.get('value')} — this is 96 on "
-         "every device we've seen. The script does not currently map it "
-         "(the schema interpretation is unverified for other values). "
-         f"Please report at {_REPORT_URL}"
-     )),
+    # constants and the script doesn't act on them. An XML that breaks the
+    # assumption is exactly the data that would move the mapping, so these
+    # carry an ask — and it asks for the XML, which is what settles them.
+    _UnmodeledFeature(
+        ".//peak-level", "peak-level",
+        lambda el: (el.get("value") or "0") != "0",
+        lambda el: (
+            f"peak-level={el.get('value')} (≈ "
+            f"{int(el.get('value', '0')) / 16:+.2f} dB at the standard "
+            "1/16-dB convention) — this is 0 on every device in our corpus, "
+            "and the script does not currently map it to the limiter "
+            "threshold (interpretation unverified)."),
+        lambda el: (f"peak-level={el.get('value')} is a value we've never "
+                    "seen — send your XML and we can map it.")),
+    _UnmodeledFeature(
+        ".//ieq-bands-set", "ieq-preset",
+        lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
+        lambda el: (
+            f"ieq-bands-set preset={el.get('preset')!r} — this XML names a "
+            "non-balanced curve as the profile default, but every device in "
+            "our corpus uses 'ieq_balanced'. We still emit the usual "
+            "Balanced/Detailed/Warm presets."),
+        lambda el: ("Your tuning defaults to a non-balanced voicing — which "
+                    "of the three presets sounds closest?")),
+    _UnmodeledFeature(
+        ".//regulator-overdrive", "regulator-overdrive",
+        lambda el: (el.get("value") or "0") != "0",
+        lambda el: (
+            f"regulator-overdrive={el.get('value')} — this is 0 on every "
+            "device we've seen. The script does not currently map it (the "
+            "schema interpretation is unverified for non-zero values)."),
+        lambda el: (f"regulator-overdrive={el.get('value')} is a value we've "
+                    "never seen — send your XML and we can map it.")),
+    _UnmodeledFeature(
+        ".//regulator-relaxation-amount", "regulator-relaxation",
+        lambda el: (el.get("value") or "96") != "96",
+        lambda el: (
+            f"regulator-relaxation-amount={el.get('value')} — this is 96 on "
+            "every device we've seen. The script does not currently map it "
+            "(the schema interpretation is unverified for other values)."),
+        lambda el: (f"relaxation-amount={el.get('value')} is a value we've "
+                    "never seen — send your XML and we can map it.")),
 ]
 
 
-def collect_unmodeled_features(profile: ET.Element) -> list[str]:
-    """Return one message per unmodeled-but-enabled DSP block in ``profile``.
+def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
+    """Return one Finding per unmodeled-but-enabled DSP block in ``profile``.
 
-    Collected rather than printed: these are the lines a user has to act on,
-    and printed here they land in the middle of a couple of hundred lines of
-    per-band tables where nobody sees them. main() gathers them across
-    profiles and prints one block at the end, next to the closing call to
-    action (see ``_unmodeled_summary``).
+    Returned rather than printed: printed here they land in the middle of a
+    couple of hundred lines of per-band tables where nobody sees them, and
+    staying print-free keeps this callable straight from a test. main()
+    gathers them across profiles, keyed by slug, and renders one block at the
+    end (see ``_unmodeled_summary``).
     """
     found = []
-    for xpath, active, message in _UNMODELED_FEATURES:
-        el = profile.find(xpath)
-        if el is not None and active(el):
-            found.append(message(el))
+    for feat in _UNMODELED_FEATURES:
+        el = profile.find(feat.xpath)
+        if el is not None and feat.active(el):
+            found.append(Finding(
+                slug=feat.slug,
+                detail=feat.detail(el),
+                ask=feat.ask(el) if feat.ask is not None else "",
+                kind="ask",
+            ))
     return found
 
 
-def _unmodeled_summary(notes: list[str], substages: list[str],
+def _unmodeled_summary(findings: list[Finding], substages: list[str],
                        autogain_on: bool) -> None:
     """Print the end-of-run block for stages this tuning enables and we drop.
 
@@ -3465,11 +3540,11 @@ def _unmodeled_summary(notes: list[str], substages: list[str],
     with it, which is a plausible cause of exactly the pumping that flag is
     reached for, so that case gets the full ask.
     """
-    if not notes and not substages:
+    if not findings and not substages:
         return
     print()
-    for note in notes:
-        _cprint_wrapped("warn", f"⚠  {note}", indent="   ")
+    for finding in findings:
+        _cprint_wrapped("warn", f"⚠  {finding.detail}", indent="   ")
     if not substages:
         return
     named = ", ".join(substages)
@@ -3487,7 +3562,7 @@ def _unmodeled_summary(notes: list[str], substages: list[str],
             "   A capture from your device is the only thing that can settle "
             "what they do, and one capture is enough — please get in touch:"),
             indent="   ")
-        cprint("cta", f"     {_REPORT_URL}")
+        cprint("cta", f"     {_REPORT_FORM_URL}")
     else:
         _cprint_wrapped("warn", (
             f"⚠  Also present but not reproduced: {named}. Harmless as built, "
@@ -5258,10 +5333,12 @@ def main(argv: list[str] | None = None):
     # into thinking a filter applies to them when it only runs in other
     # profiles.
     filters_by_profile: dict[str, set[str]] = {}
-    # Unreproducible stages seen across every profile built this run, kept in
-    # first-seen order and de-duplicated: --all-profiles would otherwise repeat
-    # the same note nine times.
-    unmodeled_notes: dict[str, None] = {}
+    # Findings raised across every profile built this run, in first-seen order
+    # and de-duplicated by slug: --all-profiles would otherwise repeat the same
+    # one nine times. The key is the slug rather than the rendered text because
+    # several findings embed a per-profile value (peak-level=-3), which made
+    # text-keyed de-duplication miss them.
+    findings: dict[str, Finding] = {}
     leveler_substages: dict[str, None] = {}
 
     for profile_type in profile_types:
@@ -5308,7 +5385,8 @@ def main(argv: list[str] | None = None):
         _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                                args.volmax_slot, enabled=set(args.enable))
 
-        unmodeled_notes.update(dict.fromkeys(tuning.unmodeled_notes))
+        for finding in tuning.findings:
+            findings.setdefault(finding.slug, finding)
         leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
@@ -5476,7 +5554,7 @@ def main(argv: list[str] | None = None):
     # Last, so it is still on screen when the run ends. These notes used to
     # print from inside parse_xml, where two hundred lines of per-band tables
     # buried them.
-    _unmodeled_summary(list(unmodeled_notes), list(leveler_substages),
+    _unmodeled_summary(list(findings.values()), list(leveler_substages),
                        autogain_on="autogain" in args.enable)
 
 
