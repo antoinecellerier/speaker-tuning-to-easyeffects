@@ -3836,7 +3836,7 @@ def _print_ask(style: str, finding: Finding) -> None:
 
 
 def print_project_asks(findings: list[Finding], dry_run: bool = False,
-                       xml_path=None) -> None:
+                       xml_path=None, pipewire_native: bool = False) -> None:
     """Print the closing block: what the project needs, then the one ask.
 
     Always prints. Most people run this script once, on one machine, and
@@ -3926,15 +3926,23 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     # above saying "quote the tag in brackets if you report one" with nowhere
     # to report to — worse than the impossible "how does it sound?" it was
     # meant to fix, because that at least named a destination.
+    # For the wrapper's reader the repo name says "easyeffects" — the very
+    # thing they chose this path to avoid — and the only link in the run
+    # points there, so one clause says their report belongs here too.
     if dry_run:
         # Just the pointer. That nothing was written is said immediately
         # above by whoever ran the dry run — print_what_now here, the [3/3]
         # banner under dolby_to_pipewire.py — and saying it twice in
         # consecutive sentences reads like a stutter.
-        _cprint_wrapped("cta", "Reporting anything above? Here's where:")
+        lead = ("Reporting anything above? PipeWire-only reports are "
+                "welcome — here's where:" if pipewire_native else
+                "Reporting anything above? Here's where:")
     else:
-        _cprint_wrapped("cta", "How does it sound? Please report back — good "
-                               "or bad, or if you need help:")
+        lead = ("How does it sound? Please report back — good or bad, or "
+                "if you need help"
+                + (" (PipeWire-only reports are welcome)"
+                   if pipewire_native else "") + ":")
+    _cprint_wrapped("cta", lead)
     # The URL gets its own line and is never wrapped: broken across lines it
     # can't be clicked or copied, which defeats the whole point of the ask.
     cprint("cta", f"  {_REPORT_FORM_URL}")
@@ -4888,8 +4896,10 @@ _DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
 # behind the issue number — which stays, because switching a stage ON is the
 # direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
+    # "enabling may…" marks the second clause as the flag's side effect —
+    # run together with the trigger it read as one continuous symptom.
     "autogain": ("it sounds right but quieter than it did on Windows",
-                 "quiet passages may get pushed up and sound worse "
+                 "enabling may push quiet passages up and sound worse "
                  "(issue #25)"),
     # Describes what you'd hear, not where in the chain it happens: "where the
     # limiter is inactive" names an internal state the listener has no access
@@ -4982,8 +4992,11 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
     to ask for it.
     """
     gutter = " " * _FLAG_GUTTER
+    # Continuations indent two past the gutter so they land under the
+    # comment text, not under its "#" — flush with the marker they read as
+    # stray fragments (round 2).
     _cprint_wrapped("dim", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
-                    indent=gutter)
+                    indent=gutter + "  ")
     if effect:
         _cprint_wrapped("dim", f"{gutter}({effect})", indent=gutter + " ")
 
@@ -6037,8 +6050,15 @@ def main(argv: list[str] | None = None,
 
         cprint("head", f"\n{'='*60}")
         if is_soundwire:
-            cprint("head", "SoundWire device detected — using enhanced preset generation")
-        cprint("head", f"Endpoint: {args.endpoint} (mode={args.mode})")
+            # Names the practical difference — "enhanced preset generation"
+            # told the reader nothing and read as either good news or a
+            # warning (round 2).
+            cprint("head", "SoundWire device detected — bass enhancer and "
+                           "volume leveler on by default")
+        # "(mode=normal)" is suppressed when it is the default: an
+        # unexplained internal knob on every run's second line.
+        mode = "" if args.mode == "normal" else f" (mode={args.mode})"
+        cprint("head", f"Endpoint: {args.endpoint}{mode}")
         tuning = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,

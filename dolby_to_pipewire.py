@@ -432,7 +432,8 @@ def main(argv: list[str] | None = None) -> int:
     # stderr. Same stream is what makes "after [3/3]" true rather than a
     # coincidence of the two being the same terminal.
     with contextlib.redirect_stdout(sys.stderr):
-        dolby_to_easyeffects.print_project_asks(closing, dry_run=args.dry_run)
+        dolby_to_easyeffects.print_project_asks(closing, dry_run=args.dry_run,
+                                                pipewire_native=True)
     return rc
 
 
