@@ -1378,6 +1378,29 @@ def test_xml_path_prints_for_any_ask_that_wants_the_xml(monkeypatch, capsys):
     assert "/tmp/DEV_X.xml" not in capsys.readouterr().out
 
 
+def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
+    """A stage we drop has no ask — nobody can act on it — but it printed
+    hundreds of lines earlier and never again, so the closing block read as
+    the whole story while a piece of the tuning was missing from it."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    import xml.etree.ElementTree as ET
+
+    dropped = dolby_to_easyeffects.collect_unmodeled_features(ET.fromstring("""
+        <profile type="dynamic"><tuning-cp>
+          <dynamic_speaker_optimization_enable value="1"/>
+        </tuning-cp></profile>"""))
+    assert dropped and not dropped[0].ask
+
+    dolby_to_easyeffects.print_project_asks(dropped)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Not reproduced on this device: [speaker-optimizer]" in out
+
+    # It stays one line of context, not another bulleted thing to action.
+    dolby_to_easyeffects.print_project_asks(dropped)
+    assert not any(line.lstrip().startswith("•")
+                   for line in capsys.readouterr().out.splitlines())
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of

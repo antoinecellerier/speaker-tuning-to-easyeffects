@@ -3826,6 +3826,19 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         _cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
                                "it tells us which finding you mean.")
         print()
+
+    # Stages this tuning has that we drop. They carry no ask, because there is
+    # nothing anyone can do about them — but they printed two hundred lines
+    # up and never again, so the closing block read as the whole story when a
+    # piece of the tuning was missing from it. One line, no bullet list: it is
+    # context for a report, not another thing to action.
+    dropped = [f.slug for f in findings if f.kind == "ask" and not f.ask]
+    if dropped:
+        _cprint_wrapped("dim", "Not reproduced on this device: "
+                               + ", ".join(f"[{s}]" for s in dropped)
+                               + " — nothing to fix, but worth mentioning if "
+                                 "you report.")
+        print()
     # The link prints either way. Suppressing it on a dry run left the block
     # above saying "quote the tag in brackets if you report one" with nowhere
     # to report to — worse than the impossible "how does it sound?" it was
