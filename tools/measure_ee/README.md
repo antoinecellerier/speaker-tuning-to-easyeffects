@@ -61,6 +61,8 @@ When auditing whether EE is applying the current preset:
 | `compare_ee_vs_dax.py` | Overlays EE captures vs DAX3 captures (analyze.py outputs from both sides) — frequency domain |
 | `compare_ir_time_domain.py` | Overlays converter FIR / EE-captured / DAX-captured IRs in the time domain — envelope decay, cumulative-energy times, peak position. Answers "is my FIR's tail real signal or just below the noise floor?" |
 | `compare_ee_analytical.py` | Optional self-check: capture vs analytical (FIR + biquads) model. Useful for converter validation, *not* required for EE↔DAX comparison. |
+| `dynamics_gap.py` | Read-only (no capture): why EE's per-band gain reduction falls short of DAX's on the same stepped battery — separates a wrong MBC decode from the upstream level gap from the regulator under-engaging. The analysis behind the still-open design-notes entries 6/11; re-run it when a new device's stepped captures land |
+| `scaling_report.py` | Read-only (no capture): reproduces the named scaling-campaign results (Finding 9, entries 2/6/11, q-mode) from one session's EE + DAX captures. Point it at a new session with `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another device |
 
 ## Usage
 
