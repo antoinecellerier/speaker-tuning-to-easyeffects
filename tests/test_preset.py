@@ -966,7 +966,7 @@ def test_leveler_substages_parsed_only_when_switched_on(tmp_path):
 
 @pytest.mark.parametrize("autogain_on,expect", [
     (False, "only matters if you rebuild with --enable autogain"),
-    (True, "pumps or overshoots"),
+    (True, "surges going from quiet to loud"),
 ])
 def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
     """Silent-but-present while the leveler is bypassed (it genuinely cannot

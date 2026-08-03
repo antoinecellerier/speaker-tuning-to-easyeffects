@@ -3683,45 +3683,53 @@ def _firmware_gate_finding() -> Finding:
 
 def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                               autogain_available: bool = True) -> Finding | None:
-    """The Dolby leveler sub-stages this converter cannot reproduce.
+    """The Dolby leveler companion stages this converter cannot reproduce.
 
     Unlike every other mapping these carry no parameters at all — the schema
     has an on/off bit and nothing else, no threshold, ratio, attack or release
     in either tuning block — so no stage can be derived from them, and
     inventing one is the per-device hand-tuning the XML-only rule forbids.
 
-    Two strengths. On a default run the leveler itself is bypassed, so the
-    sub-stages cannot be heard and there is nothing for anyone to do: detail
-    only, no ask. Under ``--enable autogain`` the leveler runs without the
-    compressor Dolby pairs with it, which is a plausible cause of exactly the
-    pumping that flag gets reached for — so that case asks for the one capture
-    that could settle it.
+    Two strengths. Where the leveler ships bypassed (HDA default) the
+    companions cannot be heard and there is nothing for anyone to do: detail
+    only, no ask. Where the leveler runs (SoundWire default, or ``--enable
+    autogain``) it runs without the compressor Dolby pairs with it — a
+    plausible cause of exactly the pumping that state gets blamed for — so
+    that case asks for the one capture that could settle it, and names
+    ``--disable autogain`` as the off-switch.
+
+    Every user-review round misread this copy until it said where the
+    leveler itself stands: the parsed-XML block above prints the leveler's
+    own amount/targets, so "cannot reproduce" without an owner read as the
+    converter contradicting itself about the leveler.
     """
     if not substages:
         return None
     named = ", ".join(substages)
+    head = (f"Also in your tuning but not rebuilt: {named} — companion "
+            "stages Dolby runs with its volume leveler. Harmless as built: ")
     if not autogain_on:
         # Only point at --enable autogain when it could actually change this.
         # On a tuning whose XML disables the leveler outright the flag does
         # nothing, and suggesting it contradicts the "had no effect" warning
         # printed just above.
-        remedy = (" — it only matters if you rebuild with --enable autogain."
-                  if autogain_available else ", and this tuning disables it "
-                  "outright, so no flag here changes that.")
-        return Finding(
-            slug="leveler-gap", kind="ask",
-            detail=f"Also present but not reproduced: {named}. Harmless as "
-                   "built, because the volume leveler they attach to is "
-                   f"bypassed{remedy}")
+        tail = ("the leveler ships switched off in this preset, so they "
+                "cannot be heard — this only matters if you rebuild with "
+                "--enable autogain."
+                if autogain_available else
+                "your tuning switches the leveler off outright, so they "
+                "cannot be heard and no flag here changes that.")
+        return Finding(slug="leveler-gap", kind="ask", detail=head + tail)
     return Finding(
         slug="leveler-gap", kind="ask",
-        detail="The volume leveler is running here, and this tuning pairs it "
-               f"with {named} — stage(s) this converter cannot reproduce. The "
-               "XML gives only an on/off bit for them: no threshold, ratio, "
-               "attack or release, so there is nothing to derive them from. "
-               "If the result pumps or overshoots going from quiet to loud, "
-               "that is the most likely reason. Settling it needs a capture "
-               "from a device that has them: the procedure is in "
+        detail="The volume leveler itself is rebuilt and running in this "
+               f"preset. But your tuning pairs it with {named} — companion "
+               "stage(s) this converter cannot rebuild: the tuning file "
+               "records only that they are switched on, not how they are "
+               "set. If loudness surges going from quiet to loud, that gap "
+               "is the most likely reason (--disable autogain switches the "
+               "leveler off). Settling it needs a capture from a device "
+               "that has these stages: the procedure is in "
                "tools/measure_dax/README.md, and it needs a Windows install "
                "with Dolby on the same machine.",
         # Deliberately does not ask them to go and do the capture. It is a
@@ -3731,8 +3739,8 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # Names Windows up front so anyone who doesn't dual-boot can skip the
         # whole line rather than reading to the end to find out they can't
         # help — the capture measures what DAX does, so it has to run there.
-        ask="If sound pumps going quiet to loud, tell us — a Windows capture "
-            "would settle it and we'll walk you through it.")
+        ask="If loudness surges from quiet to loud, tell us — a Windows "
+            "capture would settle it and we'll walk you through it.")
 
 
 def _print_ask(style: str, finding: Finding) -> None:
@@ -4960,7 +4968,8 @@ def print_troubleshooting(findings: list[Finding],
             symptom, caveat = ENABLEABLE_FILTERS[name]
             if name == "autogain" and gap:
                 caveat = ("on this device it also enables a stage we can't "
-                          "reproduce, so it may pump — see [leveler-gap]")
+                          "reproduce, so loudness may surge going from "
+                          "quiet to loud — see [leveler-gap]")
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
     # How to actually apply any of the above. Every suggestion here is a flag
