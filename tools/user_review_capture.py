@@ -27,10 +27,13 @@ Writes into --out-dir:
     meta.txt                  orchestrator-only: block↔pattern map, unmatched
                               patterns (never reviewed — say so in the report)
 
-Both full runs are --dry-run on purpose: a real EE run would overwrite the
-user's live Dolby-* presets with this XML's tuning, and a real wrapper run
-restarts PipeWire. Disclose the flag to reviewers (skill §2); nothing else
-about the capture needs explaining to them. meta.txt is for triage only —
+Captures run inside a fake-home namespace when the kernel allows it (see
+FAKE_HOME below): the EE run is then REAL — its writes land on a tmpfs and
+vanish — and the wrapper runs with --no-activate, so the only remaining
+reviewer disclosure is the skipped activation. Without the namespace the
+helper falls back to --dry-run against real paths (a real EE run would
+overwrite the user's live Dolby-* presets), and the skill's fallback
+disclosures apply. meta.txt records which mode ran; it is for triage only —
 handing it to a reviewer grants the comprehension being measured.
 """
 
@@ -47,6 +50,49 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = REPO_ROOT / "localresearch" / "user_review"
 
+# The persona's world, built inside an unprivileged user namespace: tmpfs
+# over /home, the repo bind-mounted where the persona's clone would be, the
+# tuning XML where a user who copied it off the Windows partition would put
+# it. Every path the scripts print is then authentically the persona's —
+# no post-editing of captures (which would silently change wrapping) and no
+# "ignore the odd paths" disclosure eating reviewer attention. Writes from
+# real runs land on the tmpfs and vanish with the namespace.
+FAKE_HOME = "/home/user"
+FAKE_REPO = f"{FAKE_HOME}/speaker-tuning-to-easyeffects"
+FAKE_XML_DIR = f"{FAKE_HOME}/dax3-tuning"
+# Staging area the namespace can see (it is under the repo bind). Pre-copied
+# here so XMLs living outside the repo still reach the sandbox.
+_STAGE_REL = "localresearch/user_review/.stage"
+
+
+def _sandbox_available() -> bool:
+    probe = subprocess.run(
+        ["unshare", "-rm", "sh", "-c",
+         "mount -t tmpfs tmpfs /home && mkdir /home/user"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return probe.returncode == 0
+
+
+def _preview_matches() -> dict[str, list[Path]]:
+    """slug → matched XML paths, from `preview_output.py --list`.
+
+    Run outside the sandbox (it scans the real corpus); the paths feed the
+    staging copy so the sandboxed preview run scans only those files and
+    prints fake-home paths for them.
+    """
+    out = subprocess.run(
+        [sys.executable, "tools/preview_output.py", "--list"],
+        cwd=REPO_ROOT, capture_output=True, text=True).stdout
+    matches: dict[str, list[Path]] = {}
+    slug = None
+    for line in out.splitlines():
+        if line and not line.startswith(" "):
+            slug = line.strip()
+            matches[slug] = []
+        elif slug and line.strip() and "(no match)" not in line:
+            matches[slug].append(Path(line.strip()))
+    return matches
+
 # CSI sequences (colors, cursor) and OSC sequences (window title) — both leak
 # from the pty capture; neither survives into what a reviewer should read.
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
@@ -59,20 +105,55 @@ REDACTED_HEADER = ("===== RUN ENDING #{n} (captured on a different laptop "
                    "model) =====")
 
 
-def _pty_capture(cmd: list[str], width: int) -> tuple[str, int]:
-    """Run cmd under a pty at the given width; return cleaned text + rc.
+def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
+                 stage: list[Path] = ()) -> tuple[str, int]:
+    """Run cmd under a pty at the given width; return raw text + rc.
 
     `script -qec` rather than a pipe: piping makes stdout block-buffered and
     reorders it against stderr, which a terminal does not do, and the whole
     point of the capture is the order a user sees.
+
+    With ``sandbox=True`` the whole thing runs inside `unshare -rm` with the
+    fake-home world assembled first (see FAKE_HOME above); ``stage`` names
+    real XML files that must appear in FAKE_XML_DIR before cmd runs, and cmd
+    should reference them by their FAKE_XML_DIR paths. The staging copies
+    are made under the repo (\_STAGE_REL) so the bind mount carries them in.
     """
     env = dict(os.environ, COLUMNS=str(width))
     shell_cmd = " ".join(shlex.quote(c) for c in cmd)
-    proc = subprocess.run(["script", "-qec", shell_cmd, "/dev/null"],
+    if not sandbox:
+        proc = subprocess.run(["script", "-qec", shell_cmd, "/dev/null"],
+                              cwd=REPO_ROOT, env=env,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT)
+        return proc.stdout.decode("utf-8", errors="replace"), proc.returncode
+
+    stage_dir = REPO_ROOT / _STAGE_REL
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    for xml in stage:
+        target = stage_dir / xml.name
+        if not target.exists():
+            target.write_bytes(Path(xml).read_bytes())
+    setup = (
+        "set -e; "
+        # Pin the repo outside /home BEFORE the tmpfs covers it — the repo
+        # usually lives under /home, and covering first erases the bind
+        # source (the probe can't catch this; it binds nothing).
+        "mkdir -p /tmp/.user_review_repo; "
+        f"mount --bind {shlex.quote(str(REPO_ROOT))} /tmp/.user_review_repo; "
+        "mount -t tmpfs tmpfs /home; "
+        f"mkdir -p {FAKE_REPO} {FAKE_XML_DIR}; "
+        f"mount --bind /tmp/.user_review_repo {FAKE_REPO}; "
+        "umount /tmp/.user_review_repo; "
+        f"cp {FAKE_REPO}/{_STAGE_REL}/*.xml {FAKE_XML_DIR}/ 2>/dev/null"
+        " || true; "
+        f"export HOME={FAKE_HOME}; cd {FAKE_REPO}; "
+        f"exec script -qec {shlex.quote(shell_cmd)} /dev/null"
+    )
+    proc = subprocess.run(["unshare", "-rm", "sh", "-c", setup],
                           cwd=REPO_ROOT, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    raw = proc.stdout.decode("utf-8", errors="replace")
-    return raw, proc.returncode
+    return proc.stdout.decode("utf-8", errors="replace"), proc.returncode
 
 
 def _plain(raw: str) -> str:
@@ -191,6 +272,10 @@ def main(argv=None) -> int:
     ap.add_argument("--width", type=int, default=80, metavar="COLS",
                     help="terminal width to capture at — 80 is what most "
                          "users see (default: 80)")
+    ap.add_argument("--no-sandbox", action="store_true",
+                    help="skip the fake-home namespace even if available; "
+                         "captures then show real harness paths and use "
+                         "--dry-run, which the skill must disclose")
     args = ap.parse_args(argv)
 
     xml = args.xml.resolve()
@@ -203,8 +288,37 @@ def main(argv=None) -> int:
     written: list[str] = []
     failed: list[str] = []
 
-    raw_ee, rc = _pty_capture([py, "dolby_to_easyeffects.py", str(xml),
-                               "--dry-run"], args.width)
+    sandbox = not args.no_sandbox and _sandbox_available()
+    if not sandbox and not args.no_sandbox:
+        print("note: unprivileged user namespace unavailable — falling back "
+              "to real-path --dry-run captures (the skill must disclose "
+              "both)", file=sys.stderr)
+    stage_dir = REPO_ROOT / _STAGE_REL
+    if stage_dir.exists():
+        for old in stage_dir.glob("*.xml"):
+            old.unlink()
+
+    if sandbox:
+        # A real EE run: writes land on the namespace tmpfs, so no --dry-run
+        # and no disclosure — reviewers finally see the real closing, which
+        # is what most actual users read. The wrapper still can't run for
+        # real (it restarts PipeWire); --no-activate writes real confs into
+        # the fake home and prints the genuine to-finish steps.
+        xml_arg = f"{FAKE_XML_DIR}/{xml.name}"
+        ee_cmd = [py, "dolby_to_easyeffects.py", xml_arg]
+        pw_cmd = [py, "dolby_to_pipewire.py", xml_arg, "--no-activate"]
+        pv_stage = {p.name: p for ps in _preview_matches().values()
+                    for p in ps}
+        pv_cmd = [py, "tools/preview_output.py", "--width", str(args.width),
+                  "--corpus-dir", FAKE_XML_DIR]
+    else:
+        ee_cmd = [py, "dolby_to_easyeffects.py", str(xml), "--dry-run"]
+        pw_cmd = [py, "dolby_to_pipewire.py", str(xml), "--dry-run"]
+        pv_stage = {}
+        pv_cmd = [py, "tools/preview_output.py", "--width", str(args.width)]
+
+    raw_ee, rc = _pty_capture(ee_cmd, args.width, sandbox=sandbox,
+                              stage=[xml])
     if rc != 0:
         failed.append(f"dolby_to_easyeffects.py exited {rc}")
     ee, ee_ann = _plain(raw_ee), _annotate(raw_ee)
@@ -215,16 +329,16 @@ def main(argv=None) -> int:
     tail_ann = "\n".join(ee_ann.splitlines()[-TAIL_LINES:]) + "\n"
     written.append(_write(out_dir / "slice_ee_tail26.color.txt", tail_ann))
 
-    raw_pw, rc = _pty_capture([py, "dolby_to_pipewire.py", str(xml),
-                               "--dry-run"], args.width)
+    raw_pw, rc = _pty_capture(pw_cmd, args.width, sandbox=sandbox,
+                              stage=[xml])
     if rc != 0:
         failed.append(f"dolby_to_pipewire.py exited {rc}")
     written.append(_write(out_dir / "cap_pw_full.txt", _plain(raw_pw)))
     written.append(_write(out_dir / "cap_pw_full.color.txt",
                           _annotate(raw_pw)))
 
-    raw_pv, rc = _pty_capture([py, "tools/preview_output.py",
-                               "--width", str(args.width)], args.width)
+    raw_pv, rc = _pty_capture(pv_cmd, args.width, sandbox=sandbox,
+                              stage=list(pv_stage.values()))
     if rc != 0:
         failed.append(f"preview_output.py exited {rc}")
     blocks, blocks_ann, headers, missing = _redact_preview(
@@ -237,9 +351,15 @@ def main(argv=None) -> int:
         failed.append("annotated preview blocks misaligned with plain — "
                       ".color.txt variant not written")
 
+    mode = ("sandbox: fake-home namespace (paths read /home/user/…; EE run "
+            "is REAL, wrapper used --no-activate, preview blocks remain "
+            "--dry-run by design)" if sandbox else
+            "sandbox: OFF — captures show real harness paths and --dry-run; "
+            "the skill's fallback disclosures apply")
     meta = ["Orchestrator-only — never hand this file to a reviewer.",
             "",
             f"full-run XML: {xml}",
+            mode,
             "",
             "slice_preview_blocks.txt block map:"]
     meta += [f"  RUN ENDING #{n}: {h}" for n, h in enumerate(headers, 1)]

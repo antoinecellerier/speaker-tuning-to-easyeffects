@@ -24,19 +24,28 @@ previous round's fixes.
 ## 1. Capture real output
 
 One command produces every reviewer file — captured at 80 columns under a
-pty (`script -qec`), CR/ANSI-stripped, preview harness framing redacted:
+pty (`script -qec`), preview harness framing redacted, and run inside a
+fake-home namespace when the kernel allows it: paths in the captures then
+read `/home/user/…` (the repo mounted at the persona's clone location, the
+XML staged in their home), so reviewers see an authentic user's world with
+no path disclosures:
 
     tools/user_review_capture.py <corpus-xml>
 
 (`tools/preview_output.py --list` prints candidate XMLs.) The files, in its
 `--out-dir`:
 
-- `cap_ee_full.txt` / `cap_pw_full.txt` — one full `--dry-run` run per entry
-  point, on the XML you pass. Their readers differ — the wrapper's user chose
-  it to avoid EasyEffects — so findings do not transfer. `--dry-run` is
-  deliberate: a real EE run would overwrite the user's live Dolby-* presets
-  with this XML's tuning, and a real wrapper run restarts PipeWire. Disclose
-  the flag (§2 exception).
+- `cap_ee_full.txt` — one full **real** run (sandboxed writes vanish with
+  the namespace): reviewers see the real closing, which is what most actual
+  users read. No flag disclosure needed.
+- `cap_pw_full.txt` — the wrapper with `--no-activate` (a real run restarts
+  PipeWire): real confs into the fake home, genuine to-finish steps; the
+  one remaining disclosure is the skipped activation. Its reader chose it
+  to avoid EasyEffects — findings do not transfer between entry points.
+- If the helper prints a sandbox-unavailable note (or you pass
+  `--no-sandbox`), it fell back to `--dry-run` against real paths — then
+  disclose both the flag and that paths show the harness machine (§2
+  exception), as earlier rounds did.
 - `slice_ee_tail26.txt` — the EE run's last terminal screen, for reviewer A.
 - `slice_preview_blocks.txt` — per-message coverage: `preview_output.py`
   finds a corpus XML for each finding pattern and prints the resulting
@@ -111,18 +120,19 @@ named below. Do not run any commands other than reading those files.
 You own a Linux laptop and wanted better speaker sound. You found
 speaker-tuning-to-easyeffects on GitHub, cloned it, and ran
 `python3 dolby_to_easyeffects.py` with the path to a tuning file the README
-helped you find on your Windows partition. You can use a terminal, copy-paste
-commands, and file a GitHub issue. You are NOT an audio engineer. You have
-never heard of Dolby DAX3, "the regulator", "volmax", "IEQ", "audio
-optimizer", "PEQ", "MBC", "smart amp", or "volume leveler". Any other
-signal-processing jargon (FIR, Nyquist, crossover, biquad, high-shelf) is
-equally unknown to you. You just want your laptop to sound good.
-
-Harness note (do not report these as faults): the capture was made with
-`--dry-run` forced by our capture tooling, so nothing was actually installed
-— a real first run would not pass that flag. Judge whether the dry-run
-wording itself is clear, but not the fact that it was a dry run.
+helped you find on your Windows partition (you copied it into your home
+folder first). You can use a terminal, copy-paste commands, and file a
+GitHub issue. You are NOT an audio engineer. You have never heard of Dolby
+DAX3, "the regulator", "volmax", "IEQ", "audio optimizer", "PEQ", "MBC",
+"smart amp", or "volume leveler". Any other signal-processing jargon (FIR,
+Nyquist, crossover, biquad, high-shelf) is equally unknown to you. You just
+want your laptop to sound good.
 ```
+
+(Sandboxed captures need no dry-run note for reviewer A — the run is real.
+On a fallback capture, re-add the old disclosure: "--dry-run was forced by
+our capture tooling; judge the wording, not the flag." Reviewer C always
+gets the preview-blocks disclosure in its own body below.)
 
 COLOR NOTE (append to PERSONA for reviewers A and C, whose files are the
 `.color.txt` variants):
@@ -145,7 +155,8 @@ replaced by:
 You own a Linux laptop and wanted better speaker sound. You found
 speaker-tuning-to-easyeffects on GitHub, cloned it, and ran
 `python3 dolby_to_pipewire.py` with the path to a tuning file the README
-helped you find on your Windows partition. You deliberately chose this script
+helped you find on your Windows partition (you copied it into your home
+folder first). You deliberately chose this script
 instead of the EasyEffects one because you do NOT want to install EasyEffects
 — you just use plain PipeWire like every modern Linux distro ships. You can
 use a terminal, copy-paste commands, and file a GitHub issue. You are NOT an
@@ -154,6 +165,11 @@ audio engineer. You have never heard of Dolby DAX3, "the regulator",
 leveler". Any other signal-processing jargon (FIR, Nyquist, crossover,
 biquad, high-shelf, filter-chain internals) is equally unknown to you. You
 just want your laptop to sound good.
+
+Harness note (do not report this as a fault): the capture passed
+--no-activate, so the final PipeWire restart was skipped — judge whether
+the skipped-activation wording is clear, not that it was skipped. (On a
+fallback capture the flag is --dry-run instead; disclose that.)
 ```
 
 FORMAT (all reviewers):
@@ -234,6 +250,11 @@ separator lines as faults). The tool prints a different ending depending on
 the laptop model, and these were captured on <N> different laptops. For each
 ending in turn, imagine YOUR laptop is that one and this is the end of YOUR
 run.
+
+Harness note (do not report this as a fault): these endings were captured
+with `--dry-run` forced by our tooling, so they show the dry-run closing —
+a real first run would not pass that flag. Judge whether the dry-run
+wording itself is clear, but not the fact that it was a dry run.
 
 Read:
 <abs path>/slice_preview_blocks.color.txt
