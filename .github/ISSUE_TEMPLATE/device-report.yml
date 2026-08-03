@@ -18,10 +18,9 @@ body:
     id: speaker-info
     attributes:
       label: "`--speaker-info` or `--doctor` output"
-      description: >-
+      description: |
         Run `python3 dolby_to_easyeffects.py --speaker-info` and paste the whole block.
-        If reporting a problem, run `python3 dolby_to_easyeffects.py --doctor` instead
-        to include more diagnostics.
+        If reporting a problem, run `python3 dolby_to_easyeffects.py --doctor` instead to include more diagnostics.
       render: shell
     validations:
       required: true
@@ -39,12 +38,9 @@ body:
     id: generation-output
     attributes:
       label: Preset-generation output
-      description: >-
+      description: |
         Leave this empty if you're just reporting things are working well.
-        If you're reporting a sound-quality problem, paste the full output of
-        the run that wrote the presets (e.g. `python3 dolby_to_easyeffects.py
-        --autoload`) — it shows the tuning values derived from your XML, which
-        is what a diagnosis needs.
+        If you're reporting a sound-quality problem, paste the full output of the run that wrote the presets (e.g. `python3 dolby_to_easyeffects.py --autoload`) — it shows the tuning values derived from your XML, which is what a diagnosis needs.
       placeholder: |
         Leave this empty if you're just reporting things are working well.
       render: shell
