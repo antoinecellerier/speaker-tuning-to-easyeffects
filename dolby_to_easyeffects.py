@@ -3607,8 +3607,11 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         # Names the action and what it gets you. An earlier wording led with
         # "worth an A/B against Windows", which read as though the user had to
         # go and do something in Windows.
-        ask=f"Rebuild with --profile {declared} to try the profile this "
-            "device ships on.")
+        # Names both sides. "the profile this device ships on" alone left the
+        # reader unable to tell what they'd be comparing against, and reading
+        # as though the tool had knowingly picked the wrong one.
+        ask=f"This build used '{profile_used}' — re-run with "
+            f"--profile {declared} to compare.")
 
 
 def _loudness_untamed_finding() -> Finding:

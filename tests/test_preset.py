@@ -866,6 +866,9 @@ def test_report_notes_dolby_declared_default_profile(
     asks = [f.ask for f in findings if f.slug == "profile-mismatch"]
     assert bool(asks) is expect_note
     assert any("--profile music" in a for a in asks) is expect_note
+    # Names what it built, not just what to try — otherwise there is nothing
+    # to compare the rebuild against.
+    assert any(f"'{profile_used}'" in a for a in asks) is expect_note
     if expect_note:
         assert declared in out, "the mismatch is explained where it is found"
 
