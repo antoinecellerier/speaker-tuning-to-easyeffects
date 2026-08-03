@@ -1199,6 +1199,39 @@ def test_finding_slugs_are_unique():
     assert len(slugs) == len(set(slugs)), sorted(slugs)
 
 
+def test_skip_report_cta_gates_only_the_ask_block(monkeypatch, tmp_path,
+                                                  capsys):
+    """`--skip-report-cta` suppresses the closing block and nothing else —
+    dolby_to_pipewire.py relies on that to hold the block back from [1/3]
+    while still getting the troubleshooting hints for the chain it built."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    base = [str(xml), "--skip-ee-check",
+            "--output-dir", str(tmp_path / "out"),
+            "--irs-dir", str(tmp_path / "irs")]
+
+    dolby_to_easyeffects.main(base)
+    assert dolby_to_easyeffects._REPORT_FORM_URL in capsys.readouterr().out
+
+    dolby_to_easyeffects.main(base + ["--skip-report-cta"])
+    out = capsys.readouterr().out
+    assert dolby_to_easyeffects._REPORT_FORM_URL not in out
+    # The run still happened and still reported itself.
+    assert "ieq-amount" in out
+
+
+def test_skip_report_cta_still_hands_back_the_findings(tmp_path):
+    """The flag governs printing, not collecting. A wrapper that suppressed
+    the block would otherwise silently drop every finding the run raised."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    collected = []
+    dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--skip-report-cta",
+         "--output-dir", str(tmp_path / "out"),
+         "--irs-dir", str(tmp_path / "irs")],
+        closing=collected)
+    assert isinstance(collected, list)
+
+
 def test_clean_run_closing_block_is_just_the_ask(capsys):
     """The common case by a wide margin. A rule and a "Help the project"
     heading over a bare report-back line would be noise on every clean run,

@@ -182,9 +182,21 @@ def rebuild_argv(actions, args) -> list[str]:
     return positionals + options
 
 
-def _run_generator(child_argv: list[str]) -> int:
+def _generator_stdout(dry_run: bool):
+    """Where the generator's stdout goes for the duration.
+
+    It prints to stdout while this wrapper prints to stderr, and under
+    --dry-run our stdout contract is "the conf(s), nothing else" — so
+    everything the generator emits, including the closing block we print on
+    its behalf at the end, moves to stderr with the phase banners.
+    """
+    return (contextlib.redirect_stdout(sys.stderr) if dry_run
+            else contextlib.nullcontext())
+
+
+def _run_generator(child_argv: list[str], closing=None) -> int:
     try:
-        return dolby_to_easyeffects.run_cli(child_argv)
+        return dolby_to_easyeffects.run_cli(child_argv, closing=closing)
     except SystemExit as e:
         # The child argv is wrapper-constructed, so its parser should never
         # error — but never let a stray sys.exit tear down the tempdir scope.
@@ -285,7 +297,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
 
-    step1_common = rebuild_argv(step1_actions, args) + ["--skip-ee-check"]
+    # The generator's own closing block would land under [1/3], with two more
+    # phases of output below it; we collect its findings and print it last.
+    step1_common = (rebuild_argv(step1_actions, args)
+                    + ["--skip-ee-check", "--skip-report-cta"])
     if args.no_color:
         step1_common.append("--no-color")
 
@@ -297,18 +312,15 @@ def main(argv: list[str] | None = None) -> int:
                 else [VARIANT_STEMS[args.variant]])
 
     node_names: list[str] = []
+    closing: list = []
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
         cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
                        "deleted when done — no EasyEffects files are "
                        "installed)")
-        # Under --dry-run the wrapper's stdout contract is "the conf(s),
-        # nothing else" — move the generator's report to stderr with the
-        # banners so the output stays pipeable.
-        redirect = (contextlib.redirect_stdout(sys.stderr) if args.dry_run
-                    else contextlib.nullcontext())
-        with redirect:
+        with _generator_stdout(args.dry_run):
             rc = _run_generator(step1_common
-                                + ["--output-dir", tmp, "--irs-dir", tmp])
+                                + ["--output-dir", tmp, "--irs-dir", tmp],
+                                closing=closing)
         if rc != 0:
             return rc
 
@@ -348,11 +360,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         cprint("head", "[3/3] Dry run — nothing was written; re-run without "
                        "--dry-run to install and activate")
-        return 0
-    if args.no_activate:
+        rc = 0
+    elif args.no_activate:
         _print_manual_activation(node_names)
-        return 0
-    return _activate(node_names)
+        rc = 0
+    else:
+        rc = _activate(node_names)
+
+    # The generator's closing block, held back from [1/3] so it lands here —
+    # last on screen, whichever of the three ways this run ended. Not on the
+    # failure paths above: they return early, and an ask is the wrong thing to
+    # close on when nothing was installed.
+    #
+    # Always onto stderr, not just under --dry-run: this is the wrapper's
+    # closing output now, and the phase banners it has to follow are on
+    # stderr. Same stream is what makes "after [3/3]" true rather than a
+    # coincidence of the two being the same terminal.
+    with contextlib.redirect_stdout(sys.stderr):
+        dolby_to_easyeffects.print_project_asks(closing)
+    return rc
 
 
 if __name__ == "__main__":

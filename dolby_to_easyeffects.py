@@ -5352,6 +5352,12 @@ def add_general_args(container, *, only=None):
              "automatically",
     )
     add(
+        "--skip-report-cta",
+        action="store_true",
+        help="skip the end-of-run 'help the project' block — for wrappers "
+             "that present it themselves",
+    )
+    add(
         "--no-color",
         action="store_true",
         help="disable colored terminal output",
@@ -5462,7 +5468,12 @@ def complete_and_load(parser: argparse.ArgumentParser) -> None:
     ensure_dsp()
 
 
-def main(argv: list[str] | None = None):
+def main(argv: list[str] | None = None,
+         closing: list[Finding] | None = None):
+    """Generate the presets. ``closing`` collects the findings the closing
+    block would render, for a caller that prints that block itself (see
+    ``--skip-report-cta``). Always populated when supplied, independently of
+    the flag, so a wrapper can't accidentally drop the run's findings."""
     parser = build_parser(argv)
     complete_and_load(parser)
     args = parser.parse_args(argv)
@@ -5737,15 +5748,21 @@ def main(argv: list[str] | None = None):
     print_troubleshooting(list(findings.values()), filters_by_profile,
                           len(profile_types))
 
-    # Last, so the link is still on screen when the run ends.
-    print_project_asks(list(findings.values()))
+    # Last, so the link is still on screen when the run ends. A wrapper that
+    # keeps running after us takes the block instead and prints it at its own
+    # end — always collected, so nothing is lost either way.
+    if closing is not None:
+        closing.extend(findings.values())
+    if not args.skip_report_cta:
+        print_project_asks(list(findings.values()))
 
 
-def run_cli(argv: list[str] | None = None) -> int:
+def run_cli(argv: list[str] | None = None,
+            closing: list[Finding] | None = None) -> int:
     """main() with the top-level error handling the __main__ block used to
     inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
     try:
-        main(argv)
+        main(argv, closing=closing)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")
