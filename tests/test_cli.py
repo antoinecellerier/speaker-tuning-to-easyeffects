@@ -1293,6 +1293,28 @@ def test_regulator_stays_on_the_menu_without_the_inert_hint(monkeypatch,
     assert "--disable regulator" in capsys.readouterr().out
 
 
+def test_apply_hint_skips_easyeffects_for_a_wrapper(monkeypatch, capsys):
+    """The line telling you how to apply a fix must not end in an action the
+    reader can't perform. dolby_to_pipewire.py users chose that path to avoid
+    EasyEffects, and its staged presets are deleted anyway."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    by_profile = {"mbc": {"default"}}
+
+    # Collapsed: the advice wraps to the terminal, so these phrases would
+    # otherwise straddle a line break.
+    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    assert "reload the preset in EasyEffects" in " ".join(
+        capsys.readouterr().out.split())
+
+    dolby_to_easyeffects.print_troubleshooting([], by_profile,
+                                               installs_presets=False)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "EasyEffects" not in out
+    # ...but the rest of the advice survives; it's about the chain either way.
+    assert "they combine" in out
+    assert "--disable mbc" in out
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of

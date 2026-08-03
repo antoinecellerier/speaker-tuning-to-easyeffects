@@ -4822,7 +4822,8 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
 
 
 def print_troubleshooting(findings: list[Finding],
-                          filters_by_profile: dict[str, set[str]]) -> None:
+                          filters_by_profile: dict[str, set[str]],
+                          installs_presets: bool = True) -> None:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -4896,9 +4897,16 @@ def print_troubleshooting(findings: list[Finding],
     # flag didn't help".
     if shown or enable_hints:
         print()
+        # Only mention reloading in EasyEffects when this run is the thing
+        # that put a preset there. Under dolby_to_pipewire.py these presets
+        # are staged and thrown away, and the reader picked that path
+        # precisely because they don't run EasyEffects — so the sentence that
+        # tells them how to apply a fix ended in something they can't do. The
+        # wrapper's own [3/3] steps cover applying it there.
+        tail = (" Then reload the preset in EasyEffects to hear the change."
+                if installs_presets else "")
         _cprint_wrapped("dim", "  Add any of these to the same command you "
-                               "ran; they combine. Then reload the preset in "
-                               "EasyEffects to hear the change.", indent="  ")
+                               f"ran; they combine.{tail}", indent="  ")
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -5964,7 +5972,8 @@ def main(argv: list[str] | None = None,
 
     scoped = [_scope(f) for f in findings.values()]
 
-    print_troubleshooting(scoped, filters_by_profile)
+    print_troubleshooting(scoped, filters_by_profile,
+                          installs_presets=not args.skip_closing)
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a
