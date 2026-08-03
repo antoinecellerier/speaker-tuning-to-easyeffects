@@ -2155,11 +2155,20 @@ The tonal symptom and the loudness symptom have different sources:
   non-isolated, i.e. DAX couples them to the limited bands; that is the gap
   `--enable coupled-bands` addresses.
 
-The same-package sibling is the control: `17AA5081` (T14 Gen 1 AMD, issue
-[#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45),
-reported working) ships in the same `ext_thinkpad_AIO_rtk` driver and *cuts*
-47/141 Hz by 30 dB instead of boosting. So this is a per-tuning outlier, not a
-schema or codec problem — both are ALC257, both simplified schema.
+The sibling tuning is the control: `17AA5081` (T14 Gen 1 AMD, the T495's
+successor, same ALC257 and same simplified schema) is far gentler in both
+revisions we hold. The T495's own driver package carries `tuning_version` 2,
+which *cuts* 47/141 Hz by 30 dB instead of boosting; every newer package in the
+corpus carries `tuning_version` 4, which boosts 141 Hz by +6.5 dB for a 14.6 dB
+spread. So this is a per-tuning outlier, not a schema or codec problem.
+
+Note the file identity trap here: the same `SUBSYS` ships *different* tunings in
+different driver packages, so "the XML for device X" is not well defined without
+naming the package. Issue
+[#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)
+reported that machine working from `v7.623.439.38`, a package we don't hold —
+so which of the two revisions that reporter actually ran is unknown, and no
+claim should rest on it.
 
 **Nothing else active in this file is silently dropped.** A field-by-field pass
 over the built profile found the unmodelled blocks either switched off
