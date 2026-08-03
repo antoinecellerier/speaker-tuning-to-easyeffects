@@ -254,12 +254,15 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
     }
 
 
-def write_synthetic_tuning_xml(path: Path) -> Path:
+def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None) -> Path:
     """Write a minimal-but-complete DAX3 playback XML that parse_xml()
     accepts end-to-end: the 20-band grid plus the three ieq_* curves in
     <constant>, and one internal_speaker/normal endpoint whose dynamic
     profile carries tuning-cp (IEQ enabled) and the two audio-optimizer
     channels. All values are synthetic 1/16-dB integers.
+
+    ``default_profile`` adds the optional <setting><default_profile> element
+    (Dolby's declared shipping profile); omitted by default, as on most XMLs.
     """
     freqs = ",".join(str(f) for f in SYNTHETIC_FREQS_20)
     curves = {
@@ -270,11 +273,13 @@ def write_synthetic_tuning_xml(path: Path) -> Path:
     curve_els = "\n    ".join(
         f'<{name} target="{vals}"/>' for name, vals in curves.items())
     ao = ",".join(str(8 * (i % 3 - 1)) for i in range(20))
+    setting = (f'\n  <setting><default_profile value="{default_profile}"/></setting>'
+               if default_profile else "")
     path.write_text(f"""<dax3>
   <constant>
     <band_20_freq fs_48000="{freqs}"/>
     {curve_els}
-  </constant>
+  </constant>{setting}
   <endpoint type="internal_speaker" operating_mode="normal">
     <profile type="dynamic">
       <tuning-cp>

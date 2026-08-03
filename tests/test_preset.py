@@ -759,14 +759,16 @@ def test_coupled_bands_eligibility_helper():
     assert not _coupled_bands_eligible(None)
 
 
-def _report_tuning(regulator, volmax_boost):
+def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
+                   default_profile=None):
     """Minimal tuning stand-in for _report_parsed_profile: every optional
     block is falsy so only the regulator/volmax sections print."""
     from types import SimpleNamespace
     return SimpleNamespace(
         ieq_amount=10, peq_filters=[], dialog_enhancer=None, surround=None,
         vol_leveler=None, mb_comp=None, regulator=regulator,
-        volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20)
+        volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20,
+        profile_used=profile_used, default_profile=default_profile)
 
 
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
@@ -788,6 +790,40 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
         [0.0] * 20, [0.0] * 20, 0.1, disabled)
     out = capsys.readouterr().out
     assert ("regulator never engages" in out) is expect_warn
+
+
+@pytest.mark.parametrize("profile_used,declared,expect_note", [
+    ("dynamic", "music", True),     # issue #46: XML ships on music, we build dynamic
+    ("music", "music", False),      # already building what Dolby names
+    ("dynamic", None, False),       # the common case — no declaration at all
+])
+def test_report_notes_dolby_declared_default_profile(
+        monkeypatch, capsys, profile_used, declared, expect_note):
+    """<setting><default_profile> names the profile the device ships on under
+    Windows. We still build the first profile, so say when they differ."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    _report_parsed_profile(
+        _report_tuning(synthetic_regulator([-6.0] * 20), 6.0,
+                       profile_used=profile_used, default_profile=declared),
+        [0.0] * 20, [0.0] * 20, 0.1, set())
+    out = capsys.readouterr().out
+    assert ("--profile music" in out) is expect_note
+
+
+def test_parse_xml_reads_declared_default_profile(tmp_path):
+    """The field is read off <setting>, and its absence stays None rather than
+    becoming a phantom mismatch."""
+    from tests.conftest import write_synthetic_tuning_xml
+    import dolby_to_easyeffects as d
+
+    declared = write_synthetic_tuning_xml(tmp_path / "a.xml", default_profile="music")
+    tuning = d.parse_xml(declared)
+    assert tuning.default_profile == "music"
+    assert tuning.profile_used == "dynamic"
+
+    plain = write_synthetic_tuning_xml(tmp_path / "b.xml")
+    assert d.parse_xml(plain).default_profile is None
 
 
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---

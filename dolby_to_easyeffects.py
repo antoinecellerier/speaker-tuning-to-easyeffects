@@ -2942,6 +2942,12 @@ class ParsedTuning:
     mb_comp: dict | None
     regulator: dict | None
     volmax_boost: float
+    # Which profile this tuning came from, and which one the XML says the
+    # device ships on (<setting><default_profile>, absent on most files).
+    # We build the endpoint's first profile; when Dolby names a different one,
+    # the run says so rather than silently diverging from Windows (issue #46).
+    profile_used: str | None = None
+    default_profile: str | None = None
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
@@ -3263,9 +3269,18 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
     warn_unmodeled_features(profile)
 
+    # <setting><default_profile> names the profile the device ships on under
+    # Windows. It's rare (28 of 791 corpus XMLs) and we don't act on it — we
+    # still build the first profile — but a run that silently diverges from
+    # Dolby's own default is worth one line of output (issue #46).
+    declared_default = root.find("setting/default_profile")
+
     return ParsedTuning(
         freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
         vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost,
+        profile_used=profile.get("type"),
+        default_profile=(declared_default.get("value")
+                         if declared_default is not None else None),
     )
 
 
@@ -4485,6 +4500,13 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     regulator = tuning.regulator
     volmax_boost = tuning.volmax_boost
     freqs = tuning.freqs
+
+    declared = tuning.default_profile
+    if declared and declared != tuning.profile_used:
+        cprint("warn", f"  This XML names '{declared}' as the profile the device "
+                       f"ships on, but we built '{tuning.profile_used}' (the "
+                       f"endpoint's first). Rebuild with --profile {declared} to "
+                       "match Windows; both are worth an A/B.")
 
     print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
 
