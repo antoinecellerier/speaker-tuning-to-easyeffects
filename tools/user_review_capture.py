@@ -17,6 +17,13 @@ Writes into --out-dir:
     cap_pw_full.txt           full dolby_to_pipewire.py run (--dry-run)
     slice_ee_tail26.txt       last 26 lines of the EE run — one terminal screen
     slice_preview_blocks.txt  every finding pattern's closing block, redacted
+    *.color.txt               the same captures with the terminal's colors
+                              kept as ⟦color⟧…⟦/⟧ markers naming what the
+                              screen shows (⟦yellow⟧, ⟦faint⟧, ⟦bold-cyan⟧…),
+                              never what we mean by it — for reviewers who
+                              must judge salience, and so the color choices
+                              themselves can catch feedback; plain files stay
+                              the verbatim-quoting source
     meta.txt                  orchestrator-only: block↔pattern map, unmatched
                               patterns (never reviewed — say so in the report)
 
@@ -64,21 +71,76 @@ def _pty_capture(cmd: list[str], width: int) -> tuple[str, int]:
     proc = subprocess.run(["script", "-qec", shell_cmd, "/dev/null"],
                           cwd=REPO_ROOT, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    text = proc.stdout.decode("utf-8", errors="replace")
-    text = _ANSI.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
-    return text, proc.returncode
+    raw = proc.stdout.decode("utf-8", errors="replace")
+    return raw, proc.returncode
 
 
-def _redact_preview(text: str) -> tuple[str, list[str], list[str]]:
+def _plain(raw: str) -> str:
+    """The user-visible text alone — what reviewers quote from."""
+    return _ANSI.sub("", raw).replace("\r\n", "\n").replace("\r", "\n")
+
+
+# The exact SGR sequences rich emits for the scripts' shared six-style
+# palette. Marker names are the VISUAL facts, not our semantic style names
+# (err/warn/head/…): telling a reviewer a line is "a warning" grants the
+# comprehension being measured, and whether the colors themselves
+# communicate is feedback they can only give if we don't pre-label it.
+# Anything unmapped is dropped, not guessed — an unknown sequence means the
+# palette changed and this map is stale.
+_SGR = re.compile(r"\x1b\[([0-9;]*)m")
+_SGR_STYLE = {
+    "1;31": "bold-red", "31": "red",
+    "1;36": "bold-cyan",
+    "32": "green",
+    "33": "yellow",
+    "1;35": "bold-magenta",
+    "2": "faint",
+}
+
+
+def _annotate(raw: str) -> str:
+    """Render colors as ⟦style⟧…⟦/⟧ markers instead of stripping them.
+
+    A model reading a plain capture is effectively color-blind: it cannot
+    tell the warn line that pops out on a real screen from the dim table row
+    the eye skips, so "buried warning" findings come back inflated. The
+    markers carry that salience channel; the plain file stays the source for
+    verbatim quoting.
+    """
+    def sub(m: re.Match) -> str:
+        code = m.group(1)
+        if code in ("", "0"):
+            return "⟦/⟧"
+        style = _SGR_STYLE.get(code)
+        return f"⟦{style}⟧" if style else ""
+    text = _SGR.sub(sub, raw)
+    text = _ANSI.sub("", text)          # anything non-SGR (cursor, title)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # An opener with nothing visible before its close is pure noise.
+    return re.sub(r"⟦(?!/)[a-z-]+⟧(\s*)⟦/⟧", r"\1", text)
+
+
+def _redact_preview(text: str, mirror: str | None = None,
+                    ) -> tuple[str, str | None, list[str], list[str]]:
     """Strip harness framing from preview_output text.
 
-    Returns (redacted text, per-block headers for meta.txt, patterns with no
-    corpus match). The `### slug — file.xml` headers become anonymous
-    RUN ENDING separators; the scan-progress and no-match lines disappear —
-    a user sees none of that, and the slug names are answers.
+    Returns (redacted text, redacted mirror, per-block headers for meta.txt,
+    patterns with no corpus match). The `### slug — file.xml` headers become
+    anonymous RUN ENDING separators; the scan-progress and no-match lines
+    disappear — a user sees none of that, and the slug names are answers.
+
+    All decisions come from `text` (the plain rendering); `mirror` is the
+    annotated rendering of the same capture, redacted line-for-line by the
+    same rules so the two files stay aligned. If it doesn't align (the
+    annotator changed line structure — it never should), it is dropped
+    rather than shipped skewed.
     """
     lines = text.splitlines()
+    mlines = mirror.splitlines() if mirror is not None else None
+    if mlines is not None and len(mlines) != len(lines):
+        mlines = None
     out: list[str] = []
+    mout: list[str] = []
     headers: list[str] = []
     missing: list[str] = []
     i = 0
@@ -96,11 +158,17 @@ def _redact_preview(text: str) -> tuple[str, list[str], list[str]]:
             headers.append(lines[i + 1][4:].strip())
             out.append("")
             out.append(REDACTED_HEADER.format(n=len(headers)))
+            if mlines is not None:
+                mout.append("")
+                mout.append(REDACTED_HEADER.format(n=len(headers)))
             i += 3
             continue
         out.append(line)
+        if mlines is not None:
+            mout.append(mlines[i])
         i += 1
-    return "\n".join(out) + "\n", headers, missing
+    redacted_mirror = "\n".join(mout) + "\n" if mlines is not None else None
+    return "\n".join(out) + "\n", redacted_mirror, headers, missing
 
 
 def _write(path: Path, text: str) -> str:
@@ -135,26 +203,39 @@ def main(argv=None) -> int:
     written: list[str] = []
     failed: list[str] = []
 
-    ee, rc = _pty_capture([py, "dolby_to_easyeffects.py", str(xml),
-                           "--dry-run"], args.width)
+    raw_ee, rc = _pty_capture([py, "dolby_to_easyeffects.py", str(xml),
+                               "--dry-run"], args.width)
     if rc != 0:
         failed.append(f"dolby_to_easyeffects.py exited {rc}")
+    ee, ee_ann = _plain(raw_ee), _annotate(raw_ee)
     written.append(_write(out_dir / "cap_ee_full.txt", ee))
+    written.append(_write(out_dir / "cap_ee_full.color.txt", ee_ann))
     tail = "\n".join(ee.splitlines()[-TAIL_LINES:]) + "\n"
     written.append(_write(out_dir / "slice_ee_tail26.txt", tail))
+    tail_ann = "\n".join(ee_ann.splitlines()[-TAIL_LINES:]) + "\n"
+    written.append(_write(out_dir / "slice_ee_tail26.color.txt", tail_ann))
 
-    pw, rc = _pty_capture([py, "dolby_to_pipewire.py", str(xml),
-                           "--dry-run"], args.width)
+    raw_pw, rc = _pty_capture([py, "dolby_to_pipewire.py", str(xml),
+                               "--dry-run"], args.width)
     if rc != 0:
         failed.append(f"dolby_to_pipewire.py exited {rc}")
-    written.append(_write(out_dir / "cap_pw_full.txt", pw))
+    written.append(_write(out_dir / "cap_pw_full.txt", _plain(raw_pw)))
+    written.append(_write(out_dir / "cap_pw_full.color.txt",
+                          _annotate(raw_pw)))
 
-    pv, rc = _pty_capture([py, "tools/preview_output.py",
-                           "--width", str(args.width)], args.width)
+    raw_pv, rc = _pty_capture([py, "tools/preview_output.py",
+                               "--width", str(args.width)], args.width)
     if rc != 0:
         failed.append(f"preview_output.py exited {rc}")
-    blocks, headers, missing = _redact_preview(pv)
+    blocks, blocks_ann, headers, missing = _redact_preview(
+        _plain(raw_pv), _annotate(raw_pv))
     written.append(_write(out_dir / "slice_preview_blocks.txt", blocks))
+    if blocks_ann is not None:
+        written.append(_write(out_dir / "slice_preview_blocks.color.txt",
+                              blocks_ann))
+    else:
+        failed.append("annotated preview blocks misaligned with plain — "
+                      ".color.txt variant not written")
 
     meta = ["Orchestrator-only — never hand this file to a reviewer.",
             "",
