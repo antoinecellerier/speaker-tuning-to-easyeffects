@@ -2981,6 +2981,10 @@ class ParsedTuning:
     # XML expresses (192 = 12 dB). Only the older files state it; the rest are
     # assumed to share the same range, which no corpus file contradicts.
     geq_max_range: int = 192
+    # False when <audio-optimizer-enable> is 0. ao_left/ao_right are already
+    # zeroed in that case; this records *why* they are flat, so the profile
+    # report can say so instead of showing an unexplained zero curve.
+    ao_enabled: bool = True
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
@@ -3111,6 +3115,19 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                        "multi-band compressor or speaker PEQ.")
     ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
+
+    # Dolby can ship a correction curve and still declare the optimizer off —
+    # 4091 corpus rows do, and 60 of those (18 devices) carry a *non-zero*
+    # curve on internal_speaker/normal, so applying it regardless emits a
+    # correction the tuning says not to apply. Almost all are the `off`
+    # profile, but eight `music` rows are affected and `music` is a profile
+    # users select. Same absent-means-enabled convention as speaker-peq-enable
+    # below. The IEQ voicing is a separate stage and stays untouched.
+    ao_enable = vlldp.find("audio-optimizer-enable")
+    ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
+    if not ao_enabled:
+        ao_left = [0] * len(ao_left)
+        ao_right = [0] * len(ao_right)
 
     peq_filters = []
     peq_enable = vlldp.find("speaker-peq-enable")
@@ -3316,6 +3333,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                          if declared_default is not None else None),
         geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
                                 default=192),
+        ao_enabled=ao_enabled,
     )
 
 
@@ -4547,6 +4565,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     # Audio-optimizer curves in dB
     print("\nAudio-optimizer (dB):")
+    if not tuning.ao_enabled:
+        cprint("warn", "  This profile sets audio-optimizer-enable=0, so the "
+                       "correction curve it ships is not applied — the shown "
+                       "zeros are that, not a flat tuning. Only the IEQ voicing "
+                       "reaches the convolver here.")
     print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
     print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 

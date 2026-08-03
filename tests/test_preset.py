@@ -760,7 +760,7 @@ def test_coupled_bands_eligibility_helper():
 
 
 def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
-                   default_profile=None, geq_max_range=192):
+                   default_profile=None, geq_max_range=192, ao_enabled=True):
     """Minimal tuning stand-in for _report_parsed_profile: every optional
     block is falsy so only the regulator/volmax sections print."""
     from types import SimpleNamespace
@@ -769,7 +769,7 @@ def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
         vol_leveler=None, mb_comp=None, regulator=regulator,
         volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20,
         profile_used=profile_used, default_profile=default_profile,
-        geq_max_range=geq_max_range)
+        geq_max_range=geq_max_range, ao_enabled=ao_enabled)
 
 
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
@@ -877,6 +877,61 @@ def test_parse_xml_reads_declared_default_profile(tmp_path):
 
     plain = write_synthetic_tuning_xml(tmp_path / "b.xml")
     assert d.parse_xml(plain).default_profile is None
+
+
+# --- LOCK-IN: audio-optimizer-enable=0 must suppress the correction curve ---
+
+def _xml_with_ao_enable(tmp_path, name, value):
+    """Synthetic XML with <audio-optimizer-enable> set to `value` (or omitted
+    when None), so the enable gate can be exercised on its own."""
+    from tests.conftest import write_synthetic_tuning_xml
+
+    path = write_synthetic_tuning_xml(tmp_path / name)
+    text = path.read_text()
+    if value is not None:
+        text = text.replace(
+            "<audio-optimizer-bands>",
+            f'<audio-optimizer-enable value="{value}"/>\n        '
+            "<audio-optimizer-bands>")
+    path.write_text(text)
+    return path
+
+
+def test_audio_optimizer_curve_dropped_when_the_xml_disables_it(tmp_path):
+    """A tuning can ship a correction curve and still declare the optimizer
+    off (4091 corpus rows do). Applying it anyway emits a correction the
+    tuning says not to apply, so the curve must go flat — and only the curve;
+    the IEQ voicing is a separate stage."""
+    import dolby_to_easyeffects as d
+
+    off = d.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
+    assert off.ao_enabled is False
+    assert off.ao_left == [0] * 20
+    assert off.ao_right == [0] * 20
+    # The IEQ curves this XML ships are untouched by the AO gate.
+    assert any(v != 0 for v in off.curves["ieq_balanced"])
+
+
+def test_audio_optimizer_curve_kept_when_enabled_or_absent(tmp_path):
+    """Absent means enabled — the same convention speaker-peq-enable uses —
+    so the gate can never silently flatten a tuning that never opted out."""
+    import dolby_to_easyeffects as d
+
+    for name, value in (("on.xml", 1), ("absent.xml", None)):
+        tuning = d.parse_xml(_xml_with_ao_enable(tmp_path, name, value))
+        assert tuning.ao_enabled is True, name
+        assert any(v != 0 for v in tuning.ao_left), name
+        assert any(v != 0 for v in tuning.ao_right), name
+
+
+def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys):
+    """Zeros in the printed curve would otherwise read as a flat tuning."""
+    import dolby_to_easyeffects as d
+
+    tuning = d.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
+    capsys.readouterr()
+    d._report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
+    assert "audio-optimizer-enable=0" in capsys.readouterr().out
 
 
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---

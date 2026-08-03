@@ -46,7 +46,7 @@ enhancer is SoundWire-only):
 
 | # | Plugin | Source XML | What it does |
 |---|--------|-----------|--------------|
-| 1 | **Convolver** | IEQ target + `audio-optimizer-bands` | Min-phase FIR implementing the combined IEQ + speaker-correction curve |
+| 1 | **Convolver** | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR implementing the combined IEQ + speaker-correction curve. A profile can ship a correction curve and still set `audio-optimizer-enable=0`; the curve is then dropped and only the IEQ voicing reaches the FIR. Absent means enabled, as with `speaker-peq-enable` |
 | 2 | **Bass Enhancer** (Calf) | IEQ-only SoundWire curve | Harmonic bass restoration on SoundWire speakers; **SoundWire-only** |
 | 3 | **Equalizer** | `speaker-peq-filters` | 4th-order high-pass at 100 Hz (speaker protection) + per-channel PEQ bells/shelves/HP-LP |
 | 4 | **Dialog Enhancer** | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz (2nd equalizer instance); on most profiles except music |
