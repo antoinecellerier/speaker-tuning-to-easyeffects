@@ -3578,13 +3578,14 @@ _UNMODELED_FEATURES = [
         # Says where it stands. "a value we've never seen" alone left the
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
-        # "confirm it" left the antecedent open — confirm the level, or that
-        # the presets are fine? Name the thing we'd check. And not "check
-        # it's safe": safety talk implies a hazard that doesn't exist here —
-        # the question is whether ignoring the field is right.
-        lambda el: ("The presets ignore your tuning's peak-level and should "
-                    "sound right — send the XML and we'll double-check for "
-                    "your model.")),
+        # Three rewrites of history here: "confirm it" dangled its
+        # antecedent; "check it's safe" implied a hazard; "should sound
+        # right — we'll double-check" read as taking the reassurance back
+        # (round 2). The reason to ask (a rare ignored setting) now leads,
+        # so the confirmation has an object and the status stands alone.
+        lambda el: ("Your tuning has a rare setting we ignore; the presets "
+                    "should sound right — attach the XML and we'll "
+                    "confirm.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
