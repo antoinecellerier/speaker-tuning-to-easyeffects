@@ -58,6 +58,15 @@ SEGMENTS = [
 
 
 def build() -> None:
+    # This harness edits a real full-chain preset rather than synthesising one
+    # — the point is to test the shipped chain, convolver and all — so the
+    # preset has to exist first.
+    if not PRESET_PATH.exists():
+        raise SystemExit(
+            f"{PRESET_PATH.name} not found in {PRESET_PATH.parent}.\n"
+            "Generate the full-chain preset this harness modifies, then re-run:\n"
+            "  python3 dolby_to_easyeffects.py <tuning.xml> "
+            "--prefix AGFull --profile dynamic")
     d = json.loads(PRESET_PATH.read_text())
     ag = d["output"]["autogain#0"]
     ag["bypass"] = False   # FORCE ACTIVE (HDA default is bypass=true)
