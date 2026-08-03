@@ -107,6 +107,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   distorts; presets are unchanged
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
 
+### Changed
+
+- The end of a run now separates what you can do about your own audio from
+  what the project is asking you for, and the asks are one line each: the
+  explanation stays next to the values it describes, higher up. Warnings that
+  used to print mid-run — an inert regulator, a boost on an unlimited band —
+  are no longer buried under the per-band tables.
+
 ### Fixed
 
 - The report-back link at the end of a run is clickable again. It is longer

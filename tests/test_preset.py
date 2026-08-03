@@ -856,12 +856,18 @@ def test_report_notes_dolby_declared_default_profile(
     Windows. We still build the first profile, so say when they differ."""
     import dolby_to_easyeffects as d
     monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
-    _report_parsed_profile(
+    findings = _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 6.0,
                        profile_used=profile_used, default_profile=declared),
         [0.0] * 20, [0.0] * 20, 0.1, set())
     out = capsys.readouterr().out
-    assert ("--profile music" in out) is expect_note
+    # The two halves: the mismatch is explained where it is detected, and the
+    # rebuild to try is held back for the closing block.
+    asks = [f.ask for f in findings if f.slug == "profile-default"]
+    assert bool(asks) is expect_note
+    assert any("--profile music" in a for a in asks) is expect_note
+    if expect_note:
+        assert declared in out, "the mismatch is explained where it is found"
 
 
 def test_parse_xml_reads_declared_default_profile(tmp_path):
@@ -959,23 +965,23 @@ def test_leveler_substages_parsed_only_when_switched_on(tmp_path):
     (False, "only matters if you rebuild with --enable autogain"),
     (True, "pumps or overshoots"),
 ])
-def test_substage_summary_escalates_under_autogain(capsys, autogain_on, expect):
+def test_substage_summary_escalates_under_autogain(autogain_on, expect):
     """Silent-but-present on a default run (the leveler is bypassed, so it
     genuinely cannot be heard); the full evidence ask once autogain is on."""
     import dolby_to_easyeffects as d
 
-    d._unmodeled_summary([], ["volume-leveler-compressor"], autogain_on)
-    out = capsys.readouterr().out
-    assert expect in out
-    # The ask is only worth making when it can be acted on.
-    assert (d._REPORT_FORM_URL in out) is autogain_on
+    finding = d._leveler_substage_finding(["volume-leveler-compressor"],
+                                          autogain_on)
+    assert expect in finding.detail
+    # Carrying an ask is what marks a finding as worth acting on, and the
+    # sub-stages only are once the leveler they hang off actually runs.
+    assert bool(finding.ask) is autogain_on
 
 
-def test_substage_summary_silent_when_there_is_nothing_to_say(capsys):
+def test_substage_summary_silent_when_there_is_nothing_to_say():
     import dolby_to_easyeffects as d
 
-    d._unmodeled_summary([], [], autogain_on=True)
-    assert capsys.readouterr().out == ""
+    assert d._leveler_substage_finding([], autogain_on=True) is None
 
 
 def test_findings_never_carry_a_url(capsys):
@@ -1008,7 +1014,7 @@ def test_findings_never_carry_a_url(capsys):
         assert "http" not in finding.detail + finding.ask, finding.slug
 
     # ...and the one link the block itself prints survives wrapping intact.
-    d._unmodeled_summary(found, ["volume-leveler-compressor"], autogain_on=True)
+    d.print_project_asks(found)
     lines = capsys.readouterr().out.splitlines()
     assert any(d._REPORT_FORM_URL in line for line in lines)
 

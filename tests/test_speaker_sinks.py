@@ -552,7 +552,7 @@ def _gate(on):
 
 def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
     monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
-    d.warn_speaker_firmware_gate([_gate(on=False)])
+    finding = d.warn_speaker_firmware_gate([_gate(on=False)])
     out = capsys.readouterr().out
     # iface= must be spelled out — bare name= means iface=MIXER to amixer and
     # fails on the iface=CARD gates modern kernels expose (#39 regression).
@@ -568,13 +568,17 @@ def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
     assert "ls -l /lib/firmware/TAS2*" in out
     assert "/lib/firmware/TAS2*.bin" not in out
     assert "TAS2" in out          # names the amp / firmware blob
-    assert "#17" in out           # firmware-specific feedback ask (dim, not a CTA)
+    # The "did that fix it?" ask used to be two dim lines here, kept quiet so
+    # it wouldn't rival the closing CTA. It rides to that block now instead.
+    assert finding is not None and finding.kind == "ask"
+    assert "#17" in finding.ask
+    assert "#17" not in out
 
 
 @pytest.mark.parametrize("gates", [[], [_gate(on=True)]])
 def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
     monkeypatch.setattr(d, "_CONSOLE", None)
-    d.warn_speaker_firmware_gate(gates)
+    assert d.warn_speaker_firmware_gate(gates) is None
     assert capsys.readouterr().out == ""
 
 

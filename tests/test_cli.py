@@ -16,6 +16,7 @@ filesystem writes; they are exercised by the corpus tests
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -1092,3 +1093,118 @@ def test_get_distro_pretty_name_parses(tmp_path, content, expected):
 
 def test_get_distro_pretty_name_missing_file(tmp_path):
     assert dolby_to_easyeffects.get_distro_pretty_name(tmp_path / "nope") == ""
+
+
+# --- Closing-block copy contract ---
+# The end-of-run block is the one part of the output most people read, and
+# most people run this script once — so it has to stay short enough to scan.
+# Conciseness erodes one well-meaning entry at a time, so the contract in
+# .claude/rules/user-messages.md gets traps rather than good intentions.
+#
+# Enumerating every raiser is the structural cost: table-driven ones walk
+# themselves, the handful of literal sites are listed here.
+
+def _every_finding():
+    """One Finding per site that can raise one, for the contract checks.
+
+    Collected at import time, so the sites that print as they go (the
+    firmware-gate procedure) get their output swallowed rather than smeared
+    across the test run.
+    """
+    import contextlib
+    import io
+    import xml.etree.ElementTree as ET
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        return _raise_every_finding(ET)
+
+
+def _raise_every_finding(ET):
+    profile = ET.fromstring("""
+        <profile type="dynamic">
+          <tuning-cp>
+            <peak-level value="-3"/>
+            <ieq-bands-set preset="ieq_warm"/>
+            <regulator-overdrive value="5"/>
+            <regulator-relaxation-amount value="80"/>
+            <dynamic_speaker_optimization_enable value="1"/>
+            <advanced-speaker-virtualizer-rendering-config/>
+          </tuning-cp>
+        </profile>
+    """)
+    found = list(dolby_to_easyeffects.collect_unmodeled_features(profile))
+    # Only the escalated strength here: the bypassed one shares this slug by
+    # design (same site, two wordings) and carries no ask, so it has nothing
+    # for these checks to bite on. tests/test_preset.py covers both.
+    found.append(dolby_to_easyeffects._leveler_substage_finding(
+        ["volume-leveler-compressor"], autogain_on=True))
+    found.append(dolby_to_easyeffects.warn_speaker_firmware_gate([
+        dolby_to_easyeffects.FirmwareGate(
+            card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",
+            name="Speaker Force Firmware Load", on=False)]))
+    # The three raised inside _report_parsed_profile / main(), which need a
+    # whole run to reach. Constructing them here keeps the contract checks
+    # independent of that plumbing; test_finding_slugs_are_unique pins that
+    # this list stays complete.
+    found += [
+        dolby_to_easyeffects.Finding(
+            slug="profile-default", detail="x",
+            ask="Worth an A/B against Windows: rebuild with --profile music."),
+        dolby_to_easyeffects.Finding(
+            slug="volmax-inert", detail="x",
+            ask="If loud content sounds squashed, re-run with "
+                "--disable volmax."),
+        dolby_to_easyeffects.Finding(
+            slug="volmax-unlimited", detail="x",
+            ask="If bass or loud content distorts, re-run with --disable "
+                "volmax, or try --enable coupled-bands."),
+        dolby_to_easyeffects.Finding(
+            slug="experimental", detail="x", kind="ask",
+            ask="We've never had type-3 high-shelf confirmed by ear — does "
+                "it sound right to you?"),
+    ]
+    return [f for f in found if f is not None]
+
+
+@pytest.mark.parametrize("finding", _every_finding(),
+                         ids=lambda f: f.slug)
+def test_ask_stays_one_short_sentence(finding, capsys):
+    """An entry that needs three lines is an explanation, and explanations
+    belong at the detection site where they have context — not in the block
+    a user skims once."""
+    if not finding.ask:
+        return
+    dolby_to_easyeffects._print_ask("cta", finding)
+    rendered = capsys.readouterr().out.rstrip("\n").splitlines()
+    assert len(rendered) <= 2, f"{finding.slug} renders {len(rendered)} lines"
+    assert finding.ask.count(". ") == 0, f"{finding.slug} is multi-sentence"
+
+
+@pytest.mark.parametrize("finding", _every_finding(), ids=lambda f: f.slug)
+def test_findings_carry_no_link_and_no_empty_action(finding):
+    """The block owns the single link, so nothing it renders may carry one —
+    a URL inside wrapped prose gets folded and stops being clickable. And an
+    entry with nothing to do carries no ask at all: saying "nothing for you
+    to do" in a block that exists to prompt action teaches people to skip it.
+    """
+    assert "http" not in finding.detail + finding.ask, finding.slug
+    assert not re.search(r"nothing (for you )?to do|no action",
+                         finding.ask, re.I), finding.slug
+
+
+def test_finding_slugs_are_unique():
+    """Two sites sharing a handle would send a reader to the wrong detail,
+    and would collapse into one another in main()'s slug-keyed de-dup."""
+    slugs = [f.slug for f in _every_finding()]
+    assert len(slugs) == len(set(slugs)), sorted(slugs)
+
+
+def test_clean_run_closing_block_is_just_the_ask(capsys):
+    """The common case by a wide margin. A rule and a "Help the project"
+    heading over a bare report-back line would be noise on every clean run,
+    which is how a block earns being skipped."""
+    dolby_to_easyeffects.print_project_asks([])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 3, out
+    assert "=====" not in "".join(out)
+    assert out[-1].strip() == dolby_to_easyeffects._REPORT_FORM_URL

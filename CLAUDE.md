@@ -117,6 +117,8 @@ sessions shipped bugs that only showed on real content.
   check both axis extremes. Hidden-curve bugs cause repeated re-render cycles.
 - **Co-locate definitions with use** — a constant or helper sits by its user,
   grouped by meaning, not piled at module top (module-wide values excepted).
+- **End-of-run messages** follow a copy contract — detail inline, one short
+  sentence in the closing block, one link: `.claude/rules/user-messages.md`.
 
 ## Past rabbit holes worth skipping
 
