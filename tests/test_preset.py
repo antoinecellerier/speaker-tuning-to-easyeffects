@@ -793,6 +793,25 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
     assert ("regulator never engages" in out) is expect_warn
 
 
+@pytest.mark.parametrize("is_soundwire,disabled,expect", [
+    (True, set(), True),
+    (True, {"bass-enhancer"}, False),
+    (False, set(), False),
+])
+def test_report_names_the_bass_enhancer_it_ships(monkeypatch, capsys,
+                                                 is_soundwire, disabled,
+                                                 expect):
+    """The SoundWire build adds a converter-side bass enhancer with no XML
+    source; the run must say so inline — it was the one active stage the
+    --disable menu offered to drop that the output had never mentioned."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)
+    _report_parsed_profile(
+        _report_tuning(synthetic_regulator([-6.0] * 20), 0.0),
+        [0.0] * 20, [0.0] * 20, 0.1, disabled, is_soundwire=is_soundwire)
+    assert ("Bass enhancer:" in capsys.readouterr().out) is expect
+
+
 def _peaked_ao(peak_band, peak_db):
     """A 20-band AO curve that is flat at 0 dB except for one boosted band."""
     ao = [0.0] * 20

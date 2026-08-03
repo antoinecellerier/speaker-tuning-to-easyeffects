@@ -4726,6 +4726,15 @@ def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
     }
 
 
+def bass_enhancer_from_peq(peq_filters: list[dict]) -> dict:
+    """The bass-enhancer stage as make_preset ships it for SoundWire,
+    derived from the PEQ high-pass corner (fallback 100 Hz). Shared with
+    the run report so the printed numbers cannot drift from the built
+    stage."""
+    hp = [f for f in peq_filters if f["type"] in (7, 9)]
+    return make_bass_enhancer(hp[0]["f0"] if hp else 100.0)
+
+
 def make_limiter(input_gain: float = 0.0) -> dict:
     """Brickwall output limiter to catch any remaining overshoot.
 
@@ -5047,9 +5056,8 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # (VBE) that runs in the Windows driver. Compensate with psychoacoustic
     # harmonic generation so small speakers still produce perceived bass.
     if is_soundwire and "bass-enhancer" not in disabled:
-        hp_filters = [f for f in peq_filters if f["type"] in (7, 9)]
-        hp_freq = hp_filters[0]["f0"] if hp_filters else 100.0
-        preset["output"]["bass_enhancer#0"] = make_bass_enhancer(hp_freq)
+        preset["output"]["bass_enhancer#0"] = bass_enhancer_from_peq(
+            peq_filters)
         preset["output"]["plugins_order"].append("bass_enhancer#0")
         emitted.add("bass-enhancer")
 
@@ -5172,7 +5180,8 @@ class _HelpHintParser(argparse.ArgumentParser):
 
 
 def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
-                           volmax_slot="input-gain", enabled=None):
+                           volmax_slot="input-gain", enabled=None,
+                           is_soundwire=False):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax), and return the findings raised while doing so.
@@ -5224,6 +5233,17 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}  [experimental]")
         elif pf["type"] == 1:
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
+
+    if is_soundwire and "bass-enhancer" not in disabled:
+        # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
+        # in-driver Virtual Bass Enhancement, which has no XML parameters to
+        # translate. It was the one active stage the run never mentioned —
+        # so the --disable menu offered to drop something the reader had
+        # never heard of (user-review round 1).
+        be = bass_enhancer_from_peq(peq_filters)
+        print(f"\nBass enhancer: +{be['amount']:.1f} dB harmonics below "
+              f"{be['scope']:.0f} Hz — replaces Dolby's in-driver bass "
+              "enhancement, which has no settings in the XML")
 
     if dialog_enhancer:
         gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
@@ -5887,7 +5907,8 @@ def main(argv: list[str] | None = None,
 
         profile_findings = _report_parsed_profile(
             tuning, ao_db_left, ao_db_right, scale, disabled,
-            args.volmax_slot, enabled=set(args.enable))
+            args.volmax_slot, enabled=set(args.enable),
+            is_soundwire=is_soundwire)
 
         for finding in [*tuning.findings, *profile_findings]:
             findings.setdefault(finding.slug, finding)
