@@ -2166,9 +2166,24 @@ Note the file identity trap here: the same `SUBSYS` ships *different* tunings in
 different driver packages, so "the XML for device X" is not well defined without
 naming the package. Issue
 [#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)
-reported that machine working from `v7.623.439.38`, a package we don't hold —
-so which of the two revisions that reporter actually ran is unknown, and no
-claim should rest on it.
+reported that machine working from `v7.623.439.38`, which we don't hold; the
+packages we do hold bracket it (`v6.108.104.39` and `v9.1127.1236.0` both carry
+`tuning_version` 4), so that reporter almost certainly ran the +6.5 dB revision
+— an inference from the bracket, not a fact, and nothing here should rest on it.
+
+The T495's own file, by contrast, was **never revised**: `17AA5125` is
+byte-identical (md5 `d678efd7…`) in every package we hold, from `v5.204.651.25`
+(2019) through `v9.1127.1236.0` (2024) to `v10.1022.826.17` (2025), at
+`tuning_version` 50 throughout. So it is a long-lived, heavily-iterated tuning
+rather than an early draft, and there is no newer Lenovo file for an affected
+user to try — the packages we hold are:
+
+| package | `17AA5081` | `17AA5125` |
+|---|---|---|
+| `v5.204.651.25` (the T495's own driver) | `tuning_version` 2 (−30 dB at 47/141 Hz) | 50 |
+| `v6.108.104.39` | 4 (+6.5 dB at 141 Hz) | — |
+| `v9.1127.1236.0` | 4 | 50 |
+| `v10.1022.826.17` | 4 | 50 |
 
 **Nothing else active in this file is silently dropped.** A field-by-field pass
 over the built profile found the unmodelled blocks either switched off
