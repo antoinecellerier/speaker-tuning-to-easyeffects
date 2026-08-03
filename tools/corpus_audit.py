@@ -185,6 +185,64 @@ def resolve_value(el, const):
     return None
 
 
+def find_in_tunings(cp, vlldp, path):
+    """Find ``path`` under either tuning block, ``tuning-cp`` first.
+
+    Which block holds a given field is not something to assume. The ad-hoc
+    query this replaces looked for the section-14 fields under
+    ``tuning-vlldp`` alone; they live under ``tuning-cp`` on every device in
+    the corpus, so it reported "present in 0 rows" for all of them and the
+    zero read as a finding. Searching both is what makes the count mean
+    something.
+    """
+    for block in (cp, vlldp):
+        if block is None:
+            continue
+        found = block.find(path)
+        if found is not None:
+            return found
+    return None
+
+
+# Section-1 "universal constants": fields the doc claims are identical on
+# every device and profile. Several appear in *both* tuning blocks (the
+# table says so outright for postgain and system-gain), so both are read and
+# the values pooled — a block that disagreed would show up as a second value
+# in the distribution rather than being hidden by preferring one block.
+UNIVERSAL_CONSTANT_TAGS = (
+    "pregain",
+    "postgain",
+    "system-gain",
+    "calibration-boost",
+    "regulator-relaxation-amount",
+    "regulator-overdrive",
+    "mb-compressor-agc-enable",
+    "mb-compressor-slow-gain-enable",
+)
+
+# Section-14 "present but not modelled": stages the converter deliberately
+# does not translate. What matters is not that the field exists but whether
+# any device actually turns it on — a stage that ships disabled everywhere
+# costs nothing to skip, one that ships enabled is a real fidelity gap.
+UNMODELLED_STAGE_TAGS = (
+    "surround-decoder-center-spreading-enable",
+    "woofer-regulator-enable",
+    "bass-extraction-lfe-gain",
+    "regulator-independent-enable",
+    "volume-leveler-compressor-enable",
+    # Dynamic speaker optimisation hangs off init-info, which itself appears
+    # under both tuning blocks.
+    "init-info/dynamic_speaker_optimization_enable",
+)
+
+# Same section, but these are presence-only markers with no enable flag, and
+# they are not anchored to a tuning block — search the whole document.
+UNMODELLED_STAGE_MARKERS = (
+    "advanced-speaker-virtualizer-rendering-config",
+    "advanced-speaker-virtualizer-start-bin",
+)
+
+
 def analyse(xml_path):
     try:
         tree = ET.parse(xml_path)
@@ -192,12 +250,14 @@ def analyse(xml_path):
         return None
     root = tree.getroot()
     const = root.find(".//constant")
+    markers = [tag for tag in UNMODELLED_STAGE_MARKERS
+               if root.find(f".//{tag}") is not None]
     rows = []
     for endpoint in root.iter("endpoint"):
         ep_type = endpoint.get("type", "?")
         op_mode = endpoint.get("operating_mode", "?")
         fs = endpoint.get("fs", "?")
-        for profile in endpoint.findall("profile"):
+        for profile_index, profile in enumerate(endpoint.findall("profile")):
             ptype = profile.get("type", "?")
             cp = profile.find("tuning-cp")
             vlldp = profile.find("tuning-vlldp")
@@ -209,6 +269,24 @@ def analyse(xml_path):
                 "operating_mode": op_mode,
                 "fs": fs,
                 "profile": ptype,
+                # Position within the endpoint: the converter builds from the
+                # first profile when --profile is not given, so "which profile
+                # is first" is a user-visible default (section 12).
+                "profile_index": profile_index,
+                "markers": markers,
+            }
+            universal = {}
+            for tag in UNIVERSAL_CONSTANT_TAGS:
+                found = [block.find(tag) for block in (cp, vlldp)
+                         if block is not None]
+                values = [parse_int_attr(el) for el in found if el is not None]
+                if values:
+                    universal[tag] = values
+            row["universal"] = universal
+            row["unmodelled"] = {
+                tag: parse_int_attr(found)
+                for tag in UNMODELLED_STAGE_TAGS
+                if (found := find_in_tunings(cp, vlldp, tag)) is not None
             }
             if cp is not None:
                 row["ieq_enable"] = parse_int_attr(cp.find("ieq-enable"))
@@ -260,12 +338,20 @@ def analyse(xml_path):
                 row["reg_spk_dist"] = parse_int_attr(vlldp.find("regulator-speaker-dist-enable"))
                 reg_tuning = vlldp.find("regulator-tuning")
                 if reg_tuning is not None:
-                    row["reg_th_schema"] = threshold_schema(reg_tuning.find("threshold_high"))
+                    th = reg_tuning.find("threshold_high")
+                    row["reg_th_schema"] = threshold_schema(th)
+                    # The curve itself, for the distinct-pattern count. Goes
+                    # through resolve_value so a `preset=` reference counts as
+                    # the curve it names rather than as an absence.
+                    row["reg_th_pattern"] = resolve_value(th, const)
                 peq = vlldp.find("speaker-peq-filters")
                 if peq is not None:
                     flts = peq.findall("filter")
                     row["peq_filter_types"] = [f.get("type") for f in flts]
                     row["peq_n_per_speaker"] = Counter(f.get("speaker", "?") for f in flts)
+                    row["peq_hp_per_speaker"] = Counter(
+                        f.get("speaker", "?") for f in flts
+                        if f.get("type") in ("7", "9"))
                     row["peq_shelf_has_q"] = sum(
                         1 for f in flts if f.get("type") == "4" and f.get("q") is not None
                     )
@@ -499,6 +585,110 @@ def report(xmls):
         n_match = vals.get(expected, 0)
         print(f"  {field:25} claim={expected}  match={n_match}/{total}  "
               f"distinct={dict(vals.most_common(5))}")
+
+    # The rest of the section-1 table, claimed zero everywhere. Values from
+    # tuning-cp and tuning-vlldp are pooled (see UNIVERSAL_CONSTANT_TAGS).
+    print("\nUniversal-constant checks, gain/AGC block "
+          "(pooled across tuning-cp and tuning-vlldp):")
+    for tag in UNIVERSAL_CONSTANT_TAGS:
+        vals = Counter(v for r in all_rows
+                       for v in r.get("universal", {}).get(tag, ())
+                       if v is not None)
+        total = sum(vals.values())
+        if not total:
+            print(f"  {tag:32} absent from every profile")
+            continue
+        # Not every one of these is claimed *zero* — regulator-relaxation-amount
+        # is claimed constant at 96 — so report the dominant value and its
+        # share rather than assuming what the constant should be.
+        common, n = vals.most_common(1)[0]
+        print(f"  {tag:32} {common}={n}/{total} ({n * 100 / total:.1f}%)  "
+              f"distinct={dict(vals.most_common(4))}")
+
+    # Section 14: stages present in the schema that the converter does not
+    # translate. Presence is cheap; "enabled" is what would make one a gap.
+    # Files as well as rows: the doc counts XMLs, and one XML contributes many
+    # endpoint x profile rows, so the two differ by more than an order of
+    # magnitude. Devices (subsys) are narrower still.
+    print("\nPresent-but-not-modelled stages:")
+    for tag in UNMODELLED_STAGE_TAGS:
+        having = [r for r in all_rows if tag in r.get("unmodelled", {})]
+        if not having:
+            print(f"  {tag:48} absent")
+            continue
+        vals = Counter(r["unmodelled"][tag] for r in having)
+        on = [r for r in having if r["unmodelled"][tag] not in (None, 0)]
+        files_on = {r["path"] for r in on}
+        devs_on = {subsys_of(r["path"]) for r in on}
+        print(f"  {tag:48} files={len({r['path'] for r in having}):5} "
+              f"rows={len(having):6} | enabled: files={len(files_on):4} "
+              f"rows={len(on):5} devices={len(devs_on):3} "
+              f"values={dict(vals.most_common(4))}")
+        if 0 < len(devs_on) <= 3:
+            print(f"    {'':46} enabled on: {sorted(devs_on)}")
+
+    for tag in UNMODELLED_STAGE_MARKERS:
+        files = {r["path"] for r in all_rows if tag in r.get("markers", ())}
+        devs = {subsys_of(p) for p in files}
+        print(f"  {tag:48} files={len(files):5} devices={len(devs):3}"
+              + (f"  {sorted(devs)}" if 0 < len(devs) <= 3 else ""))
+
+    # Distinct regulator curves (section 7). Counts the threshold_high
+    # vectors themselves, where the schema classification above counts only
+    # the *shape* the values are stored in.
+    patterns = {r["reg_th_pattern"] for r in all_rows
+                if r.get("reg_th_pattern")}
+    print(f"\nDistinct threshold_high curves (value= and resolved preset=): "
+          f"{len(patterns)}")
+
+    # Which profile a user gets without --profile (section 12): the first one
+    # declared on the default endpoint.
+    first = [r for r in all_rows
+             if r["profile_index"] == 0
+             and r["endpoint_type"] == "internal_speaker"
+             and r["operating_mode"] == "normal"]
+    if first:
+        dyn = sum(1 for r in first if r["profile"] == "dynamic")
+        others = Counter(r["profile"] for r in first if r["profile"] != "dynamic")
+        print(f"\nFirst profile on internal_speaker/normal: {dyn}/{len(first)} "
+              f"are 'dynamic'" + (f"; others={dict(others.most_common(5))}"
+                                  if others else ""))
+
+    # PEQ L/R structural asymmetry (section 12). The peak-boost asymmetry
+    # above measures magnitude; this measures whether the two channels carry
+    # a different *number* of filters at all, which no output-gain can
+    # reconcile.
+    peq_rows = [r for r in all_rows if r.get("peq_n_per_speaker")]
+    count_diff = hp_diff = 0
+    for r in peq_rows:
+        per = r["peq_n_per_speaker"]
+        if per.get("0", 0) != per.get("1", 0):
+            count_diff += 1
+        hp = r.get("peq_hp_per_speaker", Counter())
+        if hp.get("0", 0) != hp.get("1", 0):
+            hp_diff += 1
+    print(f"PEQ profiles={len(peq_rows)}  L!=R filter count={count_diff}  "
+          f"L!=R high-pass count={hp_diff}")
+
+    # Dynamic-profile MBC, per file as well as per row (section 2). The doc
+    # quotes both, and they differ because one file contributes many endpoint
+    # rows. Denominator is files whose dynamic profile actually *declares*
+    # mb-compressor-enable — a file that omits the field is not a device that
+    # chose to leave the compressor off, and counting it as one understates
+    # the rate.
+    dyn_files = defaultdict(set)
+    for r in all_rows:
+        if r["profile"] == "dynamic" and r.get("mbc_enable") is not None:
+            dyn_files[r["path"]].add(r["mbc_enable"])
+    if dyn_files:
+        on = sum(1 for vals in dyn_files.values() if 1 in vals)
+        dyn_rows = [r for r in all_rows
+                    if r["profile"] == "dynamic" and r.get("mbc_enable") is not None]
+        row_on = sum(1 for r in dyn_rows if r["mbc_enable"] == 1)
+        print(f"Dynamic-profile MBC enabled (of those declaring the field): "
+              f"files {on}/{len(dyn_files)} ({on * 100 / len(dyn_files):.0f}%); "
+              f"rows {row_on}/{len(dyn_rows)} "
+              f"({row_on * 100 / len(dyn_rows):.0f}%)")
 
     mi_by_prof = defaultdict(lambda: [0, 0])
     for r in all_rows:

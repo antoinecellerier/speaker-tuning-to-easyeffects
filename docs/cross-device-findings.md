@@ -15,9 +15,11 @@ portable and which are tuned.
 
 > **All figures below are from the 2483-XML cohort audited 2026-06-16**, except
 > where a passage is explicitly marked as the original 196-XML cohort (kept for
-> the historical methodology notes). Regenerate any aggregate here with
-> [`tools/corpus_audit.py`](../tools/corpus_audit.py) (the one-off §12/§14
-> checks were run as ad-hoc queries over the same corpus).
+> the historical methodology notes), or carries its own later re-derivation
+> date. Regenerate any aggregate here with
+> [`tools/corpus_audit.py`](../tools/corpus_audit.py) — including the §12 and
+> §14 checks, which were ad-hoc queries until 2026-08-03 and are now part of
+> the committed sweep.
 
 Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):
 
@@ -606,19 +608,27 @@ hearing the difference on a device — issue #29's reporter independently prefer
 The newer Lenovo IdeaPad / ThinkPad-X13s SoundWire packages introduced several DSP
 blocks that don't appear in the original Realtek/Intel cohort. The script does not
 implement any of them. Two are flagged at parse time via `warn_unmodeled_features`
-in `dolby_to_easyeffects.py`; the rest are inactive across the entire 2483-XML
-corpus and silently dropped.
+in `dolby_to_easyeffects.py`; the rest are silently dropped, and all but one are
+inactive corpus-wide.
+
+> **Re-derived 2026-08-03** against the current **2795-XML / 40732-row** corpus
+> (`tools/corpus_audit.py`, "Present-but-not-modelled stages"), which reports
+> files, rows and devices separately — the table below counts XMLs, and one XML
+> contributes many endpoint × profile rows. The presence counts grew with the
+> corpus (1234 → 1345 XMLs); every "enabled in 0" claim still holds. The one
+> substantive change is the volume-leveler compressor, which is not merely
+> present but **enabled almost everywhere it appears**.
 
 | Block                                              | Element(s)                                                                   | Active in corpus                          | Status                                                                                                  |
 |----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| Dynamic Speaker Optimization (DSO)                 | `init-info/dynamic_speaker_optimization_enable`, `dynamic-speaker-optimization-amount`, `dynamic-speaker-optimization-speaker-interval` | 1 XML — IdeaPad-5x-2-in-1 SoundWire SPK1 (`SUBSYS_37A317AA`) | **Warned at parse time.** Excursion-aware bass limiting tied to driver size; needs Dolby DSP data we don't have. |
-| Advanced speaker virtualizer                       | `advanced-speaker-virtualizer-rendering-config`, `advanced-speaker-virtualizer-start-bin`, `speaker_virtualizer_mode` | Same 1 XML                                | **Warned at parse time.** Newer FFT-domain replacement for `output-mode-partial-{surround,height}-virtualizer-enable`; also unmodeled. |
-| Volume-leveler compressor sub-component            | `volume-leveler-compressor-enable`                                           | 110 XMLs (Yoga-7-2-in-1 BT, IdeaPad-5x-2-in-1 internal) | Not warned. VL is bypassed entirely (autogain trap, see design-notes.md), so dropping the sub-block has no audible effect. |
+| Dynamic Speaker Optimization (DSO)                 | `init-info/dynamic_speaker_optimization_enable`, `dynamic-speaker-optimization-amount`, `dynamic-speaker-optimization-speaker-interval` | 1 XML, 1 device (`SUBSYS_37A317AA`, IdeaPad-5x-2-in-1 SoundWire SPK1) — **enabled** on all 10 of its rows | **Warned at parse time.** Excursion-aware bass limiting tied to driver size; needs Dolby DSP data we don't have. |
+| Advanced speaker virtualizer                       | `advanced-speaker-virtualizer-rendering-config`, `advanced-speaker-virtualizer-start-bin`, `speaker_virtualizer_mode` | Same 1 XML / device                       | **Warned at parse time.** Newer FFT-domain replacement for `output-mode-partial-{surround,height}-virtualizer-enable`; also unmodeled. |
+| Volume-leveler compressor sub-component            | `volume-leveler-compressor-enable`                                           | 137 XMLs, 77 devices (newer Lenovo AIO / ThinkPad packages) — and **enabled on 2408 of 2410 rows**, not merely present | Not warned. Harmless by default, since the volume leveler is bypassed entirely (autogain trap, see design-notes.md) — dropping a sub-block of a stage we don't run costs nothing. It could matter under `--enable autogain` on one of these 77 devices, where our leveler would run without the compressor Dolby pairs with it. **This does not explain the issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) autogain overshoot**: neither that device (`17AA507F`) nor the dev device (`17AA22E6`) carries the element at all, so Dolby's leveler runs uncompressed there too. Unmeasured on the 77. |
 | Rear / rear-height virtualizer angles              | `virtualizer-rear-speaker-angle`, `virtualizer-rear-height-speaker-angle`, `rear-height-filter-mode` | Common on 4+ speaker laptops              | Not modeled. The legacy `output-mode-partial-{surround,height}-virtualizer-enable` already isn't modeled either; see CLAUDE.md and design-notes.md. |
-| Surround-decoder centre spreading                  | `surround-decoder-center-spreading-enable`                                   | Present in 1234 XMLs, **enabled in 0**    | Defensive — would silently drop if a future driver enables it.                                          |
-| Woofer-only regulator                              | `woofer-regulator-enable`, `woofer-regulator-tuning`                         | Present in 1234, **enabled in 0**         | Defensive — would silently drop if a future driver enables it.                                          |
+| Surround-decoder centre spreading                  | `surround-decoder-center-spreading-enable`                                   | Present in 1345 XMLs, **enabled in 0**    | Defensive — would silently drop if a future driver enables it.                                          |
+| Woofer-only regulator                              | `woofer-regulator-enable`, `woofer-regulator-tuning`                         | Present in 1345, **enabled in 0**         | Defensive — would silently drop if a future driver enables it.                                          |
 | Independent regulator mode                         | `regulator-independent-enable`                                               | 1 XML, never enabled                      | Defensive.                                                                                              |
-| Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 1234, **enabled in 0**         | Defensive — bass-extraction itself is universally off.                                                  |
+| Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 1345, **enabled in 0**         | Defensive — bass-extraction itself is universally off.                                                  |
 | Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)), unrelated to the downmix matrix here. |
 
 The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` carries the two
