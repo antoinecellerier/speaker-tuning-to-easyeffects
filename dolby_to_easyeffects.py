@@ -3750,16 +3750,18 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                "set. If loudness surges going from quiet to loud, that gap "
                "is the most likely reason (--disable autogain switches the "
                "leveler off). Settling it needs a capture from a device "
-               "that has these stages: the procedure is in "
-               "tools/measure_dax/README.md, and it needs a Windows install "
-               "with Dolby on the same machine.",
-        # Deliberately does not ask them to go and do the capture. It is a
-        # multi-step measurement on a second OS, and most people run this
-        # script once — an ask they can't act on is one they abandon. Saying
-        # so is a click; we can take it from there.
-        # Names Windows up front so anyone who doesn't dual-boot can skip the
-        # whole line rather than reading to the end to find out they can't
-        # help — the capture measures what DAX does, so it has to run there.
+               "that has these stages, measured on a Windows install with "
+               "Dolby on the same machine.",
+        # Deliberately does not ask them to go and do the capture, and does
+        # not point at the measure_dax README: two rounds of reviewers read
+        # the self-serve route as homework that gates help and said they'd
+        # give up there — the ask below owns the route ("tell us, we'll
+        # walk you through it"), and the procedure link belongs in that
+        # conversation. It is a multi-step measurement on a second OS, and
+        # most people run this script once.
+        # Names Windows so anyone who doesn't dual-boot can skip the line
+        # rather than reading to the end to find out they can't help — the
+        # capture measures what DAX does, so it has to run there.
         ask="If loudness surges from quiet to loud, tell us — a Windows "
             "capture would settle it and we'll walk you through it.")
 
