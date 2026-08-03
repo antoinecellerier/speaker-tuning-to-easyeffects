@@ -84,6 +84,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   silence; re-run the script to regenerate
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
+- New `--disable autogain` flag switches the volume leveler off on
+  SoundWire devices, where it runs by default — the escape hatch if
+  loudness pumps between quiet and loud passages. Default presets are
+  unchanged (README "Disabling and enabling filters").
 - All three scripts now tab-complete in bash and zsh — flag names, the
   `--disable` / `--enable` / `--variant` value lists, paths, and your live
   PipeWire sink names — via the optional `argcomplete` package. Add one

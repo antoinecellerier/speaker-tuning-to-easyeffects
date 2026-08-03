@@ -4767,6 +4767,8 @@ DISABLEABLE_FILTERS = {
             "drops the Dolby multi-band compressor"),
     "regulator": ("the volume audibly wobbles or surges on its own",
                   "drops the per-band limiter"),
+    "autogain": ("quiet passages swell, then duck when things get loud",
+                 "drops the volume leveler"),
     "bass-enhancer": ("bass sounds artificial or buzzy",
                       "drops the harmonic bass generator"),
     "dialog": ("voices are too forward or shouty",
@@ -4776,6 +4778,14 @@ DISABLEABLE_FILTERS = {
     "lo-pass": ("the top end sounds dull or muffled",
                 "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
 }
+
+# One stage sits in both menus: the volume leveler ships active on SoundWire
+# (--disable autogain switches it off) and bypassed on HDA (--enable autogain
+# switches it on). Its --disable row must key off the -active marker, not the
+# "autogain" marker that means "present but bypassed" and feeds the --enable
+# menu — otherwise every HDA run would offer to disable a stage that is
+# already off.
+_DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
 
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
 # --enable NAME activates them on a rebuild. Same contract — adding an
@@ -4870,7 +4880,9 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
 
 def print_troubleshooting(findings: list[Finding],
                           filters_by_profile: dict[str, set[str]],
-                          installs_presets: bool = True) -> None:
+                          installs_presets: bool = True,
+                          enabled_by_flag: frozenset[str] = frozenset(),
+                          ) -> None:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -4890,7 +4902,13 @@ def print_troubleshooting(findings: list[Finding],
     it would be a claim that isn't true.
     """
     hints = [f for f in findings if f.kind == "hint" and f.ask]
-    shown = [k for k in DISABLEABLE_FILTERS if k in filters_by_profile]
+    # A stage the user switched on with --enable never gets a --disable row:
+    # both flags at once is a hard error, and the undo for a flag you typed
+    # is removing it, not stacking its opposite. Only a stage active by the
+    # device's own default (the leveler on SoundWire) is offered here.
+    shown = [k for k in DISABLEABLE_FILTERS
+             if _DISABLE_MENU_MARKER.get(k, k) in filters_by_profile
+             and k not in enabled_by_flag]
     # Don't offer to switch off a stage this run already reported as never
     # engaging: "the volume wobbles on its own — --disable regulator" under a
     # warning that the regulator never does anything is a straight
@@ -5057,18 +5075,20 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # Autogain (volume leveler) goes before the compressor/regulator to match
     # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
     # This lets the compressor and regulator catch any overshoot from the leveler.
-    autogain = make_autogain(vol_leveler, conservative=is_soundwire,
-                             enabled="autogain" in enabled)
-    if autogain:
-        preset["output"]["autogain#0"] = autogain
-        preset["output"]["plugins_order"].append("autogain#0")
-        if autogain["bypass"]:
-            emitted.add("autogain")  # actionable via --enable on a rerun
-        else:
-            # Marker (not an ENABLEABLE_FILTERS key, so it never reaches the
-            # hint block): lets main() tell "--enable autogain worked" from
-            # "the XML's leveler is disabled, so the flag did nothing".
-            emitted.add("autogain-active")
+    if "autogain" not in disabled:
+        autogain = make_autogain(vol_leveler, conservative=is_soundwire,
+                                 enabled="autogain" in enabled)
+        if autogain:
+            preset["output"]["autogain#0"] = autogain
+            preset["output"]["plugins_order"].append("autogain#0")
+            if autogain["bypass"]:
+                emitted.add("autogain")  # actionable via --enable on a rerun
+            else:
+                # Marker (not an ENABLEABLE_FILTERS key, so it never reaches
+                # the hint block): lets main() tell "--enable autogain worked"
+                # from "the XML's leveler is disabled, so the flag did
+                # nothing".
+                emitted.add("autogain-active")
 
     if "mbc" not in disabled:
         mbc = make_multiband_compressor(mb_comp, freqs)
@@ -5737,6 +5757,16 @@ def main(argv: list[str] | None = None,
     if args.no_color:
         _disable_color()
     disabled = set(args.disable)
+    # A name in both directions is a contradiction, not a preference to
+    # resolve — silently picking a winner would leave the user believing
+    # whichever flag they meant. The menus can't steer anyone here: the
+    # --disable row for a stage the user switched on with --enable is
+    # suppressed (see print_troubleshooting), so this only fires on a
+    # hand-typed conflict.
+    overlap = sorted(disabled & set(args.enable))
+    if overlap:
+        parser.error(f"{', '.join(overlap)} given to both --disable and "
+                     f"--enable — drop one of the two flags")
 
     if args.speaker_info:
         report_speaker_info()
@@ -6028,7 +6058,8 @@ def main(argv: list[str] | None = None,
     scoped = [_scope(f) for f in findings.values()]
 
     print_troubleshooting(scoped, filters_by_profile,
-                          installs_presets=not args.skip_closing)
+                          installs_presets=not args.skip_closing,
+                          enabled_by_flag=frozenset(args.enable))
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a

@@ -130,7 +130,7 @@ pip install -r requirements.txt
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
 
 **Filter tweaks**
-- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
@@ -186,6 +186,7 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 | `volmax` | Output too loud / the final limiter pumping on loud masters. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if that costs loudness, try `--volmax-slot output-gain`.* |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
 | `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
+| `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers — the mirror of `--enable autogain` below. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
 | `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf (Lenovo AIO-RTK XMLs around 2.7 kHz, +2–5 dB). **Experimental** path — reproduction of the Dolby tuning is numerically verified, but has not yet been audibly validated. Feedback welcome. |

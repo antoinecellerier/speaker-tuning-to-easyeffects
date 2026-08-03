@@ -93,7 +93,7 @@ def test_disable_choices_match_documented_set():
     the documented choices and the actual code paths.
     """
     expected = {
-        "volmax", "mbc", "regulator", "bass-enhancer", "dialog",
+        "volmax", "mbc", "regulator", "autogain", "bass-enhancer", "dialog",
         "high-shelf", "lo-pass",
     }
     assert set(DISABLEABLE_FILTERS) == expected
@@ -112,6 +112,67 @@ def test_disable_regulator_drops_per_band_limiter():
     preset, emitted = _build(disabled={"regulator"})
     assert "multiband_compressor#1" not in preset["output"]
     assert "regulator" not in emitted
+
+
+def test_disable_autogain_drops_leveler():
+    # SoundWire is the case that matters: there the leveler ships active
+    # (bypass=False), and before this flag existed nothing could turn it off.
+    preset, emitted = _build(disabled={"autogain"}, is_soundwire=True)
+    assert "autogain#0" not in preset["output"]
+    assert "autogain" not in emitted
+    assert "autogain-active" not in emitted
+
+
+def test_disable_autogain_menu_row_needs_the_active_marker(monkeypatch,
+                                                          capsys):
+    """The --disable menu offers autogain only where it actually runs.
+
+    The bare "autogain" marker means "present but bypassed" and feeds the
+    --enable menu; a --disable row keyed off it would offer to switch off a
+    stage that is already off — so the row keys off "autogain-active".
+    """
+    import dolby_to_easyeffects
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+
+    dolby_to_easyeffects.print_troubleshooting(
+        [], {"autogain-active": {"default"}})
+    assert "--disable autogain" in capsys.readouterr().out
+
+    dolby_to_easyeffects.print_troubleshooting([], {"autogain": {"default"}})
+    out = capsys.readouterr().out
+    assert "--disable autogain" not in out
+    # The bypassed state still reaches the user, via the --enable menu.
+    assert "--enable autogain" in out
+
+
+def test_same_name_in_disable_and_enable_errors(tmp_path, monkeypatch,
+                                                capsys):
+    """A name in both directions is a contradiction — silently picking a
+    winner would leave the user believing whichever flag they meant, so the
+    run must stop before building anything."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    with pytest.raises(SystemExit) as exc:
+        dolby_to_easyeffects.main([
+            str(xml), "--dry-run", "--skip-ee-check",
+            "--enable", "autogain", "--disable", "autogain"])
+    assert exc.value.code == 2
+    assert ("autogain given to both --disable and --enable"
+            in capsys.readouterr().err)
+
+
+def test_disable_menu_never_offers_to_revert_an_enable_flag(monkeypatch,
+                                                            capsys):
+    """A stage the user switched on with --enable gets no --disable row: the
+    undo for a flag you typed is removing it, and offering the opposite flag
+    would steer the next command straight into the both-directions error."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    dolby_to_easyeffects.print_troubleshooting(
+        [], {"autogain-active": {"default"}, "mbc": {"default"}},
+        enabled_by_flag=frozenset({"autogain"}))
+    out = capsys.readouterr().out
+    assert "--disable autogain" not in out
+    assert "--disable mbc" in out
 
 
 def test_disable_dialog_drops_dialog_enhancer():
