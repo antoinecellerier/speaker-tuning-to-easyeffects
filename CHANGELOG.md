@@ -96,6 +96,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- Running the script from a session with no display (ssh, tmux) no longer
+  claims EasyEffects isn't installed. `easyeffects --version` needs a
+  display to answer, and any failure to answer was read as "not found";
+  the script now says the version couldn't be checked and why
+  ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
 - The PipeWire converter now writes the multiband compressor's
   compression-mode and boost settings explicitly instead of inheriting
   plugin defaults (same output today, but no longer tied to

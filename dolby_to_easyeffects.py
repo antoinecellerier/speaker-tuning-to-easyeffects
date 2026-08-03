@@ -30,6 +30,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -1156,14 +1157,29 @@ def parse_ee_version(text: str) -> tuple[int, int, int] | None:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
 
 
+def ee_silent_message(reason: str, tail: str) -> str:
+    """The 'installed but --version didn't answer' explanation, shared by
+    --doctor and the end-of-run warning so the two can't drift. ``tail``
+    finishes the sentence with what it means where it's being said."""
+    return (f"EasyEffects is installed but `easyeffects --version` didn't "
+            f"answer ({reason}), so its version wasn't checked. EasyEffects 8 "
+            f"needs a display to answer --version, so this is expected from a "
+            f"headless shell (ssh, tmux){tail}")
+
+
 def ee_version_status(version: tuple[int, int, int] | None,
-                      found: bool) -> CheckResult:
+                      found: bool, silent: str | None = None) -> CheckResult:
     """Verdict for the EasyEffects version. FAIL — the only loud error — is
     reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
     they're on 7. ``found`` distinguishes "no EE at all" (a valid
     generating-for-another-machine case → WARN) from "installed but version
-    unreadable" (→ UNKNOWN)."""
+    unreadable" (→ UNKNOWN); ``silent`` names the reason when EE is installed
+    but never answered at all (→ UNKNOWN, never "not found")."""
     if version is None:
+        if not found and silent:
+            return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
+                ee_silent_message(silent, " — re-run this from your desktop "
+                                          "session to check the version."))
         if not found:
             return CheckResult(DOCTOR_WARN, "EasyEffects version",
                 "not found on PATH or via Flatpak. If you're generating presets "
@@ -1422,9 +1438,25 @@ def _flatpak_version_text(info_output: str) -> str:
     return ""
 
 
-def _probe_ee_version() -> tuple[tuple[int, int, int] | None, bool, str, bool | None]:
+@dataclass
+class EEProbe:
+    """Outcome of looking for an EasyEffects install.
+
+    ``found`` means a binary *answered*; ``silent`` is set instead when one is
+    demonstrably installed but couldn't answer, and carries the short reason.
+    All three of found / silent / neither are distinct states — collapsing the
+    middle one into "not installed" is what misled issue #46.
+    """
+    version: tuple[int, int, int] | None = None
+    found: bool = False
+    source: str = ""
+    is_flatpak: bool | None = None
+    silent: str | None = None
+
+
+def _probe_ee_version() -> EEProbe:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
-    raises. Returns (version|None, found, source, ee_is_flatpak).
+    raises.
 
     Probes the install the script writes to (per _USE_FLATPAK) first, then the
     other, and prefers a *parseable* version over a found-but-unreadable answer
@@ -1432,32 +1464,57 @@ def _probe_ee_version() -> tuple[tuple[int, int, int] | None, bool, str, bool | 
     other (issue #22 review). ``found`` means an EE binary actually answered, so
     version=None with found=True means 'installed but version unreadable'."""
     def run(cmd):
+        """(output, failure) — exactly one is non-None; failure is a short
+        human-readable reason the command produced no answer."""
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        except (subprocess.SubprocessError, OSError):
-            return None
-        return ((r.stdout or "") + "\n" + (r.stderr or "")) if r.returncode == 0 else None
+        except FileNotFoundError:
+            return None, None                      # nothing to run: absent, not silent
+        except subprocess.TimeoutExpired:
+            return None, "timed out after 5s"
+        except (subprocess.SubprocessError, OSError) as exc:
+            return None, str(exc) or type(exc).__name__
+        if r.returncode != 0:
+            first = next((ln.strip() for ln in (r.stderr or "").splitlines()
+                          if ln.strip()), "")
+            return None, first or f"exited with status {r.returncode}"
+        return (r.stdout or "") + "\n" + (r.stderr or ""), None
 
     def native():
-        out = run(["easyeffects", "--version"])
-        return (parse_ee_version(out), True) if out is not None else (None, False)
+        out, failure = run(["easyeffects", "--version"])
+        if out is not None:
+            return parse_ee_version(out), True, None
+        # A binary that's on PATH (or already running) but couldn't answer is
+        # installed, not absent. EE 8's Qt build needs a display to handle
+        # --version, so from a headless shell (ssh, tmux) it exits non-zero —
+        # indistinguishable from "not installed" if we only read the exit code
+        # (issue #46, where a healthy 8.2.8 was reported missing).
+        installed = shutil.which("easyeffects") or easyeffects_is_running()
+        return None, False, (failure or "no output") if installed else None
 
     def flatpak():
-        out = run(["flatpak", "info", _FLATPAK_APP_ID])
-        return (parse_ee_version(_flatpak_version_text(out)), True) if out is not None else (None, False)
+        # `flatpak info` exits non-zero precisely when the app isn't installed,
+        # so a failure here is absence — never the silent-but-installed case.
+        out, _failure = run(["flatpak", "info", _FLATPAK_APP_ID])
+        if out is None:
+            return None, False, None
+        return parse_ee_version(_flatpak_version_text(out)), True, None
 
     probes = ([(True, flatpak), (False, native)] if _USE_FLATPAK
               else [(False, native), (True, flatpak)])
-    fallback = (None, False, "", None)   # best found-but-unparseable, in order
+    fallback = EEProbe()                 # best found-but-unparseable, in order
     for is_flatpak, probe in probes:
-        version, found = probe()
-        if not found:
-            continue
+        version, found, silent = probe()
         src = "flatpak info" if is_flatpak else "easyeffects --version"
+        if not found:
+            if silent and fallback.silent is None:
+                fallback.silent = silent
+                fallback.source = src
+            continue
         if version is not None:
-            return version, True, src, is_flatpak
-        if not fallback[1]:              # remember the first install that answered
-            fallback = (None, True, src, is_flatpak)
+            return EEProbe(version, True, src, is_flatpak)
+        if not fallback.found:           # remember the first install that answered
+            fallback = EEProbe(None, True, src, is_flatpak, fallback.silent)
     return fallback
 
 
@@ -1468,8 +1525,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report = DoctorReport()
 
     # 1. EasyEffects version / compatibility
-    version, found, source, ee_is_flatpak = _probe_ee_version()
-    report.checks.append(ee_version_status(version, found))
+    probe = _probe_ee_version()
+    version, found, source, ee_is_flatpak = (
+        probe.version, probe.found, probe.source, probe.is_flatpak)
+    report.checks.append(ee_version_status(version, found, probe.silent))
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
@@ -1643,8 +1702,9 @@ def warn_ee_environment(args) -> None:
     """End-of-run check for a normal generation run: loudly warn if the
     installed EasyEffects can't use the presets we just wrote. Silent on the
     happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate."""
-    version, found, _source, ee_is_flatpak = _probe_ee_version()
-    ver = ee_version_status(version, found)
+    probe = _probe_ee_version()
+    version, found, ee_is_flatpak = probe.version, probe.found, probe.is_flatpak
+    ver = ee_version_status(version, found, probe.silent)
 
     if ver.status == DOCTOR_FAIL:
         vstr = ".".join(str(x) for x in version)
@@ -1663,7 +1723,12 @@ def warn_ee_environment(args) -> None:
         cprint("dim", "    (Debian trixie, Ubuntu 24.04+ and Fedora ≤43 still ship 7.x).")
         return
 
-    if not found:
+    if not found and probe.silent:
+        # Installed but unreachable — say so, rather than sending someone off to
+        # install what they already have (issue #46).
+        cprint("warn", "\n⚠  " + ee_silent_message(
+            probe.silent, " and doesn't affect the presets written above."))
+    elif not found:
         cprint("warn", "\n⚠  Couldn't find EasyEffects — install version 8 to use these "
                        "presets (e.g. the Flathub Flatpak). Ignore if you're "
                        "generating for another machine.")

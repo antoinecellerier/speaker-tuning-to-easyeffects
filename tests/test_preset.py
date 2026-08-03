@@ -1239,15 +1239,17 @@ def test_doctor_report_unknown_not_summarised_as_clean(monkeypatch, capsys):
 
 def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
     """Graceful degradation: no EE binary anywhere → (None, found=False), no
-    exception."""
+    exception — and nothing claims EE is installed."""
     import dolby_to_easyeffects as d
 
     def boom(*a, **k):
         raise FileNotFoundError("no such binary")
 
     monkeypatch.setattr(d.subprocess, "run", boom)
-    version, found, source, ee_fp = d._probe_ee_version()
-    assert version is None and found is False
+    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
+    probe = d._probe_ee_version()
+    assert probe.version is None and probe.found is False
+    assert probe.silent is None
 
 
 def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
@@ -1268,9 +1270,9 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
         return R(1, "")
 
     monkeypatch.setattr(d.subprocess, "run", fake_run)
-    version, found, source, ee_fp = d._probe_ee_version()
-    assert version == (8, 2, 1) and found is True
-    assert ee_fp is True and source == "flatpak info"
+    probe = d._probe_ee_version()
+    assert probe.version == (8, 2, 1) and probe.found is True
+    assert probe.is_flatpak is True and probe.source == "flatpak info"
 
 
 def test_probe_ee_version_degrades_on_timeout(monkeypatch):
@@ -1280,8 +1282,56 @@ def test_probe_ee_version_degrades_on_timeout(monkeypatch):
         raise d.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
 
     monkeypatch.setattr(d.subprocess, "run", slow)
-    version, found, _s, _f = d._probe_ee_version()
-    assert version is None and found is False
+    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
+    probe = d._probe_ee_version()
+    assert probe.version is None and probe.found is False
+
+
+def test_probe_ee_version_installed_but_headless(monkeypatch):
+    """Issue #46: EE 8's Qt binary needs a display to answer --version, so from
+    a headless shell it exits non-zero. An installed EE must not be reported as
+    missing — the probe records *why* it stayed silent instead."""
+    import dolby_to_easyeffects as d
+
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def fake_run(cmd, **k):
+        if cmd[0] == "easyeffects":
+            return R(1, "", "qt.qpa.plugin: could not connect to display\n")
+        return R(1, "", "error: com.github.wwmm.easyeffects not installed\n")
+
+    monkeypatch.setattr(d.subprocess, "run", fake_run)
+    monkeypatch.setattr(d.shutil, "which", lambda name: "/usr/bin/easyeffects"
+                        if name == "easyeffects" else None)
+    probe = d._probe_ee_version()
+    assert probe.found is False and probe.version is None
+    assert "could not connect to display" in probe.silent
+
+    # …and it surfaces as UNKNOWN with an accurate message, not "not found".
+    status = d.ee_version_status(probe.version, probe.found, probe.silent)
+    assert status.status == d.DOCTOR_UNKNOWN
+    assert "installed" in status.detail and "not found" not in status.detail
+
+
+def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
+    """`flatpak info` exits non-zero exactly when the app isn't installed, so
+    that failure means absence — it must not be reported as "installed but
+    unreachable"."""
+    import dolby_to_easyeffects as d
+
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    monkeypatch.setattr(d.subprocess, "run",
+                        lambda cmd, **k: R(1, "", "not installed\n"))
+    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
+    probe = d._probe_ee_version()
+    assert probe.found is False and probe.silent is None
+    assert d.ee_version_status(probe.version, probe.found,
+                               probe.silent).status == d.DOCTOR_WARN
 
 
 def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
