@@ -863,7 +863,7 @@ def test_report_notes_dolby_declared_default_profile(
     out = capsys.readouterr().out
     # The two halves: the mismatch is explained where it is detected, and the
     # rebuild to try is held back for the closing block.
-    asks = [f.ask for f in findings if f.slug == "profile-default"]
+    asks = [f.ask for f in findings if f.slug == "profile-mismatch"]
     assert bool(asks) is expect_note
     assert any("--profile music" in a for a in asks) is expect_note
     if expect_note:
@@ -975,7 +975,7 @@ def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
     """
     import dolby_to_easyeffects as d
 
-    finding = d._leveler_substage_finding(["volume-leveler-compressor"],
+    finding = d._leveler_gap_finding(["volume-leveler-compressor"],
                                           autogain_on)
     assert expect in finding.detail
     assert "You enabled autogain" not in finding.detail
@@ -987,7 +987,7 @@ def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
 def test_substage_summary_silent_when_there_is_nothing_to_say():
     import dolby_to_easyeffects as d
 
-    assert d._leveler_substage_finding([], autogain_on=True) is None
+    assert d._leveler_gap_finding([], autogain_on=True) is None
 
 
 def test_findings_never_carry_a_url(capsys):

@@ -13,7 +13,7 @@ every run is --dry-run.
 
     tools/preview_output.py                  # one example per pattern
     tools/preview_output.py --list           # which XML matches what, no runs
-    tools/preview_output.py volmax-inert     # just that pattern
+    tools/preview_output.py loudness-untamed     # just that pattern
     tools/preview_output.py --all-profiles   # add flags to every run
     tools/preview_output.py --full           # whole run, not just the tail
 
@@ -67,18 +67,18 @@ def _predicates():
                 and peak < len(th) and th[peak] >= 0)
 
     return {
-        "volmax-inert": inert,
-        "volmax-unlimited": unlimited,
-        "profile-default": lambda t: (t.default_profile
+        "loudness-untamed": inert,
+        "boost-unlimited": unlimited,
+        "profile-mismatch": lambda t: (t.default_profile
                                       and t.default_profile != t.profile_used),
-        "leveler-substages": lambda t: bool(t.leveler_substages),
+        "leveler-gap": lambda t: bool(t.leveler_substages),
         "experimental": lambda t: any(
             f["type"] in (3, 6, 8) for f in t.peq_filters),
         # The watching-only XML fields, which parse_xml already turns into
         # findings — so ask the finding itself rather than restating xpaths.
         **{slug: (lambda t, s=slug: any(f.slug == s for f in t.findings))
            for slug in ("peak-level", "ieq-preset", "regulator-overdrive",
-                        "regulator-relaxation", "dso", "adv-virtualizer")},
+                        "regulator-relaxation", "speaker-optimizer", "virtualizer")},
     }
 
 

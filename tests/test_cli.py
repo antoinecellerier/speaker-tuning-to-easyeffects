@@ -1128,7 +1128,7 @@ def _every_finding():
     # Only the escalated strength here: the bypassed one shares this slug by
     # design (same site, two wordings) and carries no ask, so it has nothing
     # for these checks to bite on. tests/test_preset.py covers both.
-    found.append(dolby_to_easyeffects._leveler_substage_finding(
+    found.append(dolby_to_easyeffects._leveler_gap_finding(
         ["volume-leveler-compressor"], autogain_on=True))
     found.append(dolby_to_easyeffects._firmware_gate_finding())
     # Raised inside _report_parsed_profile / main(), which would need a whole
@@ -1137,9 +1137,9 @@ def _every_finding():
     # definitions of one string and exactly the drift these checks exist to
     # stop.
     found += [
-        dolby_to_easyeffects._profile_default_finding("music", "dynamic"),
-        dolby_to_easyeffects._volmax_inert_finding(),
-        dolby_to_easyeffects._volmax_unlimited_finding(12.0, 120),
+        dolby_to_easyeffects._profile_mismatch_finding("music", "dynamic"),
+        dolby_to_easyeffects._loudness_untamed_finding(),
+        dolby_to_easyeffects._boost_unlimited_finding(12.0, 120),
         dolby_to_easyeffects._experimental_finding("type-3 high-shelf"),
     ]
     return [f for f in found if f is not None]

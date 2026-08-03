@@ -37,6 +37,14 @@ Rules that hold for anything added here:
   profiles (`--all-profiles` visits up to nine) and the handle a user can
   quote back at us. Never key de-duplication on rendered text: several
   findings embed a per-profile value, so text keys silently miss repeats.
+- **Name a slug after the symptom, unless it names an XML field.** A finding
+  about behaviour gets a name its reader can parse (`loudness-untamed`, not
+  `volmax-inert`). A finding *about* a field keeps the field's own name
+  (`peak-level`, `regulator-overdrive`) — that is the handle triage greps for,
+  and those asks request the XML anyway.
+- **A finding that didn't apply everywhere says so.** `Finding.scope` carries
+  a short label, rendered inside the tag; empty means "applies throughout", so
+  a single-profile run — the default — shows nothing.
 - **Specific before generic.** Findings this run actually raised come before
   the `--disable`/`--enable` menus, which shrink to one line per filter once
   a finding has already named a flag.

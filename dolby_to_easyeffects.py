@@ -36,7 +36,7 @@ import sys
 import textwrap
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
@@ -3024,6 +3024,13 @@ class Finding:
     detail: str
     ask: str = ""
     kind: str = "hint"
+    # Short label for "which profiles this applies to", when it isn't all of
+    # them. Empty means "applies throughout", which is every single-profile
+    # run. Without it, a finding raised only in `movie` reads under
+    # --all-profiles as though it applied to the preset about to be autoloaded.
+    # Pre-rendered rather than a list: only main() knows how many profiles the
+    # run covered, which is what decides between naming them and counting them.
+    scope: str = ""
 
 
 def _print_finding_detail(finding: Finding) -> None:
@@ -3498,13 +3505,13 @@ class _UnmodeledFeature:
 
 _UNMODELED_FEATURES = [
     _UnmodeledFeature(
-        ".//dynamic_speaker_optimization_enable", "dso",
+        ".//dynamic_speaker_optimization_enable", "speaker-optimizer",
         lambda el: el.get("value") == "1",
         lambda el: "Dynamic Speaker Optimization (excursion-aware bass "
                    "limiting) is set in the XML but not modeled — silently "
                    "dropped."),
     _UnmodeledFeature(
-        ".//advanced-speaker-virtualizer-rendering-config", "adv-virtualizer",
+        ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
         lambda el: True,  # presence implies the newer virtualizer pipeline
         lambda el: "advanced speaker virtualizer (newer FFT-domain "
                    "spatializer) is set in the XML but not modeled — silently "
@@ -3585,10 +3592,10 @@ def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
 # and the contract tests restating them, which is the drift e3a7ee4 removed
 # from the doctor/warning pair — two copies, edited one at a time.
 
-def _profile_default_finding(declared: str, profile_used: str) -> Finding:
+def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
     """Dolby names a different profile than the one we built."""
     return Finding(
-        slug="profile-default",
+        slug="profile-mismatch",
         detail=f"This XML names '{declared}' as the profile the device ships "
                f"on under Windows, but we built '{profile_used}' (the "
                "endpoint's first).",
@@ -3599,20 +3606,20 @@ def _profile_default_finding(declared: str, profile_used: str) -> Finding:
             "device ships on.")
 
 
-def _volmax_inert_finding() -> Finding:
+def _loudness_untamed_finding() -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
-        slug="volmax-inert",
+        slug="loudness-untamed",
         detail="This tuning's regulator never engages (every band threshold "
                "is >= 0 dB), so the volmax boost reaches the brickwall "
                "limiter untamed.",
         ask="If loud content sounds squashed, re-run with --disable volmax.")
 
 
-def _volmax_unlimited_finding(peak_db: float, freq) -> Finding:
+def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
     """The band carrying the largest boost is one the regulator leaves free."""
     return Finding(
-        slug="volmax-unlimited",
+        slug="boost-unlimited",
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
                "lands on a band the regulator leaves unlimited, with the "
                "volmax boost on top.",
@@ -3639,7 +3646,7 @@ def _firmware_gate_finding() -> Finding:
         ask="Did toggling the smart-amp control fix your bass? (issue #17)")
 
 
-def _leveler_substage_finding(substages: list[str], autogain_on: bool,
+def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                               autogain_available: bool = True) -> Finding | None:
     """The Dolby leveler sub-stages this converter cannot reproduce.
 
@@ -3667,12 +3674,12 @@ def _leveler_substage_finding(substages: list[str], autogain_on: bool,
                   if autogain_available else ", and this tuning disables it "
                   "outright, so no flag here changes that.")
         return Finding(
-            slug="leveler-substages", kind="ask",
+            slug="leveler-gap", kind="ask",
             detail=f"Also present but not reproduced: {named}. Harmless as "
                    "built, because the volume leveler they attach to is "
                    f"bypassed{remedy}")
     return Finding(
-        slug="leveler-substages", kind="ask",
+        slug="leveler-gap", kind="ask",
         detail="The volume leveler is running here, and this tuning pairs it "
                f"with {named} — stage(s) this converter cannot reproduce. The "
                "XML gives only an on/off bit for them: no threshold, ratio, "
@@ -3706,7 +3713,12 @@ def _print_ask(style: str, finding: Finding) -> None:
     literal (which is what keeps ``[slug]`` printable at all). Spans sidestep
     that entirely — nothing is parsed out of the message.
     """
-    tag = f"[{finding.slug}]"
+    # Scope rides in the tag, not the sentence: it is bookkeeping, and the
+    # sentence has a one-line budget to keep. Silent when the finding applies
+    # everywhere, which on a default single-profile run is always — so the
+    # common case pays nothing for it.
+    tag = (f"[{finding.slug} · {finding.scope}]" if finding.scope
+           else f"[{finding.slug}]")
     lines = textwrap.wrap(f"  • {finding.ask}  {tag}", width=_wrap_width(),
                           subsequent_indent="    ", break_on_hyphens=False)
     for line in lines:
@@ -4767,10 +4779,12 @@ def print_troubleshooting(findings: list[Finding],
     shown = [k for k in shown if k not in covered]
     if shown:
         print()
-        _cprint_wrapped("dim", "  Filters you can drop on a rebuild "
-                               f"(repeatable, e.g. --disable {shown[0]}"
-                               + (f" --disable {shown[1]}" if len(shown) > 1
-                                  else "") + "):", indent="  ")
+        # Opens on the condition, so the list reads as "only if you hear it"
+        # rather than as a to-do for a preset nobody has heard yet — on a
+        # clean device this is the first thing under the heading.
+        _cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
+                               "can rebuild without specific filters "
+                               "(repeatable):", indent="  ")
         for name in shown:
             symptom, _effect = DISABLEABLE_FILTERS[name]
             _print_flag_hint(f"--disable {name}", f"# {symptom}")
@@ -4988,7 +5002,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     declared = tuning.default_profile
     if declared and declared != tuning.profile_used:
-        findings.append(_profile_default_finding(declared,
+        findings.append(_profile_mismatch_finding(declared,
                                                  tuning.profile_used))
         _print_finding_detail(findings[-1])
 
@@ -5091,7 +5105,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             and all(t >= 0 for t in regulator["threshold_high"])
             and not ("coupled-bands" in (enabled or set())
                      and _coupled_bands_eligible(regulator))):
-        findings.append(_volmax_inert_finding())
+        findings.append(_loudness_untamed_finding())
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
@@ -5110,7 +5124,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if (peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
-            findings.append(_volmax_unlimited_finding(peak_db,
+            findings.append(_boost_unlimited_finding(peak_db,
                                                       freqs[peak_band]))
             _print_finding_detail(findings[-1])
     print()
@@ -5621,6 +5635,9 @@ def main(argv: list[str] | None = None,
     # several findings embed a per-profile value (peak-level=-3), which made
     # text-keyed de-duplication miss them.
     findings: dict[str, Finding] = {}
+    # slug → profiles that raised it, so the closing block can say when one
+    # applies to some profiles and not the preset the user will autoload.
+    raised_in: dict[str, list[str]] = {}
     leveler_substages: dict[str, None] = {}
 
     for profile_type in profile_types:
@@ -5670,6 +5687,7 @@ def main(argv: list[str] | None = None,
 
         for finding in [*tuning.findings, *profile_findings]:
             findings.setdefault(finding.slug, finding)
+            raised_in.setdefault(finding.slug, []).append(profile_label)
         leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
@@ -5816,7 +5834,7 @@ def main(argv: list[str] | None = None,
     # --enable autogain does nothing when the XML disables the leveler, and
     # escalating on the flag alone contradicted the "had no effect" warning
     # printed a few lines above on exactly those devices.
-    substage_finding = _leveler_substage_finding(
+    substage_finding = _leveler_gap_finding(
         list(leveler_substages),
         autogain_on="autogain-active" in filters_by_profile,
         # "autogain" is the marker for a leveler that shipped bypassed but
@@ -5826,15 +5844,31 @@ def main(argv: list[str] | None = None,
         findings.setdefault(substage_finding.slug, substage_finding)
         _print_finding_detail(substage_finding)
 
-    print_troubleshooting(list(findings.values()), filters_by_profile)
+    # Stamp the scope on last, once every profile has been seen. Findings
+    # raised everywhere carry none, so a single-profile run — the default —
+    # never shows one.
+    def _scope(finding):
+        seen = list(dict.fromkeys(raised_in.get(finding.slug, [])))
+        if not seen or len(seen) == len(profile_types):
+            return finding
+        # Naming them beats counting them right up until the list is longer
+        # than the sentence it annotates; nine profiles listed in full is
+        # noise where "6 of 9 profiles" is the same answer.
+        label = (", ".join(seen) if len(seen) <= 3
+                 else f"{len(seen)} of {len(profile_types)} profiles")
+        return replace(finding, scope=label)
+
+    scoped = [_scope(f) for f in findings.values()]
+
+    print_troubleshooting(scoped, filters_by_profile)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
     # end — always collected, so nothing is lost either way.
     if closing is not None:
-        closing.extend(findings.values())
+        closing.extend(scoped)
     if not args.skip_report_cta:
-        print_project_asks(list(findings.values()))
+        print_project_asks(scoped)
 
 
 def run_cli(argv: list[str] | None = None,
