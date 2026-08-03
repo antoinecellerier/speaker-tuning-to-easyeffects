@@ -1376,6 +1376,33 @@ def test_probe_ee_version_degrades_on_timeout(monkeypatch):
     assert probe.version is None and probe.found is False
 
 
+def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch, capsys):
+    """Each end-of-run warning must render the same explanation its --doctor
+    counterpart gives. They used to be two hand-maintained copies and had
+    already drifted ("EasyEffects off" vs "EasyEffects disabled"), so assert
+    the shared builders are what both sides actually emit."""
+    from types import SimpleNamespace
+
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    flat = lambda s: " ".join(s.split())       # noqa: E731 — undo line wrapping
+
+    # EasyEffects 7: doctor detail and the end-of-run banner
+    assert flat(d.ee_v7_message("7.1.5")) in flat(
+        d.ee_version_status((7, 1, 5), found=True).detail)
+    monkeypatch.setattr(d, "_probe_ee_version",
+                        lambda: d.EEProbe((7, 1, 5), True, "test", False))
+    d.warn_ee_environment(SimpleNamespace(output_dir=d.DEFAULT_OUTPUT_DIR,
+                                          irs_dir=d.DEFAULT_IRS_DIR))
+    assert flat(d.ee_v7_message("7.1.5")) in flat(capsys.readouterr().out)
+
+    # Old kernel: doctor detail and the end-of-run hint
+    old = "6.12.74+deb13+1-amd64"
+    assert flat(d.kernel_old_message()) in flat(d.kernel_age_status(old).detail)
+    d.warn_old_kernel(old)
+    assert flat(d.kernel_old_message()) in flat(capsys.readouterr().out)
+
+
 def test_probe_ee_version_installed_but_headless(monkeypatch):
     """Issue #46: EE 8's Qt binary needs a display to answer --version, so from
     a headless shell it exits non-zero. An installed EE must not be reported as

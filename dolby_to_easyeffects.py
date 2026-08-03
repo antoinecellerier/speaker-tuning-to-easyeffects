@@ -1167,6 +1167,17 @@ def ee_silent_message(reason: str, tail: str) -> str:
             f"headless shell (ssh, tmux){tail}")
 
 
+def ee_v7_message(vstr: str) -> str:
+    """Why an EasyEffects before 8 can't use these presets, shared by --doctor
+    and the end-of-run warning so the two can't drift. Callers supply their own
+    headline and install instructions — one inline sentence for the report,
+    copy-paste commands for the warning."""
+    return (f"EasyEffects 8 changed the preset (filter-chain) format, and these "
+            f"presets use the new one. On {vstr} they don't load correctly — the "
+            "speaker-correction filter loads nothing, so you'll hear little or "
+            "no difference.")
+
+
 def ee_version_status(version: tuple[int, int, int] | None,
                       found: bool, silent: str | None = None) -> CheckResult:
     """Verdict for the EasyEffects version. FAIL — the only loud error — is
@@ -1191,11 +1202,10 @@ def ee_version_status(version: tuple[int, int, int] | None,
     vstr = ".".join(str(x) for x in version)
     if version[0] < 8:
         return CheckResult(DOCTOR_FAIL, "EasyEffects version",
-            f"{vstr} detected — these presets need EasyEffects 8. Version 8 "
-            f"changed the preset format; on {vstr} the speaker-correction filter "
-            "loads nothing, so you'll hear little or no difference. Install "
-            "EasyEffects 8 (the Flathub Flatpak, or your distro's package if it "
-            "ships 8.x).")
+            f"{vstr} detected — these presets need EasyEffects 8. "
+            + ee_v7_message(vstr) +
+            " Install EasyEffects 8 (the Flathub Flatpak, or your distro's "
+            "package if it ships 8.x).")
     return CheckResult(DOCTOR_PASS, "EasyEffects version", f"{vstr} (compatible).")
 
 
@@ -1276,12 +1286,19 @@ def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
         return CheckResult(DOCTOR_PASS, label,
             f"{sstr} (released {released}, ~{months} month{plural} old).")
     return CheckResult(DOCTOR_WARN, label,
-        f"{sstr} was released {released} (~{months} months ago). Laptop speaker "
-        "fixes (amp drivers, codec setup, power-management quirks) land kernel-side and "
-        "are not always backported to older series — if your speakers sound "
-        "thin, muffled or garbled even with EasyEffects off, a newer kernel "
-        "(your distro's backports or hardware-enablement/HWE kernel) may fix "
-        "that.")
+        f"{sstr} was released {released} (~{months} months ago). "
+        + kernel_old_message())
+
+
+def kernel_old_message() -> str:
+    """Why an old kernel series matters for laptop speakers, shared by --doctor
+    and the end-of-run hint so the two can't drift. Callers supply the headline
+    naming the series and its age."""
+    return ("Laptop speaker fixes (amp drivers, codec setup, power-management "
+            "quirks) land kernel-side and are not always backported to older "
+            "series — if your speakers sound thin, muffled or garbled even with "
+            "EasyEffects off, a newer kernel (your distro's backports or "
+            "hardware-enablement/HWE kernel) may fix that.")
 
 
 def install_status(flatpak_exists: bool, native_exists: bool,
@@ -1698,6 +1715,14 @@ def report_doctor(args) -> None:
     _print_doctor_report(report)
 
 
+def _cprint_wrapped(style: str, text: str, width: int = 72) -> None:
+    """Print prose as wrapped lines, the way --doctor renders a check detail.
+    Lets the end-of-run warnings share their wording with the doctor's
+    CheckResult details instead of keeping a hand-wrapped second copy."""
+    for line in textwrap.wrap(text, width=width):
+        cprint(style, line)
+
+
 def warn_ee_environment(args) -> None:
     """End-of-run check for a normal generation run: loudly warn if the
     installed EasyEffects can't use the presets we just wrote. Silent on the
@@ -1711,10 +1736,7 @@ def warn_ee_environment(args) -> None:
         cprint("err", f"\n{'=' * 60}")
         cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
         print()
-        cprint("dim", "EasyEffects changed its preset (filter-chain) format in version 8,")
-        cprint("dim", "and the presets this tool generates use the new format. On version 7")
-        cprint("dim", "they won't load correctly — in particular the speaker-correction")
-        cprint("dim", "filter loads nothing, so you'll hear little or no difference.")
+        _cprint_wrapped("dim", ee_v7_message(vstr))
         print()
         cprint("dim", "To fix, install EasyEffects 8:")
         cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
@@ -1761,12 +1783,7 @@ def warn_old_kernel(release: str | None = None) -> None:
     when = f" (released {aged[0]}, ~{aged[1]} months ago)" if aged else ""
 
     cprint("warn", f"\n⚠  Your kernel series {sstr} is old{when}.")
-    cprint("dim", "Laptop speakers often need kernel-side fixes (amp drivers, codec")
-    cprint("dim", "setup, power-management quirks) that land in newer kernels and")
-    cprint("dim", "are not always backported to older series. If your speakers sound")
-    cprint("dim", "thin, muffled or garbled even with EasyEffects disabled, a newer")
-    cprint("dim", "kernel (your distro's backports or hardware-enablement/HWE kernel)")
-    cprint("dim", "may fix that.")
+    _cprint_wrapped("dim", kernel_old_message())
 
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles

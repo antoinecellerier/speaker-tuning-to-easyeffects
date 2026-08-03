@@ -590,8 +590,12 @@ def test_warn_old_kernel_prints_hint(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "6.12" in out
     assert "2024-11" in out                    # names the release month
-    assert "EasyEffects disabled" in out       # the confirm-symptom
-    assert "hardware-enablement/HWE" in out    # the remedy, acronym spelt out
+    # The explanation is the one --doctor gives, verbatim (modulo line wrapping)
+    # rather than a second hand-maintained copy that can drift from it. It
+    # carries the confirm-symptom and the remedy with the acronym spelt out.
+    assert " ".join(d.kernel_old_message().split()) in " ".join(out.split())
+    assert "EasyEffects off" in d.kernel_old_message()
+    assert "hardware-enablement/HWE" in d.kernel_old_message()
 
 
 @pytest.mark.parametrize("release", ["99.0.0-future", "not-a-kernel"])
