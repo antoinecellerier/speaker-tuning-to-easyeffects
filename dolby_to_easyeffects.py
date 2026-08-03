@@ -3654,8 +3654,10 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # treble"), and this ask used to claim a different one ("bass or loud
         # content distorts"), so one screen sold the same flag for opposite
         # problems. Symptom wording lives in one place per flag.
-        ask="If loud parts distort, re-run with --disable volmax first, then "
-            "try --enable coupled-bands if that wasn't it.")
+        # "swap it for", not "then try": a reviewer following the old wording
+        # could not tell whether step two kept the first flag.
+        ask="If loud parts distort, re-run with --disable volmax; if they "
+            "still do, swap it for --enable coupled-bands.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
