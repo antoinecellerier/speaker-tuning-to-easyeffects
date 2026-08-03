@@ -3,7 +3,7 @@
 the upstream bass/low-mid level gap, or both?
 
 READ-ONLY analysis over existing stepped captures (no audio capture). Run from
-the repo root:  python3 localresearch/scaling-campaign/dynamics_gap_analysis.py
+the repo root:  python3 tools/measure_ee/dynamics_gap.py
 
 Inputs (analyze.py outputs, peak-normalized PER capture; cross-level compares
 align at the 1 kHz dormant band):
