@@ -4967,10 +4967,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # case), so "pick one yourself" is true here — and naming --autoload
         # gives the reader the self-loading default before the re-run, not
         # after it.
-        _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — the "
-                               "real run prints the exact steps. (Or add "
-                               "--autoload and it loads itself for your "
-                               "speakers.)", indent="  ")
+        _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
+                               f"start with {preset_names[0]}; the real run "
+                               "prints the exact steps. (Or add --autoload "
+                               "and it loads itself for your speakers.)",
+                        indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
@@ -5331,8 +5332,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # One clause of meaning: this used to print bare ("ieq-amount: 10%
     # (scale: 0.10)") — no heading, nothing tying back to it, and a
     # reviewer couldn't tell whether it mattered.
-    print(f"ieq-amount: {ieq_amount}% — the Balanced/Detailed/Warm voicing "
-          "curves apply at this weight on top of the speaker correction")
+    # Leads with the plain name (round 3: the bare acronym was the one
+    # line still doing it) and ties the three preset files to the profile
+    # they voice — reviewers read them as unrelated flavors.
+    print(f"Voicing strength (ieq-amount): {ieq_amount}% — how strongly "
+          "this profile's three voicings (Balanced/Detailed/Warm) apply "
+          "on top of the speaker correction")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -5368,7 +5373,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # The row types carry a what-you-hear clause where the name alone says
     # nothing to a non-engineer — the dialog/bass sections had one and this
     # section didn't, which read as "am I supposed to understand this?".
-    print("\nPEQ filters (kept as parametric EQ):")
+    # Every type gets one (round 3: the glossed and bare rows side by side
+    # read worse than all-bare). Header only when there are rows — over
+    # nothing it read as a failed section.
+    if peq_filters:
+        print("\nPEQ filters (kept as parametric EQ):")
     for pf in peq_filters:
         spk = "L" if pf["speaker"] == 0 else "R"
         if pf["type"] in (7, 9):
@@ -5376,11 +5385,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         elif pf["type"] in (6, 8):
             print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — rolls off the top end  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
-            print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
+            print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the low end")
         elif pf["type"] == 3:
-            print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}  [unconfirmed-by-ear]")
+            print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
-            print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
+            print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']} — evens out a narrow band")
 
     if is_soundwire and "bass-enhancer" not in disabled:
         # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
@@ -5394,9 +5403,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
               "enhancement, which has no settings in the XML")
 
     if dialog_enhancer:
+        # dB first: "amount=5" has no knowable scale (it's a raw schema
+        # value), so the derived boost leads and the raw stays as the
+        # report handle.
         gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
-        print(f"\nDialog enhancer: amount={dialog_enhancer['amount']}, "
-              f"mapped to +{gain:.1f} dB @ 2.5 kHz")
+        print(f"\nDialog enhancer: +{gain:.1f} dB speech boost @ 2.5 kHz "
+              f"(amount {dialog_enhancer['amount']} in your tuning)")
 
     if surround:
         # No "virtualizer" in this line: with the [virtualizer] finding on
@@ -6141,8 +6153,8 @@ def main(argv: list[str] | None = None,
             # Names the practical difference — "enhanced preset generation"
             # told the reader nothing and read as either good news or a
             # warning (round 2).
-            cprint("head", "SoundWire device detected — bass enhancer and "
-                           "volume leveler on by default")
+            cprint("head", "SoundWire speaker hardware detected — bass "
+                           "enhancer and volume leveler on by default")
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"

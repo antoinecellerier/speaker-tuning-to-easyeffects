@@ -1471,7 +1471,8 @@ def main(argv: list[str] | None = None) -> int:
         for w in detect_warnings:
             cprint("warn", f"[smart-filter] {w}")
         if target_sink:
-            cprint("ok", f"[smart-filter] target sink: {target_sink} "
+            cprint("ok", f"[smart-filter] your built-in speakers: "
+                         f"{target_sink} "
                          "(autodetected)")
         else:
             cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
