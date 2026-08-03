@@ -1805,6 +1805,18 @@ DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Za-z]{8}.*\.xml$", re.IGNORECASE)
 _NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
 
 
+def is_soundwire_xml(filename: str) -> bool:
+    """True if the tuning filename marks a SoundWire (not HD-Audio) codec.
+
+    The bus is not recorded inside the XML — only the filename carries it,
+    in two forms Dolby ships interchangeably: ``SOUNDWIRE_MAN_*`` and the
+    shorter ``SDW_*``. Several emitted parameters key off this, so the
+    derivation lives here rather than inline at each caller.
+    """
+    upper = filename.upper()
+    return "SOUNDWIRE" in upper or upper.startswith("SDW_")
+
+
 def _has_dolby_xml(directory: Path) -> bool:
     """Return True if ``directory`` directly contains a Dolby-shaped XML."""
     try:
@@ -5112,8 +5124,7 @@ def main(argv: list[str] | None = None):
         xml_path = find_tuning_xml(windows_root, best_guess=args.best_guess)
         cprint("ok", f"Auto-detected: {xml_path}")
 
-    xml_basename = Path(xml_path).name.upper()
-    is_soundwire = "SOUNDWIRE" in xml_basename or xml_basename.startswith("SDW_")
+    is_soundwire = is_soundwire_xml(Path(xml_path).name)
 
     if args.list:
         cprint("head", f"Endpoints and profiles in {xml_path}:")

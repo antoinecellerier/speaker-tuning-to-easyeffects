@@ -20,14 +20,18 @@ that synthetic inputs cannot.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import xml.etree.ElementTree as ET
+from contextlib import redirect_stdout
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from dolby_to_easyeffects import (
+    DB_FIXED_POINT_SCALE,
     DOLBY_FILENAME_RE,
     FIR_LENGTH,
     SAMPLE_RATE,
@@ -36,6 +40,8 @@ from dolby_to_easyeffects import (
     _ntfs_family_mountpoints,
     _resolve_driver_store,
     _walk_for_dolby_xml_dirs,
+    get_profile_types,
+    is_soundwire_xml,
     make_fir,
     make_preset,
     parse_xml,
@@ -241,3 +247,120 @@ def test_corpus_xml_parses_and_runs_pipeline(tmp_path, xml_path):
     assert n == FIR_LENGTH
     assert ch == 2
     assert is_minimum_phase(left, tol=1e-2)
+
+
+def _endpoint_modes(xml_path: Path) -> list[tuple[str, str]]:
+    """Every distinct (endpoint type, operating mode) pair the XML declares."""
+    try:
+        root = ET.parse(xml_path).getroot()
+    except ET.ParseError:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for ep in root.findall(".//endpoint"):
+        pair = (ep.get("type"), ep.get("operating_mode"))
+        if pair[0] and pair[1] and pair not in pairs:
+            pairs.append(pair)
+    return pairs
+
+
+# The three flag combinations worth walking per curve. The default is what
+# every user gets; the other two are the only emission paths reachable
+# solely through a flag, so nothing else in the suite sees them run against
+# real tuning data.
+_ARG_VARIANTS = (
+    ("default", "input-gain", frozenset()),
+    ("volmax-slot", "output-gain", frozenset()),
+    ("enabled", "input-gain", frozenset({"autogain", "coupled-bands"})),
+)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("xml_path", CORPUS, ids=lambda p: p.name)
+def test_corpus_xml_every_endpoint_profile_curve(xml_path):
+    """Walk every endpoint × mode × profile × IEQ curve, through the
+    arguments ``main()`` actually passes to ``make_preset``.
+
+    ``test_corpus_xml_parses_and_runs_pipeline`` above visits each XML once
+    — default endpoint/mode, first profile, one curve — and calls
+    ``make_preset`` with 7 of its 12 parameters. Across this corpus that is
+    roughly 7% of the endpoint × profile space the XMLs declare, and it
+    never reaches ``volmax_slot`` or ``--enable``: 95% of files carry more
+    than one profile and 14% more than one endpoint/mode pair, so the
+    profiles a user selects with ``--profile`` are largely unvisited.
+
+    Marked ``slow`` purely on wall-clock (``parse_xml`` dominates, at ~40k
+    calls over the full corpus); the fast tier keeps the single walk above.
+    Converter chatter is swallowed — the assertions carry the combination
+    identity, and 40k profile reports would drown pytest's capture buffer.
+    """
+    _skip_if_no_corpus()
+
+    is_soundwire = is_soundwire_xml(xml_path.name)
+    combinations = 0
+    profiles_seen = 0
+
+    for ep_type, ep_mode in _endpoint_modes(xml_path):
+        try:
+            with redirect_stdout(io.StringIO()):
+                profiles = get_profile_types(xml_path, ep_type, ep_mode)
+        except ValueError:
+            continue  # endpoint shape the parser rejects by design
+        for profile_type in profiles or [None]:
+            where = f"{xml_path.name} {ep_type}/{ep_mode} profile={profile_type}"
+            try:
+                with redirect_stdout(io.StringIO()):
+                    tuning = parse_xml(xml_path, endpoint_type=ep_type,
+                                       operating_mode=ep_mode,
+                                       profile_type=profile_type)
+            except ValueError:
+                continue  # by-design rejection, already asserted on above
+            profiles_seen += 1
+
+            assert len(tuning.freqs) == 20, where
+            assert len(tuning.ao_left) == len(tuning.ao_right) == 20, where
+
+            # Same gain staging main() performs before _emit_ieq_presets.
+            scale = tuning.ieq_amount / 100.0
+            ao_db_left = np.array(tuning.ao_left) / DB_FIXED_POINT_SCALE
+            ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE
+            float_freqs = np.array(tuning.freqs, dtype=float)
+
+            for curve_key, gains in tuning.curves.items():
+                ieq_db = np.array(gains) / DB_FIXED_POINT_SCALE * scale
+                fir_left, _ = make_fir(float_freqs, ieq_db + ao_db_left,
+                                       normalize=True)
+                fir_right, _ = make_fir(float_freqs, ieq_db + ao_db_right,
+                                        normalize=True)
+                # Minimum phase is the zero-added-latency invariant, and it
+                # has to hold for every curve, not just the first one.
+                assert is_minimum_phase(fir_left, tol=1e-2), f"{where} {curve_key} L"
+                assert is_minimum_phase(fir_right, tol=1e-2), f"{where} {curve_key} R"
+
+                for label, volmax_slot, enabled in _ARG_VARIANTS:
+                    preset, emitted = make_preset(
+                        kernel_name=xml_path.stem,
+                        peq_filters=tuning.peq_filters,
+                        vol_leveler=tuning.vol_leveler,
+                        dialog_enhancer=tuning.dialog_enhancer,
+                        mb_comp=tuning.mb_comp,
+                        regulator=tuning.regulator,
+                        freqs=tuning.freqs,
+                        is_soundwire=is_soundwire,
+                        volmax_boost=tuning.volmax_boost,
+                        volmax_slot=volmax_slot,
+                        enabled=set(enabled),
+                        disabled=set(),
+                    )
+                    json.dumps(preset)  # catches non-serialisable values
+                    assert isinstance(emitted, set), f"{where} {curve_key} {label}"
+                    combinations += 1
+
+    if profiles_seen:
+        assert combinations, f"{xml_path.name}: parsed but emitted no preset"
+    # Guard against the fan-out quietly collapsing back to one walk: an XML
+    # declaring several profiles must have exercised several.
+    if profiles_seen > 1:
+        assert combinations > len(_ARG_VARIANTS), (
+            f"{xml_path.name}: {profiles_seen} profiles parsed but only "
+            f"{combinations} preset builds"
+        )
