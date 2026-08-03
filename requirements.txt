@@ -4,4 +4,4 @@ rich
 rich-argparse
 argcomplete  # optional: shell tab-completion (see README "Shell tab-completion")
 pytest
-pytest-xdist  # optional: parallelizes the slow corpus tier (pytest -n auto)
+pytest-xdist  # pyproject's addopts passes -n auto, so the suite needs this

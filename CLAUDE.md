@@ -41,10 +41,12 @@ A few things about this repo that aren't obvious from the code.
   live in `tests/test_preset.py`.
 - Corpus tier (`tests/corpus/`) runs the full pipeline against real DAX3
   XMLs it auto-discovers (NTFS mounts + CWD); `ATMOS_CORPUS_DIR` overrides;
-  it skips cleanly when no corpus is reachable. The ee_to_pipewire corpus
-  tier validates each conf via `lv2info` — minutes of wall-clock, marked
-  `slow`, **skipped unless `--run-slow`** (or `ATMOS_RUN_SLOW=1`). Its fast
-  structural invariants still run by default (`tests/test_ee_to_pipewire.py`).
+  it skips cleanly when no corpus is reachable. The heavy walks — every
+  endpoint×profile×curve, and ee_to_pipewire's `lv2info` conf validation —
+  are marked `slow` and **skipped unless `--run-slow`** (or
+  `ATMOS_RUN_SLOW=1`). The default walk visits one combination per XML;
+  `tests/test_ee_to_pipewire.py`'s structural invariants still run fast.
+  Every run is `-n auto` via `pyproject.toml`; `-n 0` forces serial.
 - Changing math (FIR, coefficient decoding, gain staging, unit
   conversions, filter design)? Add or extend a unit test — a check worth
   re-running belongs in `tests/`, not an ad-hoc script. For preset/structure

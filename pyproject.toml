@@ -1,7 +1,13 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-ra"
+# -n auto fans every run across cores (fast tier 95s -> 36s here). Safe to set
+# globally: xdist's own worker bootstrap resets numprocesses to None and dist to
+# "no" (xdist/remote.py setup_config), so workers never spawn workers, and it
+# drops to serial by itself under --pdb. Do NOT reimplement this as a conftest
+# hook that sets config.option.numprocesses — one that runs after that reset
+# undoes it, and each worker then spawns its own. Pass -n 0 to force serial.
+addopts = "-ra -n auto"
 markers = [
     "slow: expensive test (e.g. the ee_to_pipewire corpus tier, which runs every discovered XML's PW conf through lv2info). Skipped unless --run-slow or ATMOS_RUN_SLOW=1.",
 ]
