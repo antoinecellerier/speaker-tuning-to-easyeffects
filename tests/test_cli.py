@@ -1107,19 +1107,11 @@ def test_get_distro_pretty_name_missing_file(tmp_path):
 def _every_finding():
     """One Finding per site that can raise one, for the contract checks.
 
-    Collected at import time, so the sites that print as they go (the
-    firmware-gate procedure) get their output swallowed rather than smeared
-    across the test run.
+    Every one is reached through the factory that defines it, so this list
+    cannot drift from the wording the run actually prints.
     """
-    import contextlib
-    import io
     import xml.etree.ElementTree as ET
 
-    with contextlib.redirect_stdout(io.StringIO()):
-        return _raise_every_finding(ET)
-
-
-def _raise_every_finding(ET):
     profile = ET.fromstring("""
         <profile type="dynamic">
           <tuning-cp>
@@ -1138,31 +1130,17 @@ def _raise_every_finding(ET):
     # for these checks to bite on. tests/test_preset.py covers both.
     found.append(dolby_to_easyeffects._leveler_substage_finding(
         ["volume-leveler-compressor"], autogain_on=True))
-    found.append(dolby_to_easyeffects.warn_speaker_firmware_gate([
-        dolby_to_easyeffects.FirmwareGate(
-            card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",
-            name="Speaker Force Firmware Load", on=False)]))
-    # The three raised inside _report_parsed_profile / main(), which need a
-    # whole run to reach. Constructing them here keeps the contract checks
-    # independent of that plumbing; test_finding_slugs_are_unique pins that
-    # this list stays complete.
+    found.append(dolby_to_easyeffects._firmware_gate_finding())
+    # Raised inside _report_parsed_profile / main(), which would need a whole
+    # run to reach. Called through their factories rather than restated here:
+    # this fixture used to carry its own copy of each sentence, which is two
+    # definitions of one string and exactly the drift these checks exist to
+    # stop.
     found += [
-        dolby_to_easyeffects.Finding(
-            slug="profile-default", detail="x",
-            ask="Rebuild with --profile music to try the profile this "
-                "device ships on."),
-        dolby_to_easyeffects.Finding(
-            slug="volmax-inert", detail="x",
-            ask="If loud content sounds squashed, re-run with "
-                "--disable volmax."),
-        dolby_to_easyeffects.Finding(
-            slug="volmax-unlimited", detail="x",
-            ask="If bass or loud content distorts, re-run with --disable "
-                "volmax, or try --enable coupled-bands."),
-        dolby_to_easyeffects.Finding(
-            slug="experimental", detail="x", kind="ask",
-            ask="We've never had type-3 high-shelf confirmed by ear — does "
-                "it sound right to you?"),
+        dolby_to_easyeffects._profile_default_finding("music", "dynamic"),
+        dolby_to_easyeffects._volmax_inert_finding(),
+        dolby_to_easyeffects._volmax_unlimited_finding(12.0, 120),
+        dolby_to_easyeffects._experimental_finding("type-3 high-shelf"),
     ]
     return [f for f in found if f is not None]
 

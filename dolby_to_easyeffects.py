@@ -704,10 +704,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     # lines here, deliberately whispered so it wouldn't rival the closing call
     # to action. It travels to that block instead now, where it can be a
     # normal ask without competing with anything.
-    return Finding(
-        slug="firmware-gate", kind="ask",
-        detail="Smart-amp firmware gate is off — see the procedure above.",
-        ask="Did toggling the smart-amp control fix your bass? (issue #17)")
+    return _firmware_gate_finding()
 
 
 # --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
@@ -3580,6 +3577,68 @@ def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
     return found
 
 
+# --- Finding factories -----------------------------------------------------
+#
+# Every finding raised outside the _UNMODELED_FEATURES table is built here,
+# one function each, rather than inline at its raise site. They are the single
+# definition of their wording: an earlier arrangement had the strings inline
+# and the contract tests restating them, which is the drift e3a7ee4 removed
+# from the doctor/warning pair — two copies, edited one at a time.
+
+def _profile_default_finding(declared: str, profile_used: str) -> Finding:
+    """Dolby names a different profile than the one we built."""
+    return Finding(
+        slug="profile-default",
+        detail=f"This XML names '{declared}' as the profile the device ships "
+               f"on under Windows, but we built '{profile_used}' (the "
+               "endpoint's first).",
+        # Names the action and what it gets you. An earlier wording led with
+        # "worth an A/B against Windows", which read as though the user had to
+        # go and do something in Windows.
+        ask=f"Rebuild with --profile {declared} to try the profile this "
+            "device ships on.")
+
+
+def _volmax_inert_finding() -> Finding:
+    """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
+    return Finding(
+        slug="volmax-inert",
+        detail="This tuning's regulator never engages (every band threshold "
+               "is >= 0 dB), so the volmax boost reaches the brickwall "
+               "limiter untamed.",
+        ask="If loud content sounds squashed, re-run with --disable volmax.")
+
+
+def _volmax_unlimited_finding(peak_db: float, freq) -> Finding:
+    """The band carrying the largest boost is one the regulator leaves free."""
+    return Finding(
+        slug="volmax-unlimited",
+        detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
+               "lands on a band the regulator leaves unlimited, with the "
+               "volmax boost on top.",
+        ask="If bass or loud content distorts, re-run with --disable volmax, "
+            "or try --enable coupled-bands.")
+
+
+def _experimental_finding(named: str) -> Finding:
+    """Emission paths reproduced from the XML but never confirmed by ear."""
+    return Finding(
+        slug="experimental", kind="ask",
+        detail=f"Experimental path(s) exercised: {named}. Reproduced directly "
+               "from the Dolby tuning and verified numerically, but not yet "
+               "audibly validated on an affected device.",
+        ask=f"We've never had {named} confirmed by ear — does it sound right "
+            "to you?")
+
+
+def _firmware_gate_finding() -> Finding:
+    """Whether toggling the smart-amp gate actually restored the bass."""
+    return Finding(
+        slug="firmware-gate", kind="ask",
+        detail="Smart-amp firmware gate is off — see the procedure above.",
+        ask="Did toggling the smart-amp control fix your bass? (issue #17)")
+
+
 def _leveler_substage_finding(substages: list[str], autogain_on: bool,
                               autogain_available: bool = True) -> Finding | None:
     """The Dolby leveler sub-stages this converter cannot reproduce.
@@ -3627,8 +3686,11 @@ def _leveler_substage_finding(substages: list[str], autogain_on: bool,
         # multi-step measurement on a second OS, and most people run this
         # script once — an ask they can't act on is one they abandon. Saying
         # so is a click; we can take it from there.
-        ask="If sound pumps going from quiet to loud, tell us — a capture "
-            "would settle it and we'll send you the steps.")
+        # Names Windows up front so anyone who doesn't dual-boot can skip the
+        # whole line rather than reading to the end to find out they can't
+        # help — the capture measures what DAX does, so it has to run there.
+        ask="If sound pumps going quiet to loud, tell us — a Windows capture "
+            "would settle it and we'll walk you through it.")
 
 
 def _print_ask(style: str, finding: Finding) -> None:
@@ -4926,17 +4988,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     declared = tuning.default_profile
     if declared and declared != tuning.profile_used:
-        findings.append(Finding(
-            slug="profile-default",
-            detail=f"This XML names '{declared}' as the profile the device "
-                   f"ships on under Windows, but we built "
-                   f"'{tuning.profile_used}' (the endpoint's first).",
-            # Names the action and what it gets you. An earlier wording led
-            # with "worth an A/B against Windows", which read as though the
-            # user had to go and do something in Windows.
-            ask=f"Rebuild with --profile {declared} to try the profile this "
-                "device ships on.",
-        ))
+        findings.append(_profile_default_finding(declared,
+                                                 tuning.profile_used))
         _print_finding_detail(findings[-1])
 
     print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
@@ -5038,14 +5091,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             and all(t >= 0 for t in regulator["threshold_high"])
             and not ("coupled-bands" in (enabled or set())
                      and _coupled_bands_eligible(regulator))):
-        findings.append(Finding(
-            slug="volmax-inert",
-            detail="This tuning's regulator never engages (every band "
-                   "threshold is >= 0 dB), so the volmax boost reaches the "
-                   "brickwall limiter untamed.",
-            ask="If loud content sounds squashed, re-run with "
-                "--disable volmax.",
-        ))
+        findings.append(_volmax_inert_finding())
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
@@ -5064,14 +5110,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if (peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
-            findings.append(Finding(
-                slug="volmax-unlimited",
-                detail=f"The biggest correction boost ({peak_db:+.1f} dB at "
-                       f"{freqs[peak_band]} Hz) lands on a band the regulator "
-                       "leaves unlimited, with the volmax boost on top.",
-                ask="If bass or loud content distorts, re-run with "
-                    "--disable volmax, or try --enable coupled-bands.",
-            ))
+            findings.append(_volmax_unlimited_finding(peak_db,
+                                                      freqs[peak_band]))
             _print_finding_detail(findings[-1])
     print()
     return findings
@@ -5768,14 +5808,8 @@ def main(argv: list[str] | None = None,
                     for k in EXPERIMENTAL_MARKERS
                     if k in filters_by_profile]
     if experimental:
-        named = ", ".join(experimental)
-        findings.setdefault("experimental", Finding(
-            slug="experimental", kind="ask",
-            detail=f"Experimental path(s) exercised: {named}. Reproduced "
-                   "directly from the Dolby tuning and verified numerically, "
-                   "but not yet audibly validated on an affected device.",
-            ask=f"We've never had {named} confirmed by ear — does it sound "
-                "right to you?"))
+        findings.setdefault(
+            "experimental", _experimental_finding(", ".join(experimental)))
         _print_finding_detail(findings["experimental"])
 
     # Gated on the leveler actually running, not on the flag being passed:
