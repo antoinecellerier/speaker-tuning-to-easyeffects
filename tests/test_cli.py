@@ -1168,12 +1168,18 @@ def _raise_every_finding(ET):
 
 @pytest.mark.parametrize("finding", _every_finding(),
                          ids=lambda f: f.slug)
-def test_ask_stays_one_short_sentence(finding, capsys):
+def test_ask_stays_one_short_sentence(finding, capsys, monkeypatch):
     """An entry that needs three lines is an explanation, and explanations
     belong at the detection site where they have context — not in the block
-    a user skims once."""
+    a user skims once.
+
+    Pinned to the narrow end of the wrap range rather than the runner's own
+    terminal, so the budget means "fits on a small window" and the result
+    doesn't change with whoever runs it.
+    """
     if not finding.ask:
         return
+    monkeypatch.setattr(dolby_to_easyeffects, "_wrap_width", lambda: 72)
     dolby_to_easyeffects._print_ask("cta", finding)
     rendered = capsys.readouterr().out.rstrip("\n").splitlines()
     assert len(rendered) <= 2, f"{finding.slug} renders {len(rendered)} lines"
@@ -1238,6 +1244,10 @@ def test_clean_run_closing_block_is_just_the_ask(capsys):
     which is how a block earns being skipped."""
     dolby_to_easyeffects.print_project_asks([])
     out = capsys.readouterr().out.strip().splitlines()
-    assert len(out) == 3, out
+    # Two or three lines depending on how wide the sentence wraps; what
+    # matters is that there is no rule, no heading and no bullet list.
+    assert len(out) <= 3, out
     assert "=====" not in "".join(out)
+    assert "Help the project" not in "".join(out)
+    assert not any(line.lstrip().startswith("•") for line in out)
     assert out[-1].strip() == dolby_to_easyeffects._REPORT_FORM_URL

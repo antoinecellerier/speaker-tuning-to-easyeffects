@@ -69,6 +69,21 @@ if "_ARGCOMPLETE" not in os.environ:
     _load_dsp()
 
 
+# Prose wraps to the terminal, within bounds. Below the floor, a hanging
+# indent eats the line and hyphenated XML element names get unreadable; above
+# the cap, a paragraph stretches into one long unscannable line — measure, not
+# window width, is what makes prose readable. Everything here is hand-wrapped
+# rather than reflowed by rich (see cprint), so this is the number that
+# matters.
+_WRAP_CAP = 120
+_WRAP_FLOOR = 60
+
+
+def _wrap_width() -> int:
+    return max(_WRAP_FLOOR,
+               min(_WRAP_CAP, shutil.get_terminal_size((80, 24)).columns))
+
+
 try:
     from rich.console import Console
     from rich.theme import Theme
@@ -83,6 +98,7 @@ try:
         }),
         markup=False,
         highlight=False,
+        width=_wrap_width(),
     )
 except ImportError:
     _CONSOLE = None
@@ -1648,7 +1664,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
 
     def emit(c):
         cprint(style.get(c.status, "dim"), f"  [{c.status:^4}] {c.label}")
-        for line in textwrap.wrap(c.detail, width=72):
+        for line in textwrap.wrap(c.detail, width=_wrap_width() - 9):
             cprint("dim", f"         {line}")
 
     cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
@@ -1731,9 +1747,13 @@ def report_doctor(args) -> None:
     _print_doctor_report(report)
 
 
-def _cprint_wrapped(style: str, text: str, width: int = 72,
+def _cprint_wrapped(style: str, text: str, width: int | None = None,
                     indent: str = "") -> None:
     """Print prose as wrapped lines, the way --doctor renders a check detail.
+
+    Wraps to the terminal by default (``_wrap_width``), so a wide window is
+    not stuck reading 72-column text and a narrow one does not overflow.
+    Pass ``width`` only where the number is part of a fixed layout.
     Lets the end-of-run warnings share their wording with the doctor's
     CheckResult details instead of keeping a hand-wrapped second copy.
 
@@ -1742,7 +1762,8 @@ def _cprint_wrapped(style: str, text: str, width: int = 72,
     never split — most of what gets wrapped here is XML element names like
     ``volume-leveler-compressor-enable``, and breaking one across lines makes
     it unsearchable."""
-    for line in textwrap.wrap(text, width=width, subsequent_indent=indent,
+    for line in textwrap.wrap(text, width=width or _wrap_width(),
+                              subsequent_indent=indent,
                               break_on_hyphens=False):
         cprint(style, line)
 
@@ -3632,8 +3653,10 @@ def print_project_asks(findings: list[Finding]) -> None:
         for finding in asks:
             _print_ask("cta", finding)
         print()
-    cprint("cta", "How does it sound? Please report back — good or bad,")
-    cprint("cta", "or if you need help:")
+    _cprint_wrapped("cta", "How does it sound? Please report back — good or "
+                           "bad, or if you need help:")
+    # The URL gets its own line and is never wrapped: broken across lines it
+    # can't be clicked or copied, which defeats the whole point of the ask.
     cprint("cta", f"  {_REPORT_FORM_URL}")
 
 
@@ -4611,9 +4634,9 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
     """
     gutter = " " * _FLAG_GUTTER
     _cprint_wrapped("dim", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
-                    width=78, indent=gutter)
+                    indent=gutter)
     if effect:
-        _cprint_wrapped("dim", f"{gutter}({effect})", width=78,
+        _cprint_wrapped("dim", f"{gutter}({effect})",
                         indent=gutter + " ")
 
 
