@@ -23,23 +23,40 @@ previous round's fixes.
 
 ## 1. Capture real output
 
-Capture at `COLUMNS=80`. Never hand-write or paraphrase samples — reviewers
-must see exactly what a user sees, wrapping included.
+One command produces every reviewer file — captured at 80 columns under a
+pty (`script -qec`), CR/ANSI-stripped, preview harness framing redacted:
 
-- Per-message coverage: `tools/preview_output.py --width 80` finds a real
-  corpus XML for each finding and prints the resulting run. `--list` reports
-  which XML matches what, and names any pattern with no corpus match.
-- Whole experience: one full real run, so the reviewer meets the diagnostics,
-  the scrollback and the ending in the order a user does.
-- Both entry points: `dolby_to_easyeffects.py` and `dolby_to_pipewire.py`.
-  Their readers differ — the wrapper's user chose it to avoid EasyEffects — so
-  findings do not transfer.
-- Wrap the command in `script -qec "…" /dev/null` when ordering matters.
-  Piping makes stdout block-buffered and reorders it against stderr, which a
-  terminal does not do.
+    tools/user_review_capture.py <corpus-xml>
 
-Run `dolby_to_pipewire.py` only with `--dry-run` or `--no-activate`; otherwise
-it restarts PipeWire. Point `--output-dir` at a scratch directory.
+(`tools/preview_output.py --list` prints candidate XMLs.) The files, in its
+`--out-dir`:
+
+- `cap_ee_full.txt` / `cap_pw_full.txt` — one full `--dry-run` run per entry
+  point, on the XML you pass. Their readers differ — the wrapper's user chose
+  it to avoid EasyEffects — so findings do not transfer. `--dry-run` is
+  deliberate: a real EE run would overwrite the user's live Dolby-* presets
+  with this XML's tuning, and a real wrapper run restarts PipeWire. Disclose
+  the flag (§2 exception).
+- `slice_ee_tail26.txt` — the EE run's last terminal screen, for reviewer A.
+- `slice_preview_blocks.txt` — per-message coverage: `preview_output.py`
+  finds a corpus XML for each finding pattern and prints the resulting
+  closing block. It drives `dolby_to_easyeffects.py` only; nothing but its
+  full run covers the wrapper.
+- `meta.txt` — orchestrator-only (§2): which pattern each block came from,
+  and the patterns with no corpus match.
+
+Never hand-write or paraphrase samples — reviewers must see exactly what a
+user sees, wrapping included. If you capture something the helper doesn't
+cover: `COLUMNS=80`, wrap in `script -qec "…" /dev/null` (piping reorders
+stdout against stderr, which a terminal does not), run `dolby_to_pipewire.py`
+only with `--dry-run` or `--no-activate`, and point `--output-dir` at scratch
+only with `--no-activate` — under `--dry-run` keep the defaults, so the
+printed paths are the ones a user sees.
+
+Do not read the captures into your own context. The helper's summary (exit
+code, line count and last line per file) is the validity check — at most tail
+~30 lines if in doubt. Read capture lines during triage only, and only the
+lines a claim is about.
 
 ## 2. Give the reviewer the output and nothing else
 
@@ -51,70 +68,166 @@ output uses. A user has none of that. Every hint is comprehension granted
 rather than measured, and it turns a finding into a pass.
 
 If the reviewer has to work out what a `[tag]` is, that *is* the finding.
+`meta.txt` exists so *you* never have to guess which block is which; it never
+reaches a reviewer.
 
 Exception: name flags the harness passed that a user would not (`--dry-run`
-forced by the preview tool), so they don't report those as faults.
+forced by the capture), so they don't report those as faults.
 
-## 3. Reviewer prompt template
+## 3. Dispatch three reviewers
+
+Three reviewers in parallel, one slice each, prompts below verbatim — fill in
+absolute paths and `<N>` (the block count, from the helper's summary or
+meta.txt). Run them at `model: sonnet`: a less capable reader is a more
+faithful proxy for a first-time user, and far cheaper; revert to the session
+model only if finding quality drops. Fixes come later, one at a time.
+
+Reviewer A gets the last screen before the scrollback. That order is how "the
+success line scrolled off the top and the last screen looked like a failure"
+surfaces — reading top-to-bottom hides it, and whether they would scroll at
+all is itself a finding.
+
+The prompts spell out the unknown terms; without that list the model supplies
+the expertise itself and reports that everything is clear. Keep that list in
+sync with the jargon the output actually uses.
+
+### Shared blocks
+
+Each prompt below starts with PERSONA and ends with FORMAT, verbatim:
+
+PERSONA (EE variant — reviewers A and C):
 
 ```
 ROLE-PLAY. You are NOT a developer on this project. Stay in character, and do
-not read any source code.
+not read any source code. Do not open any file other than the capture file(s)
+named below. Do not run any commands other than reading those files.
 
 You own a Linux laptop and wanted better speaker sound. You found
-speaker-tuning-to-easyeffects on GitHub, cloned it, and ran <command>. You can
+speaker-tuning-to-easyeffects on GitHub, cloned it, and ran
+`python3 dolby_to_easyeffects.py` with the path to a tuning file the README
+helped you find on your Windows partition. You can use a terminal, copy-paste
+commands, and file a GitHub issue. You are NOT an audio engineer. You have
+never heard of Dolby DAX3, "the regulator", "volmax", "IEQ", "audio
+optimizer", "PEQ", "MBC", "smart amp", or "volume leveler". Any other
+signal-processing jargon (FIR, Nyquist, crossover, biquad, high-shelf) is
+equally unknown to you. You just want your laptop to sound good.
+
+Harness note (do not report these as faults): the capture was made with
+`--dry-run` forced by our capture tooling, so nothing was actually installed
+— a real first run would not pass that flag. Judge whether the dry-run
+wording itself is clear, but not the fact that it was a dry run.
+```
+
+PERSONA (wrapper variant — reviewer B): same, with the second paragraph
+replaced by:
+
+```
+You own a Linux laptop and wanted better speaker sound. You found
+speaker-tuning-to-easyeffects on GitHub, cloned it, and ran
+`python3 dolby_to_pipewire.py` with the path to a tuning file the README
+helped you find on your Windows partition. You deliberately chose this script
+instead of the EasyEffects one because you do NOT want to install EasyEffects
+— you just use plain PipeWire like every modern Linux distro ships. You can
 use a terminal, copy-paste commands, and file a GitHub issue. You are NOT an
-audio engineer. You have never heard of Dolby DAX3, "the regulator", "volmax",
-"IEQ", "audio optimizer", "PEQ", "MBC", "smart amp", or "volume leveler". You
+audio engineer. You have never heard of Dolby DAX3, "the regulator",
+"volmax", "IEQ", "audio optimizer", "PEQ", "MBC", "smart amp", or "volume
+leveler". Any other signal-processing jargon (FIR, Nyquist, crossover,
+biquad, high-shelf, filter-chain internals) is equally unknown to you. You
 just want your laptop to sound good.
-
-Read: <captured output path>
-
-Judge as the user: do you understand it, do you know what to do, would you
-bother.
-
-<output format from §5>
-
-Be harsh but fair. No praise. Do not propose code changes. Do not invent
-filler findings — say so if a severity level is empty.
 ```
 
-Spell out the unknown terms explicitly. Without that list the model supplies
-the expertise itself and reports that everything is clear.
-
-## 4. Simulate the terminal
-
-At least one reviewer experiences it as a screen, not a file: give them the
-last ~26 lines first, ask what happened and what they would do next, and only
-then let them scroll. Whether they would scroll at all is itself a finding.
-
-This is how "the success line scrolled off the top and the last screen looked
-like a failure" surfaces. Reading top-to-bottom hides it.
-
-Dispatch three reviewers in parallel over different slices. Fixes come later,
-one at a time.
-
-## 5. Output format
-
-Require one list, numbered 1..N, worst first, no grouping:
+FORMAT (all reviewers):
 
 ```
+REPORT FORMAT:
+First, one line: would you keep using this tool, and would you file the
+report it asks for?
+Then ONE list of findings, numbered 1..N, worst first, no grouping. For each:
+
 SEVERITY: CRITICAL | HIGH | MEDIUM | LOW
 THE LINE: <quoted verbatim>
 WHAT'S WRONG: one or two sentences, from your point of view as the user
 THE FIX: your rewrite, one sentence
-```
 
 - CRITICAL — misleads, contradicts itself, or asks the impossible
 - HIGH — can't act on it, or would act wrongly
 - MEDIUM — gets there eventually at a cost, or would skip it
 - LOW — wording nit
 
-Ask for one line up front on whether they would keep using it and file the
-report, and at most five bullets afterwards on what they expected to be a
-problem and isn't — that names what not to undo later.
+After the list: at most five bullets on what you expected to be a problem
+and isn't.
 
-## 6. Triage before fixing
+Be harsh but fair. No praise. Do not propose code changes. Do not invent
+filler findings — say so if a severity level is empty.
+```
+
+### Reviewer A — terminal simulation, EasyEffects run
+
+PERSONA (EE), then:
+
+```
+THIS IS A TWO-STEP EXERCISE. Follow the order strictly.
+
+STEP 1 — the screen. Your terminal window shows 26 lines. After the run
+finished, this is what is on your screen — everything earlier has scrolled
+off the top. Read ONLY this file first:
+<abs path>/slice_ee_tail26.txt
+
+Answer, in character, before reading anything else:
+a) What just happened — did it work?
+b) What would you do next, concretely?
+c) Would you bother scrolling up? Why or why not?
+
+STEP 2 — the scrollback. Now you scroll up and read the whole run:
+<abs path>/cap_ee_full.txt
+
+Judge as the user: do you understand it, do you know what to do, would you
+bother.
+```
+
+then FORMAT, with this line inserted after its first line: "Then your STEP 1
+answers (a/b/c) verbatim."
+
+### Reviewer B — PipeWire wrapper run, top to bottom
+
+PERSONA (wrapper), then:
+
+```
+Read the whole run top to bottom:
+<abs path>/cap_pw_full.txt
+
+Judge as the user: do you understand it, do you know what to do, would you
+bother. Pay attention to whether the output ever talks to you as if you were
+an EasyEffects user — you are not, you picked this script to avoid that.
+```
+
+then FORMAT.
+
+### Reviewer C — the per-pattern closing blocks
+
+PERSONA (EE), then:
+
+```
+The file below contains <N> run endings, separated by
+"===== RUN ENDING #N =====" lines our tooling inserted (don't report those
+separator lines as faults). The tool prints a different ending depending on
+the laptop model, and these were captured on <N> different laptops. For each
+ending in turn, imagine YOUR laptop is that one and this is the end of YOUR
+run.
+
+Read:
+<abs path>/slice_preview_blocks.txt
+
+Judge as the user, for each ending: do you understand it, do you know what
+to do, would you bother. Also compare across endings — if two endings say
+nearly the same thing in different words, or contradict each other about the
+same feature, that's a finding.
+```
+
+then FORMAT, with "no grouping" extended to "no grouping (note which RUN
+ENDING # each came from)".
+
+## 4. Triage before fixing
 
 Reviewer output is evidence, not instruction.
 
@@ -126,4 +239,6 @@ Reviewer output is evidence, not instruction.
   has been the strongest signal available.
 
 Report the ranked, triaged list and let the user choose what to fix. The list
-is normally longer than the change they want.
+is normally longer than the change they want. The report also names the
+patterns meta.txt lists as having no corpus match — those messages went
+unreviewed this round, and silence would read as coverage.

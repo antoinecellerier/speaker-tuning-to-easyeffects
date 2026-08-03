@@ -209,8 +209,10 @@ def main(argv=None):
     if args.list:
         for slug in wanted:
             print(f"\n{slug}")
-            for path in found[slug] or ["  (no match)"]:
-                print(f"  {Path(path).name}")
+            for path in found[slug] or ["(no match)"]:
+                # Full path, not basename: the basename left the caller
+                # re-discovering the file just to pass it to another tool.
+                print(f"  {path}")
         return 0
 
     rule = "─" * min(shutil.get_terminal_size((80, 24)).columns, 100)
