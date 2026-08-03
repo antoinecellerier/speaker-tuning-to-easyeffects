@@ -5545,10 +5545,11 @@ def add_general_args(container, *, only=None):
              "automatically",
     )
     add(
-        "--skip-report-cta",
+        "--skip-closing",
         action="store_true",
-        help="skip the end-of-run 'help the project' block — for wrappers "
-             "that present it themselves",
+        help="skip the end-of-run closing blocks (what was written and how to "
+             "use it, and the report-back block) — for wrappers that install "
+             "elsewhere and present their own",
     )
     add(
         "--no-color",
@@ -5665,7 +5666,7 @@ def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None):
     """Generate the presets. ``closing`` collects the findings the closing
     block would render, for a caller that prints that block itself (see
-    ``--skip-report-cta``). Always populated when supplied, independently of
+    ``--skip-closing``). Always populated when supplied, independently of
     the flag, so a wrapper can't accidentally drop the run's findings."""
     parser = build_parser(argv)
     complete_and_load(parser)
@@ -5968,15 +5969,21 @@ def main(argv: list[str] | None = None,
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a
     # bug-report link — which reads as though the run failed.
-    print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
-                   output_dir=args.output_dir)
+    # Suppressed for a wrapper along with the closing ask: it stages presets
+    # into a tempdir it deletes on the way out, so "wrote 3 presets to
+    # /tmp/…, open EasyEffects and pick one" named a directory that no longer
+    # existed — and under the wrapper's --dry-run it also contradicted its
+    # own "nothing was written" two lines later.
+    if not args.skip_closing:
+        print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
+                       output_dir=args.output_dir)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
     # end — always collected, so nothing is lost either way.
     if closing is not None:
         closing.extend(scoped)
-    if not args.skip_report_cta:
+    if not args.skip_closing:
         print_project_asks(scoped, dry_run=args.dry_run, xml_path=xml_path)
 
 

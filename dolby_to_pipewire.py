@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     # The generator's own closing block would land under [1/3], with two more
     # phases of output below it; we collect its findings and print it last.
     step1_common = (rebuild_argv(step1_actions, args)
-                    + ["--skip-ee-check", "--skip-report-cta"])
+                    + ["--skip-ee-check", "--skip-closing"])
     if args.no_color:
         step1_common.append("--no-color")
 
@@ -358,7 +358,10 @@ def main(argv: list[str] | None = None) -> int:
             node_names.append(node_name)
 
     if args.dry_run:
-        cprint("head", "[3/3] Dry run — nothing was written; re-run without "
+        # "installed", not "written": staging really does write the presets
+        # (to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
+        # appear above), and claiming nothing was written contradicted them.
+        cprint("head", "[3/3] Dry run — nothing was installed; re-run without "
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:

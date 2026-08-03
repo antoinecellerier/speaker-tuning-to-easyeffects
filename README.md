@@ -137,7 +137,7 @@ pip install -r requirements.txt
 **General**
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--skip-ee-check` — skip the end-of-run EasyEffects environment check; for workflows that don't target an EasyEffects install (`dolby_to_pipewire.py` passes it automatically)
-- `--skip-report-cta` — skip the end-of-run "help the project" block; for wrappers that present it themselves
+- `--skip-closing` — skip the end-of-run closing blocks (what was written and how to use it, plus the report-back block); for wrappers that install elsewhere and present their own
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
 

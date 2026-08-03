@@ -1212,9 +1212,9 @@ def test_leveler_ask_does_not_contradict_the_no_effect_warning(
         assert "You enabled autogain, and this tuning pairs" not in out
 
 
-def test_skip_report_cta_gates_only_the_ask_block(monkeypatch, tmp_path,
+def test_skip_closing_gates_only_the_ask_block(monkeypatch, tmp_path,
                                                   capsys):
-    """`--skip-report-cta` suppresses the closing block and nothing else —
+    """`--skip-closing` suppresses the closing block and nothing else —
     dolby_to_pipewire.py relies on that to hold the block back from [1/3]
     while still getting the troubleshooting hints for the chain it built."""
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
@@ -1225,20 +1225,25 @@ def test_skip_report_cta_gates_only_the_ask_block(monkeypatch, tmp_path,
     dolby_to_easyeffects.main(base)
     assert dolby_to_easyeffects._REPORT_FORM_URL in capsys.readouterr().out
 
-    dolby_to_easyeffects.main(base + ["--skip-report-cta"])
+    dolby_to_easyeffects.main(base + ["--skip-closing"])
     out = capsys.readouterr().out
     assert dolby_to_easyeffects._REPORT_FORM_URL not in out
+    # Both closing blocks go, not just the ask. dolby_to_pipewire.py stages
+    # into a tempdir it then deletes, so "wrote 3 presets to /tmp/…, open
+    # EasyEffects and pick one" pointed at a directory that no longer existed.
+    assert "Done — wrote" not in out
+    assert "open EasyEffects" not in out
     # The run still happened and still reported itself.
     assert "ieq-amount" in out
 
 
-def test_skip_report_cta_still_hands_back_the_findings(tmp_path):
+def test_skip_closing_still_hands_back_the_findings(tmp_path):
     """The flag governs printing, not collecting. A wrapper that suppressed
     the block would otherwise silently drop every finding the run raised."""
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     collected = []
     dolby_to_easyeffects.main(
-        [str(xml), "--skip-ee-check", "--skip-report-cta",
+        [str(xml), "--skip-ee-check", "--skip-closing",
          "--output-dir", str(tmp_path / "out"),
          "--irs-dir", str(tmp_path / "irs")],
         closing=collected)
