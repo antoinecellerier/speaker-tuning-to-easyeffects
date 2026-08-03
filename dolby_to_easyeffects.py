@@ -3182,7 +3182,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     vlldp = profile.find("tuning-vlldp")
     if vlldp is None:
         raise ValueError(
-            f"{path.name}: profile '{profile.get('type') or '(first)'}' has "
+            f"{path.name}: profile "
+            f"'{profile.get('type') or 'first in the file'}' has "
             "no <tuning-vlldp> — no audio-optimizer, PEQ, or MBC data to read. "
             "This XML uses a DAX3 schema variant this script does not support."
         )
@@ -5919,7 +5920,11 @@ def main(argv: list[str] | None = None,
         if is_soundwire:
             cprint("head", "SoundWire device detected — using enhanced preset generation")
         cprint("head", f"Endpoint: {args.endpoint} (mode={args.mode})")
-        cprint("head", f"Profile: {profile_type or '(first)'}")
+        # "(first)" read as a placeholder that failed to fill in (two
+        # user-review reviewers, independently). Say what it means; the line
+        # prints before parse_xml so it can only name the request — the
+        # resolved name follows once parsing supplies it.
+        cprint("head", f"Profile: {profile_type or 'first in the file'}")
 
         tuning = parse_xml(
             xml_path,
@@ -5927,6 +5932,10 @@ def main(argv: list[str] | None = None,
             operating_mode=args.mode,
             profile_type=profile_type,
         )
+        if not profile_type and tuning.profile_used:
+            cprint("head", f"  (the file's first profile is "
+                           f"'{tuning.profile_used}' — pass --profile to "
+                           "pick another)")
 
         # ieq-amount is a percentage: amount=10 -> the IEQ voicing is applied
         # at 10% weight on top of the audio-optimizer correction, not as a
