@@ -3615,9 +3615,13 @@ def _loudness_untamed_finding() -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
         slug="loudness-untamed",
-        detail="This tuning's regulator never engages (every band threshold "
-               "is >= 0 dB), so the volmax boost reaches the brickwall "
-               "limiter untamed.",
+        # Names the row it means. "every band threshold is >= 0 dB" printed
+        # directly under a table showing threshold_high at +0.0 *and*
+        # threshold_low at -12.0, so it read as contradicting the numbers
+        # right above it and neither could be trusted.
+        detail="This tuning's regulator never engages — every band's "
+               "threshold_high above is at or over 0 dB — so the volmax "
+               "boost reaches the brickwall limiter untamed.",
         ask="If loud parts distort or sound crushed, re-run with "
             "--disable volmax.")
 
