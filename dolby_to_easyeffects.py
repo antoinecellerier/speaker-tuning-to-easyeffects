@@ -5260,7 +5260,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                                                  tuning.profile_used))
         _print_finding_detail(findings[-1])
 
-    print(f"ieq-amount: {ieq_amount}% (scale: {scale:.2f})")
+    # One clause of meaning: this used to print bare ("ieq-amount: 10%
+    # (scale: 0.10)") — no heading, nothing tying back to it, and a
+    # reviewer couldn't tell whether it mattered.
+    print(f"ieq-amount: {ieq_amount}% — the Balanced/Detailed/Warm voicing "
+          "curves apply at this weight on top of the speaker correction")
 
     # Audio-optimizer curves in dB
     print("\nAudio-optimizer (dB):")
@@ -5272,13 +5276,16 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
     print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
+    # The row types carry a what-you-hear clause where the name alone says
+    # nothing to a non-engineer — the dialog/bass sections had one and this
+    # section didn't, which read as "am I supposed to understand this?".
     print("\nPEQ filters (kept as parametric EQ):")
     for pf in peq_filters:
         spk = "L" if pf["speaker"] == 0 else "R"
         if pf["type"] in (7, 9):
-            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
+            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — cuts bass the speaker can't play")
         elif pf["type"] in (6, 8):
-            print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)  [unconfirmed-by-ear]")
+            print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — rolls off the top end  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
             print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
         elif pf["type"] == 3:
@@ -5316,7 +5323,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     if mb_comp:
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
-        print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s){tag}")
+        print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s) — "
+              f"evens out loud vs quiet separately per frequency range{tag}")
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
         # Print FROM the single-source decode — no inline re-decode, no
         # warnings (those fire in make_multiband_compressor). xover_hz is a
