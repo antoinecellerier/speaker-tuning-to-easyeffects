@@ -576,8 +576,10 @@ the leveler acts — no convolver/MBC/limiter confounds), `target=-22 LUFS`,
 `maximum-history=20 s`, played as a loud(-16)→quiet(-34)→loud(-16)→silence pink
 battery through both the live EE chain and the PW filter-chain rendering of the
 *same* preset, captured via the `tools/measure_ee` + `tools/measure_pw`
-null-sink route, compared as output integrated-LUFS / RMS-envelope trajectories
-(`localresearch/measure_ee/autogain_proof/`). Results:
+null-sink route, compared as output integrated-LUFS / RMS-envelope trajectories.
+Reproduce with [`tools/measure_pw/autogain_proof.py`](../tools/measure_pw/autogain_proof.py)
+(`build` → `capture --side {ee,pw}` → `analyze`; captures stay untracked under
+its `--out-dir`). Results:
 
 - **Loudness target — exact.** Both chains settled the loud segments to **−22.00
   LUFS** (= target) and matched each other to **0.2 dB** RMS. Validates `level`.
@@ -629,7 +631,7 @@ Net: translating autogain adds no clip risk, and the HDA default-bypass stays a
 which only translates the already-active SoundWire case (quiet typically near
 target, where the drift dead-band barely bites). The `drift`/`max_amp` knobs
 (left at LSP defaults) are the levers if PW's deep-quiet tracking is ever revisited.
-Captures/driver: `localresearch/measure_ee/autogain_fullchain/`.
+Driver: [`tools/measure_pw/autogain_fullchain.py`](../tools/measure_pw/autogain_fullchain.py).
 
 ## Verified math (sanity checks)
 
