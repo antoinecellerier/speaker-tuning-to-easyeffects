@@ -10,7 +10,9 @@
 #                                entries are still listed here
 #   "# watch: standing — …"    — lessons that outlive their issue (guard-exempt)
 # Keep this current when opening or closing a device investigation — see
-# CLAUDE.md "Repo etiquette".
+# CLAUDE.md "Repo etiquette". After investigating a hit the workflow flagged,
+# record the verdict by editing that hit comment (append a "### Triage" section
+# — CLAUDE.md has the format) so unassessed hits stay distinguishable.
 
 # watch: #29 Zenbook S14 — Lunar Lake SoundWire platform, CS35L56 amps
 zenbook

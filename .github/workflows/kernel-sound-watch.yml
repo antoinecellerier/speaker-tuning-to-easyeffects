@@ -8,6 +8,9 @@ name: Kernel sound-tree watch
 # (.github/kernel-watchlist.txt) up top, full pull text folded below.
 # Judgment about whether a hit matters for an open issue stays with humans
 # (or a Claude session) reading the comment — nothing here needs an API key.
+# Triage verdicts are recorded by editing the hit comment itself (appended
+# "### Triage" section, format in CLAUDE.md); the workflow never re-reads
+# hit comments (state lives in the marker comment below), so edits are safe.
 #
 # State (which tags have been processed) lives in a machine-edited comment on
 # the tracking issue itself, found by the <!-- kernel-watch-state --> marker

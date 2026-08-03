@@ -88,7 +88,14 @@ sessions shipped bugs that only showed on real content.
 - **Device-issue triage updates the kernel watchlist** — opening or closing
   a device investigation → update `.github/kernel-watchlist.txt` in the same
   commit (`# watch: #NN` headers; `standing` = outlives the issue). The
-  kernel-sound-watch workflow greps new sound-tree pull tags with it.
+  kernel-sound-watch workflow greps new sound-tree pull tags with it and
+  posts one hit comment per tag on the tracking issue. **Investigated a hit?
+  Record the verdict in that comment** — edit it to append a
+  `### Triage (YYYY-MM-DD)` section (commit(s) the hit resolves to, impact
+  per watching issue, action taken, Claude footer). An un-annotated hit
+  means "not yet assessed". This is tracker bookkeeping, not a
+  reporter-facing reply — no draft-review cycle needed once the finding was
+  reported in-session.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
