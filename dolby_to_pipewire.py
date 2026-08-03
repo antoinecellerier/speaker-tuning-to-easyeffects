@@ -332,8 +332,24 @@ def main(argv: list[str] | None = None) -> int:
                           "the log above (the XML may lack that IEQ curve)")
             return 1
 
-        cprint("head", f"[2/3] Converting {len(presets)} preset(s) to a "
-                       "PipeWire filter-chain conf")
+        # Name what is being converted and what isn't. Step 1 lists all three
+        # voicings as generated, so converting one without saying which — or
+        # that the others are reachable — read as two of them being silently
+        # dropped, with no way to try Warm if Balanced sounds wrong.
+        if len(presets) == 1:
+            cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
+                           "filter-chain conf")
+        else:
+            cprint("head", f"[2/3] Converting {len(presets)} presets to "
+                           "PipeWire filter-chain confs")
+            for preset in presets:
+                cprint("dim", f"      {preset.stem}")
+        if args.variant != "all":
+            others = [v for v in VARIANT_STEMS if v != args.variant]
+            cprint("dim", "      The other voicings are not converted: "
+                          + ", ".join(others) + ".")
+            cprint("dim", f"      Pass --variant {others[0]} for that one, or "
+                          "--variant all for a sink each.")
         step2_common = (rebuild_argv(step2_actions, args)
                         + ["--irs-dir", tmp, "--skip-next-steps"])
         if args.dry_run:
