@@ -1465,6 +1465,20 @@ def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
                    for line in capsys.readouterr().out.splitlines())
 
 
+def test_fir_tables_carry_a_verdict_and_a_skippable_preface(tmp_path,
+                                                            monkeypatch,
+                                                            capsys):
+    """Sixty rows of target/actual/error with no verdict read as a slow
+    drift going wrong — reviewers could not tell +0.03 was a pass — and
+    nothing said the tables were safe to skip."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
+    out = capsys.readouterr().out
+    assert "FIR check passed" in out
+    assert "diagnostic tables below" in out
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of

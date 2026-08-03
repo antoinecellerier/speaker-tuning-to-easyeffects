@@ -5350,6 +5350,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     return findings
 
 
+# Verdict gate for the printed FIR verification: far above the minimum-phase
+# design's normal residual (~0.05 dB at the 20 probe points) and below
+# anything audible, so it warns only when the reconstruction actually broke.
+FIR_VERIFY_OK_DB = 0.5
+
+
 def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                       scale, is_soundwire, disabled, args, profile_label,
                       all_preset_names, filters_by_profile):
@@ -5412,6 +5418,11 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         verb = "Would write" if args.dry_run else "Wrote"
         cprint("ok", f"{verb} {irs_path}")
         cprint("ok", f"{verb} {out_path}")
+        # Reviewers found the two warnings that matter buried between these
+        # tables and could not tell whether reading them was expected — say
+        # once that they are skippable, before the first one.
+        cprint("dim", "  (diagnostic tables below — you don't need to read "
+                      "them)")
         print(f"  {curve_key} combined IEQ+AO curve (left channel):")
         print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
         for i, f in enumerate(freqs):
@@ -5422,11 +5433,24 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
         mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
         cprint("dim", "\n  FIR verification (left, normalized to peak=0):")
+        worst = 0.0
         for i, f in enumerate(freqs):
             idx = np.argmin(np.abs(fft_freqs - f))
+            err = mag_db[idx] - (combined_left[i] - np.max(combined_left))
+            worst = max(worst, abs(err))
             cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
                   f"actual: {mag_db[idx]:+6.1f}  "
-                  f"error: {mag_db[idx] - (combined_left[i] - np.max(combined_left)):+5.2f}")
+                  f"error: {err:+5.2f}")
+        # A table of sixty "error" rows with no verdict reads as a slow
+        # drift going wrong; nobody outside this file knows 0.03 dB is a
+        # pass. The threshold is far above the minimum-phase design's
+        # normal residual (~0.05 dB) and below anything audible.
+        if worst <= FIR_VERIFY_OK_DB:
+            cprint("ok", f"  FIR check passed: within {worst:.2f} dB of the "
+                         "target everywhere (inaudible)")
+        else:
+            cprint("warn", f"  FIR check: {worst:.2f} dB off target at "
+                           "worst — unexpected, please report this run")
         print()
 
 
