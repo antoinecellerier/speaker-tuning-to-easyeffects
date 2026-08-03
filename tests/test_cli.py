@@ -1482,18 +1482,31 @@ def test_flag_menu_lead_is_dry_run_aware(monkeypatch, capsys):
     assert "the same command you ran" in out
 
 
-def test_fir_tables_carry_a_verdict_and_a_skippable_preface(tmp_path,
+def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
                                                             monkeypatch,
                                                             capsys):
-    """Sixty rows of target/actual/error with no verdict read as a slow
-    drift going wrong — reviewers could not tell +0.03 was a pass — and
-    nothing said the tables were safe to skip."""
+    """The tables were the bulk of the output and buried the findings even
+    when marked skippable; the verdict line is what a default reader needs.
+    -v restores the full tables (and reports are asked to include a -v
+    log)."""
     monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
     out = capsys.readouterr().out
     assert "FIR check passed" in out
-    assert "diagnostic tables below" in out
+    assert "re-run with -v" in out
+    assert out.count("frequency tables hidden") == 1
+    assert "FIR verification (left" not in out
+    assert "combined IEQ+AO curve" not in out
+
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "-v"])
+    out = capsys.readouterr().out
+    assert "FIR check passed" in out
+    assert "FIR verification (left" in out
+    assert "combined IEQ+AO curve" in out
+    assert "frequency tables hidden" not in out
 
 
 def test_disable_symptoms_do_not_overlap():

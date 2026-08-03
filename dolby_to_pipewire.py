@@ -124,6 +124,8 @@ def _compose_parser(argv=None):
     step1_actions += dolby_to_easyeffects.add_filter_tweak_args(group)
 
     group = parser.add_argument_group("general")
+    step1_actions += dolby_to_easyeffects.add_general_args(
+        group, only={"--verbose"})
     group.add_argument(
         "--dry-run",
         action="store_true",

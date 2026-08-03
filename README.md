@@ -135,6 +135,7 @@ pip install -r requirements.txt
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
+- `--verbose` (alias `-v`) — print the full frequency tables (hidden by default); include a `-v` log when reporting a sound problem
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
 - `--skip-ee-check` — skip the end-of-run EasyEffects environment check; for workflows that don't target an EasyEffects install (`dolby_to_pipewire.py` passes it automatically)
 - `--skip-closing` — skip the end-of-run closing blocks (what was written and how to use it, plus the report-back block); for wrappers that install elsewhere and present their own
@@ -319,6 +320,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 - `--volmax-slot {input-gain,output-gain}` — which regulator gain slot carries the static volmax boost (default: `input-gain`)
 
 **General**
+- `--verbose` (alias `-v`) — print the generator's full frequency tables; same as `dolby_to_easyeffects.py`
 - `--dry-run` — print the generated conf(s) to stdout; nothing is written outside the staging directory and PipeWire is not restarted
 - `--no-validate` — skip the `lv2info` schema self-check
 - `--no-color` — disable colored terminal output

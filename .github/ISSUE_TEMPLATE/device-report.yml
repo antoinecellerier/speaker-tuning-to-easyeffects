@@ -42,9 +42,10 @@ body:
       description: >-
         Leave this empty if you're just reporting things are working well.
         If you're reporting a sound-quality problem, paste the full output of
-        the run that wrote the presets (e.g. `python3 dolby_to_easyeffects.py
-        --autoload`) — it shows the tuning values derived from your XML, which
-        is what a diagnosis needs.
+        the run that wrote the presets, re-run with `-v` (e.g. `python3
+        dolby_to_easyeffects.py -v --autoload`) — the verbose run includes
+        the frequency tables a diagnosis needs on top of the tuning values
+        derived from your XML.
       placeholder: |
         Leave this empty if you're just reporting things are working well.
       render: shell

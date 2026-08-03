@@ -5428,6 +5428,10 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         f"{name_base}-Warm": "ieq_warm",
     }
 
+    # One hidden-tables hint per profile, at the spot the first table would
+    # have occupied — three identical lines read as a nag.
+    tables_hint_pending = not args.verbose
+
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
             cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
@@ -5468,29 +5472,38 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         verb = "Would write" if args.dry_run else "Wrote"
         cprint("ok", f"{verb} {irs_path}")
         cprint("ok", f"{verb} {out_path}")
-        # Reviewers found the two warnings that matter buried between these
-        # tables and could not tell whether reading them was expected — say
-        # once that they are skippable, before the first one.
-        cprint("dim", "  (diagnostic tables below — you don't need to read "
-                      "them)")
-        print(f"  {curve_key} combined IEQ+AO curve (left channel):")
-        print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
-        for i, f in enumerate(freqs):
-            print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
+        # The tables are behind -v: even marked skippable they were the
+        # bulk of the output, burying the findings between them, and their
+        # only reader is someone diagnosing a wrong-sounding preset — who
+        # is told to re-run with -v. The verdict line below prints either
+        # way, so the check itself is never hidden.
+        if args.verbose:
+            print(f"  {curve_key} combined IEQ+AO curve (left channel):")
+            print(f"  {'freq':>8}  {'IEQ':>6}  {'AO':>6}  {'combined':>8}")
+            for i, f in enumerate(freqs):
+                print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
+        elif tables_hint_pending:
+            tables_hint_pending = False
+            cprint("dim", "  (frequency tables hidden — re-run with -v to "
+                          "print them)")
 
-        # Verify FIR frequency response
+        # Verify FIR frequency response — the math runs either way; -v only
+        # decides whether the per-frequency rows print.
         H = np.fft.rfft(fir_left, n=FIR_LENGTH)
         fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
         mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
-        cprint("dim", "\n  FIR verification (left, normalized to peak=0):")
+        if args.verbose:
+            cprint("dim", "\n  FIR verification (left, normalized to "
+                          "peak=0):")
         worst = 0.0
         for i, f in enumerate(freqs):
             idx = np.argmin(np.abs(fft_freqs - f))
             err = mag_db[idx] - (combined_left[i] - np.max(combined_left))
             worst = max(worst, abs(err))
-            cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
-                  f"actual: {mag_db[idx]:+6.1f}  "
-                  f"error: {err:+5.2f}")
+            if args.verbose:
+                cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
+                      f"actual: {mag_db[idx]:+6.1f}  "
+                      f"error: {err:+5.2f}")
         # A table of sixty "error" rows with no verdict reads as a slow
         # drift going wrong; nobody outside this file knows 0.03 dB is a
         # pass. The threshold is far above the minimum-phase design's
@@ -5720,8 +5733,15 @@ def add_filter_tweak_args(container, *, only=None):
 
 
 def add_general_args(container, *, only=None):
-    """General flags — dolby_to_pipewire.py authors its own equivalents."""
+    """General flags — dolby_to_pipewire.py authors its own equivalents
+    (and forwards --verbose to the generator it runs)."""
     add, added = _make_adder(container, only)
+    add(
+        "--verbose", "-v",
+        action="store_true",
+        help="print the full frequency tables (hidden by default); include "
+             "a -v log when reporting a sound problem",
+    )
     add(
         "--dry-run",
         action="store_true",
