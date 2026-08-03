@@ -760,7 +760,7 @@ def test_coupled_bands_eligibility_helper():
 
 
 def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
-                   default_profile=None):
+                   default_profile=None, geq_max_range=192):
     """Minimal tuning stand-in for _report_parsed_profile: every optional
     block is falsy so only the regulator/volmax sections print."""
     from types import SimpleNamespace
@@ -768,7 +768,8 @@ def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
         ieq_amount=10, peq_filters=[], dialog_enhancer=None, surround=None,
         vol_leveler=None, mb_comp=None, regulator=regulator,
         volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20,
-        profile_used=profile_used, default_profile=default_profile)
+        profile_used=profile_used, default_profile=default_profile,
+        geq_max_range=geq_max_range)
 
 
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
@@ -790,6 +791,58 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
         [0.0] * 20, [0.0] * 20, 0.1, disabled)
     out = capsys.readouterr().out
     assert ("regulator never engages" in out) is expect_warn
+
+
+def _peaked_ao(peak_band, peak_db):
+    """A 20-band AO curve that is flat at 0 dB except for one boosted band."""
+    ao = [0.0] * 20
+    ao[peak_band] = peak_db
+    return ao
+
+
+@pytest.mark.parametrize("peak_db,peak_limited,volmax,disabled,enabled,expect_warn", [
+    (12.0, False, 9.0, set(), set(), True),      # issue #46's T495 shape
+    (12.0, True, 9.0, set(), set(), False),      # regulator covers the peak band
+    (9.0, False, 9.0, set(), set(), False),      # boost short of the full range
+    (12.0, False, 0.0, set(), set(), False),     # no volmax riding on top
+    (12.0, False, 9.0, {"volmax"}, set(), False),
+    (12.0, False, 9.0, set(), {"coupled-bands"}, False),   # that band now limited
+])
+def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
+        monkeypatch, capsys, peak_db, peak_limited, volmax, disabled, enabled,
+        expect_warn):
+    """Issue #46: the regulator limits *somewhere*, so the all-inert warning
+    stays quiet, but the band carrying the largest correction boost is one it
+    leaves alone — that boost plus volmax hits the brickwall unprotected."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    peak_band = 1
+    th = [-6.0 if peak_limited else 0.0] * 20
+    th[10] = -6.0                              # limits somewhere regardless
+    ao = _peaked_ao(peak_band, peak_db)
+    _report_parsed_profile(
+        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), volmax),
+        ao, ao, 0.1, disabled, enabled=enabled)
+    out = capsys.readouterr().out
+    assert ("leaves unlimited" in out) is expect_warn
+    if expect_warn:                            # names the offending band
+        assert f"{SYNTHETIC_FREQS_20[peak_band]} Hz" in out
+
+
+def test_report_unlimited_boost_warning_uses_the_xml_declared_range(
+        monkeypatch, capsys):
+    """The gate is this XML's own stated per-band gain range, not a fixed
+    +12 dB: a file declaring a wider range needs a bigger boost to trip it."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)
+    th = [0.0] * 20
+    th[10] = -6.0
+    ao = _peaked_ao(1, 12.0)
+    _report_parsed_profile(
+        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), 9.0,
+                       geq_max_range=256),     # 16 dB range; +12 is mid-scale
+        ao, ao, 0.1, set())
+    assert "leaves unlimited" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("profile_used,declared,expect_note", [

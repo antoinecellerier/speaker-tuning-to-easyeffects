@@ -2948,6 +2948,10 @@ class ParsedTuning:
     # the run says so rather than silently diverging from Windows (issue #46).
     profile_used: str | None = None
     default_profile: str | None = None
+    # <setting><geq_maximum_range>, raw 1/16 dB: the widest per-band gain this
+    # XML expresses (192 = 12 dB). Only the older files state it; the rest are
+    # assumed to share the same range, which no corpus file contradicts.
+    geq_max_range: int = 192
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
@@ -3281,6 +3285,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         profile_used=profile.get("type"),
         default_profile=(declared_default.get("value")
                          if declared_default is not None else None),
+        geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
+                                default=192),
     )
 
 
@@ -4606,6 +4612,29 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                        "threshold is >= 0 dB), so the volmax boost reaches "
                        "the brickwall limiter untamed. If loud content "
                        "sounds squashed, re-run with --disable volmax.")
+    # The partial case: the regulator limits *somewhere*, so the warning above
+    # stays quiet, yet the band carrying the tuning's largest boost is one of
+    # the bands it leaves alone — the boost and the volmax gain on top of it
+    # reach the brickwall unprotected. Gated on the boost reaching this XML's
+    # full gain range so it stays rarer than the all-inert case above; it fires
+    # on 8% of the corpus against that one's 16% (issue #46's T495 is one).
+    elif (volmax_boost > 0 and "volmax" not in disabled
+            and regulator and "regulator" not in disabled
+            and not ("coupled-bands" in (enabled or set())
+                     and _coupled_bands_eligible(regulator))):
+        peak_band = max(range(len(ao_db_left)),
+                        key=lambda i: max(ao_db_left[i], ao_db_right[i]))
+        peak_db = max(ao_db_left[peak_band], ao_db_right[peak_band])
+        thresholds = regulator["threshold_high"]
+        if (peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
+                and peak_band < len(thresholds)
+                and thresholds[peak_band] >= 0):
+            cprint("warn", f"⚠  The biggest correction boost ({peak_db:+.1f} dB "
+                           f"at {freqs[peak_band]} Hz) lands on a band the "
+                           "regulator leaves unlimited, with the volmax boost "
+                           "on top. If bass or loud content distorts, re-run "
+                           "with --disable volmax, or try --enable "
+                           "coupled-bands to limit that band too.")
     print()
 
 

@@ -98,6 +98,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   and the script always builds the endpoint's first. Rebuild with
   `--profile <name>` to match Windows; presets are otherwise unchanged
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
+- A run now warns when the tuning's largest correction boost lands on a
+  band the speaker-protection limiter leaves unlimited, so that boost and
+  the volmax gain reach the final limiter unprotected. Suggests
+  `--disable volmax` / `--enable coupled-bands` if bass or loud content
+  distorts; presets are unchanged
+  ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
 
 ### Fixed
 
