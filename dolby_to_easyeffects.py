@@ -3772,6 +3772,11 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     the end, so the last thing on screen has to carry it too.
     """
     asks = [f for f in findings if f.kind == "ask" and f.ask]
+    # Every tag shown this run, not just the ones with an ask. A hint like
+    # [loudness-untamed] is often the only finding that actually fired for
+    # the device, and listing only asks under "quote the tag in brackets"
+    # sent reporters to quote the speculative one and never mention it.
+    tagged = [f for f in findings if f.slug]
     print()
     if asks:
         cprint("head", "=" * 60)
@@ -3779,8 +3784,9 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         print()
         # Say what the bracketed tags are for. Read cold they look like debug
         # labels that leaked out of the code, which is how they get ignored.
-        cprint("dim", "We can't settle these without you — quote the tag in "
-                      "brackets if you report one:")
+        _cprint_wrapped("dim", "We can't settle these without you. Quote any "
+                               "[tag] from this run when you report — these "
+                               "most of all:")
         for finding in asks:
             _print_ask("cta", finding)
         # The tool found the tuning XML; the user never went looking for it,
@@ -3795,6 +3801,13 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
             # eaten by the shell the moment anyone types ls on it and the
             # file looks missing.
             cprint("dim", f"    '{Path(xml_path).resolve()}'")
+        print()
+    elif tagged:
+        # No ask fired, but something upstream still carries a tag. Say it is
+        # worth quoting, or the reader is left holding a bracketed token with
+        # no reason to think it means anything to us.
+        _cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
+                               "it tells us which finding you mean.")
         print()
     # The link prints either way. Suppressing it on a dry run left the block
     # above saying "quote the tag in brackets if you report one" with nowhere

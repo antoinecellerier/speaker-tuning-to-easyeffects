@@ -1315,6 +1315,32 @@ def test_apply_hint_skips_easyeffects_for_a_wrapper(monkeypatch, capsys):
     assert "--disable mbc" in out
 
 
+def test_every_shown_tag_is_quotable(monkeypatch, capsys):
+    """A hint tag is often the only finding that actually fired for the
+    device. Listing only ask-tags under "quote the tag in brackets" sent
+    reporters to quote the speculative one and never mention the real
+    finding."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    hint = dolby_to_easyeffects._loudness_untamed_finding()
+    ask = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+                                                     ["high-shelf"])
+
+    # With an ask, the header must not imply only the listed tags count.
+    dolby_to_easyeffects.print_project_asks([hint, ask])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Quote any [tag] from this run" in out
+
+    # With a hint and no ask there is no list at all, so the tag would
+    # otherwise go unexplained.
+    dolby_to_easyeffects.print_project_asks([hint])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Saw a [tag] above?" in out
+
+    # A clean run mentions tags not at all.
+    dolby_to_easyeffects.print_project_asks([])
+    assert "[tag]" not in capsys.readouterr().out
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of
