@@ -56,3 +56,8 @@ enough to need folding must ask** via `_cprint_wrapped` / `_print_flag_hint`.
 budget, the no-URL and no-empty-action rules, slug uniqueness, and that a
 clean run collapses to just the ask. Extend `_every_finding()` when you add a
 raiser that isn't table-driven — the traps only cover what that walks.
+
+Those traps are structural and can't tell you a message is confusing,
+contradictory, or impossible to act on. After changing copy here, run the
+**/user-review** skill: it puts the real output past reviewers role-playing a
+first-time user and reports severity-ranked findings.
