@@ -213,8 +213,13 @@ def _safe_node_name(stem: str) -> str:
 
 
 PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
-QUIT_EE_HINT = ("Avoid double-processing: quit EasyEffects "
-                "(or remove its autoload for this device)")
+# Conditional on purpose: this script's audience chose it to avoid
+# EasyEffects, and an unconditional "quit EasyEffects" read as "did
+# something install it behind my back?" (round-3 review). The
+# double-processing consequence rides the activation warning, which
+# appends it.
+QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it "
+                "(or remove its autoload)")
 
 
 def _print_undo(written: list[Path]) -> None:
