@@ -3547,10 +3547,12 @@ _UNMODELED_FEATURES = [
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
         # "confirm it" left the antecedent open — confirm the level, or that
-        # the presets are fine? Name the thing we'd check.
+        # the presets are fine? Name the thing we'd check. And not "check
+        # it's safe": safety talk implies a hazard that doesn't exist here —
+        # the question is whether ignoring the field is right.
         lambda el: ("The presets ignore your tuning's peak-level and should "
-                    "sound right — send the XML and we'll check it's safe "
-                    "on your model.")),
+                    "sound right — send the XML and we'll double-check for "
+                    "your model.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
