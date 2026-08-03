@@ -3679,8 +3679,12 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
                "sounded better.")
     else:
         ask = "Tell us whether it sounds right — either answer helps."
+    # Not slug="experimental": the --enable menu describes coupled-bands as
+    # "experimental (issue #44)" on the same screen, so a report quoting
+    # "[experimental]" could mean either. The slug states the situation the
+    # detail describes; the menus keep "experimental" as an adjective.
     return Finding(
-        slug="experimental", kind="ask",
+        slug="unconfirmed-by-ear", kind="ask",
         detail=f"Built from your tuning but never confirmed by ear: {named}. "
                "These come straight out of the Dolby file and the numbers "
                "check out, but nobody with a device that uses them has told "
@@ -5272,11 +5276,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if pf["type"] in (7, 9):
             print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)")
         elif pf["type"] in (6, 8):
-            print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)  [experimental]")
+            print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct)  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
             print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}")
         elif pf["type"] == 3:
-            print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}  [experimental]")
+            print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']}  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']}")
 
@@ -5309,7 +5313,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
 
     if mb_comp:
-        tag = "  [experimental]" if mb_comp["group_count"] == 1 else ""
+        tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
         print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s){tag}")
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
         # Print FROM the single-source decode — no inline re-decode, no
@@ -6134,10 +6138,10 @@ def main(argv: list[str] | None = None,
     if experimental:
         # Only the markers that are also --disable names give the user an A/B;
         # "mbc-1band" and "coupled-bands-active" have no flag of their own.
-        findings.setdefault("experimental", _experimental_finding(
+        findings.setdefault("unconfirmed-by-ear", _experimental_finding(
             ", ".join(experimental),
             [k for k in fired if k in DISABLEABLE_FILTERS]))
-        _print_finding_detail(findings["experimental"])
+        _print_finding_detail(findings["unconfirmed-by-ear"])
 
     # Gated on the leveler actually running, not on the flag being passed:
     # --enable autogain does nothing when the XML disables the leveler, and

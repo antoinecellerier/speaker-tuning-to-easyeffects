@@ -142,7 +142,7 @@ def recorders(monkeypatch):
             # The real generator hands its findings back for the wrapper to
             # render at the end; one is enough to exercise that path.
             closing.append(dolby_to_easyeffects.Finding(
-                slug="experimental", kind="ask", detail="x",
+                slug="unconfirmed-by-ear", kind="ask", detail="x",
                 ask="Does the treble sound right?"))
         if "--output-dir" in argv:
             out = Path(argv[argv.index("--output-dir") + 1])

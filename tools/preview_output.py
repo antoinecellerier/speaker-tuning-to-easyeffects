@@ -72,7 +72,7 @@ def _predicates():
         "profile-mismatch": lambda t: (t.default_profile
                                       and t.default_profile != t.profile_used),
         "leveler-gap": lambda t: bool(t.leveler_substages),
-        "experimental": lambda t: any(
+        "unconfirmed-by-ear": lambda t: any(
             f["type"] in (3, 6, 8) for f in t.peq_filters),
         # The watching-only XML fields, which parse_xml already turns into
         # findings — so ask the finding itself rather than restating xpaths.
