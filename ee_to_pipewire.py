@@ -1527,8 +1527,13 @@ def main(argv: list[str] | None = None) -> int:
         # either side of it; the paths below say what would have been written,
         # which is what a human running --dry-run is actually asking.
         if sys.stdout.isatty():
-            cprint("dim", "(conf not shown — redirect or pipe stdout to see "
-                          "it, e.g. --dry-run > preview.conf)")
+            # A paste-able instruction, not a flag fragment: "e.g. --dry-run
+            # > preview.conf" made a reviewer guess what goes in front, and
+            # they expected the whole log to land in the file — it won't,
+            # these messages are on stderr and only the conf is on stdout.
+            cprint("dim", "(conf not shown — add ' > preview.conf' to your "
+                          "command to save it; only the conf lands in the "
+                          "file, these messages stay on screen)")
         else:
             sys.stdout.write(conf)
         would_conf = (args.output.expanduser() if args.output is not None
