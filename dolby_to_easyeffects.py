@@ -3100,10 +3100,18 @@ DB_FIXED_POINT_SCALE = 16.0
 
 
 def parse_xml(path: Path, endpoint_type="internal_speaker",
-              operating_mode="normal", profile_type=None) -> ParsedTuning:
+              operating_mode="normal", profile_type=None,
+              announce_profile=False) -> ParsedTuning:
     """Parse a DAX3 tuning XML into a ``ParsedTuning`` (see that dataclass for
     the fields and their units). Raises ``ValueError`` with an actionable
-    message for unsupported schema variants or missing required elements."""
+    message for unsupported schema variants or missing required elements.
+
+    ``announce_profile`` prints the resolved "Profile: …" banner line as soon
+    as the profile is selected — before the finding details this function
+    also prints — so main's run header can carry the actual profile name.
+    The pre-parse banner can only name the request, and "Profile: first in
+    the file" with the real name arriving lines later read as broken output
+    (two review rounds)."""
     tree = ET.parse(path)
     root = tree.getroot()
     constant = root.find("constant")
@@ -3170,6 +3178,17 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "elements to default to. Pass --profile TYPE, or use "
                 "--list to see this XML's endpoints and profiles."
             )
+
+    if announce_profile:
+        name = profile.get("type")
+        if profile_type:
+            cprint("head", f"Profile: {profile_type}")
+        elif name:
+            cprint("head", f"Profile: {name} (the file's first — --list "
+                           "shows others; --profile picks)")
+        else:
+            cprint("head", "Profile: first in the file (unnamed — --list "
+                           "shows others; --profile picks)")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
@@ -5992,22 +6011,13 @@ def main(argv: list[str] | None = None,
         if is_soundwire:
             cprint("head", "SoundWire device detected — using enhanced preset generation")
         cprint("head", f"Endpoint: {args.endpoint} (mode={args.mode})")
-        # "(first)" read as a placeholder that failed to fill in (two
-        # user-review reviewers, independently). Say what it means; the line
-        # prints before parse_xml so it can only name the request — the
-        # resolved name follows once parsing supplies it.
-        cprint("head", f"Profile: {profile_type or 'first in the file'}")
-
         tuning = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
             profile_type=profile_type,
+            announce_profile=True,
         )
-        if not profile_type and tuning.profile_used:
-            cprint("head", f"  (the file's first profile is "
-                           f"'{tuning.profile_used}' — pass --profile to "
-                           "pick another)")
 
         # ieq-amount is a percentage: amount=10 -> the IEQ voicing is applied
         # at 10% weight on top of the audio-optimizer correction, not as a
