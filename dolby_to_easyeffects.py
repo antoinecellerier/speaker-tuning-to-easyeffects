@@ -4896,9 +4896,12 @@ _DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
 # direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
     # "enabling may…" marks the second clause as the flag's side effect —
-    # run together with the trigger it read as one continuous symptom.
+    # run together with the trigger it read as one continuous symptom. The
+    # risk wording is the leveler family's one phrasing ("swell then
+    # duck"); three variants for one risk read as three different risks
+    # (round 3).
     "autogain": ("it sounds right but quieter than it did on Windows",
-                 "enabling may push quiet passages up and sound worse "
+                 "enabling may make quiet passages swell then duck "
                  "(issue #25)"),
     # Describes what you'd hear, not where in the chain it happens: "where the
     # limiter is inactive" names an internal state the listener has no access
@@ -5396,10 +5399,32 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
               "(docs/design-notes.md, entry 2)")
 
     if vol_leveler:
-        print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
-        print(f"  amount: {vol_leveler['amount']}")
-        print(f"  in-target: {vol_leveler['in_target']:.1f} dB")
-        print(f"  out-target: {vol_leveler['out_target']:.1f} dB")
+        # Says BOTH states — the tuning file's and this preset's — and
+        # names the flag that flips it. "Volume leveler: enabled" alone
+        # described the XML while the leveler-gap note described the preset,
+        # and a round-3 reviewer read the pair as the run contradicting
+        # itself about whether the leveler is on. This is also the one spot
+        # that ties the "autogain" flag name to the leveler by name.
+        enabled_flags = enabled or set()
+        if not vol_leveler["enable"]:
+            state = "switched off in your tuning"
+        elif "autogain" in disabled:
+            state = ("enabled in your tuning — removed from this preset by "
+                     "--disable autogain")
+        elif "autogain" in enabled_flags:
+            state = ("enabled in your tuning — running in this preset (you "
+                     "passed --enable autogain)")
+        elif is_soundwire:
+            state = ("enabled in your tuning — running in this preset "
+                     "(--disable autogain switches it off)")
+        else:
+            state = ("enabled in your tuning — ships switched off in this "
+                     "preset (--enable autogain turns it on)")
+        print(f"\nVolume leveler: {state}")
+        if vol_leveler["enable"]:
+            print(f"  amount {vol_leveler['amount']}, targets "
+                  f"{vol_leveler['in_target']:.1f} dB in / "
+                  f"{vol_leveler['out_target']:.1f} dB out")
 
     if mb_comp:
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
