@@ -331,9 +331,12 @@ def main(argv: list[str] | None = None) -> int:
     written: list[Path] = []
     closing: list = []
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
+        # Not "no EasyEffects files are installed": the reader picked this
+        # script to avoid EasyEffects, and opening the run by naming it made
+        # a reviewer stop and re-check they'd run the right one.
         cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
-                       "deleted when done — no EasyEffects files are "
-                       "installed)")
+                       "deleted when done — nothing is installed on your "
+                       "system in this step)")
         with _generator_stdout(args.dry_run):
             rc = _run_generator(step1_common
                                 + ["--output-dir", tmp, "--irs-dir", tmp],
@@ -365,8 +368,14 @@ def main(argv: list[str] | None = None) -> int:
             others = [v for v in VARIANT_STEMS if v != args.variant]
             cprint("dim", "      The other voicings are not converted: "
                           + ", ".join(others) + ".")
-            cprint("dim", f"      Pass --variant {others[0]} for that one, or "
-                          "--variant all for a sink each.")
+            # Says what --variant all gets the user ("a sink each" named an
+            # internal object; what they see is another output to switch to
+            # in sound settings) and covers both alternatives, not just the
+            # first.
+            alts = " or ".join(f"--variant {o}" for o in others)
+            cprint("dim", f"      Pass {alts} to convert another, or "
+                          "--variant all to get all three as outputs you "
+                          "can switch between in your sound settings.")
         step2_common = (rebuild_argv(step2_actions, args)
                         + ["--irs-dir", tmp, "--skip-next-steps"])
         if args.dry_run:

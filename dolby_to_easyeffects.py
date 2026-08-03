@@ -3546,9 +3546,11 @@ _UNMODELED_FEATURES = [
         # Says where it stands. "a value we've never seen" alone left the
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
-        lambda el: ("Your tuning sets a peak level we don't yet act on — the "
-                    "presets are fine to use; send us the XML and we can "
-                    "confirm it.")),
+        # "confirm it" left the antecedent open — confirm the level, or that
+        # the presets are fine? Name the thing we'd check.
+        lambda el: ("The presets ignore your tuning's peak-level and should "
+                    "sound right — send the XML and we'll check it's safe "
+                    "on your model.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
@@ -3819,9 +3821,12 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         print()
         # Say what the bracketed tags are for. Read cold they look like debug
         # labels that leaked out of the code, which is how they get ignored.
-        _cprint_wrapped("dim", "We can't settle these without you. Quote any "
-                               "[tag] from this run when you report — these "
-                               "most of all:")
+        # "these most of all" introduced a list that is usually one item
+        # long, and its "these" pointed backwards at nothing on a top-down
+        # read.
+        _cprint_wrapped("dim", "Some of this only a real device can answer. "
+                               "If you report, quote the [tag] so we know "
+                               "which line you mean:")
         for finding in asks:
             _print_ask("cta", finding)
         # The tool found the tuning XML; the user never went looking for it,
@@ -3833,7 +3838,8 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # off, leaving "send us the XML" with no XML named.
         if xml_path is not None and any("XML" in f.ask for f in asks):
             print()
-            cprint("dim", "  The tuning XML to attach is:")
+            cprint("dim", "  Attach this file to your report (zip it if "
+                          "GitHub refuses the upload):")
             # Absolute and quoted. Dolby's own directory names contain '$'
             # (…/code$GetExtractPath$/…), so an unquoted relative path is
             # eaten by the shell the moment anyone types ls on it and the
@@ -4833,12 +4839,16 @@ _DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
 # direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
     "autogain": ("it sounds right but quieter than it did on Windows",
-                 "quiet passages may get pushed up and sound worse (#25)"),
+                 "quiet passages may get pushed up and sound worse "
+                 "(issue #25)"),
     # Describes what you'd hear, not where in the chain it happens: "where the
     # limiter is inactive" names an internal state the listener has no access
     # to, so it can't be matched against anything.
+    # "(issue #NN)", not the bare "(#NN)": reviewers guessed the numbers
+    # were GitHub issues but had no confirmation. Still no URL — the one
+    # link rule.
     "coupled-bands": ("loud music turns harsh in the treble",
-                      "experimental (#44)"),
+                      "experimental (issue #44)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -4879,6 +4889,17 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                      f"--dry-run to install these {len(preset_names)} presets:")
         for name in preset_names:
             cprint("dim", f"    {name}")
+        # One clause on what installing gets them: a dry-run reader asked
+        # "do I hear the change after re-running, or is there another step?"
+        # and had nothing to go on until the real run printed its answer.
+        # Only reached without --autoload (the early return above owns that
+        # case), so "pick one yourself" is true here — and naming --autoload
+        # gives the reader the self-loading default before the re-run, not
+        # after it.
+        _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — the "
+                               "real run prints the exact steps. (Or add "
+                               "--autoload and it loads itself for your "
+                               "speakers.)", indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
@@ -4918,7 +4939,7 @@ def print_troubleshooting(findings: list[Finding],
                           filters_by_profile: dict[str, set[str]],
                           installs_presets: bool = True,
                           enabled_by_flag: frozenset[str] = frozenset(),
-                          ) -> None:
+                          dry_run: bool = False) -> None:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -5015,8 +5036,14 @@ def print_troubleshooting(findings: list[Finding],
         # wrapper's own [3/3] steps cover applying it there.
         tail = (" Then reload the preset in EasyEffects to hear the change."
                 if installs_presets else "")
-        _cprint_wrapped("dim", "  Add any of these to the same command you "
-                               f"ran; they combine.{tail}", indent="  ")
+        # Under --dry-run, "the same command you ran" would rebuild nothing —
+        # the reader is four lines from being told nothing was written, and
+        # telling them to reload a preset that doesn't exist read as the two
+        # blocks not knowing about each other.
+        lead = ("Add any of these when you re-run without --dry-run"
+                if dry_run else
+                "Add any of these to the same command you ran")
+        _cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -5294,8 +5321,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         for i, b in enumerate(decoded):
             xover_idx = b["xover_idx"]
             if i == n_bands_print - 1:
-                # Sentinel in the last band — the band runs to Nyquist
-                xover_hz = "full-band" if n_bands_print == 1 else "Nyquist"
+                # Sentinel in the last band — it runs to the top of the
+                # range. Printed as a frequency: "Nyquist" was the one word
+                # in an otherwise numeric table a reviewer had never seen.
+                xover_hz = ("full-band" if n_bands_print == 1
+                            else f"{SAMPLE_RATE // 2} Hz (top of range)")
             elif 0 <= xover_idx < len(freqs):
                 xover_hz = f"{freqs[xover_idx]} Hz"
             else:
@@ -5311,8 +5341,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
         print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
         print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
-        print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (watched; not yet mapped)")
-        print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (watched; not yet mapped)")
+        print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (recorded for research; no effect on your output)")
+        print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (recorded for research; no effect on your output)")
         iso = regulator.get("isolated_band")
         if iso is not None:
             print(f"  isolated_band:       {iso}  "
@@ -6141,7 +6171,8 @@ def main(argv: list[str] | None = None,
 
     print_troubleshooting(scoped, filters_by_profile,
                           installs_presets=not args.skip_closing,
-                          enabled_by_flag=frozenset(args.enable))
+                          enabled_by_flag=frozenset(args.enable),
+                          dry_run=args.dry_run)
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a

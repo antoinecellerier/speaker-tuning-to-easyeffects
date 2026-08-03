@@ -1386,10 +1386,11 @@ def test_every_shown_tag_is_quotable(monkeypatch, capsys):
     ask = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
                                                      ["high-shelf"])
 
-    # With an ask, the header must not imply only the listed tags count.
+    # With an ask, the header must not imply only the listed tags count —
+    # "which line you mean" leaves it open to any tagged line in the run.
     dolby_to_easyeffects.print_project_asks([hint, ask])
     out = " ".join(capsys.readouterr().out.split())
-    assert "Quote any [tag] from this run" in out
+    assert "quote the [tag] so we know which line you mean" in out
 
     # With a hint and no ask there is no list at all, so the tag would
     # otherwise go unexplained.
@@ -1463,6 +1464,22 @@ def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
     dolby_to_easyeffects.print_project_asks(dropped)
     assert not any(line.lstrip().startswith("•")
                    for line in capsys.readouterr().out.splitlines())
+
+
+def test_flag_menu_lead_is_dry_run_aware(monkeypatch, capsys):
+    """Under --dry-run "the same command you ran" rebuilds nothing, and the
+    reload instruction pointed at a preset the very next block says was
+    never written."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    by_profile = {"mbc": {"default"}}
+
+    dolby_to_easyeffects.print_troubleshooting([], by_profile, dry_run=True)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "re-run without --dry-run" in out
+
+    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "the same command you ran" in out
 
 
 def test_fir_tables_carry_a_verdict_and_a_skippable_preface(tmp_path,
