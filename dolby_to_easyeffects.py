@@ -3633,8 +3633,13 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
                "lands on a band the regulator leaves unlimited, with the "
                "volmax boost on top.",
-        ask="If bass or loud content distorts, re-run with --disable volmax, "
-            "or try --enable coupled-bands.")
+        # Sequenced, and it doesn't describe --enable coupled-bands: the menu
+        # below owns that flag's symptom ("loud music turns harsh in the
+        # treble"), and this ask used to claim a different one ("bass or loud
+        # content distorts"), so one screen sold the same flag for opposite
+        # problems. Symptom wording lives in one place per flag.
+        ask="If loud parts distort, re-run with --disable volmax first, then "
+            "try --enable coupled-bands if that wasn't it.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
