@@ -3518,9 +3518,15 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
         lambda el: True,  # presence implies the newer virtualizer pipeline
-        lambda el: "advanced speaker virtualizer (newer FFT-domain "
-                   "spatializer) is set in the XML but not modeled — silently "
-                   "dropped."),
+        # What you'd notice, not the internal name: "silently dropped" read
+        # as ominous (and false — this line is the announcement), and
+        # reviewers took it for the same thing as the "Surround virtualizer"
+        # section printed later. Each message now carries its own identity;
+        # no cross-reference, since either can appear without the other.
+        lambda el: "Your tuning switches on Dolby's newer speaker-widening "
+                   "effect (advanced speaker virtualizer), which this "
+                   "converter doesn't rebuild — stereo may sound slightly "
+                   "narrower than on Windows, nothing more."),
     # Watching-only fields below: the corpus shows these as effectively
     # constants and the script doesn't act on them. An XML that breaks the
     # assumption is exactly the data that would move the mapping, so these
@@ -5258,8 +5264,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     if surround:
         print(f"\nSurround virtualizer: boost={surround['boost']:.1f} dB — "
-              "not mapped (DAX applies no stereo widening on 2-ch content; "
-              "see design-notes entry 2)")
+              "skipped on purpose: Dolby applies it only when virtualizing "
+              "surround content, not on normal stereo playback "
+              "(docs/design-notes.md, entry 2)")
 
     if vol_leveler:
         print(f"\nVolume leveler: {'enabled' if vol_leveler['enable'] else 'disabled'}")
