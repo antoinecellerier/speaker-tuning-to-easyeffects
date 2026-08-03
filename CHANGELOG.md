@@ -92,7 +92,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - Mark additional tested devices: ThinkPad T14 Gen 7
   ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
   ThinkPad T14 Gen 1 AMD
-  ([#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)).
+  ([#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)),
+  ThinkPad T14 Gen 7 AMD
+  ([#48](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/48)).
 - A run now says when the tuning names a different profile than the one
   built: a few XMLs declare the profile the device ships on under Windows,
   and the script always builds the endpoint's first. Rebuild with
