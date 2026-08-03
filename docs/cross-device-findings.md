@@ -631,7 +631,46 @@ everywhere** costs nothing to skip.
 
 | Block | Element(s) | Active in corpus | Status |
 |---|---|---|---|
-| Sliding bass | `sliding-bass-enable`, `-xo-frequency`, `-max-gain`, `-attack-time`, `-release-time`, `-gain-curve`, `-band-boundary`, `-min-level`/`-max-level` | Enabled on 845 rows / 157 XMLs / 64 devices; **657 rows / 95 XMLs / 35 devices carry a non-zero `max-gain`, 4.0–18.6 dB**. Mostly `music` (375 rows). Crossover 300/180/200 Hz, release 500, attack 706–712 | **Not implemented, but derivable** — unlike everything in band B this ships a complete parameter set, so it is a real candidate rather than a defensive note. A level-dependent bass boost of up to ~18 dB is not a rounding error. Adding it means a new DSP stage on the audio path, so it needs design plus measured on-device validation before adoption |
+| Sliding bass | `sliding-bass-enable`, `-xo-frequency`, `-max-gain`, `-attack-time`, `-release-time`, `-gain-curve`, `-band-boundary`, `-min-level`/`-max-level` | Enabled and non-inert on **832 rows / 156 XMLs / 63 devices** (only 13 enabled rows are fully inert). Peak boost **3.0–18.6 dB, median 12.0**. Mostly `music` (374 rows) but also 73 rows each on `dynamic`/`movie`/`game`/`personalize_*`, so it reaches the default build. Crossover 180–300 Hz; `band-boundary` always 6 and the curve always 5 points | **Parameters are all there; the semantics are not.** See "What blocks sliding bass" below — the 5-point `gain-curve` has two incompatible readings, and they imply different stages. Not implemented, and not guessable without a capture |
+
+#### What blocks sliding bass
+
+The fields are all present and internally consistent — `band-boundary` is 6 and
+`gain-curve` has 5 points on every one of the 274 enabled profiles examined.
+What is missing is what the five points are *indexed by*, and the two readings
+imply different stages:
+
+- **Level-indexed** — gain slides with input level across the
+  `min-level`/`max-level` window, i.e. a dynamic EQ or upward compressor on a
+  low band, which an LSP `multiband_compressor` could approximate. Against it:
+  a typical curve is `0, 192, 26, 0, 0` (1/16 dB → 0, 12.0, 1.6, 0, 0), which
+  rises then falls. A level→gain curve for a bass boost would normally decrease
+  monotonically as level rises.
+- **Band-indexed** — a per-band gain shape over the bands below
+  `band-boundary`, i.e. "sliding" bass energy *up in frequency* out of the range
+  the speaker cannot reproduce. The same curve reads naturally this way: nothing
+  in the sub band, a large boost one band up, a taper above. If that shifting is
+  genuine harmonic synthesis rather than EQ, it hits the same wall as Virtual
+  Bass Enhancement — EasyEffects cannot reproduce it (§14 above, issue
+  [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
+
+`gain-curve[1]/16` equals `max-gain` exactly on the 300 Hz family (192→12.000000,
+288→18.0, 297→18.5625), which fixes the 1/16-dB scale — but the identity breaks
+elsewhere (`0,43,6,0,0` appears with `max-gain` 6.0 *and* 4.0 on different
+crossovers), so the two fields are independent and the relationship is not a
+decode. `min-level` is 0 everywhere and `max-level` is 52/80/90/98/100 in
+unknown units; `attack-time` 706–712 and `release-time` 500 likewise.
+
+So an implementation today would be choosing one of three mechanisms — dynamic
+EQ, static per-band shape, or bass synthesis — on a parameter worth up to 18 dB.
+That is a guess, not a mapping, which is why no `--enable` flag ships for it.
+
+**What would settle it:** a DAX capture. All 64 devices carrying sliding bass
+have an in-device A/B — it is on for `music` and off for every other profile
+(e.g. `17AA3DD8`) — so capturing stepped bass tones under Windows on `music` vs
+`dynamic` separates the readings directly: level-indexed changes with stimulus
+level, a static band shape does not, and synthesis shows new harmonics (the
+Δ3 signature the issue-#14 harness already measures).
 
 ### Band B — an on/off bit and nothing else, so *not* derivable
 
