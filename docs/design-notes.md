@@ -1487,6 +1487,16 @@ broken with a deeper signal chain; the cost is two extra LV2 stages
 per channel (4 LSP filter instances total in stereo) plus disabled
 internal Calf filtering.
 
+**Reproducing this PoC means rebuilding the chain from the parameters
+above.** The run that produced the −56 dB figure was driven by hand and
+no generator for it was saved, so unlike the rest of the measurement
+work there is no script to re-run. `lv2apply` is not the route — it
+segfaults on LSP plugins, which need the `work:schedule` feature only
+EasyEffects' LV2 host provides — so a rebuild means assembling the two
+`filter_stereo` stages and the Saturator as an EE chain and capturing
+through `tools/measure_ee/`. Worth doing before this number is used to
+justify shipping anything.
+
 **Caveat: ceiling-break is for harmonic structure only, not absolute
 magnitude.** The PoC measured the wet-only output of the
 LSP-cascade-plus-Saturator chain (`mix=1.0`, post-HP at 180 Hz kills the
