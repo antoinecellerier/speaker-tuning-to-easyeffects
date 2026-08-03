@@ -227,10 +227,14 @@ def _print_undo(written: list[Path]) -> None:
     sound server with a config file they can't read, and never said what to do
     if the result is worse — or if PipeWire won't come back. Deleting the conf
     and restarting is the whole answer; it just has to be written down."""
-    if not written:
+    # Only files that exist: the .irs copy is skipped when the source
+    # already sits at the target, and an rm over a missing file aborts the
+    # pasted command halfway.
+    paths = [p for p in written if p.exists()]
+    if not paths:
         return
-    confs = " ".join(f"'{p}'" for p in written)
-    cprint("dim", "  To undo: rm " + confs)
+    files = " ".join(f"'{p}'" for p in paths)
+    cprint("dim", "  To undo: rm " + files)
     cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
 
 
@@ -401,6 +405,10 @@ def main(argv: list[str] | None = None) -> int:
                        if args.output_dir is not None
                        else ee_to_pipewire.DEFAULT_OUTPUT_DIR.expanduser())
             written.append(out_dir / f"{node_name}.conf")
+            # The .irs the converter copies beside the conf is part of the
+            # install too — an undo that only removes the conf strands one
+            # stray file per variant (round-3 review).
+            written.append(out_dir / f"{node_name}.irs")
             rc = ee_to_pipewire.main(child_argv)
             if rc != 0:
                 # Fail fast: a validation failure would repeat identically

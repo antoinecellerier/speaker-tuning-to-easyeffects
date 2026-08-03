@@ -399,6 +399,10 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     assert "To undo: rm" in err
     # It must name the file it actually wrote, not a generic path.
     assert str(out) in err
+    # ...and the .irs copied beside the conf — undo used to strand one
+    # stray file per variant (round-3 review).
+    undo_line = next(ln for ln in err.splitlines() if "To undo: rm" in ln)
+    assert ".irs'" in undo_line
     assert err.index("To undo: rm") > err.index("Restart PipeWire:")
 
 
