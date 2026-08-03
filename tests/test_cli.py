@@ -1522,6 +1522,39 @@ def test_disable_symptoms_do_not_overlap():
     assert not shared, f"symptom words shared between filters: {shared}"
 
 
+# A finding's ask may legitimately speak the vocabulary of the stage it is
+# about — the leveler-gap ask and the autogain menu row describe the same
+# stage on purpose. Sharing with any OTHER filter's symptom is the round-2
+# bug: the ask said "surges" while the regulator row owned "surges", so one
+# heard symptom had two competing remedies.
+_ASK_STAGE_VOCAB_OK = {"leveler-gap": {"autogain"}}
+
+
+def test_finding_asks_do_not_borrow_other_filters_symptoms():
+    for finding in _every_finding():
+        if not finding.ask:
+            continue
+        named = set(re.findall(r"--(?:disable|enable) ([a-z-]+)",
+                               finding.ask))
+        named |= _ASK_STAGE_VOCAB_OK.get(finding.slug, set())
+        # Quoted 'values' and flag arguments are data (profile names, XML
+        # fields), not symptom vocabulary — 'music' the profile must not
+        # match "music sounds…", quoted or as "--profile music".
+        ask_text = re.sub(r"'[^']*'|--profile [a-z-]+", "",
+                          finding.ask.lower())
+        ask_words = set(re.findall(r"[a-z]{5,}", ask_text))
+        for name, (symptom, _effect) in DISABLEABLE_FILTERS.items():
+            if name in named:
+                continue
+            shared = ask_words & set(
+                re.findall(r"[a-z]{5,}", symptom.lower()))
+            # "sound(s)" is copy glue, not symptom vocabulary.
+            shared -= {"sound", "sounds", "audibly"}
+            assert not shared, (
+                f"[{finding.slug}] ask shares {shared} with the "
+                f"'{name}' menu symptom — one heard symptom, two remedies")
+
+
 def test_clean_run_closing_block_is_just_the_ask(monkeypatch, capsys):
     """The common case by a wide margin. A rule and a "Help the project"
     heading over a bare report-back line would be noise on every clean run,

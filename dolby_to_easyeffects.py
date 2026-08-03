@@ -3766,8 +3766,9 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                f"preset. But your tuning pairs it with {named} — companion "
                "stage(s) this converter cannot rebuild: the tuning file "
                "records only that they are switched on, not how they are "
-               "set. If loudness surges going from quiet to loud, that gap "
-               "is the most likely reason (--disable autogain switches the "
+               "set. If quiet passages swell then duck when things get "
+               "loud, that gap is the most likely reason (--disable "
+               "autogain switches the "
                "leveler off). Settling it needs a capture from a device "
                "that has these stages, measured on a Windows install with "
                "Dolby on the same machine.",
@@ -3781,7 +3782,11 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # Names Windows so anyone who doesn't dual-boot can skip the line
         # rather than reading to the end to find out they can't help — the
         # capture measures what DAX does, so it has to run there.
-        ask="If loudness surges from quiet to loud, tell us — a Windows "
+        # Vocabulary is the autogain row's ("swell then duck"), NOT the
+        # regulator's "wobbles or surges" — a round-2 reviewer hearing
+        # volume movement couldn't tell which of the two remedies to try
+        # because both claimed "surges".
+        ask="If quiet passages swell then duck, tell us — a Windows "
             "capture would settle it and we'll walk you through it.")
 
 
@@ -5044,8 +5049,8 @@ def print_troubleshooting(findings: list[Finding],
             symptom, caveat = ENABLEABLE_FILTERS[name]
             if name == "autogain" and gap:
                 caveat = ("on this device it also enables a stage we can't "
-                          "reproduce, so loudness may surge going from "
-                          "quiet to loud — see [leveler-gap]")
+                          "reproduce, so quiet passages may swell then "
+                          "duck — see [leveler-gap]")
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
     # How to actually apply any of the above. Every suggestion here is a flag
