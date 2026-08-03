@@ -3531,11 +3531,17 @@ _UNMODELED_FEATURES = [
         lambda el: (
             f"peak-level={el.get('value')} (≈ "
             f"{int(el.get('value', '0')) / 16:+.2f} dB at the standard "
-            "1/16-dB convention) — this is 0 on every device in our corpus, "
-            "and the script does not currently map it to the limiter "
-            "threshold (interpretation unverified)."),
-        lambda el: (f"peak-level={el.get('value')} is a value we've never "
-                    "seen — send us your tuning XML and we can map it.")),
+            "1/16-dB convention) — nonzero on well under 1% of corpus rows. "
+            "We deliberately don't map it: the reading is unverified, and "
+            "getting it wrong would cost audible headroom on the few devices "
+            "that set it. The presets are built as if it were 0, which is "
+            "what every other device gets."),
+        # Says where it stands. "a value we've never seen" alone left the
+        # reader unable to tell whether their presets were wrong, so the
+        # choice was between ignoring it and not installing at all.
+        lambda el: ("Your tuning sets a peak level we don't yet act on — the "
+                    "presets are fine to use; send us the XML and we can "
+                    "confirm it.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
@@ -3801,7 +3807,10 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # so an ask to "send us your tuning XML" is unactionable without the
         # path. Printed once here rather than inside each bullet, which the
         # one-sentence budget has no room for.
-        if xml_path is not None and any("tuning XML" in f.ask for f in asks):
+        # Matches on "XML", not an exact phrase: gating this on the precise
+        # wording of an ask meant rewording one silently switched the path
+        # off, leaving "send us the XML" with no XML named.
+        if xml_path is not None and any("XML" in f.ask for f in asks):
             print()
             cprint("dim", "  The tuning XML to attach is:")
             # Absolute and quoted. Dolby's own directory names contain '$'

@@ -1359,6 +1359,25 @@ def test_autogain_entry_warns_when_it_enables_an_unreproduced_stage(
     assert "leveler-gap" not in capsys.readouterr().out
 
 
+def test_xml_path_prints_for_any_ask_that_wants_the_xml(monkeypatch, capsys):
+    """An ask that requests the XML is unactionable without its path — the
+    tool found that file, the user never went looking for it. Gating this on
+    one ask's exact phrasing meant a reword silently switched it off."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    wants = dolby_to_easyeffects.Finding(
+        slug="peak-level", kind="ask", detail="x",
+        ask="Send us the XML and we can confirm it.")
+
+    dolby_to_easyeffects.print_project_asks([wants], xml_path="/tmp/DEV_X.xml")
+    assert "'/tmp/DEV_X.xml'" in capsys.readouterr().out
+
+    # An ask that doesn't want it doesn't get a path dumped at it.
+    other = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+                                                       ["high-shelf"])
+    dolby_to_easyeffects.print_project_asks([other], xml_path="/tmp/DEV_X.xml")
+    assert "/tmp/DEV_X.xml" not in capsys.readouterr().out
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of
