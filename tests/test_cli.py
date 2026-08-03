@@ -1341,6 +1341,24 @@ def test_every_shown_tag_is_quotable(monkeypatch, capsys):
     assert "[tag]" not in capsys.readouterr().out
 
 
+def test_autogain_entry_warns_when_it_enables_an_unreproduced_stage(
+        monkeypatch, capsys):
+    """The run warns that a leveler sub-stage "only matters if you rebuild
+    with --enable autogain", then offers exactly that flag in the menu. The
+    two have to meet, or the menu quietly recommends the thing the warning
+    was about."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    by_profile = {"autogain": {"default"}}
+    gap = dolby_to_easyeffects._leveler_gap_finding(
+        ["volume-leveler-compressor"], autogain_on=False)
+
+    dolby_to_easyeffects.print_troubleshooting([gap], by_profile)
+    assert "leveler-gap" in " ".join(capsys.readouterr().out.split())
+
+    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    assert "leveler-gap" not in capsys.readouterr().out
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of

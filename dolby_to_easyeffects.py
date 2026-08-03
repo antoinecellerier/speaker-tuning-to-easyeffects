@@ -4911,8 +4911,16 @@ def print_troubleshooting(findings: list[Finding],
     if enable_hints:
         print()
         cprint("dim", "  Optional extras, switched off by default:")
+        # On a device whose tuning pairs the leveler with sub-stages we can't
+        # reproduce, --enable autogain is the switch that turns them on. The
+        # run says so in the leveler-gap note far above; the menu offered the
+        # flag with no hint of it, so the two never met.
+        gap = any(f.slug == "leveler-gap" for f in findings)
         for name in enable_hints:
             symptom, caveat = ENABLEABLE_FILTERS[name]
+            if name == "autogain" and gap:
+                caveat = ("on this device it also enables a stage we can't "
+                          "reproduce, so it may pump — see [leveler-gap]")
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
     # How to actually apply any of the above. Every suggestion here is a flag
