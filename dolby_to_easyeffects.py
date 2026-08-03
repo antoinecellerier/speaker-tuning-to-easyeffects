@@ -3884,13 +3884,17 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # off, leaving "send us the XML" with no XML named.
         if xml_path is not None and any("XML" in f.ask for f in asks):
             print()
-            cprint("dim", "  Attach this file to your report (zip it if "
+            # cta, not dim: this is the one concrete task the report needs,
+            # and it printed fainter than the reassurance bullet above it
+            # (round-2 color finding).
+            cprint("cta", "  Attach this file to your report (zip it if "
                           "GitHub refuses the upload):")
             # Absolute and quoted. Dolby's own directory names contain '$'
             # (…/code$GetExtractPath$/…), so an unquoted relative path is
             # eaten by the shell the moment anyone types ls on it and the
-            # file looks missing.
-            cprint("dim", f"    '{Path(xml_path).resolve()}'")
+            # file looks missing. Same cta as its instruction — the copy
+            # target must not be the faintest line in the block.
+            cprint("cta", f"    '{Path(xml_path).resolve()}'")
         print()
     elif tagged:
         # No ask fired, but something upstream still carries a tag. Say it is
@@ -4931,8 +4935,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         return
     cprint("head", f"\n{'=' * 60}")
     if dry_run:
-        cprint("ok", f"Dry run — nothing was written. Re-run without "
-                     f"--dry-run to install these {len(preset_names)} presets:")
+        # cta, not ok: green is this run's "check passed, nothing to do"
+        # color, and the one line that still demands a re-run read as "all
+        # done" in the same green (round-2 color finding).
+        cprint("cta", f"Dry run — nothing was written. Re-run without "
+                      f"--dry-run to install these {len(preset_names)} presets:")
         for name in preset_names:
             cprint("dim", f"    {name}")
         # One clause on what installing gets them: a dry-run reader asked
