@@ -29,11 +29,10 @@ A few things about this repo that aren't obvious from the code.
   `docs/design-notes.md`.
 - **Zero added latency** over the PipeWire quantum is a hard constraint
   (video lip-sync, interactive use). FIR stays **minimum-phase** — the
-  cepstral processing in `make_fir` is load-bearing; a naive inverse-FFT
-  on a target magnitude gives a linear-phase filter with audible
-  pre-ringing *and* ~42 ms group delay. The latency lever is peak
-  position, not IR length. Surface the trade-off before proposing longer
-  FIRs / look-ahead / phase-flat reconstruction.
+  cepstral processing in `make_fir` is load-bearing; a naive inverse-FFT on
+  a target magnitude gives a linear-phase filter with audible pre-ringing
+  and large group delay. The lever is peak position, not IR length; surface
+  the trade-off before longer FIRs, look-ahead, or phase-flat designs.
 
 ## Testing
 
@@ -58,9 +57,8 @@ The suite catches **structural** regressions, not **audible** ones — past
 sessions shipped bugs that only showed on real content.
 
 - **Validate on device.** Measured ground truth (DAX captures + live-EE
-  loopback) decides adoption. Offline analytical scoring (FIR magnitude,
-  `tools/measure_ee/compare_ee_analytical.py`) is a *pre-screen* to narrow the variant set —
-  never the deciding signal.
+  loopback) decides adoption. Offline analytical scoring (`tools/measure_ee/`)
+  is a *pre-screen* to narrow the variant set — never the deciding signal.
 - **Hand off audio first — IMPORTANT.** The measurement tooling mutes
   speakers, reroutes sinks, and swaps presets. YOU MUST ask the user to take
   over audio before running `tools/measure_ee/` or any live capture. Use the
@@ -82,7 +80,11 @@ sessions shipped bugs that only showed on real content.
   lesson directly; cite committed paths only.
 - **Check for existing CLIs before writing a parser/validator** (`lv2info`,
   `pw-cli`, `spa-json-dump`, `pactl`…). Wrap partial tools; only add custom
-  logic for project-specific checks on top.
+  logic for project-specific checks on top. The same goes for Python
+  libraries — a dependency that removes a whole apparatus beats hand-rolling
+  one (`argcomplete` vs. a completion generator + committed files + drift
+  trap). Price both, then **soft-import it with a fallback** (the `rich` /
+  `argcomplete` pattern) so the no-dependency path keeps working.
 - **Device-issue triage updates the kernel watchlist** — opening or closing
   a device investigation → update `.github/kernel-watchlist.txt` in the same
   commit (`# watch: #NN` headers; `standing` = outlives the issue). The
