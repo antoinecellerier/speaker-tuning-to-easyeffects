@@ -84,17 +84,26 @@ only if you change parameters at the top of the script.
 
 ## 1. Copy to Windows
 
-The Windows side needs:
+The Windows side needs `capture_dax.py`, plus each stimulus you intend to
+play plus **its `.json` sidecar** (the analyzer reads the sidecar for the
+stimulus geometry — a `.wav` on its own is not analysable), and
+[`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md) only if Claude Code will be helping
+on Windows.
 
-- `stimulus_sweep.wav` + `stimulus_sweep.json`
-- `stimulus_sweep_quiet.wav` + `stimulus_sweep_quiet.json`
-- `stimulus_pink.wav` + `stimulus_pink.json`
-- `stimulus_pink_quiet.wav` + `stimulus_pink_quiet.json`
-- `stimulus_multitone.wav` + `stimulus_multitone.json`
-- `capture_dax.py`
-- [`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md) (only if Claude Code will be helping on Windows)
+`make_stimulus.py` writes thirteen stimuli, ~108 MB in total, so copy the
+subset your question needs rather than all of it:
 
-Total ~12 MB of stimuli + a small script. Copy via USB / OneDrive.
+| question | stimuli to copy | size |
+|---|---|---|
+| Steady-state EQ — the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~12 MB |
+| **Anything level-dependent** (does a stage's gain change with input level?) | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud` — the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
+| Bass-specific behaviour | `stimulus_bass_burst[_quiet]` — sustained 50/80/120/180 Hz bursts | ~10 MB |
+| Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~24 MB |
+| Leveler behaviour on real content | `stimulus_speech` | ~2 MB |
+
+`analyze.py` handles `sweep`, `pink` (and the two `stereo_*` variants),
+`speech`, `multitone` and `stepped`. `bass_burst` has **no analyzer branch
+yet** — capture it if asked, but the analysis is currently ad-hoc.
 
 ## 2. One-time Windows setup
 
