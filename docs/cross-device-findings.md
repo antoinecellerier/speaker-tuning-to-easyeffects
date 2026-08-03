@@ -378,8 +378,11 @@ often ones the regulator leaves unlimited. Issue #46's T495 (`17AA5125`, 3.2.0) 
 the worst case seen so far — 23.7 dB peak-to-peak with three bands at the rail,
 wider than 95% of simplified tunings — and a run now warns when the largest boost
 lands on an unlimited band (8% of parseable tunings, against 16% for the
-all-inert-regulator warning beside it). Regenerate these counts with the queries in
-[`tools/corpus_audit.py`](../tools/corpus_audit.py).
+all-inert-regulator warning beside it). **These particular counts have no
+committed query yet** — [`tools/corpus_audit.py`](../tools/corpus_audit.py) does
+not compute content-hash dedup, `geq_maximum_range`, `xml_version` or the AO
+peak-to-peak spread, so regenerating them means an ad-hoc sweep (or adding those
+four to the tool, which is the better fix).
 
 ---
 
@@ -607,9 +610,14 @@ hearing the difference on a device — issue #29's reporter independently prefer
 
 The newer Lenovo IdeaPad / ThinkPad-X13s SoundWire packages introduced several DSP
 blocks that don't appear in the original Realtek/Intel cohort. The script does not
-implement any of them. Two are flagged at parse time via `warn_unmodeled_features`
-in `dolby_to_easyeffects.py`; the rest are silently dropped, and all but one are
-inactive corpus-wide.
+implement any of them. Some are flagged at end of run via
+`collect_unmodeled_features` in `dolby_to_easyeffects.py`; the rest are silently
+dropped.
+
+The three bands below are the useful distinction. A stage with **parameters** in
+the XML is a candidate for implementation; a stage with only an **on/off bit**
+can never be derived, however common it is; and a stage that is **inert
+everywhere** costs nothing to skip.
 
 > **Re-derived 2026-08-03** against the current **2795-XML / 40732-row** corpus
 > (`tools/corpus_audit.py`, "Present-but-not-modelled stages"), which reports
@@ -618,6 +626,40 @@ inactive corpus-wide.
 > corpus (1234 → 1345 XMLs); every "enabled in 0" claim still holds. The one
 > substantive change is the volume-leveler compressor, which is not merely
 > present but **enabled almost everywhere it appears**.
+
+### Band A — has parameters, so implementable
+
+| Block | Element(s) | Active in corpus | Status |
+|---|---|---|---|
+| Sliding bass | `sliding-bass-enable`, `-xo-frequency`, `-max-gain`, `-attack-time`, `-release-time`, `-gain-curve`, `-band-boundary`, `-min-level`/`-max-level` | Enabled on 845 rows / 157 XMLs / 64 devices; **657 rows / 95 XMLs / 35 devices carry a non-zero `max-gain`, 4.0–18.6 dB**. Mostly `music` (375 rows). Crossover 300/180/200 Hz, release 500, attack 706–712 | **Not implemented, but derivable** — unlike everything in band B this ships a complete parameter set, so it is a real candidate rather than a defensive note. A level-dependent bass boost of up to ~18 dB is not a rounding error. Adding it means a new DSP stage on the audio path, so it needs design plus measured on-device validation before adoption |
+
+### Band B — an on/off bit and nothing else, so *not* derivable
+
+These are enabled on real devices, and no amount of corpus evidence will make
+them implementable: the schema carries no threshold, ratio, attack, release or
+depth for any of them — only the enable flag. Verified by diffing the full tag
+set of a device that has them against one that does not. Emitting a stage anyway
+would mean inventing every parameter, which is the per-device hand-tuning the
+XML-only rule exists to prevent (see CLAUDE.md "Core invariants").
+
+| Block | Element(s) | Active in corpus | Status |
+|---|---|---|---|
+| Volume-leveler DRC sub-component | `volume-leveler-drc-enable` | **618 XMLs, enabled on 9979 of 11150 rows** | Reported at end of run. Moot by default (the leveler is bypassed); only reachable under `--enable autogain` |
+| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | **137 XMLs, 77 devices, enabled on 2408 of 2410 rows** | Same. **Does not explain the issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) autogain overshoot** — neither that device (`17AA507F`) nor the dev device (`17AA22E6`) carries the element, so Dolby's leveler runs uncompressed there too. Two devices (`37A317AA`, `C1DC144D`) switch it off on `music` and on elsewhere, the closest thing to an in-device A/B |
+| Media-Intelligence steering | `mi-virt-steering-enable`, `mi-dialog-enhancer-steering-enable` (4245 rows), `mi-surround-compressor-steering-enable` (4139 rows) | Present on all 2681 XMLs | Content-adaptive steering of stages we do model. Not warned — it is on the `dynamic` profile of essentially every device, so a note would fire on every run |
+| MBC channel deviation | `mb-compressor-channel-deviation` | 1589 XMLs, non-zero on 64 rows | Not warned; near-universally zero |
+
+### Band C — present but inert, or engine plumbing
+
+Named once so a future schema sweep doesn't re-discover them as findings:
+
+| Group | Element(s) | Active in corpus |
+|---|---|---|
+| Inert feature blocks | `bass-extraction-enable`, `bass-enhancer-boost`, `virtual-bass-slope-gain`, `virtual-bass-overall-gain`, `volume-modeler-calibration`, `noise-gate-enable`, `process-optimizer-enable`, `virtualizer-start-band` | Zero on every row where present |
+| Fixed feature constants | `bass-enhancer-width`/`-cutoff-frequency`, `bass-extraction-cutoff-frequency`, `virtual-bass-src-freqs`/`-mix-freqs`/`-subgains`, `virtualizer-{front,surround,height}-speaker-angle` | Identical on all 40732 rows; nothing device-specific to carry |
+| DSP-engine descriptors | `max_num_*`, `output_ports`, `nb_output_channels`, `low_latency_enable`, `processing_mode`, `mix_matrix`, `mi_process_disable` | Dolby runtime plumbing, not audio parameters |
+
+### Previously catalogued blocks
 
 | Block                                              | Element(s)                                                                   | Active in corpus                          | Status                                                                                                  |
 |----------------------------------------------------|------------------------------------------------------------------------------|-------------------------------------------|---------------------------------------------------------------------------------------------------------|
@@ -632,19 +674,23 @@ inactive corpus-wide.
 | Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)), unrelated to the downmix matrix here. |
 
 The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` carries the two
-rare-but-real cases above (DSO, advanced virtualizer) plus four watch-only
+rare-but-real cases in the previous table (DSO, advanced virtualizer) plus four watch-only
 fields (`peak-level`, `ieq-bands-set`, `regulator-overdrive`,
 `regulator-relaxation-amount`) that warn only when an XML deviates from the
 corpus constants — silent on every shipped tuning today. The
-universally-present-but-never-enabled defensive elements in the table above
-are deliberately *not* listed — they'd fire on every run for no gain. If a
-future driver release flips one of them on, the corpus sweep will catch it
-before the warning needs to.
+universally-present-but-never-enabled defensive elements (band C, and the MI
+steering row in band B) are deliberately *not* listed — they'd fire on every run
+for no gain. If a future driver release flips one of them on, the corpus sweep
+will catch it before the warning needs to. Everything that *is* listed now
+prints once at the end of the run rather than mid-parse, where it was buried
+under the per-band tables.
 
 ### Why these aren't implemented
 
-For each of the two warned features, implementation would require either real
-device measurements or undocumented Dolby DSP internals:
+Band B is answered above: there is nothing to derive. Band A's sliding bass is
+derivable and simply not done yet. For the two warned features, implementation
+would require either real device measurements or undocumented Dolby DSP
+internals:
 
 - **DSO** maps a target excursion (driver-specific) and a per-band power
   envelope to a real-time gain. The `amount` (1–10) and `speaker-interval`
