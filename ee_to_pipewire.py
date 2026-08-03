@@ -1521,7 +1521,16 @@ def main(argv: list[str] | None = None) -> int:
                 cprint("warn", f"[validate] {line}")
 
     if args.dry_run:
-        sys.stdout.write(conf)
+        # Only dump the conf when stdout is going somewhere — a pipe, a file,
+        # a pager. On a terminal it is a few hundred lines of JSON between the
+        # troubleshooting menu and the end of the run, which buries everything
+        # either side of it; the paths below say what would have been written,
+        # which is what a human running --dry-run is actually asking.
+        if sys.stdout.isatty():
+            cprint("dim", "(conf not shown — redirect or pipe stdout to see "
+                          "it, e.g. --dry-run > preview.conf)")
+        else:
+            sys.stdout.write(conf)
         would_conf = (args.output.expanduser() if args.output is not None
                       else (DEFAULT_OUTPUT_DIR
                             / f"{safe_node_name}.conf").expanduser())

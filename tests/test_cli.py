@@ -1245,13 +1245,15 @@ def test_skip_report_cta_still_hands_back_the_findings(tmp_path):
     assert isinstance(collected, list)
 
 
-def test_troubleshooting_menu_renders_every_emitted_filter(capsys):
+def test_troubleshooting_menu_renders_every_emitted_filter(monkeypatch,
+                                                          capsys):
     """The closing troubleshooting block must actually render.
 
     Nothing covered this path, so deleting a helper it called left the block
     raising NameError mid-print — after the presets were already written —
     and the whole suite stayed green. It is the most-seen block in the output.
     """
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
     findings = [dolby_to_easyeffects._loudness_untamed_finding()]
     by_profile = {name: {"default"} for name in
                   ("volmax", "mbc", "regulator", "dialog")}
@@ -1264,12 +1266,26 @@ def test_troubleshooting_menu_renders_every_emitted_filter(capsys):
     # Every emitted filter is offered, including the one the hint named: a
     # hint saying "--disable volmax" over a list without volmax in it reads
     # as a bug in the tool.
-    for name in ("volmax", "mbc", "regulator", "dialog"):
+    for name in ("volmax", "mbc", "dialog"):
         assert f"--disable {name}" in out
+    # ...except the regulator, which this hint just said never engages.
+    # Offering to switch off a stage the same screen calls inert is a
+    # contradiction the reader can't resolve.
+    assert "--disable regulator" not in out
     assert "--enable autogain" in out
     # The hint itself, and how to apply any of it.
     assert "--disable volmax" in out
     assert "reload the preset in EasyEffects" in out
+
+
+def test_regulator_stays_on_the_menu_without_the_inert_hint(monkeypatch,
+                                                            capsys):
+    """The suppression is specific to the contradiction, not a blanket drop —
+    a run that never claimed the regulator was inert still offers it."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    by_profile = {"regulator": {"default"}, "mbc": {"default"}}
+    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    assert "--disable regulator" in capsys.readouterr().out
 
 
 def test_disable_symptoms_do_not_overlap():
@@ -1285,10 +1301,11 @@ def test_disable_symptoms_do_not_overlap():
     assert not shared, f"symptom words shared between filters: {shared}"
 
 
-def test_clean_run_closing_block_is_just_the_ask(capsys):
+def test_clean_run_closing_block_is_just_the_ask(monkeypatch, capsys):
     """The common case by a wide margin. A rule and a "Help the project"
     heading over a bare report-back line would be noise on every clean run,
     which is how a block earns being skipped."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
     dolby_to_easyeffects.print_project_asks([])
     out = capsys.readouterr().out.strip().splitlines()
     # Two or three lines depending on how wide the sentence wraps; what

@@ -3507,9 +3507,14 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//dynamic_speaker_optimization_enable", "speaker-optimizer",
         lambda el: el.get("value") == "1",
-        lambda el: "Dynamic Speaker Optimization (excursion-aware bass "
-                   "limiting) is set in the XML but not modeled — silently "
-                   "dropped."),
+        # Says it's safe. Naming a dropped "bass limiting" stage and stopping
+        # there reads as "nothing is protecting your woofers now", and a
+        # reader who fears for their speakers has no way to check.
+        lambda el: "Your tuning has an extra bass-protection stage (Dynamic "
+                   "Speaker Optimization) that this converter doesn't "
+                   "reproduce. Nothing here plays louder than your laptop "
+                   "normally would, so it's safe — very loud bass may just "
+                   "sound less controlled than on Windows."),
     _UnmodeledFeature(
         ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
         lambda el: True,  # presence implies the newer virtualizer pipeline
@@ -3613,7 +3618,8 @@ def _loudness_untamed_finding() -> Finding:
         detail="This tuning's regulator never engages (every band threshold "
                "is >= 0 dB), so the volmax boost reaches the brickwall "
                "limiter untamed.",
-        ask="If loud content sounds squashed, re-run with --disable volmax.")
+        ask="If loud parts distort or sound crushed, re-run with "
+            "--disable volmax.")
 
 
 def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
@@ -3635,16 +3641,18 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
     correctly, so "does it sound right?" is unanswerable on its own. Naming
     the --disable flag turns it into an A/B they can actually run.
     """
-    how = (f" — compare with --disable {flags[0]}" if len(flags) == 1
-           else "")
+    if len(flags) == 1:
+        ask = (f"Re-run with --disable {flags[0]} and tell us which version "
+               "sounded better.")
+    else:
+        ask = "Tell us whether it sounds right — either answer helps."
     return Finding(
         slug="experimental", kind="ask",
         detail=f"Built from your tuning but never confirmed by ear: {named}. "
                "These come straight out of the Dolby file and the numbers "
                "check out, but nobody with a device that uses them has told "
                "us how they sound.",
-        ask=f"Does the sound these change seem right{how}? Either answer "
-            "helps.")
+        ask=ask)
 
 
 def _firmware_gate_finding() -> Finding:
@@ -3778,15 +3786,25 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         if xml_path is not None and any("tuning XML" in f.ask for f in asks):
             print()
             cprint("dim", "  The tuning XML to attach is:")
-            cprint("dim", f"    {xml_path}")
+            # Absolute and quoted. Dolby's own directory names contain '$'
+            # (…/code$GetExtractPath$/…), so an unquoted relative path is
+            # eaten by the shell the moment anyone types ls on it and the
+            # file looks missing.
+            cprint("dim", f"    '{Path(xml_path).resolve()}'")
         print()
+    # The link prints either way. Suppressing it on a dry run left the block
+    # above saying "quote the tag in brackets if you report one" with nowhere
+    # to report to — worse than the impossible "how does it sound?" it was
+    # meant to fix, because that at least named a destination.
     if dry_run:
-        _cprint_wrapped("cta", "Dry run — nothing was written. Re-run the same "
-                               "command without --dry-run to install these "
-                               "presets.")
-        return
-    _cprint_wrapped("cta", "How does it sound? Please report back — good or "
-                           "bad, or if you need help:")
+        # Just the pointer. That nothing was written is said immediately
+        # above by whoever ran the dry run — print_what_now here, the [3/3]
+        # banner under dolby_to_pipewire.py — and saying it twice in
+        # consecutive sentences reads like a stutter.
+        _cprint_wrapped("cta", "Reporting anything above? Here's where:")
+    else:
+        _cprint_wrapped("cta", "How does it sound? Please report back — good "
+                               "or bad, or if you need help:")
     # The URL gets its own line and is never wrapped: broken across lines it
     # can't be clicked or copied, which defeats the whole point of the ask.
     cprint("cta", f"  {_REPORT_FORM_URL}")
@@ -4696,7 +4714,7 @@ def make_limiter(input_gain: float = 0.0) -> dict:
 # thing you can hear, in words someone who has never read an audio manual can
 # match against, and they are ordered most-likely-to-help first.
 DISABLEABLE_FILTERS = {
-    "volmax": ("everything is too loud, or loud parts distort",
+    "volmax": ("loud parts distort or sound crushed",
                "drops the +volmax-boost static loudness gain"),
     "mbc": ("music sounds flat and lifeless, with no light and shade",
             "drops the Dolby multi-band compressor"),
@@ -4747,7 +4765,7 @@ EXPERIMENTAL_MARKERS = {
 
 
 def print_what_now(preset_names: list[str], autoloaded: bool,
-                   dry_run: bool) -> None:
+                   dry_run: bool, output_dir=None) -> None:
     """Say the run worked and how to start using it.
 
     The run reports each file as it writes it, hundreds of lines before the
@@ -4764,14 +4782,23 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         return
     cprint("head", f"\n{'=' * 60}")
     if dry_run:
-        cprint("ok", f"Dry run: would write {len(preset_names)} presets.")
+        cprint("ok", f"Dry run — nothing was written. Re-run without "
+                     f"--dry-run to install these {len(preset_names)} presets:")
+        for name in preset_names:
+            cprint("dim", f"    {name}")
         return
-    cprint("ok", f"Done — wrote {len(preset_names)} presets.")
+    cprint("ok", f"Done — wrote {len(preset_names)} presets"
+                 + (f" to {output_dir}:" if output_dir else ":"))
+    # Name them all. Naming only the first left the reader wondering what the
+    # other two were and whether one suited their speakers better.
+    for name in preset_names:
+        cprint("dim", f"    {name}")
     print()
     _cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
-                           f"pick '{preset_names[0]}' from the Presets menu. "
-                           "Or re-run with --autoload to have it load itself "
-                           "for your speakers.", indent="  ")
+                           f"pick '{preset_names[0]}' from the Presets menu — "
+                           "that's the one to start with. Or re-run with "
+                           "--autoload to have it load itself for your "
+                           "speakers.", indent="  ")
 
 
 # Width of the "    --disable volmax      " gutter each flag row hangs from,
@@ -4816,6 +4843,12 @@ def print_troubleshooting(findings: list[Finding],
     """
     hints = [f for f in findings if f.kind == "hint" and f.ask]
     shown = [k for k in DISABLEABLE_FILTERS if k in filters_by_profile]
+    # Don't offer to switch off a stage this run already reported as never
+    # engaging: "the volume wobbles on its own — --disable regulator" under a
+    # warning that the regulator never does anything is a straight
+    # contradiction, and the reader can't tell which half to believe.
+    if any(f.slug == "loudness-untamed" for f in hints):
+        shown = [k for k in shown if k != "regulator"]
     enable_hints = [k for k in ENABLEABLE_FILTERS if k in filters_by_profile]
     if not hints and not shown and not enable_hints:
         return
@@ -5930,8 +5963,13 @@ def main(argv: list[str] | None = None,
 
     scoped = [_scope(f) for f in findings.values()]
 
-    print_what_now(all_preset_names, bool(args.autoload), args.dry_run)
     print_troubleshooting(scoped, filters_by_profile)
+    # After the troubleshooting, not before it. Printed first, the success
+    # line and "how to use them" scrolled off the top of a 24-line terminal
+    # and the last thing on screen was troubleshooting advice and a
+    # bug-report link — which reads as though the run failed.
+    print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
+                   output_dir=args.output_dir)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
