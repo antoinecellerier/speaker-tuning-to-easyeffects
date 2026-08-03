@@ -84,6 +84,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   silence; re-run the script to regenerate
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
+- All three scripts now tab-complete in bash and zsh — flag names, the
+  `--disable` / `--enable` / `--variant` value lists, paths, and your live
+  PipeWire sink names — via the optional `argcomplete` package. Add one
+  `eval` line to your shell rc to enable it (README "Shell tab-completion");
+  without the package the scripts are unchanged.
 - Mark additional tested devices: ThinkPad T14 Gen 7
   ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
   ThinkPad T14 Gen 1 AMD

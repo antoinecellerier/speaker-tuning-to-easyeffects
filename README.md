@@ -73,7 +73,7 @@ If you test it on other hardware, please [open a device report](https://github.c
 
 ## Install
 
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome.
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
 
 <details>
 <summary>Install commands for your distro</summary>
@@ -396,6 +396,20 @@ If the autoprobe reports ambiguity (e.g. you have several extracted driver trees
 **SoundWire codecs (newer Intel platforms).** Auto-detection also handles SoundWire-based audio (Lunar Lake / Panther Lake and later, Meteor Lake, some Tiger/Alder Lake SKUs), including Qualcomm Aqstic and Cirrus cs35l56 smart-amp platforms. The script reads device IDs from `/sys/bus/soundwire/devices/` and the PCI subsystem ID of the HD Audio controller from `/sys/class/sound/card*/device`, and matches them against Dolby filenames of the form `SOUNDWIRE_MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml` (e.g. `SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml`). The PCI subsystem is the per-device key — on Cirrus platforms the `FUNC` token is a device id that needn't equal the Linux SoundWire part id (see [cross-device-findings](docs/cross-device-findings.md)), so if no part matches, the script falls back to the PCI subsystem + manufacturer. `--windows` accepts either a full Windows system root (e.g. `/mnt/windows/Windows`), a drive-root mount (e.g. `/mnt/c` — the script looks for a case-insensitive `Windows/` child), *or* an already-extracted DriverStore directory containing `dax3_ext_*.inf_*` subfolders directly.
 
 </details>
+
+### Shell tab-completion
+
+Optional, and needs a package you probably don't have yet: with [argcomplete](https://github.com/kislyuk/argcomplete) installed (`python3-argcomplete` on Debian/Ubuntu/Fedora/openSUSE, `python-argcomplete` on Arch, `py3-argcomplete` on Alpine), all three scripts tab-complete their flags, the `--disable` / `--enable` / `--variant` value lists, file and directory paths, and your live PipeWire sink names for `--autoload-sink` and `--target-sink`.
+
+It is off until you register it. Add one line to your shell's rc file — `~/.bashrc`, or `~/.zshrc` *after* its `compinit` line:
+
+```bash
+eval "$(activate-global-python-argcomplete --dest=-)"
+```
+
+**Run the scripts directly — `./dolby_to_easyeffects.py …` — to get completion.** In bash that hook also covers the `python3 dolby_to_easyeffects.py …` form used elsewhere in this README; in zsh it does not, because zsh's own `python` completion takes precedence over it.
+
+To scope completion to these three scripts rather than every argcomplete-enabled program, run `eval "$(register-python-argcomplete dolby_to_easyeffects.py)"` once per script instead — that form covers `./dolby_to_easyeffects.py` only, in both shells.
 
 ## How it works
 

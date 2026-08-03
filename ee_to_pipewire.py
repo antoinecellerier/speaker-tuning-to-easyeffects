@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 """Convert an EasyEffects output preset (the JSON `dolby_to_easyeffects.py`
 emits) into a PipeWire `filter-chain` `.conf`.
 
@@ -69,6 +70,13 @@ if _CONSOLE is None:
     _MISSING_COLOR_DEPS.append("rich")
 if _HelpFormatter is argparse.HelpFormatter:
     _MISSING_COLOR_DEPS.append("rich-argparse")
+
+# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, this
+# module stays stdlib-only and behaves exactly as before.
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
 
 def cprint(style: str, text: str = "") -> None:
@@ -1342,8 +1350,41 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     return parser
 
 
+def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
+    """Tab-completion for --target-sink / --target-object: PipeWire node.name
+    values, from the same pw-dump boundary _autodetect_speaker_sink() uses."""
+    try:
+        from dolby_to_easyeffects import _enumerate_audio_sinks
+        names = [s.get("name", "") for s in _enumerate_audio_sinks()]
+    except Exception:  # a wedged or absent PipeWire must never break TAB
+        return []
+    return [n for n in names if n.startswith(prefix)]
+
+
+def _attach_completers(parser: argparse.ArgumentParser) -> None:
+    """Tell argcomplete what each value-taking option means — argparse records
+    `type=Path` for the preset JSON, the output conf and the IRS directory
+    alike, and nothing at all for PipeWire node names."""
+    from argcomplete.completers import DirectoriesCompleter, FilesCompleter
+
+    completers = {
+        "preset":        FilesCompleter(("json",)),
+        "output":        FilesCompleter(("conf",)),
+        "irs_dir":       DirectoriesCompleter(),
+        "target_sink":   _complete_sink_names,
+        "target_object": _complete_sink_names,
+    }
+    for action in parser._actions:
+        completer = completers.get(action.dest)
+        if completer is not None:
+            action.completer = completer
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser(argv)
+    if argcomplete is not None:
+        _attach_completers(parser)
+        argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
     if args.no_color:
         _disable_color()

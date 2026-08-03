@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 """One command from Dolby DAX3 tuning XML to an active PipeWire filter chain.
 
 Orchestrates the two existing converters without duplicating them:
@@ -20,7 +21,9 @@ import time
 from pathlib import Path
 
 # Step 1 runs in-process, so this pulls in the generator's NumPy/SciPy —
-# acceptable: every non-inspection run executes that DSP anyway.
+# acceptable: every non-inspection run executes that DSP anyway. (A tab
+# completion is the exception, and the generator skips the DSP import there;
+# see its _load_dsp.)
 import dolby_to_easyeffects
 import ee_to_pipewire
 from _version import get_version
@@ -265,6 +268,14 @@ def _activate(node_names: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser, step1_actions, step2_actions = _compose_parser(argv)
+    # The parser is composed from both converters' argument builders, so its
+    # completers compose the same way: each table matches on dest and ignores
+    # the flags it doesn't own. Nothing to keep in sync here.
+    if dolby_to_easyeffects.argcomplete is not None:
+        dolby_to_easyeffects._attach_completers(parser)
+        ee_to_pipewire._attach_completers(parser)
+        dolby_to_easyeffects.argcomplete.autocomplete(parser)
+    dolby_to_easyeffects.ensure_dsp()
     args = parser.parse_args(argv)
     if args.no_color:
         _disable_color()

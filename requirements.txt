@@ -2,5 +2,6 @@ numpy
 scipy
 rich
 rich-argparse
+argcomplete  # optional: shell tab-completion (see README "Shell tab-completion")
 pytest
 pytest-xdist  # optional: parallelizes the slow corpus tier (pytest -n auto)

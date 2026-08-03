@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 """Convert Dolby DAX3 tuning XML to EasyEffects output presets.
 
 Generates minimum-phase FIR impulse responses from the Dolby IEQ target
@@ -20,6 +21,8 @@ Output chain:
   - limiter#0: brickwall output limiter (safety net)
 """
 
+from __future__ import annotations
+
 import argparse
 import configparser
 import contextlib
@@ -35,10 +38,34 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-import numpy as np
-from scipy.io import wavfile
-
 from _version import get_version
+
+# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
+# script behaves exactly as before — same contract as rich below.
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
+
+
+def _load_dsp() -> None:
+    """Import the DSP stack into module globals.
+
+    NumPy and SciPy are ~0.4 s of this script's ~0.5 s startup, and
+    argcomplete re-runs the whole script on *every* TAB press, exiting inside
+    autocomplete() long before any DSP code is reached. So the completion path
+    skips them and complete_and_load() imports them once it knows this is a
+    real run. The `from __future__ import annotations` above is what makes
+    that legal: `np.ndarray` in a signature is a string, not a lookup.
+    """
+    global np, wavfile
+    import numpy as np
+    from scipy.io import wavfile
+
+
+if "_ARGCOMPLETE" not in os.environ:
+    _load_dsp()
+
 
 try:
     from rich.console import Console
@@ -4848,8 +4875,79 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     return parser
 
 
+def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
+    """Tab-completion for --autoload-sink: the PipeWire node.name values.
+
+    Reuses the single pw-dump boundary so the names offered are exactly the
+    ones the autoload resolver accepts — which is the answer the flag's help
+    currently sends people to `pw-dump | grep node.name` for.
+    """
+    try:
+        names = [s.get("name", "") for s in _enumerate_audio_sinks()]
+    except Exception:  # a wedged or absent PipeWire must never break TAB
+        return []
+    return [n for n in names if n.startswith(prefix)]
+
+
+def _complete_preset_names(prefix: str, **_kwargs) -> list[str]:
+    """Tab-completion for --autoload's optional PRESET: the preset stems
+    already present in the EasyEffects output directory."""
+    try:
+        stems = [p.stem for p in DEFAULT_OUTPUT_DIR.glob("*.json")]
+    except OSError:
+        return []
+    return [s for s in stems if s.startswith(prefix)]
+
+
+def _attach_completers(parser: argparse.ArgumentParser) -> None:
+    """Tell argcomplete what each value-taking option means.
+
+    argparse records `type=Path` for directories and XML files alike, and
+    nothing at all for PipeWire node names, so that distinction has to live
+    somewhere. Options carrying `choices=` are absent by design — argcomplete
+    reads those off the parser itself, which is why --disable/--enable can't
+    drift from DISABLEABLE_FILTERS/ENABLEABLE_FILTERS.
+    """
+    from argcomplete.completers import DirectoriesCompleter, FilesCompleter
+
+    completers = {
+        "xml_file":      FilesCompleter(("xml", "XML")),
+        "windows":       DirectoriesCompleter(),
+        "output_dir":    DirectoriesCompleter(),
+        "irs_dir":       DirectoriesCompleter(),
+        "autoload_dir":  DirectoriesCompleter(),
+        "autoload_sink": _complete_sink_names,
+        "autoload":      _complete_preset_names,
+    }
+    for action in parser._actions:
+        completer = completers.get(action.dest)
+        if completer is not None:
+            action.completer = completer
+
+
+def ensure_dsp() -> None:
+    """Load the DSP stack if the completion-path deferral skipped it.
+
+    Reaching here means the run is real, not a tab completion — argcomplete
+    exits inside autocomplete(). Callers that hook completion themselves
+    (dolby_to_pipewire.py composes its own parser) must still call this.
+    """
+    if "np" not in globals():
+        _load_dsp()
+
+
+def complete_and_load(parser: argparse.ArgumentParser) -> None:
+    """Serve a shell tab-completion request, then finish start-up for a real
+    run. The single call the entry point needs."""
+    if argcomplete is not None:
+        _attach_completers(parser)
+        argcomplete.autocomplete(parser)
+    ensure_dsp()
+
+
 def main(argv: list[str] | None = None):
     parser = build_parser(argv)
+    complete_and_load(parser)
     args = parser.parse_args(argv)
     if args.no_color:
         _disable_color()
