@@ -134,6 +134,10 @@ def recorders(monkeypatch):
     """Replace the generator, the converter, and subprocess with recorders.
     The fake generator writes the three variant stubs into the --output-dir
     it was handed, like the real one; the fake pw-cli lists every node."""
+    # Warm the git-describe version cache before the recorder hooks in:
+    # whichever test runs first in a fresh worker would otherwise record
+    # the one-time version lookup and fail the no-subprocess assertions.
+    dolby_to_easyeffects.get_version()
     calls = SimpleNamespace(step1=[], step2=[], commands=[])
 
     def fake_run_cli(argv, closing=None):
