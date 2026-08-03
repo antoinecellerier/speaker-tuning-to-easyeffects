@@ -88,9 +88,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   SoundWire devices, where it runs by default — the escape hatch if
   loudness pumps between quiet and loud passages. Default presets are
   unchanged (README "Disabling and enabling filters").
-- The per-preset frequency tables now hide behind a new `--verbose`/`-v`
-  flag; a normal run keeps one verdict line per preset instead. Include a
-  `-v` log when reporting a sound problem — the issue form asks for it.
+- The per-preset frequency tables and raw parameter arrays now hide behind
+  a new `--verbose`/`-v` flag; a normal run keeps one summary line per
+  stage (deepest cuts, band counts, thresholds) and one verdict line per
+  preset. Include a `-v` log when reporting a sound problem — the issue
+  form asks for it.
 - All three scripts now tab-complete in bash and zsh — flag names, the
   `--disable` / `--enable` / `--variant` value lists, paths, and your live
   PipeWire sink names — via the optional `argcomplete` package. Add one

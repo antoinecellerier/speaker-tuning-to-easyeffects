@@ -3672,12 +3672,11 @@ def _loudness_untamed_finding() -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
         slug="loudness-untamed",
-        # Names the row it means. "every band threshold is >= 0 dB" printed
-        # directly under a table showing threshold_high at +0.0 *and*
-        # threshold_low at -12.0, so it read as contradicting the numbers
-        # right above it and neither could be trusted.
-        detail="This tuning's regulator never engages — every band's "
-               "threshold_high above is at or over 0 dB — so the volmax "
+        # Self-contained: it used to say "threshold_high above", pointing at
+        # a table that only prints with -v now. The field name stays in
+        # parentheses as the grep handle.
+        detail="This tuning's regulator never engages — every band's limit "
+               "(threshold_high) sits at or over 0 dB — so the volmax "
                "boost reaches the brickwall limiter untamed.",
         ask="If loud parts distort or sound crushed, re-run with "
             "--disable volmax.")
@@ -5293,7 +5292,7 @@ class _HelpHintParser(argparse.ArgumentParser):
 
 def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                            volmax_slot="input-gain", enabled=None,
-                           is_soundwire=False):
+                           is_soundwire=False, verbose=False):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax), and return the findings raised while doing so.
@@ -5326,15 +5325,36 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     print(f"ieq-amount: {ieq_amount}% — the Balanced/Detailed/Warm voicing "
           "curves apply at this weight on top of the speaker correction")
 
-    # Audio-optimizer curves in dB
-    print("\nAudio-optimizer (dB):")
+    # Audio-optimizer: one triage-grade line by default — deepest cut/boost
+    # with its frequency, and channel symmetry, which is what a pasted
+    # normal-verbosity report gets read for first. The raw twenty-number
+    # arrays read as "my sound is about to be damaged" (round 3, two
+    # reviewers) and move behind -v.
+    ao_l, ao_r = np.asarray(ao_db_left), np.asarray(ao_db_right)
     if not tuning.ao_enabled:
-        cprint("warn", "  This profile sets audio-optimizer-enable=0, so the "
-                       "correction curve it ships is not applied — the shown "
-                       "zeros are that, not a flat tuning. Only the IEQ voicing "
-                       "reaches the convolver here.")
-    print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
-    print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
+        print("\nAudio-optimizer: switched off in this profile")
+        cprint("warn", "  audio-optimizer-enable=0 — the correction curve "
+                       "this profile ships is not applied; only the IEQ "
+                       "voicing reaches the convolver here.")
+    else:
+        parts = []
+        cut = float(min(ao_l.min(), ao_r.min()))
+        boost = float(max(ao_l.max(), ao_r.max()))
+        if cut < 0:
+            f_cut = freqs[int(np.argmin(np.minimum(ao_l, ao_r)))]
+            parts.append(f"cuts to {cut:+.1f} dB (deepest at {f_cut} Hz)")
+        if boost > 0:
+            f_boost = freqs[int(np.argmax(np.maximum(ao_l, ao_r)))]
+            parts.append(f"boosts to {boost:+.1f} dB (at {f_boost} Hz)")
+        if not parts:
+            parts.append("flat (all 0 dB)")
+        sym = ("identical L/R" if np.allclose(ao_l, ao_r)
+               else "different L/R")
+        print("\nAudio-optimizer: speaker correction — "
+              + ", ".join(parts) + f", {sym}")
+    if verbose:
+        print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
+        print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
     # The row types carry a what-you-hear clause where the name alone says
     # nothing to a non-engineer — the dialog/bass sections had one and this
@@ -5391,8 +5411,18 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # display concern derived here from the stored xover_idx + band
         # position, exactly as before.
         decoded = decode_mbc_bands(mb_comp)
+        # The threshold range is the summary's diagnostic payload: it is
+        # the first thing a triage of a squashed-sounding report reaches
+        # for, and most reports arrive at normal verbosity.
+        thr = [b["threshold"] for b in decoded]
+        if len(thr) == 1:
+            print(f"  threshold {thr[0]:+.1f} dB"
+                  + ("" if verbose else "  (full band table with -v)"))
+        else:
+            print(f"  thresholds {max(thr):+.1f} to {min(thr):+.1f} dB"
+                  + ("" if verbose else "  (full band table with -v)"))
         n_bands_print = len(decoded)
-        for i, b in enumerate(decoded):
+        for i, b in enumerate(decoded if verbose else []):
             xover_idx = b["xover_idx"]
             if i == n_bands_print - 1:
                 # Sentinel in the last band — it runs to the top of the
@@ -5409,18 +5439,40 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   f"release={b['release_ms']:.2f} ms, makeup={b['makeup']:+.1f} dB")
 
     if regulator:
-        print("\nRegulator (per-band limiter):")
-        print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
-        print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
-        print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}")
-        print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
-        print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
-        print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (recorded for research; no effect on your output)")
-        print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (recorded for research; no effect on your output)")
+        # Plain tail + a triage-grade summary (how many bands limit, and
+        # how hard) — the raw arrays were six unexplained lines of numbers
+        # (round 3, all three reviewers) and move behind -v. The active-band
+        # count and floor are what a report diagnosis reads first.
+        th = regulator["threshold_high"]
+        active = [x for x in th if x < 0]
+        print("\nRegulator (per-band limiter): keeps loud parts from "
+              "distorting, band by band")
+        if active:
+            print(f"  limits {len(active)} of {len(th)} bands "
+                  f"(down to {min(th):+.1f} dB)"
+                  + ("" if verbose else "  (full tables with -v)"))
+        else:
+            print("  no band limit below 0 dB — it never engages here"
+                  + ("" if verbose else "  (full tables with -v)"))
         iso = regulator.get("isolated_band")
         if iso is not None:
-            print(f"  isolated_band:       {iso}  "
-                  "(experimental: --enable coupled-bands)")
+            # Co-located with the fact it explains: the only plain wording
+            # for coupled-bands used to sit a screen away in the flag menu
+            # (rounds 2–3).
+            print(f"  protection scoped to {sum(iso)} of {len(iso)} bands "
+                  "marked isolated — --enable coupled-bands extends it "
+                  "(experimental, issue #44)")
+        if verbose:
+            print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
+            print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
+            print(f"  stress (dB):         {[f'{x:+.1f}' for x in regulator['stress']]}"
+                  f"  ({len(regulator['stress'])} zones, not per-band)")
+            print(f"  distortion-slope:    {regulator.get('distortion_slope', 1.0):.2f}")
+            print(f"  timbre-preservation: {regulator.get('timbre_preservation', 0.75):.2f}")
+            print(f"  overdrive (raw):     {regulator.get('overdrive', 0)}  (recorded for research; no effect on your output)")
+            print(f"  relaxation (raw):    {regulator.get('relaxation', 96)}  (recorded for research; no effect on your output)")
+            if iso is not None:
+                print(f"  isolated_band:       {iso}")
 
     if volmax_boost <= 0:
         slot = "value is 0, no boost to apply"
@@ -6084,7 +6136,7 @@ def main(argv: list[str] | None = None,
         profile_findings = _report_parsed_profile(
             tuning, ao_db_left, ao_db_right, scale, disabled,
             args.volmax_slot, enabled=set(args.enable),
-            is_soundwire=is_soundwire)
+            is_soundwire=is_soundwire, verbose=args.verbose)
 
         for finding in [*tuning.findings, *profile_findings]:
             findings.setdefault(finding.slug, finding)

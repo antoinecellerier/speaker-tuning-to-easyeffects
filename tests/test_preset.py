@@ -793,6 +793,30 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
     assert ("regulator never engages" in out) is expect_warn
 
 
+def test_report_summarises_by_default_and_dumps_with_verbose(monkeypatch,
+                                                             capsys):
+    """Normal-verbosity output is what most reports paste, so the default
+    summary lines must carry the triage payload (active-band count, floor);
+    the raw arrays print only with -v."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)
+    tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
+
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
+    out = capsys.readouterr().out
+    assert "limits 20 of 20 bands" in out
+    assert "full tables with -v" in out
+    assert "threshold_high (dB):" not in out
+    assert "Left:  [" not in out
+
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set(),
+                           verbose=True)
+    out = capsys.readouterr().out
+    assert "threshold_high (dB):" in out
+    assert "zones, not per-band" in out
+    assert "Left:  [" in out
+
+
 @pytest.mark.parametrize("is_soundwire,disabled,expect", [
     (True, set(), True),
     (True, {"bass-enhancer"}, False),
