@@ -399,9 +399,9 @@ If the autoprobe reports ambiguity (e.g. you have several extracted driver trees
 
 ### Shell tab-completion
 
-Optional, and needs a package you probably don't have yet: with [argcomplete](https://github.com/kislyuk/argcomplete) installed (`python3-argcomplete` on Debian/Ubuntu/Fedora/openSUSE, `python-argcomplete` on Arch, `py3-argcomplete` on Alpine), all three scripts tab-complete their flags, the `--disable` / `--enable` / `--variant` value lists, file and directory paths, and your live PipeWire sink names for `--autoload-sink` and `--target-sink`.
+Optional with [argcomplete](https://github.com/kislyuk/argcomplete) installed (`python3-argcomplete` on Debian/Ubuntu/Fedora/openSUSE, `python-argcomplete` on Arch, `py3-argcomplete` on Alpine), all three scripts tab-complete their flags, the `--disable` / `--enable` / `--variant` value lists, file and directory paths, and your live PipeWire sink names for `--autoload-sink` and `--target-sink`.
 
-It is off until you register it. Add one line to your shell's rc file — `~/.bashrc`, or `~/.zshrc` *after* its `compinit` line:
+Argcomplete is off until you register it. Add one line to your shell's rc file — `~/.bashrc`, or `~/.zshrc` *after* its `compinit` line:
 
 ```bash
 eval "$(activate-global-python-argcomplete --dest=-)"
