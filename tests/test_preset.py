@@ -934,6 +934,60 @@ def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys
     assert "audio-optimizer-enable=0" in capsys.readouterr().out
 
 
+# --- LOCK-IN: unreproducible stages are surfaced where users will see them ---
+
+def test_leveler_substages_parsed_only_when_switched_on(tmp_path):
+    """Dolby pairs sub-stages with its leveler that carry no parameters at
+    all — only an on/off bit. They're recorded so the run can ask for the
+    capture that would settle them."""
+    from tests.conftest import write_synthetic_tuning_xml
+    import dolby_to_easyeffects as d
+
+    path = write_synthetic_tuning_xml(tmp_path / "sub.xml")
+    path.write_text(path.read_text().replace(
+        "<ieq-enable value=\"1\"/>",
+        '<ieq-enable value="1"/>\n'
+        '        <volume-leveler-compressor-enable value="1"/>\n'
+        '        <volume-leveler-drc-enable value="0"/>'))
+    assert d.parse_xml(path).leveler_substages == ["volume-leveler-compressor"]
+
+    plain = write_synthetic_tuning_xml(tmp_path / "plain.xml")
+    assert d.parse_xml(plain).leveler_substages == []
+
+
+@pytest.mark.parametrize("autogain_on,expect", [
+    (False, "only matters if you rebuild with --enable autogain"),
+    (True, "pumps or overshoots"),
+])
+def test_substage_summary_escalates_under_autogain(capsys, autogain_on, expect):
+    """Silent-but-present on a default run (the leveler is bypassed, so it
+    genuinely cannot be heard); the full evidence ask once autogain is on."""
+    import dolby_to_easyeffects as d
+
+    d._unmodeled_summary([], ["volume-leveler-compressor"], autogain_on)
+    out = capsys.readouterr().out
+    assert expect in out
+    # The ask is only worth making when it can be acted on.
+    assert (d._REPORT_URL in out) is autogain_on
+
+
+def test_substage_summary_silent_when_there_is_nothing_to_say(capsys):
+    import dolby_to_easyeffects as d
+
+    d._unmodeled_summary([], [], autogain_on=True)
+    assert capsys.readouterr().out == ""
+
+
+def test_report_url_is_never_split_across_lines(capsys):
+    """A URL broken by wrapping can't be clicked or copied, which defeats
+    the ask it belongs to."""
+    import dolby_to_easyeffects as d
+
+    d._unmodeled_summary([], ["volume-leveler-compressor"], autogain_on=True)
+    lines = capsys.readouterr().out.splitlines()
+    assert any(d._REPORT_URL in line for line in lines)
+
+
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---
 
 def test_mbc_band1_split_frequency_from_xover_idx():

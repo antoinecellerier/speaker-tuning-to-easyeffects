@@ -23,7 +23,7 @@ from dolby_to_easyeffects import (
     make_multiband_compressor,
     parse_xml,
     resolve_channel_or_direct,
-    warn_unmodeled_features,
+    collect_unmodeled_features,
 )
 from tests.conftest import SYNTHETIC_FREQS_20, synthetic_mb_comp
 
@@ -153,26 +153,22 @@ def test_make_multiband_compressor_no_warn_on_normal_coeffs(capsys):
 
 # --- warn_unmodeled_features: watching-only XML fields ---
 
-def _capture_warnings(monkeypatch, profile_xml: str) -> list[str]:
-    """Run warn_unmodeled_features on a synthetic profile and capture
-    whatever cprint emits. Returns one entry per emitted line.
+def _capture_warnings(profile_xml: str) -> list[str]:
+    """Messages collect_unmodeled_features returns for a synthetic profile.
+
+    These used to be captured by monkeypatching cprint, back when the
+    collector printed as it went. It returns them now — main() prints them
+    once at the end of the run instead of burying them mid-parse — so the
+    tests just read the return value.
     """
-    out: list[str] = []
-
-    def fake_cprint(style: str, text: str = "") -> None:
-        out.append(text)
-
-    monkeypatch.setattr(dolby_to_easyeffects, "cprint", fake_cprint)
-    profile = ET.fromstring(profile_xml)
-    warn_unmodeled_features(profile)
-    return out
+    return collect_unmodeled_features(ET.fromstring(profile_xml))
 
 
-def test_warn_silent_on_default_values(monkeypatch):
+def test_warn_silent_on_default_values():
     """The 17AA22E6 dynamic profile shape: peak-level=0, preset=ieq_balanced,
     no DSO, no advanced-virt — should print nothing.
     """
-    out = _capture_warnings(monkeypatch, """
+    out = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <peak-level value="0"/>
@@ -183,12 +179,12 @@ def test_warn_silent_on_default_values(monkeypatch):
     assert out == []
 
 
-def test_warn_peak_level_nonzero_fires_with_db_conversion(monkeypatch):
+def test_warn_peak_level_nonzero_fires_with_db_conversion():
     """value=-3 → −3/16 ≈ −0.19 dB at the standard convention; the
     warning should surface both the raw value, the dB conversion, and
     the report URL.
     """
-    out = _capture_warnings(monkeypatch, """
+    out = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <peak-level value="-3"/>
@@ -202,11 +198,11 @@ def test_warn_peak_level_nonzero_fires_with_db_conversion(monkeypatch):
     assert "github.com/antoinecellerier" in msg
 
 
-def test_warn_ieq_bands_set_balanced_does_not_fire(monkeypatch):
+def test_warn_ieq_bands_set_balanced_does_not_fire():
     """Default (or absent) preset='ieq_balanced' is the corpus-wide
     constant — no warning expected.
     """
-    out = _capture_warnings(monkeypatch, """
+    out = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <ieq-bands-set preset="ieq_balanced"/>
@@ -214,7 +210,7 @@ def test_warn_ieq_bands_set_balanced_does_not_fire(monkeypatch):
         </profile>
     """)
     assert out == []
-    out_no_attr = _capture_warnings(monkeypatch, """
+    out_no_attr = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <ieq-bands-set/>
@@ -224,11 +220,11 @@ def test_warn_ieq_bands_set_balanced_does_not_fire(monkeypatch):
     assert out_no_attr == []
 
 
-def test_warn_ieq_bands_set_unusual_preset_fires(monkeypatch):
+def test_warn_ieq_bands_set_unusual_preset_fires():
     """If the XML names anything other than ieq_balanced, surface it
     so the user can pick the matching variant and self-report.
     """
-    out = _capture_warnings(monkeypatch, """
+    out = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <ieq-bands-set preset="ieq_warm"/>
@@ -241,11 +237,11 @@ def test_warn_ieq_bands_set_unusual_preset_fires(monkeypatch):
     assert "github.com/antoinecellerier" in msg
 
 
-def test_warn_existing_unmodeled_features_still_fire(monkeypatch):
+def test_warn_existing_unmodeled_features_still_fire():
     """Regression guard for the original two warnings — the lambda-based
     refactor of _UNMODELED_FEATURES must not have silenced them.
     """
-    out = _capture_warnings(monkeypatch, """
+    out = _capture_warnings("""
         <profile type="dynamic">
           <tuning-cp>
             <dynamic_speaker_optimization_enable value="1"/>

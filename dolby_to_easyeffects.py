@@ -1715,11 +1715,19 @@ def report_doctor(args) -> None:
     _print_doctor_report(report)
 
 
-def _cprint_wrapped(style: str, text: str, width: int = 72) -> None:
+def _cprint_wrapped(style: str, text: str, width: int = 72,
+                    indent: str = "") -> None:
     """Print prose as wrapped lines, the way --doctor renders a check detail.
     Lets the end-of-run warnings share their wording with the doctor's
-    CheckResult details instead of keeping a hand-wrapped second copy."""
-    for line in textwrap.wrap(text, width=width):
+    CheckResult details instead of keeping a hand-wrapped second copy.
+
+    ``indent`` prefixes continuation lines, so a bulleted or ⚠-prefixed
+    paragraph stays visually attached to its marker. Hyphenated words are
+    never split — most of what gets wrapped here is XML element names like
+    ``volume-leveler-compressor-enable``, and breaking one across lines makes
+    it unsearchable."""
+    for line in textwrap.wrap(text, width=width, subsequent_indent=indent,
+                              break_on_hyphens=False):
         cprint(style, line)
 
 
@@ -2985,6 +2993,11 @@ class ParsedTuning:
     # zeroed in that case; this records *why* they are flat, so the profile
     # report can say so instead of showing an unexplained zero curve.
     ao_enabled: bool = True
+    # Enabled-but-unreproducible stages, surfaced together at end of run
+    # rather than printed here where they'd be buried (see
+    # collect_unmodeled_features / _unmodeled_summary).
+    unmodeled_notes: list[str] = field(default_factory=list)
+    leveler_substages: list[str] = field(default_factory=list)
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
@@ -3172,6 +3185,20 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "in_target": _int_attr(vl_in, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
                 "out_target": _int_attr(vl_out, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
             }
+    # Sub-stages Dolby pairs with its leveler that we cannot reproduce. Unlike
+    # every other mapping, these carry *no* parameters — the schema has only an
+    # on/off bit, no threshold, ratio, attack or release anywhere in either
+    # tuning block — so there is nothing to derive a stage from, and inventing
+    # one is exactly the per-device hand-tuning the XML-only rule forbids. They
+    # are recorded so the end-of-run summary can ask affected users for the
+    # capture that could settle what they do.
+    leveler_substages = [
+        name for name, tag in (
+            ("volume-leveler-compressor", "volume-leveler-compressor-enable"),
+            ("volume-leveler-drc", "volume-leveler-drc-enable"),
+        )
+        if cp is not None and _int_attr(cp.find(tag), default=0) == 1
+    ]
 
     # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
     # maximum gain above the volume leveler's out-target. Parsed outside
@@ -3317,8 +3344,6 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "isolated_band": isolated,
             }
 
-    warn_unmodeled_features(profile)
-
     # <setting><default_profile> names the profile the device ships on under
     # Windows. It's rare (28 of 791 corpus XMLs) and we don't act on it — we
     # still build the first profile — but a run that silently diverges from
@@ -3334,6 +3359,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
                                 default=192),
         ao_enabled=ao_enabled,
+        unmodeled_notes=collect_unmodeled_features(profile),
+        leveler_substages=leveler_substages,
     )
 
 
@@ -3406,12 +3433,66 @@ _UNMODELED_FEATURES = [
 ]
 
 
-def warn_unmodeled_features(profile: ET.Element) -> None:
-    """Emit a one-line warning per unmodeled-but-enabled DSP block."""
+def collect_unmodeled_features(profile: ET.Element) -> list[str]:
+    """Return one message per unmodeled-but-enabled DSP block in ``profile``.
+
+    Collected rather than printed: these are the lines a user has to act on,
+    and printed here they land in the middle of a couple of hundred lines of
+    per-band tables where nobody sees them. main() gathers them across
+    profiles and prints one block at the end, next to the closing call to
+    action (see ``_unmodeled_summary``).
+    """
+    found = []
     for xpath, active, message in _UNMODELED_FEATURES:
         el = profile.find(xpath)
         if el is not None and active(el):
-            cprint("warn", f"  Note: {message(el)}")
+            found.append(message(el))
+    return found
+
+
+def _unmodeled_summary(notes: list[str], substages: list[str],
+                       autogain_on: bool) -> None:
+    """Print the end-of-run block for stages this tuning enables and we drop.
+
+    Deliberately the last thing on screen, in the same attention style as the
+    closing call to action: everything here needs the *user* to do something,
+    and anything printed earlier is buried under the per-band tables.
+
+    The leveler sub-stages get two strengths. On a default run they cannot be
+    heard at all — the leveler itself is bypassed — so they get one line, and
+    shouting about a no-op only teaches people to skip the block. Under
+    ``--enable autogain`` the leveler runs without the compressor Dolby pairs
+    with it, which is a plausible cause of exactly the pumping that flag is
+    reached for, so that case gets the full ask.
+    """
+    if not notes and not substages:
+        return
+    print()
+    for note in notes:
+        _cprint_wrapped("warn", f"⚠  {note}", indent="   ")
+    if not substages:
+        return
+    named = ", ".join(substages)
+    if autogain_on:
+        _cprint_wrapped("warn", (
+            f"⚠  You enabled autogain, and this tuning pairs Dolby's volume "
+            f"leveler with {named} — stage(s) this converter cannot reproduce. "
+            "The XML gives only an on/off bit for them: no threshold, ratio, "
+            "attack or release, so there is nothing to derive them from. If "
+            "the result pumps or overshoots going from quiet to loud, that is "
+            "the most likely reason."), indent="   ")
+        # URL on its own line, never wrapped — a URL broken across lines can't
+        # be clicked or copied, which defeats the whole point of the ask.
+        _cprint_wrapped("cta", (
+            "   A capture from your device is the only thing that can settle "
+            "what they do, and one capture is enough — please get in touch:"),
+            indent="   ")
+        cprint("cta", f"     {_REPORT_URL}")
+    else:
+        _cprint_wrapped("warn", (
+            f"⚠  Also present but not reproduced: {named}. Harmless as built, "
+            "because the volume leveler they attach to is bypassed — it only "
+            "matters if you rebuild with --enable autogain."), indent="   ")
 
 
 # --- FIR generation ---
@@ -5177,6 +5258,11 @@ def main(argv: list[str] | None = None):
     # into thinking a filter applies to them when it only runs in other
     # profiles.
     filters_by_profile: dict[str, set[str]] = {}
+    # Unreproducible stages seen across every profile built this run, kept in
+    # first-seen order and de-duplicated: --all-profiles would otherwise repeat
+    # the same note nine times.
+    unmodeled_notes: dict[str, None] = {}
+    leveler_substages: dict[str, None] = {}
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
@@ -5221,6 +5307,9 @@ def main(argv: list[str] | None = None):
 
         _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                                args.volmax_slot, enabled=set(args.enable))
+
+        unmodeled_notes.update(dict.fromkeys(tuning.unmodeled_notes))
+        leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
                           float_freqs, scale, is_soundwire, disabled, args,
@@ -5383,6 +5472,12 @@ def main(argv: list[str] | None = None):
     print()
     cprint("cta", "How does it sound? Please report back (good or bad):")
     cprint("cta", f"  {_REPORT_FORM_URL}")
+
+    # Last, so it is still on screen when the run ends. These notes used to
+    # print from inside parse_xml, where two hundred lines of per-band tables
+    # buried them.
+    _unmodeled_summary(list(unmodeled_notes), list(leveler_substages),
+                       autogain_on="autogain" in args.enable)
 
 
 def run_cli(argv: list[str] | None = None) -> int:
