@@ -1149,7 +1149,8 @@ def _raise_every_finding(ET):
     found += [
         dolby_to_easyeffects.Finding(
             slug="profile-default", detail="x",
-            ask="Worth an A/B against Windows: rebuild with --profile music."),
+            ask="Rebuild with --profile music to try the profile this "
+                "device ships on."),
         dolby_to_easyeffects.Finding(
             slug="volmax-inert", detail="x",
             ask="If loud content sounds squashed, re-run with "
@@ -1203,6 +1204,33 @@ def test_finding_slugs_are_unique():
     and would collapse into one another in main()'s slug-keyed de-dup."""
     slugs = [f.slug for f in _every_finding()]
     assert len(slugs) == len(set(slugs)), sorted(slugs)
+
+
+def test_leveler_ask_does_not_contradict_the_no_effect_warning(
+        monkeypatch, tmp_path, capsys):
+    """--enable autogain on a tuning whose leveler is disabled prints "had no
+    effect"; the sub-stage finding must not then claim the leveler is running.
+
+    The escalation gates on the leveler actually engaging, not on the flag
+    being passed — gating on the flag put the two statements four lines
+    apart, contradicting each other.
+    """
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    # Leveler off, but the sub-stage bits set: the shape that contradicted.
+    text = xml.read_text().replace(
+        '<ieq-enable value="1"/>',
+        '<ieq-enable value="1"/>\n'
+        '        <volume-leveler-compressor-enable value="1"/>')
+    xml.write_text(text.replace('<volume-leveler-enable value="1"/>',
+                                '<volume-leveler-enable value="0"/>'))
+
+    dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--enable", "autogain",
+         "--output-dir", str(tmp_path / "out"),
+         "--irs-dir", str(tmp_path / "irs")])
+    out = capsys.readouterr().out
+    if "had no effect" in out:
+        assert "You enabled autogain, and this tuning pairs" not in out
 
 
 def test_skip_report_cta_gates_only_the_ask_block(monkeypatch, tmp_path,

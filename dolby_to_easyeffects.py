@@ -86,6 +86,7 @@ def _wrap_width() -> int:
 
 try:
     from rich.console import Console
+    from rich.text import Text as _Text
     from rich.theme import Theme
     _CONSOLE = Console(
         theme=Theme({
@@ -102,6 +103,7 @@ try:
     )
 except ImportError:
     _CONSOLE = None
+    _Text = None
 
 try:
     from rich_argparse import RichHelpFormatter as _HelpFormatter
@@ -3578,8 +3580,8 @@ def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
     return found
 
 
-def _leveler_substage_finding(substages: list[str],
-                              autogain_on: bool) -> Finding | None:
+def _leveler_substage_finding(substages: list[str], autogain_on: bool,
+                              autogain_available: bool = True) -> Finding | None:
     """The Dolby leveler sub-stages this converter cannot reproduce.
 
     Unlike every other mapping these carry no parameters at all — the schema
@@ -3598,36 +3600,61 @@ def _leveler_substage_finding(substages: list[str],
         return None
     named = ", ".join(substages)
     if not autogain_on:
+        # Only point at --enable autogain when it could actually change this.
+        # On a tuning whose XML disables the leveler outright the flag does
+        # nothing, and suggesting it contradicts the "had no effect" warning
+        # printed just above.
+        remedy = (" — it only matters if you rebuild with --enable autogain."
+                  if autogain_available else ", and this tuning disables it "
+                  "outright, so no flag here changes that.")
         return Finding(
             slug="leveler-substages", kind="ask",
             detail=f"Also present but not reproduced: {named}. Harmless as "
                    "built, because the volume leveler they attach to is "
-                   "bypassed — it only matters if you rebuild with "
-                   "--enable autogain.")
+                   f"bypassed{remedy}")
     return Finding(
         slug="leveler-substages", kind="ask",
-        detail="You enabled autogain, and this tuning pairs Dolby's volume "
-               f"leveler with {named} — stage(s) this converter cannot "
-               "reproduce. The XML gives only an on/off bit for them: no "
-               "threshold, ratio, attack or release, so there is nothing to "
-               "derive them from. If the result pumps or overshoots going "
-               "from quiet to loud, that is the most likely reason.",
-        ask="If sound pumps going from quiet to loud, one capture from your "
-            "device would settle why.")
+        detail="The volume leveler is running here, and this tuning pairs it "
+               f"with {named} — stage(s) this converter cannot reproduce. The "
+               "XML gives only an on/off bit for them: no threshold, ratio, "
+               "attack or release, so there is nothing to derive them from. "
+               "If the result pumps or overshoots going from quiet to loud, "
+               "that is the most likely reason. Settling it needs a capture "
+               "from a device that has them: the procedure is in "
+               "tools/measure_dax/README.md, and it needs a Windows install "
+               "with Dolby on the same machine.",
+        # Deliberately does not ask them to go and do the capture. It is a
+        # multi-step measurement on a second OS, and most people run this
+        # script once — an ask they can't act on is one they abandon. Saying
+        # so is a click; we can take it from there.
+        ask="If sound pumps going from quiet to loud, tell us — a capture "
+            "would settle it and we'll send you the steps.")
 
 
 def _print_ask(style: str, finding: Finding) -> None:
-    """One bullet: the sentence first, the slug trailing.
+    """One bullet: the sentence first, then the slug, dimmed.
 
     The slug trails because a first-time reader needs the sentence, not the
     tag — it only matters once they want to scroll back to the detail it was
-    raised with. It shares the bullet's style rather than being dimmed on its
-    own: the console runs with rich markup off (message text is literal), so
-    styling is per line, and splitting the tag onto its own line to dim it
-    would cost a line per entry and read worse than it looks.
+    raised with, so it should not be the first thing the eye lands on. Dim for
+    the same reason.
+
+    Two styles on one line means assembling spans rather than handing cprint a
+    string: the console runs with markup off, so bracket syntax in the text is
+    literal (which is what keeps ``[slug]`` printable at all). Spans sidestep
+    that entirely — nothing is parsed out of the message.
     """
-    _cprint_wrapped(style, f"  • {finding.ask}  [{finding.slug}]",
-                    indent="    ")
+    tag = f"[{finding.slug}]"
+    lines = textwrap.wrap(f"  • {finding.ask}  {tag}", width=_wrap_width(),
+                          subsequent_indent="    ", break_on_hyphens=False)
+    for line in lines:
+        if _CONSOLE is not None and line.endswith(tag):
+            span = _Text()
+            span.append(line[:-len(tag)], style=style)
+            span.append(tag, style="dim")
+            _CONSOLE.print(span, soft_wrap=True)
+        else:
+            cprint(style, line)
 
 
 def print_project_asks(findings: list[Finding]) -> None:
@@ -4577,17 +4604,17 @@ DISABLEABLE_FILTERS = {
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
 # --enable NAME activates them on a rebuild. Same contract — adding an
 # entry extends the argparse choices and the end-of-run hint block.
+# The caveat is one short clause, not an explanation: this menu sits beside
+# the one-line --disable menu and reads as its twin. What the stage actually
+# does, and why the mapping is what it is, live in the README and design-notes
+# behind the issue number — which stays, because switching a stage ON is the
+# direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
     "autogain": ("preset sounds right but quieter than Windows",
-                 "activates the volume leveler — most of the loudness gap "
-                 "on HDA, at some saturation risk on quiet-background "
-                 "content (issue #25)"),
-    "coupled-bands": ("loud content turns harsh in ranges the regulator "
-                      "leaves unprotected (often the treble)",
-                      "experimental: engages regulator bands whose XML "
-                      "threshold is 0 dBFS but which are marked "
-                      "non-isolated (isolated_band), limiting them at "
-                      "full scale (issue #44)"),
+                 "may saturate quiet backgrounds (#25)"),
+    "coupled-bands": ("loud content turns harsh where the limiter is "
+                      "inactive, often the treble",
+                      "experimental (#44)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -4641,8 +4668,7 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
 
 
 def print_troubleshooting(findings: list[Finding],
-                          filters_by_profile: dict[str, set[str]],
-                          total_profiles: int) -> None:
+                          filters_by_profile: dict[str, set[str]]) -> None:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -4650,12 +4676,16 @@ def print_troubleshooting(findings: list[Finding],
     hint that says "re-run with --disable volmax" turns that menu into context
     rather than arriving as a repeat of it.
 
-    The menu is the longest, least targeted block in the tail, so it earns its
-    length only when it is the sole guidance on offer. Once a hint has already
-    named a flag, it drops to one line per filter (symptom only) and omits the
-    flag that was named. The symptom text stays rather than deferring to
-    --help: --help lists the valid names and two examples, not the per-filter
-    symptom, so pointing at it would be a claim that isn't true.
+    The menu is the longest, least targeted block in the tail, so it is one
+    line per filter: the symptom is what someone picks a flag by, and the
+    effect clause ("drops the per-band limiter") restates what the flag name
+    already says. It used to carry that clause plus a per-profile scope note
+    and shrink only once a hint had named a flag — two renderings of one menu,
+    for a reason no single user could see, since each one sees one run.
+
+    The symptom text stays rather than deferring to --help: --help lists the
+    valid names and two examples, not the per-filter symptom, so pointing at
+    it would be a claim that isn't true.
     """
     hints = [f for f in findings if f.kind == "hint" and f.ask]
     shown = [k for k in DISABLEABLE_FILTERS if k in filters_by_profile]
@@ -4670,46 +4700,28 @@ def print_troubleshooting(findings: list[Finding],
         for finding in hints:
             _print_ask("warn", finding)
 
+    # Whatever a hint already told them to pass is not worth repeating.
     covered = _flags_named_in([f.ask for f in hints], DISABLEABLE_FILTERS)
     shown = [k for k in shown if k not in covered]
     if shown:
         print()
-        if covered:
-            cprint("dim", "  Other filters you can drop on a rebuild "
-                          "(repeatable):")
-            for name in shown:
-                symptom, _effect = DISABLEABLE_FILTERS[name]
-                _print_flag_hint(f"--disable {name}", f"# {symptom}")
-        else:
-            cprint("dim", "  If anything sounds off on your hardware, you can "
-                          "rebuild without")
-            cprint("dim", "  specific filters instead of editing the chain in "
-                          "EasyEffects.")
-            cprint("dim", "  Re-run adding one or more of:")
-            print()
-            for name in shown:
-                symptom, effect = DISABLEABLE_FILTERS[name]
-                using = sorted(filters_by_profile[name])
-                if total_profiles <= 1:
-                    scope = ""
-                elif len(using) == total_profiles:
-                    scope = "; used in all profiles"
-                else:
-                    scope = f"; used in profiles: {', '.join(using)}"
-                _print_flag_hint(f"--disable {name}",
-                                 f"# if you hear: {symptom}",
-                                 f"{effect}{scope}")
-            print()
-            cprint("dim", "  Flags are repeatable, e.g. --disable volmax "
-                          "--disable mbc.")
+        _cprint_wrapped("dim", "  Filters you can drop on a rebuild "
+                               f"(repeatable, e.g. --disable {shown[0]}"
+                               + (f" --disable {shown[1]}" if len(shown) > 1
+                                  else "") + "):", indent="  ")
+        for name in shown:
+            symptom, _effect = DISABLEABLE_FILTERS[name]
+            _print_flag_hint(f"--disable {name}", f"# {symptom}")
 
+    # Same one-line shape as the --disable menu above, with the caveat folded
+    # into the same line rather than hanging under it.
     if enable_hints:
         print()
         cprint("dim", "  Shipped present but inactive — activate on a rebuild "
                       "with:")
         for name in enable_hints:
-            symptom, effect = ENABLEABLE_FILTERS[name]
-            _print_flag_hint(f"--enable {name}", f"# if: {symptom}", effect)
+            symptom, caveat = ENABLEABLE_FILTERS[name]
+            _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -4917,10 +4929,13 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         findings.append(Finding(
             slug="profile-default",
             detail=f"This XML names '{declared}' as the profile the device "
-                   f"ships on, but we built '{tuning.profile_used}' (the "
-                   "endpoint's first).",
-            ask=f"Worth an A/B against Windows: rebuild with "
-                f"--profile {declared}.",
+                   f"ships on under Windows, but we built "
+                   f"'{tuning.profile_used}' (the endpoint's first).",
+            # Names the action and what it gets you. An earlier wording led
+            # with "worth an A/B against Windows", which read as though the
+            # user had to go and do something in Windows.
+            ask=f"Rebuild with --profile {declared} to try the profile this "
+                "device ships on.",
         ))
         _print_finding_detail(findings[-1])
 
@@ -5705,17 +5720,18 @@ def main(argv: list[str] | None = None,
     # rather than something we noticed.
     if "autogain" in args.enable and "autogain-active" not in filters_by_profile:
         print()
-        cprint("warn", "--enable autogain had no effect: this tuning's volume "
-                       "leveler is disabled in the XML,")
-        cprint("warn", "so there is no leveler stage to activate. The preset "
-                       "is unchanged.")
+        _cprint_wrapped("warn", "--enable autogain had no effect: this "
+                                "tuning's volume leveler is disabled in the "
+                                "XML, so there is no leveler stage to "
+                                "activate. The preset is unchanged.")
     if ("coupled-bands" in args.enable
             and "coupled-bands-active" not in filters_by_profile):
         print()
-        cprint("warn", "--enable coupled-bands had no effect: this tuning's "
-                       "regulator has no 0 dBFS zone whose bands are all")
-        cprint("warn", "marked non-isolated (isolated_band), so there is "
-                       "nothing to couple in. The preset is unchanged.")
+        _cprint_wrapped("warn", "--enable coupled-bands had no effect: this "
+                                "tuning's regulator has no 0 dBFS zone whose "
+                                "bands are all marked non-isolated "
+                                "(isolated_band), so there is nothing to "
+                                "couple in. The preset is unchanged.")
 
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there
@@ -5762,14 +5778,21 @@ def main(argv: list[str] | None = None,
                 "right to you?"))
         _print_finding_detail(findings["experimental"])
 
+    # Gated on the leveler actually running, not on the flag being passed:
+    # --enable autogain does nothing when the XML disables the leveler, and
+    # escalating on the flag alone contradicted the "had no effect" warning
+    # printed a few lines above on exactly those devices.
     substage_finding = _leveler_substage_finding(
-        list(leveler_substages), autogain_on="autogain" in args.enable)
+        list(leveler_substages),
+        autogain_on="autogain-active" in filters_by_profile,
+        # "autogain" is the marker for a leveler that shipped bypassed but
+        # could be switched on; absent means the XML disabled it outright.
+        autogain_available="autogain" in filters_by_profile)
     if substage_finding is not None:
         findings.setdefault(substage_finding.slug, substage_finding)
         _print_finding_detail(substage_finding)
 
-    print_troubleshooting(list(findings.values()), filters_by_profile,
-                          len(profile_types))
+    print_troubleshooting(list(findings.values()), filters_by_profile)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own

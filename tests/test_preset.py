@@ -965,14 +965,20 @@ def test_leveler_substages_parsed_only_when_switched_on(tmp_path):
     (False, "only matters if you rebuild with --enable autogain"),
     (True, "pumps or overshoots"),
 ])
-def test_substage_summary_escalates_under_autogain(autogain_on, expect):
-    """Silent-but-present on a default run (the leveler is bypassed, so it
-    genuinely cannot be heard); the full evidence ask once autogain is on."""
+def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
+    """Silent-but-present while the leveler is bypassed (it genuinely cannot
+    be heard); the full evidence ask once the leveler actually runs.
+
+    Keyed on the leveler running, not on the flag: SoundWire tunings ship it
+    active without anyone passing --enable autogain, and the escalated
+    wording must not tell those users they enabled something.
+    """
     import dolby_to_easyeffects as d
 
     finding = d._leveler_substage_finding(["volume-leveler-compressor"],
                                           autogain_on)
     assert expect in finding.detail
+    assert "You enabled autogain" not in finding.detail
     # Carrying an ask is what marks a finding as worth acting on, and the
     # sub-stages only are once the leveler they hang off actually runs.
     assert bool(finding.ask) is autogain_on
