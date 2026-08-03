@@ -3623,8 +3623,12 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         # Names both sides. "the profile this device ships on" alone left the
         # reader unable to tell what they'd be comparing against, and reading
         # as though the tool had knowingly picked the wrong one.
-        ask=f"This build used '{profile_used}' — re-run with "
-            f"--profile {declared} to compare.")
+        # Says why the names matter and closes the loop: "re-run to compare"
+        # alone left a reviewer comparing with no idea what to do with the
+        # result, and the two names connected to nothing else in the block.
+        ask=f"We built '{profile_used}' but Windows uses '{declared}' here — "
+            f"re-run with --profile {declared} and tell us which sounds "
+            "better.")
 
 
 def _loudness_untamed_finding() -> Finding:
