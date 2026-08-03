@@ -1509,6 +1509,20 @@ def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
     assert "frequency tables hidden" not in out
 
 
+def test_tag_convention_prints_once_with_the_first_finding(monkeypatch,
+                                                           capsys):
+    """The first bracketed token a reader meets looked like an error code —
+    the convention was only explained in the closing block. One orientation
+    line rides the first finding; repeating it per finding would be a nag."""
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    monkeypatch.setattr(dolby_to_easyeffects, "_TAG_CONVENTION_SHOWN", False)
+    finding = dolby_to_easyeffects._loudness_untamed_finding()
+    dolby_to_easyeffects._print_finding_detail(finding)
+    dolby_to_easyeffects._print_finding_detail(finding)
+    out = " ".join(capsys.readouterr().out.split())
+    assert out.count("quote one if you report") == 1
+
+
 def test_disable_symptoms_do_not_overlap():
     """Two filters describing the same symptom is the same as describing
     none — the reader gets several candidates and no way to choose. Three of

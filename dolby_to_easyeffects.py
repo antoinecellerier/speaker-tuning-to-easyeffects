@@ -3033,6 +3033,13 @@ class Finding:
     scope: str = ""
 
 
+# One-time [tag] orientation, printed with a run's first finding: the first
+# bracketed token a reader meets otherwise looks like an error code, and the
+# explanation only arrived in the closing block (round 2). Reset per main()
+# call so wrapper-driven and repeated in-process runs behave like fresh ones.
+_TAG_CONVENTION_SHOWN = False
+
+
 def _print_finding_detail(finding: Finding) -> None:
     """Print a finding's technical half where the condition was detected.
 
@@ -3043,6 +3050,12 @@ def _print_finding_detail(finding: Finding) -> None:
     de-duplicated by slug and printed once at the end, so --all-profiles
     doesn't repeat it for each of nine profiles.
     """
+    global _TAG_CONVENTION_SHOWN
+    if not _TAG_CONVENTION_SHOWN:
+        _TAG_CONVENTION_SHOWN = True
+        _cprint_wrapped("dim", "  (bracketed [tags] like the one below are "
+                               "handles — quote one if you report, so we "
+                               "know which line you mean)", indent="   ")
     if finding.kind == "hint":
         _cprint_wrapped("warn", f"  ⚠ [{finding.slug}] {finding.detail}",
                         indent="    ")
@@ -5917,6 +5930,8 @@ def main(argv: list[str] | None = None,
     parser = build_parser(argv)
     complete_and_load(parser)
     args = parser.parse_args(argv)
+    global _TAG_CONVENTION_SHOWN
+    _TAG_CONVENTION_SHOWN = False
     if args.no_color:
         _disable_color()
     disabled = set(args.disable)
