@@ -85,7 +85,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
 - Mark additional tested devices: ThinkPad T14 Gen 7
-  ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)).
+  ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
+  ThinkPad T14 Gen 1 AMD
+  ([#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)).
 
 ### Fixed
 
