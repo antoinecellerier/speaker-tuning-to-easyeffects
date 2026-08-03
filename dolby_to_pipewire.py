@@ -215,13 +215,28 @@ QUIT_EE_HINT = ("Avoid double-processing: quit EasyEffects "
                 "(or remove its autoload for this device)")
 
 
-def _print_manual_activation(node_names: list[str]) -> None:
+def _print_undo(written: list[Path]) -> None:
+    """How to get back. Everything else here asks the reader to restart their
+    sound server with a config file they can't read, and never said what to do
+    if the result is worse — or if PipeWire won't come back. Deleting the conf
+    and restarting is the whole answer; it just has to be written down."""
+    if not written:
+        return
+    confs = " ".join(f"'{p}'" for p in written)
+    cprint("dim", "  To undo: rm " + confs)
+    cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
+
+
+def _print_manual_activation(node_names: list[str],
+                             written: list[Path]) -> None:
     cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
     cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
     cprint("cta", f"  2. {QUIT_EE_HINT}")
     for name in node_names:
         cprint("cta", f"  3. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
+    print()
+    _print_undo(written)
 
 
 def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
@@ -312,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
                 else [VARIANT_STEMS[args.variant]])
 
     node_names: list[str] = []
+    # Where each conf landed, so the run can say how to undo itself.
+    written: list[Path] = []
     closing: list = []
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
         cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
@@ -364,6 +381,10 @@ def main(argv: list[str] | None = None) -> int:
                 # PipeWire would resolve against its own CWD and miss.
                 out_dir = args.output_dir.expanduser().resolve()
                 child_argv += ["--output", str(out_dir / f"{node_name}.conf")]
+            out_dir = (args.output_dir.expanduser().resolve()
+                       if args.output_dir is not None
+                       else ee_to_pipewire.DEFAULT_OUTPUT_DIR.expanduser())
+            written.append(out_dir / f"{node_name}.conf")
             rc = ee_to_pipewire.main(child_argv)
             if rc != 0:
                 # Fail fast: a validation failure would repeat identically
@@ -381,10 +402,14 @@ def main(argv: list[str] | None = None) -> int:
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:
-        _print_manual_activation(node_names)
+        _print_manual_activation(node_names, written)
         rc = 0
     else:
         rc = _activate(node_names)
+        # The path where the sound just changed under them, so this is where
+        # knowing the way back matters most.
+        print()
+        _print_undo(written)
 
     # The generator's closing block, held back from [1/3] so it lands here —
     # last on screen, whichever of the three ways this run ended. Not on the

@@ -385,6 +385,19 @@ def test_e2e_next_steps_checklist_is_consolidated(tmp_path):
     assert "Next steps:" not in result.stderr
 
 
+def test_e2e_no_activate_says_how_to_undo(tmp_path):
+    """Every other line asks the user to restart their sound server with a
+    config they can't read; none said how to get back if it sounds worse or
+    PipeWire won't come up."""
+    result, _home, out = _run_e2e(tmp_path)
+    assert result.returncode == 0, result.stderr
+    err = result.stderr
+    assert "To undo: rm" in err
+    # It must name the file it actually wrote, not a generic path.
+    assert str(out) in err
+    assert err.index("To undo: rm") > err.index("Restart PipeWire:")
+
+
 def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
     """The generator runs at [1/3], so its own closing block would land two
     phases of output above the end. The wrapper suppresses it there and
