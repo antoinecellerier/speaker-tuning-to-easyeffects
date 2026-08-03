@@ -3530,7 +3530,7 @@ _UNMODELED_FEATURES = [
             "and the script does not currently map it to the limiter "
             "threshold (interpretation unverified)."),
         lambda el: (f"peak-level={el.get('value')} is a value we've never "
-                    "seen — send your XML and we can map it.")),
+                    "seen — send us your tuning XML and we can map it.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
@@ -3549,7 +3549,7 @@ _UNMODELED_FEATURES = [
             "device we've seen. The script does not currently map it (the "
             "schema interpretation is unverified for non-zero values)."),
         lambda el: (f"regulator-overdrive={el.get('value')} is a value we've "
-                    "never seen — send your XML and we can map it.")),
+                    "never seen — send us your tuning XML and we can map it.")),
     _UnmodeledFeature(
         ".//regulator-relaxation-amount", "regulator-relaxation",
         lambda el: (el.get("value") or "96") != "96",
@@ -3558,7 +3558,7 @@ _UNMODELED_FEATURES = [
             "every device we've seen. The script does not currently map it "
             "(the schema interpretation is unverified for other values)."),
         lambda el: (f"relaxation-amount={el.get('value')} is a value we've "
-                    "never seen — send your XML and we can map it.")),
+                    "never seen — send us your tuning XML and we can map it.")),
 ]
 
 
@@ -3627,15 +3627,24 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
             "or try --enable coupled-bands.")
 
 
-def _experimental_finding(named: str) -> Finding:
-    """Emission paths reproduced from the XML but never confirmed by ear."""
+def _experimental_finding(named: str, flags: list[str]) -> Finding:
+    """Emission paths reproduced from the XML but never confirmed by ear.
+
+    The ask has to say what to listen for and how to compare, because the
+    reader has no reference: they have never heard this laptop tuned
+    correctly, so "does it sound right?" is unanswerable on its own. Naming
+    the --disable flag turns it into an A/B they can actually run.
+    """
+    how = (f" — compare with --disable {flags[0]}" if len(flags) == 1
+           else "")
     return Finding(
         slug="experimental", kind="ask",
-        detail=f"Experimental path(s) exercised: {named}. Reproduced directly "
-               "from the Dolby tuning and verified numerically, but not yet "
-               "audibly validated on an affected device.",
-        ask=f"We've never had {named} confirmed by ear — does it sound right "
-            "to you?")
+        detail=f"Built from your tuning but never confirmed by ear: {named}. "
+               "These come straight out of the Dolby file and the numbers "
+               "check out, but nobody with a device that uses them has told "
+               "us how they sound.",
+        ask=f"Does the sound these change seem right{how}? Either answer "
+            "helps.")
 
 
 def _firmware_gate_finding() -> Finding:
@@ -3731,7 +3740,8 @@ def _print_ask(style: str, finding: Finding) -> None:
             cprint(style, line)
 
 
-def print_project_asks(findings: list[Finding]) -> None:
+def print_project_asks(findings: list[Finding], dry_run: bool = False,
+                       xml_path=None) -> None:
     """Print the closing block: what the project needs, then the one ask.
 
     Always prints. Most people run this script once, on one machine, and
@@ -3743,6 +3753,11 @@ def print_project_asks(findings: list[Finding]) -> None:
     Specifics first and the link last, so the bullets make the case for why
     this particular run is worth reporting and the URL is what is still on
     screen when the run ends.
+
+    ``dry_run`` swaps the closing line, because nothing was installed and
+    "how does it sound?" is then an impossible instruction — the announcement
+    that this was a dry run is hundreds of lines up by the time anyone reads
+    the end, so the last thing on screen has to carry it too.
     """
     asks = [f for f in findings if f.kind == "ask" and f.ask]
     print()
@@ -3750,10 +3765,26 @@ def print_project_asks(findings: list[Finding]) -> None:
         cprint("head", "=" * 60)
         cprint("head", "Help the project")
         print()
-        cprint("dim", "We can't settle these without you:")
+        # Say what the bracketed tags are for. Read cold they look like debug
+        # labels that leaked out of the code, which is how they get ignored.
+        cprint("dim", "We can't settle these without you — quote the tag in "
+                      "brackets if you report one:")
         for finding in asks:
             _print_ask("cta", finding)
+        # The tool found the tuning XML; the user never went looking for it,
+        # so an ask to "send us your tuning XML" is unactionable without the
+        # path. Printed once here rather than inside each bullet, which the
+        # one-sentence budget has no room for.
+        if xml_path is not None and any("tuning XML" in f.ask for f in asks):
+            print()
+            cprint("dim", "  The tuning XML to attach is:")
+            cprint("dim", f"    {xml_path}")
         print()
+    if dry_run:
+        _cprint_wrapped("cta", "Dry run — nothing was written. Re-run the same "
+                               "command without --dry-run to install these "
+                               "presets.")
+        return
     _cprint_wrapped("cta", "How does it sound? Please report back — good or "
                            "bad, or if you need help:")
     # The URL gets its own line and is never wrapped: broken across lines it
@@ -4658,20 +4689,26 @@ def make_limiter(input_gain: float = 0.0) -> dict:
 # block; each emission branch in `make_preset` is responsible for
 # recording its name into the returned `emitted` set when it actually
 # runs, so there is no separate plugin-key → name map to keep in sync.
+# The symptoms must not overlap. They used to share vocabulary — volmax said
+# "pumping/squash", mbc "squashed character", regulator "spectral pumping" —
+# so a user who hears squashed sound gets three candidates and no way to
+# choose, which is the same as getting none. Each one now claims a distinct
+# thing you can hear, in words someone who has never read an audio manual can
+# match against, and they are ordered most-likely-to-help first.
 DISABLEABLE_FILTERS = {
-    "volmax": ("too loud, pumping/squash on loud content",
+    "volmax": ("everything is too loud, or loud parts distort",
                "drops the +volmax-boost static loudness gain"),
-    "mbc": ("compressed or \"squashed\" character",
+    "mbc": ("music sounds flat and lifeless, with no light and shade",
             "drops the Dolby multi-band compressor"),
-    "regulator": ("unusual spectral pumping or narrow-band breathing",
+    "regulator": ("the volume audibly wobbles or surges on its own",
                   "drops the per-band limiter"),
-    "bass-enhancer": ("bass sounds artificial/distorted (SoundWire only)",
+    "bass-enhancer": ("bass sounds artificial or buzzy",
                       "drops the harmonic bass generator"),
-    "dialog": ("vocals over-boosted or harsh in the presence region",
+    "dialog": ("voices are too forward or shouty",
                "drops the 2.5 kHz speech-band EQ"),
-    "high-shelf": ("harsh or sibilant high frequencies",
+    "high-shelf": ("cymbals and 's' sounds are piercing",
                    "drops Dolby's type-3 high-shelf boost (experimental)"),
-    "lo-pass": ("highs sound rolled off / dull",
+    "lo-pass": ("the top end sounds dull or muffled",
                 "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
 }
 
@@ -4684,10 +4721,12 @@ DISABLEABLE_FILTERS = {
 # behind the issue number — which stays, because switching a stage ON is the
 # direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
-    "autogain": ("preset sounds right but quieter than Windows",
-                 "may saturate quiet backgrounds (#25)"),
-    "coupled-bands": ("loud content turns harsh where the limiter is "
-                      "inactive, often the treble",
+    "autogain": ("it sounds right but quieter than it did on Windows",
+                 "quiet passages may get pushed up and sound worse (#25)"),
+    # Describes what you'd hear, not where in the chain it happens: "where the
+    # limiter is inactive" names an internal state the listener has no access
+    # to, so it can't be matched against anything.
+    "coupled-bands": ("loud music turns harsh in the treble",
                       "experimental (#44)"),
 }
 
@@ -4707,22 +4746,37 @@ EXPERIMENTAL_MARKERS = {
 }
 
 
-def _flags_named_in(asks: list[str], names) -> set[str]:
-    """Which of ``names`` a hint already told the user to pass.
+def print_what_now(preset_names: list[str], autoloaded: bool,
+                   dry_run: bool) -> None:
+    """Say the run worked and how to start using it.
 
-    The asks carry the flag literally ("re-run with --disable volmax"), so
-    matching on the text is exact rather than a guess, and it keeps each hint
-    free to word itself however reads best.
+    The run reports each file as it writes it, hundreds of lines before the
+    end, and then closed on troubleshooting advice for problems the user
+    hasn't had yet — so the last screen never confirmed success and never
+    said what to do with any of it. Someone running this once has no idea
+    that a preset is a thing you go and select in EasyEffects.
+
+    Silent under --autoload, which already wired the preset to the speakers
+    and printed its own confirmation: repeating "go and select it" there
+    would be wrong.
     """
-    return {name for name in names
-            if any(re.search(rf"--(?:dis|en)able {re.escape(name)}(?![\w-])",
-                             ask)
-                   for ask in asks)}
+    if not preset_names or autoloaded:
+        return
+    cprint("head", f"\n{'=' * 60}")
+    if dry_run:
+        cprint("ok", f"Dry run: would write {len(preset_names)} presets.")
+        return
+    cprint("ok", f"Done — wrote {len(preset_names)} presets.")
+    print()
+    _cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
+                           f"pick '{preset_names[0]}' from the Presets menu. "
+                           "Or re-run with --autoload to have it load itself "
+                           "for your speakers.", indent="  ")
 
 
 # Width of the "    --disable volmax      " gutter each flag row hangs from,
-# so a wrapped symptom or effect lines up under the text it continues rather
-# than under the flag.
+# so a wrapped symptom lines up under the text it continues rather than under
+# the flag.
 _FLAG_GUTTER = 30
 
 
@@ -4731,14 +4785,13 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
 
     Wrapped explicitly, because cprint hands text to the console verbatim so
     that URLs survive — which means anything long enough to need folding has
-    to ask for it. Several effect strings run past 150 characters.
+    to ask for it.
     """
     gutter = " " * _FLAG_GUTTER
     _cprint_wrapped("dim", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
                     indent=gutter)
     if effect:
-        _cprint_wrapped("dim", f"{gutter}({effect})",
-                        indent=gutter + " ")
+        _cprint_wrapped("dim", f"{gutter}({effect})", indent=gutter + " ")
 
 
 def print_troubleshooting(findings: list[Finding],
@@ -4774,30 +4827,45 @@ def print_troubleshooting(findings: list[Finding],
         for finding in hints:
             _print_ask("warn", finding)
 
-    # Whatever a hint already told them to pass is not worth repeating.
-    covered = _flags_named_in([f.ask for f in hints], DISABLEABLE_FILTERS)
-    shown = [k for k in shown if k not in covered]
+    # The menu lists every filter this run emitted, including any a hint above
+    # already named. Omitting those looked tidier and read as a bug: a hint
+    # says "re-run with --disable volmax" and the list of valid filters right
+    # under it doesn't contain volmax, so the reader concludes one of the two
+    # is stale and trusts neither.
     if shown:
         print()
         # Opens on the condition, so the list reads as "only if you hear it"
         # rather than as a to-do for a preset nobody has heard yet — on a
         # clean device this is the first thing under the heading.
         _cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
-                               "can rebuild without specific filters "
-                               "(repeatable):", indent="  ")
+                               "can rebuild without specific filters:",
+                        indent="  ")
         for name in shown:
             symptom, _effect = DISABLEABLE_FILTERS[name]
             _print_flag_hint(f"--disable {name}", f"# {symptom}")
 
     # Same one-line shape as the --disable menu above, with the caveat folded
-    # into the same line rather than hanging under it.
+    # into the same line rather than hanging under it. "Shipped present but
+    # inactive" was the old heading and could not be parsed cold — it names an
+    # internal state (the stage is in the preset, bypassed) rather than
+    # anything the reader can act on.
     if enable_hints:
         print()
-        cprint("dim", "  Shipped present but inactive — activate on a rebuild "
-                      "with:")
+        cprint("dim", "  Optional extras, switched off by default:")
         for name in enable_hints:
             symptom, caveat = ENABLEABLE_FILTERS[name]
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
+
+    # How to actually apply any of the above. Every suggestion here is a flag
+    # on a re-run, and the output never said what to re-run, that flags can be
+    # combined, or that EasyEffects keeps serving the old preset until it is
+    # reloaded — so a rebuild that silently didn't take effect reads as "the
+    # flag didn't help".
+    if shown or enable_hints:
+        print()
+        _cprint_wrapped("dim", "  Add any of these to the same command you "
+                               "ran; they combine. Then reload the preset in "
+                               "EasyEffects to hear the change.", indent="  ")
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -5822,12 +5890,14 @@ def main(argv: list[str] | None = None,
     # Experimental emissions are numerically verified but have never been
     # confirmed by ear, and a user with an affected device is the only way
     # that changes — so they ask rather than merely announcing themselves.
-    experimental = [EXPERIMENTAL_MARKERS[k]
-                    for k in EXPERIMENTAL_MARKERS
-                    if k in filters_by_profile]
+    fired = [k for k in EXPERIMENTAL_MARKERS if k in filters_by_profile]
+    experimental = [EXPERIMENTAL_MARKERS[k] for k in fired]
     if experimental:
-        findings.setdefault(
-            "experimental", _experimental_finding(", ".join(experimental)))
+        # Only the markers that are also --disable names give the user an A/B;
+        # "mbc-1band" and "coupled-bands-active" have no flag of their own.
+        findings.setdefault("experimental", _experimental_finding(
+            ", ".join(experimental),
+            [k for k in fired if k in DISABLEABLE_FILTERS]))
         _print_finding_detail(findings["experimental"])
 
     # Gated on the leveler actually running, not on the flag being passed:
@@ -5860,6 +5930,7 @@ def main(argv: list[str] | None = None,
 
     scoped = [_scope(f) for f in findings.values()]
 
+    print_what_now(all_preset_names, bool(args.autoload), args.dry_run)
     print_troubleshooting(scoped, filters_by_profile)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
@@ -5868,7 +5939,7 @@ def main(argv: list[str] | None = None,
     if closing is not None:
         closing.extend(scoped)
     if not args.skip_report_cta:
-        print_project_asks(scoped)
+        print_project_asks(scoped, dry_run=args.dry_run, xml_path=xml_path)
 
 
 def run_cli(argv: list[str] | None = None,

@@ -1140,7 +1140,8 @@ def _every_finding():
         dolby_to_easyeffects._profile_mismatch_finding("music", "dynamic"),
         dolby_to_easyeffects._loudness_untamed_finding(),
         dolby_to_easyeffects._boost_unlimited_finding(12.0, 120),
-        dolby_to_easyeffects._experimental_finding("type-3 high-shelf"),
+        dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+                                                   ["high-shelf"]),
     ]
     return [f for f in found if f is not None]
 
@@ -1242,6 +1243,46 @@ def test_skip_report_cta_still_hands_back_the_findings(tmp_path):
          "--irs-dir", str(tmp_path / "irs")],
         closing=collected)
     assert isinstance(collected, list)
+
+
+def test_troubleshooting_menu_renders_every_emitted_filter(capsys):
+    """The closing troubleshooting block must actually render.
+
+    Nothing covered this path, so deleting a helper it called left the block
+    raising NameError mid-print — after the presets were already written —
+    and the whole suite stayed green. It is the most-seen block in the output.
+    """
+    findings = [dolby_to_easyeffects._loudness_untamed_finding()]
+    by_profile = {name: {"default"} for name in
+                  ("volmax", "mbc", "regulator", "dialog")}
+    by_profile["autogain"] = {"default"}
+    dolby_to_easyeffects.print_troubleshooting(findings, by_profile)
+    # Collapsed, because the advice wraps to the terminal and the phrases
+    # asserted below would otherwise straddle a line break.
+    out = " ".join(capsys.readouterr().out.split())
+
+    # Every emitted filter is offered, including the one the hint named: a
+    # hint saying "--disable volmax" over a list without volmax in it reads
+    # as a bug in the tool.
+    for name in ("volmax", "mbc", "regulator", "dialog"):
+        assert f"--disable {name}" in out
+    assert "--enable autogain" in out
+    # The hint itself, and how to apply any of it.
+    assert "--disable volmax" in out
+    assert "reload the preset in EasyEffects" in out
+
+
+def test_disable_symptoms_do_not_overlap():
+    """Two filters describing the same symptom is the same as describing
+    none — the reader gets several candidates and no way to choose. Three of
+    these used to share "pumping"/"squashed" between them."""
+    words = {}
+    for name, (symptom, _effect) in DISABLEABLE_FILTERS.items():
+        for word in re.findall(r"[a-z]{5,}", symptom.lower()):
+            words.setdefault(word, []).append(name)
+    shared = {w: n for w, n in words.items() if len(n) > 1
+              and w not in {"sounds", "audibly"}}
+    assert not shared, f"symptom words shared between filters: {shared}"
 
 
 def test_clean_run_closing_block_is_just_the_ask(capsys):

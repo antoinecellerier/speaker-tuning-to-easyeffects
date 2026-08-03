@@ -134,6 +134,29 @@ def _run(path, extra):
     return buf.getvalue()
 
 
+def _detail_above_tail(text, tail, slug):
+    """The finding's inline half, when it printed before the tables.
+
+    A finding with no ask never reaches the closing block, and the ones that
+    report from inside parse_xml land in the first few lines of the run — so
+    the tail alone can show a section headed `### speaker-optimizer` whose
+    text never mentions it. Pull those lines forward rather than previewing a
+    pattern by showing output that doesn't contain it.
+    """
+    if f"[{slug}]" in tail:
+        return ""
+    lines = text.splitlines()
+    out, grabbing = [], False
+    for line in lines:
+        if f"[{slug}]" in line:
+            grabbing = True
+        elif grabbing and not line.startswith("    "):
+            break
+        if grabbing:
+            out.append(line)
+    return "\n".join(out) + "\n" if out else ""
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -195,7 +218,16 @@ def main(argv=None):
         for path in found[slug]:
             print(f"\n{rule}\n### {slug}  —  {Path(path).name}\n{rule}")
             out = _run(path, passthrough)
-            print(out if args.full else _tail(out), end="")
+            if args.full:
+                print(out, end="")
+                continue
+            tail = _tail(out)
+            above = _detail_above_tail(out, tail, slug)
+            if above:
+                print(f"(printed near the top of the run, {len(out.splitlines())}"
+                      " lines above the block below)")
+                print(above, end="")
+            print(tail, end="")
     return 0
 
 
