@@ -220,7 +220,7 @@ Each stage in the chain is a potential gain trap. The key decisions:
 
 | Stage | Gain | Reason |
 |-------|------|--------|
-| Convolver (FIR peak-normalized) | 0 dB | Script normalizes the FIR so peak frequency response = 0 dB |
+| Convolver (FIR peak-normalized) | 0 dB | `make_fir` divides the IR by its peak magnitude, so the convolver only ever attenuates and cannot clip on a boost-heavy curve — it is the first stage, fed at unity, with nothing but the −1 dBFS brickwall downstream. Being a scalar on the IR it is a constant dB offset at every frequency, so the correction *shape* is untouched; the level it removes is restored by XML-derived `volmax-boost`, not by an invented makeup gain. Present since `9eb5871`. |
 | Convolver plugin `autogain` | **explicitly `false`** | EasyEffects' default is `true`, which re-normalizes by RMS power. Our minimum-phase FIR concentrates energy at the peak sample → RMS power ≈ 0.00001 → the default would apply a **+50 dB boost**. Commit `5973326` disables it. |
 | PEQ `output-gain` | narrowband-scaled | Compensates for the highest PEQ bell gain, but scaled down for narrow-Q bells because a Q=4.6 bell only boosts a thin slice of spectrum. Commit `c36907c` relaxed this from full compensation. |
 | Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost` (volume-leveler loudness ceiling), applied statically. Default slot: `multiband_compressor#1.input-gain` (pre-band-limiting, so the regulator tames the boosted bass before the brickwall; falls back to `limiter#0.input-gain` when the regulator is absent). `--disable volmax` turns it off; `--volmax-slot output-gain` re-routes it after the regulator (opt-out — the pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion). Neither slot is Dolby-derived. Full finding, on-device metrics, and corpus verdict: **["volmax-boost slot" below](#volmax-boost-slot-issue-23).** |
@@ -2116,6 +2116,86 @@ check, `--speaker-info` annotation). Design choices:
   plausible-looking wrong table.
 
 [#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
+
+## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
+
+The ThinkPad T495 report describes the preset as tinny, robotic, and
+clipped/overblown at normal volume, with a clean `--doctor` (0 FAIL, 0 WARN,
+right sink, preset loaded). The arithmetic below is all offline: it explains
+what the chain does with this XML, and predicts which knob should move which
+symptom. None of it has been heard on a device — the reporter's A/B decides.
+
+**The values are the XML's own.** `gain_l` is
+`0,192,185,72,17,-18,-115,-187,…`; the same file declares
+`<geq_maximum_range value="192"/>`, so 192/16 = +12.0 dB is the largest gain
+this file expresses, and 141 Hz sits exactly there on both channels (234 Hz too
+on the right). The 1/16-dB scale is the one Finding 10 confirmed against DAX
+captures on a simplified-schema device, and no clamp exists on our side — see
+the corpus context in
+[cross-device-findings.md](cross-device-findings.md#curves-pinned-at-the-declared-gain-range),
+where this tuning is wider than 95% of simplified files at 23.7 dB p-p.
+
+The tonal symptom and the loudness symptom have different sources:
+
+- **The midrange hole is in the tuning, not in our filter design.** Relative to
+  the 141 Hz rail the curve sits 19.0 dB down at 844 Hz and 23.5 dB down at
+  1031 Hz, against −2.1 dB at 3750 Hz. Peak normalisation (`fir /= peak_mag`) is
+  a scalar on the impulse response, i.e. a constant dB offset at every
+  frequency, so it decides only where that spread sits — 0 dB → −23.5 rather
+  than +13 → −10.5 — and cannot change the shape. A ~20 dB notch through the
+  formant region is level-independent, matching the reporter's note that the
+  character persists at an acceptable volume. Where normalisation *does* matter
+  is downstream: with the whole curve anchored 13 dB lower, less signal reaches
+  the regulator's thresholds, and `volmax-boost` is what puts the level back.
+- **The boost lands where the regulator isn't.** This XML's `threshold_high` is
+  0 dBFS on bands 0–3 and −6.4…−15.4 dB on bands 4–8, so per-band limiting
+  covers roughly 469–1313 Hz — exactly the region the FIR already cut by
+  10–23 dB — while the 141/234 Hz peak takes the +9 dB volmax boost straight
+  into the −1 dBFS brickwall unprotected. `isolated_band` marks bands 0–3
+  non-isolated, i.e. DAX couples them to the limited bands; that is the gap
+  `--enable coupled-bands` addresses.
+
+The same-package sibling is the control: `17AA5081` (T14 Gen 1 AMD, issue
+[#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45),
+reported working) ships in the same `ext_thinkpad_AIO_rtk` driver and *cuts*
+47/141 Hz by 30 dB instead of boosting. So this is a per-tuning outlier, not a
+schema or codec problem — both are ALC257, both simplified schema.
+
+**Nothing else active in this file is silently dropped.** A field-by-field pass
+over the built profile found the unmodelled blocks either switched off
+(`bass-enhancer-enable`, `bass-extraction-enable`, `graphic-equalizer-enable`,
+`volume-modeler-enable`, `process-optimizer-enable` — all 0; no DSO field at
+all) or already accounted for: the surround stack is on (`surround-boost` +6 dB,
+decoder, virtualizer angles) and deliberately not mapped (entry 2), and the
+`virtual-bass-*` parameters are populated but carry no enable flag in this
+profile, which is the open question in issue
+[#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14).
+Note `regulator-speaker-dist-enable` appears twice with different values — 0 in
+`tuning-cp`, 1 in `tuning-vlldp` — and `parse_xml` correctly gates on the vlldp
+one, so the regulator is read.
+
+The one genuinely unmodelled thing that *is* active is **MI steering**: all five
+`mi-*-steering-enable` flags are set. That matters for profile choice more than
+for this device's tone. Per
+[cross-device-findings §11](cross-device-findings.md#11-mi-steering--dynamic-profile-only),
+MI steering is a `dynamic`-profile feature almost everywhere (3805/3825 rows) and
+is "the key feature that the EasyEffects pipeline cannot replicate" — so our
+"first profile" default systematically picks the profile whose Windows behaviour
+depends most on what we cannot reproduce, and applies statically what DAX steers
+by content. On this XML `music` switches all five off, along with the surround
+decoder and the dialog enhancer, and drops the leveler from 7 to 4 — i.e. it is
+the profile whose static translation is most faithful. Issue #29's reporter
+independently preferred `music` on a different device. That is the real argument
+for following `<default_profile>`, and it generalises beyond issue #46.
+
+What shipped from this: the unlimited-boost warning, the `default_profile`
+report (this XML declares `music`; we build `dynamic`), and the headless
+EasyEffects probe fix. What deliberately did **not** ship is any knob that
+scales or clamps the AO curve — that would be a hand-tuned offset, and the
+in-GUI per-effect bypass already brackets the question (switching off
+`convolver#0` isolates the curve from the dynamics without a rebuild). If the
+curve is confirmed as the cause, the answer is to find what DAX does that we
+don't, not a fudge factor.
 
 ## Rejected approaches
 

@@ -220,10 +220,12 @@ Notable per-profile patterns:
 The voice profile's high boost combined with a disabled compressor means the regulator
 alone has to catch peaks on that profile.
 
-The script applies `volmax-boost` as `output-gain` on the regulator
-(`multiband_compressor#1`), falling back to `limiter#0.input-gain` when the regulator
-is absent. Can be disabled with `--disable volmax` if the boost drives the brick-wall
-limiter into audible gain reduction on already-loud masters.
+The script applies `volmax-boost` as `input-gain` on the regulator
+(`multiband_compressor#1`) — so per-band limiting tames it before the brickwall —
+falling back to `limiter#0.input-gain` when the regulator is absent;
+`--volmax-slot output-gain` restores the older placement (issue #23, see
+`design-notes.md`). Can be disabled with `--disable volmax` if the boost drives the
+brick-wall limiter into audible gain reduction on already-loud masters.
 
 ---
 
@@ -340,6 +342,42 @@ All non-voice profiles (dynamic, movie, music, game, personalize) share identica
 curves. The script processes each profile independently, so the voice preset
 automatically picks up the voice-specific AO curve when generated from a device
 that has one.
+
+### Curves pinned at the declared gain range
+
+Some tunings ask for the largest per-band gain the format expresses. `<setting>
+<geq_maximum_range>` states that range where present — always `192` (= +12.0 dB at
+1/16 dB) — and a minority of tunings put one or more bands right at it.
+
+Measured over the 674 content-unique XMLs carrying an `internal_speaker`/`normal`
+audio-optimizer block (first profile, both channels, raw value ≥ the declared range,
+defaulting to 192 where the file omits it):
+
+| population | ≥1 band at the rail | median peak-to-peak |
+|---|---|---|
+| simplified schema (148) | 32 (22%) | 15.2 dB |
+| full schema (526) | 84 (16%) | 14.0 dB |
+
+Within the simplified subset the older schema version is where they cluster, and it
+is also the only one that declares the range at all:
+
+| `xml_version` | XMLs | ≥1 pinned | declares `geq_maximum_range` | median p-p |
+|---|---|---|---|---|
+| 3.2.0 | 27 | 16 (59%) | 27/27 | 19.9 dB |
+| 3.2.1 | 121 | 16 (13%) | 0/121 | 15.0 dB |
+
+This is confounded with package vintage — the 3.2.0 files concentrate in the older
+`ext_thinkpad_AIO_rtk` stores — so read it as "older tunings are more likely to sit
+at the rail", not as a schema-version rule.
+
+Why it matters for the generated preset: the FIR is peak-normalised, so a boost at
+the rail becomes a deep relative cut everywhere else, and the bands it boosts are
+often ones the regulator leaves unlimited. Issue #46's T495 (`17AA5125`, 3.2.0) is
+the worst case seen so far — 23.7 dB peak-to-peak with three bands at the rail,
+wider than 95% of simplified tunings — and a run now warns when the largest boost
+lands on an unlimited band (8% of parseable tunings, against 16% for the
+all-inert-regulator warning beside it). Regenerate these counts with the queries in
+[`tools/corpus_audit.py`](../tools/corpus_audit.py).
 
 ---
 
@@ -547,6 +585,19 @@ shape with per-genre tweaks to surround-boost and dialog handling.
 `--list` already reports whatever profile names the XML declares, so users pick
 these up naturally. `--all-profiles` iterates every one and generates
 `Dolby-{ProfileName}-{IEQ-variant}` presets for each.
+
+#### Which profile the device ships on
+
+A few XMLs state it: `<setting><default_profile>`. Over the 791 content-unique XMLs
+with an `internal_speaker` endpoint, **28 declare it** (25 `music`, 2 `dynamic`,
+1 `movie`) and **26 of those name something other than the profile we build** —
+`dynamic` is physically first in the endpoint on all 791, so the script's
+"first profile" default silently diverges from Windows on those 26.
+
+The script does not act on the declaration; it reports the mismatch and suggests
+`--profile <name>` (issue #46). Adopting it as the selection default is gated on
+hearing the difference on a device — issue #29's reporter independently preferred
+`music` on a Zenbook S14, which would be the second data point.
 
 ---
 

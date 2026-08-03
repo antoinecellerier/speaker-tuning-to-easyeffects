@@ -154,6 +154,16 @@ All non-voice profiles share the same audio-optimizer and speaker PEQ; voice
 has different AO tuning and simplified PEQ. The MB-compressor threshold varies
 slightly per profile. (Wider corpus distribution: cross-device-findings.md.)
 
+Without `--profile`, the script builds the endpoint's **first** profile.
+A few XMLs name the one the device ships on under Windows in
+`<setting><default_profile>`; that is read but not acted on — a run reports the
+mismatch and suggests `--profile <name>` (issue #46). `<setting>
+<geq_maximum_range>` (the widest per-band gain the file expresses, 192 = 12 dB,
+assumed when absent) is likewise read for diagnostics only: a run warns when the
+tuning's largest boost both reaches that range and lands on a band the regulator
+leaves at a 0 dB threshold, since the boost and `volmax-boost` then reach the
+brickwall with no per-band limiting.
+
 ## EasyEffects 8.x specifics
 
 - Presets live in `~/.local/share/easyeffects/output/` (not `~/.config/`).

@@ -198,6 +198,8 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 
+To work out *which* stage you're hearing, switch effects off one at a time in the EasyEffects window instead of rebuilding: turning off **Convolver** isolates the speaker-correction curve from everything dynamic, and turning off the second **Multiband Compressor** takes out the per-band limiter together with the loudness boost that rides it.
+
 ## Advanced
 
 ### Autoload
