@@ -80,22 +80,17 @@ sessions shipped bugs that only showed on real content.
   lesson directly; cite committed paths only.
 - **Check for existing CLIs before writing a parser/validator** (`lv2info`,
   `pw-cli`, `spa-json-dump`, `pactl`…). Wrap partial tools; only add custom
-  logic for project-specific checks on top. The same goes for Python
-  libraries — a dependency that removes a whole apparatus beats hand-rolling
-  one (`argcomplete` vs. a completion generator + committed files + drift
-  trap). Price both, then **soft-import it with a fallback** (the `rich` /
-  `argcomplete` pattern) so the no-dependency path keeps working.
+  logic for project-specific checks on top. Same for Python libraries — a
+  dependency that removes a whole apparatus beats hand-rolling one. Price
+  both, then **soft-import with a fallback** (`rich` / `argcomplete`) so the
+  no-dependency path keeps working.
 - **Device-issue triage updates the kernel watchlist** — opening or closing
   a device investigation → update `.github/kernel-watchlist.txt` in the same
   commit (`# watch: #NN` headers; `standing` = outlives the issue). The
-  kernel-sound-watch workflow greps new sound-tree pull tags with it and
-  posts one hit comment per tag on the tracking issue. **Investigated a hit?
-  Record the verdict in that comment** — edit it to append a
-  `### Triage (YYYY-MM-DD)` section (commit(s) the hit resolves to, impact
-  per watching issue, action taken, Claude footer). An un-annotated hit
-  means "not yet assessed". This is tracker bookkeeping, not a
-  reporter-facing reply — no draft-review cycle needed once the finding was
-  reported in-session.
+  kernel-sound-watch workflow greps new sound-tree pull tags with it, one
+  hit comment per tag. **Investigated a hit? Append the verdict to that
+  comment** (`### Triage (YYYY-MM-DD)`: resolved commit(s), impact, action,
+  Claude footer) — bookkeeping, not a reply; no draft-review cycle needed.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
@@ -119,9 +114,8 @@ sessions shipped bugs that only showed on real content.
 
 ## Past rabbit holes worth skipping
 
-- `filter_coefficients` (the base64 blob in `tuning-vlldp`) is NOT an audio
-  EQ — it's VLLDP-internal analysis filters. Speaker correction already
-  lives in the audio-optimizer + PEQ parameters.
+- `filter_coefficients` (`tuning-vlldp` base64 blob) is VLLDP-internal
+  analysis filters, NOT an audio EQ — see `docs/reference.md`.
 - EE preset format quirks: enum parameters are string labels, not integer
   indices (commit `91423b8`); impulse-response files need the `.irs`
   extension; EE 8.x convolver wants `"kernel-name"` (filename stem), not the
