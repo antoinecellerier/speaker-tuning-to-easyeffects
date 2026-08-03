@@ -1,0 +1,22 @@
+{
+  "coupled-bands-available-but-off": "aabb4a4f0e7957ee",
+  "defaults-only": "fa9641dd6c5b6f73",
+  "defaults-only-with-volmax": "9a48a3c4cec2d46a",
+  "disable-dynamics": "32a7ddc87ce5346f",
+  "disable-peq-shapes": "4d312cef2a246fda",
+  "disable-volmax": "fa9641dd6c5b6f73",
+  "enable-autogain": "17c7e612b02bf0b3",
+  "enable-coupled-bands": "f65e6295706abdf4",
+  "end-to-end-synthetic-xml": "00103352fd14038c",
+  "full-chain": "fa9641dd6c5b6f73",
+  "mbc-4-band": "731ad9432c99673e",
+  "no-leveler-no-dialog": "465b62c480e87a76",
+  "no-mbc": "6e89d8b30cca57dc",
+  "no-regulator": "c37c6a3261c388d2",
+  "peq-asymmetric-lr": "ef81e39b9dbee3e1",
+  "peq-filter-type-mix": "7509a73b6ba2226d",
+  "peq-only": "e67d10b3b8f7b751",
+  "soundwire": "a125a9aa5bd727c3",
+  "volmax-input-gain": "9a48a3c4cec2d46a",
+  "volmax-output-gain": "360aa381387c865b"
+}

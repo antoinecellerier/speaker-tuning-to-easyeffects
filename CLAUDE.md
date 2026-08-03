@@ -39,6 +39,10 @@ A few things about this repo that aren't obvious from the code.
 - `pytest tests/` — fast (DSP math, output schema, the trap-regression
   suite that locks in every shipped bug, `--disable`/argparse). The traps
   live in `tests/test_preset.py`.
+- `tests/test_golden_preset.py` pins every emitted preset parameter by
+  digest, on synthetic input. A moved digest means the output changed — if
+  you meant it, re-record with `ATMOS_UPDATE_GOLDEN=1` and commit the
+  baseline diff in the same commit as its cause.
 - Corpus tier (`tests/corpus/`) runs the full pipeline against real DAX3
   XMLs it auto-discovers (NTFS mounts + CWD); `ATMOS_CORPUS_DIR` overrides;
   it skips cleanly when no corpus is reachable. The heavy walks — every
