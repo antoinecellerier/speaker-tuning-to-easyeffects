@@ -7,13 +7,13 @@ The original cohort was **196 DAX3 tuning files** spanning **3 Realtek codec var
 packages. Successive driver-package pulls (`ext_lenovo_AIO_rtk`, `ext_thinkpad_AIO_rtk`,
 `ext_capg_thinkpad`, `ext_amd_thinkpad_AIO`, plus newer IdeaPad/SoundWire
 packages) grew it to the current
-**2483 tuning XMLs / 36827 profile rows** spanning **13 HD-Audio codec DEV IDs
+**2795 tuning XMLs / 40732 profile rows** spanning **14 HD-Audio codec DEV IDs
 (mostly Realtek ALC) plus SoundWire/SDW**. [`reference.md`](reference.md) documents how the script maps one
 specific device; this doc captures what's universal across the ecosystem and what
 varies from device to device, so readers can judge which parts of the pipeline are
 portable and which are tuned.
 
-> **All figures below are from the 2483-XML cohort audited 2026-06-16**, except
+> **All figures below are from the 2795-XML cohort audited 2026-08-03**, except
 > where a passage is explicitly marked as the original 196-XML cohort (kept for
 > the historical methodology notes), or carries its own later re-derivation
 > date. Regenerate any aggregate here with
@@ -37,20 +37,21 @@ Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):
 > against the original package set before being relied on. Current-cohort MBC
 > rates are in §2 below.
 
-Current 2483-XML cohort — XML count per codec (not dynamic-profile count):
+Current 2795-XML cohort — XML count per codec (not dynamic-profile count):
 
 | Codec family          | XMLs | Notes                                              |
 |-----------------------|------|----------------------------------------------------|
-| ALC257 (DEV_0257)     | 1366 | Dominant, mostly Lenovo AIO-RTK packages           |
-| ALC287 (DEV_0287)     |  481 | Primary ThinkPad codec; dev-device family          |
+| ALC257 (DEV_0257)     | 1576 | Dominant, mostly Lenovo AIO-RTK packages           |
+| ALC287 (DEV_0287)     |  540 | Primary ThinkPad codec; dev-device family          |
 | ALC235 (DEV_0235)     |  236 |                                                    |
-| ALC285 (DEV_0285)     |   84 | Includes the original cohort                       |
+| ALC285 (DEV_0285)     |   98 | Includes the original cohort                       |
 | ALC230 (DEV_0230)     |   81 |                                                    |
 | ALC256 (DEV_0256)     |   79 |                                                    |
 | ALC274 (DEV_0274)     |   72 | Carries the rare PEQ type-6 low-pass filters       |
-| SoundWire (`MAN_025D`)|   29 | Plus one `SDW_` prefix variant                     |
+| SoundWire (`MAN_025D`)|   51 | Plus three `SDW_` prefix variants                  |
 | ALC298/0887/0892/0897 |   32 | Desktop-style AIO codecs                           |
-| DEV_1F86 / DEV_1F87   |   22 | Newer codecs absent from earlier cohorts           |
+| DEV_1F86 / DEV_1F87   |   26 | Newer codecs absent from earlier cohorts           |
+| DEV_0294              |    1 | New in the 2026-08 cohort (ASUS ROG Xbox Ally X)   |
 
 > All files live under `internal_speaker` endpoints — no headphone or external
 > tunings in any cohort. The newer packages introduce many non-`normal` operating
@@ -79,7 +80,7 @@ handful of newer-schema exceptions are footnoted):
 | `postgain` (CP & VLLDP)            | 0                  | Zero on all but 66 rows (value 6)  |
 | `system-gain`                      | 0                  | Always zero                        |
 | `calibration-boost`                | 0                  | Always zero                        |
-| `dialog-enhancer-ducking`          | 0 (mostly)         | 98.3% of rows; 616/36827 are non-zero (8 or 6) — not universal |
+| `dialog-enhancer-ducking`          | 0 (mostly)         | 98.5% of rows; 616/40732 are non-zero (8 or 6) — not universal |
 | `regulator-overdrive`              | 0                  | Always zero where present          |
 | IEQ curve preset                   | `ieq_balanced`     | Only curve used anywhere           |
 
@@ -101,23 +102,26 @@ device's profiles select `ieq_balanced`).
 
 ## 2. Multi-band compressor — the minority feature
 
-Only **77 of 2451 files** (3%) enable the MB compressor on the `dynamic` profile
-— equivalently 166 of the 3825 dynamic-profile *rows* (4%), since some files carry
-several endpoint modes; both denominators appear in this doc, so both rates are
-given here once. This is the most important finding: **MBC is the exception,
-not the rule** — except on `music`, where it jumps to 38%.
+Only **100 of the 1589 files** whose `dynamic` profile declares
+`mb-compressor-enable` (6%) switch it on — equivalently **189 of the 4225
+dynamic-profile *rows* (4%)**, since some files carry several endpoint modes;
+both denominators appear in this doc, so both rates are given here once. (The
+file denominator counts files that declare the field: a file omitting it is not
+a device that chose to leave the compressor off. The earlier "77 of 2451" used a
+denominator no committed query reproduces.) This is the most important finding:
+**MBC is the exception, not the rule** — except on `music`, where it reaches 36%.
 
 | Profile              | MBC=1 | MBC=0 |
 |----------------------|-------|-------|
-| dynamic              | 166   | 3659  |
-| game                 | 191   | 3548  |
-| movie                | 206   | 3619  |
-| music                | 1459  | 2366  |
-| voice                | 131   | 3694  |
-| voice_onlinecourse   | 18    | 2298  |
-| off                  | 1     | 3824  |
+| dynamic              | 189   | 4036  |
+| game                 | 214   | 3925  |
+| movie                | 226   | 3999  |
+| music                | 1518  | 2707  |
+| voice                | 134   | 4091  |
+| voice_onlinecourse   | 18    | 2603  |
+| off                  | 1     | 4224  |
 
-Music profiles enable MBC far more often (**38%**), confirming MBC is used for
+Music profiles enable MBC far more often (**36%**), confirming MBC is used for
 loudness maximisation on premium speakers, not as a universal safety feature.
 
 ### Band-count distribution (MBC-enabled profiles)
@@ -126,10 +130,10 @@ Current cohort, by `group_count` (a populated `band_group` count of 1–4):
 
 | `group_count` | Enabled profiles | Disabled (but populated) |
 |---------------|------------------|--------------------------|
-| 1             | 633              | 19339                    |
-| 2             | 1061             |   400                    |
-| 3             | 340              |   470                    |
-| 4             | 455              |   466                    |
+| 1             | 633              | 21918                    |
+| 2             | 1283             |   597                    |
+| 3             | 346              |   494                    |
+| 4             | 459              |   484                    |
 
 Two noteworthy wrinkles the old 2-band decoder masked:
 
@@ -139,7 +143,7 @@ Two noteworthy wrinkles the old 2-band decoder masked:
   and thresholds from 0 dB to −12 dB, with fast attack/release. Emitted from the
   `mbc-1band` experimental path since the guard was relaxed; LSP MBC accepts a
   single enabled band with no split frequency and bands 1-7 disabled.
-- **936 profiles declare 3- or 4-band tunings but gate the compressor off**
+- **978 profiles declare 3- or 4-band tunings but gate the compressor off**
   (`mbc_enable=0`). Dolby ships the coefficients anyway, so a future driver update
   that flips the enable bit would suddenly activate them. The N-band decoder
   handles this transparently; prior to commit `07612e9` it would have silently
@@ -185,15 +189,15 @@ The `vl_amount` parameter (0–10 scale) varies significantly across devices
 
 | Profile               | Distribution                                               |
 |-----------------------|------------------------------------------------------------|
-| **dynamic**           | 5 (48%), 3 (21%), 4 (17%), 2 (5%), 7 (3%), 1 (3%)          |
-| **movie**             | 5 (50%), 3 (21%), 4 (16%), 2 (4%), 1 (2%), 7 (2%)          |
+| **dynamic**           | 5 (49%), 3 (19%), 4 (17%), 2 (5%), 7 (4%), 1 (3%)          |
+| **movie**             | 5 (50%), 3 (20%), 4 (16%), 2 (4%), 7 (3%), 1 (2%)          |
 | **music**             | 2 (56%), 0 (18%), 3 (15%), 4 (5%), 1 (3%)                  |
-| **game**              | 0 (95%), 4 (3%), 2 (1%)                                    |
+| **game**              | 0 (95%), 4 (2%), 2 (1%)                                    |
 | **voice**             | 0 (99%), 2 (<1%)                                           |
 | **voice_onlinecourse**| 0 (99%), 2 (<1%)                                           |
 
 The development device uses `vl_amount=2`, which is on the **gentler end** for the
-dynamic profile. The most common value is **5** (48% of dynamic rows).
+dynamic profile. The most common value is **5** (49% of dynamic rows).
 
 ---
 
@@ -237,26 +241,32 @@ Current-cohort enable rates:
 
 | Profile               | Enabled | Disabled |
 |-----------------------|---------|----------|
-| dynamic               | 55%     | 45%      |
-| movie                 | 53%     | 47%      |
+| dynamic               | 58%     | 42%      |
+| movie                 | 56%     | 44%      |
 | music                 | 0%      | 100%     |
 | game                  | 3%      | 97%      |
-| voice                 | 52%     | 48%      |
-| voice_onlinecourse    | 52%     | 48%      |
+| voice                 | 55%     | 45%      |
+| voice_onlinecourse    | —       | —        |
 
 Dialog enhancer is a **speech enhancement feature**, consistently disabled for music
 and game profiles across all devices. (Enable rates on dynamic/movie are lower than
 the original cohort's 86% — the newer Lenovo-AIO packages leave it off more often.)
 
+> `voice_onlinecourse` shows no rate because `corpus_audit.py` reports only the
+> eight most common profiles and it ranks tenth; the `personalize` amount is the
+> `personalize_user1`/`_user2` figure (94%), since the bare `personalize` profile
+> (86 rows) is likewise below the cut. Widen the profile list in the tool before
+> quoting either.
+
 ### Dialog enhancer amount
 
 | Profile    | Most common (when enabled) |
 |------------|----------------------------|
-| dynamic    | 5 (92%)                    |
+| dynamic    | 5 (93%)                    |
 | movie      | 5 (92%)                    |
-| game       | 6 (78%) or 7 (21%)         |
-| voice      | 3 (44%) or 8 (36%)         |
-| personalize| 10 (100%)                  |
+| game       | 6 (77%) or 7 (22%)         |
+| voice      | 3 (47%) or 8 (33%)         |
+| personalize| 10 (94%)                   |
 
 ---
 
@@ -265,13 +275,16 @@ the original cohort's 86% — the newer Lenovo-AIO packages leave it off more of
 The `regulator-distortion-slope` (1/16 scale) controls how hard the regulator limits.
 Current-cohort distribution:
 
-| Slope        | Effective ratio       | Share          |
+| Slope        | Effective ratio       | Share (of 26214 rows declaring it) |
 |--------------|-----------------------|----------------|
-| 4 (0.25)     | 1.3:1 — gentle        | <1%            |
-| 6 (0.375)    | 1.6:1                 | <1%            |
-| 8 (0.50)     | 2:1 — moderate        | 1%             |
-| 11–12        | ~3–4:1 — firm         | <1%            |
-| **16 (1.00)**| **∞:1 — hard limiter**| **97%** (22571/23164) |
+| 0            | (no limiting)         | <1% (12)       |
+| 4 (0.25)     | 1.3:1 — gentle        | <1% (88)       |
+| 6 (0.375)    | 1.6:1                 | <1% (64)       |
+| 8 (0.50)     | 2:1 — moderate        | 2% (507)       |
+| 9 (0.5625)   | ~2:1                  | <1% (27)       |
+| 11–12        | ~3–4:1 — firm         | **1.5%** (397) |
+| 13 (0.8125)  | ~6:1                  | <1% (24)       |
+| **16 (1.00)**| **∞:1 — hard limiter**| **95.7%** (25095/26214) |
 
 (The original 196-XML breakdown had slope=16 at 53%; the AIO-RTK packages that
 dominate the current cohort use the hard limiter far more.)
@@ -280,8 +293,8 @@ The development device uses slope=16 (hard limiter), which is the **most common*
 setting. The hard limiter mode means the regulator acts as a brickwall at its threshold.
 
 **Implication for pipeline design:** when slope=16 the regulator is a brickwall
-limiter, so for the large majority of devices (~97%) the regulator *is* the brickwall
-limiter. The explicit output limiter added to the EasyEffects chain is redundant on
+limiter, so on the large majority of profile rows (95.7%) the regulator *is* the
+brickwall limiter. (Rows, not devices — no per-device slope share is computed.) The explicit output limiter added to the EasyEffects chain is redundant on
 those devices and essential on the soft-slope minority. See `docs/design-notes.md`
 for why both exist.
 
@@ -309,9 +322,15 @@ Each device has a unique 20-band regulator threshold curve. General shape of
 - **High bands**: typically 0 dB (no limiting)
 - **Mid bands**: vary per device — the "speaker personality" region
 
-There are **399 distinct `threshold_high` patterns** across the 2483-XML cohort —
+There are **408 distinct `threshold_high` curves** across the 2795-XML cohort —
 nearly every speaker tuning has a custom regulator curve. This is the most
 device-specific parameter in the entire chain.
+
+> Not a like-for-like successor to the 399 quoted for the 2483-XML cohort. The
+> committed counter (added 2026-08-03) resolves `preset=` references to the curve
+> they name, where the earlier ad-hoc query counted only literal `value=`
+> strings, so the two differ by methodology as well as by cohort. No committed
+> tool reproduces 399; treat the delta as unknown rather than as growth of 9.
 
 ---
 
@@ -330,9 +349,10 @@ The voice AO curve typically:
 > **Re-derived 2026-06-17** with a methodology-matched query (`corpus_audit`
 > voice-AO divergence: per-endpoint, `internal_speaker`/`normal` only, full-schema
 > only — simplified `gain_l`/`gain_r` XMLs excluded — comparing the resolved voice
-> AO vector vs the dynamic AO vector with exact-integer inequality): **52%
-> per-endpoint (924/1774)** and **63% per-device (396/629)** of devices diverge on
-> at least one endpoint (674 simplified-schema endpoints excluded). This is well
+> AO vector vs the dynamic AO vector with exact-integer inequality; **re-run
+> 2026-08-03**): **55% per-endpoint (1076/1959)** and **62% per-device (407/659)**
+> of devices diverge on at least one endpoint (718 simplified-schema endpoints
+> excluded — a different quantity from the 674 content-unique XMLs below). This is well
 > below the original 196-XML cohort's **97%** — the drop is real, not a methodology
 > artifact: the newer Lenovo-AIO packages that dominate the current cohort
 > differentiate the voice AO curve far less often (the same direction as the
@@ -388,17 +408,17 @@ four to the tool, which is the better fix).
 
 ## 9. PEQ filters — mostly simple, occasionally complex
 
-Across the 2483-XML cohort (raw filter counts, all speakers, all profiles):
+Across the 2795-XML cohort (raw filter counts, all speakers, all profiles):
 
-| Type | Description                          | Count (2483 cohort) | Script support          |
+| Type | Description                          | Count (2795 cohort) | Script support          |
 |------|--------------------------------------|---------------------|-------------------------|
-| 1    | Bell/peaking EQ                      | 36530               | ✅ Yes                  |
-| 9    | High-pass (with order)               |  4784               | ✅ Yes                  |
-| 3    | **High-shelf** (with S parameter)    |  3730               | 🧪 Experimental         |
-| 7    | High-pass variant (with order)       |  1424               | ✅ Yes                  |
+| 1    | Bell/peaking EQ                      | 39973               | ✅ Yes                  |
+| 9    | High-pass (with order)               |  7080               | ✅ Yes                  |
+| 3    | **High-shelf** (with S parameter)    |  3748               | 🧪 Experimental         |
+| 7    | High-pass variant (with order)       |  1763               | ✅ Yes                  |
+| 4    | Low-shelf (with S parameter)         |   384               | ✅ Yes                  |
 | 8    | Low-pass variant (with order)        |   350               | 🧪 Experimental         |
-| 4    | Low-shelf (with S parameter)         |   192               | ✅ Yes                  |
-| 6    | Low-pass (with order)                |    18               | 🧪 Experimental         |
+| 6    | Low-pass (with order)                |    20               | 🧪 Experimental         |
 
 In the original 196-XML audit only types 1/4/7/9 were observed. The expanded cohort
 surfaces three previously-unseen types, all now emitted via experimental paths.
@@ -466,16 +486,19 @@ Current-cohort IEQ=10 share (when `ieq_enable=1`):
 | game        | 100%   | —         |
 | voice       | 100%   | —         |
 
-All devices use `ieq_balanced` as the preset. The IEQ amount scales the intelligent
-EQ curve (room correction); music profiles occasionally reduce it. The near-universal
-IEQ=10 means the full curve should be applied in most cases.
+No device selects any preset other than `ieq_balanced` — but "all devices use it"
+overstates the data: of the 4131 IEQ-enabled rows, **3817 name `ieq_balanced` and
+314 declare no `ieq-bands-set` at all**, falling back to the same curve by default
+rather than choosing it. The IEQ amount scales the intelligent EQ curve (room
+correction); music profiles occasionally reduce it. The near-universal IEQ=10
+means the full curve should be applied in most cases.
 
 ---
 
 ## 11. MI steering — dynamic profile only
 
 The `mi-dv-leveler-steering-enable=1` parameter appears **almost exclusively on the
-`dynamic` profile** (3805 of 3825 dynamic rows; effectively none elsewhere) across
+`dynamic` profile** (4205 of 4225 dynamic rows; effectively none elsewhere) across
 all devices that have it. This confirms it's a deliberate choice to add
 Media-Intelligence-driven gain hold only for the "adaptive" profile.
 
@@ -490,14 +513,14 @@ autogain by default — see `docs/design-notes.md` for the full rationale.
 
 Dolby's XML schema permits more variation than most shipping devices exhibit.
 The parser includes defensive handling for several of these cases. Re-checked
-against the full 2483-XML cohort (2026-06-16):
+against the full 2795-XML cohort (re-checked 2026-08-03):
 
-| Code path                                 | Defensive behaviour                                                     | Corpus check (2483-XML cohort)                                                     | Trigger condition                                              |
+| Code path                                 | Defensive behaviour                                                     | Corpus check (2795-XML cohort)                                                     | Trigger condition                                              |
 |-------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------------------------|----------------------------------------------------------------|
-| Default profile (no `--profile` flag)     | `parse_xml` picks `endpoint.find("profile")` (first child)              | 2448/2448 internal_speaker/normal endpoints have `dynamic` first                   | XML where `off` or another no-op profile precedes `dynamic`    |
-| Asymmetric L/R PEQ filter counts          | Missing-channel HP slot fills with 100 Hz/24 dB-oct HP, bell slot with flat 1 kHz bell | 10689 PEQ profiles → 33 with an L/R filter-count diff (12 differ in HP count)     | Per-driver tuning where one channel has filters the other lacks |
-| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting), now with a warning; volmax still routes via regulator | **Fixed (2026-06-17).** `threshold_schema` (corpus_audit) confirms exactly **9 profiles on one newer SoundWire device (`SUBSYS_37A317AA`)** stored `threshold_high`/`threshold_low` in a per-channel `<ch_00>…<ch_07>` sub-schema (real non-zero values on ch_00) that the flat `resolve_xml_value` didn't read — so that device got **no regulator limiting**. The other 33,113 reg-enabled internal_speaker profiles use the direct `value=`/`preset=` form (incl. siblings like `384B17AA` whose `threshold_high preset="array_20_zero"` is an intentional zero). `resolve_channel_or_direct` now reads `ch_00`; the `[0.0]*20` fallback only fires on a genuinely empty tuning, and warns when it does. (The doc previously mis-described this as an `isolated_band` sub-schema — `isolated_band` is an unrelated *sibling* element in the older flat schema.) | Genuinely empty / hand-edited / broken regulator tuning |
-| Shelf filter with explicit `q` attribute  | Output-gain compensation now uses full shelf gain (commit `c505864`)    | 192 type-4 shelf filters → 0 with explicit `q`                                     | Driver release that adds `q` to a shelf — previously silently under-compensated |
+| Default profile (no `--profile` flag)     | `parse_xml` picks `endpoint.find("profile")` (first child)              | 2677/2677 internal_speaker/normal endpoints have `dynamic` first                   | XML where `off` or another no-op profile precedes `dynamic`    |
+| Asymmetric L/R PEQ filter counts          | Missing-channel HP slot fills with 100 Hz/24 dB-oct HP, bell slot with flat 1 kHz bell | 12204 PEQ profiles → 38 with an L/R filter-count diff (13 differ in HP count)     | Per-driver tuning where one channel has filters the other lacks |
+| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting), now with a warning; volmax still routes via regulator | **Fixed (2026-06-17).** `threshold_schema` (corpus_audit) confirms exactly **9 profiles on one newer SoundWire device (`SUBSYS_37A317AA`)** stored `threshold_high`/`threshold_low` in a per-channel `<ch_00>…<ch_07>` sub-schema (real non-zero values on ch_00) that the flat `resolve_xml_value` didn't read — so that device got **no regulator limiting**. The other 36,620 reg-enabled internal_speaker profiles use the direct `value=`/`preset=` form (incl. siblings like `384B17AA` whose `threshold_high preset="array_20_zero"` is an intentional zero). `resolve_channel_or_direct` now reads `ch_00`; the `[0.0]*20` fallback only fires on a genuinely empty tuning, and warns when it does. (The doc previously mis-described this as an `isolated_band` sub-schema — `isolated_band` is an unrelated *sibling* element in the older flat schema.) | Genuinely empty / hand-edited / broken regulator tuning |
+| Shelf filter with explicit `q` attribute  | Output-gain compensation now uses full shelf gain (commit `c505864`)    | 384 type-4 shelf filters → 0 with explicit `q`                                     | Driver release that adds `q` to a shelf — previously silently under-compensated |
 | `is_soundwire` filename detection         | Falls back to HDA mode (no bass enhancer, no convolver headroom restore) | All matched XMLs in the corpus have `SOUNDWIRE_…` or `SDW_…` filenames intact      | User manually renames a SoundWire XML before passing it in     |
 | `make_multiband_compressor` 5+ band cap   | `min(group_count, 8)` enforced                                          | Max observed `group_count` = 4 (Dolby schema only allocates `band_group_0..3`)     | Dolby schema extension                                         |
 
@@ -508,7 +531,7 @@ defensive-only paths and should be treated as implementation gaps):
 |-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | 1-band MBC (`group_count=1`)              | Emits LSP `multiband_compressor` with band 0 active (no split frequency) and bands 1-7 disabled; `mbc-1band` experimental marker added to the end-of-run callout | 633 profiles enable MBC with `group_count=1` (§2), dominated by the `music` profile using 1-2:1 ratio with fast attack/release as a loudness maximiser | Experimental — reproduced from the Dolby tuning but not yet audibly validated. `--disable mbc` turns it off. |
 | Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | `corpus_audit` L/R peak-asymmetry tally: **131 rows / 10 devices** (only ALC257/287, only Lenovo convertible/AIO packages) differ; 119 are ~1 dB matched-filter gain trims (median 1.0 dB), 12 are structural 7 dB cases in convertible `stand` pose | **Resolved (keep global-max).** EE's equalizer has per-channel `left`/`right` bands but a *single* `output-gain`; applying `max(L,R)` equally to both channels preserves the Dolby-tuned L/R relationship at every frequency (incl. the 7 dB worst case). A per-channel trim would impose a broadband L-vs-R tilt and isn't representable as one `output-gain`. The only cost is extra headroom on the quieter channel, which the downstream leveler restores. |
-| Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 616/36827 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
+| Non-zero `dialog-enhancer-ducking`        | Not currently read by the script (irrelevant on present pipeline)        | 616/40732 rows have ducking=6 or 8 (§1)                                            | Informational — no downstream consumer, but the "always 0" invariant claim was too strong |
 | Unknown PEQ filter type                   | Warns "unknown PEQ filter type N, skipping" and drops the filter         | No observed filter outside `(1,3,4,6,7,8,9)` on the cohort                          | Inert — types 3/6/8 are now emitted (see §9); the warning remains a guard against future driver releases adding new types |
 
 If a future driver release breaks any of the truly-inert assumptions, the script will
@@ -542,14 +565,14 @@ tail):
 
 | `operating_mode`        | Rows  | Typical hardware                                       |
 |-------------------------|-------|--------------------------------------------------------|
-| `normal`                | 23528 | All laptops — the mode selected by default             |
-| `laptop`                | 3173  | Convertible in clamshell pose                          |
-| `stand`                 | 3163  | Convertible in stand/present pose                      |
-| `tablet`                | 3119  | Convertible folded flat                                |
-| `tent`                  | 3109  | Convertible in tent pose                               |
-| `lid_close`             |  257  | Lid-closed external-monitor use                        |
+| `normal`                | 25768 | All laptops — the mode selected by default             |
+| `laptop`                | 3522  | Convertible in clamshell pose                          |
+| `stand`                 | 3502  | Convertible in stand/present pose                      |
+| `tablet`                | 3450  | Convertible folded flat                                |
+| `tent`                  | 3430  | Convertible in tent pose                               |
+| `lid_close`             |  486  | Lid-closed external-monitor use                        |
 | `detachable_speaker`    |  220  | Detachable tablet-with-dock SKUs                       |
-| `book` / `flat` / `hybridaudio_detached` | 30 each | Book / flat-on-desk / detached-speaker paths |
+| `Laptop_flipped` / `Table_Portrait` / `Table_Portrait_flipped` | 36 each | Newer convertible poses |
 
 The script only ever reads `operating_mode="normal"` (the `--mode` default). On
 convertibles, Dolby ships distinct tunings per hinge pose — the "normal" fallback
@@ -564,16 +587,16 @@ original cohort (current-cohort row counts):
 
 | Profile             | Rows | Notes                                                 |
 |---------------------|------|-------------------------------------------------------|
-| `dynamic`           | 3825 | Primary listening profile                             |
-| `movie`             | 3825 |                                                       |
-| `music`             | 3825 |                                                       |
-| `voice`             | 3825 |                                                       |
-| `off`               | 3825 | No-op pass-through                                    |
-| `game`              | 3739 |                                                       |
-| `personalize_user1` | 3739 | User-customisable slot 1 (not the `personalize` alias) |
-| `personalize_user2` | 3739 | Slot 2                                                |
-| `personalize_user3` | 3739 | Slot 3                                                |
-| `voice_onlinecourse`| 2316 | Ultra-gentle leveler profile (§4)                     |
+| `dynamic`           | 4225 | Primary listening profile                             |
+| `movie`             | 4225 |                                                       |
+| `music`             | 4225 |                                                       |
+| `voice`             | 4225 |                                                       |
+| `off`               | 4225 | No-op pass-through                                    |
+| `game`              | 4139 |                                                       |
+| `personalize_user1` | 4139 | User-customisable slot 1 (not the `personalize` alias) |
+| `personalize_user2` | 4139 | Slot 2                                                |
+| `personalize_user3` | 4139 | Slot 3                                                |
+| `voice_onlinecourse`| 2621 | Ultra-gentle leveler profile (§4)                     |
 | `game_shooter`      |   86 | Genre-specific game profile                           |
 | `game_racing`       |   86 |                                                       |
 | `game_rpg`          |   86 |                                                       |
@@ -896,8 +919,9 @@ are common).
 4. **Hard limiting (slope=16) is the overwhelming majority (97%)** — Dolby engineers
    prefer true brickwall limiting on the regulator for most laptop speakers.
 
-5. **Every device has a unique regulator curve** — 399 distinct threshold patterns,
-   confirming these are individually tuned per speaker.
+5. **Every device has a unique regulator curve** — 408 distinct threshold curves
+   (see §7 on why that is not comparable to the older 399), confirming these are
+   individually tuned per speaker.
 
 ---
 
@@ -911,7 +935,7 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    `resolve_channel_or_direct` now reads `ch_00`, recovering real per-band limiting
    on `SUBSYS_37A317AA`'s 9 profiles; the `[0.0]*20` fallback now only fires (and
    warns) on a genuinely empty tuning. Scope re-derived via `corpus_audit`'s
-   `threshold_schema` (9 profiles/1 device; 33,113 others untouched). DSO and the
+   `threshold_schema` (9 profiles/1 device; 36,620 others untouched). DSO and the
    advanced virtualizer for that device remain unmodeled (§14).
 2. **Asymmetric L/R PEQ peak gain (investigate).** ✅ **Resolved (2026-06-17):
    keep global-max.** Re-derived via `corpus_audit`: 131 rows / 10 devices differ
@@ -934,9 +958,15 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    would trade away headroom audibly on the <1% that set it — so watch-listing in
    `_UNMODELED_FEATURES` (warn on deviation, don't act) is correct. Lives under
    `tuning-vlldp`; the watch's `.//peak-level` xpath catches it regardless.
-6. **Re-run on new driver pulls (process).** Regenerate every figure here with
-   [`tools/corpus_audit.py`](../tools/corpus_audit.py) after pulling new
-   packages — the corpus has roughly doubled since the prior derivation.
+6. **Re-run on new driver pulls (process).** ✅ **Done (2026-08-03)** for the
+   2795-XML cohort: every aggregate above regenerated with
+   [`tools/corpus_audit.py`](../tools/corpus_audit.py). Still a standing process
+   for the next pull. Four blocks remain outside the tool and were left as-is
+   rather than restated: §8's rail-pinning counts (needs content-hash dedup,
+   `geq_maximum_range`, `xml_version` and AO peak-to-peak), §9's per-XML and
+   per-speaker filter distributions, §13's `default_profile` paragraph, and the
+   `voice_onlinecourse`/`personalize` rows in §3 and §5 (the tool prints only the
+   eight most common profiles). Adding those five queries is the next step.
 7. **Galaxy Book6 quiet-output cause (device-gated).** ✅ **Resolved (2026-06-30).**
    The reporter's `--speaker-info` + kernel log confirmed the §15 hypothesis:
    the cs35l56/57 amps load the base DSP ROM but log `FIRMWARE_MISSING` /
