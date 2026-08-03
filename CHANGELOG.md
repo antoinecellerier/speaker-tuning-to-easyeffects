@@ -58,16 +58,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
-### Fixed
-
-- **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
-  whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
-  never read, so a profile that ships a curve but declares the optimizer
-  disabled still got it; re-run to regenerate. Affects the `off` profile and a
-  few devices' `music` profile — up to 6 dB in-band there, unchanged everywhere
-  else, and not yet heard on affected hardware
-  ([docs/cross-device-findings.md](docs/cross-device-findings.md) §14).
-
 ### Added
 
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
@@ -118,6 +108,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
 
 ### Fixed
+
+- **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
+  whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
+  never read, so a profile that ships a curve but declares the optimizer
+  disabled still got it; re-run to regenerate. Affects the `off` profile and a
+  few devices' `music` profile — up to 6 dB in-band there, unchanged everywhere
+  else, and not yet heard on affected hardware
+  ([docs/cross-device-findings.md](docs/cross-device-findings.md) §14).
+
+
 
 - Running the script from a session with no display (ssh, tmux) no longer
   claims EasyEffects isn't installed. `easyeffects --version` needs a
