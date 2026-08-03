@@ -1454,7 +1454,10 @@ def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
 
     dolby_to_easyeffects.print_project_asks(dropped)
     out = " ".join(capsys.readouterr().out.split())
-    assert "Not reproduced on this device: [speaker-optimizer]" in out
+    assert ("doesn't rebuild: [speaker-optimizer]" in out)
+    # The mention carries its reason — an entry with nothing to do and no
+    # reason to mention it teaches readers to skip the block.
+    assert "so we know which devices have them" in out
 
     # It stays one line of context, not another bulleted thing to action.
     dolby_to_easyeffects.print_project_asks(dropped)

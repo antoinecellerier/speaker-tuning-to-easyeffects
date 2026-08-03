@@ -3842,10 +3842,16 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     # context for a report, not another thing to action.
     dropped = [f.slug for f in findings if f.kind == "ask" and not f.ask]
     if dropped:
-        _cprint_wrapped("dim", "Not reproduced on this device: "
+        # Not "Not reproduced on this device" — reviewers read that as
+        # issue-tracker language ("we couldn't reproduce your bug"), the
+        # opposite of what it says. And the mention needs a reason, or it is
+        # a nothing-to-do entry that teaches readers to skip the block.
+        _cprint_wrapped("dim", "Parts of your tuning this converter doesn't "
+                               "rebuild: "
                                + ", ".join(f"[{s}]" for s in dropped)
-                               + " — nothing to fix, but worth mentioning if "
-                                 "you report.")
+                               + " — nothing you need to do, but mention "
+                                 "them if you report so we know which "
+                                 "devices have them.")
         print()
     # The link prints either way. Suppressing it on a dry run left the block
     # above saying "quote the tag in brackets if you report one" with nowhere
