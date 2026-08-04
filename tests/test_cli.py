@@ -1494,7 +1494,7 @@ def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
 
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
     out = capsys.readouterr().out
-    assert "FIR check passed" in out
+    assert "Correction check passed" in out
     assert "re-run with -v" in out
     assert out.count("frequency tables hidden") == 1
     assert "FIR verification (left" not in out
@@ -1503,7 +1503,7 @@ def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
                                "-v"])
     out = capsys.readouterr().out
-    assert "FIR check passed" in out
+    assert "Correction check passed" in out
     assert "FIR verification (left" in out
     assert "combined IEQ+AO curve" in out
     assert "frequency tables hidden" not in out

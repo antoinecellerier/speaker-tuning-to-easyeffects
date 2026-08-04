@@ -3606,8 +3606,12 @@ _UNMODELED_FEATURES = [
         # right — we'll double-check" read as taking the reassurance back
         # (round 2). The reason to ask (a rare ignored setting) now leads,
         # so the confirmation has an object and the status stands alone.
+        # "your tuning XML", the sibling asks' vocabulary — "the XML" cold
+        # was a jump for a round-4 reviewer ("is that the file I copied?").
+        # Keep the token "XML": the attach-path print in print_project_asks
+        # gates on it.
         lambda el: ("Your tuning has a rare setting we ignore; the presets "
-                    "should sound right — attach the XML and we'll "
+                    "should sound right — attach your tuning XML and we'll "
                     "confirm.")),
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
@@ -5406,8 +5410,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             parts.append(f"boosts to {boost:+.1f} dB (at {f_boost} Hz)")
         if not parts:
             parts.append("flat (all 0 dB)")
-        sym = ("identical L/R" if np.allclose(ao_l, ao_r)
-               else "different L/R")
+        sym = ("same correction for left and right"
+               if np.allclose(ao_l, ao_r)
+               else "left and right corrected differently")
         print("\nAudio-optimizer: speaker correction — "
               + ", ".join(parts) + f", {sym}")
     if verbose:
@@ -5757,12 +5762,15 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # drift going wrong; nobody outside this file knows 0.03 dB is a
         # pass. The threshold is far above the minimum-phase design's
         # normal residual (~0.05 dB) and below anything audible.
+        # "Correction check", not "FIR check": FIR was the one label in the
+        # summary with no plain reading (round 4), and "correction" is the
+        # audio-optimizer line's vocabulary for the same curve.
         if worst <= FIR_VERIFY_OK_DB:
-            cprint("ok", f"  FIR check passed: within {worst:.2f} dB of the "
-                         "target everywhere (inaudible)")
+            cprint("ok", f"  Correction check passed: within {worst:.2f} dB "
+                         "of the target everywhere (inaudible)")
         else:
-            cprint("warn", f"  FIR check: {worst:.2f} dB off target at "
-                           "worst — unexpected, please report this run")
+            cprint("warn", f"  Correction check: {worst:.2f} dB off target "
+                           "at worst — unexpected, please report this run")
         print()
 
 
@@ -6247,7 +6255,8 @@ def main(argv: list[str] | None = None,
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
-        cprint("head", f"Endpoint: {args.endpoint}{mode}")
+        cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
+                       "presets are for)")
         tuning = parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
