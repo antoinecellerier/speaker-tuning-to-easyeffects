@@ -22,6 +22,8 @@ body:
         Run `python3 dolby_to_easyeffects.py --speaker-info` and paste the whole block.
         If reporting a problem, run `python3 dolby_to_easyeffects.py --doctor` instead
         to include more diagnostics.
+        (Using the PipeWire filter-chain instead of EasyEffects? Same flags on
+        `dolby_to_pipewire.py`.)
       render: shell
     validations:
       required: true
@@ -46,6 +48,9 @@ body:
         dolby_to_easyeffects.py -v --autoload`) — the verbose run includes
         the frequency tables a diagnosis needs on top of the tuning values
         derived from your XML.
+        (Using the PipeWire filter-chain instead? `python3
+        dolby_to_pipewire.py -v --dry-run` — it reports without reinstalling
+        anything.)
       placeholder: |
         Leave this empty if you're just reporting things are working well.
       render: shell
