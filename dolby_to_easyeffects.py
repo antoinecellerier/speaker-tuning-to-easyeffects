@@ -5087,10 +5087,14 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
     # Continuations indent two past the gutter so they land under the
     # comment text, not under its "#" — flush with the marker they read as
     # stray fragments (round 2).
-    _cprint_wrapped("dim", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
+    # Plain, not dim (round 5): fully dimmed rows read as less important
+    # than the report asks below — these are the fix a user with bad audio
+    # needs. Plain keeps them a step below the bold asks, which stay the
+    # block's emphasis (user decision).
+    _cprint_wrapped("", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
                     indent=gutter + "  ")
     if effect:
-        _cprint_wrapped("dim", f"{gutter}({effect})", indent=gutter + " ")
+        _cprint_wrapped("", f"{gutter}({effect})", indent=gutter + " ")
 
 
 def print_troubleshooting(findings: list[Finding],
