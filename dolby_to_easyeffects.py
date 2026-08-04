@@ -3192,6 +3192,15 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "--list to see this XML's endpoints and profiles."
             )
 
+    # <setting><default_profile> names the profile the device ships on under
+    # Windows. It's rare (28 of 791 corpus XMLs) and we don't act on it — we
+    # still build the first profile — but a run that silently diverges from
+    # Dolby's own default is worth one line of output (issue #46). Read here
+    # so the banner below can also say where the pick stands.
+    declared_default = root.find("setting/default_profile")
+    declared_name = (declared_default.get("value")
+                     if declared_default is not None else None)
+
     if announce_profile:
         name = profile.get("type")
         n_profiles = len(endpoint.findall("profile"))
@@ -3214,6 +3223,21 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 cprint("head", f"Profile: {shown} (the first-listed of "
                                f"this speaker's {n_profiles} sound modes — "
                                "--list names them; --profile picks)")
+                # Round 5, all three reviewers: understanding HOW the pick
+                # was made didn't answer whether it's the right one. Say
+                # where it stands against the Windows default — a match is
+                # a confidence line, an undeclared default is honest doubt.
+                # "Default", never "the mode Windows uses": default_profile
+                # is the shipping default, and the mode actually active on
+                # the user's Windows install may differ (they can switch in
+                # the Dolby app). The mismatch case says nothing here:
+                # [profile-mismatch] owns it, with the ask.
+                if name and declared_name == name:
+                    cprint("dim", "  (also the Windows default for this "
+                                  "device)")
+                elif not declared_name:
+                    cprint("dim", "  (your file doesn't say which mode is "
+                                  "the Windows default)")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
@@ -3490,11 +3514,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "isolated_band": isolated,
             }
 
-    # <setting><default_profile> names the profile the device ships on under
-    # Windows. It's rare (28 of 791 corpus XMLs) and we don't act on it — we
-    # still build the first profile — but a run that silently diverges from
-    # Dolby's own default is worth one line of output (issue #46).
-    declared_default = root.find("setting/default_profile")
+    # declared_default (<setting><default_profile>) was read above, before
+    # the profile banner.
 
     # Report each unmodeled block where it was found, and carry the findings
     # out so main() can render their asks once at the end. Both halves matter:
@@ -3690,9 +3711,12 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         # Says why the names matter and closes the loop: "re-run to compare"
         # alone left a reviewer comparing with no idea what to do with the
         # result, and the two names connected to nothing else in the block.
-        ask=f"We built '{profile_used}' but Windows uses '{declared}' here — "
-            f"re-run with --profile {declared} and tell us which sounds "
-            "better.")
+        # "the Windows default", not "Windows uses": default_profile is the
+        # shipping default; what the user actually ran on Windows may
+        # differ.
+        ask=f"We built '{profile_used}' but the Windows default is "
+            f"'{declared}' — re-run with --profile {declared} and tell us "
+            "which sounds better.")
 
 
 def _loudness_untamed_finding() -> Finding:
