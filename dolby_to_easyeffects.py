@@ -5423,27 +5423,29 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     if vol_leveler:
         # Says BOTH states — the tuning file's and this preset's — and
-        # names the flag that flips it. "Volume leveler: enabled" alone
-        # described the XML while the leveler-gap note described the preset,
-        # and a round-3 reviewer read the pair as the run contradicting
-        # itself about whether the leveler is on. This is also the one spot
-        # that ties the "autogain" flag name to the leveler by name.
+        # names the flag that flips it. The label leads with "Autogain"
+        # because that is the flag word: a round-4 reviewer got "Volume
+        # leveler" from this line and then couldn't find that word anywhere
+        # in the flag menus. Each state clause gives the two worlds their
+        # own subjects ("your tuning … this preset") — the compressed
+        # "enabled — ships switched off" read as the line contradicting
+        # itself (rounds 3 and 4).
         enabled_flags = enabled or set()
         if not vol_leveler["enable"]:
             state = "switched off in your tuning"
         elif "autogain" in disabled:
-            state = ("enabled in your tuning — removed from this preset by "
+            state = ("on in your tuning — removed from this preset by "
                      "--disable autogain")
         elif "autogain" in enabled_flags:
-            state = ("enabled in your tuning — running in this preset (you "
+            state = ("on in your tuning — running in this preset (you "
                      "passed --enable autogain)")
         elif is_soundwire:
-            state = ("enabled in your tuning — running in this preset "
+            state = ("on in your tuning — running in this preset "
                      "(--disable autogain switches it off)")
         else:
-            state = ("enabled in your tuning — ships switched off in this "
-                     "preset (--enable autogain turns it on)")
-        print(f"\nVolume leveler: {state}")
+            state = ("on in your tuning, but this preset ships with it "
+                     "off — add --enable autogain to turn it on")
+        print(f"\nAutogain (volume leveler): {state}")
         if vol_leveler["enable"]:
             print(f"  amount {vol_leveler['amount']}, targets "
                   f"{vol_leveler['in_target']:.1f} dB in / "
