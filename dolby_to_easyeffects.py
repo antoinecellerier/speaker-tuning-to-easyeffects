@@ -3770,7 +3770,7 @@ def _loudness_untamed_finding() -> Finding:
         # family (round 9); coupled-bands is exactly the all-inert class's
         # remedy (issue #27).
         ask="If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, replace that flag with --enable coupled-bands.")
+            "still harsh, swap to --enable coupled-bands (not both).")
 
 
 def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
@@ -3791,12 +3791,12 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # trap reserves "music" for the mbc symptom. No region word — the
         # unlimited band's frequency is device-specific and the detail
         # above already names it.
-        # "Replace that flag with": "swap it for" (round 3), "instead"
-        # (round 5), and "just" (round 8) all left keep-or-drop guessable
-        # against the seam line's "they combine"; naming the flag as the
-        # thing replaced doesn't.
+        # "(not both)": every compact form — "swap it for" (round 3),
+        # "instead" (round 5), "just" (round 8), "replace that flag with"
+        # (round 9) — kept reading ambiguous against the seam line's "they
+        # combine". The parenthetical says it outright.
         ask="If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, replace that flag with --enable coupled-bands.")
+            "still harsh, swap to --enable coupled-bands (not both).")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
