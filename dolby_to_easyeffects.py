@@ -3712,9 +3712,13 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
     """Dolby names a different profile than the one we built."""
     return Finding(
         slug="profile-mismatch",
+        # The naming note pre-empts a round-6 worry: a reviewer assumed the
+        # suggested --profile re-run would overwrite the presets they were
+        # told to compare against.
         detail=f"This XML names '{declared}' as the profile the device ships "
                f"on under Windows, but we built '{profile_used}' (this "
-               "speaker's first-listed).",
+               "speaker's first-listed). A --profile re-run writes its own "
+               "preset files, so both stay installed.",
         # Names the action and what it gets you. An earlier wording led with
         # "worth an A/B against Windows", which read as though the user had to
         # go and do something in Windows.
@@ -5482,9 +5486,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # Leads with the plain name (round 3: the bare acronym was the one
     # line still doing it) and ties the three preset files to the profile
     # they voice — reviewers read them as unrelated flavors.
-    print(f"Voicing strength (ieq-amount): {ieq_amount}% — how strongly "
-          "this profile's three voicings (Balanced/Detailed/Warm) apply "
-          "on top of the speaker correction")
+    # "of full strength" anchors the percentage's scale — a bare "10%"
+    # gave no way to tell strong from weak (round 6).
+    print(f"Voicing strength (ieq-amount): {ieq_amount}% of full "
+          "strength — how strongly this profile's three voicings "
+          "(Balanced/Detailed/Warm) apply on top of the speaker correction")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -5537,10 +5543,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     #
     # Most tunings configure L and R identically; printing both channels
     # doubled every row for no information (round 5). When the two channel
-    # configurations match and -v is off, each filter prints once — with
-    # the filter-design internals (order, S, Q) held back for -v alongside
-    # the per-channel rows. Any L/R difference keeps the full per-channel
-    # view: the difference is itself the detail worth reading.
+    # configurations match and -v is off, each filter prints once. Any L/R
+    # difference keeps per-channel rows — the difference is itself the
+    # detail worth reading — but the filter-design internals (order, S, Q)
+    # are -v-only in every view: an unglossed S=1.0 on a default row was
+    # the round-6 nit (freq and gain, the audible knobs, stay).
     def _peq_spec(pf):
         return {k: v for k, v in pf.items() if k != "speaker"}
 
@@ -5560,22 +5567,22 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # the driver), and a round-4 reviewer went hunting for one and
             # settled on --disable bass-enhancer, a different symptom.
             tech = (f", order {pf['order']} ({pf['order'] * 6} dB/oct)"
-                    if not condensed else "")
+                    if verbose else "")
             print(f"  {spk}HP @ {pf['f0']} Hz{tech} — cuts bass the speaker can't play (speaker protection; no flag turns it off)")
         elif pf["type"] in (6, 8):
             tech = (f", order {pf['order']} ({pf['order'] * 6} dB/oct)"
-                    if not condensed else "")
+                    if verbose else "")
             print(f"  {spk}Lo-pass @ {pf['f0']} Hz{tech} — rolls off the top end  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
-            tech = f", S={pf['s']}" if not condensed else ""
+            tech = f", S={pf['s']}" if verbose else ""
             print(f"  {spk}Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the low end")
         elif pf["type"] == 3:
             # "High-shelf" in display copy — matching --disable high-shelf;
             # the LSP mode string stays "Hi-shelf" (emitted parameter).
-            tech = f", S={pf['s']}" if not condensed else ""
+            tech = f", S={pf['s']}" if verbose else ""
             print(f"  {spk}High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
-            tech = f", Q={pf['q']}" if not condensed else ""
+            tech = f", Q={pf['q']}" if verbose else ""
             print(f"  {spk}Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — evens out a narrow band")
 
     if is_soundwire and "bass-enhancer" not in disabled:
