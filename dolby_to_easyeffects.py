@@ -3760,10 +3760,11 @@ def _loudness_untamed_finding() -> Finding:
         # limiter" each read as a second mystery stage; what the reader
         # needs is the consequence, phrased identically to the
         # boost-unlimited sibling — one template for one risk family.
+        # No raw field name (round 9): "threshold_high" read as leaked
+        # code and undercut trust. The -v table still prints the field.
         detail="This tuning's regulator never engages — every band's "
-               "ceiling is effectively switched off (threshold_high at or "
-               "over 0 dB) — so nothing limits the loudness boost on its "
-               "way out.",
+               "limit sits at or above full volume — so nothing limits "
+               "the loudness boost on its way out.",
         ask="If loud parts distort or sound crushed, re-run with "
             "--disable volmax.")
 
@@ -5804,16 +5805,25 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         active = [x for x in th if x < 0]
         # "Steps in only when": distinguishes it from the always-shaping
         # multi-band compressor two sections up, whose gloss otherwise
-        # read as the same job (round 5).
-        print("\nRegulator (per-band limiter): a protective ceiling, band "
-              "by band — steps in only when loud parts would distort")
+        # read as the same job (round 5). The inert case leads with the
+        # fact instead (round 9, user-picked rendering): the protective
+        # gloss followed by "it never engages" read as reassurance
+        # retracted in the same breath.
         if active:
+            print("\nRegulator (per-band limiter): a protective ceiling, "
+                  "band by band — steps in only when loud parts would "
+                  "distort")
             print(f"  limits {len(active)} of {len(th)} frequency bands "
                   f"(deepest limit {min(th):+.1f} dB)"
                   + ("" if verbose else "  (full tables with -v)"))
         else:
-            print("  no band limit below 0 dB — it never engages here"
-                  + ("" if verbose else "  (full tables with -v)"))
+            print()
+            _cprint_wrapped("", "Regulator (per-band limiter): configured "
+                                "never to engage on this tuning — every "
+                                "band's limit sits at or above full volume"
+                                + ("" if verbose
+                                   else "  (full tables with -v)"),
+                            indent="  ")
         iso = regulator.get("isolated_band")
         if iso is not None:
             # Co-located with the fact it explains: the only plain wording
