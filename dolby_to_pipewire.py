@@ -13,6 +13,7 @@ See docs/ee-to-pipewire.md.
 
 import argparse
 import contextlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -361,6 +362,13 @@ def main(argv: list[str] | None = None) -> int:
         cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
                        "deleted when done — nothing is installed on your "
                        "system in this step)")
+        # Echo the invocation (round 8): the closing's "add any of the
+        # flags above to the same command you ran" had no referent unless
+        # the reader saved their own command line. shlex keeps Dolby's
+        # $-laden paths copy-pasteable.
+        cprint("dim", "      (your command: "
+                      + shlex.join([Path(sys.argv[0]).name, *sys.argv[1:]])
+                      + ")")
         with _generator_stdout(args.dry_run):
             rc = _run_generator(step1_common
                                 + ["--output-dir", tmp, "--irs-dir", tmp],

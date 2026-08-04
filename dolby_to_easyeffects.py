@@ -3628,7 +3628,7 @@ _UNMODELED_FEATURES = [
         # made the tool sound shaky when the behaviour described is the
         # safe default.
         lambda el: (
-            f"peak-level={el.get('value')} (about "
+            f"peak-level={el.get('value')} (raw value; about "
             f"{int(el.get('value', '0')) / 16:+.2f} dB) — a setting almost "
             "no device we've tested uses. We skip it safely: the presets "
             "are built as if it were 0, which is what every other device "
@@ -5040,11 +5040,13 @@ ENABLEABLE_FILTERS = {
 # coupled-bands actually engaged a zone (drop the --enable flag to turn it
 # off). Used to trigger a targeted "please report" prompt at end-of-run
 # when any of these fired for the current preset.
+# Plain name first, the tuning's own token in parentheses (round 8:
+# "type-3 high-shelf" bare read as an undefined severity level).
 EXPERIMENTAL_MARKERS = {
-    "high-shelf": "type-3 high-shelf",
-    "lo-pass": "type-6/8 low-pass",
-    "mbc-1band": "1-band MBC (group_count=1)",
-    "coupled-bands-active": "coupled-bands regulator (isolated_band)",
+    "high-shelf": "a treble shelf boost (the tuning's type-3 high-shelf)",
+    "lo-pass": "a top-end rolloff (type-6/8 low-pass)",
+    "mbc-1band": "the compressor running as a single band (group_count=1)",
+    "coupled-bands-active": "the coupled-bands limiter (isolated_band)",
 }
 
 
@@ -5621,7 +5623,10 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     right_specs = [_peq_spec(p) for p in peq_filters if p["speaker"] == 1]
     condensed = not verbose and left_specs == right_specs
     if peq_filters:
-        print("\nPEQ filters (kept as parametric EQ"
+        # Plain name leads, acronym trails (round 8) — this header was the
+        # one still leading with the acronym; "kept as parametric EQ" was
+        # near-tautological next to "EQ filters" and goes.
+        print("\nSpeaker EQ filters (PEQ"
               + ("; same for both speakers):  (details with -v)"
                  if condensed else "):"))
     for pf in (peq_filters if not condensed
@@ -5745,7 +5750,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     if mb_comp:
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
-        print(f"\nMulti-band compressor: {mb_comp['group_count']} "
+        print(f"\nMulti-band compressor (mbc): {mb_comp['group_count']} "
               "frequency band(s) — "
               f"evens out loud vs quiet separately per frequency range{tag}")
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB "
@@ -5813,9 +5818,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # N bands" line whenever the counts differ. The raw
             # isolated_band array stays under -v.
             _cprint_wrapped("", "  --enable coupled-bands extends limiting "
-                                "to bands the tuning leaves both unmarked "
-                                "('isolated' flag) and unlimited "
-                                "(experimental, issue #44)",
+                                "to bands the tuning leaves with no limit "
+                                "and no 'isolated' marking (experimental, "
+                                "issue #44)",
                             indent="    ")
         if verbose:
             print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
