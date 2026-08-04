@@ -3808,16 +3808,19 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                "set. If quiet passages swell then duck when things get "
                "loud, that gap is the most likely reason (--disable "
                "autogain switches the "
-               "leveler off). Settling it needs a capture from a device "
-               "that has these stages, measured on a Windows install with "
-               "Dolby on the same machine.",
+               "leveler off). Settling it needs a capture from a Windows "
+               "install with Dolby on this same machine — if you "
+               "dual-boot, we'll walk you through it.",
         # Deliberately does not ask them to go and do the capture, and does
         # not point at the measure_dax README: two rounds of reviewers read
         # the self-serve route as homework that gates help and said they'd
         # give up there — the ask below owns the route ("tell us, we'll
         # walk you through it"), and the procedure link belongs in that
         # conversation. It is a multi-step measurement on a second OS, and
-        # most people run this script once.
+        # most people run this script once. The walk-you-through offer also
+        # rides the detail (round 4: read top-down, "settling it needs a
+        # capture" arrived 40 lines before the offer and read as an
+        # unexplained requirement).
         # Names Windows so anyone who doesn't dual-boot can skip the line
         # rather than reading to the end to find out they can't help — the
         # capture measures what DAX does, so it has to run there.
