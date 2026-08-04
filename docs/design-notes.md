@@ -2522,6 +2522,35 @@ volmax is not already compensating. That is an argument for keeping the flag
 opt-in, and a hint that the eventual default may need to be
 `peak − volmax`-aware rather than the raw peak.
 
+**What the level gap does to the regulator — and what it does not explain.**
+Re-derived 2026-08-05 from the dev-device `pink` captures by integrating
+in-band power between band edges (geometric means of adjacent centres) and
+comparing each band's absolute level against its own `threshold_high`:
+
+| 47 / 141 / 234 / 328 Hz | level (dBFS) | headroom to threshold |
+|---|---|---|
+| EE default | −59.8 / −34.9 / −27.2 / −34.0 | mean **−30.96 dB** |
+| EE `level-restore` | −47.4 / −23.7 / −16.0 / −22.8 | mean **−19.46 dB** |
+| DAX `dynamic` | −41.1 / −20.5 / −15.0 / −19.3 | mean **−15.99 dB** |
+
+Our default chain runs **14.97 dB below DAX** across the four threshold-active
+bands (range 12.11–18.70); with the flag that closes to **3.47 dB**
+(0.91–6.33). At 234 Hz specifically the restored chain sits 1.0 dB from DAX.
+So `level-restore` does not merely match DAX's output level — it puts our
+regulator on roughly DAX's footing, meaning it would begin to engage on
+roughly the content DAX's engages on.
+
+**It does not, however, explain the entries-6/11 under-engagement, and the
+tempting inference that it does is wrong.** On this stimulus **neither side
+crosses a threshold**: 0 of 4 active bands are above threshold for EE default,
+EE restored *and* DAX (DAX's closest approach is −7.04 dB). A dormant
+compressor cannot exhibit a ratio, so `pink` at −17.8 dBFS carries no
+information about the 100:1-realises-as-1.8 finding either way — that figure
+came from a *loud* stepped capture where both sides did engage, and nothing
+here touches it. What this does establish is narrower and still useful: at
+nominal level our regulator idles 31 dB under its own thresholds, so any
+attempt to characterise it on ordinary-level content is measuring silence.
+
 **Caveats on what these runs can and cannot say.** Both measured tunings put
 their AO peak on a band their regulator *limits* (234 Hz on each), where issue
 #50's sits on one it leaves open — so nothing here tests the
