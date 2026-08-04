@@ -5927,7 +5927,8 @@ VOICING_CURVES = {
 
 def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                       scale, is_soundwire, disabled, args, profile_label,
-                      all_preset_names, filters_by_profile):
+                      all_preset_names, filters_by_profile,
+                      warned: bool = False):
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile:
     build each combined FIR, write the .irs + .json, print the verification
     table, and record emitted filters. Mutates ``all_preset_names`` and
@@ -6060,9 +6061,13 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     if not args.verbose and check_results:
         if not fails:
             worst_all = max(w for _, w in check_results)
-            cprint("ok", f"  Correction check passed: all "
-                         f"{len(check_results)} filters match their "
-                         f"targets within {worst_all:.2f} dB")
+            # Dim, not green, when a ⚠ fired above: the celebratory color
+            # read as cancelling the warning (round 9, user-picked
+            # rendering) — the check only covers curve accuracy.
+            cprint("dim" if warned else "ok",
+                   f"  Correction check passed: all "
+                   f"{len(check_results)} filters match their "
+                   f"targets within {worst_all:.2f} dB")
         else:
             for name, w in fails:
                 cprint("warn", f"  Correction check ({name}): {w:.2f} dB "
@@ -6588,7 +6593,13 @@ def main(argv: list[str] | None = None,
 
         _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
                           float_freqs, scale, is_soundwire, disabled, args,
-                          profile_label, all_preset_names, filters_by_profile)
+                          profile_label, all_preset_names, filters_by_profile,
+                          # ⚠ hints print warn-styled above; the check
+                          # verdict goes dim on those runs so green never
+                          # reads as cancelling a warning (round 9).
+                          warned=any(f.kind == "hint"
+                                     for f in [*tuning.findings,
+                                               *profile_findings]))
 
     # Autoload configuration
     if args.autoload and all_preset_names:
