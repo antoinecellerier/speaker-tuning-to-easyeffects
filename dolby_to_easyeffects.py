@@ -5535,15 +5535,27 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             if iso is not None:
                 print(f"  isolated_band:       {iso}")
 
+    # Glossed like every other stage; the gain-slot detail is -v only.
+    # Round-4 review (all three reviewers): the bare "(applied as
+    # regulator input-gain)" was the one summary line with no plain
+    # meaning, and it implied the boost dies with --disable regulator —
+    # the limiter fallback keeps it, so the slot is an implementation
+    # detail, not a dependency.
     if volmax_boost <= 0:
-        slot = "value is 0, no boost to apply"
+        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB "
+              "(your tuning asks for none)")
     elif "volmax" in disabled:
-        slot = "disabled via --disable volmax"
-    elif regulator and "regulator" not in disabled:
-        slot = f"applied as regulator {volmax_slot}"
+        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB in your tuning — "
+              "dropped by --disable volmax")
     else:
-        slot = "applied as limiter input-gain"
-    print(f"\nvolmax-boost: {volmax_boost:+.1f} dB ({slot})")
+        line = (f"\nvolmax-boost: {volmax_boost:+.1f} dB — the overall "
+                "loudness lift from your tuning")
+        if verbose:
+            slot = (f"regulator {volmax_slot}"
+                    if regulator and "regulator" not in disabled
+                    else "limiter input-gain")
+            line += f" (applied as {slot})"
+        print(line)
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
     # disables it; if every band is like that, the regulator carries the
     # volmax boost but tames nothing — the issue-#23 "per-band compression
