@@ -3780,10 +3780,11 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # trap reserves "music" for the mbc symptom. No region word — the
         # unlimited band's frequency is device-specific and the detail
         # above already names it.
-        # "instead", not "swap it for": both readers of the swap wording
-        # could not tell whether step two kept the first flag.
+        # Step two is spelled as its own re-run: "swap it for" (round 3)
+        # and "instead" (round 5) both collided with the seam line's "they
+        # combine", leaving keep-or-drop ambiguous (round 8).
         ask="If loud parts distort, re-run with --disable volmax; if it's "
-            "still harsh, try --enable coupled-bands instead.")
+            "still harsh, re-run with just --enable coupled-bands.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
