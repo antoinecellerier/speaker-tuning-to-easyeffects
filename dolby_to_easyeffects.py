@@ -5838,10 +5838,14 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # (design-notes) and read as flatly contradicting the "limits
             # N bands" line whenever the counts differ. The raw
             # isolated_band array stays under -v.
+            # "Some of": the flag's scope is a subset of the unlimited
+            # bands (those the tuning also marks non-isolated), and the
+            # subset word carries that without the 'isolated' jargon three
+            # rounds of reviewers bounced off (rounds 7-9). The -v table
+            # names the field for anyone digging.
             _cprint_wrapped("", "  --enable coupled-bands extends limiting "
-                                "to bands the tuning leaves with no limit "
-                                "and no 'isolated' marking (experimental, "
-                                "issue #44)",
+                                "to some of the bands the tuning leaves "
+                                "unlimited (experimental, issue #44)",
                             indent="    ")
         if verbose:
             print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
