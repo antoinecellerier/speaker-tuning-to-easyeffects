@@ -712,6 +712,17 @@ def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
         np.save(OUT_DIR / "inverse_sweep.npy", inverse)
 
 
+# Rungs added to the two pink levels the suite already had (−18 and −42), so
+# the ladder reads −60/−48/−42/−30/−24/−18/−14 dBFS RMS.
+#
+# The loud end stops at −14 because pink noise cannot go louder: its crest
+# factor is ~13 dB, so −12 dBFS RMS already peaks above full scale and
+# `make_pink` quietly rescales it — asking for −12 and −6 produced two
+# identical −13.4 dBFS files. For the loud end of the leveler curve use
+# `stimulus_stepped_loud` (−2 dBFS peak) instead, which is built for it.
+PINK_LADDER_DBFS = (-60, -48, -30, -24, -14)
+
+
 def main() -> None:
     print("Building stimulus suite:")
 
@@ -766,6 +777,33 @@ def main() -> None:
     write_stimulus("stimulus_stepped", stereo, meta)
     stereo, meta = make_stepped_sine(level_dbfs_peak=-42.0)
     write_stimulus("stimulus_stepped_quiet", stereo, meta)
+
+    # pink level ladder — the volume leveler's gain-versus-input-level curve.
+    # DAX rides a level-dependent gain that the two original pink levels only
+    # bracket: measured on the dev device, DAX(dynamic) − DAX(off) is +7.1 dB
+    # at −17.8 dBFS and +16.4 dB at −41.8 dBFS (design-notes, "Giving back what
+    # normalisation removed"). Two points make a line, and our autogain's
+    # target/window constants are currently chosen rather than derived
+    # (unvalidated-scaling entries 7/10) — these rungs turn that into a curve.
+    #
+    # The names carry the level with no separator on purpose: the analysis
+    # tooling parses `<kind>_<label>_<channel>` and treats the first
+    # underscore-free token as the stimulus tag, so "pink_m60" would be read
+    # as tag "pink" with label "m60_dynamic" and silently compared against
+    # the wrong capture.
+    for level in PINK_LADDER_DBFS:
+        stereo, meta = make_pink(level_dbfs_rms=float(level))
+        # make_pink rescales rather than clip when the requested RMS implies
+        # peaks over full scale, so a rung can come out at a level nobody
+        # asked for — and two rungs can collapse onto the same file. A ladder
+        # is only a ladder if each rung is where it says it is.
+        got = 20.0 * np.log10(float(np.sqrt(np.mean(stereo ** 2))) + 1e-12)
+        if abs(got - level) > 0.5:
+            raise SystemExit(
+                f"pink ladder rung {level} dBFS came out at {got:+.2f} dBFS "
+                "(make_pink rescaled it for headroom). Pick a quieter rung, "
+                "or use stimulus_stepped_loud for the loud end.")
+        write_stimulus(f"stimulus_pink{abs(level):02d}", stereo, meta)
 
     # stepped sine, MBC-waking level. The dev-device XML decodes both MBC
     # band thresholds to ≈ −6.4 dBFS (see docs/design-notes.md, "dynamics

@@ -45,6 +45,7 @@ so it works without flags as long as you keep the artifacts together.
 | `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers; per-band amplitude + phase via single-bin DFT |
 | `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency (39: the 20 band centers + the midpoint between each pair), the whole grid replayed ascending / descending / shuffled. Per-frequency steady-state amplitude via single-bin DFT. The cross-pass mean is the static EQ; the cross-pass span is the adaptive (order-dependent) dynamics. |
 | `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input — brackets the level-dependent treble gain |
+| `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder: with `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level. −14 is the loud end pink can reach without clipping (~13 dB crest factor); use `stimulus_stepped_loud.wav` above that |
 
 The first round of captures (sweep at −18 dBFS only) showed that DAX3
 is non-LTI: the leveler / regulator engage during the sweep, contaminating

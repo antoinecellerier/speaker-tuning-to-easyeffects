@@ -91,6 +91,65 @@ OFF** in Dolby Access (or with all enhancements disabled). The script
 warns rather than aborts in that case if the Dolby APO is still
 inserted on the endpoint.
 
+## Priority run: the volume-leveler level ladder
+
+This is the run to do first if time is short — it is currently the
+largest unmeasured gap between DAX and the Linux chain.
+
+DAX applies a gain that depends on how loud the input is, and only two
+points on that curve have ever been measured (on the dev device,
+DAX-on minus DAX-off: **+7.1 dB** at −17.8 dBFS and **+16.4 dB** at
+−41.8 dBFS). The Linux side approximates that curve with chosen
+constants rather than measured ones. Seven rungs turn two points into a
+curve.
+
+```powershell
+# Ladder rungs, quietest first. pink/pink_quiet are the two you already
+# have; the rest are new files from make_stimulus.py.
+$ladder = 'pink60','pink48','pink_quiet','pink30','pink24','pink','pink14'
+
+# OFF first (Dolby Access: Atmos OFF) — every rung needs its own baseline.
+foreach ($s in $ladder) { python capture_dax.py --stimulus stimulus_$s.wav --label off }
+
+# Then Atmos ON, profile = Dynamic.
+foreach ($s in $ladder) { python capture_dax.py --stimulus stimulus_$s.wav --label dynamic }
+```
+
+14 captures, ~13 s each. Two are already done (`pink`, `pink_quiet` on
+both labels) and re-capturing them is harmless — it also confirms the
+session is comparable to the archived one.
+
+**Why `off` at every rung and not just once:** it is the control for
+this measurement, not just a validity check. The whole result is
+on-minus-off *at the same input level*, so a missing rung loses that
+rung entirely. It is also the only way to confirm the off path is
+level-linear; if it is, that is worth knowing, but assume it and the
+ladder measures nothing.
+
+**Loud end.** Do not add pink rungs above −14 dBFS RMS: pink noise has
+~13 dB of crest factor, so −12 dBFS RMS already peaks past full scale
+and `make_stimulus.py` will refuse it. For the loud end use the
+stepped-sine stimulus built for it:
+
+```powershell
+foreach ($lbl in 'off','dynamic') {
+    python capture_dax.py --stimulus stimulus_stepped_loud.wav --label $lbl
+}
+```
+
+## Also worth capturing: bass burst, OFF
+
+`stimulus_bass_burst.wav` and `stimulus_bass_burst_quiet.wav` were
+captured on `dynamic` only, so the on-minus-off delta — the bass
+measurement the Linux side wants — cannot be computed from the archive.
+Two captures fixes that:
+
+```powershell
+foreach ($s in 'bass_burst','bass_burst_quiet') {
+    python capture_dax.py --stimulus stimulus_$s.wav --label off
+}
+```
+
 ## Hard requirements before capture
 
 1. **Speaker endpoint sample rate = 48 kHz** (shared mode). Set in
