@@ -3712,8 +3712,13 @@ def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
 
 def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
     """Dolby names a different profile than the one we built."""
+    # kind="ask": "tell us which sounds better" is something the project
+    # needs, and hint-routing left the one ending that solicits the
+    # comparison without the Help-the-project block or the attach path
+    # (round 8). This is also the confirmation channel the parked
+    # build-the-declared-default change waits on.
     return Finding(
-        slug="profile-mismatch",
+        slug="profile-mismatch", kind="ask",
         # The naming note pre-empts a round-6 worry: a reviewer assumed the
         # suggested --profile re-run would overwrite the presets they were
         # told to compare against.
