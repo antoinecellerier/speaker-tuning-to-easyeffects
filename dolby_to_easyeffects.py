@@ -3624,14 +3624,16 @@ _UNMODELED_FEATURES = [
         # 1/16-dB convention" read as leaked internal notes to all three
         # round-4 reviewers. The raw value stays verbatim (triage greps
         # for it); the /16 math stays, uncited.
+        # Reassurance before caveat (round 7): opening on "unverified"
+        # made the tool sound shaky when the behaviour described is the
+        # safe default.
         lambda el: (
             f"peak-level={el.get('value')} (about "
             f"{int(el.get('value', '0')) / 16:+.2f} dB) — a setting almost "
-            "no device we've tested uses. We deliberately don't apply it: "
-            "our reading of it is unverified, and applying a wrong value "
-            "would audibly cost volume on the few devices that use it. The "
-            "presets are built as if it were 0, which is what every other "
-            "device gets."),
+            "no device we've tested uses. We skip it safely: the presets "
+            "are built as if it were 0, which is what every other device "
+            "gets, because our reading of it is unverified and applying a "
+            "wrong value would audibly cost volume."),
         # Says where it stands. "a value we've never seen" alone left the
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
@@ -3833,8 +3835,12 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
     if not substages:
         return None
     named = ", ".join(substages)
-    head = (f"Also in your tuning but not rebuilt: {named} — companion "
-            "stages Dolby runs with its volume leveler. Harmless as built: ")
+    # Plain words first, raw names in parentheses (round 7): the raw
+    # volume-leveler-drc/-compressor tokens were the one list without the
+    # friendly-name treatment every other stage gets.
+    head = ("Also in your tuning but not rebuilt: companion compression "
+            f"stages Dolby pairs with its volume leveler ({named}). "
+            "Harmless as built: ")
     if not autogain_on:
         # Only point at --enable autogain when it could actually change this.
         # On a tuning whose XML disables the leveler outright the flag does
@@ -3850,8 +3856,9 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
     return Finding(
         slug="leveler-gap", kind="ask",
         detail="The volume leveler itself is rebuilt and running in this "
-               f"preset. But your tuning pairs it with {named} — companion "
-               "stage(s) this converter cannot rebuild: the tuning file "
+               "preset. But your tuning pairs it with companion "
+               f"compression stage(s) ({named}) this converter cannot "
+               "rebuild: the tuning file "
                "records only that they are switched on, not how they are "
                "set. If quiet passages swell then duck when things get "
                "loud, that gap is the most likely reason (--disable "
@@ -5675,10 +5682,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # read as the contradiction). And no doc citation — three rounds of
         # reviewers called it unfollowable dev-talk on a line whose inline
         # reason stands alone.
-        print(f"\nSurround (multi-channel) rendering boost: "
-              f"{surround['boost']:.1f} dB — skipped on purpose: Dolby "
-              "applies it only to actual surround content, not normal "
-              "stereo playback")
+        # Verdict first (round 7): leading with the dB figure made the
+        # boost read as active for a beat before "skipped" landed.
+        print("\nSurround (multi-channel) rendering boost: skipped on "
+              f"purpose — your tuning sets {surround['boost']:.1f} dB, but "
+              "Dolby applies it only to actual surround content, not "
+              "normal stereo playback")
 
     if vol_leveler:
         # Says BOTH states — the tuning file's and this preset's — and
@@ -5722,7 +5731,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     if mb_comp:
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
-        print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s) — "
+        print(f"\nMulti-band compressor: {mb_comp['group_count']} "
+              "frequency band(s) — "
               f"evens out loud vs quiet separately per frequency range{tag}")
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB "
               "(the level it evens toward)")
@@ -5772,8 +5782,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print("\nRegulator (per-band limiter): a protective ceiling, band "
               "by band — steps in only when loud parts would distort")
         if active:
-            print(f"  limits {len(active)} of {len(th)} bands "
-                  f"(down to {min(th):+.1f} dB)"
+            print(f"  limits {len(active)} of {len(th)} frequency bands "
+                  f"(deepest limit {min(th):+.1f} dB)"
                   + ("" if verbose else "  (full tables with -v)"))
         else:
             print("  no band limit below 0 dB — it never engages here"

@@ -805,7 +805,7 @@ def test_report_summarises_by_default_and_dumps_with_verbose(monkeypatch,
 
     _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
     out = capsys.readouterr().out
-    assert "limits 20 of 20 bands" in out
+    assert "limits 20 of 20 frequency bands" in out
     assert "full tables with -v" in out
     assert "threshold_high (dB):" not in out
     assert "Left:  [" not in out
