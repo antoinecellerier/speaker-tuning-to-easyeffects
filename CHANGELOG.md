@@ -90,9 +90,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged (README "Disabling and enabling filters").
 - The per-preset frequency tables and raw parameter arrays now hide behind
   a new `--verbose`/`-v` flag; a normal run keeps one summary line per
-  stage (deepest cuts, band counts, thresholds) and one verdict line per
-  preset. Include a `-v` log when reporting a sound problem — the issue
-  form asks for it.
+  stage (deepest cuts, band counts, thresholds) and one correction-check
+  verdict covering all the presets built. Include a `-v` log when reporting
+  a sound problem — the issue form asks for it.
 - All three scripts now tab-complete in bash and zsh — flag names, the
   `--disable` / `--enable` / `--variant` value lists, paths, and your live
   PipeWire sink names — via the optional `argcomplete` package. Add one
@@ -144,9 +144,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
   never read, so a profile that ships a curve but declares the optimizer
   disabled still got it; re-run to regenerate. Affects the `off` profile and a
-  few devices' `music` profile — up to 6 dB in-band there, unchanged everywhere
-  else, and not yet heard on affected hardware
-  ([docs/cross-device-findings.md](docs/cross-device-findings.md) §14).
+  few devices' `music` profile — up to 13.7 dB in-band there (7 dB on `music`),
+  unchanged everywhere else, and not yet heard on affected hardware
+  ([docs/reference.md](docs/reference.md) "XML → parameter mapping").
 
 
 

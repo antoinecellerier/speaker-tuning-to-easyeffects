@@ -74,7 +74,7 @@ If you test it on other hardware, please [open a device report](https://github.c
 
 ## Install
 
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by `ee_to_pipewire.py` / `dolby_to_pipewire.py` on every run, to find the speaker sink to pin the chain to. It ships in the same package as the PipeWire daemon itself (`pipewire-bin` on Debian/Ubuntu), so a machine actually running PipeWire has it. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by the PipeWire scripts on every run — but it ships with the PipeWire daemon, so a machine running PipeWire has it. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
 
 <details>
 <summary>Install commands for your distro</summary>
