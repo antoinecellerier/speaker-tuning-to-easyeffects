@@ -4969,9 +4969,25 @@ def bass_enhancer_from_peq(peq_filters: list[dict]) -> dict:
     """The bass-enhancer stage as make_preset ships it for SoundWire,
     derived from the PEQ high-pass corner (fallback 100 Hz). Shared with
     the run report so the printed numbers cannot drift from the built
-    stage."""
+    stage.
+
+    Whether the corner was derived or fell back is answered by
+    ``bass_enhancer_scope_is_derived`` rather than a key on the returned
+    stage: every key here is emitted into the preset, and the converter's
+    coverage guard rightly rejects one it cannot translate.
+    """
     hp = [f for f in peq_filters if f["type"] in (7, 9)]
     return make_bass_enhancer(hp[0]["f0"] if hp else 100.0)
+
+
+def bass_enhancer_scope_is_derived(peq_filters: list[dict]) -> bool:
+    """True when the bass-enhancer range came from the tuning's own high-pass.
+
+    Most SoundWire tunings carry no PEQ at all — 36 of 39 distinct corpus
+    files — so the printed range is twice the 100 Hz fallback, and the run
+    report used to credit that constant to "this speaker's bass cutoff".
+    """
+    return any(f["type"] in (7, 9) for f in peq_filters)
 
 
 def make_limiter(input_gain: float = 0.0) -> dict:
@@ -5744,11 +5760,23 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # nowhere. The scope derives from the PEQ high-pass corner
         # (min(2*hp, 300) — see make_bass_enhancer).
         print()
+        # Two corrections to one sentence:
+        # - the scope is only device-derived when the tuning ships a PEQ
+        #   high-pass. Most SoundWire tunings carry no PEQ at all, so the
+        #   200 Hz that prints is 2x the 100 Hz fallback — a constant the
+        #   old wording credited to "this speaker's bass cutoff".
+        # - the settings are IN the XML: bass-enhancer-enable/-boost/
+        #   -cutoff-frequency/-width are present on every corpus row, all
+        #   frozen (enable 0). What is missing is a tuning to copy, not the
+        #   fields. The +dB is our own choice either way.
+        scope_why = ("sized from this speaker's bass cutoff"
+                     if bass_enhancer_scope_is_derived(peq_filters) else
+                     "our default range — your tuning sets no bass cutoff")
         _cprint_wrapped("", f"Bass enhancer: +{be['amount']:.1f} dB "
-                            f"harmonics below {be['scope']:.0f} Hz (sized "
-                            "from this speaker's bass cutoff) — replaces "
-                            "Dolby's in-driver bass enhancement, which has "
-                            f"no settings in the XML to copy{sep}",
+                            f"harmonics below {be['scope']:.0f} Hz "
+                            f"({scope_why}) — our own stand-in for Dolby's "
+                            "in-driver bass enhancement, which every tuning "
+                            f"we've seen ships switched off{sep}",
                         indent="  ")
 
     if dialog_enhancer:
