@@ -3901,8 +3901,14 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         _cprint_wrapped("dim", "Some of this only a real device can answer. "
                                "If you report, quote the [tag] so we know "
                                "which line you mean:")
+        # Plain, not cta: bold-magenta bullets read as warnings — a round-4
+        # reviewer took the peak-level reassurance ("should sound right")
+        # for something being wrong, because it matched the report call's
+        # color. The hierarchy is dim intro → plain bullets → cta
+        # instructions (attach line, final call), so the calls to action
+        # still print brighter than the specifics (round-2 rule).
         for finding in asks:
-            _print_ask("cta", finding)
+            _print_ask("", finding)
         # The tool found the tuning XML; the user never went looking for it,
         # so an ask to "send us your tuning XML" is unactionable without the
         # path. Printed once here rather than inside each bullet, which the
