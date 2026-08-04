@@ -385,6 +385,11 @@ def main(argv: list[str] | None = None) -> int:
         if len(presets) == 1:
             cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
                            "filter-chain conf")
+            # Why this one (round 7): the profile pick explains itself, so
+            # an unexplained Balanced default read as arbitrary next to it.
+            if args.variant == "balanced":
+                cprint("dim", "      (Balanced is the voicing the Windows "
+                              "driver engages by default)")
         else:
             cprint("head", f"[2/3] Converting {len(presets)} presets to "
                            "PipeWire filter-chain confs")
