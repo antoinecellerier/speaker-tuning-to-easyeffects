@@ -118,6 +118,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- The terminal output was reworked end to end against first-time-reader
+  reviews: every stage now carries a plain-language gloss, the final screen
+  confirms success and states the run's guaranteed differences from Windows
+  (leveler off by default, which sound mode was built and why), and every
+  warning ends in a symptom-matched flag or a concrete report ask.
 - `dolby_to_pipewire.py` now prints the whole "if something doesn't sound
   right" flag menu after the activation steps, alongside the report asks,
   instead of mid-run during preset staging — and the staged throwaway files
