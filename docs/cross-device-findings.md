@@ -404,6 +404,39 @@ not compute content-hash dedup, `geq_maximum_range`, `xml_version` or the AO
 peak-to-peak spread, so regenerating them means an ad-hoc sweep (or adding those
 four to the tool, which is the better fix).
 
+### Curves shipped with the optimizer switched off
+
+A profile can carry a non-zero audio-optimizer curve and still declare
+`audio-optimizer-enable=0`. The converter reads that gate and drops the curve,
+keeping only the IEQ voicing (reference.md, chain row 1); before commit
+`f5473c5` it applied the curve regardless.
+
+> **Derived 2026-08-04** over the 3056-XML corpus (788 content-unique), walking
+> `endpoint/profile/tuning-vlldp` and resolving `ch_00`/`ch_01` — or
+> `gain_l`/`gain_r` on simplified files — through `resolve_xml_value`; a plain
+> grep misses the `preset=` indirection. **Only the `tuning-vlldp` gate counts**:
+> `tuning-cp` carries an `audio-optimizer-enable` of its own (46364 zero-valued
+> elements against vlldp's 4702), and the converter never reads it.
+
+| population (content-unique) | gate off | …with a non-zero curve |
+|---|---|---|
+| all endpoints and profiles | 1283 rows | 22 rows |
+| `internal_speaker`/`normal` | 773 rows | 18 rows, 17 XMLs / 17 subsystem ids |
+
+So the gate is common and almost always redundant — the curve it disables is
+already all-zero. Where it is *not* redundant, the depth no longer applied is
+**13.7 dB** at the deepest affected band on `off` (median 12.0) and **7.0 dB**
+on `music`; those three figures reproduce identically on the raw corpus, which
+counts the same tunings 108 times over across driver packages (31 subsystem
+ids, 30 of the rows `music`). Almost every affected row is the `off` profile,
+but `music` is one users select deliberately.
+
+Regenerating one affected device moved only its three Music presets — up to
++6.4 dB in band, 3.7 dB RMS — leaving every other profile byte-identical; the
+dev device, which never declares the field, regenerates byte-identical
+throughout. Not heard on affected hardware: none of the devices is in reach.
+**No committed query yet** — same caveat as the block above.
+
 ---
 
 ## 9. PEQ filters — mostly simple, occasionally complex
