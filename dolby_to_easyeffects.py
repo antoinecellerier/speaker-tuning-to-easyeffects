@@ -5066,6 +5066,15 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                      "volume leveler ships off here — --enable autogain "
                      "turns it on (may make quiet passages swell then "
                      "duck).")
+    # Derived from what was actually built (round 7, user catch): a
+    # tuning lacking a voicing curve skips that preset, so the hint must
+    # not describe a preset that doesn't exist.
+    hints = []
+    if any(n.endswith("-Detailed") for n in preset_names):
+        hints.append("Detailed is brighter")
+    if any(n.endswith("-Warm") for n in preset_names):
+        hints.append("Warm softer")
+    voicing_hint = f" ({', '.join(hints)})" if hints else ""
     cprint("head", f"\n{'=' * 60}")
     if dry_run:
         # cta, not ok: green is this run's "check passed, nothing to do"
@@ -5085,8 +5094,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # gives the reader the self-loading default before the re-run, not
         # after it.
         _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
-                               f"start with {preset_names[0]} (Detailed is "
-                               "brighter, Warm softer); the real run "
+                               f"start with {preset_names[0]}"
+                               f"{voicing_hint}; the real run "
                                "prints the exact steps. (Or add --autoload "
                                "and it loads itself for your speakers.)",
                         indent="  ")
@@ -5113,8 +5122,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # what the other two are for, so nobody would try them.
     _cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
                            f"pick '{preset_names[0]}' from the Presets menu — "
-                           "that's the one to start with (Detailed is "
-                           "brighter, Warm softer). Or re-run with "
+                           f"that's the one to start with{voicing_hint}. "
+                           "Or re-run with "
                            "--autoload to have it load itself for your "
                            "speakers.", indent="  ")
     if profile_used and n_modes > 1:
@@ -5508,11 +5517,24 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # not strength": one number over three differently-described presets
     # left a round-7 reviewer unsure whether it covered all three. No
     # is-this-typical cue — no corpus stat backs one.
-    _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% of "
-                        "full strength — this profile's three voicings "
-                        "(Balanced/Detailed/Warm) all apply at this "
-                        "strength on top of the speaker correction; they "
-                        "differ in shape, not strength", indent="  ")
+    # The list is derived, not hardcoded (round 7, user catch): the emit
+    # loop skips any voicing whose ieq_* curve the XML lacks, so the
+    # summary must not promise three when fewer will build.
+    voicings = [label for label, key in VOICING_CURVES.items()
+                if key in tuning.curves]
+    if voicings:
+        n_voc = ("three" if len(voicings) == 3
+                 else str(len(voicings)) if len(voicings) > 1 else "one")
+        _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
+                            f"of full strength — this profile's {n_voc} "
+                            f"voicing{'s' if len(voicings) > 1 else ''} "
+                            f"({'/'.join(voicings)}) "
+                            + ("all apply" if len(voicings) > 1
+                               else "applies")
+                            + " at this strength on top of the speaker "
+                            "correction"
+                            + ("; they differ in shape, not strength"
+                               if len(voicings) > 1 else ""), indent="  ")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -5856,6 +5878,17 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 FIR_VERIFY_OK_DB = 0.5
 
 
+# The three IEQ voicings a run can build, in build order — single source
+# for the emit loop and every line of copy that names them. A voicing whose
+# curve the XML lacks is skipped, so copy derives its list from this ∩ the
+# parsed curves rather than promising all three (round 7).
+VOICING_CURVES = {
+    "Balanced": "ieq_balanced",
+    "Detailed": "ieq_detailed",
+    "Warm": "ieq_warm",
+}
+
+
 def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                       scale, is_soundwire, disabled, args, profile_label,
                       all_preset_names, filters_by_profile):
@@ -5872,11 +5905,8 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     freqs = tuning.freqs
     volmax_boost = tuning.volmax_boost
 
-    ieq_presets = {
-        f"{name_base}-Balanced": "ieq_balanced",
-        f"{name_base}-Detailed": "ieq_detailed",
-        f"{name_base}-Warm": "ieq_warm",
-    }
+    ieq_presets = {f"{name_base}-{label}": key
+                   for label, key in VOICING_CURVES.items()}
 
     # One hidden-tables hint per profile, at the spot the first table would
     # have occupied — three identical lines read as a nag.

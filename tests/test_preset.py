@@ -769,7 +769,8 @@ def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
         vol_leveler=None, mb_comp=None, regulator=regulator,
         volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20,
         profile_used=profile_used, default_profile=default_profile,
-        geq_max_range=geq_max_range, ao_enabled=ao_enabled, findings=[])
+        geq_max_range=geq_max_range, ao_enabled=ao_enabled, findings=[],
+        curves={})
 
 
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
