@@ -3744,15 +3744,17 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
                "lands on a band the regulator leaves unlimited, with the "
                "volmax boost on top.",
         # Sequenced, and step 2 speaks the menu's symptom family for
-        # coupled-bands (harsh treble) instead of inventing its own: with
+        # coupled-bands (harshness) instead of inventing its own: with
         # "if they still distort" the same screen sold the flag for
         # distortion while the menu sold it for harshness (rounds 3 and 5
         # — one heard symptom per flag). Not "loud music": the vocabulary
-        # trap reserves "music" for the mbc symptom.
+        # trap reserves "music" for the mbc symptom. No region word — the
+        # unlimited band's frequency is device-specific and the detail
+        # above already names it.
         # "instead", not "swap it for": both readers of the swap wording
         # could not tell whether step two kept the first flag.
-        ask="If loud parts distort, re-run with --disable volmax; if the "
-            "treble stays harsh, try --enable coupled-bands instead.")
+        ask="If loud parts distort, re-run with --disable volmax; if it's "
+            "still harsh, try --enable coupled-bands instead.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
@@ -4973,10 +4975,14 @@ ENABLEABLE_FILTERS = {
     # Describes what you'd hear, not where in the chain it happens: "where the
     # limiter is inactive" names an internal state the listener has no access
     # to, so it can't be matched against anything.
+    # No region claim ("in the treble"): the flag extends limiting to
+    # whichever zero-threshold non-isolated bands the tuning has — treble
+    # on the two examined devices (3-6 kHz dev XML, 13.9 kHz #44), but
+    # full-band on the issue-#27 class, so naming treble over-claims.
     # "(issue #NN)", not the bare "(#NN)": reviewers guessed the numbers
     # were GitHub issues but had no confirmation. Still no URL — the one
     # link rule.
-    "coupled-bands": ("loud music turns harsh in the treble",
+    "coupled-bands": ("loud music turns harsh",
                       "experimental (issue #44)"),
 }
 
@@ -4997,8 +5003,16 @@ EXPERIMENTAL_MARKERS = {
 
 
 def print_what_now(preset_names: list[str], autoloaded: bool,
-                   dry_run: bool, output_dir=None) -> None:
+                   dry_run: bool, output_dir=None,
+                   profile_used: str | None = None,
+                   n_modes: int = 0) -> None:
     """Say the run worked and how to start using it.
+
+    ``profile_used``/``n_modes`` let the closing say the presets voice one
+    sound mode of several (round 5: the pick was explained at the top, but
+    the closing never said the other modes exist or that this run built
+    only this one — --all-profiles is the answer, and it was never
+    mentioned anywhere a user reads).
 
     The run reports each file as it writes it, hundreds of lines before the
     end, and then closed on troubleshooting advice for problems the user
@@ -5033,6 +5047,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "prints the exact steps. (Or add --autoload "
                                "and it loads itself for your speakers.)",
                         indent="  ")
+        if profile_used and n_modes > 1:
+            _cprint_wrapped("dim", f"  These voice the '{profile_used}' "
+                                   "sound mode only — --all-profiles builds "
+                                   "every mode.", indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
@@ -5046,6 +5064,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                            "that's the one to start with. Or re-run with "
                            "--autoload to have it load itself for your "
                            "speakers.", indent="  ")
+    if profile_used and n_modes > 1:
+        _cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
+                               "mode only — --all-profiles builds every "
+                               "mode.", indent="  ")
 
 
 # Width of the "    --disable volmax      " gutter each flag row hangs from,
@@ -6510,8 +6532,17 @@ def main(argv: list[str] | None = None,
     # existed — and under the wrapper's --dry-run it also contradicted its
     # own "nothing was written" two lines later.
     if not args.skip_closing:
+        # Single-mode runs only: under --all-profiles every mode was built,
+        # so there is nothing to point at. get_profile_types re-reads the
+        # XML, but only here, once, at the very end.
+        profile_used = n_modes = None
+        if not args.all_profiles and len(profile_types) == 1:
+            profile_used = tuning.profile_used
+            n_modes = len(get_profile_types(xml_path, args.endpoint,
+                                            args.mode))
         print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
-                       output_dir=args.output_dir)
+                       output_dir=args.output_dir,
+                       profile_used=profile_used, n_modes=n_modes or 0)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
