@@ -3994,10 +3994,14 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
             # whether filing was mandatory.
             # Download link preferred over attaching: a driver-package link
             # identifies the exact tuning build and carries every sibling
-            # XML for the device.
-            _cprint_wrapped("cta", "  If you report, best is a link to the "
-                                   "audio-driver download this file came "
-                                   "from — or attach the XML file:",
+            # XML for the device. "If you know it" (round 8): a reader who
+            # found the file on their Windows partition has no download to
+            # link, and "best is" made their only workable option read as
+            # second-rate.
+            _cprint_wrapped("cta", "  If you report, best is a link to "
+                                   "your laptop's audio-driver download "
+                                   "(if you know it) — or just attach the "
+                                   "XML file:",
                             indent="  ")
             # Absolute and quoted. Dolby's own directory names contain '$'
             # (…/code$GetExtractPath$/…), so an unquoted relative path is
