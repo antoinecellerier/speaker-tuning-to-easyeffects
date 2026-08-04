@@ -5149,9 +5149,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                  + (f" to {output_dir}:" if output_dir else ":"))
     # Name them all — naming only the first left the reader wondering what
     # the other two were — but on one comma-separated line (round 7): the
-    # vertical list ate the last screen's budget.
+    # vertical list ate the last screen's budget. No blank after (round
+    # 10, user-picked): the closing had grown exactly one line past a
+    # 26-line window, scrolling the green "Done" off the last screen.
     _cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
-    print()
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
     # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
     # treble. Round 5: the closing named a starting preset but never said
