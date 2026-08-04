@@ -5411,15 +5411,17 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
               f"(amount {dialog_enhancer['amount']} in your tuning)")
 
     if surround:
-        # No "virtualizer" in this line: with the [virtualizer] finding on
-        # the same screen, two features sharing the word read as one
-        # feature with contradictory verdicts (rounds 2 and 3). And no doc
-        # citation — three rounds of reviewers called it unfollowable
-        # dev-talk on a line whose inline reason stands alone.
+        # No "virtualizer" in ANY form here — noun or verb: with the
+        # [virtualizer] finding on the same screen, two features sharing
+        # the word read as one feature with contradictory verdicts (rounds
+        # 2-4; round 3 dropped the noun, the surviving "virtualizing" still
+        # read as the contradiction). And no doc citation — three rounds of
+        # reviewers called it unfollowable dev-talk on a line whose inline
+        # reason stands alone.
         print(f"\nSurround (multi-channel) rendering boost: "
               f"{surround['boost']:.1f} dB — skipped on purpose: Dolby "
-              "applies it only when virtualizing surround content, not on "
-              "normal stereo playback")
+              "applies it only to actual surround content, not normal "
+              "stereo playback")
 
     if vol_leveler:
         # Says BOTH states — the tuning file's and this preset's — and
