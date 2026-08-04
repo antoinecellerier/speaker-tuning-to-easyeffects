@@ -131,7 +131,7 @@ pip install -r requirements.txt
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`, `level-restore`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
@@ -201,6 +201,7 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 |------|----------------------------|
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler — see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet). |
 | `coupled-bands` | Loud content turns harsh in ranges the per-band limiter leaves inactive. **Experimental** — feedback welcome on [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44). |
+| `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, so pair it with `coupled-bands` if loud content distorts, and report on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 

@@ -66,6 +66,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   (default) / Detailed / Warm voicing, or `all` (which requires
   `--target-sink ''`) for one sink per voicing; `--no-activate` skips the
   PipeWire restart ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
+- **[AUDIBLE]** (opt-in) New experimental `--enable level-restore` flag gives
+  back the level the impulse response was normalised by, so a tuning whose
+  loudest band outruns its loudness boost stops playing quieter than the preset
+  switched off. Measured on the dev device to close the absolute gap to Windows
+  from 12.1 dB to 1.3 dB mean error, at a cost in limiter drive on loud content;
+  not yet heard by ear, and default presets are unchanged
+  ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
+  captures in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag
   engages the speaker-protection limiter on bands the tuning marks
   non-isolated but leaves at a 0 dB threshold, so loud content that

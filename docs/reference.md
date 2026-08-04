@@ -46,7 +46,7 @@ enhancer is SoundWire-only):
 
 | # | Plugin | Source XML | What it does |
 |---|--------|-----------|--------------|
-| 1 | **Convolver** | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR implementing the combined IEQ + speaker-correction curve. A profile can ship a correction curve and still set `audio-optimizer-enable=0`; the curve is then dropped and only the IEQ voicing reaches the FIR. Absent means enabled, as with `speaker-peq-enable` |
+| 1 | **Convolver** | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR implementing the combined IEQ + speaker-correction curve, normalised so its loudest band sits at 0 dB — so the stage only ever attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset quieter than bypass (`--enable level-restore` gives that level back; see below). A profile can ship a correction curve and still set `audio-optimizer-enable=0`; the curve is then dropped and only the IEQ voicing reaches the FIR. Absent means enabled, as with `speaker-peq-enable` |
 | 2 | **Bass Enhancer** (Calf) | IEQ-only SoundWire curve | Harmonic bass restoration on SoundWire speakers; **SoundWire-only** |
 | 3 | **Equalizer** | `speaker-peq-filters` | 4th-order high-pass at 100 Hz (speaker protection) + per-channel PEQ bells/shelves/HP-LP |
 | 4 | **Dialog Enhancer** | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz (2nd equalizer instance); on most profiles except music |
@@ -206,6 +206,15 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   marks non-isolated join the limiter at full scale (unvalidated
   hypothesis from a second-device capture — design-notes Finding 10 /
   entry 11 (f); default output is unchanged).
+- **The level the FIR is normalised by** — the convolver's peak
+  normalisation is not compensated on the default path; `volmax-boost` is
+  the only static gain that puts level back, and on tunings whose peak
+  exceeds it the preset plays below bypass. The experimental
+  `--enable level-restore` flag hands the normalisation scalar back to the
+  regulator's gain slot (XML-derived — it is `make_fir`'s own `peak_db` —
+  but **unheard on device**; design-notes "Giving back what normalisation
+  removed", issue [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
+  default output is unchanged).
 - **Always-inert / out-of-scope XML fields** — deliberately ignored because
   they're always zero/disabled on the modelled endpoints, are DSP internals
   with no EasyEffects equivalent, or concern multichannel/subwoofer routing

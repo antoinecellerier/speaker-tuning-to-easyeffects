@@ -23,6 +23,7 @@ classes of test run on the same fixture and live in the same file.
 import json
 import math
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -75,7 +76,12 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    write_synthetic_tuning_xml,
 )
+
+# For the one trap that has to drive the whole CLI (the impulse responses
+# are written by main(), not by make_preset).
+SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_easyeffects.py"
 
 
 @pytest.fixture
@@ -852,6 +858,10 @@ def _peaked_ao(peak_band, peak_db):
     (12.0, False, 0.0, set(), set(), False),     # no volmax riding on top
     (12.0, False, 9.0, {"volmax"}, set(), False),
     (12.0, False, 9.0, set(), {"coupled-bands"}, False),   # that band now limited
+    # --enable level-restore adds the peak back as gain, so a boost short of
+    # the range now does reach the brickwall and has to warn (issue #50).
+    (9.0, False, 9.0, set(), {"level-restore"}, True),
+    (9.0, True, 9.0, set(), {"level-restore"}, False),     # still limited there
 ])
 def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
         monkeypatch, capsys, peak_db, peak_limited, volmax, disabled, enabled,
@@ -1156,6 +1166,114 @@ def test_convolver_output_gain_is_zero_for_all_devices():
 def test_make_preset_rejects_convolver_gain_kwarg():
     import inspect
     assert "convolver_gain" not in inspect.signature(make_preset).parameters
+
+
+# --- --enable level-restore (issue #50) ---
+# The convolver only ever attenuates: make_fir divides each channel by its
+# own peak, so a tuning whose peak outruns its volmax-boost emits a preset
+# quieter than bypass. The flag hands that measured peak back to the chain.
+# It must stay strictly opt-in — fir_peak_db is passed on every run.
+
+_RESTORE_SENTINEL = object()
+
+
+def _restore_preset(fir_peak_db, volmax=6.0, enabled=None,
+                    regulator=_RESTORE_SENTINEL, **kw):
+    if regulator is _RESTORE_SENTINEL:
+        regulator = synthetic_regulator([-6.0] * 20)
+    return make_preset(kernel_name="X", peq_filters=[],
+                       regulator=regulator,
+                       freqs=SYNTHETIC_FREQS_20,
+                       volmax_boost=volmax, fir_peak_db=fir_peak_db,
+                       enabled=enabled or set(), **kw)
+
+
+def test_level_restore_adds_the_fir_peak_to_the_static_boost():
+    """The restored amount is exactly what make_fir divided out, and it
+    rides the same slot as volmax-boost (issue #23 measured that placement
+    at 0.06% THD against 11.6% straight into the brickwall)."""
+    on, emitted = _restore_preset(9.2, enabled={"level-restore"})
+    assert on["output"]["multiband_compressor#1"]["input-gain"] == 15.2
+    assert on["output"]["multiband_compressor#1"]["output-gain"] == 0.0
+    assert "level-restore-active" in emitted
+
+
+def test_level_restore_is_inert_without_the_flag():
+    """fir_peak_db reaches make_preset on every run, so a leak into the
+    default path would ship silently."""
+    off, emitted = _restore_preset(9.2)
+    assert off["output"]["multiband_compressor#1"]["input-gain"] == 6.0
+    assert "level-restore-active" not in emitted
+
+
+def test_level_restore_falls_back_to_the_limiter_without_a_regulator():
+    """Same fallback volmax-boost uses when the XML carries no regulator —
+    otherwise the restore would silently vanish on those devices."""
+    on, _ = _restore_preset(9.2, enabled={"level-restore"}, regulator=None)
+    assert on["output"]["limiter#0"]["input-gain"] == 15.2
+
+
+def test_level_restore_is_independent_of_disable_volmax():
+    """The two terms are separate: dropping the tuning's loudness boost
+    must not drop the level the impulse response was normalised by."""
+    on, _ = _restore_preset(9.2, enabled={"level-restore"},
+                            disabled={"volmax"})
+    assert on["output"]["multiband_compressor#1"]["input-gain"] == 9.2
+
+
+@pytest.mark.parametrize("fir_peak_db,volmax,expect_offer", [
+    (9.2, 6.0, True),     # issue #50: the preset plays quieter than bypass
+    (4.0, 6.0, False),    # volmax already covers what normalisation removed
+    (6.0, 6.0, False),    # exactly covered — nothing to restore
+])
+def test_level_restore_offered_only_where_it_would_help(
+        fir_peak_db, volmax, expect_offer):
+    """Same contract as coupled-bands: the --enable menu names the flag
+    only on the tunings where it does something."""
+    _, emitted = _restore_preset(fir_peak_db, volmax=volmax)
+    assert ("level-restore" in emitted) is expect_offer
+
+
+def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
+    """Normalising each channel to its own peak flattens the L/R level
+    relationship the two AO curves ask for (7.2% of the corpus, up to
+    5.56 dB). Under the flag both channels share the louder peak, so the
+    relationship survives and neither channel exceeds full scale."""
+    import subprocess
+    import sys as _sys
+    # ch_00 keeps the fixture's default curve; ch_01 is flat except for one
+    # band, so the right channel's peak lands well below the left's.
+    quiet_right = ",".join("32" if i == 5 else "0" for i in range(20))
+    xml = write_synthetic_tuning_xml(
+        tmp_path / "DEV_0287_SUBSYS_TESTTEST.xml", ao_right=quiet_right)
+
+    def _peaks(*extra):
+        out = tmp_path / f"o{len(extra)}"
+        irs = tmp_path / f"i{len(extra)}"
+        out.mkdir(); irs.mkdir()
+        r = subprocess.run(
+            [_sys.executable, str(SCRIPT), str(xml), "--output-dir", str(out),
+             "--irs-dir", str(irs), "--skip-ee-check", "--no-color", *extra],
+            capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr
+        _, _, _, left, right = read_irs_file(irs / "Dolby-Balanced.irs")
+        # make_fir normalises the frequency response, not the time-domain
+        # impulse, so the peak that matters is |H| — the time-domain sample
+        # peak of a minimum-phase IR is unrelated.
+        return tuple(float(np.max(np.abs(np.fft.rfft(ch, n=FIR_LENGTH))))
+                     for ch in (left, right))
+
+    off_l, off_r = _peaks()
+    on_l, on_r = _peaks("--enable", "level-restore")
+    # Default: both channels independently normalised to 0 dB, which is
+    # what loses the relationship the two curves ask for.
+    assert off_l == pytest.approx(1.0, rel=1e-4)
+    assert off_r == pytest.approx(1.0, rel=1e-4)
+    # Flag on: the louder channel still sits at 0 dB, the quieter one below
+    # it by the difference between the two curves' peaks — and nothing
+    # exceeds full scale, so the on-disk convention still holds.
+    assert max(on_l, on_r) == pytest.approx(1.0, rel=1e-4)
+    assert min(on_l, on_r) < 0.99
 
 
 # --- LOCK-IN: autoload artifacts (device binding + fallback preset/rc) ---

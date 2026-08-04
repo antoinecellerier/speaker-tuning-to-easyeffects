@@ -3907,16 +3907,24 @@ def _loudness_untamed_finding(coupled_bands_possible: bool = True) -> Finding:
 
 
 def _boost_unlimited_finding(peak_db: float, freq,
-                             coupled_bands_possible: bool = True) -> Finding:
+                             coupled_bands_possible: bool = True,
+                             restored: bool = False) -> Finding:
     """The band carrying the largest boost is one the regulator leaves free."""
+    # Name everything riding on that band, not just volmax: under
+    # --enable level-restore the peak itself is added back as gain, so
+    # "with the volmax boost on top" would describe half the drive. The
+    # clause stays one phrase either way — this is a detail line, and the
+    # flag's own menu entry carries the "may distort" caveat.
+    on_top = ("the volmax boost and the restored level on top" if restored
+              else "the volmax boost on top")
     return Finding(
         slug="boost-unlimited",
         # Same closing formula as loudness-untamed — one template for one
         # risk family (round 8: two wordings for the same risk left the
         # reader unsure which explanation to trust).
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
-               "lands on a band the regulator leaves unlimited, with the "
-               "volmax boost on top — nothing trims it band by band on its "
+               f"lands on a band the regulator leaves unlimited, with "
+               f"{on_top} — nothing trims it band by band on its "
                "way out.",
         # Sequenced, and step 2 speaks the menu's symptom family for
         # coupled-bands (harshness) instead of inventing its own: with
@@ -5215,6 +5223,13 @@ ENABLEABLE_FILTERS = {
     # link rule.
     "coupled-bands": ("loud music turns harsh",
                       "experimental (issue #44)"),
+    # Trigger says "than with the preset off", not "than on Windows": that
+    # second phrasing is autogain's, and the two flags sit in the same menu.
+    # The distinction is the whole diagnosis — autogain closes a gap against
+    # Windows, this one closes a gap against bypass, which is the symptom
+    # that identifies a curve whose peak outruns its volmax-boost.
+    "level-restore": ("it sounds quieter than with the preset switched off",
+                      "experimental; loud content may distort (issue #50)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -5232,6 +5247,8 @@ EXPERIMENTAL_MARKERS = {
     "lo-pass": "a top-end rolloff (type-6/8 low-pass)",
     "mbc-1band": "the compressor running as a single band (group_count=1)",
     "coupled-bands-active": "the coupled-bands limiter (isolated_band)",
+    "level-restore-active": "the level the impulse response was normalised by, "
+                            "handed back as a static gain",
 }
 
 
@@ -5563,6 +5580,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 freqs: list[int] | None = None,
                 is_soundwire: bool = False, volmax_boost: float = 0.0,
                 volmax_slot: str = "input-gain",
+                fir_peak_db: float = 0.0,
                 enabled: set[str] | None = None,
                 disabled: set[str] | None = None) -> tuple[dict, set[str]]:
     """Build a preset dict.
@@ -5661,9 +5679,18 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # volmax_slot only re-routes the regulator path; the limiter fallback is
     # unaffected.
     apply_volmax = volmax_boost if "volmax" not in disabled else 0.0
+    # --enable level-restore rides the same slot rather than adding a stage of
+    # its own: it is a static broadband gain like volmax-boost, and issue #23
+    # measured what the placement is worth (0.06% THD pre-band-limiting vs
+    # 11.6% straight into the brickwall). fir_peak_db is what make_fir divided
+    # out of the impulse response, so this restores a measured quantity rather
+    # than applying an offset. --disable volmax drops only its own term; the
+    # two are independent.
+    level_restore = fir_peak_db if "level-restore" in enabled else 0.0
+    static_boost = apply_volmax + level_restore
     reg = None
     if "regulator" not in disabled:
-        reg = make_regulator(regulator, freqs, volmax_boost=apply_volmax,
+        reg = make_regulator(regulator, freqs, volmax_boost=static_boost,
                              volmax_slot=volmax_slot,
                              couple_bands="coupled-bands" in enabled)
     if reg:
@@ -5685,10 +5712,26 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         elif _coupled_bands_eligible(regulator):
             emitted.add("coupled-bands")  # actionable via --enable on a rerun
     else:
-        limiter_boost = apply_volmax
+        limiter_boost = static_boost
 
     if apply_volmax > 0:
         emitted.add("volmax")
+    if level_restore != 0:
+        # Marker, not an --enable candidate: the flag is already on when this
+        # fires. Same contract as autogain-active/coupled-bands-active.
+        # `!= 0`, not `> 0`: a curve that only cuts normalises to a peak below
+        # unity, so make_fir *adds* gain there and restoring it is negative.
+        # No corpus XML does that (0 of 3051 checked 2026-08-04), but the
+        # marker should track "the flag changed the output", not its sign.
+        emitted.add("level-restore-active")
+    elif fir_peak_db > apply_volmax:
+        # Offer the flag only where it would do something (the precedent is
+        # coupled-bands, 619a663). The gate is the deficit itself: the
+        # convolver gives back fir_peak_db less than the tuning asks for, and
+        # only the static boost puts any of it back — so a peak above it is
+        # a preset that plays quieter than bypass. Below it there is nothing
+        # to restore and the menu stays quiet.
+        emitted.add("level-restore")
 
     # Brickwall limiter at the end as a safety net
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
@@ -6205,9 +6248,26 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
     # the bands it leaves alone — the boost and the volmax gain on top of it
-    # reach the brickwall unprotected. Gated on the boost reaching this XML's
-    # full gain range so it stays rarer than the all-inert case above; it fires
-    # on 8% of the corpus against that one's 16% (issue #46's T495 is one).
+    # reach the brickwall unprotected. Two ways in, and they need different
+    # gates because the drive level differs:
+    #
+    #  - Default path: the FIR is peak-normalised, so that band leaves the
+    #    convolver at 0 dB and reaches the brickwall at exactly volmax_boost
+    #    above bypass — the same drive every tuning gets, whatever its peak.
+    #    What the peak measures here is spectral contrast, not level, so the
+    #    bar stays where it was: the boost reaching this XML's full gain
+    #    range. Re-derived 2026-08-04 over 3051 parsed corpus XMLs — 10.6%,
+    #    against the all-inert case's 16% (issue #46's T495 is one). Read
+    #    that bar honestly: only 172 of those files declare
+    #    <geq_maximum_range> at all (30 of the 1661 that reach this branch),
+    #    so for almost every device it compares against our assumed +12.0 dB
+    #    rather than a rail the tuning stated.
+    #  - --enable level-restore: the peak is handed back to the chain, so
+    #    the same band now arrives at volmax_boost + peak_db — 15.2 dB above
+    #    bypass on issue #50's tuning. That is the flag's own risk, so it
+    #    warns whatever the peak's relation to the rail. It reaches 54% of
+    #    the tunings that get this far, which would be a nag as a default
+    #    but is the point when someone has opted into the boost.
     elif (volmax_boost > 0 and "volmax" not in disabled
             and regulator and "regulator" not in disabled
             and not ("coupled-bands" in (enabled or set())
@@ -6216,12 +6276,14 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                         key=lambda i: max(ao_db_left[i], ao_db_right[i]))
         peak_db = max(ao_db_left[peak_band], ao_db_right[peak_band])
         thresholds = regulator["threshold_high"]
-        if (peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
+        at_rail = peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
+        restored = "level-restore" in (enabled or set())
+        if ((at_rail or restored)
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
             findings.append(_boost_unlimited_finding(
                 peak_db, freqs[peak_band],
-                _coupled_bands_eligible(regulator)))
+                _coupled_bands_eligible(regulator), restored))
             _print_finding_detail(findings[-1])
     print()
     return findings
@@ -6285,8 +6347,34 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         combined_right = ieq_db + ao_db_right
 
         # Generate FIR impulse responses
-        fir_left, _ = make_fir(float_freqs, combined_left, normalize=True)
-        fir_right, _ = make_fir(float_freqs, combined_right, normalize=True)
+        fir_left, peak_left_db = make_fir(float_freqs, combined_left,
+                                          normalize=True)
+        fir_right, peak_right_db = make_fir(float_freqs, combined_right,
+                                            normalize=True)
+
+        # --enable level-restore: hand the chain back the level normalisation
+        # removed. make_fir divides each channel by its own realised peak, so
+        # a curve whose peak outruns its volmax-boost emits a preset quieter
+        # than bypass — the deficit is exactly peak_db - volmax_boost, and it
+        # is what issues #25/#46/#50 describe. The restored amount is the
+        # peak make_fir measured, so nothing here is a tuned offset.
+        #
+        # Re-reference both channels to the louder peak first. Normalising
+        # each channel to its own peak also flattens the L/R level
+        # relationship the two AO curves ask for — the two combined peaks
+        # diverge on 19.1% of the corpus (median 0.93 dB, max 5.56;
+        # re-derived 2026-08-04 over 3051 parsed XMLs). A common reference
+        # keeps that relationship and still leaves every channel at or below
+        # 0 dBFS, so the on-disk peak-normalisation convention holds.
+        fir_peak_db = max(peak_left_db, peak_right_db)
+        # Non-zero only on the flag-on path, and only for the quieter
+        # channel; the correction check below re-references by the same
+        # amount so it keeps grading the filter rather than the re-reference.
+        left_offset_db = 0.0
+        if "level-restore" in args.enable:
+            left_offset_db = peak_left_db - fir_peak_db
+            fir_left *= 10.0 ** (left_offset_db / 20.0)
+            fir_right *= 10.0 ** ((peak_right_db - fir_peak_db) / 20.0)
 
         # Save stereo impulse response
         irs_path = args.irs_dir / f"{preset_name}.irs"
@@ -6299,6 +6387,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                                       freqs, is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
                                       volmax_slot=args.volmax_slot,
+                                      fir_peak_db=fir_peak_db,
                                       enabled=set(args.enable),
                                       disabled=disabled)
         for name in emitted:
@@ -6347,10 +6436,12 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         worst = 0.0
         for i, f in enumerate(freqs):
             idx = np.argmin(np.abs(fft_freqs - f))
-            err = mag_db[idx] - (combined_left[i] - np.max(combined_left))
+            target = (combined_left[i] - np.max(combined_left)
+                      + left_offset_db)
+            err = mag_db[idx] - target
             worst = max(worst, abs(err))
             if args.verbose:
-                cprint("dim", f"  {f:>7} Hz  target: {combined_left[i] - np.max(combined_left):+6.1f}  "
+                cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
                       f"actual: {mag_db[idx]:+6.1f}  "
                       f"error: {err:+5.2f}")
         # A table of sixty "error" rows with no verdict reads as a slow
@@ -6588,9 +6679,11 @@ def add_filter_tweak_args(container, *, only=None):
         help="activate a filter that ships present but inactive "
              f"(repeatable). Valid names: {', '.join(ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
-             "than Windows (issue #25), or --enable coupled-bands "
+             "than Windows (issue #25), --enable coupled-bands "
              "(experimental) if loud content turns harsh where the "
-             "per-band limiter is inactive (issue #44).",
+             "per-band limiter is inactive (issue #44), or --enable "
+             "level-restore (experimental) if the preset is quieter than "
+             "switching it off altogether (issue #50).",
     )
     add(
         "--volmax-slot",

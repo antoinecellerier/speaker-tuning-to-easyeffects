@@ -133,6 +133,7 @@ def _base(**overrides) -> dict:
         is_soundwire=False,
         volmax_boost=0.0,
         volmax_slot="input-gain",
+        fir_peak_db=0.0,
         enabled=set(),
         disabled=set(),
     )
@@ -159,6 +160,12 @@ SCENARIOS = {
     "enable-coupled-bands": _base(regulator=_REG_COUPLED,
                                   enabled={"coupled-bands"}),
     "coupled-bands-available-but-off": _base(regulator=_REG_COUPLED),
+    # --enable level-restore adds fir_peak_db to whatever slot carries
+    # volmax-boost, so the pair pins both the sum and the untouched default.
+    "enable-level-restore": _base(volmax_boost=9.0, fir_peak_db=11.4,
+                                  enabled={"level-restore"}),
+    "level-restore-available-but-off": _base(volmax_boost=9.0,
+                                             fir_peak_db=11.4),
     "disable-volmax": _base(volmax_boost=9.0, disabled={"volmax"}),
     "disable-dynamics": _base(disabled={"mbc", "regulator"}),
     "disable-peq-shapes": _base(peq_filters=_PEQ_MIXED,
@@ -286,6 +293,13 @@ def test_flags_do_what_their_names_say(digests):
     # --enable coupled-bands must actually reach the regulator.
     assert (digests["enable-coupled-bands"]
             != digests["coupled-bands-available-but-off"])
+    # A fir_peak_db the flag hasn't been asked for must change nothing: the
+    # value is passed on every run, so an accidental default-path leak would
+    # otherwise ship silently.
+    assert (digests["level-restore-available-but-off"]
+            == digests["defaults-only-with-volmax"])
+    assert (digests["enable-level-restore"]
+            != digests["level-restore-available-but-off"])
 
 
 def test_digest_ignores_the_generator_version():

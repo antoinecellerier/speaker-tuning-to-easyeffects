@@ -258,7 +258,8 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
     }
 
 
-def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None) -> Path:
+def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
+                               ao_right: str | None = None) -> Path:
     """Write a minimal-but-complete DAX3 playback XML that parse_xml()
     accepts end-to-end: the 20-band grid plus the three ieq_* curves in
     <constant>, and one internal_speaker/normal endpoint whose dynamic
@@ -267,6 +268,11 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None) -
 
     ``default_profile`` adds the optional <setting><default_profile> element
     (Dolby's declared shipping profile); omitted by default, as on most XMLs.
+
+    ``ao_right`` overrides ch_01 with its own 1/16-dB CSV, giving the two
+    channels different audio-optimizer peaks — the 7.2%-of-corpus case that
+    --enable level-restore re-references against. Defaults to matching
+    ch_00, which is what most tunings do.
     """
     freqs = ",".join(str(f) for f in SYNTHETIC_FREQS_20)
     curves = {
@@ -293,7 +299,7 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None) -
       <tuning-vlldp>
         <audio-optimizer-bands>
           <ch_00 value="{ao}"/>
-          <ch_01 value="{ao}"/>
+          <ch_01 value="{ao_right or ao}"/>
         </audio-optimizer-bands>
       </tuning-vlldp>
     </profile>

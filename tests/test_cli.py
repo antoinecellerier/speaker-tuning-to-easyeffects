@@ -186,7 +186,8 @@ def test_disable_dialog_drops_dialog_enhancer():
 def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
-    assert set(ENABLEABLE_FILTERS) == {"autogain", "coupled-bands"}
+    assert set(ENABLEABLE_FILTERS) == {"autogain", "coupled-bands",
+                                       "level-restore"}
 
 
 def test_enable_autogain_activates_leveler():
@@ -250,6 +251,7 @@ def test_experimental_markers_cover_coupled_bands_activation():
     from dolby_to_easyeffects import EXPERIMENTAL_MARKERS
     assert set(EXPERIMENTAL_MARKERS) == {
         "high-shelf", "lo-pass", "mbc-1band", "coupled-bands-active",
+        "level-restore-active",
     }
     eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
                                    isolated_band=[1] * 10 + [0] * 10)
