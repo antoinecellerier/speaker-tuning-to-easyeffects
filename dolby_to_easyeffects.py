@@ -3767,7 +3767,28 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
             "which sounds better.")
 
 
-def _loudness_untamed_finding() -> Finding:
+def _untamed_boost_ask(coupled_bands_possible: bool) -> str:
+    """The two-step ask both members of the untamed-boost family carry.
+
+    One template for one risk family (round 8: two wordings for the same risk
+    left the reader unsure which explanation to trust) — but step 2 only
+    exists where `--enable coupled-bands` could actually do something. On a
+    tuning with no qualifying band the flag changes nothing, the run's own
+    "Optional extras" menu doesn't offer it, and a re-run answers
+    "--enable coupled-bands had no effect".
+
+    "(not both)": every compact form — "swap it for" (round 3), "instead"
+    (round 5), "just" (round 8), "replace that flag with" (round 9) — kept
+    reading ambiguous against the seam line's "they combine". The
+    parenthetical says it outright.
+    """
+    if not coupled_bands_possible:
+        return "If loud parts distort, re-run with --disable volmax."
+    return ("If loud parts distort, re-run with --disable volmax; if "
+            "still harsh, swap to --enable coupled-bands (not both).")
+
+
+def _loudness_untamed_finding(coupled_bands_possible: bool = True) -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
         slug="loudness-untamed",
@@ -3789,12 +3810,12 @@ def _loudness_untamed_finding() -> Finding:
                "the loudness boost band by band on its way out.",
         # Same two-step ask as boost-unlimited — one template for one risk
         # family (round 9); coupled-bands is exactly the all-inert class's
-        # remedy (issue #27).
-        ask="If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, swap to --enable coupled-bands (not both).")
+        # remedy (issue #27), where it qualifies.
+        ask=_untamed_boost_ask(coupled_bands_possible))
 
 
-def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
+def _boost_unlimited_finding(peak_db: float, freq,
+                             coupled_bands_possible: bool = True) -> Finding:
     """The band carrying the largest boost is one the regulator leaves free."""
     return Finding(
         slug="boost-unlimited",
@@ -3812,13 +3833,9 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # — one heard symptom per flag). Not "loud music": the vocabulary
         # trap reserves "music" for the mbc symptom. No region word — the
         # unlimited band's frequency is device-specific and the detail
-        # above already names it.
-        # "(not both)": every compact form — "swap it for" (round 3),
-        # "instead" (round 5), "just" (round 8), "replace that flag with"
-        # (round 9) — kept reading ambiguous against the seam line's "they
-        # combine". The parenthetical says it outright.
-        ask="If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, swap to --enable coupled-bands (not both).")
+        # above already names it. Wording and the "(not both)" rationale
+        # live in _untamed_boost_ask, shared with loudness-untamed.
+        ask=_untamed_boost_ask(coupled_bands_possible))
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
@@ -5984,7 +6001,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                                    else "  (full tables with -v)"),
                             indent="  ")
         iso = regulator.get("isolated_band")
-        if iso is not None:
+        # Gated on the same eligibility test the flag menu and the --enable
+        # marker use, not on the field merely being present: where every
+        # unlimited band is also marked isolated the flag adds nothing, and
+        # this line offered an effect in a run whose own menu didn't list
+        # the flag and whose re-run answers "had no effect".
+        if _coupled_bands_eligible(regulator):
             # Co-located with the fact it explains: the only plain wording
             # for coupled-bands used to sit a screen away in the flag menu
             # (rounds 2–3). Mechanism only, no second count (round 7, user
@@ -6058,7 +6080,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             and all(t >= 0 for t in regulator["threshold_high"])
             and not ("coupled-bands" in (enabled or set())
                      and _coupled_bands_eligible(regulator))):
-        findings.append(_loudness_untamed_finding())
+        findings.append(_loudness_untamed_finding(
+            _coupled_bands_eligible(regulator)))
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
@@ -6077,8 +6100,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if (peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
-            findings.append(_boost_unlimited_finding(peak_db,
-                                                      freqs[peak_band]))
+            findings.append(_boost_unlimited_finding(
+                peak_db, freqs[peak_band],
+                _coupled_bands_eligible(regulator)))
             _print_finding_detail(findings[-1])
     print()
     return findings
