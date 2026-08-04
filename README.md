@@ -146,7 +146,7 @@ When `--mode` or `--profile` is specified (or `--all-profiles` is used), the pre
 
 ### Troubleshooting: a preset that sounds like nothing
 
-If you generated a preset, loaded it, and hear no difference versus bypass, the preset itself is usually fine — the cause is almost always something in the EasyEffects setup around it. Run:
+If you generated a preset, loaded it in EasyEffects, and hear no difference versus bypass, the preset itself is usually fine — the cause is almost always something in the EasyEffects setup around it. Run:
 
 ```
 python3 dolby_to_easyeffects.py --doctor
@@ -167,6 +167,8 @@ It checks the common causes and prints a pasteable report:
 A normal generation run also warns at the end if it detects an EasyEffects version that can't use the presets it just wrote. To check your version directly, see EasyEffects' About dialog:
 
 ![Checking the EasyEffects version](docs/images/ee-version.jpg)
+
+Everything above is about the EasyEffects setup. On the [PipeWire filter-chain](#pipewire-filter-chain-instead-of-easyeffects) route, run `python3 dolby_to_pipewire.py --doctor` instead — it checks that route's own failures (chains stacked on one sink, a conf that didn't load, a missing impulse file, a target sink that's gone).
 
 ### Troubleshooting: correct but too quiet
 
@@ -244,7 +246,8 @@ The default converts the **Balanced** voicing — Dolby's default voicing. `--va
 
 The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
 
-- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once.
+- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once. Restarting PipeWire stops it for the session anyway, so whatever it was applying stops too.
+- **No sound, or it doesn't sound right?** `python3 dolby_to_pipewire.py --doctor` reports what's installed, what PipeWire is doing with it, and the command to fix each problem it finds.
 - **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
 
 <details>
