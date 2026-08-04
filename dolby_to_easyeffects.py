@@ -3292,10 +3292,17 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         # filename-led schema line as "my laptop is missing something".
         # Plain color, plain words, reassurance first; "simplified-schema
         # DAX3" stays as the grep handle triage and the docs use.
-        print("  Your tuning uses Dolby's simpler format — normal for "
-              "this device, nothing is missing (it has no multi-band "
-              "compressor or speaker-EQ stages to convert; "
-              "simplified-schema DAX3).")
+        # Not "speaker-EQ stages" (round 6): the Audio-optimizer section
+        # two lines down prints cuts/boosts that read as exactly that, so
+        # the absent optional stages get non-EQ words and the line says
+        # outright that the correction itself is converted.
+        _cprint_wrapped("", "  Your tuning uses Dolby's simpler format — "
+                            "normal for this device, nothing is missing: "
+                            "the speaker correction below is all there and "
+                            "converted; this format just never carries "
+                            "Dolby's optional multi-band compressor or "
+                            "extra filter stages (simplified-schema DAX3).",
+                        indent="  ")
     ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 
