@@ -322,3 +322,71 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     assert [c.path.parent for c in confs] == [scanned]
     # And the stray still gets reported, by the check that owns it.
     assert e.check_conf_directory().status == DOCTOR_WARN
+
+
+# --- Warning at the moment it happens ---------------------------------------
+
+def _write_conf(path: Path, target=SPEAKER, node="Dolby_Balanced"):
+    path.write_text(
+        f'''{e.CONF_HEADER_MARK} — see
+# version: vtest
+context.modules = [
+    {{
+        name = "libpipewire-module-filter-chain"
+        args = {{
+            capture.props = {{
+                node.name = "effect_input.{node}"
+                media.class = "Audio/Sink"
+                filter.smart = true
+                filter.smart.target = {{ node.name = "{target}" }}
+            }}
+            playback.props = {{ node.name = "effect_output.{node}" }}
+        }}
+    }}
+]
+''')
+
+
+@pytest.mark.skipif(shutil.which("spa-json-dump") is None,
+                    reason="spa-json-dump not installed")
+def test_second_variant_warns_that_it_stacks(tmp_path, monkeypatch, capsys):
+    """Trying another voicing is the obvious next step and the run's own copy
+    suggests it — but --force only guards one output path, so the second conf
+    lands beside the first and WirePlumber runs both in series."""
+    monkeypatch.setattr(e, "_CONSOLE", None)
+    first, second = tmp_path / "Dolby_Balanced.conf", tmp_path / "Dolby_Warm.conf"
+    _write_conf(first)
+    _write_conf(second, node="Dolby_Warm")
+
+    e.warn_if_stacked(second, SPEAKER)
+    err = capsys.readouterr().err
+    assert "Dolby_Balanced.conf" in err
+    assert "one after another" in err
+
+
+@pytest.mark.skipif(shutil.which("spa-json-dump") is None,
+                    reason="spa-json-dump not installed")
+def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(e, "_CONSOLE", None)
+    only = tmp_path / "Dolby_Balanced.conf"
+    _write_conf(only)
+    e.warn_if_stacked(only, SPEAKER)
+    assert capsys.readouterr().err == "", "a lone chain stacks with nothing"
+
+    # --target-sink '' emits no smart filter, so several never chain — that is
+    # the whole reason --variant all requires it.
+    other = tmp_path / "Dolby_Warm.conf"
+    _write_conf(other, node="Dolby_Warm")
+    e.warn_if_stacked(other, None)
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.skipif(shutil.which("spa-json-dump") is None,
+                    reason="spa-json-dump not installed")
+def test_chains_on_different_sinks_do_not_warn(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(e, "_CONSOLE", None)
+    _write_conf(tmp_path / "Dolby_Balanced.conf", target="alsa_output.hdmi")
+    second = tmp_path / "Dolby_Warm.conf"
+    _write_conf(second, node="Dolby_Warm")
+    e.warn_if_stacked(second, SPEAKER)
+    assert capsys.readouterr().err == ""

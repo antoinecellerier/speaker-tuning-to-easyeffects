@@ -68,6 +68,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   `--target-sink ''` for one selectable sink per voicing; `--no-activate`
   skips the restart; new `--skip-ee-check` / `--skip-next-steps` flags on
   the two underlying scripts support the flow (docs/ee-to-pipewire.md).
+- A conversion now warns when the chain it just wrote joins another aimed at
+  the same speakers — the state you land in by trying a second voicing or
+  profile, which PipeWire runs in series rather than as alternatives.
+
 - New `ee_to_pipewire.py --doctor` reports the state of an installed filter
   chain — chains stacked on one sink, a conf that didn't load, a missing
   impulse response, a target sink that no longer exists — with the command to

@@ -1206,6 +1206,38 @@ def _print_results(conf_path: Path, irs_path: Path | None,
             cprint("ok", f"Copied impulse response (.irs): {irs_path}")
 
 
+def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
+    """Warn when the conf just written joins another aimed at the same sink.
+
+    Trying a second voicing or profile is the obvious next thing to do — the
+    wrapper's own output suggests it — and nothing stopped the two coexisting:
+    --force guards one output path, so a differently-named conf lands beside
+    the first with no collision. WirePlumber then runs both in series rather
+    than offering a choice, and neither the run nor the audio says so. Caught
+    here, at the moment it happens, rather than left for --doctor to find
+    after someone notices the sound is wrong.
+    """
+    if not target_sink:
+        return   # not a smart filter; nothing chains
+    others = [c.path.name for c in installed_confs(output_path.parent)
+              if c.smart and c.target == target_sink
+              and c.path.resolve() != output_path.resolve()]
+    if not others:
+        return
+    cprint("warn", "")
+    cprint("warn", "⚠  Another filter chain is already attached to the same "
+                   "speakers:")
+    for name in others:
+        cprint("warn", f"     {name}")
+    cprint("dim", "   PipeWire runs them one after another, not as "
+                  "alternatives — every")
+    cprint("dim", "   stage applies twice. If you were trying a different "
+                  "voicing or profile,")
+    cprint("dim", "   delete the one you don't want (and its .irs), then "
+                  "restart PipeWire.")
+    cprint("dim", "   --doctor lists what is installed and what it does.")
+
+
 def _print_next_steps(node_name: str,
                       target_object: str | None = None) -> None:
     """The actions to take after a real (non-dry-run) write."""
@@ -2172,6 +2204,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(conf)
     _print_results(output_path, copied_irs, dry_run=False)
+    warn_if_stacked(output_path, target_sink)
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go
         # unmentioned as inactive — keep the one action that makes it live.

@@ -155,6 +155,12 @@ follow it and chain into it (measured: `Balanced → Warm`,
 `Detailed → Warm`). Pinning each to the hardware sink keeps them
 independent, which is the whole point of installing more than one.
 
+A conversion also warns on the spot when the conf it just wrote joins
+another aimed at the same sink. That is the state a user reaches by
+trying a second voicing or profile — `--force` guards a single output
+path, so a differently-named conf lands beside the first with no
+collision — and neither the run nor the audio would otherwise say so.
+
 ### Diagnosing an installed chain (`--doctor`)
 
 `ee_to_pipewire.py --doctor` (also reached as `dolby_to_pipewire.py --doctor`)
