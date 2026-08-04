@@ -5741,8 +5741,19 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # value), so the derived boost leads and the raw stays as the
         # report handle.
         gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
-        print(f"\nDialog enhancer: +{gain:.1f} dB speech boost @ 2.5 kHz "
-              f"(amount {dialog_enhancer['amount']} of 16 in your tuning)")
+        raw = f"amount {dialog_enhancer['amount']} of 16 in your tuning"
+        if "dialog" in disabled:
+            # Same shape as the volmax line: a stage the flag dropped says
+            # so, instead of describing itself as if it shipped.
+            print(f"\nDialog enhancer: {raw} — dropped by --disable dialog")
+        else:
+            # "about", and "where speech sits" rather than "speech boost":
+            # the 6 dB ceiling behind the figure is on the unvalidated list
+            # (reference.md "Validated vs unvalidated mappings"), and ours
+            # is a static bell — Dolby's is speech-gated, so it lifts that
+            # band on everything, not only on dialogue.
+            print(f"\nDialog enhancer: about +{gain:.1f} dB around 2.5 kHz, "
+                  f"where speech sits ({raw})")
 
     if surround:
         # No "virtualizer" in ANY form here — noun or verb: with the
@@ -5799,13 +5810,26 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   f"{vol_leveler['in_target']:.1f} dB in / "
                   f"{vol_leveler['out_target']:.1f} dB out")
 
-    if mb_comp:
-        tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
+    if mb_comp and "mbc" in disabled:
+        # A dropped stage says so instead of describing itself, the shape
+        # the volmax and leveler lines already use.
         print(f"\nMulti-band compressor (mbc): {mb_comp['group_count']} "
-              "frequency band(s) — "
-              f"evens out loud vs quiet separately per frequency range{tag}")
+              "frequency band(s) in your tuning — dropped by --disable mbc")
+    elif mb_comp:
+        tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
+        # "on loud content": measured dormant on the -10 dBFS stimuli and
+        # only waking near -2 dBFS (design-notes, unvalidated-scaling entry
+        # 6), so the bare present tense described a stage that mostly isn't
+        # doing anything.
+        print(f"\nMulti-band compressor (mbc): {mb_comp['group_count']} "
+              "frequency band(s) — on loud content, evens out loud vs quiet "
+              f"separately per frequency range{tag}")
+        # Read-only, like regulator-overdrive and -relaxation: the field is
+        # parsed and shown as a report handle but drives no emitted
+        # parameter, so "the level it evens toward" credited the preset
+        # with behaviour it does not have.
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB "
-              "(the level it evens toward)")
+              "(read from your tuning; this preset doesn't use it)")
         # Print FROM the single-source decode — no inline re-decode, no
         # warnings (those fire in make_multiband_compressor). xover_hz is a
         # display concern derived here from the stored xover_idx + band
@@ -5839,7 +5863,13 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   f"ratio={b['ratio']:.2f}:1, attack={b['attack_ms']:.2f} ms, "
                   f"release={b['release_ms']:.2f} ms, makeup={b['makeup']:+.1f} dB")
 
-    if regulator:
+    if regulator and "regulator" in disabled:
+        # Dropped stages say so rather than describing themselves; without
+        # this the whole section — protective gloss, band counts and the
+        # coupled-bands offer — described a limiter the preset doesn't have.
+        print("\nRegulator (per-band limiter): in your tuning — dropped by "
+              "--disable regulator")
+    elif regulator:
         # Plain tail + a triage-grade summary (how many bands limit, and
         # how hard) — the raw arrays were six unexplained lines of numbers
         # (round 3, all three reviewers) and move behind -v. The active-band
@@ -5853,11 +5883,20 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # gloss followed by "it never engages" read as reassurance
         # retracted in the same breath.
         if active:
+            # "at the level this tuning sets", not "when loud parts would
+            # distort": the engagement point is whatever threshold_high the
+            # tuning carries, which is not a distortion point, and the
+            # realised curve is measured well short of the configured limit
+            # (design-notes, unvalidated-scaling entry 11).
             print("\nRegulator (per-band limiter): a protective ceiling, "
-                  "band by band — steps in only when loud parts would "
-                  "distort")
-            print(f"  limits {len(active)} of {len(th)} frequency bands "
-                  f"(deepest limit {min(th):+.1f} dB)"
+                  "band by band — steps in on loud content, at the level "
+                  "this tuning sets")
+            # "your tuning limits": the count is of raw XML bands, while
+            # make_regulator merges them into <=8 zones keeping the highest
+            # threshold, so some counted bands are not separately limited in
+            # the preset. Attributing the count to the tuning keeps it true.
+            print(f"  your tuning limits {len(active)} of {len(th)} frequency "
+                  f"bands (deepest {min(th):+.1f} dB)"
                   + ("" if verbose else "  (full tables with -v)"))
         else:
             print()
