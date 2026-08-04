@@ -3194,19 +3194,26 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
     if announce_profile:
         name = profile.get("type")
+        n_profiles = len(endpoint.findall("profile"))
         if profile_type:
             cprint("head", f"Profile: {profile_type}")
-        elif name:
-            # "this speaker's first", one phrasing everywhere: the banner,
-            # the profile-mismatch detail, and the parse error used three
-            # variants for the same fact, and "the file's first" is loose —
-            # profiles are per-endpoint, which matters on multi-output XMLs
-            # (round 3).
-            cprint("head", f"Profile: {name} (this speaker's first — "
-                           "--list shows others; --profile picks)")
         else:
-            cprint("head", "Profile: this speaker's first (unnamed — "
-                           "--list shows others; --profile picks)")
+            # "this speaker's first-listed", one anchor phrase everywhere:
+            # the banner, the profile-mismatch detail, and the parse error
+            # (three variants read as three facts, round 3; "the file's
+            # first" is loose — profiles are per-endpoint, which matters on
+            # multi-output XMLs). "Sound modes" + the count answer the
+            # round-4 question all three reviewers had — is "first" a
+            # sensible pick or an arbitrary one — and give profiles a plain
+            # name distinct from the three voicings two lines down.
+            shown = name if name else "(unnamed)"
+            if n_profiles == 1:
+                cprint("head", f"Profile: {shown} (this speaker's only "
+                               "sound mode)")
+            else:
+                cprint("head", f"Profile: {shown} (the first-listed of "
+                               f"this speaker's {n_profiles} sound modes — "
+                               "--list names them; --profile picks)")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
@@ -3219,7 +3226,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     vlldp = profile.find("tuning-vlldp")
     if vlldp is None:
         name = profile.get("type")
-        label = f"profile '{name}'" if name else "this speaker's first profile"
+        label = (f"profile '{name}'" if name
+                 else "this speaker's first-listed profile")
         raise ValueError(
             f"{path.name}: {label} has "
             "no <tuning-vlldp> — no audio-optimizer, PEQ, or MBC data to read. "
@@ -3668,7 +3676,7 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         slug="profile-mismatch",
         detail=f"This XML names '{declared}' as the profile the device ships "
                f"on under Windows, but we built '{profile_used}' (this "
-               "speaker's first).",
+               "speaker's first-listed).",
         # Names the action and what it gets you. An earlier wording led with
         # "worth an A/B against Windows", which read as though the user had to
         # go and do something in Windows.
