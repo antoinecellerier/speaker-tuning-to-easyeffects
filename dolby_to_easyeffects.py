@@ -5132,9 +5132,14 @@ def print_troubleshooting(findings: list[Finding],
         # the reader is four lines from being told nothing was written, and
         # telling them to reload a preset that doesn't exist read as the two
         # blocks not knowing about each other.
-        lead = ("Add any of these when you re-run without --dry-run"
+        # "the flags above", not "these": on a terminal whose window folds
+        # exactly at this sentence, "these" is the first visible word of the
+        # last screen with its antecedent scrolled off (round 4). Naming the
+        # referent keeps the sentence whole at any fold.
+        lead = ("Add any of the flags above when you re-run without "
+                "--dry-run"
                 if dry_run else
-                "Add any of these to the same command you ran")
+                "Add any of the flags above to the same command you ran")
         _cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
