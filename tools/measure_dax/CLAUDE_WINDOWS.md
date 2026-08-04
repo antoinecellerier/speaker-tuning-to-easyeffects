@@ -137,6 +137,36 @@ foreach ($lbl in 'off','dynamic') {
 }
 ```
 
+## Already in the archive — don't re-capture these
+
+Checked 2026-08-05 against the dev-device archives. The stepped battery is
+**complete at all three levels, with its OFF pairs**:
+
+| stimulus | `dynamic` | `off` |
+|---|---|---|
+| `stepped` (−18 dBFS) | yes | yes |
+| `stepped_quiet` (−42 dBFS) | yes | yes |
+| `stepped_loud` (−2 dBFS) | yes | yes |
+
+That is the regime the regulator actually engages in — on the dev device
+`stepped_loud` drives DAX over its threshold on 3 of 4 active bands (141 Hz
++4.7, 234 Hz +5.0, 328 Hz +1.8 dB). The open regulator questions
+(design-notes entries 6/11) are therefore an **analysis** gap, not a capture
+gap; re-capturing them buys nothing.
+
+Note also what the pink ladder cannot reach: pink tops out at −14 dBFS RMS
+before it clips, which on the dev device still leaves DAX several dB short of
+its lowest regulator threshold. The ladder measures the volume leveler. It
+will not incidentally measure the regulator, and stepped is the stimulus for
+that.
+
+**Per-session check, cheap and worth it:** whatever you capture, the `off`
+baseline is the session's own reference. Endpoint volume lands inside the
+loopback on some machines and not others — the dev device reads −0.02 dB with
+its endpoint at −18.8 dB, while another reporter's machine read −10.01 dB with
+its endpoint at −10.5 dB. Sessions are only comparable through their own OFF
+capture, so never skip it and never assume last session's holds.
+
 ## Also worth capturing: bass burst, OFF
 
 `stimulus_bass_burst.wav` and `stimulus_bass_burst_quiet.wav` were
