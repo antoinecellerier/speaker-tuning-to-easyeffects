@@ -3697,10 +3697,13 @@ def _loudness_untamed_finding() -> Finding:
         slug="loudness-untamed",
         # Self-contained: it used to say "threshold_high above", pointing at
         # a table that only prints with -v now. The field name stays in
-        # parentheses as the grep handle.
+        # parentheses as the grep handle. "Final safety limiter", not "the
+        # brickwall limiter": that term appeared nowhere else in the run and
+        # a round-4 reviewer couldn't tell it from the per-band limiter the
+        # regulator line had just introduced.
         detail="This tuning's regulator never engages — every band's limit "
                "(threshold_high) sits at or over 0 dB — so the volmax "
-               "boost reaches the brickwall limiter untamed.",
+               "boost hits the final safety limiter untamed.",
         ask="If loud parts distort or sound crushed, re-run with "
             "--disable volmax.")
 
