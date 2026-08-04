@@ -5812,9 +5812,12 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # "Correction check", not "FIR check": FIR was the one label in the
         # summary with no plain reading (round 4), and "correction" is the
         # audio-optimizer line's vocabulary for the same curve.
+        # No "(inaudible)": printed a few lines under a ⚠ loudness warning,
+        # the green all-clear read as canceling it (round 5). This line is
+        # about curve accuracy only — keep listening language out.
         if worst <= FIR_VERIFY_OK_DB:
-            cprint("ok", f"  Correction check passed: within {worst:.2f} dB "
-                         "of the target everywhere (inaudible)")
+            cprint("ok", f"  Correction check passed: the built filter "
+                         f"matches its target within {worst:.2f} dB")
         else:
             cprint("warn", f"  Correction check: {worst:.2f} dB off target "
                            "at worst — unexpected, please report this run")
