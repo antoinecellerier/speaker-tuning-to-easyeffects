@@ -3384,15 +3384,18 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 
     # Dolby can ship a correction curve and still declare the optimizer off —
-    # 4099 corpus rows do (2642 XMLs), and 69 of those, in 61 XMLs, carry a
-    # *non-zero* curve, so applying it regardless emits a correction the
-    # tuning says not to apply. Almost all are the `off` profile, but 7
-    # `music` rows are affected and `music` is a profile users select. The
-    # deepest affected band is 13.7 dB (`off`; median 12.0), 7.0 dB on
+    # 773 content-unique internal_speaker/normal rows do, and 18 of those, in
+    # 17 XMLs, carry a *non-zero* curve, so applying it regardless emits a
+    # correction the tuning says not to apply. Almost all are the `off`
+    # profile, but `music` is affected too and it is a profile users select.
+    # The deepest affected band is 13.7 dB (`off`; median 12.0), 7.0 dB on
     # `music`. Same absent-means-enabled convention as speaker-peq-enable
     # below. The IEQ voicing is a separate stage and stays untouched.
-    # Figures re-derived 2026-08-04 against the 2802-XML corpus through
-    # resolve_xml_value — a plain grep misses the preset= indirection.
+    # Figures re-derived 2026-08-04 against the 3056-XML corpus through
+    # resolve_xml_value — a plain grep misses the preset= indirection, and
+    # tuning-cp has an audio-optimizer-enable of its own we never read
+    # (cross-device-findings.md §8, "Curves shipped with the optimizer
+    # switched off", carries the method and the raw-corpus cut).
     ao_enable = vlldp.find("audio-optimizer-enable")
     ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
     if not ao_enabled:
