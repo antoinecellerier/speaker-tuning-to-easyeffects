@@ -3942,6 +3942,35 @@ def _print_ask(style: str, finding: Finding) -> None:
             cprint(style, line)
 
 
+def _print_attach_lines(xml_path) -> None:
+    """The what-to-send lines, shared by both closing branches.
+
+    cta, not dim: this is the one concrete task the report needs, and it
+    printed fainter than the reassurance bullet above it (round-2 color
+    finding). "If you report", the intro line's vocabulary: unconditional
+    "attach this to your report" left a round-4 reviewer unsure whether
+    filing was mandatory. Download link preferred over attaching: a
+    driver-package link identifies the exact tuning build and carries
+    every sibling XML for the device; "(if you know it)" because a reader
+    who found the file on their Windows partition has no download to link
+    (round 8).
+    """
+    if xml_path is None:
+        return
+    print()
+    _cprint_wrapped("cta", "  If you report, best is a link to "
+                           "your laptop's audio-driver download "
+                           "(if you know it) — or just attach the "
+                           "XML file:",
+                    indent="  ")
+    # Absolute and quoted. Dolby's own directory names contain '$'
+    # (…/code$GetExtractPath$/…), so an unquoted relative path is
+    # eaten by the shell the moment anyone types ls on it and the
+    # file looks missing. Same cta as its instruction — the copy
+    # target must not be the faintest line in the block.
+    cprint("cta", f"    '{Path(xml_path).resolve()}'")
+
+
 def print_project_asks(findings: list[Finding], dry_run: bool = False,
                        xml_path=None, pipewire_native: bool = False) -> None:
     """Print the closing block: what the project needs, then the one ask.
@@ -3996,38 +4025,19 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # (round 6): the file helps triage whatever the report is about,
         # and the old wording-sniffing gate was one rewording away from
         # silently switching the path off.
-        if xml_path is not None:
-            print()
-            # cta, not dim: this is the one concrete task the report needs,
-            # and it printed fainter than the reassurance bullet above it
-            # (round-2 color finding). "If you report", the intro line's
-            # vocabulary: unconditional "attach this to your report" right
-            # after "should sound right" left a round-4 reviewer unsure
-            # whether filing was mandatory.
-            # Download link preferred over attaching: a driver-package link
-            # identifies the exact tuning build and carries every sibling
-            # XML for the device. "If you know it" (round 8): a reader who
-            # found the file on their Windows partition has no download to
-            # link, and "best is" made their only workable option read as
-            # second-rate.
-            _cprint_wrapped("cta", "  If you report, best is a link to "
-                                   "your laptop's audio-driver download "
-                                   "(if you know it) — or just attach the "
-                                   "XML file:",
-                            indent="  ")
-            # Absolute and quoted. Dolby's own directory names contain '$'
-            # (…/code$GetExtractPath$/…), so an unquoted relative path is
-            # eaten by the shell the moment anyone types ls on it and the
-            # file looks missing. Same cta as its instruction — the copy
-            # target must not be the faintest line in the block.
-            cprint("cta", f"    '{Path(xml_path).resolve()}'")
+        _print_attach_lines(xml_path)
         print()
     elif tagged:
         # No ask fired, but something upstream still carries a tag. Say it is
         # worth quoting, or the reader is left holding a bracketed token with
-        # no reason to think it means anything to us.
+        # no reason to think it means anything to us. The attach lines print
+        # here too (round 10, user-picked): a run whose only findings are ⚠
+        # warnings is exactly one the project wants the tuning source for,
+        # and this branch used to leave its reporter with nothing to attach.
+        cprint("head", "=" * 60)
         _cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
                                "it tells us which finding you mean.")
+        _print_attach_lines(xml_path)
         print()
 
     # Stages this tuning has that we drop. They carry no ask, because there is
