@@ -1380,7 +1380,12 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
             action.completer = completer
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
+    """``wrapped`` marks an in-process dolby_to_pipewire.py run: the wrapper
+    owns all activation messaging ([3/3] activates, lists the steps, or says
+    dry run), so the --skip-next-steps "To activate:" fallback is dropped —
+    it printed the identical restart command two lines above [3/3]'s step 1
+    (user-review round 5)."""
     parser = build_parser(argv)
     if argcomplete is not None:
         _attach_completers(parser)
@@ -1569,8 +1574,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go
         # unmentioned as inactive — keep the one action that makes it live.
-        cprint("cta", "To activate: systemctl --user restart pipewire "
-                      "pipewire-pulse")
+        # Unless a wrapper is driving: its [3/3] owns activation.
+        if not wrapped:
+            cprint("cta", "To activate: systemctl --user restart pipewire "
+                          "pipewire-pulse")
     else:
         _print_next_steps(node_name, target_object=args.target_object)
     return 0

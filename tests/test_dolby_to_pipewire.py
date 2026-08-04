@@ -162,7 +162,7 @@ def recorders(monkeypatch):
                 (out / f"{stem}.irs").write_bytes(b"")
         return 0
 
-    def fake_ee_main(argv):
+    def fake_ee_main(argv, wrapped=False):
         calls.step2.append(list(argv))
         return 0
 
@@ -274,7 +274,8 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
 
 def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
     monkeypatch.setattr(ee_to_pipewire, "main",
-                        lambda argv: (recorders.step2.append(argv) or 1))
+                        lambda argv, wrapped=False:
+                            (recorders.step2.append(argv) or 1))
     assert wrapper_main(["--variant", "all"]) == 1
     assert len(recorders.step2) == 1
     assert recorders.commands == []

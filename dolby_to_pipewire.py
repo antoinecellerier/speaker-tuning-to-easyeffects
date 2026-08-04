@@ -420,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
             # install too — an undo that only removes the conf strands one
             # stray file per variant (round-3 review).
             written.append(out_dir / f"{node_name}.irs")
-            rc = ee_to_pipewire.main(child_argv)
+            rc = ee_to_pipewire.main(child_argv, wrapped=True)
             if rc != 0:
                 # Fail fast: a validation failure would repeat identically
                 # for every variant, and an existing-conf collision already
