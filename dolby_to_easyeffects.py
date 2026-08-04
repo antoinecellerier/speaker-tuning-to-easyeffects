@@ -5506,8 +5506,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # run: a round-4 reviewer couldn't tell this boost and that
         # dropped protection stage apart ("is my bass protected or not?"),
         # but either message can appear without the other, so the clause
-        # must not dangle on runs where the note never printed.
-        sep = (" (separate from the bass-protection stage noted above)"
+        # must not dangle on runs where the note never printed. Named
+        # outright (round 5): "the bass-protection stage noted above" was
+        # ambiguous against the HP rows' "speaker protection" clause.
+        sep = (" (separate from the Dynamic Speaker Optimization stage "
+               "noted above)"
                if any(f.slug == "speaker-optimizer" for f in tuning.findings)
                else "")
         print(f"\nBass enhancer: +{be['amount']:.1f} dB harmonics below "
