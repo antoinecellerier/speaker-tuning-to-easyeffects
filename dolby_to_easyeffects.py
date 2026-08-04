@@ -3242,8 +3242,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                     # checked so far, so a tagged note or a fix-menu row
                     # over-promoted a non-issue. The Done block repeats
                     # the assumption once, beside --all-profiles.
+                    # The where-to-check pointer (rounds 4-9, every
+                    # reviewer; user approved round 9): the app shows the
+                    # ACTIVE profile — never claim it shows "the default".
                     cprint("dim", "  (we assume it's also the Windows "
                                   "default — your file doesn't say)")
+                    cprint("dim", "  (the Dolby app on Windows shows the "
+                                  "profile you used — --profile matches "
+                                  "it)")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
