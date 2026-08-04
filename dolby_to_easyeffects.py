@@ -6755,6 +6755,7 @@ def complete_and_load(parser: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
          troubleshooting: dict | None = None,
+         resolved: dict | None = None,
          staged: bool = False):
     """Generate the presets. ``closing`` collects the findings the closing
     block would render, for a caller that prints that block itself (see
@@ -6762,9 +6763,13 @@ def main(argv: list[str] | None = None,
     the flag, so a wrapper can't accidentally drop the run's findings.
     ``troubleshooting``, when supplied, likewise takes the fix-flags menu:
     it is filled with print_troubleshooting's inputs instead of the menu
-    printing here, so the caller can render it at its own end. ``staged``
-    marks the output dirs as a wrapper's throwaway staging area, so the
-    per-file announcements say "Staged", not "Wrote"."""
+    printing here, so the caller can render it at its own end. ``resolved``
+    takes what only this function can work out — currently ``xml_path``,
+    which auto-discovery may have found on a mounted Windows partition; the
+    closing block names it as the file to attach, and a caller printing that
+    block on our behalf has no other way to learn it. ``staged`` marks the
+    output dirs as a wrapper's throwaway staging area, so the per-file
+    announcements say "Staged", not "Wrote"."""
     parser = build_parser(argv)
     complete_and_load(parser)
     args = parser.parse_args(argv)
@@ -6810,6 +6815,12 @@ def main(argv: list[str] | None = None,
         windows_root = autoprobe_dolby_source()
         xml_path = find_tuning_xml(windows_root, best_guess=args.best_guess)
         cprint("ok", f"Auto-detected: {xml_path}")
+
+    # Handed over the moment it is known, not at the end: a run that fails
+    # further down still leaves the caller able to say which file it was
+    # working from.
+    if resolved is not None:
+        resolved["xml_path"] = xml_path
 
     is_soundwire = is_soundwire_xml(Path(xml_path).name)
 
@@ -7157,12 +7168,13 @@ def main(argv: list[str] | None = None,
 def run_cli(argv: list[str] | None = None,
             closing: list[Finding] | None = None,
             troubleshooting: dict | None = None,
+            resolved: dict | None = None,
             staged: bool = False) -> int:
     """main() with the top-level error handling the __main__ block used to
     inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
     try:
         main(argv, closing=closing, troubleshooting=troubleshooting,
-             staged=staged)
+             resolved=resolved, staged=staged)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")

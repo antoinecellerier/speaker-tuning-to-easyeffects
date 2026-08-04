@@ -201,10 +201,12 @@ def _generator_stdout(dry_run: bool):
 
 
 def _run_generator(child_argv: list[str], closing=None,
-                   troubleshooting=None, staged: bool = False) -> int:
+                   troubleshooting=None, resolved=None,
+                   staged: bool = False) -> int:
     try:
         return dolby_to_easyeffects.run_cli(child_argv, closing=closing,
                                             troubleshooting=troubleshooting,
+                                            resolved=resolved,
                                             staged=staged)
     except SystemExit as e:
         # The child argv is wrapper-constructed, so its parser should never
@@ -420,6 +422,11 @@ def main(argv: list[str] | None = None) -> int:
     # even finished (round 4), so the generator stashes its inputs here and
     # we render it at the end, after the [3/3] steps.
     troubleshooting: dict = {}
+    # The XML may have been auto-discovered on a mounted Windows partition, so
+    # only the generator knows which file this run actually read. The closing
+    # block names it as the thing to attach to a report; without it the reader
+    # is told to attach their tuning XML and never shown which one.
+    resolved: dict = {}
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
         # Not "no EasyEffects files are installed": the reader picked this
         # script to avoid EasyEffects, and opening the run by naming it made
@@ -444,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
                                 + ["--output-dir", tmp, "--irs-dir", tmp],
                                 closing=closing,
                                 troubleshooting=troubleshooting,
+                                resolved=resolved,
                                 staged=True)
         if rc != 0:
             return rc
@@ -574,8 +582,9 @@ def main(argv: list[str] | None = None) -> int:
                 installs_presets=False,
                 enabled_by_flag=troubleshooting["enabled_by_flag"],
                 dry_run=args.dry_run)
-        dolby_to_easyeffects.print_project_asks(closing, dry_run=args.dry_run,
-                                                pipewire_native=True)
+        dolby_to_easyeffects.print_project_asks(
+            closing, dry_run=args.dry_run, pipewire_native=True,
+            xml_path=resolved.get("xml_path"))
     return rc
 
 

@@ -140,8 +140,13 @@ def recorders(monkeypatch):
     dolby_to_easyeffects.get_version()
     calls = SimpleNamespace(step1=[], step2=[], commands=[])
 
-    def fake_run_cli(argv, closing=None, troubleshooting=None, staged=False):
+    def fake_run_cli(argv, closing=None, troubleshooting=None, resolved=None,
+                     staged=False):
         calls.step1.append(list(argv))
+        if resolved is not None:
+            # Only the generator resolves the XML (auto-discovery), and the
+            # wrapper prints the closing block that names it.
+            resolved["xml_path"] = "/tmp/tuning.xml"
         if closing is not None:
             # The real generator hands its findings back for the wrapper to
             # render at the end; one is enough to exercise that path.
@@ -350,7 +355,8 @@ def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
 
 def test_routing_step1_failure_propagates(recorders, monkeypatch):
     monkeypatch.setattr(dolby_to_easyeffects, "run_cli",
-                        lambda argv, closing=None, troubleshooting=None, staged=False: 1)
+                        lambda argv, closing=None, troubleshooting=None, resolved=None,
+                               staged=False: 1)
     assert wrapper_main([]) == 1
     assert recorders.step2 == []
 
@@ -371,7 +377,8 @@ def test_routing_no_matching_preset_errors(recorders, monkeypatch, capsys):
     absent from the XML) must fail with a pointer, not convert nothing
     silently."""
     monkeypatch.setattr(dolby_to_easyeffects, "run_cli",
-                        lambda argv, closing=None, troubleshooting=None, staged=False: 0)
+                        lambda argv, closing=None, troubleshooting=None, resolved=None,
+                               staged=False: 0)
     assert wrapper_main(["--no-activate"]) == 1
     assert "no Balanced preset was generated" in capsys.readouterr().err
     assert recorders.step2 == []
@@ -393,7 +400,7 @@ def test_routing_output_dir_is_forwarded_absolute(recorders):
 # End-to-end (subprocess, synthetic XML, isolated HOME)
 # ---------------------------------------------------------------------------
 
-def _run_e2e(tmp_path, *args):
+def _run_e2e(tmp_path, *args, env=None):
     """Run the wrapper against the synthetic XML with HOME pointed at an
     empty directory — the no-EE-artifacts claim is asserted against it.
     Always passes --no-activate and --target-sink '' (no pw-dump probe, no
@@ -405,7 +412,7 @@ def _run_e2e(tmp_path, *args):
     result = _run_script(
         str(xml), "--output-dir", str(out), "--target-sink", "",
         "--no-activate", "--no-color", *args,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, "HOME": str(home), **(env or {})},
     )
     return result, home, out
 
@@ -423,11 +430,23 @@ def test_e2e_default_writes_only_balanced_pair(tmp_path):
     assert list(home.iterdir()) == []
 
 
+def test_e2e_closing_names_the_xml_to_attach(tmp_path):
+    """The closing block asks for the tuning XML, and auto-discovery means the
+    reader may never have seen its path — so the wrapper has to name the file
+    the run actually read, as the generator does on its own."""
+    # The attach lines only print when the run raised something worth
+    # reporting; the synthetic XML is clean, so force one finding.
+    result, _home, _out = _run_e2e(tmp_path,
+                                   env={"DEMO_FIRMWARE_GATE": "off"})
+    assert result.returncode == 0, result.stderr
+    xml = tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml"
+    assert f"'{xml.resolve()}'" in result.stderr
+
+
 def test_e2e_variant_all_writes_three_pairs(tmp_path):
     # --target-object is supplied so the run doesn't probe pw-dump for a
     # speaker sink — there may not be a PipeWire daemon to answer.
     result, _home, out = _run_e2e(tmp_path, "--variant", "all",
-                                  "--target-sink", "",
                                   "--target-object", "sink.test")
     assert result.returncode == 0, result.stderr
     assert sorted(p.name for p in out.iterdir()) == [
