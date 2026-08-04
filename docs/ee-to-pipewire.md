@@ -155,6 +155,25 @@ follow it and chain into it (measured: `Balanced → Warm`,
 `Detailed → Warm`). Pinning each to the hardware sink keeps them
 independent, which is the whole point of installing more than one.
 
+### Diagnosing an installed chain (`--doctor`)
+
+`ee_to_pipewire.py --doctor` (also reached as `dolby_to_pipewire.py --doctor`)
+reports the state of what is installed rather than converting anything: chains
+stacked on one target sink, a conf on disk with no node in the graph (a
+missing LSP/Calf plugin makes `module-filter-chain` drop the whole file), an
+`.irs` a conf names but that isn't there, a `filter.smart.target` naming a sink
+that no longer exists, confs under `filter-chain.conf.d/`, WirePlumber older
+than 0.5, EasyEffects processing the same audio, and confs written by another
+version of the tool. It ends with an environment block to paste into an issue.
+
+It deliberately reports the *EasyEffects* side as a conflict only. On this path
+EasyEffects is an intermediate format staged in a tempdir, so the generator's
+preset/autoload checks would describe directories this path never writes to.
+
+Probing and judging are separate: every check is a pure function over gathered
+data, so states this developer machine can't reach are unit-tested in
+`tests/test_pw_doctor.py`.
+
 ## Plugin coverage
 
 | EE plugin key | Translated as | Notes |

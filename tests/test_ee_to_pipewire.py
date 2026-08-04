@@ -2397,3 +2397,25 @@ def test_prefer_flatpak(tmp_path, monkeypatch, flatpak_run, native_run,
                         type("HomedPath", (type(tmp_path),),
                              {"home": staticmethod(lambda: tmp_path)}))
     assert _ee_paths.prefer_flatpak() is expected
+
+
+@pytest.mark.skipif(shutil.which("spa-json-dump") is None,
+                    reason="spa-json-dump not installed")
+def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
+    """--doctor reads installed confs with spa-json-dump rather than a
+    hand-rolled parser, so what it reports is what PipeWire will read. This
+    pins the round trip: emit a conf, then parse it back."""
+    import ee_to_pipewire as e
+    sink = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    conf = format_conf(chain.stages, emit_links(chain.stages),
+                       "Dolby_Balanced", "Dolby-Balanced", target_sink=sink)
+    (tmp_path / "Dolby_Balanced.conf").write_text(conf)
+
+    (parsed,) = e.installed_confs(tmp_path)
+    assert parsed.readable
+    assert parsed.node_name == "effect_input.Dolby_Balanced"
+    assert parsed.smart is True
+    assert parsed.target == sink
+    assert parsed.irs and all(p.suffix == ".irs" for p in parsed.irs)

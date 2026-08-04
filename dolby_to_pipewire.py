@@ -253,7 +253,8 @@ def _print_undo(written: list[Path]) -> None:
 
 
 def _print_manual_activation(node_names: list[str],
-                             written: list[Path]) -> None:
+                             written: list[Path],
+                             selectable: bool = False) -> None:
     # The EasyEffects caveat is a footnote, not a numbered step (round
     # 10): this script's reader chose it to avoid EasyEffects, and seeing
     # EE in the critical path made them doubt they had.
@@ -275,10 +276,15 @@ def _print_manual_activation(node_names: list[str],
     # load the whole conf and no node ever appears, so a reader told only
     # "the restart didn't load it" re-restarts forever. The automated path
     # already says this (_verify_sinks); the manual one didn't.
+    # "pinned automatically" is true of smart-filter routing only. Under
+    # --target-sink '' the chain is an ordinary output that does nothing until
+    # it is selected, and this sentence promised the opposite.
+    tail = ("once the line is there, pick it as your output in sound settings"
+            if selectable else
+            "once the line is there, it's pinned to your speakers automatically")
     cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
                   "nothing usually means the LSP or Calf LV2 plugins are "
-                  "missing, so the whole file failed to load — once the line "
-                  "is there, it's pinned to your speakers automatically)")
+                  f"missing, so the whole file failed to load — {tail})")
     cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
@@ -319,10 +325,17 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     return 0
 
 
-def _activate(node_names: list[str]) -> int:
+def _activate(node_names: list[str], selectable: bool) -> int:
     cprint("head", "[3/3] Activating: restarting PipeWire")
+    # Not only "otherwise both chains process the audio": the restart itself
+    # stops a running EasyEffects (it doesn't survive its server going away),
+    # so whatever EasyEffects was applying stops here whether or not the
+    # reader acts. Said plainly, because the alternative is discovering it as
+    # "the update broke my audio".
     cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
-                   "audio at once.")
+                   "audio at once. The restart below stops it for this "
+                   "session either way, so anything it was applying goes "
+                   "with it.")
     try:
         proc = subprocess.run(PIPEWIRE_RESTART_CMD.split())
     except FileNotFoundError:
@@ -335,7 +348,28 @@ def _activate(node_names: list[str]) -> int:
                       f"{proc.returncode}) — run it manually: "
                       f"{PIPEWIRE_RESTART_CMD}")
         return 1
-    return _verify_sinks(node_names)
+    rc = _verify_sinks(node_names)
+    if rc == 0:
+        _print_selection_step(node_names, selectable)
+    return rc
+
+
+def _print_selection_step(node_names: list[str], selectable: bool) -> None:
+    """Say what still has to happen for the chain to be in the audio path.
+
+    With smart-filter routing (the default) nothing does — WirePlumber
+    inserts it. With --target-sink '' the chain is an ordinary output that
+    processes nothing until it is selected, and a run that stops at
+    "Sink loaded" leaves the reader believing it is already working.
+    """
+    if not selectable:
+        cprint("dim", "     (pinned to your speakers automatically — apps "
+                      "keep playing to the speaker as usual)")
+        return
+    cprint("cta", "  Now pick it as your output in sound settings — until "
+                  "you do, it processes nothing:")
+    for name in node_names:
+        cprint("cta", f"    {name}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -386,8 +420,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_color:
         step1_common.append("--no-color")
 
-    # Inspection modes are straight pass-throughs: no tempdir, no conversion.
-    if args.list or args.speaker_info or args.doctor:
+    # --doctor goes to the PipeWire-side doctor, not the generator's.
+    # EasyEffects on this path is a temporary implementation detail — the
+    # preset is staged in a tempdir and deleted — so the generator's checks
+    # don't just read as noise here, they give wrong advice: "no presets found
+    # in ~/.local/share/easyeffects/output — run the script on your tuning XML
+    # first" describes a directory this script will never write to. The
+    # hardware sections a reader does need come along with the PipeWire report.
+    if args.doctor:
+        return ee_to_pipewire.report_pw_doctor()
+
+    # The rest are straight pass-throughs: no tempdir, no conversion.
+    if args.list or args.speaker_info:
         return _run_generator(step1_common)
 
     variants = (list(VARIANT_STEMS.values()) if args.variant == "all"
@@ -555,10 +599,11 @@ def main(argv: list[str] | None = None) -> int:
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:
-        _print_manual_activation(node_names, written)
+        _print_manual_activation(node_names, written,
+                                 selectable=args.target_sink == "")
         rc = 0
     else:
-        rc = _activate(node_names)
+        rc = _activate(node_names, selectable=args.target_sink == "")
         # The path where the sound just changed under them, so this is where
         # knowing the way back matters most.
         print()

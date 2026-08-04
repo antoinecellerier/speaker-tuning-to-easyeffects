@@ -294,7 +294,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
-- `--doctor` — run the generator's environment self-diagnostics, then exit
+- `--doctor` — report the state of the installed PipeWire filter chain, plus your audio hardware, then exit
 
 **Profile selection**
 - `--endpoint TYPE` — endpoint type from the XML (default: `internal_speaker`)
@@ -334,7 +334,10 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 <details>
 <summary><code>ee_to_pipewire.py</code> command-line options</summary>
 
-- `preset` (positional) — path to the EasyEffects preset JSON (the output of `dolby_to_easyeffects.py`, e.g. `~/.local/share/easyeffects/output/Dolby-Balanced.json`)
+- `preset` (positional) — path to the EasyEffects preset JSON (the output of `dolby_to_easyeffects.py`, e.g. `~/.local/share/easyeffects/output/Dolby-Balanced.json`); optional with `--doctor`
+
+**Inspection**
+- `--doctor` — report the state of the installed filter chain (stacked chains, confs that didn't load, a missing impulse response, a target sink that no longer exists), then exit
 
 **Routing**
 - `--target-sink NODE_NAME` — hardware sink the filter attaches to as a WirePlumber smart filter (default: auto-detect the internal-speaker sink, the same probe `--autoload` uses). Pass an empty string (`''`) to disable smart-filter routing and emit a v1 virtual sink that apps target directly
@@ -345,7 +348,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 - `--force` — overwrite the output conf if it already exists
 
 **Impulse response**
-- `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: `~/.local/share/easyeffects/irs`)
+- `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: the EasyEffects `irs` directory, Flatpak or native)
 - `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
 
 **General**

@@ -521,3 +521,40 @@ def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
     url = dolby_to_easyeffects._REPORT_FORM_URL
     assert err.count(url) == 1
     assert err.index(url) > err.index("[3/3]")
+
+
+# --- What still has to happen for the chain to be heard ---------------------
+#
+# With smart-filter routing WirePlumber inserts the chain and nothing is left
+# to do. With --target-sink '' the chain is an ordinary output that processes
+# nothing until it is selected — a run that stops at "Sink loaded" leaves the
+# reader believing it is already working.
+
+def test_smart_filter_run_claims_automatic_pinning(recorders, capsys):
+    assert wrapper_main(["--no-activate"]) == 0
+    err = capsys.readouterr().err
+    assert "pinned to your speakers automatically" in err
+    assert "pick it as your output" not in err
+
+
+def test_virtual_sink_run_says_to_select_it(recorders, capsys):
+    assert wrapper_main(["--target-sink", "", "--no-activate"]) == 0
+    err = capsys.readouterr().err
+    assert "pick it as your output" in err
+    assert "pinned to your speakers automatically" not in err, \
+        "nothing pins a v1 virtual sink — it is inert until selected"
+
+
+def test_activation_says_the_restart_stops_easyeffects(recorders, capsys):
+    """The restart takes a running EasyEffects down with it, so whatever it
+    was applying stops here whether or not the reader acts on the advice."""
+    assert wrapper_main([]) == 0
+    err = capsys.readouterr().err
+    assert "stops it for this session" in err
+
+
+def test_activated_virtual_sink_run_names_the_sink_to_pick(recorders, capsys):
+    assert wrapper_main(["--target-sink", ""]) == 0
+    err = capsys.readouterr().err
+    assert "pick it as your output" in err
+    assert "Dolby_Balanced" in err

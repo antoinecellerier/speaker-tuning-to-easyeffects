@@ -40,6 +40,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
+import _doctor
 import _ee_paths
 from _version import get_version
 
@@ -1148,20 +1149,19 @@ def report_speaker_info():
 # normal run. The pure helpers below take plain inputs so they're unit-tested
 # without touching the system; the _probe_/_gather_ wrappers do the I/O.
 
-DOCTOR_PASS, DOCTOR_WARN, DOCTOR_FAIL, DOCTOR_UNKNOWN = "PASS", "WARN", "FAIL", "?"
+# The report vocabulary is shared with ee_to_pipewire.py's PipeWire-side
+# doctor (see _doctor.py) so the two read as one tool. Bound to the names this
+# file already uses; the printers below bind our console and wrap width.
+DOCTOR_PASS = _doctor.DOCTOR_PASS
+DOCTOR_WARN = _doctor.DOCTOR_WARN
+DOCTOR_FAIL = _doctor.DOCTOR_FAIL
+DOCTOR_UNKNOWN = _doctor.DOCTOR_UNKNOWN
+CheckResult = _doctor.CheckResult
 
 # EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
 # match the speaker-correction convolver regardless of its index. Keep the
 # "kernel-name" literal in step with make_convolver().
 _CONVOLVER_KEY_RE = re.compile(r"^convolver#\d+$")
-
-
-@dataclass
-class CheckResult:
-    """One diagnostic line: a status, a short label, and an actionable detail."""
-    status: str          # DOCTOR_PASS / WARN / FAIL / UNKNOWN
-    label: str
-    detail: str
 
 
 @dataclass
@@ -1501,14 +1501,7 @@ def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
         "command that switches it on.")
 
 
-def _doctor_summary(checks) -> tuple[int, int, int, int]:
-    """Count (FAIL, WARN, PASS, UNKNOWN) across the checks. UNKNOWN is counted
-    so an unverifiable run isn't silently summarised as clean."""
-    fail = sum(1 for c in checks if c.status == DOCTOR_FAIL)
-    warn = sum(1 for c in checks if c.status == DOCTOR_WARN)
-    ok = sum(1 for c in checks if c.status == DOCTOR_PASS)
-    unknown = sum(1 for c in checks if c.status == DOCTOR_UNKNOWN)
-    return fail, warn, ok, unknown
+_doctor_summary = _doctor.summarize
 
 
 def _flatpak_version_text(info_output: str) -> str:
@@ -1696,15 +1689,54 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
-def _print_doctor_report(report: DoctorReport) -> None:
-    """Print a compact, paste-safe diagnostic report."""
+def emit_check(check: CheckResult) -> None:
+    """Print one diagnostic line: the status box, the label, wrapped detail.
+
+    Shared with ee_to_pipewire.py's PipeWire-side doctor so the two reports
+    read as one tool. The detail wraps, which is why no check may put a
+    copy-paste command in it — a folded command line is not runnable.
+    """
     style = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
              DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
+    cprint(style.get(check.status, "dim"),
+           f"  [{check.status:^4}] {check.label}")
+    for line in textwrap.wrap(check.detail, width=_wrap_width() - 9):
+        cprint("dim", f"         {line}")
 
-    def emit(c):
-        cprint(style.get(c.status, "dim"), f"  [{c.status:^4}] {c.label}")
-        for line in textwrap.wrap(c.detail, width=_wrap_width() - 9):
-            cprint("dim", f"         {line}")
+
+def print_doctor_summary(checks: list[CheckResult]) -> None:
+    """Print the counted one-line summary. Split from the verdict below it
+    because the two surfaces put different things between them — the
+    EasyEffects report interleaves its paste block."""
+    fail, warn, ok, unknown = _doctor_summary(checks)
+    parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
+    if unknown:
+        parts.append(f"{unknown} UNKNOWN")
+    cprint("err" if fail else ("warn" if (warn or unknown) else "ok"),
+           "Summary: " + ", ".join(parts))
+
+
+def print_doctor_verdict(checks: list[CheckResult]) -> None:
+    """Print the one-line verdict, shared so both doctors conclude the same way.
+
+    A WARN suppresses the all-clear: every warning either report can raise
+    names something that plausibly explains "I hear no difference", so
+    "no blocking problems" printed beside one contradicts the lines above it.
+    """
+    fail, warn, ok, unknown = _doctor_summary(checks)
+    if not (fail or warn or unknown):
+        cprint("ok", "No blocking problems detected.")
+    elif warn and not fail:
+        cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
+                       "to fix first.")
+    elif unknown and not fail:
+        cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
+                       "above); the rest look OK.")
+
+
+def _print_doctor_report(report: DoctorReport) -> None:
+    """Print a compact, paste-safe diagnostic report."""
+    emit = emit_check
 
     cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
     cprint("head", "=== EasyEffects doctor ===")
@@ -1727,12 +1759,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
             continue
         emit(c)
     print()
-    fail, warn, ok, unknown = _doctor_summary(report.checks)
-    parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
-    if unknown:
-        parts.append(f"{unknown} UNKNOWN")
-    summary = "Summary: " + ", ".join(parts)
-    cprint("err" if fail else ("warn" if (warn or unknown) else "ok"), summary)
+    print_doctor_summary(report.checks)
     print()
 
     # Raw probed facts — always shown so an issue can be diagnosed remotely even
@@ -1759,20 +1786,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
     print()
 
     # What the doctor can't see — guide the user through the manual checks.
-    # A WARN has to suppress the all-clear. Every warning this report can
-    # raise names something that plausibly explains "I hear no difference" —
-    # no presets written, background service off, a firmware gate that mutes
-    # the speakers — so printing "no blocking problems" beside one contradicts
-    # the very lines above it, in the output the issue form asks people to
-    # paste when something is wrong.
-    if not (fail or warn or unknown):
-        cprint("ok", "No blocking problems detected.")
-    elif warn and not fail:
-        cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
-                       "to fix first.")
-    elif unknown and not fail:
-        cprint("warn", "Some checks couldn't be verified (the [ ? ] lines above); "
-                       "the rest look OK.")
+    print_doctor_verdict(report.checks)
     cprint("dim", "If you still hear no difference between the preset and bypass:")
     cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
     cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")

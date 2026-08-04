@@ -68,6 +68,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   `--target-sink ''` for one selectable sink per voicing; `--no-activate`
   skips the restart; new `--skip-ee-check` / `--skip-next-steps` flags on
   the two underlying scripts support the flow (docs/ee-to-pipewire.md).
+- New `ee_to_pipewire.py --doctor` reports the state of an installed filter
+  chain — chains stacked on one sink, a conf that didn't load, a missing
+  impulse response, a target sink that no longer exists — with the command to
+  fix each and a block to paste into an issue
+  ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
+
 - **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag
   engages the speaker-protection limiter on bands the tuning marks
   non-isolated but leaves at a 0 dB threshold, so loud content that
@@ -135,6 +141,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   are no longer buried under the per-band tables.
 
 ### Fixed
+
+- `dolby_to_pipewire.py --doctor` now diagnoses the PipeWire chain instead of
+  EasyEffects. It used to report on an EasyEffects install this path never
+  writes to, down to telling you to generate presets into a directory it will
+  never use.
 
 - `ee_to_pipewire.py` finds the impulse response on a Flatpak EasyEffects.
   Its `--irs-dir` default was hardcoded to the native path while the
