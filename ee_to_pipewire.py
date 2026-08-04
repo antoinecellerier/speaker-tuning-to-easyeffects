@@ -1169,6 +1169,10 @@ def _print_next_steps(node_name: str,
                   "(or remove its autoload for this device)")
     cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
                   f"{_sanitize_name(node_name)}")
+    # What success looks like (round 6): with no expected output stated, an
+    # empty grep couldn't be told apart from "this step doesn't matter".
+    cprint("dim", "     (it should print a line; nothing means step 1's "
+                  "restart didn't load it)")
     if target_object:
         cprint("cta", "  4. Verify routing:          "
                       f"pw-link -l | grep {target_object}")

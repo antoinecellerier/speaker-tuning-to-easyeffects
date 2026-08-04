@@ -249,6 +249,10 @@ def _print_manual_activation(node_names: list[str],
     for name in node_names:
         cprint("cta", f"  3. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
+    # What success looks like (round 6): with no expected output stated, an
+    # empty grep couldn't be told apart from "this step doesn't matter".
+    cprint("dim", "     (it should print a line; nothing means step 1's "
+                  "restart didn't load it)")
     print()
     _print_undo(written)
 
