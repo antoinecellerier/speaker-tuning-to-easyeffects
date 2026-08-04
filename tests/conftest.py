@@ -221,16 +221,20 @@ def synthetic_peq_filters(types_and_params):
     ]
 
 
-def synthetic_mb_comp(group_count: int, bands):
-    """Build the mb_comp dict consumed by make_multiband_compressor.
+def synthetic_mb_comp(group_count: int, bands, target_power: float = -5.0):
+    """Build the mb_comp dict parse_xml produces.
 
     `bands` is a list of (xover_idx, threshold_q4, gain_q15, attack_q15,
     release_q15, makeup_q4) tuples — Q-format raw integers, exactly as
     parse_xml produces from the XML.
+
+    `target_power` is read-only: no emitted parameter uses it, but the run
+    report prints it, so a fixture without it can't drive the report.
     """
     return {
         "group_count": group_count,
         "band_groups": list(bands),
+        "target_power": target_power,
     }
 
 

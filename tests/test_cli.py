@@ -1574,6 +1574,111 @@ def test_finding_asks_do_not_borrow_other_filters_symptoms():
                 f"'{name}' menu symptom — one heard symptom, two remedies")
 
 
+# --- Copy that must stay true, not just readable ---
+#
+# The 2026-08 verification pass found the readability loop's own fixes were
+# the biggest source of false statements: a reviewer grades comprehension,
+# which a wrong sentence can satisfy perfectly. Two of those classes are
+# mechanical, so they get traps rather than a rule nobody re-reads. The
+# claim-type checklist for the rest is in .claude/rules/user-messages.md.
+
+# The stages that own a section line in the run report. high-shelf and lo-pass
+# are PEQ filter *types* — they appear as bell/shelf rows, not as a section
+# that could describe itself as shipping — so they have nothing to trap here.
+_SECTION_OWNING_FILTERS = {"volmax", "mbc", "regulator", "autogain",
+                           "dialog", "bass-enhancer"}
+
+
+def test_every_disableable_filter_is_classified_for_the_section_trap():
+    """A new --disable name must be a deliberate decision, not a silent gap:
+    either it owns a section (and the trap below covers it) or it is a PEQ
+    row type. Left to drift, the next filter joins neither list and the
+    trap's coverage quietly shrinks."""
+    peq_row_types = {"high-shelf", "lo-pass"}
+    assert _SECTION_OWNING_FILTERS | peq_row_types == set(
+        dolby_to_easyeffects.DISABLEABLE_FILTERS)
+
+
+def _fully_stocked_tuning():
+    """A tuning carrying every stage that owns a section, so switching any
+    one of them off has something to change."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        ieq_amount=10, ieq_enabled=True, peq_filters=[], curves={},
+        dialog_enhancer={"amount": 5}, surround=None,
+        vol_leveler={"enable": 1, "amount": 5,
+                     "in_target": -20.0, "out_target": -20.0},
+        mb_comp=synthetic_mb_comp(2, [(4, 16, 0, 0, 0, 0),
+                                      (12, 16, 0, 0, 0, 0)]),
+        regulator=synthetic_regulator([-6.0] * 20), volmax_boost=6.0,
+        freqs=SYNTHETIC_FREQS_20, profile_used="dynamic",
+        default_profile=None, geq_max_range=192, ao_enabled=True,
+        findings=[])
+
+
+@pytest.mark.parametrize("name", sorted(_SECTION_OWNING_FILTERS))
+def test_switching_a_stage_off_changes_what_the_run_says(name, monkeypatch,
+                                                         capsys):
+    """A stage the reader switched off must not keep describing itself.
+
+    --disable dialog/mbc/regulator each removed the plugin while their
+    section still read "Dialog enhancer: +1.9 dB ... @ 2.5 kHz" and
+    "Regulator (per-band limiter): a protective ceiling ...", because those
+    sections were gated on the stage existing in the XML rather than on it
+    surviving into the preset. volmax and autogain named their flag, so one
+    run carried two conventions with nothing to tell them apart.
+
+    The invariant is "the report must react", not a header match: naming
+    the flag and dropping the section outright are both honest answers —
+    printing the stage as if it shipped is not — and a diff survives any
+    rewording of the sections themselves.
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    tuning = _fully_stocked_tuning()
+    dolby_to_easyeffects._report_parsed_profile(
+        tuning, [0.0] * 20, [0.0] * 20, 0.1, set(), is_soundwire=True)
+    shipped = " ".join(capsys.readouterr().out.split())
+
+    dolby_to_easyeffects._report_parsed_profile(
+        tuning, [0.0] * 20, [0.0] * 20, 0.1, {name}, is_soundwire=True)
+    dropped = " ".join(capsys.readouterr().out.split())
+
+    assert dropped != shipped, (
+        f"--disable {name} changed nothing in the report, so the run "
+        f"describes a stage the preset does not contain:\n{shipped}")
+
+
+def test_an_ask_never_names_a_flag_the_same_run_withholds(monkeypatch,
+                                                          capsys):
+    """A two-step ask must not send the reader to a flag the run's own menu
+    doesn't offer.
+
+    The untamed-boost family said "swap to --enable coupled-bands (not
+    both)" whenever isolated_band existed, while the Optional-extras menu
+    used the stricter eligibility test — so on a tuning with no qualifying
+    band the same screen recommended a flag it declined to list, and the
+    re-run answered "--enable coupled-bands had no effect".
+    """
+    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    findings = [dolby_to_easyeffects._loudness_untamed_finding(
+        coupled_bands_possible=False)]
+    by_profile = {name: {"default"} for name in
+                  ("volmax", "mbc", "regulator", "dialog")}
+    dolby_to_easyeffects.print_troubleshooting(findings, by_profile)
+    menu = " ".join(capsys.readouterr().out.split())
+
+    dolby_to_easyeffects.print_project_asks(findings)
+    asks = " ".join(capsys.readouterr().out.split())
+    for hint in findings:
+        dolby_to_easyeffects._print_ask("cta", hint)
+    asks += " " + " ".join(capsys.readouterr().out.split())
+
+    for flag in re.findall(r"--(?:disable|enable) [a-z-]+", asks):
+        assert flag in menu, (
+            f"an ask names {flag!r} but the same run's menu doesn't offer "
+            f"it:\nask text: {asks}\nmenu: {menu}")
+
+
 def test_clean_run_closing_block_is_just_the_ask(monkeypatch, capsys):
     """The common case by a wide margin. A rule and a "Help the project"
     heading over a bare report-back line would be noise on every clean run,

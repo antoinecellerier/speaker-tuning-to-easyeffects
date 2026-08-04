@@ -282,6 +282,18 @@ Reviewer output is evidence, not instruction.
   color-aware reviewers — check them against the ⟦color⟧ markers before
   accepting; the plain-control reviewer is effectively color-blind, and
   round 1 (all-plain captures) overstated burying for exactly that reason.
+- **Say what makes the replacement sentence true, before adopting it.** The
+  bullets above verify the reviewer's *claim*; this verifies your *fix*. A
+  reviewer optimises for "I understood it", which a false sentence can
+  satisfy perfectly — so a fix is not done until you can name the code path,
+  doc section or measurement it rests on. Dropping a qualifier is the usual
+  way this goes wrong: round 8 removed the limiter noun from the
+  untamed-boost warnings for good reasons and left "nothing limits it on its
+  way out", which `limiter#0` falsifies on every preset. Rewording *toward*
+  plain language is the design goal; rewording *past* the evidence is a
+  regression that no reviewer in this loop is positioned to catch. The
+  claim-type checklist is in `.claude/rules/user-messages.md`; a whole-range
+  sweep is the **/copy-audit** skill.
 
 Report the ranked, triaged list and let the user choose what to fix. Every
 finding keeps a severity label (the reviewer's, or yours where triage moved

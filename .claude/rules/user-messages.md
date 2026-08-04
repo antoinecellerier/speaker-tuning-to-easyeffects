@@ -52,6 +52,39 @@ Rules that hold for anything added here:
 `cprint` hands text to the console verbatim so URLs survive, so **prose long
 enough to need folding must ask** via `_cprint_wrapped` / `_print_flag_hint`.
 
+## Every claim is checkable
+
+Plain language is the goal, but a sentence a first-time reader understands
+perfectly can still be false, and nothing in `/user-review` is positioned to
+notice. Before shipping a message, name what each claim rests on:
+
+- **What the tool does** → the gate that decides it. If the predicate is
+  broader or narrower than the sentence, the sentence is wrong: a section
+  gated on `if regulator:` describes a stage `--disable regulator` removed,
+  and a `<= 0` branch saying "your tuning asks for none" is wrong about
+  every negative value.
+- **What the audio or Dolby does** → `docs/reference.md` "Validated vs
+  unvalidated mappings". Anything on the unvalidated list gets hedged, not
+  asserted; anything the docs hold as a *leading hypothesis* is reported as
+  what we measured, not as what Dolby intends.
+- **How common something is** ("every device", "rare", "usually") → a
+  re-derivation date and a figure. Derive it through `resolve_xml_value`,
+  never a bare grep: the `preset=` indirection hides values a text search
+  reports as absent.
+- **What other software does** (PipeWire, WirePlumber, EasyEffects, a shell
+  command's output) → a command that reproduces it on a real machine.
+
+**Removing a qualifier is the usual way a true sentence becomes false.**
+"Nothing limits it" for "nothing limits it band by band", "the most likely
+reason" for "a plausible cause", "sized from this speaker's bass cutoff" for
+a constant used on 36 of 39 files — each was a readability win that changed
+the truth value. When a qualifier is load-bearing, say so in a comment beside
+it, so the next round doesn't trim it back.
+
+A message must also hold for **every** device that can reach it, not the one
+whose bug report prompted it. `--variant`, `--all-profiles`, each `--disable`
+name, SoundWire vs HDA and the simplified schema are all separate readers.
+
 `tests/test_cli.py` ("Closing-block copy contract") traps the one-sentence
 budget, the no-URL and no-empty-action rules, slug uniqueness, and that a
 clean run collapses to just the ask. Extend `_every_finding()` when you add a
@@ -61,3 +94,8 @@ Those traps are structural and can't tell you a message is confusing,
 contradictory, or impossible to act on. After changing copy here, run the
 **/user-review** skill: it puts the real output past reviewers role-playing a
 first-time user and reports severity-ranked findings.
+
+Nor can they tell you a message is *false* — reviewers grade comprehension,
+and a wrong sentence can read beautifully. The **/copy-audit** skill sweeps a
+git range for that, checking each claim against the evidence its type
+demands.
