@@ -1,7 +1,7 @@
 ---
 name: audio-validate
 description: >-
-  Validate a change to the audio output path against measured on-device ground
+  Validates a change to the audio output path against measured on-device ground
   truth. Use after any change to FIR generation, gain staging, filter
   parameters, or the EasyEffects / PipeWire output chain, before adopting or
   shipping it — and whenever the user asks to "test on device", "capture the EE

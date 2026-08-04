@@ -1,9 +1,9 @@
 ---
 name: claude-md-audit
 description: >-
-  Audit CLAUDE.md for accuracy and bloat, and propose a concrete edit list. Run
-  this BEFORE committing any change to CLAUDE.md (the file's own house rules
-  require it), and periodically as a maintenance pass. It verifies every
+  Audits CLAUDE.md for accuracy and bloat, and proposes a concrete edit list.
+  Run this BEFORE committing any change to CLAUDE.md (the file's own house
+  rules require it), and periodically as a maintenance pass. It verifies every
   reference still resolves, flags references to gitignored file paths, checks the
   file against its line budget, finds duplication across CLAUDE.md / docs / memory
   / skills, and scans recent session transcripts and memory for durable rules

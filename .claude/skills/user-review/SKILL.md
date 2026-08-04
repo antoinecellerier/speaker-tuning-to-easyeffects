@@ -1,8 +1,8 @@
 ---
 name: user-review
 description: >-
-  Review the scripts' user-facing terminal output by running it past subagent
-  reviewers role-playing a first-time user, then report severity-ranked
+  Reviews the scripts' user-facing terminal output by running it past subagent
+  reviewers role-playing a first-time user, then reports severity-ranked
   findings. Use after changing any message a user reads — end-of-run blocks,
   warnings, flag menus, asks, phase banners — and whenever the user asks to
   "review the output", "check how this reads", "run it past a user", or wants
