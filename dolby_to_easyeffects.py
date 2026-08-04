@@ -5859,6 +5859,10 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     # One hidden-tables hint per profile, at the spot the first table would
     # have occupied — three identical lines read as a nag.
     tables_hint_pending = not args.verbose
+    # (preset_name, worst-deviation) per built FIR — the default view prints
+    # one consolidated verdict after the loop; three identical green
+    # "passed" lines read as three separate validations (round 6).
+    check_results: list[tuple[str, float]] = []
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
@@ -5951,12 +5955,31 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         # No "(inaudible)": printed a few lines under a ⚠ loudness warning,
         # the green all-clear read as canceling it (round 5). This line is
         # about curve accuracy only — keep listening language out.
-        if worst <= FIR_VERIFY_OK_DB:
-            cprint("ok", f"  Correction check passed: the built filter "
-                         f"matches its target within {worst:.2f} dB")
+        check_results.append((preset_name, worst))
+        if args.verbose:
+            # Next to its own table; the default view gets one verdict for
+            # all three after the loop.
+            if worst <= FIR_VERIFY_OK_DB:
+                cprint("ok", f"  Correction check passed: the built filter "
+                             f"matches its target within {worst:.2f} dB")
+            else:
+                cprint("warn", f"  Correction check: {worst:.2f} dB off "
+                               "target at worst — unexpected, please "
+                               "report this run")
+        print()
+
+    fails = [(n, w) for n, w in check_results if w > FIR_VERIFY_OK_DB]
+    if not args.verbose and check_results:
+        if not fails:
+            worst_all = max(w for _, w in check_results)
+            cprint("ok", f"  Correction check passed: all "
+                         f"{len(check_results)} filters match their "
+                         f"targets within {worst_all:.2f} dB")
         else:
-            cprint("warn", f"  Correction check: {worst:.2f} dB off target "
-                           "at worst — unexpected, please report this run")
+            for name, w in fails:
+                cprint("warn", f"  Correction check ({name}): {w:.2f} dB "
+                               "off target at worst — unexpected, please "
+                               "report this run")
         print()
 
 
