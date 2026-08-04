@@ -1484,11 +1484,14 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         if target_sink:
             # Names the override (round 7): without it a reader whose
             # detection picked the wrong device assumed their only path
-            # was filing a report.
+            # was filing a report. And how to find NAME (round 8): the
+            # flag alone left them with no way to discover a value.
             cprint("ok", f"[smart-filter] your built-in speakers: "
                          f"{target_sink} "
                          "(autodetected — wrong device? --target-sink NAME "
                          "overrides)")
+            cprint("dim", "  (list sink names with: pw-cli ls Node | grep "
+                          "alsa_output)")
         else:
             cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
                            "conf (apps will target effect_input."
