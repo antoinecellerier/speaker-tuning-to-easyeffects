@@ -5031,7 +5031,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    profile_used: str | None = None,
                    n_modes: int = 0,
                    default_unknown: bool = False,
-                   autogain_off: bool = False) -> None:
+                   autogain_off: bool = False,
+                   menu_printed: bool = False) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -5057,6 +5058,14 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     """
     if not preset_names or autoloaded:
         return
+    # One wording for both branches. The swell/duck caveat rides the
+    # suggestion (round 7): alone on the last screen, "add --enable
+    # autogain" read as a no-downside fix while its known side effect sat
+    # scrolled away. Same risk phrasing as the leveler family everywhere.
+    autogain_note = ("  Likely quieter than on Windows: your tuning's "
+                     "volume leveler ships off here — --enable autogain "
+                     "turns it on (may make quiet passages swell then "
+                     "duck).")
     cprint("head", f"\n{'=' * 60}")
     if dry_run:
         # cta, not ok: green is this run's "check passed, nothing to do"
@@ -5064,8 +5073,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # done" in the same green (round-2 color finding).
         cprint("cta", f"Dry run — nothing was written. Re-run without "
                       f"--dry-run to install these {len(preset_names)} presets:")
-        for name in preset_names:
-            cprint("dim", f"    {name}")
+        # One comma-separated line, not one name per line (round 7): the
+        # vertical list ate the last screen's budget.
+        _cprint_wrapped("dim", "    " + ", ".join(preset_names),
+                        indent="    ")
         # One clause on what installing gets them: a dry-run reader asked
         # "do I hear the change after re-running, or is there another step?"
         # and had nothing to go on until the real run printed its answer.
@@ -5087,17 +5098,14 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                    "--all-profiles builds every mode.",
                             indent="  ")
         if autogain_off:
-            _cprint_wrapped("dim", "  Likely quieter than on Windows: your "
-                                   "tuning's volume leveler ships off here "
-                                   "— add --enable autogain to turn it on.",
-                            indent="  ")
+            _cprint_wrapped("dim", autogain_note, indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
-    # Name them all. Naming only the first left the reader wondering what the
-    # other two were and whether one suited their speakers better.
-    for name in preset_names:
-        cprint("dim", f"    {name}")
+    # Name them all — naming only the first left the reader wondering what
+    # the other two were — but on one comma-separated line (round 7): the
+    # vertical list ate the last screen's budget.
+    _cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
     print()
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
     # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
@@ -5116,9 +5124,15 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                f"mode only{caveat} — --all-profiles builds "
                                "every mode.", indent="  ")
     if autogain_off:
-        _cprint_wrapped("dim", "  Likely quieter than on Windows: your "
-                               "tuning's volume leveler ships off here — "
-                               "add --enable autogain to turn it on.",
+        _cprint_wrapped("dim", autogain_note, indent="  ")
+    # The one-line map back to the menu (round 7): with the Done block
+    # grown, the symptom→flag menu scrolls off a 26-line screen and the
+    # reader said they'd never think to scroll. The pointer puts the
+    # menu's existence on the last screen without re-breaking the round-3
+    # order (success last, not troubleshooting).
+    if menu_printed:
+        _cprint_wrapped("dim", "  Something sound off later? Scroll up to "
+                               "\"If something doesn't sound right\".",
                         indent="  ")
 
 
@@ -5153,7 +5167,7 @@ def print_troubleshooting(findings: list[Finding],
                           filters_by_profile: dict[str, set[str]],
                           installs_presets: bool = True,
                           enabled_by_flag: frozenset[str] = frozenset(),
-                          dry_run: bool = False) -> None:
+                          dry_run: bool = False) -> bool:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -5188,7 +5202,9 @@ def print_troubleshooting(findings: list[Finding],
         shown = [k for k in shown if k != "regulator"]
     enable_hints = [k for k in ENABLEABLE_FILTERS if k in filters_by_profile]
     if not hints and not shown and not enable_hints:
-        return
+        # Returns whether the menu printed, so the closing's scroll-up
+        # pointer never points at a menu that isn't there.
+        return False
 
     cprint("head", f"\n{'=' * 60}")
     cprint("head", "If something doesn't sound right")
@@ -5270,6 +5286,7 @@ def print_troubleshooting(findings: list[Finding],
                 if dry_run else
                 "Add any of the flags above to the same command you ran")
         _cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
+    return True
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -6674,16 +6691,18 @@ def main(argv: list[str] | None = None,
     # at [1/3] it told the reader what to re-run before setup had finished,
     # with two more phases of output below it) — stashed here, printed by
     # the wrapper at its own end.
+    menu_printed = False
     if troubleshooting is not None:
         troubleshooting.update(
             findings=scoped,
             filters_by_profile=filters_by_profile,
             enabled_by_flag=frozenset(args.enable))
     else:
-        print_troubleshooting(scoped, filters_by_profile,
-                              installs_presets=not args.skip_closing,
-                              enabled_by_flag=frozenset(args.enable),
-                              dry_run=args.dry_run)
+        menu_printed = print_troubleshooting(
+            scoped, filters_by_profile,
+            installs_presets=not args.skip_closing,
+            enabled_by_flag=frozenset(args.enable),
+            dry_run=args.dry_run)
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a
@@ -6711,7 +6730,8 @@ def main(argv: list[str] | None = None,
                        # (the --enable-menu state); -active = running.
                        autogain_off=("autogain" in filters_by_profile
                                      and "autogain-active"
-                                     not in filters_by_profile))
+                                     not in filters_by_profile),
+                       menu_printed=menu_printed)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
