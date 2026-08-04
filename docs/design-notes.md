@@ -2233,6 +2233,275 @@ in-GUI per-effect bypass already brackets the question (switching off
 curve is confirmed as the cause, the answer is to find what DAX does that we
 don't, not a fudge factor.
 
+## Giving back what normalisation removed: `--enable level-restore` (issue [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50))
+
+The Yoga 7 2-in-1 16IML9 report describes the preset as quieter than bypass,
+thin, and with the convolver specifically sounding muffled. Unlike the T495
+above, this tuning is nowhere near the rail — its AO peaks at **+8.0 dB** —
+which is what makes the mechanism visible on its own.
+
+**Which reports this actually covers, and which it does not.** The
+symptom — *quieter than expected* — is issue
+[#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)
+(quieter than Windows, answered with `--enable autogain`) and this one (quieter
+than bypass). **The T495 of issue
+[#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)
+is not in this class and must not be offered the flag**: that reporter's
+symptoms are clipping, tinny and overblown, and they said the level itself was
+fine. Their tuning peaks at the +12 dB rail on a band their regulator leaves
+unlimited, so restoring it would drive the brickwall harder and make the one
+thing they complained about worse. The two reports share a *mechanism* and not
+a *symptom*, and conflating them would ship a fix as a regression.
+
+**The arithmetic.** `make_fir(normalize=True)` divides each channel by its own
+realised peak, so the emitted response is `combined(f) − max(combined) +
+volmax`. Two different numbers fall out of that and they are easy to confuse:
+the shortfall against what the tuning asks for is the **whole peak**, uniform
+across the band, while `volmax − peak` is how far a band the tuning leaves flat
+sits below *bypass*. On this XML `max(combined) = +9.21 dB` (3750 Hz,
+`ieq_balanced`) against a `volmax-boost` of `+6.0 dB`: every band lands **9.2 dB
+short of the tuning**, and an untouched band plays **3.2 dB below bypass** —
+which is why the low end ends up under bypass outright:
+
+| | 47 Hz | 469 Hz | 3750 Hz | 19688 Hz |
+|---|---|---|---|---|
+| tuning + volmax | +7.0 | +0.3 | +15.2 | +5.2 |
+| what we emit | −2.2 | −8.9 | +6.0 | −4.0 |
+
+The uniform −9.2 dB is consistent with the ≈−8 dB absolute EE−DAX offset
+measured on the dev device (unvalidated-scaling entry 8), which that entry
+records as "leveler boost + our −3 dB trim + convolver peak-normalisation,
+inseparable".
+
+**Why normalisation was right when it shipped, and why restoring is defensible
+now.** Peak normalisation is not a decision anyone revisited and waved through —
+it dates from the very first commit (`9eb5871`, 2026-02-27), and at that moment
+it was the *only* thing standing between a boost-heavy curve and a clipped
+output. Three things have changed since:
+
+- **There was no limiter.** `1b14bc1` added the brickwall the day after
+  (2026-02-28), and `5973326` the same day forced `convolver#0.autogain` off,
+  killing the +50 dB re-normalisation. Restoring level into a chain with no
+  final limiter would have clipped; into today's it does not.
+- **The peak was twice as big.** Until `eeecc4a` (#12/#13) the converter read
+  `ieq-amount` as `amount/10` and applied the IEQ at full weight. On the dev
+  device that put the combined peak at **+20.1 dB** instead of +9.2 — so
+  "restore the peak" would have meant handing back 10.9 dB more than it does
+  now, on a curve that was itself wrong.
+- **The boost lands somewhere safer.** `4213d5f` (#23, 2026-06-22) moved
+  `volmax-boost` to the regulator's `input-gain`, so a static boost now passes
+  the per-band limiter before the brickwall rather than after it. The restore
+  inherits that placement.
+
+So the original constraint was real and has since lifted. What kept it
+unexamined afterwards is a separate failure, recorded in the absolute-offset
+note below.
+
+**Why this is not the fudge factor the section above declined.** The restored
+amount is `make_fir`'s own returned `peak_db` — the exact scalar it divided
+out, derived from the XML curve and nothing else. It is the identity, not a
+proportion of it: the removed SoundWire makeup (unvalidated-scaling entry 3)
+was `peak_db * 0.5`, a half-measure whose magnitude tracked the pre-#13
+`ieq-amount` bug. It also does not touch the curve's *shape*, which is what
+"scales or clamps the AO curve" would have meant.
+
+**Placement.** It rides the same slot as `volmax-boost` (regulator
+`input-gain` by default), so the per-band limiter sees it before the brickwall
+— issue #23 measured that placement at 0.06% THD against 11.6% for the
+post-band alternative.
+
+**Channel re-referencing.** Normalising each channel to its own peak also
+flattens the L/R level relationship the two AO curves ask for. Re-derived
+2026-08-04 over the 3051 parsed corpus XMLs: the two combined-curve peaks
+diverge on **19.1%** of files (median 0.93 dB, p90 2.62, max 5.56) — so on
+roughly one device in five the default path shifts the stereo balance by an
+amount the tuning did not ask for. Under the flag both channels are referenced
+to the louder peak, so the relationship survives and no channel exceeds full
+scale. Worth noting this is a property of the *default* path that the flag
+happens to correct; on its own it is a candidate fix independent of the level
+question, and it has not been heard either.
+
+**The coupled hypothesis — proposed, then measured, then dropped.** The idea was
+that since DAX applies the boost and catches it with per-band limits at 0 dBFS
+while we treat a 0 dB `threshold_high` as inactive, restore-the-level and
+treat-0 dB-as-a-real-limit were one question: restoring level without
+`--enable coupled-bands` would feed the peak band straight into the brickwall,
+and the flag would catch it. **The 2026-08-04 capture battery falsified that**
+(measurements below): `LRC` and `LR` are identical to 0.00 dB in both fitted
+gain and residual on every stimulus, and `coupled-bands` alone is bit-identical
+to the default preset on five of seven. It cannot mitigate here, because after
++11.3 dB the in-band levels at the coupled bands are still under the 0 dBFS
+threshold that would engage them. The extra level lands on the final limiter,
+and nothing upstream catches it. The `boost-unlimited` warning still fires on
+the flag-on path — the exposure is real — but its `ask` should not be read as
+pointing at a fix that works.
+
+**How a 12 dB offset stayed unexamined for months.** Not for want of absolute
+tooling: `compare_ee_vs_dax.py --absolute` shipped 2026-06-12 (`7aefebd`), and
+entry 8 names the trap outright — "the default 1 kHz normalization destroys
+exactly this observable". The offset was measured twice, at −11.5 dB and then
+≈−8 dB. Two things buried it anyway:
+
+- **The flagship comparison was normalised.** Issue
+  [#12](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/12),
+  the project's most detailed EE↔DAX study, reports throughout as "EE − DAX,
+  RMS dB, 200–18 kHz, **normalized at 1 kHz**". That view is built to find
+  *shape* mismatches and it found a large one (the IEQ over-application, ~28 dB
+  at 19.7 kHz). A broadband offset is exactly what it cannot show.
+- **"Inseparable" closed the question.** Both absolute attempts were hunting a
+  ~3 dB PEQ trim; the 8–11.5 dB offset was written up as the confound burying
+  the target — "leveler boost + our −3 dB trim + convolver peak-normalisation,
+  inseparable" — and no follow-up was scheduled. The word did the damage: it
+  turned a measurement into a settled fact.
+
+What made the term separable was not a better measurement but a switch. An
+opt-in flag on one of three entangled terms converts an inseparable sum into a
+controlled experiment. **When a note says "inseparable", that is a design task,
+not a conclusion.** `compare_ee_vs_dax.py` now reports the absolute offset
+unconditionally, in normalised mode too, so it cannot be mis-filed again.
+
+**Why the warning's default gate did not move.** The obvious widening — warn
+whenever the peak lands on a 0 dB-threshold band — reaches **54.4%** of the
+3051 parsed corpus XMLs against the current gate's 10.6% (re-derived
+2026-08-04), which is a nag rather than a warning. The reason it is safe to
+leave alone: on the default path the peak-normalised band arrives at the
+brickwall at exactly `volmax_boost` above bypass whatever its peak, so the AO
+peak measures spectral contrast there, not drive. Worth recording about the
+existing gate, though: only **172 of 3051** files declare `<geq_maximum_range>`
+(30 of the 1661 that reach the branch), so "the boost reaches this XML's full
+gain range" is in practice a comparison against our assumed +12.0 dB.
+
+### Measured on the dev device, 2026-08-04
+
+Full battery through the live-EE null-sink route (X1 Yoga G7, `17AA22E6`,
+`dynamic`/balanced; restore = +11.3 dB, volmax +6.0, so the regulator
+`input-gain` reads +17.3). Smoke gate PASS at −219 dB residual. Four presets:
+default, `--enable coupled-bands`, `--enable level-restore`, and both.
+
+**1. The level claim is confirmed, exactly.** Below the limiter the flag is a
+pure broadband gain of precisely the amount `make_fir` divided out — fit gain
+and residual against the default capture:
+
+| stimulus | fitted gain | residual | limiter engaged |
+|---|---|---|---|
+| `pink_quiet` | **+11.30 dB** | −75.0 dB | no |
+| `sweep_quiet` | **+11.30 dB** | −74.7 dB | no |
+| `pink` | +11.25 dB | −32.3 dB | yes |
+| `stereo_pink` | +11.27 dB | −35.6 dB | yes |
+| `stereo_correlated` | +11.25 dB | −32.5 dB | yes |
+| `multitone` | +10.65 dB | −21.9 dB | yes |
+| `sweep` | +10.58 dB | −17.6 dB | yes |
+
+The two quiet rows are the control: +11.30 dB against a +11.3 dB restore, with
+the residual at the capture noise floor. Nothing else changed.
+
+**2. Absolute agreement with DAX improves by an order of magnitude.** EE−DAX
+per-band on `pink`, absolute (not normalised), against the archived Windows
+captures of the same XML and profile:
+
+| | mean | median | range | mean abs |
+|---|---|---|---|---|
+| default, ch L | −12.09 | −11.82 | −17.65…−9.28 | **12.09 dB** |
+| level-restore, ch L | −0.41 | −0.31 | −4.92…+2.15 | **1.27 dB** |
+| default, ch R | −12.10 | −11.84 | −17.69…−9.29 | 12.10 dB |
+| level-restore, ch R | −0.42 | −0.14 | −4.92…+2.14 | 1.27 dB |
+
+This is what separates the term entry 8 called inseparable: the ≈−8…−12 dB
+absolute EE−DAX offset is the convolver's peak normalisation, and giving it
+back closes it to ~1 dB mean error on both channels. The two worst residual
+bands are 141 Hz (−3.6) and 328 Hz (−4.9), both inside the regulator's active
+range on this XML.
+
+**But only at that input level — and this splits the gap in two.** Re-running
+the current `analyze.py` over the *archived* DAX wavs (they were analysed
+before `eq_gain_db_raw` existed; no recapture needed) recovers absolute data
+for `pink_quiet` too, at −41.8 dBFS against `pink`'s −17.8 dBFS:
+
+| stimulus (input RMS) | default mean abs | level-restore mean abs | restore mean |
+|---|---|---|---|
+| `pink` (−17.8 dBFS) | 12.09 dB | **1.27 dB** | −0.41 |
+| `pink_quiet` (−41.8 dBFS) | 21.12 dB | **9.80 dB** | −9.80 |
+
+The restore is worth the same ~11.3 dB at both levels, as it must be — it is a
+static gain. What it cannot touch is the rest: at −41.8 dBFS a **9.8 dB** gap
+survives. The cause is measurable directly from the same archive, as DAX's own
+on-versus-off gain (100 Hz–10 kHz, `dynamic` − `off`):
+
+| stimulus | DAX(dynamic) − DAX(off) |
+|---|---|
+| `pink` | mean **+7.05 dB** (median +5.62, −0.5…+18.5) |
+| `pink_quiet` | mean **+16.39 dB** (median +14.75, +8.8…+27.0) |
+
+DAX rides **+9.3 dB more gain on quiet content than on normal content**, which
+is the 9.8 dB residual almost exactly. So the two gaps are independent and
+additive: peak normalisation is a *static* offset that `--enable level-restore`
+removes, and the volume leveler is a *level-dependent* one that only
+`--enable autogain` can address. Neither flag substitutes for the other, and
+this is the first measurement that separates them. It also puts a number on
+what entries 7/10 call invented: DAX's leveler gain is +7.1 dB at −17.8 dBFS
+and +16.4 dB at −41.8 dBFS on this device, two real points on a curve our
+autogain currently approximates with chosen constants.
+
+**3. The cost is on loud content, and nothing in the chain catches it.** The
+limiter absorbs 0.05–0.72 dB, and on dense material the drive produces real new
+frequency content, not just gain riding: on the multitone, energy at
+non-stimulus bins relative to the tones rises from **−44.4 dB to −22.6 dB**.
+The `pink` case is mild (0.05 dB absorbed); `sweep` and `multitone` are the
+worst, as their sustained in-band energy is highest.
+
+**4. A second device, from the issue-[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) archive.** Those user-supplied
+DAX captures carry `off` baselines at both pink levels, and the same
+re-analysis recovers absolute data from them. Two things come out:
+
+| device | DAX gain @ −17.8 dBFS | @ −41.8 dBFS | slope |
+|---|---|---|---|
+| X1 Yoga G7 (`17AA22E6`) | +7.05 dB | +16.39 dB | +0.39 dB per dB |
+| Yoga Slim 7 14ARE05 (`17AA3839`) | +9.13 dB | +25.25 dB | +0.67 dB per dB |
+
+The level dependence reproduces, but **its magnitude and slope are
+device-specific** — 0.39 against 0.67 dB per dB. One set of autogain constants
+cannot fit both, which is the sharpest argument yet that entries 7/10 need
+measuring rather than choosing, and a reason to run the ladder on more than one
+machine.
+
+The peak-versus-volmax mismatch reproduces too, across three tunings now — all
+with `volmax-boost` at +6.0 dB:
+
+| tuning | combined peak | untouched band vs bypass |
+|---|---|---|
+| X1 Yoga G7 | +11.4 dB | −5.4 dB |
+| Yoga Slim 7 14ARE05 | +10.4 dB | −4.4 dB |
+| Yoga 7 2-in-1 16IML9 (#50) | +9.2 dB | −3.2 dB |
+
+The second device's DAX side is measured; its converter side above is computed
+from the XML, so as written this corroborates the arithmetic and the DAX
+behaviour rather than the flag's realised output.
+
+**That gap is closeable without the hardware, though — the EE side is not
+device-specific.** The null-sink route taps `ee_soe_output_level`, which is a
+digital tap ahead of the speaker (the smoke gate reads 0.00 dB gain and
+−219 dB residual), and the DAX side is WASAPI loopback off the engine mix bus,
+likewise pre-hardware and pre-volume (entry 8). Neither capture contains the
+transducer. So generating another device's XML locally and running the same
+battery is a genuine second measured A/B of the *chain*, and the only thing it
+cannot speak to is how that chain sounds through their speakers. Worth running
+against the `17AA3839` XML before any default flip, rather than waiting on a
+reporter.
+
+**Caveats on what this run can and cannot say.** The dev XML's two channels have
+equal combined peaks, so the L/R re-referencing path was exercised but had
+nothing to correct — it stays untested on hardware. Only `pink` had absolute
+data on both sides (the archived DAX npz predate `eq_gain_db_raw` for the other
+tags), so the EE−DAX table rests on one stimulus. And the dev XML's AO peak sits
+on a *limited* band (234 Hz, −8.0 dB) where #50's sits on an unlimited one, so
+this tests the level term, not #50's boost-into-brickwall shape.
+
+**Status: opt-in, measured, not yet heard.** Default output is unchanged and
+pinned by the `level-restore-available-but-off` golden digest. The level claim
+is now measured rather than predicted, but a default flip still needs a
+listening pass and a second device, per the XML-only bar — and the loud-content
+cost above is an argument for keeping it opt-in regardless.
+
 ## Rejected approaches
 
 Things that were investigated and explicitly declined, recorded so they don't get
