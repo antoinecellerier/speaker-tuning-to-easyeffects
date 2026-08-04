@@ -5726,13 +5726,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             state = ("on in your tuning — running in this preset "
                      "(--disable autogain switches it off)")
         else:
-            # Carries its why (round 6): the override of the tuning's own
-            # setting was only explained 48 lines later in the flag menu.
-            # Same risk phrasing as the menu row — the leveler family's
-            # one wording.
+            # State + flag only (round 8, user decision): the swell/duck
+            # caveat printed identically here, in the menu row, and in the
+            # Done note — three repeats read as padding. The menu row (the
+            # decision point) and the Done note (the last screen) keep it.
             state = ("on in your tuning, but this preset ships with it "
-                     "off — it can make quiet passages swell then duck "
-                     "(issue #25); add --enable autogain to turn it on")
+                     "off — add --enable autogain to turn it on")
         print(f"\nAutogain (volume leveler): {state}")
         # Settings only when the stage actually runs in this preset: on a
         # shipped-off build the targets are numbers the reader can't tie
