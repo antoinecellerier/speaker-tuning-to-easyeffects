@@ -1165,14 +1165,24 @@ def _print_next_steps(node_name: str,
     cprint("head", "Next steps:")
     cprint("cta", "  1. Restart PipeWire:        "
                   "systemctl --user restart pipewire pipewire-pulse")
-    cprint("cta", "  2. Avoid double-processing: quit EasyEffects "
-                  "(or remove its autoload for this device)")
+    # Stays a numbered step here, unlike the wrapper's footnote: this script
+    # converts an existing EasyEffects preset, so its caller almost certainly
+    # runs EasyEffects. "Stop it starting again" because quitting the window
+    # ends double-processing for this session only — the background service
+    # and autostart entry bring it back at the next login.
+    cprint("cta", "  2. Avoid double-processing: quit EasyEffects and stop "
+                  "it starting again (its Background Service and autostart, "
+                  "or remove its autoload for this device)")
     cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
                   f"{_sanitize_name(node_name)}")
     # What success looks like (round 6): with no expected output stated, an
     # empty grep couldn't be told apart from "this step doesn't matter".
-    cprint("dim", "     (it should print a line; nothing means step 1's "
-                  "restart didn't load it)")
+    # Names the usual cause of an empty grep rather than blaming the restart:
+    # a missing LSP/Calf plugin makes module-filter-chain drop the whole
+    # conf, so no node appears and re-restarting never helps.
+    cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
+                  "nothing usually means the LSP or Calf LV2 plugins are "
+                  "missing, so the whole file failed to load)")
     if target_object:
         cprint("cta", "  4. Verify routing:          "
                       f"pw-link -l | grep {target_object}")
@@ -1307,10 +1317,11 @@ def add_general_args(container, *, only=None):
     add(
         "--skip-next-steps",
         action="store_true",
-        help="replace the post-write next-steps checklist (restart "
-             "PipeWire, quit EasyEffects, verify the sink) with a one-line "
-             "activation pointer — for callers that handle activation "
-             "themselves; dolby_to_pipewire.py passes this automatically",
+        help="drop the post-write next-steps checklist (restart PipeWire, "
+             "verify the sink, quit EasyEffects) — for callers that handle "
+             "activation themselves. Standalone, a one-line activation "
+             "pointer replaces it; dolby_to_pipewire.py passes this "
+             "automatically and prints its own steps instead",
     )
     add(
         "--no-color",

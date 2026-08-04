@@ -130,10 +130,12 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--dry-run",
         action="store_true",
-        help="stage and convert without touching the system: prints each "
-             "generated conf to stdout (the generator's report moves to "
-             "stderr so stdout stays pipeable), writes nothing outside the "
-             "temporary staging directory, and does not restart PipeWire",
+        help="stage and convert without touching the system: pipe or "
+             "redirect stdout to capture each generated conf (on a terminal "
+             "the conf is held back and a hint printed instead; the "
+             "generator's report goes to stderr either way), writes nothing "
+             "outside the temporary staging directory, and does not restart "
+             "PipeWire",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
@@ -222,8 +224,13 @@ PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
 # something install it behind my back?" (round-3 review). The
 # double-processing consequence rides the activation warning, which
 # appends it.
-QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it "
-                "(or remove its autoload)")
+# "and stop it starting again" rather than a bare "quit it": EasyEffects
+# ships a background service and an autostart entry — both recommended in
+# our own README — so quitting the window ends double-processing for this
+# session only, and it comes back at the next login.
+QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it and "
+                "stop it starting again (its Background Service and "
+                "autostart, or remove its autoload)")
 
 
 def _print_undo(written: list[Path]) -> None:
@@ -249,17 +256,26 @@ def _print_manual_activation(node_names: list[str],
     # EE in the critical path made them doubt they had.
     cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
     cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
-    for name in node_names:
-        cprint("cta", f"  2. Verify the sink:         pw-cli ls Node | grep "
+    # Numbered per sink rather than all "2.": with --variant all this loop
+    # printed three consecutive steps sharing one number, under a note
+    # referring back to "step 1".
+    for i, name in enumerate(node_names, start=2):
+        cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
     # What success looks like (round 6): with no expected output stated, an
     # empty grep couldn't be told apart from "this step doesn't matter".
     # "Pinned ... automatically": the verify step proved existence, not
     # routing, and nothing said whether to go pick it in Settings (round
     # 10) — the smart filter pins it, so say so.
-    cprint("dim", "     (it should print a line; nothing means step 1's "
-                  "restart didn't load it — once it's there, it's pinned "
-                  "to your speakers automatically)")
+    # Names the usual cause of an empty grep instead of blaming the restart:
+    # when an LSP or Calf plugin is missing, module-filter-chain fails to
+    # load the whole conf and no node ever appears, so a reader told only
+    # "the restart didn't load it" re-restarts forever. The automated path
+    # already says this (_verify_sinks); the manual one didn't.
+    cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
+                  "nothing usually means the LSP or Calf LV2 plugins are "
+                  "missing, so the whole file failed to load — once the line "
+                  "is there, it's pinned to your speakers automatically)")
     cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
@@ -373,9 +389,14 @@ def main(argv: list[str] | None = None) -> int:
         # flags above to the same command you ran" had no referent unless
         # the reader saved their own command line. shlex keeps Dolby's
         # $-laden paths copy-pasteable.
+        # sys.executable, not a guessed "python3" and not the bare basename:
+        # echoing Path(sys.argv[0]).name dropped whatever launched us, so the
+        # line wasn't runnable as shown, and hardcoding an interpreter would
+        # just invent a different command from the one that was typed (the
+        # scripts are executable, so ./dolby_to_pipewire.py is equally
+        # likely). argv[0] keeps the path the reader used.
         cprint("dim", "      (your command: "
-                      + shlex.join([Path(sys.argv[0]).name, *sys.argv[1:]])
-                      + ")")
+                      + shlex.join([sys.executable, *sys.argv]) + ")")
         with _generator_stdout(args.dry_run):
             rc = _run_generator(step1_common
                                 + ["--output-dir", tmp, "--irs-dir", tmp],
@@ -402,9 +423,12 @@ def main(argv: list[str] | None = None) -> int:
                            "filter-chain conf")
             # Why this one (round 7): the profile pick explains itself, so
             # an unexplained Balanced default read as arbitrary next to it.
+            # "Dolby's default voicing", not "the voicing Windows engages by
+            # default": on the ~45% of profiles that set ieq-enable=0,
+            # Windows engages no voicing at all, so the stronger claim was
+            # wrong for them.
             if args.variant == "balanced":
-                cprint("dim", "      (Balanced is the voicing the Windows "
-                              "driver engages by default)")
+                cprint("dim", "      (Balanced is Dolby's default voicing)")
         else:
             cprint("head", f"[2/3] Converting {len(presets)} presets to "
                            "PipeWire filter-chain confs")
