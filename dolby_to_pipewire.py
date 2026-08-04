@@ -89,16 +89,17 @@ def _compose_parser(argv=None):
         "--variant",
         choices=[*VARIANT_STEMS, "all"],
         default="balanced",
-        help="which IEQ voicing to convert (default: balanced — the curve "
-             "the Windows driver engages by default; the three voicings are "
-             "Dolby-global, the device-specific correction applies under "
-             "every one). 'all' converts each into its own PipeWire sink "
-             "so you can A/B them from sound settings.",
+        help="which IEQ voicing to convert (default: balanced — Dolby's "
+             "default voicing; the three voicings are Dolby-global, the "
+             "device-specific correction applies under every one). 'all' "
+             "converts each into its own PipeWire sink so you can A/B them "
+             "from sound settings, and requires --target-sink '' (see that "
+             "flag).",
     )
 
     group = parser.add_argument_group("routing")
     step2_actions += ee_to_pipewire.add_routing_args(
-        group, only={"--target-sink"})
+        group, only={"--target-sink", "--target-object"})
 
     group = parser.add_argument_group("output")
     step1_actions += dolby_to_easyeffects.add_output_args(
@@ -354,6 +355,27 @@ def main(argv: list[str] | None = None) -> int:
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
 
+    # Chains that share a filter.smart.target are run in SERIES by
+    # WirePlumber, not offered as alternatives: get_filter_from_target
+    # returns the first filter matching the target and get_filter_target
+    # "the next filter with matching target" (scripts/lib/filter-utils.lua,
+    # 0.5.15). Measured — three voicings installed that way gave
+    # app → Balanced → Detailed → Warm → speakers, so every stage ran three
+    # times. Marking them filter.smart.targetable doesn't help: picking one
+    # in sound settings resolves back to its target and re-enters at the
+    # first. Turning smart-filter routing off is what makes them independent
+    # sinks you can actually choose between, so anything that installs more
+    # than one chain requires it — this is about the count, not about which
+    # flag produced it.
+    multi = [f for f, on in (("--variant all", args.variant == "all"),
+                             ("--all-profiles", args.all_profiles)) if on]
+    if multi and args.target_sink != "":
+        parser.error(
+            f"{' and '.join(multi)} installs more than one chain, which needs "
+            "--target-sink '' (an empty string): with smart-filter routing "
+            "on, PipeWire would run them in series instead of offering a "
+            "choice")
+
     # The generator's own closing output (fix-flags menu + asks) would land
     # under [1/3], with two more phases of output below it; we collect its
     # findings and menu inputs and print them last.
@@ -368,6 +390,26 @@ def main(argv: list[str] | None = None) -> int:
 
     variants = (list(VARIANT_STEMS.values()) if args.variant == "all"
                 else [VARIANT_STEMS[args.variant]])
+
+    # Virtual sinks whose playback streams have no target of their own follow
+    # the *default* sink — so the moment you pick one of them as your output,
+    # the others follow it and chain into it (measured: Balanced → Warm and
+    # Detailed → Warm, which is every stage twice). Pinning each playback
+    # side to the real speaker sink is what keeps them independent, and
+    # picking one is the whole point of the mode, so it can't be left to the
+    # reader to remember. Resolved before anything is generated: a run that
+    # can't keep them apart should fail before it writes.
+    pin_target = args.target_object
+    if multi and pin_target is None:
+        pin_target, detect_warnings = ee_to_pipewire._autodetect_speaker_sink()
+        for w in detect_warnings:
+            cprint("warn", f"[routing] {w}")
+        if pin_target is None:
+            cprint("err", "error: couldn't tell which sink drives your "
+                          "speakers, so the chains can't be kept apart. Name "
+                          "it with --target-object <node.name> (pw-cli ls "
+                          "Node lists them), or install one at a time")
+            return 1
 
     node_names: list[str] = []
     # Where each conf landed, so the run can say how to undo itself.
@@ -434,7 +476,16 @@ def main(argv: list[str] | None = None) -> int:
                            "PipeWire filter-chain confs")
             for preset in presets:
                 cprint("dim", f"      {preset.stem}")
-        if args.variant != "all":
+            # Each is a separate output you choose in sound settings, not a
+            # stage in one chain — the distinction the smart-filter default
+            # hides, and the reason this mode needs --target-sink ''.
+            cprint("dim", "      Each becomes its own output; pick one in "
+                          "your sound settings. They don't stack.")
+            if args.target_object is None:
+                cprint("dim", f"      (each plays into {pin_target} — pinned "
+                              "so choosing one doesn't route the others "
+                              "through it)")
+        if args.variant != "all" and not args.all_profiles:
             others = [v for v in VARIANT_STEMS if v != args.variant]
             # Prose gets the capitalized names; the Pass sentence keeps
             # the lowercase flag values (round 10).
@@ -448,11 +499,17 @@ def main(argv: list[str] | None = None) -> int:
             # "another voicing" ties the --variant flag to the word every
             # explanation above uses (round 10: a reader would guess
             # --voicing next week).
-            cprint("dim", f"      Pass {alts} to convert another voicing, "
-                          "or --variant all to get all three as outputs "
-                          "you can switch between in your sound settings.")
+            cprint("dim", f"      Pass {alts} to convert another voicing, or "
+                          "--variant all --target-sink '' to get all three as "
+                          "outputs you can switch between in your sound "
+                          "settings.")
         step2_common = (rebuild_argv(step2_actions, args)
                         + ["--irs-dir", tmp, "--skip-next-steps"])
+        # Only when we resolved it ourselves — a user-supplied --target-object
+        # is already in the rebuilt argv, and passing it twice would win an
+        # argument with itself.
+        if pin_target is not None and args.target_object is None:
+            step2_common += ["--target-object", pin_target]
         if args.dry_run:
             step2_common.append("--dry-run")
         if args.no_color:

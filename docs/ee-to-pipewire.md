@@ -131,6 +131,30 @@ chain's *playback* to an explicit downstream node (e.g. a measurement
 null sink) instead of letting WirePlumber choose — a measurement-route
 override; end users want `--target-sink`.
 
+### One smart filter per target sink
+
+Smart filters that share a `filter.smart.target` are **chained, not
+offered as alternatives**. `get_filter_from_target` returns the *first*
+filter matching a target and `get_filter_target` returns "the next
+filter with matching target" (`filter-utils.lua`), so two installed
+confs put both chains in the path in series. Measured on WirePlumber
+0.5.15 with three voicings installed: `app → Balanced → Detailed → Warm
+→ speaker sink`, running every stage — convolver, dialog enhancer,
+MBC, regulator, limiter — three times over. Setting
+`filter.smart.targetable = true` does *not* turn them into choices:
+picking one in sound settings resolves it back to its target, and the
+link resolver re-enters at the first filter anyway.
+
+So more than one sink means smart-filter routing has to be off.
+`dolby_to_pipewire.py` refuses `--variant all` and `--all-profiles`
+unless `--target-sink ''` is passed, and in that mode it pins each
+chain's playback with `--target-object`. The pin is not optional: a v1
+virtual sink whose playback stream has no target follows the *default*
+sink, so choosing one of several in sound settings makes the others
+follow it and chain into it (measured: `Balanced → Warm`,
+`Detailed → Warm`). Pinning each to the hardware sink keeps them
+independent, which is the whole point of installing more than one.
+
 ## Plugin coverage
 
 | EE plugin key | Translated as | Notes |

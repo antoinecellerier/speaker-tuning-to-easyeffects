@@ -64,7 +64,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   filter-chain sink in one command — the EasyEffects preset is staged in a
   throwaway directory (no EasyEffects files installed), converted, and
   PipeWire restarted with the sink verified. `--variant` picks the
-  Balanced (default) / Detailed / Warm voicing or `all`; `--no-activate`
+  Balanced (default) / Detailed / Warm voicing, or `all` together with
+  `--target-sink ''` for one selectable sink per voicing; `--no-activate`
   skips the restart; new `--skip-ee-check` / `--skip-next-steps` flags on
   the two underlying scripts support the flow (docs/ee-to-pipewire.md).
 - **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag

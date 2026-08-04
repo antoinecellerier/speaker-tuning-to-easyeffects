@@ -174,6 +174,10 @@ def recorders(monkeypatch):
 
     monkeypatch.setattr(dolby_to_easyeffects, "run_cli", fake_run_cli)
     monkeypatch.setattr(ee_to_pipewire, "main", fake_ee_main)
+    # The multi-sink modes resolve a playback pin through this, which reaches
+    # the real pw-dump. Stub it so these stay hermetic.
+    monkeypatch.setattr(ee_to_pipewire, "_autodetect_speaker_sink",
+                        lambda: ("alsa_output.stub_Speaker__sink", []))
     monkeypatch.setattr(dolby_to_pipewire.subprocess, "run",
                         fake_subprocess_run)
     monkeypatch.setattr(dolby_to_pipewire.shutil, "which",
@@ -208,10 +212,73 @@ def test_routing_variant_selects_stems(recorders):
     assert Path(step2[0]).name == "Dolby-Detailed.json"
 
     recorders.step2.clear()
-    assert wrapper_main(["--variant", "all", "--no-activate"]) == 0
+    assert wrapper_main(["--variant", "all", "--target-sink", "",
+                         "--no-activate"]) == 0
     stems = [Path(argv[0]).name for argv in recorders.step2]
     assert stems == ["Dolby-Balanced.json", "Dolby-Detailed.json",
                      "Dolby-Warm.json"]
+
+
+# --- One chain per target ---------------------------------------------------
+#
+# Chains sharing a filter.smart.target are run in SERIES by WirePlumber, not
+# offered as alternatives (measured on 0.5.15). So installing more than one
+# is only allowed with smart-filter routing off, and then only with the
+# playback side pinned — an unpinned virtual sink follows the default sink,
+# so choosing one of them routes the others through it.
+
+@pytest.mark.parametrize("flags", [
+    ["--variant", "all"],
+    ["--all-profiles"],
+    ["--variant", "all", "--all-profiles"],
+    # An explicit target sink is still smart-filter mode — only '' is opt-out.
+    ["--variant", "all", "--target-sink", "alsa_output.whatever"],
+])
+def test_multi_sink_modes_refuse_smart_filter_routing(recorders, flags, capsys):
+    with pytest.raises(SystemExit) as e:
+        wrapper_main([*flags, "--no-activate"])
+    assert e.value.code == 2
+    err = capsys.readouterr().err
+    assert "--target-sink ''" in err
+    assert "in series" in err, "the error must say what goes wrong, not just no"
+    assert recorders.step2 == [], "nothing may be converted after a refusal"
+
+
+@pytest.mark.parametrize("flags,pinned", [
+    (["--variant", "all", "--target-sink", ""], True),
+    (["--all-profiles", "--target-sink", ""], True),
+    # One chain follows the default sink harmlessly: nothing to keep apart.
+    ([], False),
+    (["--variant", "warm"], False),
+])
+def test_playback_is_pinned_exactly_when_more_than_one_sink(recorders, flags,
+                                                            pinned):
+    assert wrapper_main([*flags, "--no-activate"]) == 0
+    assert recorders.step2, "expected at least one conversion"
+    for argv in recorders.step2:
+        assert ("--target-object" in argv) is pinned
+        if pinned:
+            assert argv[argv.index("--target-object") + 1] == \
+                "alsa_output.stub_Speaker__sink"
+
+
+def test_user_target_object_is_not_doubled(recorders):
+    """A user-supplied pin is already in the rebuilt argv; resolving a second
+    one would leave the child arguing with itself."""
+    assert wrapper_main(["--variant", "all", "--target-sink", "",
+                         "--target-object", "mine", "--no-activate"]) == 0
+    for argv in recorders.step2:
+        assert argv.count("--target-object") == 1
+        assert argv[argv.index("--target-object") + 1] == "mine"
+
+
+def test_undetectable_speaker_sink_fails_before_writing(recorders, monkeypatch):
+    monkeypatch.setattr(ee_to_pipewire, "_autodetect_speaker_sink",
+                        lambda: (None, ["two candidates"]))
+    assert wrapper_main(["--variant", "all", "--target-sink", "",
+                         "--no-activate"]) == 1
+    assert recorders.step1 == [], "must fail before generating anything"
+    assert recorders.step2 == []
 
 
 def test_routing_dry_run_reaches_only_step2_and_skips_activation(recorders):
@@ -231,7 +298,7 @@ def test_routing_no_activate_suppresses_systemctl(recorders):
 
 
 def test_routing_activation_restarts_once_then_verifies(recorders):
-    assert wrapper_main(["--variant", "all"]) == 0
+    assert wrapper_main(["--variant", "all", "--target-sink", ""]) == 0
     restarts = [c for c in recorders.commands if c[0] == "systemctl"]
     assert restarts == [["systemctl", "--user", "restart",
                          "pipewire", "pipewire-pulse"]]
@@ -276,7 +343,7 @@ def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
     monkeypatch.setattr(ee_to_pipewire, "main",
                         lambda argv, wrapped=False:
                             (recorders.step2.append(argv) or 1))
-    assert wrapper_main(["--variant", "all"]) == 1
+    assert wrapper_main(["--variant", "all", "--target-sink", ""]) == 1
     assert len(recorders.step2) == 1
     assert recorders.commands == []
 
@@ -357,13 +424,24 @@ def test_e2e_default_writes_only_balanced_pair(tmp_path):
 
 
 def test_e2e_variant_all_writes_three_pairs(tmp_path):
-    result, _home, out = _run_e2e(tmp_path, "--variant", "all")
+    # --target-object is supplied so the run doesn't probe pw-dump for a
+    # speaker sink — there may not be a PipeWire daemon to answer.
+    result, _home, out = _run_e2e(tmp_path, "--variant", "all",
+                                  "--target-sink", "",
+                                  "--target-object", "sink.test")
     assert result.returncode == 0, result.stderr
     assert sorted(p.name for p in out.iterdir()) == [
         "Dolby_Balanced.conf", "Dolby_Balanced.irs",
         "Dolby_Detailed.conf", "Dolby_Detailed.irs",
         "Dolby_Warm.conf", "Dolby_Warm.irs",
     ]
+    # The bug this mode exists to avoid: three chains that WirePlumber would
+    # run in series. None of them may declare itself a smart filter, and each
+    # must name its own playback target rather than following the default.
+    for stem in ("Dolby_Balanced", "Dolby_Detailed", "Dolby_Warm"):
+        conf = (out / f"{stem}.conf").read_text()
+        assert "filter.smart" not in conf
+        assert 'target.object = "sink.test"' in conf
 
 
 def test_e2e_variant_detailed_writes_only_that_pair(tmp_path):

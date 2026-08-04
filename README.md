@@ -240,7 +240,7 @@ One command goes from tuning XML to an active sink: the EasyEffects preset is ge
 python3 dolby_to_pipewire.py         # add --no-activate to restart PipeWire yourself
 ```
 
-The default converts the **Balanced** voicing — the curve the Windows driver engages by default. `--variant detailed`, `--variant warm`, or `--variant all` pick the others (`all` creates one sink per variant so you can A/B them from sound settings; the voicing curves are Dolby-global, and the device-specific correction applies under every one — [details](docs/cross-device-findings.md)).
+The default converts the **Balanced** voicing — Dolby's default voicing. `--variant detailed` and `--variant warm` pick the others, and `--variant all --target-sink ''` creates one sink per variant so you can A/B them from sound settings (smart-filter routing has to be off for that, or PipeWire runs the three in series instead of offering a choice). The voicing curves are Dolby-global, and the device-specific correction applies under every one — [details](docs/cross-device-findings.md).
 
 The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
 
@@ -300,13 +300,14 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 - `--endpoint TYPE` — endpoint type from the XML (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`)
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
-- `--all-profiles` — convert every profile in the selected endpoint/mode (each becomes its own sink)
+- `--all-profiles` — convert every profile in the selected endpoint/mode, each as its own sink (needs `--target-sink ''`)
 
 **Variant**
-- `--variant {balanced,detailed,warm,all}` — which IEQ voicing to convert (default: `balanced`, the curve Windows engages by default); `all` creates one sink per variant for A/B from sound settings
+- `--variant {balanced,detailed,warm,all}` — which IEQ voicing to convert (default: `balanced`, Dolby's default voicing); `all` creates one sink per variant for A/B from sound settings (needs `--target-sink ''`)
 
 **Routing**
 - `--target-sink NODE_NAME` — hardware sink the filter attaches to as a WirePlumber smart filter (default: auto-detect the internal-speaker sink); `''` disables smart-filter routing
+- `--target-object NODE_NAME` — bind the chain's playback to a specific downstream node instead of letting WirePlumber choose (set automatically when installing more than one sink)
 
 **Output**
 - `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` → `Dolby_Balanced`, etc.)
