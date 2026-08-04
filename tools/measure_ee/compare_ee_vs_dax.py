@@ -111,6 +111,39 @@ def _read_pink(npz_path: Path, absolute: bool = False
     return f, eq
 
 
+def _dax_off_reference(dax_npz: Path, lo: float = 100.0,
+                       hi: float = 10000.0) -> float | None:
+    """Mean level of the sibling DAX `off` capture, in dB, or None.
+
+    Absolute level is only comparable across machines once each side is
+    referenced to its own bypass capture. The Windows loopback is *not*
+    reliably pre-volume: on the dev device the OFF transfer reads -0.02 dB
+    with the endpoint at -18.8 dB (volume applied after the tap, i.e. in
+    hardware), while the issue-#44 machine reads -10.01 dB with its endpoint
+    at -10.5 dB (applied before the tap, in software). Comparing raw absolute
+    levels across those two machines is off by 10 dB, which is the size of
+    the effect being measured.
+    """
+    name = dax_npz.name
+    for lab in ("_dynamic_", "_movie_", "_music_", "_game_", "_voice_"):
+        if lab in name:
+            off = dax_npz.with_name(name.replace(lab, "_off_"))
+            break
+    else:
+        return None
+    if not off.exists():
+        return None
+    try:
+        z = np.load(str(off))
+    except (OSError, ValueError):
+        return None
+    if "eq_gain_db_raw" not in z.files:
+        return None
+    f = z["f"].astype(float)
+    band = (f > lo) & (f < hi)
+    return float(np.mean(z["eq_gain_db_raw"].astype(float)[band])) if band.any() else None
+
+
 def _absolute_offset(ee_npz: Path, dax_npz: Path,
                      lo: float = 100.0, hi: float = 10000.0) -> float | None:
     """Mean EE−DAX level over a band, in dB, or None if not measurable.
@@ -136,7 +169,10 @@ def _absolute_offset(ee_npz: Path, dax_npz: Path,
     band = (f_ee > lo) & (f_ee < hi)
     if not band.any():
         return None
-    return float(np.mean((ee - dax)[band]))
+    # Reference the DAX side to its own bypass capture when one is present,
+    # so the number means the same thing on every machine.
+    ref = _dax_off_reference(dax_npz, lo, hi) or 0.0
+    return float(np.mean((ee - (dax - ref))[band]))
 
 
 def _read_tones(npz_path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -320,9 +356,15 @@ def main() -> int:
                if off is not None]
     if offsets:
         worst = max(offsets, key=lambda t: abs(t[2]))
+        refs = {round(r, 2) for (kind, tag, ch) in common if kind == "spectrum"
+                for r in [_dax_off_reference(dax_idx[(kind, tag, ch)])] if r is not None}
+        ref_note = (f" [DAX referenced to its own off capture, {min(refs):+.2f} dB]"
+                    if refs else
+                    " [no DAX off capture found — raw absolute, NOT comparable "
+                    "across machines]")
         level_line = ("absolute level EE-DAX (100 Hz-10 kHz): "
                       + ", ".join(f"{tag}/{ch} {off:+.2f} dB"
-                                  for tag, ch, off in offsets))
+                                  for tag, ch, off in offsets) + ref_note)
         if abs(worst[2]) >= 3.0:
             level_line += (f"  <-- {worst[2]:+.1f} dB on {worst[0]}/{worst[1]}; "
                            "a whole-band offset this size is a finding, not a "
