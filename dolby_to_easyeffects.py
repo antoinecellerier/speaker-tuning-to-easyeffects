@@ -5851,9 +5851,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # bands (those the tuning also marks non-isolated), and the
             # subset word carries that without the 'isolated' jargon three
             # rounds of reviewers bounced off (rounds 7-9). The -v table
-            # names the field for anyone digging.
-            _cprint_wrapped("", "  --enable coupled-bands extends limiting "
-                                "to some of the bands the tuning leaves "
+            # names the field for anyone digging. "Adds a limit to", not
+            # "extends limiting to" (round 10): on all-inert tunings —
+            # where the flag helps most — "extends" read as growing
+            # existing limits, of which that reader has none.
+            _cprint_wrapped("", "  --enable coupled-bands adds a limit to "
+                                "some of the bands the tuning leaves "
                                 "unlimited (experimental, issue #44)",
                             indent="    ")
         if verbose:
