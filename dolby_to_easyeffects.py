@@ -3763,9 +3763,13 @@ def _loudness_untamed_finding() -> Finding:
         # boost-unlimited sibling — one template for one risk family.
         # No raw field name (round 9): "threshold_high" read as leaked
         # code and undercut trust. The -v table still prints the field.
+        # "band by band" is load-bearing, not filler: limiter#0 ships on
+        # every preset, so the bare "nothing limits it" that dropping the
+        # noun left behind was false. The qualifier keeps the sentence
+        # true without reintroducing a stage the reader has to look up.
         detail="This tuning's regulator never engages — every band's "
-               "limit sits at or above full volume — so nothing limits "
-               "the loudness boost on its way out.",
+               "limit sits at or above full volume — so nothing trims "
+               "the loudness boost band by band on its way out.",
         # Same two-step ask as boost-unlimited — one template for one risk
         # family (round 9); coupled-bands is exactly the all-inert class's
         # remedy (issue #27).
@@ -3782,7 +3786,8 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # reader unsure which explanation to trust).
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
                "lands on a band the regulator leaves unlimited, with the "
-               "volmax boost on top — nothing limits it on its way out.",
+               "volmax boost on top — nothing trims it band by band on its "
+               "way out.",
         # Sequenced, and step 2 speaks the menu's symptom family for
         # coupled-bands (harshness) instead of inventing its own: with
         # "if they still distort" the same screen sold the flag for
