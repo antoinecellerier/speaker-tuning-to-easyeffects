@@ -5174,9 +5174,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # reader said they'd never think to scroll. The pointer puts the
     # menu's existence on the last screen without re-breaking the round-3
     # order (success last, not troubleshooting).
+    # "(re-running ... reprints it)": scrollback is gone once the terminal
+    # closes, and the pointer alone was a dead end then (round 9).
     if menu_printed:
         _cprint_wrapped("dim", "  Something sound off later? Scroll up to "
-                               "\"If something doesn't sound right\".",
+                               "\"If something doesn't sound right\" "
+                               "(re-running this command reprints it).",
                         indent="  ")
 
 
