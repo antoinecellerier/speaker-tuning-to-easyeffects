@@ -5068,7 +5068,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    n_modes: int = 0,
                    default_unknown: bool = False,
                    autogain_off: bool = False,
-                   menu_printed: bool = False) -> None:
+                   menu_printed: bool = False,
+                   declared_default: str | None = None) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -5102,6 +5103,16 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                      "volume leveler ships off here — --enable autogain "
                      "turns it on (may make quiet passages swell then "
                      "duck).")
+    # The mismatch echo mirrors the autogain-note pattern (round 10): the
+    # most actionable fix in the run lived only at the top and in the ask
+    # small-print, never on the screen people act from.
+    mismatch_note = None
+    if (declared_default and profile_used
+            and declared_default != profile_used):
+        mismatch_note = (f"  Windows ships this device on "
+                         f"'{declared_default}'; these voice "
+                         f"'{profile_used}' — --profile "
+                         f"{declared_default} rebuilds.")
     # Derived from what was actually built (round 7, user catch): a
     # tuning lacking a voicing curve skips that preset, so the hint must
     # not describe a preset that doesn't exist.
@@ -5142,6 +5153,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                    f"sound mode only{caveat} — "
                                    "--all-profiles builds every mode.",
                             indent="  ")
+        if mismatch_note:
+            _cprint_wrapped("dim", mismatch_note, indent="  ")
         if autogain_off:
             _cprint_wrapped("dim", autogain_note, indent="  ")
         return
@@ -5169,6 +5182,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         _cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
                                f"mode only{caveat} — --all-profiles builds "
                                "every mode.", indent="  ")
+    if mismatch_note:
+        _cprint_wrapped("dim", mismatch_note, indent="  ")
     if autogain_off:
         _cprint_wrapped("dim", autogain_note, indent="  ")
     # The one-line map back to the menu (round 7): with the Done block
@@ -6843,7 +6858,9 @@ def main(argv: list[str] | None = None,
                        autogain_off=("autogain" in filters_by_profile
                                      and "autogain-active"
                                      not in filters_by_profile),
-                       menu_printed=menu_printed)
+                       menu_printed=menu_printed,
+                       declared_default=(tuning.default_profile
+                                         if args.profile is None else None))
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
