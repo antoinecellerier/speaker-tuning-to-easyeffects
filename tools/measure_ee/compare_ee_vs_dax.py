@@ -111,6 +111,34 @@ def _read_pink(npz_path: Path, absolute: bool = False
     return f, eq
 
 
+def _absolute_offset(ee_npz: Path, dax_npz: Path,
+                     lo: float = 100.0, hi: float = 10000.0) -> float | None:
+    """Mean EE−DAX level over a band, in dB, or None if not measurable.
+
+    Reported unconditionally — including in the default normalized mode,
+    which subtracts this number out by construction. That default hid a
+    12 dB offset for two months: it was measured twice during other
+    investigations, recorded as an inseparable confound, and never became a
+    finding of its own (design-notes, "Giving back what normalisation
+    removed"). A number that only appears when someone thinks to ask for it
+    is a number that gets mis-filed, so this one always prints.
+    """
+    try:
+        zee, zdax = np.load(str(ee_npz)), np.load(str(dax_npz))
+    except (OSError, ValueError):
+        return None
+    if "eq_gain_db_raw" not in zee.files or "eq_gain_db_raw" not in zdax.files:
+        return None
+    f_ee = zee["f"].astype(float)
+    ee = zee["eq_gain_db_raw"].astype(float)
+    dax = np.interp(f_ee, zdax["f"].astype(float),
+                    zdax["eq_gain_db_raw"].astype(float))
+    band = (f_ee > lo) & (f_ee < hi)
+    if not band.any():
+        return None
+    return float(np.mean((ee - dax)[band]))
+
+
 def _read_tones(npz_path: Path) -> tuple[np.ndarray, np.ndarray]:
     z = np.load(str(npz_path))
     return z["freqs_hz"].astype(float), z["amp_db"].astype(float)
@@ -283,11 +311,32 @@ def main() -> int:
         bf, tgt_l, tgt_r = _ref_target(args.xml, args.profile, args.curve)
 
     bands = _band_freqs()
+    # Absolute level first, before any per-tag detail and regardless of mode:
+    # it is the one number the normalized view cannot show, and the one that
+    # went unnoticed longest.
+    offsets = [(tag, ch, off) for (kind, tag, ch) in common if kind == "spectrum"
+               for off in [_absolute_offset(ee_idx[(kind, tag, ch)],
+                                            dax_idx[(kind, tag, ch)])]
+               if off is not None]
+    if offsets:
+        worst = max(offsets, key=lambda t: abs(t[2]))
+        level_line = ("absolute level EE-DAX (100 Hz-10 kHz): "
+                      + ", ".join(f"{tag}/{ch} {off:+.2f} dB"
+                                  for tag, ch, off in offsets))
+        if abs(worst[2]) >= 3.0:
+            level_line += (f"  <-- {worst[2]:+.1f} dB on {worst[0]}/{worst[1]}; "
+                           "a whole-band offset this size is a finding, not a "
+                           "confound")
+    else:
+        level_line = ("absolute level EE-DAX: not measurable (npz lack "
+                      "eq_gain_db_raw — re-run analyze.py with the stimulus "
+                      "wav reachable)")
     summary_lines = [
         f"EE dir:  {args.ee_dir}",
         f"DAX dir: {args.dax_dir}",
         ("absolute transfer (un-normalized; volumes must be pinned)"
          if args.absolute else f"normalized at: {args.norm_hz:.0f} Hz"),
+        level_line,
         "",
     ]
     for kind, tag, ch in common:
@@ -370,7 +419,10 @@ def main() -> int:
 
     summary_path = out_dir / "compare_ee_vs_dax_summary.txt"
     summary_path.write_text("\n".join(summary_lines) + "\n")
-    print(f"\nwrote summary: {summary_path}")
+    # Also to stdout: burying it in the summary file is how it was missed the
+    # first time. summary_lines[3] is the absolute-level line.
+    print(f"\n{summary_lines[3]}")
+    print(f"wrote summary: {summary_path}")
     return 0
 
 
