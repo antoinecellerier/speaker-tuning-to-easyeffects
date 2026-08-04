@@ -3744,13 +3744,15 @@ def _loudness_untamed_finding() -> Finding:
         slug="loudness-untamed",
         # Self-contained: it used to say "threshold_high above", pointing at
         # a table that only prints with -v now. The field name stays in
-        # parentheses as the grep handle. The limiter is named as OURS and
-        # anchored ("the preset's own output limiter"): "brickwall" (round
-        # 4) then "final safety" (round 7) both read as a second mystery
-        # stage nothing else had introduced.
-        detail="This tuning's regulator never engages — every band's limit "
-               "(threshold_high) sits at or over 0 dB — so the volmax "
-               "boost hits the preset's own output limiter untamed.",
+        # parentheses as the grep handle. No limiter noun at all (round 8):
+        # "brickwall" → "final safety limiter" → "the preset's own output
+        # limiter" each read as a second mystery stage; what the reader
+        # needs is the consequence, phrased identically to the
+        # boost-unlimited sibling — one template for one risk family.
+        detail="This tuning's regulator never engages — every band's "
+               "ceiling is effectively switched off (threshold_high at or "
+               "over 0 dB) — so nothing limits the loudness boost on its "
+               "way out.",
         ask="If loud parts distort or sound crushed, re-run with "
             "--disable volmax.")
 
@@ -3759,9 +3761,12 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
     """The band carrying the largest boost is one the regulator leaves free."""
     return Finding(
         slug="boost-unlimited",
+        # Same closing formula as loudness-untamed — one template for one
+        # risk family (round 8: two wordings for the same risk left the
+        # reader unsure which explanation to trust).
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
                "lands on a band the regulator leaves unlimited, with the "
-               "volmax boost on top.",
+               "volmax boost on top — nothing limits it on its way out.",
         # Sequenced, and step 2 speaks the menu's symptom family for
         # coupled-bands (harshness) instead of inventing its own: with
         # "if they still distort" the same screen sold the flag for
