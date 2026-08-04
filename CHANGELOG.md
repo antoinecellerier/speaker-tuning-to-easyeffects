@@ -118,6 +118,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- `dolby_to_pipewire.py` now prints the whole "if something doesn't sound
+  right" flag menu after the activation steps, alongside the report asks,
+  instead of mid-run during preset staging — and the staged throwaway files
+  say "Staged", not "Wrote", so they aren't mistaken for installed output.
 - The end of a run now separates what you can do about your own audio from
   what the project is asking you for, and the asks are one line each: the
   explanation stays next to the values it describes, higher up. Warnings that
