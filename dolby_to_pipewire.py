@@ -244,16 +244,23 @@ def _print_undo(written: list[Path]) -> None:
 
 def _print_manual_activation(node_names: list[str],
                              written: list[Path]) -> None:
+    # The EasyEffects caveat is a footnote, not a numbered step (round
+    # 10): this script's reader chose it to avoid EasyEffects, and seeing
+    # EE in the critical path made them doubt they had.
     cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
     cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
-    cprint("cta", f"  2. {QUIT_EE_HINT}")
     for name in node_names:
-        cprint("cta", f"  3. Verify the sink:         pw-cli ls Node | grep "
+        cprint("cta", f"  2. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
     # What success looks like (round 6): with no expected output stated, an
     # empty grep couldn't be told apart from "this step doesn't matter".
+    # "Pinned ... automatically": the verify step proved existence, not
+    # routing, and nothing said whether to go pick it in Settings (round
+    # 10) — the smart filter pins it, so say so.
     cprint("dim", "     (it should print a line; nothing means step 1's "
-                  "restart didn't load it)")
+                  "restart didn't load it — once it's there, it's pinned "
+                  "to your speakers automatically)")
+    cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
 
@@ -405,16 +412,21 @@ def main(argv: list[str] | None = None) -> int:
                 cprint("dim", f"      {preset.stem}")
         if args.variant != "all":
             others = [v for v in VARIANT_STEMS if v != args.variant]
+            # Prose gets the capitalized names; the Pass sentence keeps
+            # the lowercase flag values (round 10).
             cprint("dim", "      The other voicings are not converted: "
-                          + ", ".join(others) + ".")
+                          + ", ".join(o.capitalize() for o in others) + ".")
             # Says what --variant all gets the user ("a sink each" named an
             # internal object; what they see is another output to switch to
             # in sound settings) and covers both alternatives, not just the
             # first.
             alts = " or ".join(f"--variant {o}" for o in others)
-            cprint("dim", f"      Pass {alts} to convert another, or "
-                          "--variant all to get all three as outputs you "
-                          "can switch between in your sound settings.")
+            # "another voicing" ties the --variant flag to the word every
+            # explanation above uses (round 10: a reader would guess
+            # --voicing next week).
+            cprint("dim", f"      Pass {alts} to convert another voicing, "
+                          "or --variant all to get all three as outputs "
+                          "you can switch between in your sound settings.")
         step2_common = (rebuild_argv(step2_actions, args)
                         + ["--irs-dir", tmp, "--skip-next-steps"])
         if args.dry_run:
