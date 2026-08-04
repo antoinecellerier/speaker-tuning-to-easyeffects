@@ -3719,15 +3719,16 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
                "lands on a band the regulator leaves unlimited, with the "
                "volmax boost on top.",
-        # Sequenced, and it doesn't describe --enable coupled-bands: the menu
-        # below owns that flag's symptom ("loud music turns harsh in the
-        # treble"), and this ask used to claim a different one ("bass or loud
-        # content distorts"), so one screen sold the same flag for opposite
-        # problems. Symptom wording lives in one place per flag.
-        # "swap it for", not "then try": a reviewer following the old wording
+        # Sequenced, and step 2 speaks the menu's symptom family for
+        # coupled-bands (harsh treble) instead of inventing its own: with
+        # "if they still distort" the same screen sold the flag for
+        # distortion while the menu sold it for harshness (rounds 3 and 5
+        # — one heard symptom per flag). Not "loud music": the vocabulary
+        # trap reserves "music" for the mbc symptom.
+        # "instead", not "swap it for": both readers of the swap wording
         # could not tell whether step two kept the first flag.
-        ask="If loud parts distort, re-run with --disable volmax; if they "
-            "still do, swap it for --enable coupled-bands.")
+        ask="If loud parts distort, re-run with --disable volmax; if the "
+            "treble stays harsh, try --enable coupled-bands instead.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
