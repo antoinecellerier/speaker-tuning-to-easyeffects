@@ -5625,10 +5625,16 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if iso is not None:
             # Co-located with the fact it explains: the only plain wording
             # for coupled-bands used to sit a screen away in the flag menu
-            # (rounds 2–3).
-            print(f"  protection scoped to {sum(iso)} of {len(iso)} bands "
-                  "marked isolated — --enable coupled-bands extends it "
-                  "(experimental, issue #44)")
+            # (rounds 2–3). Declaration vs action (round 5): "protection
+            # scoped to N bands marked isolated" both left "isolated"
+            # unglossed and read as a limit count, which visibly disagreed
+            # with the "limits N bands" line when the two differ.
+            _cprint_wrapped("", f"  the tuning marks {sum(iso)} of "
+                                f"{len(iso)} bands isolated (limited on "
+                                "their own); --enable coupled-bands "
+                                "extends limiting to bands it leaves "
+                                "unmarked and unlimited (experimental, "
+                                "issue #44)", indent="    ")
         if verbose:
             print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
             print(f"  threshold_low (dB):  {[f'{x:+.1f}' for x in regulator['threshold_low']]}")
