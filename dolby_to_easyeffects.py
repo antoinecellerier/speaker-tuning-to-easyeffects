@@ -3839,7 +3839,8 @@ def _firmware_gate_finding() -> Finding:
 
 
 def _leveler_gap_finding(substages: list[str], autogain_on: bool,
-                              autogain_available: bool = True) -> Finding | None:
+                              autogain_available: bool = True,
+                              disabled_by_flag: bool = False) -> Finding | None:
     """The Dolby leveler companion stages this converter cannot reproduce.
 
     Unlike every other mapping these carry no parameters at all — the schema
@@ -3854,6 +3855,12 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
     plausible cause of exactly the pumping that state gets blamed for — so
     that case asks for the one capture that could settle it, and names
     ``--disable autogain`` as the off-switch.
+
+    "May be part of it", not "the most likely reason": the measured driver of
+    quiet-swell/loud-duck is EE's own non-content-aware autogain (design-notes,
+    "Why autogain is bypassed by default"), and the corpus doc records that the
+    companion compressor does not explain the issue-#25 overshoot — neither
+    device carrying it. The copy had promoted this docstring's own hedge.
 
     Every user-review round misread this copy until it said where the
     leveler itself stands: the parsed-XML block above prints the leveler's
@@ -3874,12 +3881,20 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # On a tuning whose XML disables the leveler outright the flag does
         # nothing, and suggesting it contradicts the "had no effect" warning
         # printed just above.
-        tail = ("the leveler ships switched off in this preset, so they "
-                "cannot be heard — this only matters if you rebuild with "
-                "--enable autogain."
-                if autogain_available else
-                "your tuning switches the leveler off outright, so they "
-                "cannot be heard and no flag here changes that.")
+        #
+        # --disable autogain also clears the marker, so without its own
+        # branch this blamed the tuning for the reader's own flag — while
+        # the leveler section a few lines up correctly credited the flag.
+        if disabled_by_flag:
+            tail = ("--disable autogain switched the leveler off in this "
+                    "preset, so they cannot be heard.")
+        elif autogain_available:
+            tail = ("the leveler ships switched off in this preset, so they "
+                    "cannot be heard — this only matters if you rebuild with "
+                    "--enable autogain.")
+        else:
+            tail = ("your tuning switches the leveler off outright, so they "
+                    "cannot be heard and no flag here changes that.")
         return Finding(slug="leveler-gap", kind="ask", detail=head + tail)
     return Finding(
         slug="leveler-gap", kind="ask",
@@ -3889,7 +3904,7 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                "rebuild: the tuning file "
                "records only that they are switched on, not how they are "
                "set. If quiet passages swell then duck when things get "
-               "loud, that gap is the most likely reason (--disable "
+               "loud, that gap may be part of it (--disable "
                "autogain switches the "
                "leveler off). Settling it needs a capture from a Windows "
                "install with Dolby on this same machine — a few minutes "
@@ -5806,9 +5821,15 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         running = (vol_leveler["enable"] and "autogain" not in disabled
                    and ("autogain" in enabled_flags or is_soundwire))
         if running:
-            print(f"  amount {vol_leveler['amount']}, targets "
+            # These are the tuning's numbers, and the built stage is not
+            # identical to them: the SoundWire path takes 6 dB off the target
+            # for headroom (make_autogain, conservative=True), so printing
+            # them unlabelled reported a target the preset does not use.
+            print(f"  your tuning: amount {vol_leveler['amount']}, targets "
                   f"{vol_leveler['in_target']:.1f} dB in / "
-                  f"{vol_leveler['out_target']:.1f} dB out")
+                  f"{vol_leveler['out_target']:.1f} dB out"
+                  + ("  (this preset aims 6 dB lower, for headroom)"
+                     if is_soundwire else ""))
 
     if mb_comp and "mbc" in disabled:
         # A dropped stage says so instead of describing itself, the shape
@@ -6846,8 +6867,11 @@ def main(argv: list[str] | None = None,
         list(leveler_substages),
         autogain_on="autogain-active" in filters_by_profile,
         # "autogain" is the marker for a leveler that shipped bypassed but
-        # could be switched on; absent means the XML disabled it outright.
-        autogain_available="autogain" in filters_by_profile)
+        # could be switched on; absent means the XML disabled it outright —
+        # or that --disable autogain cleared it, which the flag branch owns
+        # so the tuning doesn't get blamed for the reader's own choice.
+        autogain_available="autogain" in filters_by_profile,
+        disabled_by_flag="autogain" in args.disable)
     if substage_finding is not None:
         findings.setdefault(substage_finding.slug, substage_finding)
         _print_finding_detail(substage_finding)
