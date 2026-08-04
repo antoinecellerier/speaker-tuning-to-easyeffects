@@ -5406,7 +5406,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     for pf in peq_filters:
         spk = "L" if pf["speaker"] == 0 else "R"
         if pf["type"] in (7, 9):
-            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — cuts bass the speaker can't play")
+            # Says there is no knob: "bass sounds thin" is the one symptom
+            # with no flag in the menu (deliberately — this filter protects
+            # the driver), and a round-4 reviewer went hunting for one and
+            # settled on --disable bass-enhancer, a different symptom.
+            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — cuts bass the speaker can't play (speaker protection; no flag turns it off)")
         elif pf["type"] in (6, 8):
             print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — rolls off the top end  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
