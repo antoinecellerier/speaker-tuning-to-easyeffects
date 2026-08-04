@@ -5495,12 +5495,22 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         parts = []
         cut = float(min(ao_l.min(), ao_r.min()))
         boost = float(max(ao_l.max(), ao_r.max()))
+
+        # A register word beside each Hz value: the numbers alone don't say
+        # whether the deepest cut lands in bass or treble (round 6), and
+        # that is the one thing a listener can check by ear.
+        def register(f):
+            return ("bass" if f < 250
+                    else "midrange" if f <= 4000 else "treble")
+
         if cut < 0:
             f_cut = freqs[int(np.argmin(np.minimum(ao_l, ao_r)))]
-            parts.append(f"cuts to {cut:+.1f} dB (deepest at {f_cut} Hz)")
+            parts.append(f"cuts to {cut:+.1f} dB (deepest at {f_cut} Hz, "
+                         f"{register(f_cut)})")
         if boost > 0:
             f_boost = freqs[int(np.argmax(np.maximum(ao_l, ao_r)))]
-            parts.append(f"boosts to {boost:+.1f} dB (at {f_boost} Hz)")
+            parts.append(f"boosts to {boost:+.1f} dB (at {f_boost} Hz, "
+                         f"{register(f_boost)})")
         if not parts:
             parts.append("flat (all 0 dB)")
         sym = ("same correction for left and right"
