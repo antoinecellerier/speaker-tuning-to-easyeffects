@@ -3205,7 +3205,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             )
 
     # <setting><default_profile> names the profile the device ships on under
-    # Windows. It's rare (28 of 791 corpus XMLs) and we don't act on it — we
+    # Windows. It's rare (23 of 2802 corpus XMLs, re-counted 2026-08-04, and
+    # every one of them names `music`) and we don't act on it — we
     # still build the first profile — but a run that silently diverges from
     # Dolby's own default is worth one line of output (issue #46). Read here
     # so the banner below can also say where the pick stands.
@@ -3318,6 +3319,25 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             "endpoint/profile, or open an issue if you need this variant "
             "supported."
         )
+    ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
+    ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
+
+    # Dolby can ship a correction curve and still declare the optimizer off —
+    # 4099 corpus rows do (2642 XMLs), and 69 of those, in 61 XMLs, carry a
+    # *non-zero* curve, so applying it regardless emits a correction the
+    # tuning says not to apply. Almost all are the `off` profile, but 7
+    # `music` rows are affected and `music` is a profile users select. The
+    # deepest affected band is 13.7 dB (`off`; median 12.0), 7.0 dB on
+    # `music`. Same absent-means-enabled convention as speaker-peq-enable
+    # below. The IEQ voicing is a separate stage and stays untouched.
+    # Figures re-derived 2026-08-04 against the 2802-XML corpus through
+    # resolve_xml_value — a plain grep misses the preset= indirection.
+    ao_enable = vlldp.find("audio-optimizer-enable")
+    ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
+    if not ao_enabled:
+        ao_left = [0] * len(ao_left)
+        ao_right = [0] * len(ao_right)
+
     if simplified_ao:
         # Informational, not a warning: round-4 reviewers read the yellow
         # filename-led schema line as "my laptop is missing something".
@@ -3327,28 +3347,21 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         # two lines down prints cuts/boosts that read as exactly that, so
         # the absent optional stages get non-EQ words and the line says
         # outright that the correction itself is converted.
+        #
+        # Printed after the audio-optimizer gate rather than before it: the
+        # two conditions are independent, and on a profile that is both
+        # simplified AND declares the optimizer off, "the speaker correction
+        # below is all there and converted" contradicted the flat-curve
+        # explanation printed a few lines later.
+        converted = ("the speaker correction below is all there and converted"
+                     if ao_enabled else
+                     "the speaker correction it carries is read in full")
         _cprint_wrapped("", "  Your tuning uses Dolby's simpler format — "
-                            "normal for this device, nothing is missing: "
-                            "the speaker correction below is all there and "
-                            "converted; this format just never carries "
+                            f"normal for this device, nothing is missing: "
+                            f"{converted}; this format just never carries "
                             "Dolby's optional multi-band compressor or "
                             "extra filter stages (simplified-schema DAX3).",
                         indent="  ")
-    ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
-    ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
-
-    # Dolby can ship a correction curve and still declare the optimizer off —
-    # 4091 corpus rows do, and 60 of those (18 devices) carry a *non-zero*
-    # curve on internal_speaker/normal, so applying it regardless emits a
-    # correction the tuning says not to apply. Almost all are the `off`
-    # profile, but eight `music` rows are affected and `music` is a profile
-    # users select. Same absent-means-enabled convention as speaker-peq-enable
-    # below. The IEQ voicing is a separate stage and stays untouched.
-    ao_enable = vlldp.find("audio-optimizer-enable")
-    ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
-    if not ao_enabled:
-        ao_left = [0] * len(ao_left)
-        ao_right = [0] * len(ao_right)
 
     peq_filters = []
     peq_enable = vlldp.find("speaker-peq-enable")
