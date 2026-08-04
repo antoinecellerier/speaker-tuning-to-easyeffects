@@ -742,6 +742,42 @@ the 300 Hz / `max-gain=18.0` variant above, whose complaint is the symptom the
 stage would explain ("the generated preset lacks low end/bass that Windows
 has").
 
+#### `threshold_high = −960` looks like a rail used as a non-value
+
+Swept 2026-08-05 over 3056 XMLs → 41,667 regulator-enabled profiles → 833,340
+band samples. `threshold_high` spans exactly [−60, 0] dB; both ends are rails
+(`0` on 66.03% of samples, no positive value ever). The **−60.00 dB** end
+(raw −960, 4852 samples, 433 XML paths, 117 filenames, ~10% of profiles) does
+not behave like a threshold:
+
+- **14.06 dB gap** to the next-lowest observed value (−735 raw), against
+  ~1-raw-unit granularity above it (161 distinct values in [−960, −300]);
+  4852 occurrences at −960 versus 10 / 28 / 10 at its neighbours.
+- Appears **only on bands 0–2** (4150 / 678 / 24), never above 234 Hz, and the
+  run **always starts at band 0** (4150 of 4150 profiles).
+- Step to the neighbouring band averages **−40.2 dB**, where a normal
+  band0−band1 step averages −1.1 dB.
+- Carriers are the tunings with the **largest AO bass boost** (median +7.0 /
+  +10.0 dB at bands 1/2, against +1.1 / +3.5 for non-carriers) — a −60 dBFS
+  band ceiling would fight the tuning's own intent.
+- Sibling XMLs sharing a PCI_SUBSYS swap it for the *opposite* rail (`0`), and
+  within one file `17AA5080` uses all-zero on 7 profiles and −960 on `music`
+  alone, while `17AA3832`/`17AA3851` use it on `voice` only — uncorrelated with
+  any plausible tuning intent.
+
+`threshold_low` gives no independent signal: it is `threshold_high − 192`
+(−12.00 dB) on **99.712%** of all band samples, including inactive ones, so
+that delta accompanies any value and cannot argue for or against a sentinel
+reading. `isolated_band` does not gate it either (99.5% of ≤−40 dB bands are
+`iso=1`, but so are 84.9% of ordinary negative bands).
+
+Our `make_regulator` renders it literally, as a ~56:1 clamp. **No DAX capture
+of any carrier device exists**, so there is no measured evidence either way —
+this is a structural argument only. What would settle it: an `off`/`dynamic`
+pink pair at two levels on any ≥2-band carrier (24 filenames), where the
+47/141 Hz `dynamic − off` figure answers it directly. Not raised with issue
+#44 — that device (`17AA380D`) carries no rail at all.
+
 ### Band B — an on/off bit and nothing else, so *not* derivable
 
 These are enabled on real devices, and no amount of corpus evidence will make

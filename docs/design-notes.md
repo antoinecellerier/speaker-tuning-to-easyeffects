@@ -2449,14 +2449,27 @@ non-stimulus bins relative to the tones rises from **−44.4 dB to −22.6 dB**.
 The `pink` case is mild (0.05 dB absorbed); `sweep` and `multitone` are the
 worst, as their sustained in-band energy is highest.
 
-**4. A second device, from the issue-[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) archive.** Those user-supplied
-DAX captures carry `off` baselines at both pink levels, and the same
+### Measured on a second device, 2026-08-04/05
+
+The issue-[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
+device is **`DEV_0287_SUBSYS_17AA380D`** — the reporter's `--speaker-info`
+reports `17AA:380D` and their run matched that XML. Identify a device by
+(DEV, SUBSYS), never by the model folder a driver package was extracted into:
+the first run of this A/B built `DEV_0230_SUBSYS_17AA3839` from the same
+`Yoga-Slim-7-14ARE05` package — a different codec — and measured it against
+DAX captures of `17AA380D`. Cross-tuning results are not evidence about
+either tuning, and the numbers below replace them. The tell was available
+offline: fitting each candidate's static AO+IEQ target against the DAX shape
+gives 0.74 dB mean error for `380D` and 4.27 dB for `3839`.
+
+**Its DAX side comes from the reporter's archive.** Those user-supplied
+captures carry `off` baselines at both pink levels, and the same
 re-analysis recovers absolute data from them. Two things come out:
 
 | device | DAX gain @ −17.8 dBFS | @ −41.8 dBFS | slope |
 |---|---|---|---|
 | X1 Yoga G7 (`17AA22E6`) | +7.05 dB | +16.39 dB | +0.39 dB per dB |
-| Yoga Slim 7 14ARE05 (`17AA3839`) | +9.13 dB | +25.25 dB | +0.67 dB per dB |
+| Yoga Slim 7 14ARE05 (`17AA380D`) | +9.13 dB | +25.25 dB | +0.67 dB per dB |
 
 The level dependence reproduces, but **its magnitude and slope are
 device-specific** — 0.39 against 0.67 dB per dB. One set of autogain constants
@@ -2464,43 +2477,70 @@ cannot fit both, which is the sharpest argument yet that entries 7/10 need
 measuring rather than choosing, and a reason to run the ladder on more than one
 machine.
 
-The peak-versus-volmax mismatch reproduces too, across three tunings now — all
-with `volmax-boost` at +6.0 dB:
+The peak-versus-volmax mismatch reproduces too, across three tunings — though
+its size varies, and on `17AA380D` the tuning's own `volmax-boost` nearly
+covers it:
 
-| tuning | combined peak | untouched band vs bypass |
+| tuning | combined peak | volmax | untouched band vs bypass |
+|---|---|---|---|
+| X1 Yoga G7 (`17AA22E6`) | +11.4 dB | +6.0 | −5.4 dB |
+| Yoga Slim 7 14ARE05 (`17AA380D`) | +8.4 dB | +7.0 | −1.4 dB |
+| Yoga 7 2-in-1 16IML9 (#50) | +9.2 dB | +6.0 | −3.2 dB |
+
+**Why another device can be measured here at all.** The null-sink route taps
+`ee_soe_output_level`, a digital tap ahead of the speaker (smoke gate: 0.00 dB
+gain, −219 dB residual), and the Windows side is a loopback of the engine mix
+bus. Neither capture contains the transducer, so building someone else's XML
+locally and running the battery is a genuine measured A/B of the *chain* — the
+only thing it cannot speak to is how that chain sounds through their speakers.
+A second device therefore costs their XML plus one archived DAX battery, not
+their laptop. What it does **not** buy is directly comparable absolute levels;
+that needs the referencing below.
+
+**Measured on the second device, 2026-08-05.** The `17AA380D` XML was built
+here and run through the same battery. Restore on that tuning is +8.40 dB.
+
+| | dev `17AA22E6` | second `17AA380D` |
 |---|---|---|
-| X1 Yoga G7 | +11.4 dB | −5.4 dB |
-| Yoga Slim 7 14ARE05 | +10.4 dB | −4.4 dB |
-| Yoga 7 2-in-1 16IML9 (#50) | +9.2 dB | −3.2 dB |
+| EE−DAX, default | −11.18 dB | −5.65 dB |
+| EE−DAX, `level-restore` | **+0.10 dB** | **+2.08 dB** |
+| mean abs error, default → restored | 12.09 → 1.27 dB | 5.65 → 2.95 dB |
+| shift achieved vs asked | +11.7 / +11.3 | +7.7 / +8.4 |
 
-The second device's DAX side is measured; its converter side above is computed
-from the XML, so as written this corroborates the arithmetic and the DAX
-behaviour rather than the flag's realised output.
+(100 Hz–10 kHz, `pink`, each DAX side referenced to its own bypass capture.)
 
-**That gap is closeable without the hardware, though — the EE side is not
-device-specific.** The null-sink route taps `ee_soe_output_level`, which is a
-digital tap ahead of the speaker (the smoke gate reads 0.00 dB gain and
-−219 dB residual), and the DAX side is WASAPI loopback off the engine mix bus,
-likewise pre-hardware and pre-volume (entry 8). Neither capture contains the
-transducer. So generating another device's XML locally and running the same
-battery is a genuine second measured A/B of the *chain*, and the only thing it
-cannot speak to is how that chain sounds through their speakers. Worth running
-against the `17AA3839` XML before any default flip, rather than waiting on a
-reporter.
+**A partial confirmation, not a clean one.** The flag improves absolute
+agreement on both devices — 12.09 → 1.27 dB of mean error on the dev device,
+5.65 → 2.95 dB on the second — but it only *lands* on the dev device. On
+`17AA380D` it overshoots by +2.08 dB, because that tuning's own `volmax-boost`
+(+7.0 dB) already covers most of its +8.4 dB peak, leaving just −5.65 dB to
+recover. Restoring the full peak there is too much by about the amount volmax
+was already contributing. The mechanism is sound on both — at the quiet level,
+where nothing limits, the second device delivers +8.40 dB against +8.40 asked,
+exactly — but "restore the whole peak" is evidently the right *size* only when
+volmax is not already compensating. That is an argument for keeping the flag
+opt-in, and a hint that the eventual default may need to be
+`peak − volmax`-aware rather than the raw peak.
 
-**Caveats on what this run can and cannot say.** The dev XML's two channels have
-equal combined peaks, so the L/R re-referencing path was exercised but had
-nothing to correct — it stays untested on hardware. Only `pink` had absolute
-data on both sides (the archived DAX npz predate `eq_gain_db_raw` for the other
-tags), so the EE−DAX table rests on one stimulus. And the dev XML's AO peak sits
-on a *limited* band (234 Hz, −8.0 dB) where #50's sits on an unlimited one, so
-this tests the level term, not #50's boost-into-brickwall shape.
+**Caveats on what these runs can and cannot say.** Both measured tunings put
+their AO peak on a band their regulator *limits* (234 Hz on each), where issue
+#50's sits on one it leaves open — so nothing here tests the
+boost-into-brickwall shape that made #50 report crackling. Both also have
+channels whose combined peaks are equal, so the L/R re-referencing path ran
+with nothing to correct and stays untested on hardware. The EE−DAX tables rest
+on the `pink` stimulus at two levels; `multitone` and the sweeps carry no
+absolute data on the DAX side (`tones`/`ir` npz store normalised amplitudes,
+so `--absolute` skips them by design, not by omission).
 
-**Status: opt-in, measured, not yet heard.** Default output is unchanged and
-pinned by the `level-restore-available-but-off` golden digest. The level claim
-is now measured rather than predicted, but a default flip still needs a
-listening pass and a second device, per the XML-only bar — and the loud-content
-cost above is an argument for keeping it opt-in regardless.
+**Status: opt-in, measured on two devices, not yet heard.** Default output is
+unchanged and pinned by the `level-restore-available-but-off` golden digest.
+The second-device requirement in the XML-only bar is now met, so the remaining
+gate is a listening pass — specifically on loud, dense material, which is where
+the limiter measurably works hardest and where neither device has been
+auditioned. The dev-device listening check on 2026-08-04 confirmed "noticeably
+louder" but could not reach high volume. Until that is closed the flag stays
+opt-in, and the loud-content cost is an argument for leaving it there even
+after.
 
 ## Rejected approaches
 
