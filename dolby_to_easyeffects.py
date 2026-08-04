@@ -3765,8 +3765,11 @@ def _loudness_untamed_finding() -> Finding:
         detail="This tuning's regulator never engages — every band's "
                "limit sits at or above full volume — so nothing limits "
                "the loudness boost on its way out.",
-        ask="If loud parts distort or sound crushed, re-run with "
-            "--disable volmax.")
+        # Same two-step ask as boost-unlimited — one template for one risk
+        # family (round 9); coupled-bands is exactly the all-inert class's
+        # remedy (issue #27).
+        ask="If loud parts distort, re-run with --disable volmax; if "
+            "still harsh, replace that flag with --enable coupled-bands.")
 
 
 def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
@@ -3787,11 +3790,12 @@ def _boost_unlimited_finding(peak_db: float, freq) -> Finding:
         # trap reserves "music" for the mbc symptom. No region word — the
         # unlimited band's frequency is device-specific and the detail
         # above already names it.
-        # Step two is spelled as its own re-run: "swap it for" (round 3)
-        # and "instead" (round 5) both collided with the seam line's "they
-        # combine", leaving keep-or-drop ambiguous (round 8).
-        ask="If loud parts distort, re-run with --disable volmax; if it's "
-            "still harsh, re-run with just --enable coupled-bands.")
+        # "Replace that flag with": "swap it for" (round 3), "instead"
+        # (round 5), and "just" (round 8) all left keep-or-drop guessable
+        # against the seam line's "they combine"; naming the flag as the
+        # thing replaced doesn't.
+        ask="If loud parts distort, re-run with --disable volmax; if "
+            "still harsh, replace that flag with --enable coupled-bands.")
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:
