@@ -5439,9 +5439,17 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # so the --disable menu offered to drop something the reader had
         # never heard of (user-review round 1).
         be = bass_enhancer_from_peq(peq_filters)
+        # "Separate from" only when the [speaker-optimizer] note fired this
+        # run: a round-4 reviewer couldn't tell this boost and that
+        # dropped protection stage apart ("is my bass protected or not?"),
+        # but either message can appear without the other, so the clause
+        # must not dangle on runs where the note never printed.
+        sep = (" (separate from the bass-protection stage noted above)"
+               if any(f.slug == "speaker-optimizer" for f in tuning.findings)
+               else "")
         print(f"\nBass enhancer: +{be['amount']:.1f} dB harmonics below "
               f"{be['scope']:.0f} Hz — replaces Dolby's in-driver bass "
-              "enhancement, which has no settings in the XML")
+              f"enhancement, which has no settings in the XML{sep}")
 
     if dialog_enhancer:
         # dB first: "amount=5" has no knowable scale (it's a raw schema
