@@ -3958,10 +3958,11 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # so an ask to "send us your tuning XML" is unactionable without the
         # path. Printed once here rather than inside each bullet, which the
         # one-sentence budget has no room for.
-        # Matches on "XML", not an exact phrase: gating this on the precise
-        # wording of an ask meant rewording one silently switched the path
-        # off, leaving "send us the XML" with no XML named.
-        if xml_path is not None and any("XML" in f.ask for f in asks):
+        # For every ask, not just ones whose wording mentions the XML
+        # (round 6): the file helps triage whatever the report is about,
+        # and the old wording-sniffing gate was one rewording away from
+        # silently switching the path off.
+        if xml_path is not None:
             print()
             # cta, not dim: this is the one concrete task the report needs,
             # and it printed fainter than the reassurance bullet above it
@@ -3969,8 +3970,13 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
             # vocabulary: unconditional "attach this to your report" right
             # after "should sound right" left a round-4 reviewer unsure
             # whether filing was mandatory.
-            cprint("cta", "  If you report, attach this file (zip it if "
-                          "GitHub refuses the upload):")
+            # Download link preferred over attaching: a driver-package link
+            # identifies the exact tuning build and carries every sibling
+            # XML for the device.
+            _cprint_wrapped("cta", "  If you report, best is a link to the "
+                                   "audio-driver download this file came "
+                                   "from — or attach the XML file:",
+                            indent="  ")
             # Absolute and quoted. Dolby's own directory names contain '$'
             # (…/code$GetExtractPath$/…), so an unquoted relative path is
             # eaten by the shell the moment anyone types ls on it and the
