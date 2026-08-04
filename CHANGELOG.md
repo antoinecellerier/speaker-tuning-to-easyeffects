@@ -136,6 +136,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `ee_to_pipewire.py` finds the impulse response on a Flatpak EasyEffects.
+  Its `--irs-dir` default was hardcoded to the native path while the
+  generator's defaults follow whichever install you have, so the manual
+  two-step looked for the file in a directory that never had it. Only the
+  two-step was affected — `dolby_to_pipewire.py` passes the directory itself.
+
 - `--doctor` no longer reports "No blocking problems detected" beside a
   warning. The verdict was computed from the EasyEffects-side checks only, so
   a smart-amp firmware gate that mutes the speakers never reached it — that

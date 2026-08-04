@@ -2354,3 +2354,46 @@ def test_filter_graph_declares_inputs_and_outputs(generated):
         assert m, f"filter.graph has no {field} array"
         assert re.search(r'"[^"]+:[^"]+"', m.group(1)), \
             f"{field} array carries no node:port reference: {m.group(1)!r}"
+
+
+# --- Install location -------------------------------------------------------
+
+def test_irs_default_matches_the_generator():
+    """The standalone two-step converts a preset the generator wrote and reads
+    the .irs beside it, so both scripts have to resolve the same install. Two
+    copies of that logic drift: this one was hardcoded to the native path and
+    sent Flatpak users looking in a directory that never had the file."""
+    import dolby_to_easyeffects as d
+    import ee_to_pipewire as e
+    assert e.DEFAULT_IRS_DIR == d.DEFAULT_IRS_DIR
+
+
+@pytest.mark.parametrize("flatpak_run,native_run,installed,expected", [
+    (True,  False, False, True),    # Flatpak has been run
+    (False, True,  False, False),   # native has been run
+    (True,  True,  False, True),    # both run: Flatpak keeps the old default
+    (False, False, True,  True),    # installed but never opened (issue #33)
+    (False, False, False, False),   # nothing to go on: native
+])
+def test_prefer_flatpak(tmp_path, monkeypatch, flatpak_run, native_run,
+                        installed, expected):
+    """Which install the defaults point at, over the four states a machine can
+    be in. Writing presets to the tree EasyEffects doesn't read is one of the
+    'preset generated, nothing changed' reports --doctor exists to catch."""
+    import _ee_paths
+    flatpak, native = tmp_path / "flatpak", tmp_path / "native"
+    if flatpak_run:
+        flatpak.mkdir()
+    if native_run:
+        native.mkdir()
+    if installed:
+        (tmp_path / ".local/share/flatpak/app"
+         / _ee_paths.FLATPAK_APP_ID).mkdir(parents=True)
+    monkeypatch.setattr(_ee_paths, "FLATPAK_BASE", flatpak)
+    monkeypatch.setattr(_ee_paths, "NATIVE_BASE", native)
+    # The never-opened probe walks $HOME; patch the module's own Path binding
+    # rather than pathlib's, so nothing outside this module sees a fake home.
+    monkeypatch.setattr(_ee_paths, "Path",
+                        type("HomedPath", (type(tmp_path),),
+                             {"home": staticmethod(lambda: tmp_path)}))
+    assert _ee_paths.prefer_flatpak() is expected

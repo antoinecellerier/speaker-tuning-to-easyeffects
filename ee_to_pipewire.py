@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from _ee_paths import easyeffects_base
 from _version import get_version
 
 # Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
@@ -115,7 +116,11 @@ LSP_AUTOGAIN_URI = "http://lsp-plug.in/plugins/lv2/autogain_stereo"
 CALF_BE_URI = "http://calf.sourceforge.net/plugins/BassEnhancer"
 CALF_ST_URI = "http://calf.sourceforge.net/plugins/StereoTools"
 
-DEFAULT_IRS_DIR = Path.home() / ".local/share/easyeffects/irs"
+# Matches whichever EasyEffects install the generator writes to — native
+# or Flatpak, which keep their presets in different trees. Hardcoding the
+# native path sent the standalone two-step looking for the impulse
+# response somewhere Flatpak users never had it.
+DEFAULT_IRS_DIR = easyeffects_base() / "irs"
 # PipeWire's stock pipewire.conf only auto-includes the
 # pipewire.conf.d/*.conf overlay set; filter-chain.conf.d/ is *not*
 # scanned by the daemon (it's the path for the standalone

@@ -40,6 +40,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
+import _ee_paths
 from _version import get_version
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
@@ -146,35 +147,17 @@ def _disable_color() -> None:
     global _CONSOLE
     _CONSOLE = None
 
-_FLATPAK_APP_ID = "com.github.wwmm.easyeffects"
-_FLATPAK_BASE = Path.home() / ".var" / "app" / _FLATPAK_APP_ID / "config" / "easyeffects"
-_NATIVE_BASE = Path.home() / ".local" / "share" / "easyeffects"
-
-
-def _prefer_flatpak() -> bool:
-    """Choose between Flatpak and native EasyEffects install locations.
-
-    Prefers whichever install has a data directory (i.e. has been run
-    at least once). If neither has been run, probes Flatpak app install
-    roots so a freshly-installed-but-unopened Flatpak still picks the
-    Flatpak paths. On systems with both installed and both launched,
-    preserves the prior default (Flatpak wins).
-    """
-    if _FLATPAK_BASE.exists():
-        return True
-    if _NATIVE_BASE.exists():
-        return False
-    for root in (
-        Path("/var/lib/flatpak/app"),
-        Path.home() / ".local" / "share" / "flatpak" / "app",
-    ):
-        if (root / _FLATPAK_APP_ID).exists():
-            return True
-    return False
-
+# Shared with ee_to_pipewire.py, which resolves the same install root for its
+# own --irs-dir default and must not import this module to do it (numpy/scipy
+# in a converter that does no DSP). Kept under the private names the rest of
+# this file already uses.
+_FLATPAK_APP_ID = _ee_paths.FLATPAK_APP_ID
+_FLATPAK_BASE = _ee_paths.FLATPAK_BASE
+_NATIVE_BASE = _ee_paths.NATIVE_BASE
+_prefer_flatpak = _ee_paths.prefer_flatpak
 
 _USE_FLATPAK = _prefer_flatpak()
-_EASYEFFECTS_BASE = _FLATPAK_BASE if _USE_FLATPAK else _NATIVE_BASE
+_EASYEFFECTS_BASE = _ee_paths.easyeffects_base()
 
 DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
 DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
