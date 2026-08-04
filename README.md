@@ -74,7 +74,7 @@ If you test it on other hardware, please [open a device report](https://github.c
 
 ## Install
 
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required if you use `--autoload`, but it's already installed on any distro running EasyEffects. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by `ee_to_pipewire.py` / `dolby_to_pipewire.py` on every run, to find the speaker sink to pin the chain to. It ships in the same package as the PipeWire daemon itself (`pipewire-bin` on Debian/Ubuntu), so a machine actually running PipeWire has it. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
 
 <details>
 <summary>Install commands for your distro</summary>
@@ -184,9 +184,9 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 
 | Name | What to try if you hear... |
 |------|----------------------------|
-| `volmax` | Output too loud / the final limiter pumping on loud masters. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if that costs loudness, try `--volmax-slot output-gain`.* |
+| `volmax` | Loud parts distort or sound crushed. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if that costs loudness, try `--volmax-slot output-gain`.* |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
-| `regulator` | Unusual spectral pumping or narrow-band breathing. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
+| `regulator` | The volume audibly wobbles or surges on its own. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
 | `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers — the mirror of `--enable autogain` below. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
@@ -202,7 +202,7 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 
-To work out *which* stage you're hearing, switch effects off one at a time in the EasyEffects window instead of rebuilding: turning off **Convolver** isolates the speaker-correction curve from everything dynamic, and turning off the second **Multiband Compressor** takes out the per-band limiter together with the loudness boost that rides it.
+To work out *which* stage you're hearing, switch effects off one at a time in the EasyEffects window instead of rebuilding: turning off **Convolver** isolates the speaker-correction curve from everything dynamic, and turning off the **Multiband Compressor** that carries the per-band limiter takes out the loudness boost riding it as well. Most tunings produce only one Multiband Compressor, which is that limiter; where Dolby's own multi-band compressor is also present you get two, and the limiter is the second of them. The run's own output names which stages it built.
 
 ## Advanced
 
@@ -257,6 +257,8 @@ The wrapper is a thin orchestrator over the two converters — run them yourself
 python3 dolby_to_easyeffects.py            # omit --autoload; that only wires EE
 
 # 2. Convert it to a filter-chain conf (the matching .irs is copied beside it)
+#    Step 1 prints where it wrote the preset — on a Flatpak EasyEffects that
+#    is under ~/.var/app/com.github.wwmm.easyeffects/, not the path below.
 python3 ee_to_pipewire.py ~/.local/share/easyeffects/output/Dolby-Balanced.json
 
 # 3. Activate
@@ -321,7 +323,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **General**
 - `--verbose` (alias `-v`) — print the generator's full frequency tables; same as `dolby_to_easyeffects.py`
-- `--dry-run` — print the generated conf(s) to stdout; nothing is written outside the staging directory and PipeWire is not restarted
+- `--dry-run` — redirect or pipe stdout to capture the generated conf(s); on a terminal they are held back and a hint printed instead. Nothing is written outside the staging directory and PipeWire is not restarted
 - `--no-validate` — skip the `lv2info` schema self-check
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
@@ -347,7 +349,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **General**
 - `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
-- `--dry-run` — print the generated conf to stdout instead of writing it
+- `--dry-run` — send the generated conf to stdout instead of writing it (held back on a terminal, so redirect or pipe to capture it)
 - `--skip-next-steps` — replace the post-write next-steps checklist with a one-line activation pointer; for callers that handle activation themselves (`dolby_to_pipewire.py` passes it automatically)
 - `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--version` — print the version and exit
