@@ -655,16 +655,18 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     g0 = off[0]  # representative gate for the verify examples
 
     cprint("warn", f"\n{'=' * 60}")
-    cprint("warn", "⚠  Smart-amp firmware gate is OFF — your bass/woofer speakers")
-    cprint("warn", "   may be silent even though the EasyEffects preset is correct.")
-    cprint("dim", "Many laptops drive their woofers through a TI TAS2563/2781 smart")
-    cprint("dim", "amplifier whose firmware does not auto-load; the amp stays muted")
-    cprint("dim", "upstream of the preset until this ALSA control is switched on.")
+    cprint("warn", "⚠  [firmware-gate] Smart-amp firmware gate is OFF — your speakers")
+    cprint("warn", "   may be silent, thin or crackly even though the preset is correct.")
+    cprint("dim", "Many laptops drive their speakers through a TI TAS2563/2781 smart")
+    cprint("dim", "amplifier whose firmware does not auto-load; until this ALSA control")
+    cprint("dim", "is switched on the amp runs untuned upstream of the preset. On most")
+    cprint("dim", "laptops that mutes the woofers; where the amp drives every speaker,")
+    cprint("dim", "it can instead make everything thin, quiet or prone to dropouts.")
     print()
     # Enable now: no root needed — the active logind session already holds an
     # ACL on /dev/snd/control*. Persist with `alsactl store`, which saves the
     # state that alsa-restore.service replays at boot (the standard ALSA path).
-    cprint("dim", "1. Enable it now (no root needed) and listen for the bass to return:")
+    cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
     for g in off:
         # iface= is load-bearing: these are iface=CARD controls on modern
         # kernels, and a bare name= means iface=MIXER to amixer → "Cannot
@@ -674,7 +676,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
         cprint("cta", f"     amixer -c {g.card_id} cset "
                       f"\"iface={g.iface},name='{g.name}'\" on")
     print()
-    cprint("dim", "   No audible change? Then the amp firmware was already active and")
+    cprint("dim", "   No change at all, and nothing sounded wrong to begin with? Then")
     cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
     print()
     cprint("dim", "2. If that worked, persist it across reboots — saves the ALSA state")
@@ -695,7 +697,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     cprint("cta", "     ls -l /lib/firmware/TAS2*")
     cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
     print()
-    cprint("dim", "   Still no bass, and the log shows 'Direct firmware load for")
+    cprint("dim", "   Still wrong, and the log shows 'Direct firmware load for")
     cprint("dim", "   TAS2XXX….bin failed' or no such file exists? The per-device blob")
     cprint("dim", "   is missing — distro linux-firmware lags newer laptops. Extract it")
     cprint("dim", "   from your Windows audio driver or TI's TAS2781-LINUX package and")
@@ -1792,8 +1794,13 @@ def warn_ee_environment(args) -> None:
     if not found and probe.silent:
         # Installed but unreachable — say so, rather than sending someone off to
         # install what they already have (issue #46).
+        # "written above" only holds on a run that wrote something: this check
+        # is gated on --skip-ee-check alone, so on a dry run it referred to
+        # presets the same output twice says were not written.
         cprint("warn", "\n⚠  " + ee_silent_message(
-            probe.silent, " and doesn't affect the presets written above."))
+            probe.silent,
+            " and doesn't affect what this run would write." if args.dry_run
+            else " and doesn't affect the presets written above."))
     elif not found:
         cprint("warn", "\n⚠  Couldn't find EasyEffects — install version 8 to use these "
                        "presets (e.g. the Flathub Flatpak). Ignore if you're "
@@ -3100,6 +3107,11 @@ class ParsedTuning:
     # zeroed in that case; this records *why* they are flat, so the profile
     # report can say so instead of showing an unexplained zero curve.
     ao_enabled: bool = True
+    # False when <ieq-enable> is 0, which is roughly 45% of dynamic-profile
+    # corpus rows. ieq_amount then holds our assumed 10, not a value the
+    # tuning stated, and Dolby engages no voicing at all — so the report has
+    # to say whose number it is printing.
+    ieq_enabled: bool = True
     # Enabled-but-unreproducible stages, surfaced together at end of run
     # rather than printed here where they'd be buried (see
     # collect_unmodeled_features / _unmodeled_summary).
@@ -3258,9 +3270,11 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
+    ieq_enabled = True
     cp = profile.find("tuning-cp")
     if cp is not None:
         enable = cp.find("ieq-enable")
+        ieq_enabled = enable is None or enable.get("value") == "1"
         if enable is not None and enable.get("value") == "1":
             ieq_amount = _int_attr(cp.find("ieq-amount"), default=ieq_amount)
 
@@ -3558,6 +3572,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
                                 default=192),
         ao_enabled=ao_enabled,
+        ieq_enabled=ieq_enabled,
         findings=findings,
         leveler_substages=leveler_substages,
     )
@@ -3869,7 +3884,8 @@ def _firmware_gate_finding() -> Finding:
     return Finding(
         slug="firmware-gate", kind="ask",
         detail="Smart-amp firmware gate is off — see the procedure above.",
-        ask="Did toggling the smart-amp control fix your bass? (issue #17)")
+        ask="Did toggling the smart-amp control change how it sounds? "
+            "(issue #17)")
 
 
 def _leveler_gap_finding(substages: list[str], autogain_on: bool,
@@ -5238,8 +5254,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         if autogain_off:
             _cprint_wrapped("dim", autogain_note, indent="  ")
         return
+    # "starting in": each preset is two files and only the .json lands in
+    # output_dir — the .irs impulse response goes to --irs-dir, a different
+    # directory by default. "wrote N presets to <dir>" named half of what
+    # the run had just listed above.
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
-                 + (f" to {output_dir}:" if output_dir else ":"))
+                 + (f", starting in {output_dir}:" if output_dir else ":"))
     # Name them all — naming only the first left the reader wondering what
     # the other two were — but on one comma-separated line (round 7): the
     # vertical list ate the last screen's budget. No blank after (round
@@ -5397,9 +5417,13 @@ def print_troubleshooting(findings: list[Finding],
         for name in enable_hints:
             symptom, caveat = ENABLEABLE_FILTERS[name]
             if name == "autogain" and gap:
-                caveat = ("on this device it also enables a stage we can't "
-                          "reproduce, so quiet passages may swell then "
-                          "duck — see [leveler-gap]")
+                # The flag cannot enable a stage the preset never contains.
+                # What it does is run our leveler without the companion
+                # compression Dolby pairs with it — which is what the inline
+                # [leveler-gap] note says, and what this row said backwards.
+                caveat = ("on this device it runs without the companion "
+                          "stage we can't reproduce, so quiet passages may "
+                          "swell then duck — see [leveler-gap]")
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
     # How to actually apply any of the above. Every suggestion here is a flag
@@ -5660,6 +5684,14 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     if voicings:
         n_voc = ("three" if len(voicings) == 3
                  else str(len(voicings)) if len(voicings) > 1 else "one")
+        # Whose number this is. With <ieq-enable> at 0 — about 45% of
+        # dynamic-profile corpus rows — the tuning states no strength and
+        # Dolby engages no voicing, so the parser's assumed 10 was printing
+        # as if the profile had asked for it. Trails the sentence rather
+        # than splitting "10%" from "of full strength".
+        whose = ("" if tuning.ieq_enabled else
+                 " — this profile switches the voicing off, so the strength "
+                 "above is our default and Windows applies none")
         _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
                             f"of full strength — this profile's {n_voc} "
                             f"voicing{'s' if len(voicings) > 1 else ''} "
@@ -5669,7 +5701,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                             + " at this strength on top of the speaker "
                             "correction"
                             + ("; they differ in shape, not strength"
-                               if len(voicings) > 1 else ""), indent="  ")
+                               if len(voicings) > 1 else "")
+                            + whose, indent="  ")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -5769,7 +5802,10 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             print(f"  {spk}High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
             tech = f", Q={pf['q']}" if verbose else ""
-            print(f"  {spk}Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — evens out a narrow band")
+            # "lifts or trims", not "evens out": the same line prints for
+            # positive-gain bells, which add a narrow band rather than
+            # levelling one.
+            print(f"  {spk}Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — lifts or trims a narrow band")
 
     if is_soundwire and "bass-enhancer" not in disabled:
         # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
@@ -6048,9 +6084,15 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # "Loudness boost (volmax-boost):" — the friendly-name-first header
     # shape every other section uses; this was the one lowercase raw-flag
     # header left (round 6).
-    if volmax_boost <= 0:
+    if volmax_boost == 0:
         print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
               "(your tuning asks for none)")
+    elif volmax_boost < 0:
+        # A negative boost is still applied — it goes into the same gain
+        # slot as a positive one — so "asks for none" was wrong about the
+        # one case where the tuning asks for a cut.
+        print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
+              "from your tuning — a cut, not a boost")
     elif "volmax" in disabled:
         print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
               "in your tuning — dropped by --disable volmax")
