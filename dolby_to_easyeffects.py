@@ -5482,26 +5482,49 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # Every type gets one (round 3: the glossed and bare rows side by side
     # read worse than all-bare). Header only when there are rows — over
     # nothing it read as a failed section.
+    #
+    # Most tunings configure L and R identically; printing both channels
+    # doubled every row for no information (round 5). When the two channel
+    # configurations match and -v is off, each filter prints once — with
+    # the filter-design internals (order, S, Q) held back for -v alongside
+    # the per-channel rows. Any L/R difference keeps the full per-channel
+    # view: the difference is itself the detail worth reading.
+    def _peq_spec(pf):
+        return {k: v for k, v in pf.items() if k != "speaker"}
+
+    left_specs = [_peq_spec(p) for p in peq_filters if p["speaker"] == 0]
+    right_specs = [_peq_spec(p) for p in peq_filters if p["speaker"] == 1]
+    condensed = not verbose and left_specs == right_specs
     if peq_filters:
-        print("\nPEQ filters (kept as parametric EQ):")
-    for pf in peq_filters:
-        spk = "L" if pf["speaker"] == 0 else "R"
+        print("\nPEQ filters (kept as parametric EQ"
+              + ("; same for both speakers):  (details with -v)"
+                 if condensed else "):"))
+    for pf in (peq_filters if not condensed
+               else [p for p in peq_filters if p["speaker"] == 0]):
+        spk = "" if condensed else ("[L] " if pf["speaker"] == 0 else "[R] ")
         if pf["type"] in (7, 9):
             # Says there is no knob: "bass sounds thin" is the one symptom
             # with no flag in the menu (deliberately — this filter protects
             # the driver), and a round-4 reviewer went hunting for one and
             # settled on --disable bass-enhancer, a different symptom.
-            print(f"  [{spk}] HP @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — cuts bass the speaker can't play (speaker protection; no flag turns it off)")
+            tech = (f", order {pf['order']} ({pf['order'] * 6} dB/oct)"
+                    if not condensed else "")
+            print(f"  {spk}HP @ {pf['f0']} Hz{tech} — cuts bass the speaker can't play (speaker protection; no flag turns it off)")
         elif pf["type"] in (6, 8):
-            print(f"  [{spk}] Lo-pass @ {pf['f0']} Hz, order {pf['order']} ({pf['order'] * 6} dB/oct) — rolls off the top end  [unconfirmed-by-ear]")
+            tech = (f", order {pf['order']} ({pf['order'] * 6} dB/oct)"
+                    if not condensed else "")
+            print(f"  {spk}Lo-pass @ {pf['f0']} Hz{tech} — rolls off the top end  [unconfirmed-by-ear]")
         elif pf["type"] == 4:
-            print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the low end")
+            tech = f", S={pf['s']}" if not condensed else ""
+            print(f"  {spk}Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the low end")
         elif pf["type"] == 3:
             # "High-shelf" in display copy — matching --disable high-shelf;
             # the LSP mode string stays "Hi-shelf" (emitted parameter).
-            print(f"  [{spk}] High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the treble  [unconfirmed-by-ear]")
+            tech = f", S={pf['s']}" if not condensed else ""
+            print(f"  {spk}High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
-            print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']} — evens out a narrow band")
+            tech = f", Q={pf['q']}" if not condensed else ""
+            print(f"  {spk}Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — evens out a narrow band")
 
     if is_soundwire and "bass-enhancer" not in disabled:
         # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
