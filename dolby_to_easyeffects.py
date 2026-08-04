@@ -358,6 +358,21 @@ class FirmwareGate:
     on: bool             # current state
 
 
+def amixer_enable_cmd(gate: FirmwareGate) -> str:
+    """The one-line command that switches a gate on, shared by every place
+    that offers the fix (the end-of-run warning, --speaker-info, --doctor) so
+    the three can't drift.
+
+    iface= is load-bearing: these are iface=CARD controls on modern kernels,
+    and a bare name= means iface=MIXER to amixer → "Cannot find the given
+    element" (issue #39). Double-quoting the identifier lets the inner 'name'
+    quotes reach amixer's parser — that form also survives control names
+    containing commas.
+    """
+    return (f"amixer -c {gate.card_id} cset "
+            f"\"iface={gate.iface},name='{gate.name}'\" on")
+
+
 @dataclass
 class AmpStatus:
     """Bind status of one SoundWire amplifier, for the merged amp-status report.
@@ -668,13 +683,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     # state that alsa-restore.service replays at boot (the standard ALSA path).
     cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
     for g in off:
-        # iface= is load-bearing: these are iface=CARD controls on modern
-        # kernels, and a bare name= means iface=MIXER to amixer → "Cannot
-        # find the given element" (issue #39). Double-quote the identifier
-        # so the inner 'name' quotes reach amixer's parser — that form also
-        # survives control names containing commas.
-        cprint("cta", f"     amixer -c {g.card_id} cset "
-                      f"\"iface={g.iface},name='{g.name}'\" on")
+        cprint("cta", f"     {amixer_enable_cmd(g)}")
     print()
     cprint("dim", "   No change at all, and nothing sounded wrong to begin with? Then")
     cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
@@ -1005,10 +1014,19 @@ def _amp_status_lines(info: SpeakerInfo) -> list[str]:
                      f"(may be non-amp or still binding): {names}")
 
     # #17 TI firmware gate, folded into the unified view (HDA or SoundWire).
+    # The symptom stays open-ended for the same reason the finding's copy
+    # does: the amp drives only the woofers on most laptops, but where it
+    # drives every speaker an off gate makes everything thin or crackly
+    # rather than silencing the bass (#39).
     for g in info.firmware_gates:
         mark = "" if g.on else "⚠ "
-        state = "on" if g.on else "OFF — bass speakers may be silent"
+        state = "on" if g.on else "OFF — speakers may be silent, thin or crackly"
         lines.append(f"  {mark}{g.name}: {state} (card {g.card_id})")
+        if not g.on:
+            # Both --speaker-info and --doctor end in this section, so it is
+            # the only place either of them can hand over the fix. Its own
+            # line, unwrapped, because it has to survive a copy-paste.
+            lines.append(f"      turn it on:  {amixer_enable_cmd(g)}")
 
     # Driver-keyed firmware presence (only when a smart-amp driver is loaded).
     if info.amp_firmware:
@@ -1468,6 +1486,38 @@ def autostart_status(rc_data: dict) -> CheckResult:
         + " (" + "; ".join(why) + ").")
 
 
+def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
+    """Verdict line for the smart-amp firmware gates, or None when the machine
+    exposes no such control (most don't — there is nothing to report either
+    way, and a PASS for an absent control is noise).
+
+    The gate sits *upstream* of everything EasyEffects does, which is why it
+    belongs among the checks and not only in the raw hardware dump: a report
+    that says "no blocking problems" beside a gate that is off is wrong about
+    the one thing most likely to explain silence.
+
+    WARN, not FAIL: an off gate mutes the woofers on most laptops, but on some
+    the firmware auto-loads anyway and flipping it is an audible no-op (#39),
+    so it is a strong suspect rather than a proven fault. The fix command
+    isn't in the detail because --doctor wraps details to the terminal width
+    and would fold it mid-command; it prints unwrapped in the speaker-amp
+    section instead, which every --doctor run reaches.
+    """
+    if not gates:
+        return None
+    off = [g for g in gates if not g.on]
+    if not off:
+        return CheckResult(DOCTOR_PASS, "Speaker firmware gate",
+                           "the amplifier is allowed to load its firmware.")
+    names = ", ".join(g.name for g in off)
+    return CheckResult(
+        DOCTOR_WARN, "Speaker firmware gate",
+        f"{names} is off, so the amplifier runs untuned ahead of the preset "
+        "and your speakers may be silent, thin or crackly whatever the preset "
+        "does. The Speaker amplifier status section below prints the one-line "
+        "command that switches it on.")
+
+
 def _doctor_summary(checks) -> tuple[int, int, int, int]:
     """Count (FAIL, WARN, PASS, UNKNOWN) across the checks. UNKNOWN is counted
     so an unverifiable run isn't silently summarised as clean."""
@@ -1634,7 +1684,12 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # 5. Hardware / codec context (folds in --speaker-info)
     report.speaker_info = _gather_speaker_info()
 
-    # 6. Kernel age — speaker-amp fixes land kernel-side (issue #33)
+    # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
+    gate_check = firmware_gate_status(report.speaker_info.firmware_gates)
+    if gate_check is not None:
+        report.checks.append(gate_check)
+
+    # 7. Kernel age — speaker-amp fixes land kernel-side (issue #33)
     report.checks.append(kernel_age_status(report.speaker_info.kernel))
 
     report.facts = {
@@ -1721,8 +1776,17 @@ def _print_doctor_report(report: DoctorReport) -> None:
     print()
 
     # What the doctor can't see — guide the user through the manual checks.
-    if not fail and not unknown:
+    # A WARN has to suppress the all-clear. Every warning this report can
+    # raise names something that plausibly explains "I hear no difference" —
+    # no presets written, background service off, a firmware gate that mutes
+    # the speakers — so printing "no blocking problems" beside one contradicts
+    # the very lines above it, in the output the issue form asks people to
+    # paste when something is wrong.
+    if not (fail or warn or unknown):
         cprint("ok", "No blocking problems detected.")
+    elif warn and not fail:
+        cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
+                       "to fix first.")
     elif unknown and not fail:
         cprint("warn", "Some checks couldn't be verified (the [ ? ] lines above); "
                        "the rest look OK.")

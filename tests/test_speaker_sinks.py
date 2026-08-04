@@ -771,8 +771,23 @@ def test_amp_status_lines_includes_firmware_gate_off():
     info.amp_status = [_astat("sdw:0")]
     info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=False)]
-    assert any("Force Firmware Load" in l and "OFF" in l
-               for l in d._amp_status_lines(info))
+    lines = d._amp_status_lines(info)
+    assert any("Force Firmware Load" in l and "OFF" in l for l in lines)
+    # This section is where --speaker-info and --doctor both end, so it is the
+    # only place either can hand over the fix — flagging without it leaves the
+    # reader with a diagnosis and no command.
+    fix = [l for l in lines if "amixer" in l]
+    assert fix and "iface=CARD" in fix[0] and fix[0].rstrip().endswith(" on")
+    assert fix[0].strip() == f"turn it on:  {d.amixer_enable_cmd(info.firmware_gates[0])}"
+
+
+def test_amp_status_lines_gate_on_offers_no_fix():
+    info = d.SpeakerInfo()
+    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
+                                          "Speaker Force Firmware Load", on=True)]
+    lines = d._amp_status_lines(info)
+    assert not any("amixer" in l for l in lines)
+    assert not any("⚠" in l for l in lines)
 
 
 def test_amp_status_lines_flags_log_error_and_missing_firmware():

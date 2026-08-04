@@ -47,6 +47,7 @@ from dolby_to_easyeffects import (
     check_preset_kernel,
     decode_mbc_bands,
     ee_version_status,
+    firmware_gate_status,
     install_status,
     kernel_age_status,
     loaded_preset_status,
@@ -1502,6 +1503,39 @@ def test_doctor_summary_counts():
               CheckResult(DOCTOR_PASS, "c", ""), CheckResult(DOCTOR_PASS, "d", ""),
               CheckResult(DOCTOR_UNKNOWN, "e", "")]
     assert _doctor_summary(checks) == (1, 1, 2, 1)
+
+
+def _gate(on):
+    import dolby_to_easyeffects as d
+    return d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
+                          "Speaker Force Firmware Load", on=on)
+
+
+@pytest.mark.parametrize("gates,expected", [
+    ([], None),                                   # no such control: say nothing
+    ([_gate(True)], DOCTOR_PASS),
+    ([_gate(False)], DOCTOR_WARN),
+    ([_gate(True), _gate(False)], DOCTOR_WARN),   # any gate off is a suspect
+])
+def test_firmware_gate_status(gates, expected):
+    result = firmware_gate_status(gates)
+    assert (result.status if result else None) == expected
+
+
+def test_doctor_off_gate_is_never_summarised_as_clean(monkeypatch, capsys):
+    """TRAP: --doctor is the output the issue form asks people to paste when
+    something is wrong. A gate that mutes the speakers upstream of the whole
+    preset must reach the verdict, not just the hardware dump below it."""
+    import dolby_to_easyeffects as d
+    monkeypatch.setattr(d, "_CONSOLE", None)   # plain print so capsys sees it
+    report = DoctorReport(checks=[
+        CheckResult(DOCTOR_PASS, "EasyEffects version", "8.1.0"),
+        firmware_gate_status([_gate(False)]),
+    ])
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+    assert "No blocking problems detected." not in out
+    assert "1 WARN" in out
 
 
 def test_doctor_report_unknown_not_summarised_as_clean(monkeypatch, capsys):

@@ -136,6 +136,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` no longer reports "No blocking problems detected" beside a
+  warning. The verdict was computed from the EasyEffects-side checks only, so
+  a smart-amp firmware gate that mutes the speakers never reached it — that
+  gate is now a check of its own, and any warning suppresses the all-clear.
+  `--doctor` and `--speaker-info` also print the one-line `amixer` command
+  that switches the gate on, which only the end-of-run warning offered before.
+
 - The report-back link at the end of a run is clickable again. It is longer
   than a standard terminal is wide, and coloured output reflowed it mid-URL —
   as did the four "unusual XML field" notes, which carried their own copy of a
