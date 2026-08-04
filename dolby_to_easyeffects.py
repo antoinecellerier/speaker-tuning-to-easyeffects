@@ -5043,7 +5043,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # gives the reader the self-loading default before the re-run, not
         # after it.
         _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
-                               f"start with {preset_names[0]}; the real run "
+                               f"start with {preset_names[0]} (Detailed is "
+                               "brighter, Warm softer); the real run "
                                "prints the exact steps. (Or add --autoload "
                                "and it loads itself for your speakers.)",
                         indent="  ")
@@ -5059,9 +5060,14 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     for name in preset_names:
         cprint("dim", f"    {name}")
     print()
+    # "Brighter"/"softer" measured against ieq_balanced on the corpus
+    # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
+    # treble. Round 5: the closing named a starting preset but never said
+    # what the other two are for, so nobody would try them.
     _cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
                            f"pick '{preset_names[0]}' from the Presets menu — "
-                           "that's the one to start with. Or re-run with "
+                           "that's the one to start with (Detailed is "
+                           "brighter, Warm softer). Or re-run with "
                            "--autoload to have it load itself for your "
                            "speakers.", indent="  ")
     if profile_used and n_modes > 1:
