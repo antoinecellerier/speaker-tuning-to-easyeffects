@@ -1482,9 +1482,13 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         for w in detect_warnings:
             cprint("warn", f"[smart-filter] {w}")
         if target_sink:
+            # Names the override (round 7): without it a reader whose
+            # detection picked the wrong device assumed their only path
+            # was filing a report.
             cprint("ok", f"[smart-filter] your built-in speakers: "
                          f"{target_sink} "
-                         "(autodetected)")
+                         "(autodetected — wrong device? --target-sink NAME "
+                         "overrides)")
         else:
             cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
                            "conf (apps will target effect_input."
