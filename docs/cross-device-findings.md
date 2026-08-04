@@ -728,6 +728,20 @@ have an in-device A/B — it is on for `music` and off for every other profile
 level, a static band shape does not, and synthesis shows new harmonics (the
 Δ3 signature the issue-#14 harness already measures).
 
+**Not surfaced to users either, deliberately (2026-08-04).** Sliding bass is
+absent from `_UNMODELED_FEATURES`, so no run mentions it — including on the
+63 devices that carry it. Adding the row was considered while triaging issue
+[#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50)
+and declined until a capture exists: the finding would name a gap with no
+resolution to offer, and its `ask` would put a capture request in front of
+every reader rather than the few who can run one. Revisit once the semantics
+are settled.
+
+That issue is the best capture candidate so far: a dual-booting reporter, on
+the 300 Hz / `max-gain=18.0` variant above, whose complaint is the symptom the
+stage would explain ("the generated preset lacks low end/bass that Windows
+has").
+
 ### Band B — an on/off bit and nothing else, so *not* derivable
 
 These are enabled on real devices, and no amount of corpus evidence will make
