@@ -5095,6 +5095,11 @@ def print_troubleshooting(findings: list[Finding],
     # says "re-run with --disable volmax" and the list of valid filters right
     # under it doesn't contain volmax, so the reader concludes one of the two
     # is stale and trusts neither.
+    # Both autogain rows point at [leveler-gap] when that note fired: the
+    # note names --disable autogain as the off-switch, and round 4 found
+    # the pointer on the --enable row (leveler off by default) but missing
+    # from the --disable row (leveler running), where the note is live.
+    gap = any(f.slug == "leveler-gap" for f in findings)
     if shown:
         print()
         # Opens on the condition, so the list reads as "only if you hear it"
@@ -5105,7 +5110,10 @@ def print_troubleshooting(findings: list[Finding],
                         indent="  ")
         for name in shown:
             symptom, _effect = DISABLEABLE_FILTERS[name]
-            _print_flag_hint(f"--disable {name}", f"# {symptom}")
+            comment = f"# {symptom}"
+            if name == "autogain" and gap:
+                comment += " — see [leveler-gap]"
+            _print_flag_hint(f"--disable {name}", comment)
 
     # Same one-line shape as the --disable menu above, with the caveat folded
     # into the same line rather than hanging under it. "Shipped present but
@@ -5119,7 +5127,6 @@ def print_troubleshooting(findings: list[Finding],
         # reproduce, --enable autogain is the switch that turns them on. The
         # run says so in the leveler-gap note far above; the menu offered the
         # flag with no hint of it, so the two never met.
-        gap = any(f.slug == "leveler-gap" for f in findings)
         for name in enable_hints:
             symptom, caveat = ENABLEABLE_FILTERS[name]
             if name == "autogain" and gap:
