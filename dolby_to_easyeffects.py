@@ -6081,11 +6081,15 @@ def complete_and_load(parser: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None,
-         closing: list[Finding] | None = None):
+         closing: list[Finding] | None = None,
+         troubleshooting: dict | None = None):
     """Generate the presets. ``closing`` collects the findings the closing
     block would render, for a caller that prints that block itself (see
     ``--skip-closing``). Always populated when supplied, independently of
-    the flag, so a wrapper can't accidentally drop the run's findings."""
+    the flag, so a wrapper can't accidentally drop the run's findings.
+    ``troubleshooting``, when supplied, likewise takes the fix-flags menu:
+    it is filled with print_troubleshooting's inputs instead of the menu
+    printing here, so the caller can render it at its own end."""
     parser = build_parser(argv)
     complete_and_load(parser)
     args = parser.parse_args(argv)
@@ -6401,10 +6405,20 @@ def main(argv: list[str] | None = None,
 
     scoped = [_scope(f) for f in findings.values()]
 
-    print_troubleshooting(scoped, filters_by_profile,
-                          installs_presets=not args.skip_closing,
-                          enabled_by_flag=frozenset(args.enable),
-                          dry_run=args.dry_run)
+    # A wrapper takes the menu along with the closing ask (round 4: printed
+    # at [1/3] it told the reader what to re-run before setup had finished,
+    # with two more phases of output below it) — stashed here, printed by
+    # the wrapper at its own end.
+    if troubleshooting is not None:
+        troubleshooting.update(
+            findings=scoped,
+            filters_by_profile=filters_by_profile,
+            enabled_by_flag=frozenset(args.enable))
+    else:
+        print_troubleshooting(scoped, filters_by_profile,
+                              installs_presets=not args.skip_closing,
+                              enabled_by_flag=frozenset(args.enable),
+                              dry_run=args.dry_run)
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a
@@ -6428,11 +6442,12 @@ def main(argv: list[str] | None = None,
 
 
 def run_cli(argv: list[str] | None = None,
-            closing: list[Finding] | None = None) -> int:
+            closing: list[Finding] | None = None,
+            troubleshooting: dict | None = None) -> int:
     """main() with the top-level error handling the __main__ block used to
     inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
     try:
-        main(argv, closing=closing)
+        main(argv, closing=closing, troubleshooting=troubleshooting)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")

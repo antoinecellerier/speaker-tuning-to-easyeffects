@@ -196,9 +196,11 @@ def _generator_stdout(dry_run: bool):
             else contextlib.nullcontext())
 
 
-def _run_generator(child_argv: list[str], closing=None) -> int:
+def _run_generator(child_argv: list[str], closing=None,
+                   troubleshooting=None) -> int:
     try:
-        return dolby_to_easyeffects.run_cli(child_argv, closing=closing)
+        return dolby_to_easyeffects.run_cli(child_argv, closing=closing,
+                                            troubleshooting=troubleshooting)
     except SystemExit as e:
         # The child argv is wrapper-constructed, so its parser should never
         # error — but never let a stray sys.exit tear down the tempdir scope.
@@ -323,8 +325,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
 
-    # The generator's own closing block would land under [1/3], with two more
-    # phases of output below it; we collect its findings and print it last.
+    # The generator's own closing output (fix-flags menu + asks) would land
+    # under [1/3], with two more phases of output below it; we collect its
+    # findings and menu inputs and print them last.
     step1_common = (rebuild_argv(step1_actions, args)
                     + ["--skip-ee-check", "--skip-closing"])
     if args.no_color:
@@ -341,6 +344,11 @@ def main(argv: list[str] | None = None) -> int:
     # Where each conf landed, so the run can say how to undo itself.
     written: list[Path] = []
     closing: list = []
+    # The fix-flags menu travels the same way as the closing findings:
+    # printed at [1/3] it told the reader what to re-run before setup had
+    # even finished (round 4), so the generator stashes its inputs here and
+    # we render it at the end, after the [3/3] steps.
+    troubleshooting: dict = {}
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
         # Not "no EasyEffects files are installed": the reader picked this
         # script to avoid EasyEffects, and opening the run by naming it made
@@ -351,7 +359,8 @@ def main(argv: list[str] | None = None) -> int:
         with _generator_stdout(args.dry_run):
             rc = _run_generator(step1_common
                                 + ["--output-dir", tmp, "--irs-dir", tmp],
-                                closing=closing)
+                                closing=closing,
+                                troubleshooting=troubleshooting)
         if rc != 0:
             return rc
 
@@ -435,8 +444,9 @@ def main(argv: list[str] | None = None) -> int:
         print()
         _print_undo(written)
 
-    # The generator's closing block, held back from [1/3] so it lands here —
-    # last on screen, whichever of the three ways this run ended. Not on the
+    # The generator's closing output, held back from [1/3] so it lands here —
+    # last on screen, whichever of the three ways this run ended. Menu before
+    # asks, the generator's own order, so the one link stays last. Not on the
     # failure paths above: they return early, and an ask is the wrong thing to
     # close on when nothing was installed.
     #
@@ -445,6 +455,13 @@ def main(argv: list[str] | None = None) -> int:
     # stderr. Same stream is what makes "after [3/3]" true rather than a
     # coincidence of the two being the same terminal.
     with contextlib.redirect_stdout(sys.stderr):
+        if troubleshooting:
+            dolby_to_easyeffects.print_troubleshooting(
+                troubleshooting["findings"],
+                troubleshooting["filters_by_profile"],
+                installs_presets=False,
+                enabled_by_flag=troubleshooting["enabled_by_flag"],
+                dry_run=args.dry_run)
         dolby_to_easyeffects.print_project_asks(closing, dry_run=args.dry_run,
                                                 pipewire_native=True)
     return rc

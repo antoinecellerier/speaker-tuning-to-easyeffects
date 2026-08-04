@@ -140,7 +140,7 @@ def recorders(monkeypatch):
     dolby_to_easyeffects.get_version()
     calls = SimpleNamespace(step1=[], step2=[], commands=[])
 
-    def fake_run_cli(argv, closing=None):
+    def fake_run_cli(argv, closing=None, troubleshooting=None):
         calls.step1.append(list(argv))
         if closing is not None:
             # The real generator hands its findings back for the wrapper to
@@ -148,6 +148,13 @@ def recorders(monkeypatch):
             closing.append(dolby_to_easyeffects.Finding(
                 slug="unconfirmed-by-ear", kind="ask", detail="x",
                 ask="Does the treble sound right?"))
+        if troubleshooting is not None:
+            # Same for the fix-flags menu: the generator stashes its inputs
+            # and the wrapper renders it after [3/3].
+            troubleshooting.update(
+                findings=list(closing or []),
+                filters_by_profile={"volmax": {"dynamic"}},
+                enabled_by_flag=frozenset())
         if "--output-dir" in argv:
             out = Path(argv[argv.index("--output-dir") + 1])
             for stem in ("Dolby-Balanced", "Dolby-Detailed", "Dolby-Warm"):
@@ -275,7 +282,7 @@ def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
 
 def test_routing_step1_failure_propagates(recorders, monkeypatch):
     monkeypatch.setattr(dolby_to_easyeffects, "run_cli",
-                        lambda argv, closing=None: 1)
+                        lambda argv, closing=None, troubleshooting=None: 1)
     assert wrapper_main([]) == 1
     assert recorders.step2 == []
 
@@ -296,7 +303,7 @@ def test_routing_no_matching_preset_errors(recorders, monkeypatch, capsys):
     absent from the XML) must fail with a pointer, not convert nothing
     silently."""
     monkeypatch.setattr(dolby_to_easyeffects, "run_cli",
-                        lambda argv, closing=None: 0)
+                        lambda argv, closing=None, troubleshooting=None: 0)
     assert wrapper_main(["--no-activate"]) == 1
     assert "no Balanced preset was generated" in capsys.readouterr().err
     assert recorders.step2 == []
