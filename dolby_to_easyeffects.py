@@ -3201,7 +3201,12 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     declared_name = (declared_default.get("value")
                      if declared_default is not None else None)
 
-    n_profiles = len(endpoint.findall("profile"))
+    # Excludes the `off` profile, matching get_profile_types: it is the
+    # disabled state, not a mode anyone selects, and --all-profiles doesn't
+    # build it. Counting it made the banner say "9 sound modes" on a device
+    # where "--all-profiles builds every mode" then built 8.
+    n_profiles = len([p for p in endpoint.findall("profile")
+                      if p.get("type") != "off"])
 
     if announce_profile:
         name = profile.get("type")
@@ -6723,8 +6728,14 @@ def main(argv: list[str] | None = None,
             # Names the practical difference — "enhanced preset generation"
             # told the reader nothing and read as either good news or a
             # warning (round 2).
-            cprint("head", "SoundWire speaker hardware detected — bass "
-                           "enhancer and volume leveler on by default")
+            # "where your tuning enables it": this prints from the filename,
+            # before any profile is parsed, and plenty of profiles disable
+            # the leveler outright (voice, off, most game). The flat "on by
+            # default" then contradicted the leveler section four lines
+            # below, which correctly said "switched off in your tuning".
+            cprint("head", "SoundWire speaker hardware detected — adds a "
+                           "bass enhancer, and keeps the volume leveler on "
+                           "where your tuning enables it")
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
