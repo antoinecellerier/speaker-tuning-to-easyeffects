@@ -5054,7 +5054,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    dry_run: bool, output_dir=None,
                    profile_used: str | None = None,
                    n_modes: int = 0,
-                   default_unknown: bool = False) -> None:
+                   default_unknown: bool = False,
+                   autogain_off: bool = False) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -5063,7 +5064,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     only this one — --all-profiles is the answer, and it was never
     mentioned anywhere a user reads). ``default_unknown`` adds the guess
     caveat to that line (round 6: the caveat lived only at the top banner,
-    which a Done-stopper never rereads).
+    which a Done-stopper never rereads). ``autogain_off`` adds the one
+    guaranteed audible difference from Windows — the tuning's leveler
+    shipping off — for the same reason: it never reached the last screen
+    (round 6).
 
     The run reports each file as it writes it, hundreds of lines before the
     end, and then closed on troubleshooting advice for problems the user
@@ -5106,6 +5110,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                    f"sound mode only{caveat} — "
                                    "--all-profiles builds every mode.",
                             indent="  ")
+        if autogain_off:
+            _cprint_wrapped("dim", "  Likely quieter than on Windows: your "
+                                   "tuning's volume leveler ships off here "
+                                   "— add --enable autogain to turn it on.",
+                            indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
@@ -5130,6 +5139,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         _cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
                                f"mode only{caveat} — --all-profiles builds "
                                "every mode.", indent="  ")
+    if autogain_off:
+        _cprint_wrapped("dim", "  Likely quieter than on Windows: your "
+                               "tuning's volume leveler ships off here — "
+                               "add --enable autogain to turn it on.",
+                        indent="  ")
 
 
 # Width of the "    --disable volmax      " gutter each flag row hangs from,
@@ -5647,8 +5661,13 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             state = ("on in your tuning — running in this preset "
                      "(--disable autogain switches it off)")
         else:
+            # Carries its why (round 6): the override of the tuning's own
+            # setting was only explained 48 lines later in the flag menu.
+            # Same risk phrasing as the menu row — the leveler family's
+            # one wording.
             state = ("on in your tuning, but this preset ships with it "
-                     "off — add --enable autogain to turn it on")
+                     "off — it can make quiet passages swell then duck "
+                     "(issue #25); add --enable autogain to turn it on")
         print(f"\nAutogain (volume leveler): {state}")
         # Settings only when the stage actually runs in this preset: on a
         # shipped-off build the targets are numbers the reader can't tie
@@ -6662,7 +6681,12 @@ def main(argv: list[str] | None = None,
         print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
-                       default_unknown="profile-unknown" in findings)
+                       default_unknown="profile-unknown" in findings,
+                       # "autogain" marker = leveler present but bypassed
+                       # (the --enable-menu state); -active = running.
+                       autogain_off=("autogain" in filters_by_profile
+                                     and "autogain-active"
+                                     not in filters_by_profile))
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
