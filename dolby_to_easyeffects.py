@@ -3256,9 +3256,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             "supported."
         )
     if simplified_ao:
-        cprint("warn", f"  {path.name}: simplified-schema DAX3 "
-                       "(gain_l/gain_r audio-optimizer) — this variant has no "
-                       "multi-band compressor or speaker PEQ.")
+        # Informational, not a warning: round-4 reviewers read the yellow
+        # filename-led schema line as "my laptop is missing something".
+        # Plain color, plain words, reassurance first; "simplified-schema
+        # DAX3" stays as the grep handle triage and the docs use.
+        print("  Your tuning uses Dolby's simpler format — normal for "
+              "this device, nothing is missing (it has no multi-band "
+              "compressor or speaker-EQ stages to convert; "
+              "simplified-schema DAX3).")
     ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 
