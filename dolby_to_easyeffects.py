@@ -3599,14 +3599,19 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//dynamic_speaker_optimization_enable", "speaker-optimizer",
         lambda el: el.get("value") == "1",
-        # Says it's safe. Naming a dropped "bass limiting" stage and stopping
-        # there reads as "nothing is protecting your woofers now", and a
-        # reader who fears for their speakers has no way to check.
+        # Naming a dropped "bass limiting" stage and stopping there reads as
+        # "nothing is protecting your woofers now", and a reader who fears
+        # for their speakers has no way to check — so the line still
+        # reassures, but only with something true. "Nothing here plays
+        # louder than your laptop normally would" was not: the same run can
+        # add a volmax boost and, on SoundWire, +12 dB of bass harmonics
+        # into the band this dropped stage was protecting. Program level is
+        # raised; what is actually capped is the peak.
         lambda el: "Your tuning has an extra bass-protection stage (Dynamic "
                    "Speaker Optimization) that this converter doesn't "
-                   "reproduce. Nothing here plays louder than your laptop "
-                   "normally would, so it's safe — very loud bass may just "
-                   "sound less controlled than on Windows."),
+                   "reproduce. Nothing here clips, but the preset does add "
+                   "loudness of its own, so very loud bass may sound less "
+                   "controlled than on Windows."),
     _UnmodeledFeature(
         ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
         lambda el: True,  # presence implies the newer virtualizer pipeline
@@ -3615,10 +3620,17 @@ _UNMODELED_FEATURES = [
         # reviewers took it for the same thing as the "Surround virtualizer"
         # section printed later. Each message now carries its own identity;
         # no cross-reference, since either can appear without the other.
+        # "Nothing more" bounded a cost nobody has measured: this stage is
+        # on one corpus device, has never been captured, and the one
+        # measurement we do have of Dolby virtualization on 2-channel
+        # content found no widening at all — so "narrower" isn't even the
+        # direction the evidence points. The reassurance stays, but as the
+        # true one: dropping it doesn't disturb anything else.
         lambda el: "Your tuning switches on Dolby's newer speaker-widening "
                    "effect (advanced speaker virtualizer), which this "
-                   "converter doesn't rebuild — stereo may sound slightly "
-                   "narrower than on Windows, nothing more."),
+                   "converter doesn't rebuild — so the stereo image may "
+                   "differ from Windows. Nothing else in the preset changes "
+                   "because of it."),
     # Watching-only fields below: the corpus shows these as effectively
     # constants and the script doesn't act on them. An XML that breaks the
     # assumption is exactly the data that would move the mapping, so these
@@ -5808,10 +5820,21 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # reason stands alone.
         # Verdict first (round 7): leading with the dB figure made the
         # boost read as active for a beat before "skipped" landed.
-        print("\nSurround (multi-channel) rendering boost: skipped on "
-              f"purpose — your tuning sets {surround['boost']:.1f} dB, but "
-              "Dolby applies it only to actual surround content, not "
-              "normal stereo playback")
+        #
+        # Says what was measured, not what Dolby intends. A DAX capture
+        # found surround-boost=96 and =0 identical on 2-channel content
+        # (0.01 dB S/M); that the boost applies to *surround* content is
+        # the leading hypothesis in design-notes, never captured — no
+        # multichannel capture exists. And with the tuning at 0 dB there is
+        # nothing to skip, so that case says so instead.
+        if surround["boost"] == 0:
+            print("\nSurround (multi-channel) rendering boost: your tuning "
+                  "sets none, so there is nothing to carry over")
+        else:
+            print("\nSurround (multi-channel) rendering boost: skipped on "
+                  f"purpose — your tuning sets {surround['boost']:.1f} dB, "
+                  "but we measured no difference it makes to ordinary "
+                  "stereo playback")
 
     if vol_leveler:
         # Says BOTH states — the tuning file's and this preset's — and
