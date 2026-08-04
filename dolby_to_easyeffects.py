@@ -3914,8 +3914,11 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
             print()
             # cta, not dim: this is the one concrete task the report needs,
             # and it printed fainter than the reassurance bullet above it
-            # (round-2 color finding).
-            cprint("cta", "  Attach this file to your report (zip it if "
+            # (round-2 color finding). "If you report", the intro line's
+            # vocabulary: unconditional "attach this to your report" right
+            # after "should sound right" left a round-4 reviewer unsure
+            # whether filing was mandatory.
+            cprint("cta", "  If you report, attach this file (zip it if "
                           "GitHub refuses the upload):")
             # Absolute and quoted. Dolby's own directory names contain '$'
             # (…/code$GetExtractPath$/…), so an unquoted relative path is
