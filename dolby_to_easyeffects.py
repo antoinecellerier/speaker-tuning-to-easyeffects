@@ -5603,9 +5603,17 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                "noted above)"
                if any(f.slug == "speaker-optimizer" for f in tuning.findings)
                else "")
-        print(f"\nBass enhancer: +{be['amount']:.1f} dB harmonics below "
-              f"{be['scope']:.0f} Hz — replaces Dolby's in-driver bass "
-              f"enhancement, which has no settings in the XML{sep}")
+        # Says where the Hz figure comes from (round 7): a number in the
+        # same sentence as "no settings in the XML" read as pulled from
+        # nowhere. The scope derives from the PEQ high-pass corner
+        # (min(2*hp, 300) — see make_bass_enhancer).
+        print()
+        _cprint_wrapped("", f"Bass enhancer: +{be['amount']:.1f} dB "
+                            f"harmonics below {be['scope']:.0f} Hz (sized "
+                            "from this speaker's bass cutoff) — replaces "
+                            "Dolby's in-driver bass enhancement, which has "
+                            f"no settings in the XML to copy{sep}",
+                        indent="  ")
 
     if dialog_enhancer:
         # dB first: "amount=5" has no knowable scale (it's a raw schema
