@@ -3578,14 +3578,18 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//peak-level", "peak-level",
         lambda el: (el.get("value") or "0") != "0",
+        # Device terms, not schema terms: "corpus rows" and "the standard
+        # 1/16-dB convention" read as leaked internal notes to all three
+        # round-4 reviewers. The raw value stays verbatim (triage greps
+        # for it); the /16 math stays, uncited.
         lambda el: (
-            f"peak-level={el.get('value')} (≈ "
-            f"{int(el.get('value', '0')) / 16:+.2f} dB at the standard "
-            "1/16-dB convention) — nonzero on well under 1% of corpus rows. "
-            "We deliberately don't map it: the reading is unverified, and "
-            "getting it wrong would cost audible headroom on the few devices "
-            "that set it. The presets are built as if it were 0, which is "
-            "what every other device gets."),
+            f"peak-level={el.get('value')} (about "
+            f"{int(el.get('value', '0')) / 16:+.2f} dB) — a setting almost "
+            "no device we've tested uses. We deliberately don't apply it: "
+            "our reading of it is unverified, and applying a wrong value "
+            "would audibly cost volume on the few devices that use it. The "
+            "presets are built as if it were 0, which is what every other "
+            "device gets."),
         # Says where it stands. "a value we've never seen" alone left the
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
