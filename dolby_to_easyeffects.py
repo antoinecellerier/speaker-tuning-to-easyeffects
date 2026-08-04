@@ -5675,9 +5675,18 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
 
         all_preset_names.append(preset_name)
 
-        verb = "Would write" if args.dry_run else "Wrote"
-        cprint("ok", f"{verb} {irs_path}")
-        cprint("ok", f"{verb} {out_path}")
+        # "Staged", dimmed, when a wrapper is writing into a tempdir it
+        # will delete: round-4's wrapper reviewer saw the same green
+        # "Wrote" on these doomed files as on the conf that survives, and
+        # expected to find them later.
+        if args.dry_run:
+            style, verb = "ok", "Would write"
+        elif getattr(args, "staged", False):
+            style, verb = "dim", "Staged"
+        else:
+            style, verb = "ok", "Wrote"
+        cprint(style, f"{verb} {irs_path}")
+        cprint(style, f"{verb} {out_path}")
         # The tables are behind -v: even marked skippable they were the
         # bulk of the output, burying the findings between them, and their
         # only reader is someone diagnosing a wrong-sounding preset — who
@@ -6082,17 +6091,21 @@ def complete_and_load(parser: argparse.ArgumentParser) -> None:
 
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
-         troubleshooting: dict | None = None):
+         troubleshooting: dict | None = None,
+         staged: bool = False):
     """Generate the presets. ``closing`` collects the findings the closing
     block would render, for a caller that prints that block itself (see
     ``--skip-closing``). Always populated when supplied, independently of
     the flag, so a wrapper can't accidentally drop the run's findings.
     ``troubleshooting``, when supplied, likewise takes the fix-flags menu:
     it is filled with print_troubleshooting's inputs instead of the menu
-    printing here, so the caller can render it at its own end."""
+    printing here, so the caller can render it at its own end. ``staged``
+    marks the output dirs as a wrapper's throwaway staging area, so the
+    per-file announcements say "Staged", not "Wrote"."""
     parser = build_parser(argv)
     complete_and_load(parser)
     args = parser.parse_args(argv)
+    args.staged = staged
     global _TAG_CONVENTION_SHOWN
     _TAG_CONVENTION_SHOWN = False
     if args.no_color:
@@ -6443,11 +6456,13 @@ def main(argv: list[str] | None = None,
 
 def run_cli(argv: list[str] | None = None,
             closing: list[Finding] | None = None,
-            troubleshooting: dict | None = None) -> int:
+            troubleshooting: dict | None = None,
+            staged: bool = False) -> int:
     """main() with the top-level error handling the __main__ block used to
     inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
     try:
-        main(argv, closing=closing, troubleshooting=troubleshooting)
+        main(argv, closing=closing, troubleshooting=troubleshooting,
+             staged=staged)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
         cprint("err", f"Error: {e}")
         cprint("cta", "Run with --help to see usage and all options.")

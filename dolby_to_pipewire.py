@@ -197,10 +197,11 @@ def _generator_stdout(dry_run: bool):
 
 
 def _run_generator(child_argv: list[str], closing=None,
-                   troubleshooting=None) -> int:
+                   troubleshooting=None, staged: bool = False) -> int:
     try:
         return dolby_to_easyeffects.run_cli(child_argv, closing=closing,
-                                            troubleshooting=troubleshooting)
+                                            troubleshooting=troubleshooting,
+                                            staged=staged)
     except SystemExit as e:
         # The child argv is wrapper-constructed, so its parser should never
         # error — but never let a stray sys.exit tear down the tempdir scope.
@@ -360,7 +361,8 @@ def main(argv: list[str] | None = None) -> int:
             rc = _run_generator(step1_common
                                 + ["--output-dir", tmp, "--irs-dir", tmp],
                                 closing=closing,
-                                troubleshooting=troubleshooting)
+                                troubleshooting=troubleshooting,
+                                staged=True)
         if rc != 0:
             return rc
 
