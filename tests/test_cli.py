@@ -1199,6 +1199,7 @@ def _every_finding():
     # stop.
     found += [
         dolby_to_easyeffects._profile_mismatch_finding("music", "dynamic"),
+        dolby_to_easyeffects._profile_unknown_finding(),
         dolby_to_easyeffects._loudness_untamed_finding(),
         dolby_to_easyeffects._boost_unlimited_finding(12.0, 120),
         dolby_to_easyeffects._experimental_finding("type-3 high-shelf",

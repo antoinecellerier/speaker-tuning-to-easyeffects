@@ -3040,7 +3040,7 @@ class Finding:
 _TAG_CONVENTION_SHOWN = False
 
 
-def _print_finding_detail(finding: Finding) -> None:
+def _print_finding_detail(finding: Finding, style: str | None = None) -> None:
     """Print a finding's technical half where the condition was detected.
 
     Prints on every detection — the position is the point, and it is what a
@@ -3049,6 +3049,10 @@ def _print_finding_detail(finding: Finding) -> None:
     of hundred lines of tables) and trails there. The ask half is
     de-duplicated by slug and printed once at the end, so --all-profiles
     doesn't repeat it for each of nine profiles.
+
+    ``style`` overrides the kind-derived rendering: a hint whose condition
+    is routine rather than alarming (profile-unknown fires on ~96% of
+    corpus XMLs) passes "dim" so it doesn't put a ⚠ on nearly every run.
     """
     global _TAG_CONVENTION_SHOWN
     if not _TAG_CONVENTION_SHOWN:
@@ -3056,12 +3060,11 @@ def _print_finding_detail(finding: Finding) -> None:
         _cprint_wrapped("dim", "  (bracketed [tags] like the one below are "
                                "handles — quote one if you report, so we "
                                "know which line you mean)", indent="   ")
-    if finding.kind == "hint":
-        _cprint_wrapped("warn", f"  ⚠ [{finding.slug}] {finding.detail}",
-                        indent="    ")
-    else:
-        _cprint_wrapped("dim", f"  [{finding.slug}] {finding.detail}",
-                        indent="    ")
+    if style is None:
+        style = "warn" if finding.kind == "hint" else "dim"
+    marker = "⚠ " if style == "warn" else ""
+    _cprint_wrapped(style, f"  {marker}[{finding.slug}] {finding.detail}",
+                    indent="    ")
 
 
 @dataclass
@@ -3201,9 +3204,19 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     declared_name = (declared_default.get("value")
                      if declared_default is not None else None)
 
+    # A default pick with no declared Windows default and other modes to
+    # try is a guess worth a hint (round 6, all three reviewers across
+    # three rounds): raised whether or not the banner prints, carried out
+    # via ParsedTuning.findings so its ask lands in the fix menu. Under
+    # --all-profiles every parse names its profile, so this never fires
+    # there.
+    n_profiles = len(endpoint.findall("profile"))
+    guess_finding = None
+    if profile_type is None and declared_name is None and n_profiles > 1:
+        guess_finding = _profile_unknown_finding()
+
     if announce_profile:
         name = profile.get("type")
-        n_profiles = len(endpoint.findall("profile"))
         if profile_type:
             cprint("head", f"Profile: {profile_type}")
         else:
@@ -3235,9 +3248,12 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 if name and declared_name == name:
                     cprint("dim", "  (also the Windows default for this "
                                   "device)")
-                elif not declared_name:
-                    cprint("dim", "  (your file doesn't say which mode is "
-                                  "the Windows default)")
+                elif guess_finding is not None:
+                    # The undeclared caveat is this finding's detail — one
+                    # rendering, tag attached, so the menu ask's trailing
+                    # [profile-unknown] has a line to scroll back to. Dim,
+                    # not ⚠: it fires on nearly every run.
+                    _print_finding_detail(guess_finding, style="dim")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
     ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
@@ -3531,6 +3547,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     findings = collect_unmodeled_features(profile)
     for finding in findings:
         _print_finding_detail(finding)
+    if guess_finding is not None:
+        # Its detail printed at the banner (the guess's natural context) —
+        # carried here so the ask reaches the fix menu like any finding.
+        findings.insert(0, guess_finding)
 
     return ParsedTuning(
         freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
@@ -3724,6 +3744,27 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         ask=f"We built '{profile_used}' but the Windows default is "
             f"'{declared}' — re-run with --profile {declared} and tell us "
             "which sounds better.")
+
+
+def _profile_unknown_finding() -> Finding:
+    """The built mode was a first-listed guess; no declared Windows default.
+
+    kind="hint": trying another mode fixes the user's own audio. The ask
+    points at the Windows Dolby app because that is the one place the user
+    can see which mode they actually listened on (round 6, reviewer B) —
+    the file itself declares nothing, which is exactly why this fired.
+    """
+    # "We assume", not "we couldn't tell": first-listed-as-default has
+    # held on every device checked so far (user correction, round 6), and
+    # the declared-mismatch cases get [profile-mismatch] instead — so the
+    # copy states a good assumption, not a coin flip.
+    return Finding(
+        slug="profile-unknown",
+        detail="Your file doesn't name a Windows default; we assume the "
+               "first-listed mode is it, which has held on every device "
+               "we've checked.",
+        ask="If the overall character seems off, try the mode your Windows "
+            "Dolby app showed — --list names them; --profile picks.")
 
 
 def _loudness_untamed_finding() -> Finding:
@@ -5012,14 +5053,17 @@ EXPERIMENTAL_MARKERS = {
 def print_what_now(preset_names: list[str], autoloaded: bool,
                    dry_run: bool, output_dir=None,
                    profile_used: str | None = None,
-                   n_modes: int = 0) -> None:
+                   n_modes: int = 0,
+                   default_unknown: bool = False) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
     sound mode of several (round 5: the pick was explained at the top, but
     the closing never said the other modes exist or that this run built
     only this one — --all-profiles is the answer, and it was never
-    mentioned anywhere a user reads).
+    mentioned anywhere a user reads). ``default_unknown`` adds the guess
+    caveat to that line (round 6: the caveat lived only at the top banner,
+    which a Done-stopper never rereads).
 
     The run reports each file as it writes it, hundreds of lines before the
     end, and then closed on troubleshooting advice for problems the user
@@ -5056,9 +5100,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "and it loads itself for your speakers.)",
                         indent="  ")
         if profile_used and n_modes > 1:
+            caveat = (" (we assume it is your Windows default)"
+                      if default_unknown else "")
             _cprint_wrapped("dim", f"  These voice the '{profile_used}' "
-                                   "sound mode only — --all-profiles builds "
-                                   "every mode.", indent="  ")
+                                   f"sound mode only{caveat} — "
+                                   "--all-profiles builds every mode.",
+                            indent="  ")
         return
     cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f" to {output_dir}:" if output_dir else ":"))
@@ -5078,9 +5125,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                            "--autoload to have it load itself for your "
                            "speakers.", indent="  ")
     if profile_used and n_modes > 1:
+        caveat = (" (we assume it is your Windows default)"
+                  if default_unknown else "")
         _cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
-                               "mode only — --all-profiles builds every "
-                               "mode.", indent="  ")
+                               f"mode only{caveat} — --all-profiles builds "
+                               "every mode.", indent="  ")
 
 
 # Width of the "    --disable volmax      " gutter each flag row hangs from,
@@ -6612,7 +6661,8 @@ def main(argv: list[str] | None = None,
                                             args.mode))
         print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
-                       profile_used=profile_used, n_modes=n_modes or 0)
+                       profile_used=profile_used, n_modes=n_modes or 0,
+                       default_unknown="profile-unknown" in findings)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
