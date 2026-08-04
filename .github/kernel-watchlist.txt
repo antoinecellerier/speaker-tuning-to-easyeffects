@@ -38,6 +38,15 @@ alc294
 rog ally
 xbox ally
 
+# watch: #50 Yoga 7 2-in-1 16IML9 — PSREF lists "Smart Amplifier (AMP)" on this
+# model, but no amp driver binds and no "Force Firmware Load" control appears;
+# 17aa:38dc has no entry in the ALC269/ALC287 quirk table while its neighbours
+# do (38d5/38d6/38df/38e0 -> TAS2781_I2C, 38d2/38d7/38cf -> YOGA9 bass-spk-pin).
+# A quirk landing for this SSID would be the answer.
+38dc
+16iml9
+yoga 7 2-in-1
+
 # watch: standing — regression risk to confirmed-working devices on churning
 # kernel paths: ASUS TUF A15 (#34) rides AMD ACP (redesigned in 7.2); Zenbook
 # 14 UX3405 (#19/#24) saw adjacent-model quirks land this cycle
