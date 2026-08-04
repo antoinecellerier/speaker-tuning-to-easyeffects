@@ -5770,12 +5770,15 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # meaning, and it implied the boost dies with --disable regulator —
     # the limiter fallback keeps it, so the slot is an implementation
     # detail, not a dependency.
+    # "Loudness boost (volmax-boost):" — the friendly-name-first header
+    # shape every other section uses; this was the one lowercase raw-flag
+    # header left (round 6).
     if volmax_boost <= 0:
-        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB "
+        print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
               "(your tuning asks for none)")
     elif "volmax" in disabled:
-        print(f"\nvolmax-boost: {volmax_boost:+.1f} dB in your tuning — "
-              "dropped by --disable volmax")
+        print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
+              "in your tuning — dropped by --disable volmax")
     else:
         # Names its own off-switch, like the leveler line does: the menu
         # row says "--disable volmax" and the reader had to spot the
@@ -5788,9 +5791,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         else:
             tail = "(--disable volmax turns it off)"
         print()
-        _cprint_wrapped("", f"volmax-boost: {volmax_boost:+.1f} dB — the "
-                            f"overall loudness lift from your tuning {tail}",
-                        indent="  ")
+        _cprint_wrapped("", "Loudness boost (volmax-boost): "
+                            f"{volmax_boost:+.1f} dB from your tuning "
+                            f"{tail}", indent="  ")
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
     # disables it; if every band is like that, the regulator carries the
     # volmax boost but tames nothing — the issue-#23 "per-band compression
