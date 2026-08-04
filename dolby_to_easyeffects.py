@@ -5504,10 +5504,15 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # line still doing it) and ties the three preset files to the profile
     # they voice — reviewers read them as unrelated flavors.
     # "of full strength" anchors the percentage's scale — a bare "10%"
-    # gave no way to tell strong from weak (round 6).
-    print(f"Voicing strength (ieq-amount): {ieq_amount}% of full "
-          "strength — how strongly this profile's three voicings "
-          "(Balanced/Detailed/Warm) apply on top of the speaker correction")
+    # gave no way to tell strong from weak (round 6). "Differ in shape,
+    # not strength": one number over three differently-described presets
+    # left a round-7 reviewer unsure whether it covered all three. No
+    # is-this-typical cue — no corpus stat backs one.
+    _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% of "
+                        "full strength — this profile's three voicings "
+                        "(Balanced/Detailed/Warm) all apply at this "
+                        "strength on top of the speaker correction; they "
+                        "differ in shape, not strength", indent="  ")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
