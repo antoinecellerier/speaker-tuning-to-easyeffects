@@ -3632,14 +3632,15 @@ _UNMODELED_FEATURES = [
         # for it); the /16 math stays, uncited.
         # Reassurance before caveat (round 7): opening on "unverified"
         # made the tool sound shaky when the behaviour described is the
-        # safe default.
+        # safe default. Two sentences (round 9): one packing what/why/risk
+        # took two reads to untangle.
         lambda el: (
             f"peak-level={el.get('value')} (raw value; about "
             f"{int(el.get('value', '0')) / 16:+.2f} dB) — a setting almost "
             "no device we've tested uses. We skip it safely: the presets "
             "are built as if it were 0, which is what every other device "
-            "gets, because our reading of it is unverified and applying a "
-            "wrong value would audibly cost volume."),
+            "gets. Applying our unverified reading of it could audibly "
+            "cost volume, so we don't."),
         # Says where it stands. "a value we've never seen" alone left the
         # reader unable to tell whether their presets were wrong, so the
         # choice was between ignoring it and not installing at all.
@@ -5607,10 +5608,14 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                          f"{register(f_boost)})")
         if not parts:
             parts.append("flat (all 0 dB)")
+        # "(normal ...)": two round-9 reviewers read asymmetric correction
+        # as a possible fault in their hardware.
         sym = ("same correction for left and right"
                if np.allclose(ao_l, ao_r)
-               else "left and right corrected differently")
-        print("\nAudio-optimizer: speaker correction — "
+               else "left and right corrected differently (normal — each "
+                    "speaker gets its own correction)")
+        # Friendly name first, like every other header (round 9).
+        print("\nSpeaker correction (audio-optimizer): "
               + ", ".join(parts) + f", {sym}")
     if verbose:
         print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
@@ -5706,7 +5711,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # report handle.
         gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
         print(f"\nDialog enhancer: +{gain:.1f} dB speech boost @ 2.5 kHz "
-              f"(amount {dialog_enhancer['amount']} in your tuning)")
+              f"(amount {dialog_enhancer['amount']} of 16 in your tuning)")
 
     if surround:
         # No "virtualizer" in ANY form here — noun or verb: with the
