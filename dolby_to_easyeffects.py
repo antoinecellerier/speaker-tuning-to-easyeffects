@@ -3888,8 +3888,9 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                "loud, that gap is the most likely reason (--disable "
                "autogain switches the "
                "leveler off). Settling it needs a capture from a Windows "
-               "install with Dolby on this same machine — if you "
-               "dual-boot, we'll walk you through it.",
+               "install with Dolby on this same machine — a few minutes "
+               "of scripted recording; if you dual-boot, we'll walk you "
+               "through it.",
         # Deliberately does not ask them to go and do the capture, and does
         # not point at the measure_dax README: two rounds of reviewers read
         # the self-serve route as homework that gates help and said they'd
