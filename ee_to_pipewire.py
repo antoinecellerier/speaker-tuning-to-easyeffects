@@ -1147,14 +1147,16 @@ def _print_results(conf_path: Path, irs_path: Path | None,
     """Report where the conf (and copied IRS) landed — or, under --dry-run,
     where they *would* land. Always to stderr, so the dry-run conf on stdout
     stays clean."""
+    # "impulse response (.irs)", not the bare acronym: it is never expanded
+    # anywhere else a user reads (round 5).
     if dry_run:
         cprint("ok", f"Would write conf: {conf_path}")
         if irs_path is not None:
-            cprint("ok", f"Would copy IRS:   {irs_path}")
+            cprint("ok", f"Would copy impulse response (.irs): {irs_path}")
     else:
         cprint("ok", f"Wrote conf: {conf_path}")
         if irs_path is not None:
-            cprint("ok", f"Copied IRS: {irs_path}")
+            cprint("ok", f"Copied impulse response (.irs): {irs_path}")
 
 
 def _print_next_steps(node_name: str,

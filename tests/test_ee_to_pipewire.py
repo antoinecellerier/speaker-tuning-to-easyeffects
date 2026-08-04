@@ -1458,7 +1458,7 @@ def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
     captured = capsys.readouterr()
     target_irs = out_path.parent / "TestChain.irs"
     assert f"Would write conf: {out_path}" in captured.err
-    assert "Would copy IRS:" in captured.err
+    assert "Would copy impulse response (.irs):" in captured.err
     assert str(target_irs) in captured.err
     assert "Would write conf" not in captured.out  # never leaks into the conf
 
@@ -1471,7 +1471,7 @@ def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
     assert rc == 0
     err = capsys.readouterr().err
     assert f"Wrote conf: {out_path}" in err
-    assert "Copied IRS:" in err
+    assert "Copied impulse response (.irs):" in err
     assert "Next steps:" in err
     assert "systemctl --user restart pipewire pipewire-pulse" in err
     assert "[next]" not in err  # old per-line tag is gone

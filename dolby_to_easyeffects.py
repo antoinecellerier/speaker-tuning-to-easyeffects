@@ -5497,7 +5497,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         elif pf["type"] == 4:
             print(f"  [{spk}] Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the low end")
         elif pf["type"] == 3:
-            print(f"  [{spk}] Hi-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the treble  [unconfirmed-by-ear]")
+            # "High-shelf" in display copy — matching --disable high-shelf;
+            # the LSP mode string stays "Hi-shelf" (emitted parameter).
+            print(f"  [{spk}] High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, S={pf['s']} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
             print(f"  [{spk}] Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB, Q={pf['q']} — evens out a narrow band")
 
@@ -5569,7 +5571,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             state = ("on in your tuning, but this preset ships with it "
                      "off — add --enable autogain to turn it on")
         print(f"\nAutogain (volume leveler): {state}")
-        if vol_leveler["enable"]:
+        # Settings only when the stage actually runs in this preset: on a
+        # shipped-off build the targets are numbers the reader can't tie
+        # to anything they'll hear (round 5).
+        running = (vol_leveler["enable"] and "autogain" not in disabled
+                   and ("autogain" in enabled_flags or is_soundwire))
+        if running:
             print(f"  amount {vol_leveler['amount']}, targets "
                   f"{vol_leveler['in_target']:.1f} dB in / "
                   f"{vol_leveler['out_target']:.1f} dB out")
@@ -5578,7 +5585,8 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
         print(f"\nMulti-band compressor: {mb_comp['group_count']} band(s) — "
               f"evens out loud vs quiet separately per frequency range{tag}")
-        print(f"  target-power-level: {mb_comp['target_power']:.1f} dB")
+        print(f"  target-power-level: {mb_comp['target_power']:.1f} dB "
+              "(the level it evens toward)")
         # Print FROM the single-source decode — no inline re-decode, no
         # warnings (those fire in make_multiband_compressor). xover_hz is a
         # display concern derived here from the stored xover_idx + band
@@ -5589,10 +5597,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # for, and most reports arrive at normal verbosity.
         thr = [b["threshold"] for b in decoded]
         if len(thr) == 1:
-            print(f"  threshold {thr[0]:+.1f} dB"
+            print(f"  threshold {thr[0]:+.1f} dB (where it kicks in)"
                   + ("" if verbose else "  (full band table with -v)"))
         else:
-            print(f"  thresholds {max(thr):+.1f} to {min(thr):+.1f} dB"
+            print(f"  thresholds {max(thr):+.1f} to {min(thr):+.1f} dB "
+                  "(where bands kick in)"
                   + ("" if verbose else "  (full band table with -v)"))
         n_bands_print = len(decoded)
         for i, b in enumerate(decoded if verbose else []):
@@ -5618,8 +5627,11 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # count and floor are what a report diagnosis reads first.
         th = regulator["threshold_high"]
         active = [x for x in th if x < 0]
-        print("\nRegulator (per-band limiter): keeps loud parts from "
-              "distorting, band by band")
+        # "Steps in only when": distinguishes it from the always-shaping
+        # multi-band compressor two sections up, whose gloss otherwise
+        # read as the same job (round 5).
+        print("\nRegulator (per-band limiter): a protective ceiling, band "
+              "by band — steps in only when loud parts would distort")
         if active:
             print(f"  limits {len(active)} of {len(th)} bands "
                   f"(down to {min(th):+.1f} dB)"
@@ -5666,14 +5678,20 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print(f"\nvolmax-boost: {volmax_boost:+.1f} dB in your tuning — "
               "dropped by --disable volmax")
     else:
-        line = (f"\nvolmax-boost: {volmax_boost:+.1f} dB — the overall "
-                "loudness lift from your tuning")
+        # Names its own off-switch, like the leveler line does: the menu
+        # row says "--disable volmax" and the reader had to spot the
+        # substring match to connect the two (round 5).
         if verbose:
             slot = (f"regulator {volmax_slot}"
                     if regulator and "regulator" not in disabled
                     else "limiter input-gain")
-            line += f" (applied as {slot})"
-        print(line)
+            tail = f"(applied as {slot}; --disable volmax turns it off)"
+        else:
+            tail = "(--disable volmax turns it off)"
+        print()
+        _cprint_wrapped("", f"volmax-boost: {volmax_boost:+.1f} dB — the "
+                            f"overall loudness lift from your tuning {tail}",
+                        indent="  ")
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
     # disables it; if every band is like that, the regulator carries the
     # volmax boost but tames nothing — the issue-#23 "per-band compression
