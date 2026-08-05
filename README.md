@@ -71,7 +71,7 @@ The converter works on laptop internal speakers whose Windows driver ships a Dol
 | ThinkPad X1 Yoga Gen 7 (21CDCTO1WW) | Realtek ALC287, 17AA:22E6 | author |
 | ThinkPad X13 Gen 6 Intel (21RK) | Realtek ALC257, 17AA:2344 | [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23) |
 
-If you test it on other hardware, please [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml) whether it works or not — run `python3 dolby_to_easyeffects.py --speaker-info` and paste the output.
+If you test it on other hardware, please [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml) whether it works or not.
 
 ## Install
 
