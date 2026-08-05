@@ -49,7 +49,7 @@ Each generated preset and `.conf` is stamped with the version that produced it (
 
 ## Supported devices
 
-The converter works on laptop internal speakers whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
+The converter works on internal speakers whose Windows driver ships a Dolby DAX3 tuning (laptops, and handhelds like the ROG Xbox Ally X). Confirmed on:
 
 | Device | Codec / Subsystem | Reported by |
 |---|---|---|
@@ -107,7 +107,7 @@ pip install -r requirements.txt
 **Tuning input** — with neither an XML path nor `--windows`, the script auto-discovers: it probes mounted Windows partitions (`/proc/mounts`) and the current directory for a tuning source
 - `xml_file` (positional, optional) — path to the Dolby DAX3 tuning XML (e.g. `DEV_0287_SUBSYS_*.xml`)
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows directory (matches the audio codec subsystem ID from `/proc/asound`)
-- `--best-guess` — if auto-detection finds no exact hardware match, fall back to the only internal-speaker tuning whose manufacturer is present (or list the candidates to pick one with the positional XML path); reach for it when a SoundWire laptop reports "No matching DAX3 tuning XML found"
+- `--best-guess` — if auto-detection finds no exact hardware match, fall back to the only internal-speaker tuning whose manufacturer is present (or list the candidates to pick one with the positional XML path); reach for it when a SoundWire device reports "No matching DAX3 tuning XML found"
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
@@ -128,7 +128,7 @@ pip install -r requirements.txt
 **Autoload**
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs; defaults to the first Balanced preset generated
 - `--autoload-dir DIR` — autoload config directory (default: `~/.local/share/easyeffects/autoload/output/`)
-- `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a laptop whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
+- `--autoload-sink NODE_NAME` — bind autoload to an explicit PipeWire sink, bypassing speaker detection (repeatable). Use it if detection picks the wrong output or finds none (e.g. a device whose speaker isn't tagged `audio-speakers`). Find the name with `pw-dump | grep node.name`. See [Autoload](#autoload) below.
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
 
 **Filter tweaks**
@@ -227,7 +227,7 @@ It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffe
 <details>
 <summary>How speaker detection and the bypass fallback work</summary>
 
-The autoload file follows EasyEffects' convention (`{node.name}:{route}.json`, where `{route}` is the sink's active output route description — e.g. `Speaker` — which is what EasyEffects matches on, not the card profile). Speaker sinks are detected from PipeWire via `pw-dump`: first the sinks tagged with the `audio-speakers` device icon (excluding HDMI/DisplayPort/Bluetooth). If none are tagged — some laptops lack a device-specific UCM2 profile and fall back to a generic one that doesn't set the speaker icon — the script falls back to a relaxed tier of internal analog outputs (still excluding HDMI/Bluetooth/headsets), auto-applying a single match, prompting you to choose when several are found, and listing every sink it saw (with its icon) so you can see why. If the active output route can't be read from PipeWire, that sink is skipped (with an explanation) rather than written with a guessed name EasyEffects wouldn't match.
+The autoload file follows EasyEffects' convention (`{node.name}:{route}.json`, where `{route}` is the sink's active output route description — e.g. `Speaker` — which is what EasyEffects matches on, not the card profile). Speaker sinks are detected from PipeWire via `pw-dump`: first the sinks tagged with the `audio-speakers` device icon (excluding HDMI/DisplayPort/Bluetooth). If none are tagged — some devices lack a device-specific UCM2 profile and fall back to a generic one that doesn't set the speaker icon — the script falls back to a relaxed tier of internal analog outputs (still excluding HDMI/Bluetooth/headsets), auto-applying a single match, prompting you to choose when several are found, and listing every sink it saw (with its icon) so you can see why. If the active output route can't be read from PipeWire, that sink is skipped (with an explanation) rather than written with a guessed name EasyEffects wouldn't match.
 
 EasyEffects applies the last-loaded preset to whatever sink is currently active, so switching to HDMI, a USB headset, or Bluetooth while a Dolby preset is loaded keeps processing the Dolby correction on hardware it was never tuned for. `--autoload` mitigates this by also writing the `Nothing` bypass preset and turning on EasyEffects' global Fallback Preset (pointing it at `Nothing`) — any sink without its own autoload entry then falls back to a no-op chain. If EasyEffects is running when the script writes, you'll need to restart it for the setting to take effect. An existing `Nothing.json` preset is preserved, and an already-enabled fallback (pointing at any preset) is left untouched. Pass `--no-autoload-bypass` to skip if you manage this yourself.
 
@@ -441,7 +441,7 @@ flowchart LR
   P --> PRM["plugin params<br/>EQ · MBC · regulator · limiter"]
   FIR --> EE["EasyEffects preset"]
   PRM --> EE
-  EE --> SPK(["laptop speakers"])
+  EE --> SPK(["device speakers"])
 ```
 
 The preset is up to eight plugins in order: **Convolver** (FIR speaker correction) → **Bass Enhancer** (SoundWire only) → **Equalizer** (speaker PEQ) → **Dialog Enhancer** → **Autogain** (bypassed by default) → **Multiband Compressor** → **Regulator** (per-band limiter) → **Limiter** (brickwall safety net).

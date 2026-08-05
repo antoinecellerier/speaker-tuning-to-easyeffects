@@ -656,10 +656,10 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     cprint("warn", f"\n{'=' * 60}")
     cprint("warn", "⚠  [firmware-gate] Smart-amp firmware gate is OFF — your speakers")
     cprint("warn", "   may be silent, thin or crackly even though the preset is correct.")
-    cprint("dim", "Many laptops drive their speakers through a TI TAS2563/2781 smart")
+    cprint("dim", "Many devices drive their speakers through a TI TAS2563/2781 smart")
     cprint("dim", "amplifier whose firmware does not auto-load; until this ALSA control")
     cprint("dim", "is switched on the amp runs untuned upstream of the preset. On most")
-    cprint("dim", "laptops that mutes the woofers; where the amp drives every speaker,")
+    cprint("dim", "devices that mutes the woofers; where the amp drives every speaker,")
     cprint("dim", "it can instead make everything thin, quiet or prone to dropouts.")
     print()
     # Enable now: no root needed — the active logind session already holds an
@@ -692,7 +692,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     print()
     cprint("dim", "   Still wrong, and the log shows 'Direct firmware load for")
     cprint("dim", "   TAS2XXX….bin failed' or no such file exists? The per-device blob")
-    cprint("dim", "   is missing — distro linux-firmware lags newer laptops. Extract it")
+    cprint("dim", "   is missing — distro linux-firmware lags newer devices. Extract it")
     cprint("dim", "   from your Windows audio driver or TI's TAS2781-LINUX package and")
     cprint("dim", "   drop it into /lib/firmware.")
     # The feedback ask (it gates whether we automate this) used to be two dim
@@ -4114,7 +4114,7 @@ def _print_attach_lines(xml_path) -> None:
         return
     print()
     _cprint_wrapped("cta", "  If you report, best is a link to "
-                           "your laptop's audio-driver download "
+                           "your device's audio-driver download "
                            "(if you know it) — or just attach the "
                            "XML file:",
                     indent="  ")
@@ -6615,7 +6615,7 @@ def add_autoload_args(container, *, only=None):
         metavar="NODE_NAME",
         help="explicit PipeWire sink node.name to bind autoload to, bypassing "
              "speaker-sink detection (repeatable). Use this when auto-detection "
-             "picks the wrong output or finds none — e.g. a laptop whose "
+             "picks the wrong output or finds none — e.g. a device whose "
              "internal speaker is mis-tagged (no audio-speakers device icon). "
              "Find the name with 'pw-dump | grep node.name', or run with "
              "--autoload to print the candidate list. Mirrors "
