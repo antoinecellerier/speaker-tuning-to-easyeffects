@@ -15,6 +15,15 @@ name: Mark confirmed device as tested
 # so even a prompt-injected direct push to master is rejected server-side —
 # the tool allowlist is not the only line of defense.
 #
+# NEVER add `gh api`, `gh pr review` or a broad `gh pr` rule to the allowlist
+# below. This workflow reads issue text written by anyone, and the repo now has
+# "Allow GitHub Actions to create and approve pull requests" enabled (needed so
+# the kernel-table workflows can open their PRs with GITHUB_TOKEN). That means a
+# command capable of approving is no longer blocked at the token level — the
+# allowlist is what stands between a prompt injection and a self-approved PR.
+# The specific `gh pr create:*` / `git push:*` rules are safe: neither can
+# approve, and a branch ruleset rejects a direct push to master.
+#
 # What the allowlist does NOT gate: reads. Claude Code auto-approves a
 # built-in set of read-only shell commands (ls, cat, grep, read-only git…)
 # within the working directory, whatever the allowlist says — see
