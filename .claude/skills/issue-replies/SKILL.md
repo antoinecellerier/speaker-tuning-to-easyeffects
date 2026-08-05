@@ -55,6 +55,17 @@ commits get `Co-Authored-By`.
   concrete and cited (not "might be risky"), and lead with the most promising
   concrete path.
 
+## Let GitHub do the wrapping
+
+Write each paragraph as **one long line** — no hand-wrapping at 72/80 columns.
+GitHub reflows prose to the reader's window, so hard breaks buy nothing and
+cost on every later edit: a one-word change reflows the whole block and the
+diff hides the actual edit. Fenced code blocks are the exception — those are
+rendered verbatim, so break them exactly as they should be run.
+
+This is the opposite of the rule for terminal output, where nothing reflows
+and `_cprint_wrapped` does the wrapping for us (`.claude/rules/user-messages.md`).
+
 ## Citations must be clickable for the reader
 
 - This repo's commits: full unquoted SHA — GitHub auto-links it (backticks
