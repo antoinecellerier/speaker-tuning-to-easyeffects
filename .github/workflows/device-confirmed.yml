@@ -15,6 +15,14 @@ name: Mark confirmed device as tested
 # so even a prompt-injected direct push to master is rejected server-side —
 # the tool allowlist is not the only line of defense.
 #
+# Outcome reporting: the action's own logs show only aggregate counters
+# (turns, cost, denied-tool count) — never what Claude did or why it stopped,
+# which is exactly what you need when no PR shows up. The "Report outcome"
+# step below writes the verdict to the run's job summary, cross-checks
+# Claude's claim against whether a PR really exists, and fails the job if
+# nothing was opened and nothing was reported as already covered. The full
+# transcript is uploaded as an artifact.
+#
 # Agent mode (custom `prompt`, no @claude mention) does not auto-create a
 # branch the way @claude-mention mode does, and commits go through plain git
 # rather than the commit-signing MCP tool (that only exists when
@@ -80,12 +88,29 @@ jobs:
 
             Read it with: gh issue view ${{ github.event.issue.number }} --json title,body
 
+            DEVICE NAME: take it from the `--speaker-info` output in the body —
+            the System section's `Family` and `Product` lines — not from the
+            free-text issue title. E.g. Family "Yoga 7 16IAH7" + Product "82UF"
+            becomes "Lenovo Yoga 7 16IAH7 (82UF)", matching the existing table
+            rows. Titles are prose and may carry quotes, inch marks or
+            parentheses that break shell quoting further down.
+
+            SHELL SAFETY: single-quote every argument you pass to `git` and
+            `gh`, and use no command substitution, pipes or heredocs in them —
+            pass `--body` as one plain single-quoted string. This runs
+            unattended: a command the permission layer cannot parse is denied
+            outright and there is nobody to approve it.
+
             First, idempotency check — this label can be applied more than once:
               - If the "Supported devices" table in README.md already lists this
-                device, OR an open pull request already adds it
-                (`gh pr list --state open --search "in:title <device name>"`),
-                then do nothing: do not edit files, do not open a PR. Stop and
-                report that it's already covered.
+                device, OR an open pull request already adds it (search a
+                quote-free distinguishing token such as the model code:
+                `gh pr list --state open --search 'in:title 16IAH7'`), then do
+                nothing: do not edit files, do not open a PR. Stop and report
+                outcome `already_covered`, naming the exact row or PR you
+                matched. Match on the model designation, not on a family
+                resemblance — "Yoga 7 16IAH7" and "Yoga 7 2-in-1 16AKP10" are
+                different machines and both belong in the table.
 
             Otherwise do exactly this, matching this repo's existing conventions:
 
@@ -113,17 +138,131 @@ jobs:
             push to master or any other ref. Once the two files are edited:
 
               git add README.md CHANGELOG.md
-              git commit -m "<short summary, e.g. Mark <device name> as tested (#${{ github.event.issue.number }})>"
+              git commit -m 'Mark <device name> as tested (#${{ github.event.issue.number }})'
               git push -u origin ${{ steps.branch.outputs.branch_name }}
-              gh pr create --title "Mark <device name> as tested (#${{ github.event.issue.number }})" --body "..."
+              gh pr create --title 'Mark <device name> as tested (#${{ github.event.issue.number }})' --body '...'
 
             In the PR body, include "Closes #${{ github.event.issue.number }}" so
             that merging the PR automatically closes the device-report issue.
 
+            Finally — always, including when you stopped early — report what
+            happened as structured output:
+              - outcome: "pr_created", "already_covered", or "blocked"
+              - device: the device name you added, or the one you matched
+              - pr_url: the URL `gh pr create` printed, or "" if there is none
+              - details: one or two sentences. For "already_covered", name the
+                row or PR you matched. For "blocked", say exactly what stopped
+                you — a denied command (quote it), missing information in the
+                issue, or an ambiguity you could not resolve.
+            If anything blocks you, stop and report `blocked`; do not improvise
+            a workaround. A blocked run is fixed by a human, not worked around.
+
           # Edits are scoped to the two bookkeeping files, so even a prompt
           # injection in the issue body cannot make Claude modify source code
-          # or other files. Read is unrestricted (needed for the rules/docs);
+          # or other files. Reads and read-only git are unrestricted (needed
+          # for the rules/docs, and Claude reflexively runs `git status` /
+          # `git diff` before committing — denying those just burns turns);
           # writes and side effects are the tight surface.
           claude_args: |
-            --allowedTools Read "Edit(README.md)" "Edit(CHANGELOG.md)" "Bash(gh issue view:*)" "Bash(gh pr list:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(gh pr create:*)"
+            --allowedTools Read Grep Glob "Edit(README.md)" "Edit(CHANGELOG.md)" "Bash(gh issue view:*)" "Bash(gh pr list:*)" "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(gh pr create:*)"
             --max-turns 25
+            --json-schema '{"type":"object","properties":{"outcome":{"type":"string","enum":["pr_created","already_covered","blocked"]},"device":{"type":"string"},"pr_url":{"type":"string"},"details":{"type":"string"}},"required":["outcome","device","details"]}'
+
+      # The whole transcript, for when the summary below isn't enough to tell
+      # what went wrong. Short retention — it is only useful while the run is
+      # still worth re-triggering.
+      - name: Upload Claude execution log
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-log-issue-${{ github.event.issue.number }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Turns "the job was green and nothing happened" into a verdict on the
+      # run page. Claude's own claim is not trusted on its own: pr_created is
+      # cross-checked against the PR actually existing, and anything that is
+      # neither a PR nor a stated already-covered match fails the job.
+      - name: Report outcome
+        if: always()
+        env:
+          OUTCOME_JSON: ${{ steps.claude.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          BRANCH: ${{ steps.branch.outputs.branch_name }}
+          ISSUE: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          say() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
+
+          claim=$(printf '%s' "$OUTCOME_JSON" | jq -r '.outcome // empty' 2>/dev/null || true)
+          device=$(printf '%s' "$OUTCOME_JSON" | jq -r '.device // empty' 2>/dev/null || true)
+          details=$(printf '%s' "$OUTCOME_JSON" | jq -r '.details // empty' 2>/dev/null || true)
+          [ -n "$claim" ] || claim='(none reported)'
+
+          # Ground truth, independent of what Claude says it did.
+          pr_url=$(gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty' 2>/dev/null || true)
+
+          say "## Device report #${ISSUE}"
+          say ""
+          say "| | |"
+          say "|---|---|"
+          say "| Reported outcome | \`${claim}\` |"
+          say "| Device | ${device:-—} |"
+          say "| Pull request | ${pr_url:-none} |"
+          say "| Branch | \`${BRANCH}\` |"
+          say ""
+          [ -n "$details" ] && { say "$details"; say ""; }
+
+          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            say "<details><summary>What the run did</summary>"
+            say ""
+            say '```'
+            jq -r '.[]? | select(.type=="result")
+                   | "turns \(.num_turns)/25 · denied tool calls \(.permission_denials_count) · \(.subtype)"' \
+              "$EXECUTION_FILE" 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+            jq -r '.[]? | select(.type=="assistant") | .message.content[]?
+                   | select(.type=="tool_use")
+                   | "  " + .name + " " + ((.input.command // .input.file_path // .input.pattern // "") | tostring)' \
+              "$EXECUTION_FILE" 2>/dev/null | cut -c 1-160 >> "$GITHUB_STEP_SUMMARY" || true
+            say '```'
+            say ""
+            say "</details>"
+            say ""
+
+            denied=$(jq -r '.[]? | select(.type=="user") | .message.content[]?
+                            | select(.type=="tool_result") | (.content | tostring)
+                            | select(test("permission|denied"; "i"))' \
+                     "$EXECUTION_FILE" 2>/dev/null | cut -c 1-300 || true)
+            if [ -n "$denied" ]; then
+              say "**Denied tool calls** — these are the ones to widen the allowlist for, or to re-word the prompt around:"
+              say ""
+              say '```'
+              printf '%s\n' "$denied" >> "$GITHUB_STEP_SUMMARY"
+              say '```'
+              say ""
+            fi
+          fi
+
+          case "$claim" in
+            pr_created)
+              if [ -n "$pr_url" ]; then
+                say "Opened ${pr_url} — review and merge to close #${ISSUE}."
+                echo "::notice title=Device report #${ISSUE}::PR opened: ${pr_url}"
+                exit 0
+              fi
+              say "**Failed** — Claude reported opening a PR, but no PR exists for \`${BRANCH}\`."
+              echo "::error title=Device report #${ISSUE}::Reported pr_created but no PR exists"
+              exit 1
+              ;;
+            already_covered)
+              say "No PR: reported as already covered. Check that match — if it is wrong, re-apply the label after correcting the prompt."
+              echo "::notice title=Device report #${ISSUE}::No PR — reported already covered"
+              exit 0
+              ;;
+            *)
+              say "**Failed** — no PR was opened and the run did not report a clean outcome (\`${claim}\`). See the excerpt above, or the uploaded execution log."
+              echo "::error title=Device report #${ISSUE}::No PR opened and no clean outcome reported"
+              exit 1
+              ;;
+          esac
