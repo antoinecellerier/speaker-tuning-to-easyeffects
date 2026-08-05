@@ -2129,6 +2129,173 @@ check, `--speaker-info` annotation). Design choices:
 
 [#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
 
+## Half the speakers, silently: a woofer pin the firmware hides (issue [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53))
+
+The Lenovo Yoga 7 16IAH7 (82UF, ALC287 codec SSID `17AA:386A`) reporter filed
+a working device report, then added that Linux drives only the tweeters until
+they install a modprobe line. Their `--speaker-info` showed one internal
+speaker pin (`0x14`); Lenovo PSREF lists the machine as "4 stereo speakers,
+3W x2 (woofers), 2W x2 (tweeters)". The preset was being applied to half the
+speaker set — a third member of the #33 family, where the fault sits a layer
+below anything XML-derived.
+
+Asked how they diagnosed it, the reporter — a self-described new Linux user —
+said they deduced it from "the complete lack of bass" and reached the modprobe
+line through "a lot of troubleshooting" with an LLM. No tooling told them, and
+nothing in our output could have: that is the gap this closes. It also means
+their fix was derived independently of the upstream commit below, which they
+had not seen.
+
+**Mechanism**, from upstream commit
+[`b70f007a9fc6`](https://github.com/torvalds/linux/commit/b70f007a9fc6): the
+BIOS reports pin complex `0x17` as unconnected, so the kernel configures only
+`0x14` — "mono/tinny audio" in the commit's own words. The fixup
+(`alc287_fixup_yoga9_14iap7_bass_spk_pin`) does two things, and the second
+matters for triage: it rewrites `0x17`'s default config **and** reassigns DACs
+(avoiding `0x06`/`0x08`, which have no volume controls, and pairing
+`0x14`+`0x17` on DAC `0x02`). A `hdajackretask` pin override does only the
+first half, so it is **not** a substitute — don't suggest one.
+
+The commit also documents a matching detail worth carrying: SOF zeroes the PCI
+subsystem id the HDA layer sees, so `SND_PCI_QUIRK` entries cannot match on
+those machines and `HDA_CODEC_QUIRK` is required. `snd_hda_pick_fixup`
+(`sound/hda/common/auto_parser.c`) confirms the shape — with a zeroed PCI id
+every entry falls back to codec-SSID matching, and the lookup ends on a
+codec-SSID pass regardless. `find_hidden_speaker_pin` mirrors exactly that, so
+we never claim a match the kernel could not make.
+
+**Two discriminators checked and rejected**, so they aren't re-litigated:
+
+- *The DAX XML.* Re-derived over the full corpus (2837 XMLs, 2026-08-05):
+  **all 4429 `internal_speaker` endpoints** carry `total_count="2"` +
+  `has_subwoofer="0"` or `ch_count="2"`, with `<subwoofer-count>` `0`
+  everywhere — zero exceptions, including the development device, which
+  physically has `0x14`+`0x17`. Those attributes are logical channels, not
+  drivers. Nothing in the repo reads them and nothing here reaches an emitted
+  parameter, so the XML-only invariant is untouched: the quirk table is
+  host-hardware data, the same category as `_KERNEL_SERIES_RELEASES`.
+- *Raw pin scanning.* An output-capable pin with no default config is
+  indistinguishable from a hidden woofer: the development machine has two
+  such spare pins (`0x1b`, `0x1e`). They are printed as evidence under
+  "HDA internal speakers" — never warned on.
+
+**The manufacturer's spec is the discriminator**, and it settles which reports
+are affected. Lenovo PSREF publishes static spec PDFs
+(`psref.lenovo.com/syspool/Sys/PDF/<Family>/<Slug>/<Slug>_Spec.pdf`) that
+extract cleanly; the `/Product/…` page is a JS app that fetches as an empty
+shell. Validated in both directions against three machines known to expose two
+pins — Yoga Pro 7 14ASP9 (#51), Yoga Pro 7 14APH8 (#30) and the development
+X1 Yoga Gen 7 — all of which name woofers *and* tweeters. **Caveat: judge by
+whether the line names woofers/tweeters, never by the leading count.** The
+X1 Yoga reads "Stereo speakers, 2W x2 woofers and 0.8W x2 tweeters" — four
+drivers behind a "Stereo speakers" prefix.
+
+On that basis #53 is the **only** affected device in the tracker. Every other
+single-pin report is a genuine 2-driver laptop: #33 and #18 (IdeaPad Pro 5
+14APH8 / 14AHP9), #36 (14IMH9), #44 (Yoga Slim 7 14ARE05), #46 (T495) and #50
+(Yoga 7 2-in-1 16IML9) all publish "Stereo speakers, 2W x2". In particular
+**#50's missing `38dc` quirk-table entry concerns its smart amp, not a bass
+pin** (PSREF does list "Smart Amplifier (AMP)" for it), and its pending
+level-restore loud-content verdict is unaffected.
+
+Design choices:
+
+- **Table-driven, exact-SSID only.** The warning fires when the codec an
+  upstream pin-adding fixup names is missing a pin that fixup declares. A
+  sibling-SSID heuristic ("your neighbour model has a quirk") was considered
+  and dropped — PSREF refuted the case that motivated it.
+- **Which fixups qualify is derived, not listed.** A fixup counts when every
+  pin it touches is an internal speaker (`0x9017xxxx`) and there are at most
+  two — a surgical add, not a whole-machine pin remap, where "the quirk isn't
+  applied" implies nothing about any one pin. That derivation found the class
+  is far wider than the ALC287 Lenovos that prompted it: **53 machines across
+  Lenovo, HP, Dell, ASUS, Acer, Medion, Infinix, MECHREVO and Lunnen**, from
+  Dell Vostro subwoofers to HP Spectre x360 and ASUS ROG rear speakers.
+  `HDA_FIXUP_FUNC` fixups run C the parser can't read, so their target pins
+  are listed explicitly in the generator, each verified against the helper; an
+  unlisted helper is simply uncovered, which is the safe direction.
+- **The matching codec must own the pins.** A PCI-keyed entry identifies the
+  *machine*, not a codec, so lending that id to whichever codec is being
+  iterated let an HDMI codec with one spare output pin raise a warning naming
+  the wrong codec — one no user action could clear. Two conditions fix it: the
+  PCI id may only stand in for a codec that already owns speaker pins, and
+  every pin the fixup declares must exist on that codec, configured or spare.
+- **SOF is read from the card's driver field, not by substring.** The first
+  version tested `"sof" in card.lower()` over each `/proc/asound/cards` line —
+  and *microsoft* contains *sof*, so a plugged-in webcam or headset silently
+  disabled the PCI-keyed half of the detector, making the same machine report
+  differently between runs.
+- **The modprobe line names the driver that owns the codec.** Picking whichever
+  module merely exposes `hda_model` writes the option to a module driving
+  nothing: SOF modules sit loaded beside `snd_hda_intel` on ordinary Intel
+  machines, this one included.
+- **Target the named pin, don't count pins.** The first draft fired when a
+  codec had "fewer than two" speaker pins. That breaks on the wider family:
+  several of these fixups declare a machine's *only* speaker pin (HP Spectre
+  x360, ASUS ROG), so the count predicate would have kept firing forever
+  after the user applied the fix, and would have skipped those machines
+  entirely beforehand — a codec with no speaker pins never entered the loop.
+  Node-targeting is correct in both directions, and it also sidesteps the
+  ALSA control name, which varies ("Bass Speaker" on one machine, "Speaker
+  Front" on #50's) while the fixup's effect does not.
+- **Never substitute a related fixup's name.** Where the kernel gives a fixup
+  no name in its models table, there is nothing a user can force and the
+  message says so, offering the upgrade route alone. Borrowing the sibling
+  IAP7 name for the Yoga 9 14IMH9 machines would set the pin and skip the
+  Cirrus amplifier setup their chain also performs — a half-fix presented as
+  a fix. This is why the table carries a `model` that can be empty.
+- **The negative signal is collected too** (`unlisted_speaker_pin_finding`).
+  The table only knows machines upstream has already been told about, so a
+  hidden woofer nobody has reported yet is indistinguishable from a plain
+  stereo pair — which is precisely the ambiguity that cost a triage pass on
+  #33/#36/#44/#46/#50. When a machine shows exactly one speaker pin, has spare
+  output-capable pins, and matches no fixup, an `ask` invites the one check
+  only its owner can do quickly: does the laptop actually have more speakers?
+  Gated tightly: spare pins alone are ordinary, and a matched quirk means the
+  run already has a real fix to offer. The wording is bounded to what we
+  actually do — suggest a modprobe setting to test. Not "we'll add the fix"
+  (this project doesn't touch the kernel) and not "we'll get it upstreamed"
+  (nobody here commits to that); a fix landing in Linux is what the generated
+  table then picks up on its own.
+- **No message asserts a pin count, and none promises a step it won't print.**
+  The detector fires with one pin missing, with two, and with none configured
+  at all, so wording like "one pin configured … a fix that configures a second
+  one — the woofers" was false on machines the tests deliberately cover. For
+  the same reason `--doctor` offers "re-run for the modprobe fix" only where a
+  forcible name exists, and the closing-block finding carries an ask only when
+  a procedure was printed to ask about.
+- **Cost is scoped to the question.** The default run builds a
+  `_gather_speaker_pins()` SpeakerInfo — a few /proc reads — rather than the
+  full `--doctor` gather, which shells out to `amixer` per card and to
+  `journalctl`/`dmesg`, and globs `/lib/firmware`, for an amp report a
+  conversion never prints.
+- **The generator checks each hand-listed helper, not just the table size.**
+  Twenty rows hang off one `HDA_FIXUP_FUNC` helper; renaming it upstream would
+  drop them all while the total stayed inside its rails and the weekly PR
+  looked clean. The check runs against mainline only — a helper legitimately
+  does not exist in releases older than the one that introduced it, which
+  aborted the first real run until scoped.
+- **`since` is a kernel version, not a boolean.** Three situations need
+  different advice: no release carries the fix yet (#53's own case as of
+  7.2-rc6 — merged for 7.2, so upgrading is a dead end today); a release
+  carries it and the user is behind; or the user is *already past* it, where
+  the fix is reaching them and something else is stopping it, so "upgrade"
+  would send them after what they have. `upgrade_prospect` picks between them
+  and is shared with `--doctor` so the two can't drift.
+- **The modprobe module is derived, not hardcoded** — scanned from
+  `/sys/module/*/parameters/hda_model`. SOF exposes it on
+  `snd_sof_intel_hda_generic` today and on `snd_sof_intel_hda_common` before
+  the generic split; the legacy path is `snd_hda_intel model=`.
+- **Regenerated wholesale, weekly** (`tools/update_speaker_pin_quirks.py`,
+  `.github/workflows/speaker-pin-quirks.yml`), unlike the append-only kernel
+  table: entries can disappear upstream, and a stale one would tell a user to
+  force a fixup their kernel no longer has. `since` is resolved by parsing the
+  newest 12 release tags; an entry present in the oldest of them is recorded
+  as "since that one", an understatement that can only make the advice more
+  conservative. The script fails closed on a partial parse — which it did on
+  first run here, correctly refusing to edit a table whose format had changed
+  under it.
+
 ## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
 
 The ThinkPad T495 report describes the preset as tinny, robotic, and

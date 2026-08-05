@@ -1194,6 +1194,26 @@ def _every_finding():
     found.append(dolby_to_easyeffects._leveler_gap_finding(
         ["volume-leveler-compressor"], autogain_on=True))
     found.append(dolby_to_easyeffects._firmware_gate_finding())
+    # Only the forcible shape, for the same reason as the unmodeled-feature
+    # one above: the model-less wording shares this slug by design (same site,
+    # two wordings) and deliberately carries no ask, so it has nothing for
+    # these checks to bite on. tests/test_speaker_sinks.py covers both.
+    found.append(dolby_to_easyeffects._hidden_pin_finding(
+        dolby_to_easyeffects.PinQuirk("alc287-yoga9-bass-spk-pin",
+                                      pins="0x17", since="", codec_only=True),
+        ["0x17"]))
+    # Reached through a SpeakerInfo rather than a factory: this finding's
+    # gate is the whole point of it, so building the state that raises it
+    # keeps the fixture honest about when the ask actually appears.
+    info = dolby_to_easyeffects.SpeakerInfo(
+        hda_codecs=[("10EC0287", "17AA9999", "Realtek ALC287")],
+        speakers=[dolby_to_easyeffects.SpeakerPin(
+            node="0x14", control_name="Speaker Playback Switch",
+            role="tweeter", channels=2, codec="17AA9999")],
+        unconfigured_pins=[dolby_to_easyeffects.UnconfiguredPin(
+            node="0x17", codec="17AA9999", pincap="OUT",
+            pin_default="0x411111f0")])
+    found.append(dolby_to_easyeffects.unlisted_speaker_pin_finding(info))
     # Raised inside _report_parsed_profile / main(), which would need a whole
     # run to reach. Called through their factories rather than restated here:
     # this fixture used to carry its own copy of each sentence, which is two

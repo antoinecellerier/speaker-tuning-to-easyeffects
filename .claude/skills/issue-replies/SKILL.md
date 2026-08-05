@@ -76,6 +76,30 @@ commits get `Co-Authored-By`.
   mention easier workarounds only as a failover (#33: autoload-first, direct
   file path as fallback — otherwise the shortcut is what gets tested).
 
+## Look up the manufacturer's audio spec before theorising
+
+Before forming any hypothesis about a device's speaker topology, read what the
+manufacturer publishes, and compare its **physical driver count** against the
+pins `--speaker-info` reports. Fewer pins than drivers ⇒ suspect a hidden
+speaker pin (#53); equal ⇒ the topology is fine and the fault is elsewhere.
+This is a lookup you perform, not an ask you send the reporter.
+
+Do it early. Skipping it in #53's triage produced three wrong leads (#50, #36,
+#46 all called likely hits on "one pin + no quirk entry"); the spec refuted
+every one in a single pass.
+
+- **Lenovo** — the PSREF static spec PDF, and read the `Speakers` line:
+  `https://psref.lenovo.com/syspool/Sys/PDF/<Family>/<Slug>/<Slug>_Spec.pdf`
+  (e.g. `.../Yoga/Yoga_7_16IAH7/Yoga_7_16IAH7_Spec.pdf`). Use the PDF, not the
+  `/Product/…` page — that's a JS app and fetches as an empty shell.
+  **Judge by whether the line names woofers/tweeters, never by the leading
+  count**: the development X1 Yoga reads "Stereo speakers, 2W x2 woofers and
+  0.8W x2 tweeters" — four drivers behind a "Stereo speakers" prefix.
+- **ASUS** — the model's `/techspec/` page states it in prose (the #29
+  Zenbook S14 UX5406: "dual front-firing tweeters and dual woofers").
+- **Other OEMs** — find the official spec page. If it doesn't name drivers,
+  record that as *unknown* rather than inferring a count.
+
 ## Device-report triage asks
 
 - If the reporter dual-boots, ask for a Windows A/B on the same content —

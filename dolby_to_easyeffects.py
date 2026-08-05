@@ -39,6 +39,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+from typing import NamedTuple
 
 import _doctor
 import _ee_paths
@@ -319,6 +320,33 @@ class SpeakerPin:
                          # enumerates one slave device per amp chip, so each is a
                          # single addressable amp → probe it, default 1 (NOT 2 —
                          # that HDA-style default is what double-counted #27).
+    codec: str = ""      # subsystem id of the codec exposing this pin, e.g.
+                         # "17AA22E6". Empty on SoundWire. Pins must be counted
+                         # per codec, not per machine: a report carries the HDMI
+                         # codecs (0x00AA0100, 0x80860101) alongside the analog
+                         # one, and only the analog codec's SSID keys a quirk.
+
+
+@dataclass
+class UnconfiguredPin:
+    """An HDA pin the codec can drive but the kernel left unconfigured.
+
+    A pin complex that is output-capable (``Pincap`` lists ``OUT``) while its
+    BIOS-supplied default config reports no physical connection (``[N/A]``).
+    Printed as raw evidence under "HDA internal speakers", never warned on: a
+    genuinely unused pin and a speaker pin the BIOS wrongly calls unconnected
+    look *identical* here (issue #53 — pin 0x17's dark woofers vs. pins
+    0x1b/0x1e on the development machine, which are simply spare). Only a
+    quirk-table match (see ``_SPEAKER_PIN_QUIRKS``) can tell the two apart.
+
+    Its value is that the pins are otherwise invisible: the speaker scan below
+    keeps only ``[Fixed] Speaker at Int`` pins, so every report we have ever
+    collected silently omits the one line that would show a missing woofer.
+    """
+    node: str            # HDA node ID, e.g. "0x17"
+    codec: str           # subsystem id of the codec exposing it, e.g. "17AA22E6"
+    pincap: str          # raw Pincap flags, e.g. "IN OUT EAPD Detect"
+    pin_default: str     # raw default-config hex, e.g. "0x411111f0"
 
 
 @dataclass
@@ -391,6 +419,8 @@ class SpeakerInfo:
     sdw_amplifiers: list[str] = field(default_factory=list)
     # Speaker pins (HDA or SoundWire)
     speakers: list[SpeakerPin] = field(default_factory=list)
+    # Output-capable HDA pins the kernel left unconfigured (evidence only)
+    unconfigured_pins: list[UnconfiguredPin] = field(default_factory=list)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
     firmware_gates: list[FirmwareGate] = field(default_factory=list)
     # Merged amp-status evidence (see "=== Speaker amplifier status ===")
@@ -526,6 +556,63 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         pass
 
 
+def parse_hda_codec_pins(
+        codec_text: str) -> tuple[str, list[SpeakerPin], list[UnconfiguredPin]]:
+    """Split one ``/proc/asound/card*/codec#*`` dump into its speaker pins and
+    its output-capable-but-unconfigured pins, plus the codec's subsystem id.
+
+    Pure text parsing so it can be unit-tested without hardware — same shape as
+    ``parse_firmware_gate_controls()``.
+
+    The two lists come from one pass because they partition the same pin
+    complexes by their default config's connectivity field: ``[Fixed] Speaker
+    at Int`` is a wired internal speaker, ``[N/A]`` is "no physical connection"
+    — which is exactly the lie a missing pin quirk tells (issue #53).
+    """
+    ssid_match = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
+                           flags=re.MULTILINE)
+    codec_ssid = ssid_match.group(1).upper() if ssid_match else ""
+
+    speakers: list[SpeakerPin] = []
+    unconfigured: list[UnconfiguredPin] = []
+    nodes = re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", codec_text, flags=re.MULTILINE)
+    for block in nodes:
+        if "[Pin Complex]" not in block:
+            continue
+        node_match = re.match(r"Node (0x[0-9a-fA-F]+)", block)
+        if not node_match:
+            continue
+        node = node_match.group(1)
+
+        if "[Fixed] Speaker at Int" in block:
+            ctrl_match = re.search(r'Control: name="([^"]+)"', block)
+            ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
+            lower = ctrl_name.lower()
+            role = "woofer" if ("bass" in lower or "woofer" in lower) else "tweeter"
+            speakers.append(SpeakerPin(
+                node=node,
+                control_name=ctrl_name,
+                role=role,
+                channels=2 if "Stereo" in block.split("\n", 1)[0] else 1,
+                codec=codec_ssid,
+            ))
+            continue
+
+        # Unconfigured: output-capable, but the BIOS reports no connection.
+        # "OUT" is matched as a whole flag rather than a substring so a future
+        # flag containing those letters can't smuggle a pin in.
+        pincap = re.search(r"Pincap 0x[0-9a-fA-F]+: (.*)", block)
+        default = re.search(r"Pin Default (0x[0-9a-fA-F]+): \[N/A\]", block)
+        if pincap and default and "OUT" in pincap.group(1).split():
+            unconfigured.append(UnconfiguredPin(
+                node=node,
+                codec=codec_ssid,
+                pincap=pincap.group(1).strip(),
+                pin_default=default.group(1),
+            ))
+    return codec_ssid, speakers, unconfigured
+
+
 def _detect_hda_speakers(info: SpeakerInfo):
     """Detect internal speakers from HDA codec pin configurations."""
     for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
@@ -533,23 +620,9 @@ def _detect_hda_speakers(info: SpeakerInfo):
             text = codec_path.read_text()
         except OSError:
             continue
-        nodes = re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", text, flags=re.MULTILINE)
-        for block in nodes:
-            if "[Pin Complex]" not in block or "[Fixed] Speaker at Int" not in block:
-                continue
-            node_match = re.match(r"Node (0x[0-9a-fA-F]+)", block)
-            if not node_match:
-                continue
-            ctrl_match = re.search(r'Control: name="([^"]+)"', block)
-            ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
-            lower = ctrl_name.lower()
-            role = "woofer" if ("bass" in lower or "woofer" in lower) else "tweeter"
-            info.speakers.append(SpeakerPin(
-                node=node_match.group(1),
-                control_name=ctrl_name,
-                role=role,
-                channels=2 if "Stereo" in block.split("\n", 1)[0] else 1,
-            ))
+        _, speakers, unconfigured = parse_hda_codec_pins(text)
+        info.speakers.extend(speakers)
+        info.unconfigured_pins.extend(unconfigured)
 
 
 # A smart-amp firmware-load gate is an ALSA control (not a DAX field) that
@@ -700,6 +773,395 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     # to action. It travels to that block instead now, where it can be a
     # normal ask without competing with anything.
     return _firmware_gate_finding()
+
+
+# --- A woofer pin the BIOS hides (issue #53) --------------------------------
+#
+# Some laptops report the pin complex driving their woofers as unconnected, so
+# the kernel configures only the tweeter pin and the preset drives half the
+# speaker set. The DAX XML cannot see this — its internal_speaker endpoints
+# describe *channels* (always "2"), never drivers, on 2- and 4-driver machines
+# alike — so the only signal is that upstream Linux carries a per-machine fixup
+# for this exact subsystem id while the running kernel isn't applying it.
+#
+# Detection is table-driven rather than inferred from the pins themselves: an
+# output-capable pin with no default configuration is indistinguishable from a
+# genuinely spare one (the development machine has two, 0x1b and 0x1e), so only
+# a machine-specific match can tell a hidden woofer from an unused pin.
+
+class PinQuirk(NamedTuple):
+    """One machine's upstream speaker-pin fixup, as generated into the table."""
+    model: str        # hda_model= string that forces the fixup, or "" when the
+                      # kernel gives it no name and only an upgrade can deliver
+                      # it. We never substitute a *related* fixup's name: on the
+                      # Yoga 9 14IMH9 that would set the pin and skip the
+                      # amplifier setup its chain also does — a half-fix
+                      # presented as a fix.
+    pins: str         # space-separated pin nodes the fixup declares as internal
+                      # speakers, e.g. "0x14 0x17". Any of them missing is the
+                      # warning's trigger — see find_hidden_speaker_pin.
+    since: str        # oldest released series carrying the quirk, e.g. "7.2";
+                      # "" = mainline only, which makes "upgrade" a dead end.
+                      # Compared against the running kernel, so a user already
+                      # past it is not told to go get what they have.
+    codec_only: bool  # HDA_CODEC_QUIRK: matched against the codec's subsystem
+                      # id only, never the PCI one
+
+
+_MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
+
+
+# A /proc/asound/cards entry: " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp".
+# The driver field is what identifies the stack; matching "sof" anywhere in the
+# line instead catches the *shortname*, and "microsoft" contains "sof" — a
+# plugged-in Microsoft webcam or headset would otherwise read as a SOF machine.
+_CARD_DRIVER_RE = re.compile(r"^\s*\d+\s*\[[^\]]*\]:\s*(\S+)")
+
+
+def _card_uses_sof(sound_cards: list[str]) -> bool:
+    """Whether any sound card is driven by the SOF stack.
+
+    Load-bearing twice over: SOF zeroes the PCI subsystem id the HDA layer
+    sees (so PCI-keyed quirks can't match), and it owns the ``hda_model``
+    parameter that forces one.
+    """
+    for line in sound_cards:
+        m = _CARD_DRIVER_RE.match(line)
+        if m and m.group(1).lower().startswith("sof"):
+            return True
+    return False
+
+
+def hda_model_module(uses_sof: bool,
+                     module_root=Path("/sys/module")) -> tuple[str, str]:
+    """``(module, parameter)`` that force an HDA fixup on this system.
+
+    Which driver owns the codec decides this, not which module merely exposes
+    a parameter: on an Intel machine the SOF modules are routinely loaded
+    beside ``snd_hda_intel`` (both are present on the development machine), so
+    picking the first ``hda_model`` found writes the option to a module that
+    isn't driving anything — the user reboots and nothing changes.
+
+    The SOF parameter itself is still found by scanning, because it moved:
+    ``snd_sof_intel_hda_generic`` today, ``snd_sof_intel_hda_common`` before
+    the generic split.
+    """
+    if uses_sof:
+        for params in sorted(module_root.glob("*/parameters/hda_model")):
+            return params.parent.parent.name, "hda_model"
+    return "snd_hda_intel", "model"
+
+
+def _ssid_key(ssid: str) -> tuple[int, int] | None:
+    """``("17AA22E6")`` → ``(0x17AA, 0x22E6)``; None if not an 8-hex-digit id."""
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}", ssid or ""):
+        return None
+    return int(ssid[:4], 16), int(ssid[4:], 16)
+
+
+def find_hidden_speaker_pin(info: SpeakerInfo) -> tuple[PinQuirk, str] | None:
+    """The pin fixup this machine should be getting but isn't, else None.
+
+    Mirrors ``snd_hda_pick_fixup`` (``sound/hda/common/auto_parser.c``) so we
+    only claim a match the kernel could actually make:
+
+    * every entry can match the *codec's* subsystem id — either because it is
+      an ``HDA_CODEC_QUIRK`` or via the codec-SSID fallback the lookup ends on;
+    * a PCI-keyed entry can also match the PCI subsystem id, but not on SOF,
+      where the id the kernel sees is zeroed. Our own PCI id is read from
+      sysfs and is *not* zeroed, so trusting it there would claim a match the
+      kernel never makes.
+
+    Fires when a pin the fixup declares as an internal speaker is not one, on
+    the codec the entry matches. Targeting the *named node* rather than
+    counting pins is what makes this safe across the whole fixup family: some
+    of these declare a machine's only speaker pin (``ALC289_FIXUP_DELL_SPK1``),
+    where "fewer than two pins" would keep firing after the user fixed it,
+    forever. Node-targeting also ignores the ALSA control name, which varies
+    ("Bass Speaker" on one machine, "Speaker Front" on another) while the
+    fixup's effect does not.
+
+    Pins are matched per codec, and the fixup's pins must be *findable* on the
+    codec that matched — already configured, or sitting there unconfigured.
+    That last test is what keeps a machine's other codecs out of it: an HDMI
+    codec has no pin 0x14/0x17 to be short of, so a machine-wide PCI id can't
+    make it look like the analog one.
+
+    Returns ``(quirk, codec subsystem id, pins actually missing)``. The missing
+    list is what the messages name — reporting every pin the fixup declares
+    would tell a user their working pin is broken too.
+    """
+    if info.bus_type != "hda":
+        return None
+    uses_sof = _card_uses_sof(info.sound_cards)
+
+    # Seed from the *unconfigured* output pins too, not just the speakers: some
+    # of these fixups declare a machine's only speaker pin (HP Spectre x360,
+    # ASUS ROG), and before the fix such a codec has no speaker pins at all.
+    # Keying on speakers alone would skip exactly the machines that need this.
+    configured: dict[str, set[str]] = {}
+    spare: dict[str, set[str]] = {}
+    for pin in info.unconfigured_pins:
+        spare.setdefault(pin.codec, set()).add(pin.node.lower())
+        configured.setdefault(pin.codec, set())
+    for pin in info.speakers:
+        configured.setdefault(pin.codec, set()).add(pin.node.lower())
+
+    for codec_ssid, nodes in sorted(configured.items()):
+        key = _ssid_key(codec_ssid)
+        quirk = _SPEAKER_PIN_QUIRKS.get(key) if key else None
+        if quirk is None and nodes and not uses_sof and info.pci_subsystem:
+            # The PCI id belongs to the machine, not to any one codec, so it
+            # may only stand in for a codec that already owns speaker pins —
+            # otherwise it lends the analog machine's identity to whichever
+            # other codec happens to have a spare output pin.
+            pci_key = _ssid_key("".join(info.pci_subsystem))
+            candidate = _SPEAKER_PIN_QUIRKS.get(pci_key) if pci_key else None
+            if candidate and not candidate.codec_only:
+                quirk = candidate
+        if not quirk:
+            continue
+        declared = [n.lower() for n in quirk.pins.split()]
+        # Every declared pin has to exist on this codec, as a speaker already
+        # or as an unconfigured output pin. A declared pin that is neither is
+        # some other codec's business.
+        if not all(n in nodes or n in spare.get(codec_ssid, set())
+                   for n in declared):
+            continue
+        missing = [n for n in declared if n not in nodes]
+        if missing:
+            return quirk, codec_ssid, missing
+    return None
+
+
+def upgrade_prospect(quirk: PinQuirk, release: str | None = None) -> str:
+    """Whether upgrading the kernel would fix this, in the user's terms.
+
+    Three genuinely different situations, and telling the wrong one wastes a
+    reader's evening: no release carries the fix yet; a release does and they
+    are behind it; or they are already past it, in which case the fix is
+    reaching them and something else on the machine is stopping it — so
+    "upgrade" would be advice to go and get what they already have.
+
+    Shared by the end-of-run block and --doctor so the two can't drift.
+    """
+    import platform
+
+    # Where the reader is left depends on whether a hand-forcible name exists:
+    # with one, each branch hands off to the procedure that follows; without,
+    # the branch has to be a complete answer on its own.
+    tail = (" To apply it on the kernel you have now:" if quirk.model else
+            " This fixup has no name the driver accepts, so it can't be forced "
+            "by hand — a kernel that carries it is the only route.")
+    if not quirk.since:
+        return ("The fix is merged upstream but is not in any released kernel "
+                "yet, so upgrading won't help today." + tail)
+    running = parse_kernel_series(release or platform.release())
+    fixed_in = parse_kernel_series(quirk.since)
+    if running and fixed_in and running >= fixed_in:
+        return (f"Linux {quirk.since} carries this fix and you are on "
+                f"{running[0]}.{running[1]}, so it should already be applying "
+                "— something on this machine is stopping it (a vendor kernel "
+                "that dropped the fix, or a different model id than upstream "
+                "expects)." + tail)
+    return (f"Linux {quirk.since} and newer apply this automatically, so a "
+            "kernel upgrade is the durable fix." + tail)
+
+
+def _pin_phrase(missing: list[str]) -> str:
+    """"pin 0x17" / "pins 0x14 and 0x17" — the copy has to work for both.
+
+    A fixup declares one pin or two, and on a machine with none configured
+    both of them are missing, so no message here may assume a count.
+    """
+    if len(missing) == 1:
+        return f"pin {missing[0]}"
+    return "pins " + " and ".join(missing)
+
+
+def warn_hidden_speaker_pin(
+        found: tuple[PinQuirk, str, list[str]] | None,
+        info: SpeakerInfo) -> Finding | None:
+    """Warn — with a copy-paste fix and its undo — that the kernel is leaving
+    one of this machine's speakers unconfigured.
+
+    Silent when nothing matched, which is the overwhelming majority of
+    machines: the table lists the models upstream has had to fix, and a
+    2-driver device showing one pin is simply correct.
+
+    The procedure below *is* this finding's detail, so the caller doesn't
+    reprint it — only the returned one-line ask travels to the closing block.
+    """
+    if not found:
+        return None
+    quirk, codec_ssid, missing = found
+    module, param = hda_model_module(_card_uses_sof(info.sound_cards))
+    phrase = _pin_phrase(missing)
+
+    # "the preset shapes the rest alone" only holds if a speaker pin survived:
+    # where the fixup declares the machine's only one, there is no rest.
+    others = any(p.codec == codec_ssid for p in info.speakers)
+    cprint("warn", f"\n{'=' * 60}")
+    cprint("warn", "⚠  [speaker-pin] Linux isn't driving all of your speakers.")
+    _cprint_wrapped("dim",
+        f"Upstream Linux carries a fix for this exact model that declares "
+        f"{phrase} on codec {codec_ssid} an internal speaker, and your kernel "
+        "isn't applying it. Your machine's firmware describes it as "
+        "unconnected and the kernel takes it at its word, so whatever it "
+        "drives — often the woofers — gets no signal"
+        + (", and the preset shapes the rest alone." if others else "."))
+    print()
+    _cprint_wrapped("dim", upgrade_prospect(quirk))
+    if quirk.model:
+        print()
+        cprint("dim", "1. Tell the driver to apply it, then reboot:")
+        cprint("cta", f"     echo 'options {module} {param}={quirk.model}' \\")
+        cprint("cta", f"       | sudo tee {_MODPROBE_CONF}")
+        print()
+        cprint("dim", "2. After rebooting, re-run with --speaker-info — the "
+                      "\"HDA internal")
+        cprint("dim", f"   speakers\" section should now list {phrase}.")
+        print()
+        cprint("dim", "   Still missing, or the speakers went quiet? Undo it:")
+        cprint("cta", f"     sudo rm {_MODPROBE_CONF}")
+        cprint("dim", "   and reboot again. Nothing else on the system is "
+                      "touched.")
+    print()
+    return _hidden_pin_finding(quirk, missing)
+
+
+def _hidden_pin_finding(quirk: PinQuirk, missing: list[str]) -> Finding:
+    """Whether forcing the missing pin actually restored the bass.
+
+    Carries an ask only when the run printed a procedure to ask about. Where
+    the fixup has no forcible name there is nothing the reader can do on this
+    run, and `.claude/rules/user-messages.md` is explicit that such a finding
+    takes no ask — its detail still travels, so a pasted report still shows it.
+    """
+    phrase = _pin_phrase(missing)
+    if not quirk.model:
+        return Finding(
+            slug="speaker-pin", kind="hint",
+            detail=f"{phrase[0].upper() + phrase[1:]} is declared an internal "
+                   "speaker by a kernel fix this machine isn't getting, and "
+                   "the driver accepts no name that would force it — see above.")
+    return Finding(
+        slug="speaker-pin", kind="hint",
+        detail=f"{phrase[0].upper() + phrase[1:]} is left unconfigured, so "
+               "those speakers get no signal — see the procedure above.",
+        ask="Did forcing the missing speaker pin bring your bass back? "
+            "(issue #53)")
+
+
+def unlisted_speaker_pin_finding(info: SpeakerInfo) -> Finding | None:
+    """Ask for the *negative* signal: one speaker pin, spare output pins, and
+    no upstream fixup for this machine.
+
+    The table above only knows machines upstream Linux has already been told
+    about. A laptop whose woofers are hidden and whose subsystem id nobody has
+    reported yet looks exactly like a genuine 2-driver laptop from here — and
+    both are common. The manufacturer's spec sheet settles it in seconds, but
+    only the owner can look it up, so the ask goes to them.
+
+    Deliberately narrow. Spare output-capable pins are ordinary (the
+    development machine has two), so this stays quiet unless the machine is
+    also down to a single speaker pin — the one shape where a driver could
+    plausibly be missing. Silent when a quirk already matched: that run has a
+    real fix to offer and doesn't need a question competing with it.
+    """
+    if info.bus_type != "hda" or not info.unconfigured_pins:
+        return None
+    if len(info.speakers) != 1 or find_hidden_speaker_pin(info):
+        return None
+    spare = ", ".join(p.node for p in info.unconfigured_pins)
+    # Names the pins rather than pointing at a table: the only place this
+    # detail prints during a normal run is here, with no --speaker-info
+    # output above it to refer back to.
+    return Finding(
+        slug="speaker-count", kind="ask",
+        detail=f"Linux configured one internal speaker pin on this machine "
+               f"({info.speakers[0].node}), and left {spare} unused though "
+               "they can drive output. That is normal on a device with a "
+               "single stereo pair — most machines have spare pins. It is "
+               "only wrong if your device really has more speakers than that: "
+               "then a kernel fix is missing for your exact model. Tell us "
+               "and we can suggest a setting to test — the fix itself has to "
+               "land in Linux, which is outside this project.",
+        ask="Does your device have more speakers than the single pair Linux "
+            "found? (issue #53)")
+
+
+# One row per machine upstream has had to fix, keyed by subsystem id:
+#
+#     (subvendor, subdevice): PinQuirk(model, pins, since, codec_only)
+#      └ 0x17AA = Lenovo      └ what `hda_model=` has to be set to, or "" when
+#                               only a kernel upgrade can deliver this fixup
+#
+# and the three qualifiers, all of which change what the user is told (see
+# PinQuirk above for the full meaning): `pins` — the speaker pins this fixup
+# declares, any of them missing being what triggers the warning; `since` — the
+# kernel series to upgrade to, or "" when no release has it yet; `codec_only`
+# — upstream keys it to the codec's subsystem id, never the PCI one.
+#
+# Generated by tools/update_speaker_pin_quirks.py from upstream's Realtek quirk
+# table (weekly, via .github/workflows/speaker-pin-quirks.yml). Rebuilt whole
+# each run — a renamed or dropped fixup must not linger here telling users to
+# force a quirk their kernel no longer has. Do not hand-edit.
+_SPEAKER_PIN_QUIRKS = {
+    (0x1025, 0x1177): PinQuirk("", pins="0x17 0x1b", since="6.12", codec_only=False),
+    (0x1025, 0x1178): PinQuirk("", pins="0x17 0x1b", since="6.12", codec_only=False),
+    (0x1025, 0x1246): PinQuirk("predator-spk", pins="0x21", since="6.10", codec_only=False),
+    (0x1028, 0x05DA): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
+    (0x1028, 0x0615): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
+    (0x1028, 0x0616): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
+    (0x1028, 0x069A): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
+    (0x1028, 0x0706): PinQuirk("dell-inspiron-7559", pins="0x1b", since="6.10", codec_only=False),
+    (0x1028, 0x0798): PinQuirk("dell-inspiron-7559", pins="0x1b", since="6.10", codec_only=False),
+    (0x1028, 0x0B37): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x1028, 0x0B71): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x1028, 0x0C28): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x8519): PinQuirk("alc285-hp-spectre-x360", pins="0x14", since="6.10", codec_only=False),
+    (0x103C, 0x863E): PinQuirk("alc285-hp-spectre-x360-df1", pins="0x14 0x17", since="6.15", codec_only=False),
+    (0x103C, 0x86E7): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x86E8): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x8811): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x8812): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x89DA): PinQuirk("", pins="0x14 0x17", since="6.18", codec_only=False),
+    (0x103C, 0x8C15): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
+    (0x103C, 0x8C16): PinQuirk("", pins="0x14 0x17", since="6.12", codec_only=False),
+    (0x103C, 0x8CDD): PinQuirk("", pins="0x14 0x17", since="6.15", codec_only=False),
+    (0x103C, 0x8CDE): PinQuirk("", pins="0x14 0x17", since="6.15", codec_only=False),
+    (0x1043, 0x1652): PinQuirk("", pins="0x17 0x1e", since="6.18", codec_only=False),
+    (0x1043, 0x1CAF): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
+    (0x1043, 0x3A20): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
+    (0x1043, 0x3A30): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
+    (0x1043, 0x3A40): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
+    (0x1043, 0x3A50): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
+    (0x1043, 0x3A60): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
+    (0x17AA, 0x3801): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x3869): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x386A): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=True),
+    (0x17AA, 0x3882): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x3891): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x38B1): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=True),
+    (0x17AA, 0x38CF): PinQuirk("", pins="0x17", since="7.0", codec_only=True),
+    (0x17AA, 0x38D2): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x38D7): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
+    (0x17AA, 0x390D): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.15", codec_only=False),
+    (0x17AA, 0x3911): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=False),
+    (0x17AA, 0x3912): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=False),
+    (0x17AA, 0x391A): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=False),
+    (0x17AA, 0x391C): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.18", codec_only=True),
+    (0x17AA, 0x391D): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=True),
+    (0x17AA, 0x394C): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.1", codec_only=True),
+    (0x1E39, 0xCA14): PinQuirk("", pins="0x1b", since="6.19", codec_only=False),
+    (0x2782, 0x0228): PinQuirk("", pins="0x14 0x1b", since="6.12", codec_only=False),
+    (0x2782, 0x1701): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
+    (0x2782, 0x1705): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
+    (0x2782, 0x4900): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
+    (0x2782, 0xA212): PinQuirk("", pins="0x1b", since="", codec_only=False),
+    (0xC011, 0x1D05): PinQuirk("", pins="0x1b", since="", codec_only=False),
+}
 
 
 # --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
@@ -918,6 +1380,31 @@ def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
     return ""
 
 
+def _gather_speaker_pins() -> SpeakerInfo:
+    """Just enough of a SpeakerInfo to answer find_hidden_speaker_pin.
+
+    A few /proc reads and one sysfs walk. Kept apart from
+    ``_gather_speaker_info`` deliberately: that one also shells out to
+    ``amixer`` per card and to ``journalctl``/``dmesg`` (seconds, on a machine
+    with a big journal), globs /lib/firmware, and honours the demo-injection
+    env vars — all of it for the amp-status report, which a default run never
+    prints. A normal conversion must not pay for it.
+    """
+    import platform
+
+    info = SpeakerInfo(kernel=platform.release())
+    cards_path = Path("/proc/asound/cards")
+    if cards_path.exists():
+        info.sound_cards = [l.strip() for l
+                            in cards_path.read_text().strip().splitlines()]
+    info.hda_codecs = get_hda_codec_ids()
+    info.soundwire_devices = get_soundwire_ids()   # decides bus_type
+    info.pci_subsystem = get_pci_audio_subsystem()
+    if info.bus_type == "hda":
+        _detect_hda_speakers(info)
+    return info
+
+
 def _gather_speaker_info() -> SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
     import platform
@@ -1104,11 +1591,32 @@ def _print_speaker_info(info: SpeakerInfo):
         if not info.sdw_amplifiers:
             amp_lines.append("  (no speaker amplifiers detected)")
         sections.append(("Speaker amplifiers", amp_lines))
-    elif info.bus_type == "hda" and info.speakers:
-        sections.append(("HDA internal speakers", [
+    elif info.bus_type == "hda" and (info.speakers or info.unconfigured_pins):
+        speaker_lines = [
             f"  {s.node}: {s.control_name} ({s.role}, {'stereo' if s.channels == 2 else 'mono'})"
             for s in info.speakers
-        ]))
+        ] or ["  (none configured)"]
+        if info.unconfigured_pins:
+            # Raw evidence, no verdict: these are usually spare pins, but a
+            # speaker pin the BIOS wrongly calls unconnected looks the same
+            # (issue #53). Printing them is what lets a pasted report be
+            # checked against the manufacturer's driver count at all.
+            speaker_lines.append("  Output-capable pins left unconfigured:")
+            speaker_lines += [
+                f"    {p.node}: pincap {p.pincap}, default {p.pin_default}"
+                for p in info.unconfigured_pins
+            ]
+            # Said here because this section is what a reader stares at: spare
+            # pins are ordinary, and a list of them is not a fault report.
+            # Wrapped to the terminal like the rest of this tool's prose —
+            # rich is handed soft_wrap=True and never reflows — with the
+            # continuation hanging under the opening bracket.
+            speaker_lines += textwrap.wrap(
+                "(spare pins are normal — this only matters if your device "
+                "has more speakers than are listed above)",
+                width=_wrap_width(), initial_indent="    ",
+                subsequent_indent="     ", break_on_hyphens=False)
+        sections.append(("HDA internal speakers", speaker_lines))
 
     # PCM playback devices
     sections.append(("PCM playback devices",
@@ -1469,6 +1977,36 @@ def autostart_status(rc_data: dict) -> CheckResult:
         + " (" + "; ".join(why) + ").")
 
 
+def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
+    """Verdict line for a speaker pin the firmware hides, or None when this
+    machine isn't one upstream has had to fix (nearly all of them — a PASS for
+    a quirk that was never needed is noise).
+
+    WARN, not FAIL, on the same reasoning as the kernel-age check: the match is
+    machine-exact, but only the user can confirm they hear no bass, and a
+    2-driver laptop that somehow matched would be unharmed by ignoring this.
+
+    The fix command isn't in the detail — --doctor wraps details to the
+    terminal width and would fold it mid-command. It prints unwrapped in the
+    end-of-run block instead.
+    """
+    found = find_hidden_speaker_pin(info)
+    if not found:
+        return None
+    quirk, codec_ssid, missing = found
+    # Only promise the command when there is one: 28 of the table's rows name
+    # a fixup the driver won't take by name, and those runs print prose only.
+    tail = (" Re-run without --doctor for the one-line modprobe fix and how to "
+            "undo it." if quirk.model else "")
+    return CheckResult(
+        DOCTOR_WARN, "Speaker pins",
+        f"upstream Linux carries a fix for this exact model that declares "
+        f"{_pin_phrase(missing)} on codec {codec_ssid} an internal speaker, "
+        "and your kernel isn't applying it — those speakers get no signal, "
+        "whatever the preset does. "
+        + upgrade_prospect(quirk, info.kernel) + tail)
+
+
 def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
     """Verdict line for the smart-amp firmware gates, or None when the machine
     exposes no such control (most don't — there is nothing to report either
@@ -1665,7 +2203,13 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     if gate_check is not None:
         report.checks.append(gate_check)
 
-    # 7. Kernel age — speaker-amp fixes land kernel-side (issue #33)
+    # 7. A woofer pin the firmware hides, so half the speakers go unused
+    #    upstream of the whole preset (issue #53)
+    pin_check = speaker_pin_status(report.speaker_info)
+    if pin_check is not None:
+        report.checks.append(pin_check)
+
+    # 8. Kernel age — speaker-amp fixes land kernel-side (issue #33)
     report.checks.append(kernel_age_status(report.speaker_info.kernel))
 
     report.facts = {
@@ -7139,6 +7683,20 @@ def main(argv: list[str] | None = None,
             detect_speaker_firmware_gates())
         if gate_finding is not None:
             findings.setdefault(gate_finding.slug, gate_finding)
+        # A hidden woofer pin leaves half the speakers unconfigured, so the
+        # preset shapes the tweeters alone (issue #53). Gathering speaker info
+        # is a handful of /proc reads; only reached on the speaker endpoint.
+        speaker_info = _gather_speaker_pins()
+        pin_finding = warn_hidden_speaker_pin(
+            find_hidden_speaker_pin(speaker_info), speaker_info)
+        if pin_finding is not None:
+            findings.setdefault(pin_finding.slug, pin_finding)
+        # The negative signal: no fixup exists for this machine, so we can't
+        # tell a hidden woofer from a plain stereo pair. Only its owner can.
+        count_finding = unlisted_speaker_pin_finding(speaker_info)
+        if count_finding is not None:
+            _print_finding_detail(count_finding)
+            findings.setdefault(count_finding.slug, count_finding)
         # An old kernel can mis-configure the speaker path below any preset
         # (issue #33) — hint at it, softly, when the series is old.
         warn_old_kernel()

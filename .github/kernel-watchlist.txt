@@ -42,10 +42,23 @@ xbox ally
 # model, but no amp driver binds and no "Force Firmware Load" control appears;
 # 17aa:38dc has no entry in the ALC269/ALC287 quirk table while its neighbours
 # do (38d5/38d6/38df/38e0 -> TAS2781_I2C, 38d2/38d7/38cf -> YOGA9 bass-spk-pin).
-# A quirk landing for this SSID would be the answer.
+# A quirk landing for this SSID would be the answer. NOT a hidden-woofer case
+# (#53 class): PSREF gives this model "Stereo speakers, 2W x2", so its single
+# speaker pin is correct and the gap is the amp alone.
 38dc
 16iml9
 yoga 7 2-in-1
+
+# watch: #53 Yoga 7 16IAH7 — BIOS reports the woofer pin 0x17 unconnected, so
+# only the tweeters are driven; fixed by b70f007a9fc6 (merged for 7.2, no
+# Cc: stable). Narrow on purpose: *new* pin-adding fixups need no watching
+# here, because the weekly speaker-pin-quirks workflow rebuilds
+# _SPEAKER_PIN_QUIRKS from upstream and opens a PR when one lands. These terms
+# are for regressions to the fixup this device depends on.
+yoga9-bass-spk-pin
+bass-spk-pin
+16iah7
+386a
 
 # watch: standing — regression risk to confirmed-working devices on churning
 # kernel paths: ASUS TUF A15 (#34) rides AMD ACP (redesigned in 7.2); Zenbook

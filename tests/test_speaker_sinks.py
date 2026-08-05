@@ -881,3 +881,471 @@ def test_demo_amp_status_unknown_value_is_no_demo(monkeypatch, value):
     info = d.SpeakerInfo()
     assert d._maybe_demo_amp_status(info) is False
     assert info.amp_status == []
+
+
+# --- A woofer pin the BIOS hides (issue #53) --------------------------------
+#
+# On some laptops the firmware reports the pin complex driving the woofers as
+# unconnected, so the kernel configures only the tweeter pin and the preset
+# shapes half the speaker set. The codec dumps below are the two states of the
+# development machine (ThinkPad X1 Yoga Gen 7, ALC287 17AA:22E6), whose PSREF
+# entry lists "2W x2 woofers and 0.8W x2 tweeters".
+#
+# CODEC_TWO_PINS is captured verbatim from its /proc/asound/card0/codec#0.
+# CODEC_ONE_PIN is that same dump with pin 0x17's default config rewritten to
+# the unconnected value 0x411111f0 — synthesized, not captured, because no
+# report we hold contains an affected machine's dump. It reproduces exactly
+# what upstream commit b70f007a9fc6 describes for the issue #53 machine.
+#
+# Both keep pins 0x1b and 0x1e, which are output-capable with no default
+# config and are *genuinely spare*. They are why the warning can't be inferred
+# from the pins alone: they look identical to a hidden woofer.
+
+def _codec_dump(ssid="0x17aa22e6", bass_pin_default="0x90170111"):
+    return f"""\
+Codec: Realtek ALC287
+Address: 0
+Vendor Id: 0x10ec0287
+Subsystem Id: {ssid}
+Node 0x14 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
+  Pincap 0x0001003c: OUT EAPD Detect
+  Pin Default 0x90170110: [Fixed] Speaker at Int N/A
+    Conn = Analog, Color = Unknown
+  Control: name="Speaker Playback Switch", index=0, device=0
+Node 0x17 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
+  Pincap 0x0001003c: OUT HP Detect
+  Pin Default {bass_pin_default}: {"[Fixed] Speaker at Int N/A"
+        if bass_pin_default != "0x411111f0" else "[N/A] Speaker at Ext Rear"}
+    Conn = Analog, Color = Unknown
+  Control: name="Bass Speaker Playback Switch", index=0, device=0
+Node 0x18 [Pin Complex] wcaps 0x40048b: Stereo Amp-In
+  Pincap 0x00003724: IN Detect
+  Pin Default 0x411111f0: [N/A] Speaker at Ext Rear
+Node 0x1b [Pin Complex] wcaps 0x40058f: Stereo Amp-In Amp-Out
+  Pincap 0x0001373c: IN OUT EAPD Detect
+  Pin Default 0x411111f0: [N/A] Speaker at Ext Rear
+Node 0x1e [Pin Complex] wcaps 0x400501: Stereo
+  Pincap 0x00000010: OUT
+  Pin Default 0x411111f0: [N/A] Speaker at Ext Rear
+Node 0x21 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
+  Pincap 0x0001001c: OUT HP EAPD Detect
+  Pin Default 0x03211020: [Jack] HP Out at Ext Left
+  Control: name="Headphone Playback Switch", index=0, device=0
+"""
+
+
+CODEC_TWO_PINS = _codec_dump()
+CODEC_ONE_PIN = _codec_dump(bass_pin_default="0x411111f0")
+
+# An HDMI codec as it appears beside the analog one in real reports. Its SSID
+# must never be tested against the quirk table.
+CODEC_HDMI = """\
+Codec: Intel Alderlake-P HDMI
+Address: 2
+Vendor Id: 0x8086281c
+Subsystem Id: 0x80860101
+Node 0x05 [Pin Complex] wcaps 0x400781: Digital
+  Pincap 0x09000094: OUT Detect HDMI DP
+  Pin Default 0x18560010: [Jack] Digital Out at Int HDMI
+"""
+
+
+def test_parse_codec_pins_two_speakers():
+    ssid, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_TWO_PINS)
+    assert ssid == "17AA22E6"
+    assert [(s.node, s.role, s.channels) for s in speakers] == [
+        ("0x14", "tweeter", 2), ("0x17", "woofer", 2)]
+    assert all(s.codec == "17AA22E6" for s in speakers)
+
+
+def test_parse_codec_pins_hidden_woofer():
+    """With 0x17 marked unconnected the woofer stops being a speaker pin and
+    becomes indistinguishable from the spare ones."""
+    _, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_ONE_PIN)
+    assert [s.node for s in speakers] == ["0x14"]
+    assert "0x17" in [p.node for p in unconfigured]
+
+
+def test_parse_codec_pins_reports_spare_output_pins():
+    """0x1b and 0x1e are output-capable with no default config; 0x18 is an
+    input pin and 0x21 is a configured jack, so neither may be listed."""
+    _, _, unconfigured = d.parse_hda_codec_pins(CODEC_TWO_PINS)
+    assert [p.node for p in unconfigured] == ["0x1b", "0x1e"]
+    assert all(p.pin_default == "0x411111f0" for p in unconfigured)
+    assert all(p.codec == "17AA22E6" for p in unconfigured)
+
+
+def test_parse_codec_pins_hdmi_has_no_speakers():
+    ssid, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_HDMI)
+    assert ssid == "80860101"
+    assert speakers == [] and unconfigured == []
+
+
+def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
+          pci=None):
+    """A SpeakerInfo as _gather_speaker_info would build it from *codec_dumps*."""
+    info = d.SpeakerInfo(sound_cards=list(cards), pci_subsystem=pci)
+    for dump in codec_dumps:
+        ssid, speakers, unconfigured = d.parse_hda_codec_pins(dump)
+        info.speakers.extend(speakers)
+        info.unconfigured_pins.extend(unconfigured)
+        info.hda_codecs.append(("10EC0287", ssid, "Realtek ALC287"))
+    return info
+
+
+# 17AA:386A is the issue #53 machine: in the table, HDA_CODEC_QUIRK-keyed, and
+# its quirk (b70f007a9fc6) is merged for 7.2 but in no released kernel yet.
+ISSUE_53_SSID = "0x17aa386a"
+
+
+def test_hidden_pin_detected_on_listed_machine():
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    found = d.find_hidden_speaker_pin(info)
+    assert found is not None
+    quirk, codec_ssid, missing = found
+    assert codec_ssid == "17AA386A"
+    assert quirk.model == "alc287-yoga9-bass-spk-pin"
+    # Only the pin that is actually absent — 0x14 is configured and must not
+    # be reported as something the kernel isn't driving.
+    assert missing == ["0x17"]
+
+
+def test_no_warning_when_both_pins_present():
+    """The same listed machine, once the quirk is applied, must go silent —
+    otherwise the warning would never stop firing after the user fixed it."""
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID)])
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_no_warning_for_unlisted_machine():
+    """One pin on a machine upstream has no fixup for is simply a 2-driver
+    laptop — the case that covers most reports we hold (#33, #36, #44, #46,
+    #50, all "Stereo speakers, 2W x2" per the manufacturer)."""
+    info = _info([_codec_dump(ssid="0x17aa38dc",
+                              bass_pin_default="0x411111f0")])
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_hdmi_codec_ssid_never_matches():
+    """A listed id appearing as an HDMI codec's SSID must not fire: pins are
+    counted per codec, and an HDMI codec has none to be short of."""
+    hdmi = CODEC_HDMI.replace("0x80860101", ISSUE_53_SSID)
+    info = _info([_codec_dump(ssid="0x17aa38dc"), hdmi])
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_pci_keyed_quirk_matches_off_sof():
+    """17AA:3801 is SND_PCI_QUIRK-keyed, so on a legacy HDA card it may match
+    the PCI subsystem id even though the codec's own id differs."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_pin_default="0x411111f0")],
+                 pci=("17AA", "3801"))
+    assert d.find_hidden_speaker_pin(info) is not None
+
+
+def test_pci_keyed_quirk_ignored_on_sof():
+    """On SOF the kernel sees a zeroed PCI subsystem id and can only match on
+    the codec's, so claiming a PCI match there would be a match the kernel
+    never makes (upstream commit b70f007a9fc6)."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_pin_default="0x411111f0")],
+                 cards=("0 [sofhdadsp ]: sof-hda-dsp - sof-hda-dsp",),
+                 pci=("17AA", "3801"))
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_codec_keyed_quirk_never_matches_pci_id():
+    """17AA:386A is HDA_CODEC_QUIRK-keyed: upstream matches it against the
+    codec's subsystem id only, so a PCI-id match must not be claimed."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_pin_default="0x411111f0")],
+                 pci=("17AA", "386A"))
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_soundwire_machine_is_never_checked():
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    info.soundwire_devices = [("01FA", "3556")]  # flips bus_type to soundwire
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
+    """17AA:38CF's fixup has no name in the kernel's models table, so there is
+    nothing to force — printing a command that can't work would be worse than
+    saying an upgrade is the only route."""
+    info = _info([_codec_dump(ssid="0x17aa38cf",
+                              bass_pin_default="0x411111f0")])
+    assert d.warn_hidden_speaker_pin(
+        d.find_hidden_speaker_pin(info), info) is not None
+    out = capsys.readouterr().out
+    assert "sudo tee" not in out and "hda_model" not in out
+    assert "can't be forced by hand" in out
+
+
+def test_hidden_pin_warning_copy(capsys):
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    finding = d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert finding is not None and finding.kind == "hint"
+    # The fix, its verification, and its undo must all be present: a modprobe
+    # line with no way back is not a safe thing to print.
+    assert "alc287-yoga9-bass-spk-pin" in out
+    assert "--speaker-info" in out
+    assert f"rm {d._MODPROBE_CONF}" in out
+    # 386A's quirk is mainline-only, so "upgrade your kernel" would be a dead
+    # end and must not be what the user is told to do.
+    assert "not in any released kernel yet" in out
+
+
+def test_hidden_pin_warning_silent_without_match(capsys):
+    assert d.warn_hidden_speaker_pin(None, d.SpeakerInfo()) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_speaker_pin_doctor_check():
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    check = d.speaker_pin_status(info)
+    assert check is not None and check.status == d.DOCTOR_WARN
+    assert d.speaker_pin_status(_info([_codec_dump(ssid=ISSUE_53_SSID)])) is None
+
+
+def test_hda_model_module_falls_back_to_legacy(tmp_path):
+    """No hda_model parameter anywhere (legacy snd-hda-intel, or nothing
+    loaded) must still yield a usable module/parameter pair."""
+    assert d.hda_model_module(True, tmp_path) == ("snd_hda_intel", "model")
+
+
+def test_hda_model_module_finds_whichever_driver_exposes_it(tmp_path):
+    """The parameter moved between SOF modules across kernels, so it is found
+    by scanning rather than by name."""
+    params = tmp_path / "snd_sof_intel_hda_generic" / "parameters"
+    params.mkdir(parents=True)
+    (params / "hda_model").write_text("\n")
+    assert d.hda_model_module(True, tmp_path) == (
+        "snd_sof_intel_hda_generic", "hda_model")
+
+
+# `since` exists so the three upgrade situations can be told apart. Getting
+# this wrong sends a reader after a kernel they already have, or after one
+# that doesn't carry the fix at all.
+
+def _quirk(since, model="alc287-yoga9-bass-spk-pin"):
+    return d.PinQuirk(model, pins="0x17", since=since, codec_only=True)
+
+
+def test_upgrade_prospect_not_in_any_release():
+    text = d.upgrade_prospect(_quirk(""), release="7.1.5-amd64")
+    assert "not in any released kernel yet" in text
+    assert "upgrad" in text  # says so explicitly rather than staying silent
+
+
+def test_upgrade_prospect_user_is_behind():
+    text = d.upgrade_prospect(_quirk("7.2"), release="7.0.0-1009-oem")
+    assert "Linux 7.2 and newer" in text
+    assert "already" not in text
+
+
+def test_upgrade_prospect_user_is_already_past_it():
+    """The case a boolean could not express: their kernel carries the fix and
+    the pin is still missing, so telling them to upgrade is telling them to go
+    and get what they have."""
+    text = d.upgrade_prospect(_quirk("6.15"), release="7.1.5+deb14-amd64")
+    assert "should already be" in text
+    assert "7.1" in text and "6.15" in text
+
+
+def test_upgrade_prospect_unparseable_kernel_falls_back_to_upgrade_advice():
+    text = d.upgrade_prospect(_quirk("7.2"), release="not-a-version")
+    assert "Linux 7.2 and newer" in text
+
+
+# The table covers fixups that declare a machine's *only* speaker pin (HP
+# Spectre x360, ASUS ROG), not just a second one. Two things follow, and both
+# were wrong under the first pin-counting predicate.
+
+def test_fires_when_the_declared_pin_is_missing_but_another_speaker_exists():
+    """17AA:390D declares 0x17. A machine showing only 0x14 is short of it,
+    even though it has a speaker pin — so "has speakers" can't be the test."""
+    info = _info([_codec_dump(ssid="0x17aa390d",
+                              bass_pin_default="0x411111f0")])
+    assert d.find_hidden_speaker_pin(info) is not None
+
+
+def test_fires_when_the_codec_has_no_speaker_pins_at_all():
+    """103C:8519's fixup declares 0x14 — the only speaker. Before it applies
+    the codec has no speaker pins, and keying off speakers alone would skip
+    exactly the machine that needs this."""
+    dump = _codec_dump(ssid="0x103c8519", bass_pin_default="0x411111f0")
+    dump = dump.replace("Pin Default 0x90170110: [Fixed] Speaker at Int N/A",
+                        "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
+    info = _info([dump])
+    assert info.speakers == []
+    found = d.find_hidden_speaker_pin(info)
+    assert found is not None and found[0].pins == "0x14"
+    assert found[2] == ["0x14"]
+
+
+def test_silent_once_every_declared_pin_is_present():
+    """The regression the pin-counting predicate would have shipped: a fixup
+    declaring one pin, on a machine that now has it, must stop warning."""
+    info = _info([_codec_dump(ssid="0x17aa390d")])
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+# The negative signal (issue #53): the table only knows machines upstream has
+# been told about, so a hidden woofer nobody has reported yet is invisible
+# here. Its owner can read the spec sheet in seconds; we can't.
+
+def test_asks_about_speaker_count_when_nothing_matched():
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_pin_default="0x411111f0")])
+    finding = d.unlisted_speaker_pin_finding(info)
+    assert finding is not None and finding.kind == "ask"
+    assert "more speakers" in finding.ask
+    # Names the pins, since nothing is printed above it in a normal run.
+    assert "0x14" in finding.detail and "0x17" in finding.detail
+
+
+def test_no_speaker_count_ask_when_the_pair_is_complete():
+    """Two speaker pins and spare output pins is the development machine —
+    nothing ambiguous, so nothing to ask."""
+    assert d.unlisted_speaker_pin_finding(_info([_codec_dump()])) is None
+
+
+def test_no_speaker_count_ask_when_a_quirk_already_matched():
+    """That run has a real fix to offer; a question would compete with it."""
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    assert d.unlisted_speaker_pin_finding(info) is None
+
+
+def test_no_speaker_count_ask_without_spare_output_pins():
+    """No unconfigured output pin means there is nowhere for a hidden speaker
+    to be, so a single pair is simply a single pair."""
+    dump = _codec_dump(ssid="0x17aa9999", bass_pin_default="0x411111f0")
+    info = _info([dump])
+    info.unconfigured_pins.clear()
+    assert d.unlisted_speaker_pin_finding(info) is None
+
+
+# --- Regressions caught in review of the issue #53 work ---------------------
+
+def test_other_codecs_cannot_borrow_the_machine_pci_id():
+    """A PCI-keyed quirk describes the machine, not a codec. Lending that id to
+    an HDMI codec that merely has a spare output pin produced a warning naming
+    the wrong codec that no user action could ever clear."""
+    analog = _codec_dump(ssid="0x17aa9999")          # both pins configured
+    hdmi = CODEC_HDMI.replace(
+        "Pin Default 0x18560010: [Jack] Digital Out at Int HDMI",
+        "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
+    # 1028:0B37 is PCI-keyed and declares 0x14 0x17.
+    info = _info([analog, hdmi], pci=("1028", "0B37"))
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_declared_pins_must_exist_on_the_matching_codec():
+    """A codec that has neither pin the fixup names is not the codec the fixup
+    is about, whatever id matched."""
+    hdmi = CODEC_HDMI.replace("0x80860101", "0x10280B37")
+    info = _info([hdmi])
+    assert d.find_hidden_speaker_pin(info) is None
+
+
+def test_microsoft_usb_device_does_not_read_as_a_sof_machine():
+    """"microsoft" contains "sof". An unanchored substring test over the cards
+    file let a plugged-in webcam silently disable the PCI-keyed arm, so the
+    same machine reported differently depending on what was plugged in."""
+    cards = ("0 [PCH            ]: HDA-Intel - HDA Intel PCH",
+             "1 [Studio         ]: USB-Audio - Microsoft LifeCam Studio")
+    assert d._card_uses_sof(list(cards)) is False
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_pin_default="0x411111f0")],
+                 cards=cards, pci=("17AA", "3801"))
+    assert d.find_hidden_speaker_pin(info) is not None
+
+
+@pytest.mark.parametrize("line,expected", [
+    ("0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp", True),
+    ("0 [PCH            ]: HDA-Intel - HDA Intel PCH", False),
+    ("1 [Studio         ]: USB-Audio - Microsoft LifeCam Studio", False),
+    ("2 [Headset        ]: USB-Audio - Microsoft Modern USB Headset", False),
+    ("0 [Generic        ]: HDA-Intel - HD-Audio Generic", False),
+])
+def test_card_uses_sof_reads_the_driver_field(line, expected):
+    assert d._card_uses_sof([line]) is expected
+
+
+def test_modprobe_line_names_the_driver_that_owns_the_codec(tmp_path):
+    """SOF modules are routinely loaded beside snd_hda_intel, so "whichever
+    module exposes hda_model" wrote the option to a module driving nothing."""
+    params = tmp_path / "snd_sof_intel_hda_generic" / "parameters"
+    params.mkdir(parents=True)
+    (params / "hda_model").write_text("\n")
+    assert d.hda_model_module(False, tmp_path) == ("snd_hda_intel", "model")
+    assert d.hda_model_module(True, tmp_path) == (
+        "snd_sof_intel_hda_generic", "hda_model")
+
+
+def test_warning_names_only_the_missing_pin(capsys):
+    """0x14 is configured on this machine; saying the kernel isn't driving it
+    would send the reader after a pin that works."""
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "pin 0x17" in out and "0x14" not in out
+
+
+def test_copy_never_asserts_a_pin_count_it_cannot_know(capsys):
+    """The detector fires with zero configured pins too, where "one pin
+    configured ... a second one — the woofers" is false twice over."""
+    dump = _codec_dump(ssid="0x103c8519", bass_pin_default="0x411111f0")
+    dump = dump.replace("Pin Default 0x90170110: [Fixed] Speaker at Int N/A",
+                        "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
+    info = _info([dump])
+    found = d.find_hidden_speaker_pin(info)
+    d.warn_hidden_speaker_pin(found, info)
+    out = capsys.readouterr().out
+    check = d.speaker_pin_status(info)
+    assert "one internal speaker pin" not in out + check.detail
+    assert "second one" not in out + check.detail
+    assert "pin 0x14" in out and "pin 0x14" in check.detail
+    # No speaker pin survives here, so there is no "rest" to shape.
+    assert "shapes the rest alone" not in out
+
+
+def test_doctor_promises_a_command_only_when_there_is_one():
+    """--doctor used to send every reader to a modprobe line that the 30
+    model-less rows never print."""
+    listed = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                                bass_pin_default="0x411111f0")])
+    assert "re-run without --doctor" in d.speaker_pin_status(listed).detail.lower()
+
+    nameless = _info([_codec_dump(ssid="0x17aa38cf",
+                                  bass_pin_default="0x411111f0")])
+    detail = d.speaker_pin_status(nameless).detail
+    assert "modprobe" not in detail and "--doctor" not in detail
+
+
+def test_no_ask_when_the_run_printed_no_procedure():
+    """user-messages.md: a finding the user cannot act on carries no ask."""
+    nameless = d.PinQuirk("", pins="0x17", since="6.10", codec_only=True)
+    assert d._hidden_pin_finding(nameless, ["0x17"]).ask == ""
+    forcible = nameless._replace(model="alc287-yoga9-bass-spk-pin")
+    assert d._hidden_pin_finding(forcible, ["0x17"]).ask
+
+
+def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
+    """_gather_speaker_info shells out to journalctl/dmesg and globs
+    /lib/firmware for a report a default run never prints."""
+    def boom(*a, **k):
+        raise AssertionError("default run must not gather amp evidence")
+
+    monkeypatch.setattr(d, "_gather_amp_evidence", boom)
+    monkeypatch.setattr(d, "detect_speaker_firmware_gates", boom)
+    info = d._gather_speaker_pins()
+    assert isinstance(info, d.SpeakerInfo)
