@@ -15,6 +15,16 @@ name: Mark confirmed device as tested
 # so even a prompt-injected direct push to master is rejected server-side —
 # the tool allowlist is not the only line of defense.
 #
+# What the allowlist does NOT gate: reads. Claude Code auto-approves a
+# built-in set of read-only shell commands (ls, cat, grep, read-only git…)
+# within the working directory, whatever the allowlist says — see
+# https://code.claude.com/docs/en/permissions, "Read-only commands". So the
+# list below is a write-and-side-effect allowlist, and the read surface is
+# the checkout. That is the public repo; writes, the network (curl/wget are
+# not in the set), the environment, and anything outside the checkout all
+# still require an explicit rule, so the runner's tokens — which checkout
+# keeps in RUNNER_TEMP, not the workspace — stay out of reach.
+#
 # Outcome reporting: the action's own logs show only aggregate counters
 # (turns, cost, denied-tool count) — never what Claude did or why it stopped,
 # which is exactly what you need when no PR shows up. The "Report outcome"
