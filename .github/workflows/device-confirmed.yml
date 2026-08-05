@@ -218,8 +218,10 @@ jobs:
             say "<details><summary>What the run did</summary>"
             say ""
             say '```'
+            # The counter the action prints to the log is its own derived
+            # field; the transcript carries the denials as an array.
             jq -r '.[]? | select(.type=="result")
-                   | "turns \(.num_turns)/25 · denied tool calls \(.permission_denials_count) · \(.subtype)"' \
+                   | "turns \(.num_turns)/25 · denied tool calls \((.permission_denials // []) | length) · ended: \(.terminal_reason // .subtype)"' \
               "$EXECUTION_FILE" 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
             jq -r '.[]? | select(.type=="assistant") | .message.content[]?
                    | select(.type=="tool_use")
@@ -230,9 +232,12 @@ jobs:
             say "</details>"
             say ""
 
-            denied=$(jq -r '.[]? | select(.type=="user") | .message.content[]?
-                            | select(.type=="tool_result") | (.content | tostring)
-                            | select(test("permission|denied"; "i"))' \
+            # Read the denials the SDK recorded, not tool output that merely
+            # mentions "permission" — repo files do, and matched themselves.
+            denied=$(jq -r '.[]? | select(.type=="result") | (.permission_denials // [])[]
+                            | ((.tool_name // .name // "?") | tostring) + " "
+                              + ((.tool_input.command // .tool_input.file_path
+                                  // .tool_input // .input // "") | tostring)' \
                      "$EXECUTION_FILE" 2>/dev/null | cut -c 1-300 || true)
             if [ -n "$denied" ]; then
               say "**Denied tool calls** — these are the ones to widen the allowlist for, or to re-word the prompt around:"
