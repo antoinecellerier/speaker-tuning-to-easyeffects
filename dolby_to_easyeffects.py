@@ -718,10 +718,33 @@ def read_pin_config_overrides(codec_path: Path,
     return resolved
 
 
+def _demo_hidden_speaker_pin(info: SpeakerInfo, ssid: str) -> None:
+    """Stand in for a machine whose firmware hides a woofer pin.
+
+    Same demo/preview convention as ``DEMO_FIRMWARE_GATE``, and needed for the
+    same reason: this warning is keyed to the *machine*, not to anything in a
+    tuning XML, so `tools/preview_output.py` can never find a corpus file that
+    triggers it and the copy would go unread by every review round.
+    ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
+    0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
+    """
+    info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
+    info.speakers.append(SpeakerPin(node="0x14",
+                                    control_name="Speaker Playback Switch",
+                                    role="tweeter", channels=2, codec=ssid))
+    for node, pincap in (("0x17", "OUT HP Detect"),
+                         ("0x1b", "IN OUT EAPD Detect"), ("0x1e", "OUT")):
+        info.unconfigured_pins.append(UnconfiguredPin(
+            node=node, codec=ssid, pincap=pincap, pin_default="0x411111f0"))
+
+
 def _detect_hda_speakers(info: SpeakerInfo,
                          proc_asound=Path("/proc/asound"),
                          sysfs_class_sound=Path("/sys/class/sound")):
     """Detect internal speakers from HDA codec pin configurations."""
+    demo = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
+    if demo:
+        return _demo_hidden_speaker_pin(info, demo)
     for codec_path in sorted(proc_asound.glob("card*/codec*")):
         try:
             text = codec_path.read_text()
@@ -1087,6 +1110,71 @@ def _pin_phrase(missing: list[str]) -> str:
     return "pins " + " and ".join(missing)
 
 
+def speaker_pin_fix_steps(quirk: PinQuirk, missing: list[str], uses_sof: bool,
+                          width: int,
+                          speaker_info_below: bool = False,
+                          ) -> tuple[tuple[str, str], ...]:
+    """Apply → confirm → undo, as ``(style, text)`` lines.
+
+    Shared by the end-of-run warning and ``--doctor``'s check the way
+    ``amixer_enable_cmd`` is shared, so the procedure can't drift between the
+    two surfaces — and empty where the fixup has no forcible name, since then
+    there is no procedure, only the upgrade route ``upgrade_prospect`` states.
+
+    Prose wraps to *width*; commands never do. A command wider than the
+    terminal is soft-wrapped by the terminal and still pastes as one line,
+    where a folded one would not run at all — so the caller passes the width
+    its own surface uses and no line here is broken by hand.
+
+    ``speaker_info_below`` is the one thing that differs between the two
+    callers: a --doctor run prints the hardware section itself, so sending
+    that reader off to --speaker-info for a section already on their screen
+    reads as a third command to type. The commands stay identical either way.
+    """
+    if not quirk.model:
+        return ()
+    module, param = hda_model_module(uses_sof)
+
+    def prose(text: str, indent: str = "", hang: str = "") -> list[tuple[str, str]]:
+        return [("dim", line) for line in textwrap.wrap(
+            text, width, initial_indent=indent,
+            subsequent_indent=hang or indent, break_on_hyphens=False)]
+
+    # Where to look afterwards — the one sentence that differs by surface.
+    verify = (f'look at the "HDA internal speakers" section below: '
+              f"{_pin_phrase(missing)} should be listed there, tagged "
+              "[kernel fixup]."
+              if speaker_info_below else
+              f"re-run with --speaker-info: {_pin_phrase(missing)} should be "
+              'listed under "HDA internal speakers", tagged [kernel fixup].')
+    return tuple([
+        *prose("1. Write the option, then reboot:"),
+        ("cta", f"     echo 'options {module} {param}={quirk.model}' \\"),
+        ("cta", f"       | sudo tee {_MODPROBE_CONF}"),
+        # The fixup's name is the kernel's, and several of them carry a model
+        # that isn't the one running: this row is keyed to a codec id, and its
+        # upstream entry reads "Yoga 7 16IAP7" while the name says yoga9. A
+        # reader who spots that in a line they are about to sudo stops there.
+        *prose("   That name is the kernel's label for the fix, not your "
+               "model — it is matched to your machine by hardware id.",
+               hang="   "),
+        ("", ""),
+        # Two independent confirmations, and the audible one leads because it
+        # is the one the user cares about. Hedged the way the warning above is:
+        # the pin usually drives woofers, but several fixups in the table
+        # declare a machine's only speaker pin, where nothing was playing.
+        *prose("2. After rebooting you should hear it — usually the bass "
+               "coming back, or sound from speakers that were silent. To "
+               f"check the kernel side, {verify}", hang="   "),
+        ("", ""),
+        *prose("Still missing, or the speakers went quiet? Undo it:",
+               indent="   "),
+        ("cta", f"     sudo rm {_MODPROBE_CONF}"),
+        *prose("and reboot again. Nothing else on the system is touched.",
+               indent="   "),
+    ])
+
+
 def warn_hidden_speaker_pin(
         found: tuple[PinQuirk, str, list[str]] | None,
         info: SpeakerInfo) -> Finding | None:
@@ -1103,7 +1191,6 @@ def warn_hidden_speaker_pin(
     if not found:
         return None
     quirk, codec_ssid, missing = found
-    module, param = hda_model_module(_card_uses_sof(info.sound_cards))
     phrase = _pin_phrase(missing)
 
     # "the preset shapes the rest alone" only holds if a speaker pin survived:
@@ -1120,21 +1207,16 @@ def warn_hidden_speaker_pin(
         + (", and the preset shapes the rest alone." if others else "."))
     print()
     _cprint_wrapped("dim", upgrade_prospect(quirk))
-    if quirk.model:
+    steps = speaker_pin_fix_steps(quirk, missing,
+                                  _card_uses_sof(info.sound_cards),
+                                  _wrap_width())
+    if steps:
         print()
-        cprint("dim", "1. Tell the driver to apply it, then reboot:")
-        cprint("cta", f"     echo 'options {module} {param}={quirk.model}' \\")
-        cprint("cta", f"       | sudo tee {_MODPROBE_CONF}")
-        print()
-        cprint("dim", "2. After rebooting, re-run with --speaker-info — the "
-                      "\"HDA internal")
-        cprint("dim", f"   speakers\" section should now list {phrase}, tagged "
-                      "[kernel fixup].")
-        print()
-        cprint("dim", "   Still missing, or the speakers went quiet? Undo it:")
-        cprint("cta", f"     sudo rm {_MODPROBE_CONF}")
-        cprint("dim", "   and reboot again. Nothing else on the system is "
-                      "touched.")
+    for style, text in steps:
+        if text:
+            cprint(style, text)
+        else:
+            print()
     print()
     return _hidden_pin_finding(quirk, missing)
 
@@ -1711,13 +1793,19 @@ def _print_speaker_info(info: SpeakerInfo):
             for s in info.speakers
         ] or ["  (none configured)"]
         if info.unconfigured_pins:
-            # Raw evidence, no verdict: these are usually spare pins, but a
-            # speaker pin the BIOS wrongly calls unconnected looks the same
-            # (issue #53). Printing them is what lets a pasted report be
-            # checked against the manufacturer's driver count at all.
+            # Raw evidence, and one verdict where we have one: these are
+            # usually spare pins, but a speaker pin the BIOS wrongly calls
+            # unconnected looks identical (issue #53) — except on the machines
+            # upstream ships a fix for, where the quirk table names the pin.
+            # Marking it is what keeps this section from talking a reader out
+            # of a fix the same report just handed them.
+            found = find_hidden_speaker_pin(info)
+            flagged = set(found[2]) if found else set()
             speaker_lines.append("  Output-capable pins left unconfigured:")
             speaker_lines += [
                 f"    {p.node}: pincap {p.pincap}, default {p.pin_default}"
+                + ("  ⚠ a kernel fix declares this a speaker"
+                   if p.node in flagged else "")
                 for p in info.unconfigured_pins
             ]
             # Said here because this section is what a reader stares at: spare
@@ -1726,8 +1814,11 @@ def _print_speaker_info(info: SpeakerInfo):
             # rich is handed soft_wrap=True and never reflows — with the
             # continuation hanging under the opening bracket.
             speaker_lines += textwrap.wrap(
-                "(spare pins are normal — this only matters if your device "
-                "has more speakers than are listed above)",
+                ("(the unflagged ones are normal — a spare pin only matters "
+                 "if your device has more speakers than are listed above)"
+                 if flagged else
+                 "(spare pins are normal — this only matters if your device "
+                 "has more speakers than are listed above)"),
                 width=_wrap_width(), initial_indent="    ",
                 subsequent_indent="     ", break_on_hyphens=False)
         sections.append(("HDA internal speakers", speaker_lines))
@@ -1741,8 +1832,13 @@ def _print_speaker_info(info: SpeakerInfo):
     # evidence — one section, kept terse (detail only when something's wrong).
     sections.append(("Speaker amplifier status", _amp_status_lines(info)))
 
-    # Speaker layout estimate
-    sections.append(("Speaker layout estimate", [f"  {info.layout_summary}"]))
+    # Speaker layout estimate. It counts what Linux configured, so on a machine
+    # with a pin fix missing it states the very number the warning above says
+    # is wrong — read as a bottom line, that talks the reader out of the fix.
+    layout = f"  {info.layout_summary}"
+    if info.bus_type == "hda" and find_hidden_speaker_pin(info):
+        layout += " (what Linux drives — the flagged pin above would add more)"
+    sections.append(("Speaker layout estimate", [layout]))
 
     for title, lines in sections:
         cprint("head", f"=== {title} ===")
@@ -2100,25 +2196,29 @@ def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
     machine-exact, but only the user can confirm they hear no bass, and a
     2-driver laptop that somehow matched would be unharmed by ignoring this.
 
-    The fix command isn't in the detail — --doctor wraps details to the
-    terminal width and would fold it mid-command. It prints unwrapped in the
-    end-of-run block instead.
+    The procedure rides in ``steps``, unwrapped, rather than in the detail:
+    the whole fix is here, so nobody has to re-run the tool a different way to
+    reach it. Where the fixup has no forcible name the builder returns nothing
+    and ``upgrade_prospect`` has already said why, so the check promises no
+    command it won't print.
     """
     found = find_hidden_speaker_pin(info)
     if not found:
         return None
     quirk, codec_ssid, missing = found
-    # Only promise the command when there is one: 28 of the table's rows name
-    # a fixup the driver won't take by name, and those runs print prose only.
-    tail = (" Re-run without --doctor for the one-line modprobe fix and how to "
-            "undo it." if quirk.model else "")
     return CheckResult(
         DOCTOR_WARN, "Speaker pins",
         f"upstream Linux carries a fix for this exact model that declares "
         f"{_pin_phrase(missing)} on codec {codec_ssid} an internal speaker, "
         "and your kernel isn't applying it — those speakers get no signal, "
         "whatever the preset does. "
-        + upgrade_prospect(quirk, info.kernel) + tail)
+        + upgrade_prospect(quirk, info.kernel),
+        # Same width the printer will wrap the detail to, less its indent, so
+        # the prose here lines up with the prose above it.
+        steps=speaker_pin_fix_steps(quirk, missing,
+                                    _card_uses_sof(info.sound_cards),
+                                    _wrap_width() - 9,
+                                    speaker_info_below=True))
 
 
 def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
@@ -2133,10 +2233,12 @@ def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
 
     WARN, not FAIL: an off gate mutes the woofers on most laptops, but on some
     the firmware auto-loads anyway and flipping it is an audible no-op (#39),
-    so it is a strong suspect rather than a proven fault. The fix command
-    isn't in the detail because --doctor wraps details to the terminal width
-    and would fold it mid-command; it prints unwrapped in the speaker-amp
-    section instead, which every --doctor run reaches.
+    so it is a strong suspect rather than a proven fault.
+
+    The command rides in ``steps``, unwrapped. It also prints in the amp
+    section further down, which --speaker-info reaches and this check does
+    not, so the repeat within a --doctor run is deliberate: the check is where
+    a reader acts, the section is raw evidence.
     """
     if not gates:
         return None
@@ -2149,8 +2251,8 @@ def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
         DOCTOR_WARN, "Speaker firmware gate",
         f"{names} is off, so the amplifier runs untuned ahead of the preset "
         "and your speakers may be silent, thin or crackly whatever the preset "
-        "does. The Speaker amplifier status section below prints the one-line "
-        "command that switches it on.")
+        "does. Switch it on:",
+        steps=tuple(("cta", amixer_enable_cmd(g)) for g in off))
 
 
 _doctor_summary = _doctor.summarize
@@ -2348,18 +2450,15 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
 
 
 def emit_check(check: CheckResult) -> None:
-    """Print one diagnostic line: the status box, the label, wrapped detail.
+    """Print one diagnostic line: status box, label, wrapped detail, steps.
 
-    Shared with ee_to_pipewire.py's PipeWire-side doctor so the two reports
-    read as one tool. The detail wraps, which is why no check may put a
-    copy-paste command in it — a folded command line is not runnable.
+    Hands off to the shared printer so this report and ee_to_pipewire.py's
+    PipeWire-side one read as one tool. This used to be a second
+    implementation of it, which is how a check's ``steps`` reached the
+    PipeWire doctor and not this one — the same duplication the steps
+    themselves exist to end.
     """
-    style = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
-             DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
-    cprint(style.get(check.status, "dim"),
-           f"  [{check.status:^4}] {check.label}")
-    for line in textwrap.wrap(check.detail, width=_wrap_width() - 9):
-        cprint("dim", f"         {line}")
+    _doctor.emit_check(check, cprint, _wrap_width())
 
 
 def print_doctor_summary(checks: list[CheckResult]) -> None:

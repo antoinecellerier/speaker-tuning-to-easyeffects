@@ -43,8 +43,12 @@ CASES = {
     "regulator-relaxation": ('regulator-relaxation-amount value="96"',
                              'regulator-relaxation-amount value="80"'),
 }
-# Conditions reached through an env hook instead of the XML.
-ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"}}
+# Conditions reached through an env hook instead of the XML. Both are keyed to
+# the machine rather than the tuning, so no XML patch can reach them: the amp
+# gate is an ALSA control, and the speaker pin is a subsystem-id match against
+# upstream's quirk table (17AA386A = issue #53's Yoga 7 16IAH7).
+ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"},
+             "speaker-pin": {"DEMO_SPEAKER_PIN": "17AA386A"}}
 
 GENERATOR_ARGS = ["--dry-run", "--skip-ee-check", "--no-color"]
 

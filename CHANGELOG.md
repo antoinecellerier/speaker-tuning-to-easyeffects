@@ -190,6 +190,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- `--doctor` now prints the fix commands it used to point at: the speaker-pin
+  `hda_model=` procedure, which asked you to re-run without `--doctor`, and the
+  smart-amp firmware-gate `amixer` line, which sent you to a section further
+  down. Its confirmation step now leads with what you should hear
+  ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
 - The end of a run now confirms success and states its guaranteed differences
   from Windows: the leveler is off by default, and which sound mode was
   built. It then separates fixes you can apply from the project's one-line

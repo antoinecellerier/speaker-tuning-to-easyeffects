@@ -1640,6 +1640,18 @@ def test_firmware_gate_status(gates, expected):
     assert (result.status if result else None) == expected
 
 
+def test_firmware_gate_check_carries_the_command_that_switches_it_on():
+    """It used to name the section further down instead. One command per gate
+    that is off, and none on a PASS — there is nothing to switch."""
+    import dolby_to_easyeffects as d
+
+    off, on = _gate(False), _gate(True)
+    check = firmware_gate_status([off, on])
+    assert check.steps == (("cta", d.amixer_enable_cmd(off)),)
+    assert "section below" not in check.detail
+    assert firmware_gate_status([on]).steps == ()
+
+
 def test_doctor_off_gate_is_never_summarised_as_clean(monkeypatch, capsys):
     """TRAP: --doctor is the output the issue form asks people to paste when
     something is wrong. A gate that mutes the speakers upstream of the whole

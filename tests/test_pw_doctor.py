@@ -390,3 +390,31 @@ def test_chains_on_different_sinks_do_not_warn(tmp_path, monkeypatch, capsys):
     _write_conf(second, node="Dolby_Warm")
     e.warn_if_stacked(second, SPEAKER)
     assert capsys.readouterr().err == ""
+
+
+def test_emit_check_wraps_prose_and_leaves_steps_alone(capsys):
+    """The printer rule both doctors depend on: a check's prose reflows to the
+    terminal, its commands don't. A command folded across two lines is not
+    runnable, which is why checks used to point elsewhere for the fix."""
+    from _doctor import CheckResult, emit_check
+
+    command = "amixer -c sofhdadsp cset \"iface=CARD,name='Speaker Force Firmware Load'\" on"
+    emit_check(CheckResult(DOCTOR_WARN, "Gate", "word " * 40,
+                           steps=(("dim", "Switch it on:"), ("", ""),
+                                  ("cta", command))),
+               lambda _style, text: print(text), width=60)
+    out = capsys.readouterr().out
+
+    assert f"         {command}" in out.splitlines(), \
+        "the command must survive as one line"
+    assert len(command) > 60, "…and this one is wider than the terminal"
+    assert all(len(l) <= 60 for l in out.splitlines() if l.startswith("         word"))
+    assert "" in out.splitlines(), "a blank step prints an unindented blank line"
+
+
+def test_emit_check_without_steps_is_unchanged(capsys):
+    from _doctor import CheckResult, emit_check
+
+    emit_check(CheckResult(DOCTOR_PASS, "Presets", "all load."),
+               lambda _style, text: print(text), width=80)
+    assert capsys.readouterr().out == "  [PASS] Presets\n         all load.\n"

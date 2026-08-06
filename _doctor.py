@@ -36,6 +36,12 @@ class CheckResult:
     status: str          # DOCTOR_PASS / WARN / FAIL / UNKNOWN
     label: str
     detail: str
+    steps: tuple[tuple[str, str], ...] = ()
+                         # the fix, as ``(cprint style, text)`` lines printed
+                         # verbatim under the detail. Styled pairs rather than
+                         # one string because a procedure interleaves prose and
+                         # commands, and the same list is what the caller's own
+                         # end-of-run block prints — one builder, no drift.
 
 
 def summarize(checks) -> tuple[int, int, int, int]:
@@ -57,11 +63,15 @@ def default_width() -> int:
 
 
 def emit_check(check: CheckResult, cprint, width: int | None = None) -> None:
-    """Print one check: the status box, the label, then wrapped detail.
+    """Print one check: the status box, the label, wrapped detail, then steps.
 
-    The detail wraps, which is why no check may put a copy-paste command in
-    it — a command folded across two lines is not runnable. Commands belong
-    in a section that prints them unwrapped.
+    The split is what makes a fix reachable from here at all. ``detail`` is
+    prose and wraps; ``steps`` is printed exactly as given, because a command
+    folded across two lines is not runnable — a line wider than the terminal
+    is soft-wrapped by the terminal instead, which still copy-pastes. So a
+    check's prose belongs in the detail and its commands in the steps, and
+    checks used to send readers elsewhere for the fix only because this
+    printer had nowhere to put one.
     """
     if width is None:
         width = default_width()
@@ -69,6 +79,10 @@ def emit_check(check: CheckResult, cprint, width: int | None = None) -> None:
            f"  [{check.status:^4}] {check.label}")
     for line in textwrap.wrap(check.detail, width=width - 9):
         cprint("dim", f"         {line}")
+    for style, text in check.steps:
+        # A blank step is a paragraph break; indenting it would leave trailing
+        # whitespace in output people paste into issues.
+        cprint(style, f"         {text}" if text else "")
 
 
 def print_summary(checks, cprint) -> None:

@@ -2284,9 +2284,48 @@ Design choices:
   The detector fires with one pin missing, with two, and with none configured
   at all, so wording like "one pin configured … a fix that configures a second
   one — the woofers" was false on machines the tests deliberately cover. For
-  the same reason `--doctor` offers "re-run for the modprobe fix" only where a
-  forcible name exists, and the closing-block finding carries an ask only when
-  a procedure was printed to ask about.
+  the same reason `--doctor` prints the procedure only where a forcible name
+  exists, and the closing-block finding carries an ask only when a procedure
+  was printed to ask about.
+- **A check that can't print a command sends people away, so the printer had
+  to change.** Both surfaces held their own copy of the fix, and `--doctor`'s
+  ended in "Re-run without `--doctor` for the one-line modprobe fix" — because
+  `emit_check` wraps a check's detail to the terminal, and a command folded
+  across two lines does not run. That is a printer limitation, not a stance on
+  what a diagnosis should contain: the same report happily gives *prose* fixes
+  (the Background service check walks the reader through EasyEffects'
+  preferences), since prose survives wrapping. `CheckResult.steps` now carries
+  `(style, text)` lines printed verbatim, so a check states its whole fix
+  in place — commands soft-wrap in the terminal, which still pastes. One
+  builder (`speaker_pin_fix_steps`, the role `amixer_enable_cmd` plays for the
+  amp gate) feeds both the end-of-run block and the check, and a test asserts
+  the two print the same command. Doing this turned up a *third* copy: the
+  converter had its own `emit_check` shadowing the shared one, which is why
+  `steps` would have reached the PipeWire doctor and not this one.
+- **A report may not contradict its own fix further down.** Role-played
+  first-time readers caught two places where it did, both on an affected
+  machine: `--speaker-info`'s pin list called the flagged woofer an ordinary
+  spare ("spare pins are normal…"), and the layout estimate printed "2
+  speakers → full-range stereo" — the exact count the warning above says is
+  wrong. Read as the bottom line, each one talks the reader out of the fix
+  they were just handed. Both sections are computed from *configured* pins,
+  so both now ask the detector and mark what it flagged. The counterpart
+  matters as much: on a machine with genuinely spare pins — most of them —
+  the plain "spare pins are normal" note has to stay, or the section becomes
+  a fault report about nothing.
+- **The fixup's name is not the reader's model, and saying so is load-bearing.**
+  `hda_model=alc287-yoga9-bass-spk-pin` on a Yoga 7 (upstream's own entry for
+  this codec id reads "Lenovo Yoga 7 16IAP7") reads like someone else's fix in
+  a line the reader is about to run with sudo — the one place a wrong-looking
+  detail stops them. The step now says the name is the kernel's label and the
+  match is by hardware id.
+- **The confirmation is audible first, and hedged.** "Re-run `--speaker-info`
+  and look for the tag" proves the kernel took the pin, not that anything
+  plays; the tag exists because /proc can't show it (above). The pin usually
+  drives woofers, but several fixups in the table declare a machine's *only*
+  speaker pin, where the change is sound where there was none — so the step
+  says hear a difference, *usually* the bass, with the tag as the mechanical
+  cross-check.
 - **Cost is scoped to the question.** The default run builds a
   `_gather_speaker_pins()` SpeakerInfo — a few /proc reads — rather than the
   full `--doctor` gather, which shells out to `amixer` per card and to

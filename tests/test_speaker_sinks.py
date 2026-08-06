@@ -543,6 +543,22 @@ def test_detect_firmware_gates_demo_env(monkeypatch, value, expected_on):
     assert len(gates) == 1 and gates[0].on is expected_on
 
 
+def test_demo_speaker_pin_reaches_the_warning(monkeypatch):
+    """DEMO_SPEAKER_PIN stands in for an affected machine, the way
+    DEMO_FIRMWARE_GATE stands in for a TI amp. Without it this message is
+    unreachable on any machine but the handful upstream has fixed, so no
+    preview or review round ever reads it."""
+    monkeypatch.setenv("DEMO_SPEAKER_PIN", "17aa386a")   # case-insensitive
+    info = d._gather_speaker_pins()
+    found = d.find_hidden_speaker_pin(info)
+    assert found and found[2] == ["0x17"]
+    assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
+
+    monkeypatch.delenv("DEMO_SPEAKER_PIN")
+    assert d._gather_speaker_pins().hda_codecs != [
+        ("10EC0287", "17AA386A", "Realtek ALC287")], "real hardware, not demo"
+
+
 def _gate(on):
     return d.FirmwareGate(
         card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",
@@ -1431,17 +1447,118 @@ def test_copy_never_asserts_a_pin_count_it_cannot_know(capsys):
     assert "shapes the rest alone" not in out
 
 
-def test_doctor_promises_a_command_only_when_there_is_one():
-    """--doctor used to send every reader to a modprobe line that the 30
-    model-less rows never print."""
+def test_doctor_carries_the_fix_only_when_there_is_one():
+    """--doctor used to send every reader elsewhere for the modprobe line, and
+    the 30 model-less rows have none to send them to."""
     listed = _info([_codec_dump(ssid=ISSUE_53_SSID,
                                 bass_pin_default="0x411111f0")])
-    assert "re-run without --doctor" in d.speaker_pin_status(listed).detail.lower()
+    check = d.speaker_pin_status(listed)
+    assert any("| sudo tee /etc/modprobe.d/speaker-pin-fix.conf" in text
+               for _, text in check.steps)
+    # Nothing may send the reader off to another invocation for the fix.
+    assert "--doctor" not in check.detail
 
     nameless = _info([_codec_dump(ssid="0x17aa38cf",
                                   bass_pin_default="0x411111f0")])
-    detail = d.speaker_pin_status(nameless).detail
-    assert "modprobe" not in detail and "--doctor" not in detail
+    nameless_check = d.speaker_pin_status(nameless)
+    assert nameless_check.steps == ()
+    assert "modprobe" not in nameless_check.detail
+
+
+def test_doctor_and_the_end_of_run_block_print_one_procedure(capsys):
+    """TRAP: the two surfaces used to hold separate copies of the fix. Same
+    builder now, so a command edited on one side can't go stale on the other."""
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    printed = capsys.readouterr().out
+    commands = [t for style, t in d.speaker_pin_status(info).steps
+                if style == "cta"]
+    assert commands
+    for text in commands:
+        assert text in printed
+
+
+def test_pin_fix_names_the_module_that_owns_the_codec():
+    """Legacy HDA takes `model=`; the SOF parameter is scanned from /sys/module
+    and covered by test_modprobe_line_names_the_driver_that_owns_the_codec."""
+    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    legacy = [t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], False, 90)]
+    assert any("options snd_hda_intel model=alc287-yoga9-bass-spk-pin" in t
+               for t in legacy)
+
+
+def test_pin_fix_wraps_prose_but_never_a_command():
+    """A command folded by textwrap doesn't run; the terminal soft-wrapping a
+    long one is fine. So width may only reflow the prose."""
+    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    narrow = d.speaker_pin_fix_steps(quirk, ["0x17"], True, 40)
+    commands = [t for style, t in narrow if style == "cta"]
+    assert any(len(t) > 40 for t in commands)          # left intact
+    assert all(len(t) <= 40 for style, t in narrow if style == "dim")
+
+
+def test_report_never_calls_a_flagged_pin_an_ordinary_spare(capsys):
+    """TRAP: --doctor prints the fix and then, 40 lines down, this section. A
+    blanket "spare pins are normal" and a flat speaker count under a warning
+    that says one is missing read as the bottom line, and talk the reader out
+    of the fix they were just handed."""
+    info = _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+    d._print_speaker_info(info)
+    out = capsys.readouterr().out
+
+    assert "0x17: pincap OUT HP Detect" in out
+    flagged = next(l for l in out.splitlines() if l.strip().startswith("0x17:"))
+    assert "⚠" in flagged and "kernel fix" in flagged
+    assert "0x1b" in out and "⚠" not in next(
+        l for l in out.splitlines() if l.strip().startswith("0x1b:"))
+    assert "(spare pins are normal" not in out
+    assert "the flagged pin above would add more" in out
+
+
+def test_ordinary_machine_keeps_the_plain_spare_pin_note(capsys):
+    """The development machine's 0x1b/0x1e really are spare, and nothing here
+    may imply otherwise — most reports come from machines like this one."""
+    d._print_speaker_info(_info([_codec_dump()]))
+    out = capsys.readouterr().out
+    assert "(spare pins are normal" in out
+    assert "⚠" not in out and "flagged pin" not in out
+
+
+def test_verification_step_points_at_the_surface_the_reader_is_on():
+    """A --doctor reader has the hardware section on screen already; telling
+    them to re-run with --speaker-info reads as a third command to type."""
+    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    run = " ".join(t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], True, 90))
+    doctor = " ".join(t for _, t in d.speaker_pin_fix_steps(
+        quirk, ["0x17"], True, 90, speaker_info_below=True))
+
+    assert "re-run with --speaker-info" in run
+    assert "re-run with --speaker-info" not in doctor
+    assert "section below" in doctor
+    assert "[kernel fixup]" in run and "[kernel fixup]" in doctor
+    # Only the pointer may differ — the commands are the shared part.
+    assert ([t for s, t in d.speaker_pin_fix_steps(quirk, ["0x17"], True, 90)
+             if s == "cta"]
+            == [t for s, t in d.speaker_pin_fix_steps(
+                quirk, ["0x17"], True, 90, speaker_info_below=True)
+                if s == "cta"])
+
+
+def test_fix_says_the_quirk_name_is_not_a_model_name():
+    """`alc287-yoga9-bass-spk-pin` on a Yoga 7 reads like someone else's fix
+    in a line the reader is about to run with sudo — upstream's own entry for
+    this codec id is named "Lenovo Yoga 7 16IAP7"."""
+    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    prose = " ".join(t for s, t in d.speaker_pin_fix_steps(
+        quirk, ["0x17"], True, 90) if s != "cta")
+    assert "not your model" in prose and "hardware id" in prose
+
+
+def test_pin_fix_is_empty_without_a_forcible_name():
+    nameless = d.PinQuirk("", pins="0x17", since="6.10", codec_only=True)
+    assert d.speaker_pin_fix_steps(nameless, ["0x17"], True, 90) == ()
 
 
 def test_no_ask_when_the_run_printed_no_procedure():
