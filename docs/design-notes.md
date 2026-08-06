@@ -2238,6 +2238,29 @@ Design choices:
   Node-targeting is correct in both directions, and it also sidesteps the
   ALSA control name, which varies ("Bass Speaker" on one machine, "Speaker
   Front" on #50's) while the fixup's effect does not.
+- **A pin fixup is invisible in `/proc` — read the driver's override instead.**
+  The first version classified pins from the `Pin Default` line of
+  `/proc/asound/card*/codec#*`, which the kernel fills from
+  `AC_VERB_GET_CONFIG_DEFAULT` (`sound/hda/common/proc.c`) — the *hardware*
+  register, holding the firmware's own value. A fixup never writes that
+  register: `snd_hda_apply_pincfgs` stores an override in `codec->driver_pins`
+  (`sound/hda/common/auto_parser.c`), and only the driver-side lookup,
+  `snd_hda_codec_get_pincfg`, consults it — which is why the fix works while
+  the printed line goes on saying "not connected". So a machine that had
+  applied the modprobe fix read exactly like one that hadn't: the warning
+  would have fired forever, and step 2 of its own procedure asked the user to
+  confirm something that could never happen — pushing them toward the undo.
+  The fix is to merge `/sys/class/sound/hwC<card>D<addr>/driver_pin_configs`
+  (and `user_pin_configs`, which outranks it, exactly as the kernel resolves
+  them) over the printed value before classifying. Both files exist on every
+  HDA codec — only `user_pin_configs` is gated behind
+  `CONFIG_SND_HDA_RECONFIG` — and the card index plus codec address name both
+  views, so the two line up without parsing either. `--speaker-info` tags such
+  a pin `[kernel fixup]`, since a pin driven against the firmware and one the
+  firmware declared are otherwise the same line, leaving the user's
+  verification step nothing to look at. Reported state that exposed it: #53's
+  own machine pasted three runs, one with the fix off and two with it on, all
+  three byte-identical.
 - **Never substitute a related fixup's name.** Where the kernel gives a fixup
   no name in its models table, there is nothing a user can force and the
   message says so, offering the upgrade route alone. Borrowing the sibling

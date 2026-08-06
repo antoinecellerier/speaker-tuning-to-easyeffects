@@ -325,14 +325,21 @@ class SpeakerPin:
                          # per codec, not per machine: a report carries the HDMI
                          # codecs (0x00AA0100, 0x80860101) alongside the analog
                          # one, and only the analog codec's SSID keys a quirk.
+    override: str = ""   # set when the kernel is driving this pin against the
+                         # firmware's description of it — the label says which
+                         # layer did so. Printed, because it is the *only*
+                         # visible sign that a pin fixup took (issue #53): the
+                         # firmware's own value stays in place underneath.
 
 
 @dataclass
 class UnconfiguredPin:
     """An HDA pin the codec can drive but the kernel left unconfigured.
 
-    A pin complex that is output-capable (``Pincap`` lists ``OUT``) while its
-    BIOS-supplied default config reports no physical connection (``[N/A]``).
+    A pin complex that is output-capable (``Pincap`` lists ``OUT``) while the
+    default config the driver acts on reports no physical connection — the
+    firmware's own, unless a fixup overrode it, in which case the pin is a
+    speaker and belongs above.
     Printed as raw evidence under "HDA internal speakers", never warned on: a
     genuinely unused pin and a speaker pin the BIOS wrongly calls unconnected
     look *identical* here (issue #53 — pin 0x17's dark woofers vs. pins
@@ -556,8 +563,64 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         pass
 
 
+class PinOverride(NamedTuple):
+    """A pin default config the kernel uses in place of the firmware's."""
+    cfg: int
+    source: str          # what put it there, in the user's terms
+
+
+# Where those overrides live, lowest priority first — the order
+# ``snd_hda_codec_get_pincfg`` resolves them in (user beats driver beats the
+# firmware's own value), so merging in this order reproduces what the driver
+# acts on. Both files exist on every HDA codec; only ``user_pin_configs`` is
+# gated behind CONFIG_SND_HDA_RECONFIG, hence the tolerant read.
+_PIN_CFG_OVERRIDE_FILES = (
+    ("driver_pin_configs", "kernel fixup"),   # a quirk the driver applied
+    ("user_pin_configs", "manual pincfg"),    # hand-written via sysfs
+)
+
+
+def parse_pin_config_overrides(text: str) -> dict[str, int]:
+    """``"0x17 0x90170121\\n"`` → ``{"0x17": 0x90170121}``.
+
+    One ``nid cfg`` pair per line, as ``pin_configs_show`` writes them.
+    """
+    overrides = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            try:
+                overrides[f"0x{int(parts[0], 16):02x}"] = int(parts[1], 16)
+            except ValueError:
+                continue
+    return overrides
+
+
+# Fields of the 32-bit pin default config. Named for what the HDA spec calls
+# them, and each value confirmed against how the kernel renders real dumps:
+# 0x90170110 prints as "[Fixed] Speaker at Int", 0x411111f0 as "[N/A] Speaker
+# at Ext Rear", 0x03211020 as "[Jack] HP Out at Ext Left" — so connectivity
+# 2 is Fixed, 1 is none, device 1 is Speaker, and location base 1 is internal.
+_PIN_CONN_NONE = 1        # firmware says nothing is wired to this pin
+_PIN_CONN_FIXED = 2       # a device is soldered to it
+_PIN_DEVICE_SPEAKER = 1
+_PIN_LOCATION_INTERNAL = 1
+
+
+def _pin_is_internal_speaker(cfg: int) -> bool:
+    return ((cfg >> 30) & 0x3 == _PIN_CONN_FIXED
+            and (cfg >> 20) & 0xf == _PIN_DEVICE_SPEAKER
+            and (cfg >> 28) & 0x3 == _PIN_LOCATION_INTERNAL)
+
+
+def _pin_is_unconnected(cfg: int) -> bool:
+    return (cfg >> 30) & 0x3 == _PIN_CONN_NONE
+
+
 def parse_hda_codec_pins(
-        codec_text: str) -> tuple[str, list[SpeakerPin], list[UnconfiguredPin]]:
+        codec_text: str,
+        overrides: dict[str, PinOverride] | None = None,
+) -> tuple[str, list[SpeakerPin], list[UnconfiguredPin]]:
     """Split one ``/proc/asound/card*/codec#*`` dump into its speaker pins and
     its output-capable-but-unconfigured pins, plus the codec's subsystem id.
 
@@ -565,9 +628,18 @@ def parse_hda_codec_pins(
     ``parse_firmware_gate_controls()``.
 
     The two lists come from one pass because they partition the same pin
-    complexes by their default config's connectivity field: ``[Fixed] Speaker
-    at Int`` is a wired internal speaker, ``[N/A]`` is "no physical connection"
-    — which is exactly the lie a missing pin quirk tells (issue #53).
+    complexes by their *effective* default config: a fixed internal speaker is
+    a wired one, "no physical connection" is the lie a missing pin quirk tells
+    (issue #53).
+
+    Effective, not printed: ``/proc`` renders the config the **hardware**
+    holds (``AC_VERB_GET_CONFIG_DEFAULT``, ``sound/hda/common/proc.c``), and a
+    kernel pin fixup never writes that register — it stores an override in
+    ``codec->driver_pins`` that only the driver-side lookup consults. Reading
+    the printed line alone therefore shows the firmware's lie *even on a
+    machine where the fix is live*, so a user who applied it would be told
+    forever that they hadn't. ``overrides`` carries what the driver actually
+    uses, and it wins here for the same reason it wins there.
     """
     ssid_match = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
                            flags=re.MULTILINE)
@@ -584,7 +656,13 @@ def parse_hda_codec_pins(
             continue
         node = node_match.group(1)
 
-        if "[Fixed] Speaker at Int" in block:
+        default = re.search(r"Pin Default (0x[0-9a-fA-F]+):", block)
+        if not default:
+            continue
+        override = (overrides or {}).get(node)
+        cfg = override.cfg if override else int(default.group(1), 16)
+
+        if _pin_is_internal_speaker(cfg):
             ctrl_match = re.search(r'Control: name="([^"]+)"', block)
             ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
             lower = ctrl_name.lower()
@@ -595,32 +673,62 @@ def parse_hda_codec_pins(
                 role=role,
                 channels=2 if "Stereo" in block.split("\n", 1)[0] else 1,
                 codec=codec_ssid,
+                override=override.source if override else "",
             ))
             continue
 
-        # Unconfigured: output-capable, but the BIOS reports no connection.
-        # "OUT" is matched as a whole flag rather than a substring so a future
-        # flag containing those letters can't smuggle a pin in.
+        # Unconfigured: output-capable, but nothing the kernel uses reports a
+        # connection. "OUT" is matched as a whole flag rather than a substring
+        # so a future flag containing those letters can't smuggle a pin in.
         pincap = re.search(r"Pincap 0x[0-9a-fA-F]+: (.*)", block)
-        default = re.search(r"Pin Default (0x[0-9a-fA-F]+): \[N/A\]", block)
-        if pincap and default and "OUT" in pincap.group(1).split():
+        if pincap and _pin_is_unconnected(cfg) and "OUT" in pincap.group(1).split():
             unconfigured.append(UnconfiguredPin(
                 node=node,
                 codec=codec_ssid,
                 pincap=pincap.group(1).strip(),
-                pin_default=default.group(1),
+                pin_default=f"0x{cfg:08x}",
             ))
     return codec_ssid, speakers, unconfigured
 
 
-def _detect_hda_speakers(info: SpeakerInfo):
+def read_pin_config_overrides(codec_path: Path,
+                              sysfs_class_sound=Path("/sys/class/sound"),
+                              ) -> dict[str, PinOverride]:
+    """The pin configs the driver uses in place of the firmware's, for one codec.
+
+    ``/proc/asound/card0/codec#0`` → ``/sys/class/sound/hwC0D0``: the card
+    index and the codec address are what name both, so the two views can be
+    lined up without parsing either. Missing files mean no override — a
+    machine whose kernel applies nothing reads exactly like one with an empty
+    list.
+    """
+    card = re.search(r"card(\d+)", codec_path.parent.name)
+    addr = re.search(r"(\d+)$", codec_path.name)
+    if not (card and addr):
+        return {}
+    codec_dir = sysfs_class_sound / f"hwC{card.group(1)}D{addr.group(1)}"
+    resolved: dict[str, PinOverride] = {}
+    for filename, source in _PIN_CFG_OVERRIDE_FILES:
+        try:
+            text = (codec_dir / filename).read_text()
+        except OSError:
+            continue
+        resolved.update({node: PinOverride(cfg, source)
+                         for node, cfg in parse_pin_config_overrides(text).items()})
+    return resolved
+
+
+def _detect_hda_speakers(info: SpeakerInfo,
+                         proc_asound=Path("/proc/asound"),
+                         sysfs_class_sound=Path("/sys/class/sound")):
     """Detect internal speakers from HDA codec pin configurations."""
-    for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
+    for codec_path in sorted(proc_asound.glob("card*/codec*")):
         try:
             text = codec_path.read_text()
         except OSError:
             continue
-        _, speakers, unconfigured = parse_hda_codec_pins(text)
+        _, speakers, unconfigured = parse_hda_codec_pins(
+            text, read_pin_config_overrides(codec_path, sysfs_class_sound))
         info.speakers.extend(speakers)
         info.unconfigured_pins.extend(unconfigured)
 
@@ -1020,7 +1128,8 @@ def warn_hidden_speaker_pin(
         print()
         cprint("dim", "2. After rebooting, re-run with --speaker-info — the "
                       "\"HDA internal")
-        cprint("dim", f"   speakers\" section should now list {phrase}.")
+        cprint("dim", f"   speakers\" section should now list {phrase}, tagged "
+                      "[kernel fixup].")
         print()
         cprint("dim", "   Still missing, or the speakers went quiet? Undo it:")
         cprint("cta", f"     sudo rm {_MODPROBE_CONF}")
@@ -1593,7 +1702,12 @@ def _print_speaker_info(info: SpeakerInfo):
         sections.append(("Speaker amplifiers", amp_lines))
     elif info.bus_type == "hda" and (info.speakers or info.unconfigured_pins):
         speaker_lines = [
-            f"  {s.node}: {s.control_name} ({s.role}, {'stereo' if s.channels == 2 else 'mono'})"
+            f"  {s.node}: {s.control_name} ({s.role}, "
+            f"{'stereo' if s.channels == 2 else 'mono'})"
+            # The tag is what makes the fix verifiable: the firmware still
+            # calls such a pin unconnected, so without it an applied quirk and
+            # a BIOS-declared speaker are the same line (issue #53).
+            + (f" [{s.override}]" if s.override else "")
             for s in info.speakers
         ] or ["  (none configured)"]
         if info.unconfigured_pins:

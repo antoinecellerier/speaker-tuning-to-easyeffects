@@ -66,7 +66,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Dell, ASUS, Acer and others), with the one-line `hda_model=` command that
   forces it where one exists, which kernel version carries it, and how to undo
   it. `--speaker-info` also now lists output-capable pins the kernel left
-  unconfigured, so a device report shows this at all
+  unconfigured, and tags `[kernel fixup]` any pin the kernel drives against the
+  firmware's description — the only visible sign the fix took, since the
+  firmware's own value stays in place underneath
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
   mechanism and the manufacturer-spec cross-check in `docs/design-notes.md`).
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire

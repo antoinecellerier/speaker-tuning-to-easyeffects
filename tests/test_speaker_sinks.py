@@ -901,7 +901,19 @@ def test_demo_amp_status_unknown_value_is_no_demo(monkeypatch, value):
 # config and are *genuinely spare*. They are why the warning can't be inferred
 # from the pins alone: they look identical to a hidden woofer.
 
-def _codec_dump(ssid="0x17aa22e6", bass_pin_default="0x90170111"):
+def _codec_dump(ssid="0x17aa22e6", bass_pin_default="0x90170111",
+                bass_control=None):
+    hidden = bass_pin_default == "0x411111f0"
+    # The driver builds a mixer control only for a pin it drives, so the
+    # firmware-hidden woofer has none — until a fixup overrides the pin, when
+    # the control appears while /proc goes on printing 0x411111f0 (issue #53).
+    # Hence the override: that third state is neither of the other two.
+    if bass_control is None:
+        bass_control = not hidden
+    bass_render = ("[N/A] Speaker at Ext Rear" if hidden
+                   else "[Fixed] Speaker at Int N/A")
+    bass_ctl = ('\n  Control: name="Bass Speaker Playback Switch", '
+                "index=0, device=0" if bass_control else "")
     return f"""\
 Codec: Realtek ALC287
 Address: 0
@@ -914,10 +926,8 @@ Node 0x14 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
   Control: name="Speaker Playback Switch", index=0, device=0
 Node 0x17 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
   Pincap 0x0001003c: OUT HP Detect
-  Pin Default {bass_pin_default}: {"[Fixed] Speaker at Int N/A"
-        if bass_pin_default != "0x411111f0" else "[N/A] Speaker at Ext Rear"}
-    Conn = Analog, Color = Unknown
-  Control: name="Bass Speaker Playback Switch", index=0, device=0
+  Pin Default {bass_pin_default}: {bass_render}
+    Conn = Analog, Color = Unknown{bass_ctl}
 Node 0x18 [Pin Complex] wcaps 0x40048b: Stereo Amp-In
   Pincap 0x00003724: IN Detect
   Pin Default 0x411111f0: [N/A] Speaker at Ext Rear
@@ -981,12 +991,61 @@ def test_parse_codec_pins_hdmi_has_no_speakers():
     assert speakers == [] and unconfigured == []
 
 
+@pytest.mark.parametrize("cfg,speaker,unconnected", [
+    (0x90170110, True, False),   # "[Fixed] Speaker at Int N/A"
+    (0x90170121, True, False),   # what the issue #53 fixup writes for 0x17
+    (0x411111f0, False, True),   # "[N/A] Speaker at Ext Rear"
+    (0x03211020, False, False),  # "[Jack] HP Out at Ext Left"
+    (0x18560010, False, False),  # "[Jack] Digital Out at Int HDMI"
+    (0x03a11030, False, False),  # "[Jack] Mic at Ext Left"
+])
+def test_pin_config_fields_decode_as_the_kernel_renders_them(
+        cfg, speaker, unconnected):
+    """The classifier reads the raw 32-bit config now, because an override
+    arrives as a number with no rendered line to match against. Each value
+    here is one a real dump carries, paired with how /proc renders it."""
+    assert d._pin_is_internal_speaker(cfg) is speaker
+    assert d._pin_is_unconnected(cfg) is unconnected
+
+
+def test_parse_pin_config_overrides():
+    assert d.parse_pin_config_overrides(
+        "0x17 0x90170121\n0x1b 0x411111f0\n") == {
+            "0x17": 0x90170121, "0x1b": 0x411111f0}
+    # An empty file is what a codec with no override reports, and the header
+    # -less format means a malformed line can only be skipped.
+    assert d.parse_pin_config_overrides("") == {}
+    assert d.parse_pin_config_overrides("garbage\n0xzz 0x1\n") == {}
+
+
+def test_read_pin_config_overrides_lines_up_proc_and_sysfs(tmp_path):
+    """card index and codec address name both views, so nothing needs parsing
+    to pair them: /proc/asound/card0/codec#0 ↔ /sys/class/sound/hwC0D0."""
+    proc = tmp_path / "proc/asound/card0"
+    proc.mkdir(parents=True)
+    codec_path = proc / "codec#0"
+    codec_path.write_text(CODEC_ONE_PIN)
+    sysfs = tmp_path / "sys/class/sound"
+    (sysfs / "hwC0D0").mkdir(parents=True)
+    (sysfs / "hwC0D0/driver_pin_configs").write_text("0x17 0x90170121\n")
+
+    assert d.read_pin_config_overrides(codec_path, sysfs) == {
+        "0x17": d.PinOverride(0x90170121, "kernel fixup")}
+    # user_pin_configs is the only one of the two gated behind
+    # CONFIG_SND_HDA_RECONFIG, and it outranks the driver's where both exist.
+    (sysfs / "hwC0D0/user_pin_configs").write_text("0x17 0x90170110\n")
+    assert d.read_pin_config_overrides(codec_path, sysfs) == {
+        "0x17": d.PinOverride(0x90170110, "manual pincfg")}
+    # A codec with neither file reads as a machine with nothing overridden.
+    assert d.read_pin_config_overrides(proc / "codec#1", sysfs) == {}
+
+
 def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
-          pci=None):
+          pci=None, overrides=None):
     """A SpeakerInfo as _gather_speaker_info would build it from *codec_dumps*."""
     info = d.SpeakerInfo(sound_cards=list(cards), pci_subsystem=pci)
     for dump in codec_dumps:
-        ssid, speakers, unconfigured = d.parse_hda_codec_pins(dump)
+        ssid, speakers, unconfigured = d.parse_hda_codec_pins(dump, overrides)
         info.speakers.extend(speakers)
         info.unconfigured_pins.extend(unconfigured)
         info.hda_codecs.append(("10EC0287", ssid, "Realtek ALC287"))
@@ -996,6 +1055,60 @@ def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
 # 17AA:386A is the issue #53 machine: in the table, HDA_CODEC_QUIRK-keyed, and
 # its quirk (b70f007a9fc6) is merged for 7.2 but in no released kernel yet.
 ISSUE_53_SSID = "0x17aa386a"
+
+# The state that used to be unreadable: the fixup is applied, so the driver
+# drives 0x17 and builds its control, while /proc goes on printing the
+# firmware's 0x411111f0 for it — the register a fixup never writes.
+CODEC_FIXUP_APPLIED = _codec_dump(ssid=ISSUE_53_SSID,
+                                  bass_pin_default="0x411111f0",
+                                  bass_control=True)
+FIXUP_OVERRIDE = {"0x17": d.PinOverride(0x90170121, "kernel fixup")}
+
+
+def test_override_reveals_the_pin_proc_still_calls_unconnected():
+    _, speakers, unconfigured = d.parse_hda_codec_pins(
+        CODEC_FIXUP_APPLIED, FIXUP_OVERRIDE)
+    assert [(s.node, s.role, s.override) for s in speakers] == [
+        ("0x14", "tweeter", ""), ("0x17", "woofer", "kernel fixup")]
+    assert "0x17" not in [p.node for p in unconfigured]
+
+
+def test_warning_clears_once_the_fixup_is_applied():
+    """The regression that mattered: reading /proc alone, a user who applied
+    the modprobe fix was told to apply it again, on every run, forever — and
+    step 2 of that procedure asked them to confirm something that could never
+    happen."""
+    assert d.find_hidden_speaker_pin(_info([CODEC_FIXUP_APPLIED])) is not None
+    assert d.find_hidden_speaker_pin(
+        _info([CODEC_FIXUP_APPLIED], overrides=FIXUP_OVERRIDE)) is None
+
+
+def test_detect_hda_speakers_reads_the_override(tmp_path):
+    """Wiring guard: the parser honouring an override is worth nothing if the
+    gatherer never reads one."""
+    proc = tmp_path / "proc/asound/card0"
+    proc.mkdir(parents=True)
+    (proc / "codec#0").write_text(CODEC_FIXUP_APPLIED)
+    sysfs = tmp_path / "sys/class/sound"
+    (sysfs / "hwC0D0").mkdir(parents=True)
+    (sysfs / "hwC0D0/driver_pin_configs").write_text("0x17 0x90170121\n")
+
+    info = d.SpeakerInfo()
+    d._detect_hda_speakers(info, tmp_path / "proc/asound", sysfs)
+    assert [(s.node, s.override) for s in info.speakers] == [
+        ("0x14", ""), ("0x17", "kernel fixup")]
+    assert [p.node for p in info.unconfigured_pins] == ["0x1b", "0x1e"]
+
+
+def test_speaker_info_tags_an_overridden_pin(capsys):
+    """Without the tag, an applied fixup and a BIOS-declared speaker render
+    identically — leaving the user's verification step nothing to look at."""
+    info = _info([CODEC_FIXUP_APPLIED], overrides=FIXUP_OVERRIDE)
+    d._print_speaker_info(info)
+    out = capsys.readouterr().out
+    assert "0x17: Bass Speaker Playback Switch (woofer, stereo) [kernel fixup]" in out
+    assert "0x14: Speaker Playback Switch (tweeter, stereo)\n" in out
+
 
 
 def test_hidden_pin_detected_on_listed_machine():
