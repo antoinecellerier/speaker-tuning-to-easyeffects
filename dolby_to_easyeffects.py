@@ -5989,6 +5989,12 @@ ENABLEABLE_FILTERS = {
     # risk wording is the leveler family's one phrasing ("swell then
     # duck"); three variants for one risk read as three different risks
     # (round 3).
+    # Autogain says its piece three times in a run — here, at the stage that
+    # detects it, and in the closing block's guaranteed-differences line — and
+    # that is deliberate (user decision, round 12, after a reviewer called the
+    # third one padding). The three serve different readers: one scrolled back
+    # to the detection site, one reading only the closing block, one scanning
+    # this menu. Trimming any of them leaves that reader with nothing.
     "autogain": ("it sounds right but quieter than it did on Windows",
                  "enabling may make quiet passages swell then duck "
                  "(issue #25)"),
@@ -6585,25 +6591,37 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     if voicings:
         n_voc = ("three" if len(voicings) == 3
                  else str(len(voicings)) if len(voicings) > 1 else "one")
-        # Whose number this is. With <ieq-enable> at 0 — about 45% of
-        # dynamic-profile corpus rows — the tuning states no strength and
-        # Dolby engages no voicing, so the parser's assumed 10 was printing
-        # as if the profile had asked for it. Trails the sentence rather
-        # than splitting "10%" from "of full strength".
-        whose = ("" if tuning.ieq_enabled else
-                 " — this profile switches the voicing off, so the strength "
-                 "above is our default and Windows applies none")
-        _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
-                            f"of full strength — this profile's {n_voc} "
-                            f"voicing{'s' if len(voicings) > 1 else ''} "
-                            f"({'/'.join(voicings)}) "
-                            + ("all apply" if len(voicings) > 1
-                               else "applies")
-                            + " at this strength on top of the speaker "
-                            "correction"
-                            + ("; they differ in shape, not strength"
-                               if len(voicings) > 1 else "")
-                            + whose, indent="  ")
+        names = "/".join(voicings)
+        plural = "s" if len(voicings) > 1 else ""
+        if tuning.ieq_enabled:
+            _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
+                                f"of full strength — this profile's {n_voc} "
+                                f"voicing{plural} ({names}) "
+                                + ("all apply" if len(voicings) > 1
+                                   else "applies")
+                                + " at this strength on top of the speaker "
+                                "correction"
+                                + ("; they differ in shape, not strength"
+                                   if len(voicings) > 1 else ""), indent="  ")
+        else:
+            # With <ieq-enable> at 0 — about 45% of dynamic-profile corpus
+            # rows — the tuning states no strength and Dolby engages none,
+            # while ieq_amount still holds our assumed 10 and the build
+            # applies it (scale = ieq_amount/100, unconditional). Stating the
+            # percentage first and "Windows applies none" after read as a
+            # contradiction to two reviewers, so the fact leads and the
+            # number arrives as ours. What it buys is worth saying: that
+            # scale multiplies the per-voicing curve and nothing else varies
+            # between the three presets, so at 0 they would be one file.
+            _cprint_wrapped("", "Voicing strength (ieq-amount): this profile "
+                                "switches the voicing off, so Windows applies "
+                                f"none. We use {ieq_amount}% of full strength "
+                                "instead — without it "
+                                + (f"the {n_voc} voicings ({names}) would be "
+                                   "identical; they differ in shape, not "
+                                   "strength" if len(voicings) > 1 else
+                                   f"the {names} voicing would add nothing to "
+                                   "the speaker correction"), indent="  ")
 
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
@@ -7239,13 +7257,17 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         if args.verbose:
             # Next to its own table; the default view gets one verdict for
             # all three after the loop.
+            # "its target" named nothing a reader could point at. The target
+            # is the curve computed from their tuning — say that, since the
+            # whole value of the line is which side it certifies.
             if worst <= FIR_VERIFY_OK_DB:
                 cprint("ok", f"  Correction check passed: the built filter "
-                             f"matches its target within {worst:.2f} dB")
+                             f"matches the curve your tuning file asks for, "
+                             f"within {worst:.2f} dB")
             else:
-                cprint("warn", f"  Correction check: {worst:.2f} dB off "
-                               "target at worst — unexpected, please "
-                               "report this run")
+                cprint("warn", f"  Correction check: {worst:.2f} dB away from "
+                               "the curve your tuning file asks for, at worst "
+                               "— unexpected, please report this run")
         print()
 
     fails = [(n, w) for n, w in check_results if w > FIR_VERIFY_OK_DB]
@@ -7257,13 +7279,13 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             # rendering) — the check only covers curve accuracy.
             cprint("dim" if warned else "ok",
                    f"  Correction check passed: all "
-                   f"{len(check_results)} filters match their "
-                   f"targets within {worst_all:.2f} dB")
+                   f"{len(check_results)} filters match the curve your tuning "
+                   f"file asks for, within {worst_all:.2f} dB")
         else:
             for name, w in fails:
-                cprint("warn", f"  Correction check ({name}): {w:.2f} dB "
-                               "off target at worst — unexpected, please "
-                               "report this run")
+                cprint("warn", f"  Correction check ({name}): {w:.2f} dB away "
+                               "from the curve your tuning file asks for, at "
+                               "worst — unexpected, please report this run")
         print()
 
 

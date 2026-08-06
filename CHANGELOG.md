@@ -195,6 +195,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   smart-amp firmware-gate `amixer` line, which sent you to a section further
   down. Its confirmation step now leads with what you should hear
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
+- The voicing-strength line no longer gives a percentage and then says Windows
+  applies none in the same breath: where the profile switches voicing off it
+  now leads with that, and says the percentage is ours and what it buys. The
+  correction check names the curve it matched — your tuning file's — instead
+  of an undefined "target".
 - The smart-amp section no longer ends on steps you can't take. Missing
   speaker firmware now says to update `linux-firmware` and report the log line
   that names the file, instead of describing an extraction from your Windows
