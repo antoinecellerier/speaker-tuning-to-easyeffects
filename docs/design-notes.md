@@ -2260,7 +2260,12 @@ Design choices:
   firmware declared are otherwise the same line, leaving the user's
   verification step nothing to look at. Reported state that exposed it: #53's
   own machine pasted three runs, one with the fix off and two with it on, all
-  three byte-identical.
+  three byte-identical. **Confirmed on that machine** (2026-08-06): after the
+  change, `0x17` reads `Bass Speaker Playback Switch (woofer, stereo) [kernel
+  fixup]` and has left the unconfigured list — while the development machine,
+  whose 0x1b/0x1e really are spare, still gets the plain "spare pins are
+  normal" note. Both halves matter: the detector has to go quiet on a fixed
+  machine without going quiet on an unfixed one.
 - **Never substitute a related fixup's name.** Where the kernel gives a fixup
   no name in its models table, there is nothing a user can force and the
   message says so, offering the upgrade route alone. Borrowing the sibling

@@ -49,12 +49,14 @@ xbox ally
 16iml9
 yoga 7 2-in-1
 
-# watch: #53 Yoga 7 16IAH7 — BIOS reports the woofer pin 0x17 unconnected, so
-# only the tweeters are driven; fixed by b70f007a9fc6 (merged for 7.2, no
-# Cc: stable). Narrow on purpose: *new* pin-adding fixups need no watching
-# here, because the weekly speaker-pin-quirks workflow rebuilds
-# _SPEAKER_PIN_QUIRKS from upstream and opens a PR when one lands. These terms
-# are for regressions to the fixup this device depends on.
+# watch: standing — regressions to the pin fixup a tested device depends on
+# (#53 Yoga 7 16IAH7, closed 2026-08-06). Its BIOS reports the woofer pin 0x17
+# unconnected, so only the tweeters are driven until b70f007a9fc6 applies
+# (merged for 7.2, no Cc: stable); the device is in the README tested table on
+# that basis, which is why the watch outlives the issue. Narrow on purpose:
+# *new* pin-adding fixups need no watching here, because the weekly
+# speaker-pin-quirks workflow rebuilds _SPEAKER_PIN_QUIRKS from upstream and
+# opens a PR when one lands.
 yoga9-bass-spk-pin
 bass-spk-pin
 16iah7
