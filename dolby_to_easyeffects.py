@@ -873,6 +873,15 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     for g in off:
         cprint("cta", f"     {amixer_enable_cmd(g)}")
     print()
+    # The card name is this machine's own (read from /proc/asound/cardN/id),
+    # so the command is right as printed — but a card that renumbers between
+    # boots, or a copy-paste into a later session, lands on "cannot find
+    # card", and until now the only recovery text covered the command working
+    # and changing nothing.
+    cprint("dim", "   Errors with \"cannot find card\"? The card was renamed or")
+    cprint("dim", "   renumbered since this run — list them with:  aplay -l")
+    cprint("dim", f"   and use the name it shows in place of {g0.card_id}.")
+    print()
     cprint("dim", "   No change at all, and nothing sounded wrong to begin with? Then")
     cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
     print()
@@ -880,9 +889,14 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     cprint("dim", "   that alsa-restore replays at boot:")
     cprint("cta", "     sudo alsactl store")
     print()
-    cprint("dim", "   (If it still doesn't survive a reboot — alsa-restore can race the")
-    cprint("dim", "   driver on some setups — fall back to a systemd --user oneshot that")
-    cprint("dim", "   runs the amixer command above at login.)")
+    # No systemd-unit fallback here any more. It named one ("fall back to a
+    # systemd --user oneshot that runs the amixer command above at login")
+    # without the unit, the path or the enable command — a reviewer rated it
+    # unusable for the same reason as the old firmware-extraction line: a fix
+    # you can name but not run. Writing the unit out is four more lines for a
+    # case we have never seen reported, so the ask goes back to us instead.
+    cprint("dim", "   (Doesn't survive a reboot? alsa-restore can race the driver on")
+    cprint("dim", "   some setups — tell us and we'll work out the fix with you.)")
     print()
     cprint("dim", "3. Self-check — confirm the control stuck and the firmware loaded:")
     cprint("cta", f"     amixer -c {g0.card_id} cget "
@@ -895,10 +909,20 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
     print()
     cprint("dim", "   Still wrong, and the log shows 'Direct firmware load for")
-    cprint("dim", "   TAS2XXX….bin failed' or no such file exists? The per-device blob")
-    cprint("dim", "   is missing — distro linux-firmware lags newer devices. Extract it")
-    cprint("dim", "   from your Windows audio driver or TI's TAS2781-LINUX package and")
-    cprint("dim", "   drop it into /lib/firmware.")
+    cprint("dim", "   TAS2XXX….bin failed' or no such file exists? Your distro's")
+    cprint("dim", "   linux-firmware is missing this machine's blob, and no preset")
+    cprint("dim", "   makes up for it. Update linux-firmware; if the file still")
+    cprint("dim", "   doesn't turn up, report it with that log line — it names the")
+    cprint("dim", "   exact file the kernel wants.")
+    # No extraction pointer here, deliberately. The old wording ("extract it
+    # from your Windows driver or TI's TAS2781-LINUX package and drop it into
+    # /lib/firmware") read as a step and stopped a reviewer dead: no tool, no
+    # method, and nothing marking it as specialist work. It meant to record
+    # that a reporter had managed it — but that case is Cirrus (#27), whose
+    # file layout and naming don't transfer to TI, and TI's own package is
+    # driver source and a calibration tool, not a source of per-machine
+    # blobs. A hint that fits neither the reader's amp nor their skill level
+    # costs more attention than it returns.
     # The feedback ask (it gates whether we automate this) used to be two dim
     # lines here, deliberately whispered so it wouldn't rival the closing call
     # to action. It travels to that block instead now, where it can be a

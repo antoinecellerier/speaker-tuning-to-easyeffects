@@ -195,6 +195,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   smart-amp firmware-gate `amixer` line, which sent you to a section further
   down. Its confirmation step now leads with what you should hear
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
+- The smart-amp section no longer ends on steps you can't take. Missing
+  speaker firmware now says to update `linux-firmware` and report the log line
+  that names the file, instead of describing an extraction from your Windows
+  driver; the `amixer` line says what to do when it can't find your card; and
+  the persistence fallback asks you to get in touch rather than naming a
+  systemd unit it never showed you.
 - The end of a run now confirms success and states its guaranteed differences
   from Windows: the leveler is off by default, and which sound mode was
   built. It then separates fixes you can apply from the project's one-line
