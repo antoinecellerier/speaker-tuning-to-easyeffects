@@ -2835,10 +2835,63 @@ mitigate.
 
 ### The rules that keep provenance
 
-- **A move commit moves only.** No reformatting, no renamed functions, no
-  behaviour change alongside it. Rename detection needs ~50% similarity;
-  copy detection (`-C`) needs the moved lines to be *unchanged*. Tidy-ups go
-  in the commit after.
+- **A move commit moves only** — no reformatting, no renamed functions, no
+  behaviour change alongside it. Rename detection needs ~50% similarity and
+  copy detection (`-C`) needs the moved lines to be *unchanged*, so a reformat
+  spends the provenance the commit was shaped to keep.
+
+  For **duplication** specifically the rule is a sequencing one, not a
+  prohibition: **collapse it in a commit of its own, before or after the move,
+  never during.** The reason is not an aversion to indirection — the collapsed
+  version is usually the better code, which is why every slice below that
+  deferred one said so. It is **name collision under motion**. While code is in
+  flight, "collapse the duplication" and "silently redirect where this program
+  writes its files" are the same diff, under a subject line promising nothing
+  changed.
+
+  `DEFAULT_OUTPUT_DIR` is the worked example, and it is live in this repo
+  today. `lib/ee_paths.py` has it as `~/.local/share/easyeffects/output`, the
+  EasyEffects preset directory; `lib/pipewire/checks.py` has it as
+  `~/.config/pipewire/pipewire.conf.d`, PipeWire's drop-in directory. One name,
+  two definitions, two trees. A reviewer scanning a move commit for "one name
+  defined twice, now visible in one package" finds them and is right about the
+  name and wrong about the value, and the commit that unifies them redirects
+  every conf this repo writes while claiming to have moved some lines. One file
+  over, `DEFAULT_IRS_DIR` *was* the same path written twice and did collapse
+  (slice ① below) — the two cases are indistinguishable by name and separated
+  only by resolving both.
+
+  **The rule binds on a trim commit, and nothing enforces it afterwards.**
+  `tools/check_move_purity.py` is a manual gate pointed at one commit: it is in
+  no workflow, no test, no `.claude/rules/*.md` and not in `CLAUDE.md`, and it
+  reads only lines *added under `lib/`*, so it certifies nothing about a file
+  that was already there (slice ③ is the worked case — an honest behaviour
+  change that passed as pure). Once a wave is over, the tidy-up it defers is an
+  ordinary refactor wanting ordinary review.
+
+  Four shapes are not refactors at all, whatever the subject line calls them.
+  Each wants a behaviour test rather than a label, because in each the diff
+  looks like a simplification and the failure is silent:
+
+  - **Nominal sameness** — same name, different value, as above. The check is
+    to print both *resolved* values, not to compare the spellings.
+  - **`from module import name` across a `lib/` boundary.** The importer holds
+    its own binding, so a later patch or rebind on the defining module never
+    reaches it. That is the stale-binding hazard "The monkeypatch hazard"
+    below is about, and collapsing two definitions into one `from`-import is
+    exactly how a `monkeypatch.setattr` that used to bite quietly stops —
+    leaving a green test that ran the real code.
+  - **Import-order indirection.** `_load_dsp`'s deferral and the converter's
+    stdlib-only contract are both invisible in a diff. Hoisting an import to
+    the top of a module can put numpy and scipy on every TAB press, or on a
+    converter run that does no DSP; `tests/test_completions.py::test_completion_path_skips_the_dsp_import`
+    and `test_converter_startup_pulls_in_no_dsp` are the tests, and they have
+    to be run rather than reasoned about.
+  - **Anything that closes an import cycle.** Two edges that each look local
+    make a loop only the whole graph can see. `warn_if_stacked`'s home was
+    picked on this, and `lib/report/doctor_run.py` exists as a separate module
+    for it. The check is a cold-interpreter import of the package, not a
+    reading of the two files being edited.
 - **One commit per extracted module** — for readability, not for `git blame`.
   The blame argument was tested and does not hold: extracting `lib/preset/fir.py`
   alone, in its own commit, recovers exactly the same 5 lines of 96 that it does
@@ -3003,44 +3056,68 @@ The checker would then pronounce a 115-line move pure having inspected one line
 of it. Purity is a claim about the whole file, so the tool has to be shown the
 whole file.
 
-### Target shape
+### The shape it landed in
 
 A module lands flat in `lib/` first; a subpackage is created when its third
-member arrives. Line ranges are where the code sat when this was written.
+member arrives. Sizes are `wc -l` the day the wave closed, and the whole point
+of the exercise is that they move — re-run rather than quote them.
 
 ```
-lib/
-├── console.py  version.py  ee_paths.py  doctor.py  paths.py       (already moved)
+lib/                 29 modules, 6 subpackages, ~10,200 lines
+├── console.py (142)  doctor.py (116)  ee_paths.py (78)      shared plumbing,
+├── version.py (48)   paths.py (24)                          flat by design
 ├── data/            machine-written tables, out of hand-edited code
-│   ├── kernel_releases.py       _KERNEL_SERIES_RELEASES
-│   └── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
+│   ├── kernel_releases.py (39)       _KERNEL_SERIES_RELEASES
+│   └── speaker_pin_quirks.py (114)   _SPEAKER_PIN_QUIRKS
 ├── hardware/        system probing — no DAX, no DSP
-│   ├── codecs.py    HDA / SoundWire / PCI subsystem ids             (184–312)
-│   ├── speakers.py  SpeakerInfo, pin config, firmware gates         (313–1390)
-│   ├── amps.py      smart-amp evidence                             (1391–1600)
-│   └── sinks.py     pw-dump enumeration + selection                (3334–3600)
+│   ├── codecs.py (148)    HDA / SoundWire / PCI subsystem ids
+│   ├── speakers.py (759)  SpeakerInfo, pin config, firmware gates
+│   ├── amps.py (196)      smart-amp evidence
+│   └── sinks.py (306)     pw-dump enumeration + selection
 ├── dax/             everything that reads Dolby XML
-│   ├── discover.py  autoprobe, driver store, find_tuning_xml       (2714–3280)
-│   └── parse.py     parse_xml, ParsedTuning, resolvers             (3280–4620)
+│   ├── discover.py (613)  autoprobe, driver store, find_tuning_xml
+│   └── parse.py (825)     parse_xml, ParsedTuning, resolvers, and the
+│                          endpoint/profile inspection --list reads
 ├── preset/          EasyEffects preset construction
-│   ├── fir.py       interpolate_curve_db, make_fir, save_wav       (5036–5107)
-│   ├── bands.py     make_band / shelf / hp / lp / peq              (5108–5356)
-│   ├── plugins.py   dialog, autogain, MBC, regulator, bass, limiter (5357–6054)
-│   ├── build.py     make_preset                                    (6376–6543)
-│   └── autoload.py  write_autoload, EE rc, bypass preset           (3601–3790)
+│   ├── fir.py (96)        interpolate_curve_db, make_fir, save_wav
+│   ├── bands.py (251)     make_band / shelf / hp / lp / peq
+│   ├── plugins.py (627)   dialog, autogain, MBC, regulator, bass, limiter
+│   ├── build.py (217)     make_preset
+│   ├── emit.py (241)      _emit_ieq_presets, save_wav_stereo
+│   └── autoload.py (200)  write_autoload, EE rc, bypass preset
 ├── report/          everything the user reads
-│   ├── findings.py  Finding + factories + print_ask                (3859–5035)
-│   ├── messages.py  print_what_now, print_troubleshooting          (6055–6375)
-│   └── environment.py  --doctor checks, on doctor.py's vocabulary  (1896–2713)
+│   ├── findings.py (546)     Finding + factories + print_ask
+│   ├── messages.py (448)     print_what_now, print_troubleshooting,
+│   │                         VOICING_CURVES
+│   ├── environment.py (421)  --doctor verdicts, on doctor.py's vocabulary
+│   ├── speaker.py (697)      --speaker-info, the pin and firmware-gate copy
+│   ├── profile.py (588)      the per-profile report
+│   └── doctor_run.py (406)   --doctor's own I/O and top level
 └── pipewire/        ee_to_pipewire internals
-    ├── plugins.py   EE plugin → LV2 translation
-    ├── conf.py      filter-chain conf emission
-    ├── install.py   install / pin / restart
-    └── checks.py    PW-side --doctor                            (conv 1286–2000)
+    ├── plugins.py (668)   EE plugin → LV2 translation
+    ├── conf.py (336)      filter-chain conf emission
+    ├── install.py (340)   install / pin / restart / activate
+    └── checks.py (611)    PW-side --doctor
 ```
+
+Three modules the original plan did not have arrived as the generator emptied:
+`preset/emit.py`, and `report/profile.py` and `report/doctor_run.py`, each
+recorded in its own slice above. Nothing planned was dropped.
 
 Each entry point keeps its argparse builders, `main()`, and the orchestration
-that reads as the program — roughly 800 lines for the generator.
+that reads as the program. This section first put that at **roughly 800 lines
+for the generator**; it settled at **924**, and the difference is not overrun
+but a deliberate floor. `main()` is 425 lines and the six `add_*_args`
+builders plus `build_parser` are 264 — 689 of the 924, or 74%, in the two
+things a split of this shape may not touch. The argparse block is the mirror
+`.claude/rules/cli-help.md` holds against the README and
+`tests/test_readme_cli_sync.py` traps group-by-group, so breaking it up buys
+nothing and puts the flag order at risk; `main()` is the orchestration itself,
+and every line taken out of it becomes a parameter passed back in. The
+remainder is the module docstring and imports, `_load_dsp` (27), the
+completion helpers, and `run_cli`. The other two entry points sit at the same
+ratio without being aimed at it — 388 of 484 for the converter and 360 of 449
+for the wrapper are `main()` plus argparse, both 80%.
 
 Two things the table above once assigned to `console.py` stayed behind when it
 moved. `_load_dsp` binds `np` and `wavfile` into the *generator's* globals,

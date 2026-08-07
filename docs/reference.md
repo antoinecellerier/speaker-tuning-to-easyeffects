@@ -49,10 +49,10 @@ converter never touches.
 that, and from the converter's end: it imports `ee_to_pipewire.py` in a
 subprocess and fails if numpy or scipy turned up in `sys.modules`, however deep
 the import chain that pulled them in — so the check keeps holding as `lib/`
-fills up, with no list to remember to extend. The rest of `lib/` is filled in
-as the two large scripts are split; the target shape and the rules that keep
-`git blame` working through it are in [design-notes.md](design-notes.md)
-"Splitting the single-file scripts".
+fills up, with no list to remember to extend. The split that filled `lib/` is
+done — the shape it landed in, and the rules that kept `git blame` working
+through it, are in [design-notes.md](design-notes.md) "Splitting the
+single-file scripts".
 
 ## Units & conventions
 
