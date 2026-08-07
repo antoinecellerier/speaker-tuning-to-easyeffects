@@ -2839,14 +2839,16 @@ mitigate.
   behaviour change alongside it. Rename detection needs ~50% similarity;
   copy detection (`-C`) needs the moved lines to be *unchanged*. Tidy-ups go
   in the commit after.
-- **One commit per extracted module, and only one.** A commit that empties
-  three sections at once gives `-C` three haystacks to match against instead of
-  one. The other half of that rule is not to split a single move across two
-  commits either: copy-then-delete looks like it makes the copy
-  obvious, but one commit that removes the lines from the root script and adds
-  them under `lib/` is *precisely* the shape `git blame -C` is looking for. The
-  separate copy commit buys no detection git wasn't going to do anyway, and
-  costs a commit.
+- **One commit per extracted module** — for readability, not for `git blame`.
+  The blame argument was tested and does not hold: extracting `lib/preset/fir.py`
+  alone, in its own commit, recovers exactly the same 5 lines of 96 that it does
+  when it shares `41b75f5` with two other modules. Commit granularity is not the
+  lever. Keep the rule anyway, because a reviewer reading one module's move is
+  better served than one reading three. The other half *is* worth keeping on its
+  own merits: don't split a single move across two commits. Copy-then-delete
+  looks like it makes the copy obvious, but one commit that removes the lines
+  and adds them under `lib/` is the shape `-C` is looking for, and the separate
+  copy commit buys nothing.
 - **Name both ends in the subject** — "Move the console into `lib/console.py`",
   not "Tidy up the console". `git log --diff-filter=A -- lib/console.py` lands
   on the commit that created the file, so that commit's subject is what tells
@@ -2857,16 +2859,36 @@ mitigate.
   into its neighbour merges the two haystacks back together and a reformat
   rewrites the very lines `-C` matches on. Either one spends the provenance the
   commit was shaped to keep, and neither is recoverable after the fact.
-- **The incantations, for whoever comes looking later.**
-  `git log --diff-filter=A -- <path>` finds the commit that added the file —
-  the extraction (`16c4723` for `lib/doctor.py`, `63449ef` for `lib/paths.py`).
-  `git log -C -C --find-copies-harder -- <path>` follows the content back past
-  it, and `git blame -C -C -C <path>` attributes the lines themselves.
-- **Verify on the real commit before pushing:**
-  `git show --stat -M -C HEAD` should print `R1xx` for whole-file moves;
-  `git log --follow lib/<module>.py` should reach past the move; and
-  `git blame -C -C lib/<new>.py` should attribute extracted lines to the
-  commits that wrote them, not to the extraction.
+- **The incantations, measured rather than assumed.** Two of the three obvious
+  ones do not work, so they are written down here with their results:
+
+  | command | reaches past an extraction? |
+  |---|---|
+  | `git log --follow -- lib/preset/fir.py` | **no** — stops at the move |
+  | `git log -C -C --find-copies-harder -- <path>` | **no** — stops at the move |
+  | `git blame -C -C -C <path>` | partly, and unpredictably: 77 lines of 119 for `lib/console.py`, 5 of 96 for `lib/preset/fir.py` |
+  | `git log -S '<a line of the moved code>' --all` | **yes** — lands on the move *and* the commit that first wrote the line |
+  | `git log -- dolby_to_easyeffects.py` | yes — every pre-move commit is still there, just not linked to the new path |
+
+  So the reliable route from a line in `lib/` back to its origin is the
+  **pickaxe**: `git log -S` on the line itself, not path-following. `--follow`
+  is the one people reach for and the one that silently gives a one-commit
+  answer that looks authoritative.
+
+  Why blame varies is worth knowing: `lib/console.py`'s body had been rewritten
+  two commits earlier, so its trace is shallow, while `make_fir` dates from
+  `9eb5871`, the initial commit — blame has to carry the lines back through
+  every intervening rewrite of an 8,000-line file, and mostly loses them.
+  **Depth of history, not commit shape, is what decides it**, which is why no
+  amount of commit hygiene buys the FIR code a better answer.
+- **What this means for the subject line.** It is not a nicety, it is the
+  primary trail — the only one that works from a browser, and the one that
+  works from the command line without knowing a line of the moved code in
+  advance. `git log --diff-filter=A -- <path>` lands on the extraction commit;
+  its subject has to say where the contents came from.
+- **Verify on the real commit before pushing:** `tools/check_move_purity.py`
+  for the motion itself, and `git blame -C -C -C lib/<new>.py` to see how much
+  provenance survived — expecting *some* loss on old code rather than none.
 - **Re-anchor `__file__`-relative paths when they move.** `lib/version.py`'s
   `Path(__file__).resolve().parent` still works (git walks up to find the
   checkout), but `ee_to_pipewire.py` builds
