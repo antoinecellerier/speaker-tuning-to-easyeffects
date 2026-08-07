@@ -188,9 +188,9 @@ def recorders(monkeypatch):
     # the real pw-dump. Stub it so these stay hermetic.
     monkeypatch.setattr(install, "_autodetect_speaker_sink",
                         lambda: ("alsa_output.stub_Speaker__sink", []))
-    monkeypatch.setattr(dolby_to_pipewire.subprocess, "run",
+    monkeypatch.setattr(install.subprocess, "run",
                         fake_subprocess_run)
-    monkeypatch.setattr(dolby_to_pipewire.shutil, "which",
+    monkeypatch.setattr(install.shutil, "which",
                         lambda name: f"/usr/bin/{name}")
     return calls
 
@@ -320,7 +320,7 @@ def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
     and exit 0."""
     def raise_missing(cmd, **kwargs):
         raise FileNotFoundError(cmd[0])
-    monkeypatch.setattr(dolby_to_pipewire.subprocess, "run", raise_missing)
+    monkeypatch.setattr(install.subprocess, "run", raise_missing)
     assert wrapper_main([]) == 0
     out = capsys.readouterr().out
     assert "systemctl not found" in out
@@ -329,7 +329,7 @@ def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
 
 def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
     monkeypatch.setattr(
-        dolby_to_pipewire.subprocess, "run",
+        install.subprocess, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout=""))
     assert wrapper_main([]) == 1
     assert "restart failed" in capsys.readouterr().out
@@ -340,9 +340,9 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
     """Restart succeeds but the node never appears (classic cause: missing
     LV2 plugins) — surface it instead of reporting success."""
     monkeypatch.setattr(
-        dolby_to_pipewire.subprocess, "run",
+        install.subprocess, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
-    monkeypatch.setattr(dolby_to_pipewire.time, "sleep", lambda s: None)
+    monkeypatch.setattr(install.time, "sleep", lambda s: None)
     assert wrapper_main([]) == 1
     out = capsys.readouterr().out
     assert "did not appear" in out

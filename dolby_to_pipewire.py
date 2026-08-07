@@ -13,11 +13,8 @@ See docs/ee-to-pipewire.md.
 
 import argparse
 import shlex
-import shutil
-import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 # Step 1 runs in-process, so this pulls in the generator's NumPy/SciPy —
@@ -194,157 +191,6 @@ def _safe_node_name(stem: str) -> str:
     so the wrapper can predict conf filenames and PW node names."""
     derived = conf._sanitize_name(stem).strip("_")
     return derived if derived else conf.DEFAULT_NODE_NAME
-
-
-PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
-# Conditional on purpose: this script's audience chose it to avoid
-# EasyEffects, and an unconditional "quit EasyEffects" read as "did
-# something install it behind my back?" (round-3 review). The
-# double-processing consequence rides the activation warning, which
-# appends it.
-# "and stop it starting again" rather than a bare "quit it": EasyEffects
-# ships a background service and an autostart entry — both recommended in
-# our own README — so quitting the window ends double-processing for this
-# session only, and it comes back at the next login.
-QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it and "
-                "stop it starting again (its Background Service and "
-                "autostart, or remove its autoload)")
-
-
-def _print_undo(written: list[Path]) -> None:
-    """How to get back. Everything else here asks the reader to restart their
-    sound server with a config file they can't read, and never said what to do
-    if the result is worse — or if PipeWire won't come back. Deleting the conf
-    and restarting is the whole answer; it just has to be written down."""
-    # Only files that exist: the .irs copy is skipped when the source
-    # already sits at the target, and an rm over a missing file aborts the
-    # pasted command halfway.
-    paths = [p for p in written if p.exists()]
-    if not paths:
-        return
-    files = " ".join(f"'{p}'" for p in paths)
-    console.cprint("dim", "  To undo: rm " + files)
-    console.cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
-
-
-def _print_manual_activation(node_names: list[str],
-                             written: list[Path],
-                             selectable: bool = False) -> None:
-    # The EasyEffects caveat is a footnote, not a numbered step (round
-    # 10): this script's reader chose it to avoid EasyEffects, and seeing
-    # EE in the critical path made them doubt they had.
-    console.cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
-    console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
-    # Numbered per sink rather than all "2.": with --variant all this loop
-    # printed three consecutive steps sharing one number, under a note
-    # referring back to "step 1".
-    for i, name in enumerate(node_names, start=2):
-        console.cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
-                      f"{name}")
-    # What success looks like (round 6): with no expected output stated, an
-    # empty grep couldn't be told apart from "this step doesn't matter".
-    # "Pinned ... automatically": the verify step proved existence, not
-    # routing, and nothing said whether to go pick it in Settings (round
-    # 10) — the smart filter pins it, so say so.
-    # Names the usual cause of an empty grep instead of blaming the restart:
-    # when an LSP or Calf plugin is missing, module-filter-chain fails to
-    # load the whole conf and no node ever appears, so a reader told only
-    # "the restart didn't load it" re-restarts forever. The automated path
-    # already says this (_verify_sinks); the manual one didn't.
-    # "pinned automatically" is true of smart-filter routing only. Under
-    # --target-sink '' the chain is an ordinary output that does nothing until
-    # it is selected, and this sentence promised the opposite.
-    tail = ("once the line is there, pick it as your output in sound settings"
-            if selectable else
-            "once the line is there, it's pinned to your speakers automatically")
-    console.cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
-                  "nothing usually means the LSP or Calf LV2 plugins are "
-                  f"missing, so the whole file failed to load — {tail})")
-    console.cprint("dim", f"  Note: {QUIT_EE_HINT}.")
-    print()
-    _print_undo(written)
-
-
-def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
-    """Poll pw-cli until every expected node shows up — the chain takes a
-    moment to load after the restart. Missing after the timeout usually
-    means a missing LV2 plugin."""
-    if shutil.which("pw-cli") is None:
-        console.cprint("warn", "pw-cli not found — can't verify the sinks loaded; "
-                       "check with: pw-cli ls Node | grep <name>")
-        return 0
-    deadline = time.monotonic() + timeout
-    missing = list(node_names)
-    while missing:
-        try:
-            listing = subprocess.run(["pw-cli", "ls", "Node"],
-                                     capture_output=True, text=True,
-                                     timeout=10).stdout
-        except (subprocess.TimeoutExpired, OSError):
-            listing = ""
-        missing = [n for n in missing if n not in listing]
-        if not missing or time.monotonic() >= deadline:
-            break
-        time.sleep(interval)
-    for name in node_names:
-        if name not in missing:
-            console.cprint("ok", f"Sink loaded: {name}")
-    if missing:
-        for name in missing:
-            console.cprint("err", f"error: sink {name} did not appear after the "
-                          "restart")
-        console.cprint("cta", "Check that the LSP/Calf LV2 plugins are installed "
-                      "(README: Plugin dependencies and validation), then "
-                      f"retry: {PIPEWIRE_RESTART_CMD}")
-        return 1
-    return 0
-
-
-def _activate(node_names: list[str], selectable: bool) -> int:
-    console.cprint("head", "[3/3] Activating: restarting PipeWire")
-    # Not only "otherwise both chains process the audio": the restart itself
-    # stops a running EasyEffects (it doesn't survive its server going away),
-    # so whatever EasyEffects was applying stops here whether or not the
-    # reader acts. Said plainly, because the alternative is discovering it as
-    # "the update broke my audio".
-    console.cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
-                   "audio at once. The restart below stops it for this "
-                   "session either way, so anything it was applying goes "
-                   "with it.")
-    try:
-        proc = subprocess.run(PIPEWIRE_RESTART_CMD.split())
-    except FileNotFoundError:
-        console.cprint("warn", "systemctl not found (not a systemd system?) — "
-                       "restart PipeWire yourself; the systemd equivalent "
-                       f"is: {PIPEWIRE_RESTART_CMD}")
-        return 0
-    if proc.returncode != 0:
-        console.cprint("err", f"error: PipeWire restart failed (rc "
-                      f"{proc.returncode}) — run it manually: "
-                      f"{PIPEWIRE_RESTART_CMD}")
-        return 1
-    rc = _verify_sinks(node_names)
-    if rc == 0:
-        _print_selection_step(node_names, selectable)
-    return rc
-
-
-def _print_selection_step(node_names: list[str], selectable: bool) -> None:
-    """Say what still has to happen for the chain to be in the audio path.
-
-    With smart-filter routing (the default) nothing does — WirePlumber
-    inserts it. With --target-sink '' the chain is an ordinary output that
-    processes nothing until it is selected, and a run that stops at
-    "Sink loaded" leaves the reader believing it is already working.
-    """
-    if not selectable:
-        console.cprint("dim", "     (pinned to your speakers automatically — apps "
-                      "keep playing to the speaker as usual)")
-        return
-    console.cprint("cta", "  Now pick it as your output in sound settings — until "
-                  "you do, it processes nothing:")
-    for name in node_names:
-        console.cprint("cta", f"    {name}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -573,15 +419,15 @@ def main(argv: list[str] | None = None) -> int:
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:
-        _print_manual_activation(node_names, written,
-                                 selectable=args.target_sink == "")
+        install._print_manual_activation(node_names, written,
+                                         selectable=args.target_sink == "")
         rc = 0
     else:
-        rc = _activate(node_names, selectable=args.target_sink == "")
+        rc = install._activate(node_names, selectable=args.target_sink == "")
         # The path where the sound just changed under them, so this is where
         # knowing the way back matters most.
         print()
-        _print_undo(written)
+        install._print_undo(written)
 
     # The generator's closing output, held back from [1/3] so it lands here —
     # last on screen, whichever of the three ways this run ended. Menu before
