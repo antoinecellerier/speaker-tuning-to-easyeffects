@@ -15,6 +15,18 @@ name: Mark confirmed device as tested
 # so even a prompt-injected direct push to master is rejected server-side —
 # the tool allowlist is not the only line of defense.
 #
+# Device naming: the row's name is public branding, derived from the report's
+# DMI `Family`/`Product` rather than the issue title (#53's title carried an
+# inch mark that broke `gh pr create` quoting). But DMI is not the branding —
+# Lenovo's PSREF sells machine type 20W1 as "ThinkPad T14 Gen 2 (Intel)" where
+# DMI says "ThinkPad T14 Gen 2i" — so the DEVICE NAME rules translate one to the
+# other, in the table's bare-suffix style. The map is not 1:1: on newer families
+# (X13 Gen 6, T14 Gen 7) PSREF still splits Intel/AMD but DMI drops the letter,
+# so the run flags those in the PR body for a human instead of guessing. What
+# makes any of this safe is the charset gate under SHELL SAFETY, not the field
+# the name came from: the name is a shell argument either way (it becomes the
+# commit subject and the PR title).
+#
 # NEVER add `gh api`, `gh pr review` or a broad `gh pr` rule to the allowlist
 # below. This workflow reads issue text written by anyone, and the repo now has
 # "Allow GitHub Actions to create and approve pull requests" enabled (needed so
@@ -107,24 +119,57 @@ jobs:
 
             Read it with: gh issue view ${{ github.event.issue.number }} --json title,body
 
-            DEVICE NAME: take it from the `--speaker-info` output in the body —
+            DEVICE NAME: build it from the `--speaker-info` output in the body —
             the System section's `Family` and `Product` lines — not from the
-            free-text issue title. E.g. Family "Yoga 7 16IAH7" + Product "82UF"
-            becomes "Lenovo Yoga 7 16IAH7 (82UF)", matching the existing table
-            rows. Titles are prose and may carry quotes, inch marks or
-            parentheses that break shell quoting further down.
+            free-text issue title, which is prose and may carry quotes or inch
+            marks. The table's names are public branding, which DMI abbreviates,
+            so translate it in three steps:
+
+              1. Start from `Family`. Prefix "Lenovo " on consumer families
+                 (Yoga, IdeaPad, Legion); ThinkPad rows carry no vendor prefix.
+                 That prefix is a convention of the table — no DMI field
+                 supplies it.
+              2. Where a ThinkPad `Family` ends in "Gen <number>i" or
+                 "Gen <number>a", spell the letter out as " Intel" or " AMD" —
+                 that is how Lenovo's DMI abbreviates the CPU vendor there.
+                 Every other family goes in as printed: on consumer lines the
+                 letter rides the series number and is itself the brand ("Yoga
+                 7i", "Yoga Pro 9i"). A ThinkPad family with no trailing letter
+                 names no vendor, so neither do you — instead flag it in the PR
+                 body (below), because Lenovo often does disambiguate such a
+                 family and only its machine type will say which SKU this is.
+              3. Append the first four characters of `Product` in parentheses —
+                 that is the machine type. The rest is a configure-to-order
+                 suffix.
+
+            <examples>
+            <example>Family "ThinkPad T14 Gen 2i" + Product "20W1S7QR00"
+              -> ThinkPad T14 Gen 2 Intel (20W1)</example>
+            <example>Family "ThinkPad T14s Gen 2a" + Product "20XGS14902"
+              -> ThinkPad T14s Gen 2 AMD (20XG)</example>
+            <example>Family "ThinkPad X13 Gen 6" + Product "21RK00A1ID"
+              -> ThinkPad X13 Gen 6 (21RK)   (no vendor letter in DMI, so none
+                 in the name — and flag it in the PR body)</example>
+            <example>Family "Yoga 7 16IAH7" + Product "82UF"
+              -> Lenovo Yoga 7 16IAH7 (82UF)</example>
+            </examples>
 
             SHELL SAFETY: single-quote every argument you pass to `git` and
             `gh`, and use no command substitution, pipes or heredocs in them —
             pass `--body` as one plain single-quoted string. This runs
             unattended: a command the permission layer cannot parse is denied
-            outright and there is nobody to approve it.
+            outright and there is nobody to approve it. The device name reaches
+            `git commit -m` and `gh pr create --title`, so it must hold only
+            letters, digits, spaces and ( ) , . - . If a `Family` or `Product`
+            line carries anything else, stop and report `blocked` quoting the
+            raw line, rather than escaping around it.
 
             First, idempotency check — this label can be applied more than once:
               - If the "Supported devices" table in README.md already lists this
                 device, OR an open pull request already adds it (search a
-                quote-free distinguishing token such as the model code:
-                `gh pr list --state open --search 'in:title 16IAH7'`), then do
+                quote-free distinguishing token — the machine type for a
+                ThinkPad, the model code for a Yoga or IdeaPad:
+                `gh pr list --state open --search 'in:title 20W1'`), then do
                 nothing: do not edit files, do not open a PR. Stop and report
                 outcome `already_covered`, naming the exact row or PR you
                 matched. Match on the model designation, not on a family
@@ -163,6 +208,12 @@ jobs:
 
             In the PR body, include "Closes #${{ github.event.issue.number }}" so
             that merging the PR automatically closes the device-report issue.
+            Also quote the raw `Family` and `Product` lines you derived the name
+            from — that is what a reviewer checks the name against. And if the
+            family is a ThinkPad with no "Gen <number>i"/"a" letter, add: "DMI
+            names no CPU vendor. Lenovo may sell this family as both Intel and
+            AMD — check PSREF for machine type <the four characters> and add
+            ' Intel'/' AMD' before merging if it does."
 
             Finally — always, including when you stopped early — report what
             happened as structured output:
