@@ -3301,6 +3301,23 @@ into the docstring, where it is exempt. What it buys: the PipeWire doctor no
 longer pulls numpy and scipy to print a hardware dump, which was the reason the
 import was deferred in the first place.
 
+Read that the other way round, because it is the lesson with a future in it:
+hoisting the import is a **behaviour change** — the import now happens on every
+converter run rather than on `--doctor` alone, and a `try` that degraded to
+"(hardware report unavailable)" is gone in favour of letting an `ImportError`
+on a `lib` sibling be the bug it is — and it passed `check_move_purity.py` as
+*pure*, because the shape it changed into is an exempt one. The exemption for a
+top-level import block exists so a freshly extracted module can import what it
+needs; in an existing `lib/` module it will also launder an edit that has
+nothing to do with the move. So **exit 0 certifies the shape of a commit, not
+its innocence**, and it certifies nothing at all about files that were already
+under `lib/` before it ran. The change here is disclosed in the commit body and
+measured — converter startup 0.07–0.08 s before, 0.07–0.10 s after, numpy and
+scipy still absent from a converter run's 214 modules — but nothing in the
+tooling required that of it, and the honest alternative was the shape slice ①
+took: leave the edit where it reads best and let the checker report the
+impurity.
+
 `lib/report/speaker.py` is stdlib-only in the sense the converter's startup
 cares about and still cannot join `tests/test_layout.py`'s `STDLIB_ONLY`: it
 prints, so it reaches `lib/console.py` and the optional `rich` that list's
