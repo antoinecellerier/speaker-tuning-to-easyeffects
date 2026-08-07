@@ -87,7 +87,6 @@ def _wrap_width() -> int:
 
 try:
     from rich.console import Console
-    from rich.text import Text as _Text
     from rich.theme import Theme
     _CONSOLE = Console(
         theme=Theme({
@@ -104,7 +103,6 @@ try:
     )
 except ImportError:
     _CONSOLE = None
-    _Text = None
 
 try:
     from rich_argparse import RichHelpFormatter as _HelpFormatter
@@ -121,13 +119,13 @@ if _HelpFormatter is argparse.HelpFormatter:
 def cprint(style: str, text: str = "") -> None:
     """Print `text` in the given semantic style, or plain if rich is absent.
 
-    ``soft_wrap=True`` keeps the text exactly as written, mirroring
-    ee_to_pipewire.py. Without it rich reflows at the console width and folds
-    anything longer — which silently broke the report-back URL (103 chars) mid
-    string on any 80-column terminal, leaving the tool's main call to action
-    unclickable and uncopyable. It also made output depend on whether rich was
-    installed at all, since the fallback above never wraps. Prose that needs
-    wrapping asks for it explicitly via _cprint_wrapped.
+    ``soft_wrap=True`` keeps the text exactly as written. Without it rich
+    reflows at the console width and folds anything longer — which silently
+    broke the report-back URL (103 chars) mid string on any 80-column terminal,
+    leaving the tool's main call to action unclickable and uncopyable. It also
+    made output depend on whether rich was installed at all, since the fallback
+    above never wraps. Prose that needs wrapping asks for it explicitly via
+    _cprint_wrapped.
     """
     if _CONSOLE is None:
         print(text)
@@ -4881,7 +4879,11 @@ def _print_ask(style: str, finding: Finding) -> None:
                           subsequent_indent="    ", break_on_hyphens=False)
     for line in lines:
         if _CONSOLE is not None and line.endswith(tag):
-            span = _Text()
+            # Imported here, not beside the console: this is rich's only
+            # caller outside cprint, and a live console already proves the
+            # import succeeds. Nothing else needs the two-style path.
+            from rich.text import Text
+            span = Text()
             span.append(line[:-len(tag)], style=style)
             span.append(tag, style="dim")
             _CONSOLE.print(span, soft_wrap=True)

@@ -318,9 +318,9 @@ def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
         raise FileNotFoundError(cmd[0])
     monkeypatch.setattr(dolby_to_pipewire.subprocess, "run", raise_missing)
     assert wrapper_main([]) == 0
-    err = capsys.readouterr().err
-    assert "systemctl not found" in err
-    assert "systemctl --user restart pipewire pipewire-pulse" in err
+    out = capsys.readouterr().out
+    assert "systemctl not found" in out
+    assert "systemctl --user restart pipewire pipewire-pulse" in out
 
 
 def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
@@ -328,7 +328,7 @@ def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
         dolby_to_pipewire.subprocess, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout=""))
     assert wrapper_main([]) == 1
-    assert "restart failed" in capsys.readouterr().err
+    assert "restart failed" in capsys.readouterr().out
 
 
 def test_routing_missing_sink_after_restart_is_an_error(recorders,
@@ -340,9 +340,9 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
         lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
     monkeypatch.setattr(dolby_to_pipewire.time, "sleep", lambda s: None)
     assert wrapper_main([]) == 1
-    err = capsys.readouterr().err
-    assert "did not appear" in err
-    assert "Plugin dependencies" in err
+    out = capsys.readouterr().out
+    assert "did not appear" in out
+    assert "Plugin dependencies" in out
 
 
 def test_routing_step2_failure_fails_fast(recorders, monkeypatch):
@@ -381,7 +381,7 @@ def test_routing_no_matching_preset_errors(recorders, monkeypatch, capsys):
                         lambda argv, closing=None, troubleshooting=None, resolved=None,
                                staged=False: 0)
     assert wrapper_main(["--no-activate"]) == 1
-    assert "no Balanced preset was generated" in capsys.readouterr().err
+    assert "no Balanced preset was generated" in capsys.readouterr().out
     assert recorders.step2 == []
 
 
@@ -441,7 +441,7 @@ def test_e2e_closing_names_the_xml_to_attach(tmp_path):
                                    env={"DEMO_FIRMWARE_GATE": "off"})
     assert result.returncode == 0, result.stderr
     xml = tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml"
-    assert f"'{xml.resolve()}'" in result.stderr
+    assert f"'{xml.resolve()}'" in result.stdout
 
 
 def test_e2e_variant_all_writes_three_pairs(tmp_path):
@@ -482,12 +482,13 @@ def test_e2e_dry_run_writes_nothing_outside_staging(tmp_path):
     assert list(home.iterdir()) == []
     assert ee_to_pipewire.CONF_HEADER_MARK not in result.stdout
     assert ee_to_pipewire.CONF_HEADER_MARK not in result.stderr
-    # Stream-agnostic: what matters is the report reaches the user, not
-    # which of the two streams carries it.
-    both = result.stdout + result.stderr
-    assert "ieq-amount" in both
+    # All three scripts print through a console on stdout, so a run is one
+    # redirectable stream: everything the user reads is on stdout and stderr
+    # carries nothing.
+    assert "ieq-amount" in result.stdout
     # ...including the closing block we print on the generator's behalf.
-    assert dolby_to_easyeffects._REPORT_FORM_URL in both
+    assert dolby_to_easyeffects._REPORT_FORM_URL in result.stdout
+    assert result.stderr == ""
 
 
 def test_e2e_next_steps_checklist_is_consolidated(tmp_path):
@@ -496,8 +497,8 @@ def test_e2e_next_steps_checklist_is_consolidated(tmp_path):
     steps appear exactly once."""
     result, _home, _out = _run_e2e(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert result.stderr.count("Restart PipeWire:") == 1
-    assert "Next steps:" not in result.stderr
+    assert result.stdout.count("Restart PipeWire:") == 1
+    assert "Next steps:" not in result.stdout
 
 
 def test_e2e_no_activate_says_how_to_undo(tmp_path):
@@ -506,15 +507,15 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     PipeWire won't come up."""
     result, _home, out = _run_e2e(tmp_path)
     assert result.returncode == 0, result.stderr
-    err = result.stderr
-    assert "To undo: rm" in err
+    report = result.stdout
+    assert "To undo: rm" in report
     # It must name the file it actually wrote, not a generic path.
-    assert str(out) in err
+    assert str(out) in report
     # ...and the .irs copied beside the conf — undo used to strand one
     # stray file per variant (round-3 review).
-    undo_line = next(ln for ln in err.splitlines() if "To undo: rm" in ln)
+    undo_line = next(ln for ln in report.splitlines() if "To undo: rm" in ln)
     assert ".irs'" in undo_line
-    assert err.index("To undo: rm") > err.index("Restart PipeWire:")
+    assert report.index("To undo: rm") > report.index("Restart PipeWire:")
 
 
 def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
@@ -523,10 +524,12 @@ def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
     prints it after [3/3] instead — exactly once, and last."""
     result, _home, _out = _run_e2e(tmp_path)
     assert result.returncode == 0, result.stderr
-    err = result.stderr
+    # One stream for both scripts, so "after [3/3]" is an ordering guarantee
+    # and not a coincidence of two streams sharing a terminal.
+    report = result.stdout
     url = dolby_to_easyeffects._REPORT_FORM_URL
-    assert err.count(url) == 1
-    assert err.index(url) > err.index("[3/3]")
+    assert report.count(url) == 1
+    assert report.index(url) > report.index("[3/3]")
 
 
 # --- What still has to happen for the chain to be heard ---------------------
@@ -538,16 +541,16 @@ def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
 
 def test_smart_filter_run_claims_automatic_pinning(recorders, capsys):
     assert wrapper_main(["--no-activate"]) == 0
-    err = capsys.readouterr().err
-    assert "pinned to your speakers automatically" in err
-    assert "pick it as your output" not in err
+    out = capsys.readouterr().out
+    assert "pinned to your speakers automatically" in out
+    assert "pick it as your output" not in out
 
 
 def test_virtual_sink_run_says_to_select_it(recorders, capsys):
     assert wrapper_main(["--target-sink", "", "--no-activate"]) == 0
-    err = capsys.readouterr().err
-    assert "pick it as your output" in err
-    assert "pinned to your speakers automatically" not in err, \
+    out = capsys.readouterr().out
+    assert "pick it as your output" in out
+    assert "pinned to your speakers automatically" not in out, \
         "nothing pins a v1 virtual sink — it is inert until selected"
 
 
@@ -555,12 +558,12 @@ def test_activation_says_the_restart_stops_easyeffects(recorders, capsys):
     """The restart takes a running EasyEffects down with it, so whatever it
     was applying stops here whether or not the reader acts on the advice."""
     assert wrapper_main([]) == 0
-    err = capsys.readouterr().err
-    assert "stops it for this session" in err
+    out = capsys.readouterr().out
+    assert "stops it for this session" in out
 
 
 def test_activated_virtual_sink_run_names_the_sink_to_pick(recorders, capsys):
     assert wrapper_main(["--target-sink", ""]) == 0
-    err = capsys.readouterr().err
-    assert "pick it as your output" in err
-    assert "Dolby_Balanced" in err
+    out = capsys.readouterr().out
+    assert "pick it as your output" in out
+    assert "Dolby_Balanced" in out

@@ -3117,6 +3117,32 @@ whose output that test asserts on; the two tests that are *about* the console
 still patch it themselves. The console slice then has one patch shape to update
 rather than 35 lines to find.
 
+One further prep commit belongs to that slice alone, and it is a *behaviour*
+change rather than a guard. The converter's console targeted **stderr** where
+the generator's targeted stdout — a leftover from when `ee_to_pipewire.py`
+wrote the generated conf to stdout and its messages had to keep clear of it.
+`2c3fb30` removed that dump, leaving no machine-readable stdout anywhere in the
+repo, so the split protected nothing while costing two mechanisms that existed
+only to undo it: `_report_on_stdout()`, which swapped the console (and a
+`_PLAIN_TO_STDOUT` flag for the no-rich path) around the diagnostic report so
+`--doctor > report.txt` wouldn't write an empty file, and an unconditional
+`contextlib.redirect_stdout(sys.stderr)` in `dolby_to_pipewire.py` so the
+generator's closing block would land in the stream its phase banners were on.
+Putting the converter's console on stdout deletes both, and makes a run of
+either PipeWire script one redirectable stream. Doing it *before* the move is
+the point: `tools/check_move_purity.py` cannot tell a behaviour change from a
+motion, so every remaining difference between the two consoles — the stream,
+a missing `width=_wrap_width()` cap, an inlined versus named theme dict, a
+`_make_console` helper with a parameter nothing passed any more — was resolved
+in a commit honestly labelled as the change it is, leaving the move nothing to
+carry but identical lines. Two of those resolved without touching rendering,
+and both were checked rather than assumed: the width cap is inert under
+`soft_wrap=True` (rich neither wraps nor pads, so a real run is byte-identical
+at 60, 100 and 200 columns, ANSI included), and `rich.text.Text` — the
+generator's only rich use outside `cprint` — moved down to `print_ask` rather
+than into the shared console, so what gets extracted is what both scripts
+actually share.
+
 Then each slice is one commit of pure code motion, and each carries its measured
 test cost. A rules demotion lands *after* the slice that creates its scope
 target, one per slice, so a rule never points at a path that doesn't exist yet.

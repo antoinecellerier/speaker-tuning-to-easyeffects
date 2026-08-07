@@ -1182,8 +1182,8 @@ def test_main_validate_runs_on_dry_run(generated, tmp_path, monkeypatch,
     captured = capsys.readouterr()
     # No "[validate]" lines mean validation ran cleanly (only setup
     # skips emit them).
-    assert "[validate] skipped" not in captured.err
-    assert "schema validation failed" not in captured.err
+    assert "[validate] skipped" not in captured.out
+    assert "schema validation failed" not in captured.out
 
 
 def test_main_no_validate_skips_check(generated, tmp_path, capsys):
@@ -1227,9 +1227,9 @@ def test_main_surfaces_validate_warnings_on_pass(generated, tmp_path,
         "--dry-run",
     ])
     assert rc == 0
-    err = capsys.readouterr().err
-    assert "[validate]" in err
-    assert "no lv2info schema available" in err
+    out = capsys.readouterr().out
+    assert "[validate]" in out
+    assert "no lv2info schema available" in out
 
 
 def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
@@ -1254,10 +1254,10 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
         "--dry-run",
     ])
     assert rc == 0
-    err = capsys.readouterr().err
-    assert "[validate] skipped" in err
-    assert "lsp-plugins-lv2" in err
-    assert "calf-plugins" in err
+    out = capsys.readouterr().out
+    assert "[validate] skipped" in out
+    assert "lsp-plugins-lv2" in out
+    assert "calf-plugins" in out
 
 
 # ---------------------------------------------------------------------------
@@ -1266,8 +1266,13 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
 
 def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
     """With the console disabled (rich absent or --no-color), cprint must
-    still emit the text plainly on stderr — color is decoration, never a
-    gate on the message getting through.
+    still emit the text plainly — color is decoration, never a gate on the
+    message getting through — and on the same stream the console uses.
+
+    That stream is stdout, as in dolby_to_easyeffects.py: one console, one
+    stream, so a run can be redirected to a file or a pager whole. Both halves
+    matter, hence the empty-stderr assertion: a fallback that quietly diverged
+    would only show up when someone piped a run.
 
     Patches `_CONSOLE` by hand rather than taking the `silence_console`
     fixture: the None state is this test's subject, and the fixture's whole
@@ -1277,8 +1282,8 @@ def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
     monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", None)
     ee_to_pipewire.cprint("err", "diagnostic-xyz")
     captured = capsys.readouterr()
-    assert "diagnostic-xyz" in captured.err
-    assert captured.out == ""  # diagnostics never touch stdout
+    assert "diagnostic-xyz" in captured.out
+    assert captured.err == ""
 
 
 def test_main_no_color_disables_console(generated, tmp_path, monkeypatch):
@@ -1440,8 +1445,8 @@ def test_main_dry_run_retargets_without_copying(generated, tmp_path,
     assert not target_irs.exists()
     # The retarget ran: the announced .irs destination is the one beside the
     # conf, not the EE-side source.
-    err = capsys.readouterr().err
-    assert f"Would copy impulse response (.irs): {target_irs}" in err
+    out = capsys.readouterr().out
+    assert f"Would copy impulse response (.irs): {target_irs}" in out
     # ...and the real run puts the IRS exactly where the dry run said, with
     # the conf pointing at that copy rather than the EE path.
     assert ee2pw_main(argv) == 0
@@ -1470,9 +1475,9 @@ def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     target_irs = out_path.parent / "TestChain.irs"
-    assert f"Would write conf: {out_path}" in captured.err
-    assert "Would copy impulse response (.irs):" in captured.err
-    assert str(target_irs) in captured.err
+    assert f"Would write conf: {out_path}" in captured.out
+    assert "Would copy impulse response (.irs):" in captured.out
+    assert str(target_irs) in captured.out
     for stream in (captured.out, captured.err):
         assert CONF_HEADER_MARK not in stream
         assert "filter.graph" not in stream
@@ -1484,12 +1489,12 @@ def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
     Next steps block — the post-[next] presentation."""
     rc, out_path, _src_irs = _run_main(generated, tmp_path)
     assert rc == 0
-    err = capsys.readouterr().err
-    assert f"Wrote conf: {out_path}" in err
-    assert "Copied impulse response (.irs):" in err
-    assert "Next steps:" in err
-    assert "systemctl --user restart pipewire pipewire-pulse" in err
-    assert "[next]" not in err  # old per-line tag is gone
+    out = capsys.readouterr().out
+    assert f"Wrote conf: {out_path}" in out
+    assert "Copied impulse response (.irs):" in out
+    assert "Next steps:" in out
+    assert "systemctl --user restart pipewire pipewire-pulse" in out
+    assert "[next]" not in out  # old per-line tag is gone
 
 
 def test_main_skip_next_steps_suppresses_checklist(generated, tmp_path,
@@ -1502,11 +1507,11 @@ def test_main_skip_next_steps_suppresses_checklist(generated, tmp_path,
     rc, out_path, _src_irs = _run_main(generated, tmp_path,
                                        "--skip-next-steps")
     assert rc == 0
-    err = capsys.readouterr().err
-    assert f"Wrote conf: {out_path}" in err
-    assert "Next steps:" not in err
+    out = capsys.readouterr().out
+    assert f"Wrote conf: {out_path}" in out
+    assert "Next steps:" not in out
     assert ("To activate: systemctl --user restart pipewire pipewire-pulse"
-            in err)
+            in out)
 
 
 def test_main_existing_target_irs_without_force_errors(generated,
@@ -1553,8 +1558,8 @@ def test_main_target_irs_exists_blocks_without_force(generated, tmp_path,
     rc2, _, _ = _run_main(generated, tmp_path)
     assert rc2 == 1
     captured = capsys.readouterr()
-    assert "TestChain.irs" in captured.err
-    assert "--force" in captured.err
+    assert "TestChain.irs" in captured.out
+    assert "--force" in captured.out
 
 
 # ---------------------------------------------------------------------------

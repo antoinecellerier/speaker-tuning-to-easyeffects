@@ -25,7 +25,6 @@ preset to 4 decimals (dB → linear conversions are explicit).
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import math
 import re
@@ -47,56 +46,51 @@ from lib.doctor import (
 from lib.ee_paths import easyeffects_base
 from lib.paths import REPO_ROOT
 
-# Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
-# setup). The console targets stderr, and resolves the current sys.stderr
-# lazily so capsys can capture it in tests.
-# Which stream the no-rich path writes to, as a flag rather than a stream
-# object: sys.stderr has to stay resolved at call time so capsys can capture
-# it. Swapped alongside the console by _report_on_stdout.
-_PLAIN_TO_STDOUT = False
+# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, this
+# module stays stdlib-only and behaves exactly as before.
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
-_THEME_STYLES = {
-    "err":  "bold red",
-    "head": "bold cyan",
-    "ok":   "green",
-    "warn": "yellow",
-    "cta":  "bold magenta",
-    "dim":  "dim",
-}
+
+# Colored terminal output (optional rich). Built exactly as
+# dolby_to_easyeffects.py builds it, down to the width: a run of either script
+# is one report, on one stream, and the pair have to read as one tool.
+
+# Prose wraps to the terminal, within bounds. Below the floor, a hanging
+# indent eats the line and hyphenated XML element names get unreadable; above
+# the cap, a paragraph stretches into one long unscannable line — measure, not
+# window width, is what makes prose readable. Everything here is hand-wrapped
+# rather than reflowed by rich (see cprint), so this is the number that
+# matters.
+_WRAP_CAP = 120
+_WRAP_FLOOR = 60
+
+
+def _wrap_width() -> int:
+    return max(_WRAP_FLOOR,
+               min(_WRAP_CAP, shutil.get_terminal_size((80, 24)).columns))
+
+
 try:
     from rich.console import Console
     from rich.theme import Theme
-
-    def _make_console(stderr: bool):
-        return Console(stderr=stderr, theme=Theme(_THEME_STYLES),
-                       markup=False, highlight=False)
-
-    _CONSOLE = _make_console(stderr=True)
+    _CONSOLE = Console(
+        theme=Theme({
+            "err":  "bold red",
+            "head": "bold cyan",
+            "ok":   "green",
+            "warn": "yellow",
+            "cta":  "bold magenta",
+            "dim":  "dim",
+        }),
+        markup=False,
+        highlight=False,
+        width=_wrap_width(),
+    )
 except ImportError:
     _CONSOLE = None
-
-    def _make_console(stderr: bool):
-        return None
-
-
-@contextlib.contextmanager
-def _report_on_stdout():
-    """Put everything this block prints on stdout, for the duration.
-
-    The console targets stderr, but a diagnostic report is meant to be
-    redirected to a file or pasted into an issue — on stderr,
-    `--doctor > report.txt` would write an empty file. So the two streams
-    swap while it runs.
-    """
-    global _CONSOLE, _PLAIN_TO_STDOUT
-    previous, previous_plain = _CONSOLE, _PLAIN_TO_STDOUT
-    if previous is not None:
-        _CONSOLE = _make_console(stderr=False)
-    _PLAIN_TO_STDOUT = True
-    try:
-        yield
-    finally:
-        _CONSOLE, _PLAIN_TO_STDOUT = previous, previous_plain
 
 try:
     from rich_argparse import RichHelpFormatter as _HelpFormatter
@@ -109,21 +103,20 @@ if _CONSOLE is None:
 if _HelpFormatter is argparse.HelpFormatter:
     _MISSING_COLOR_DEPS.append("rich-argparse")
 
-# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, this
-# module stays stdlib-only and behaves exactly as before.
-try:
-    import argcomplete
-except ImportError:
-    argcomplete = None
-
 
 def cprint(style: str, text: str = "") -> None:
-    """Print `text` to stderr in the given semantic style, or plain if rich is
-    absent. ``soft_wrap=True`` keeps the text exactly as written (no 80-col
-    reflow) so commands/paths stay on one line and substring-asserting tests
-    hold."""
+    """Print `text` in the given semantic style, or plain if rich is absent.
+
+    ``soft_wrap=True`` keeps the text exactly as written. Without it rich
+    reflows at the console width and folds anything longer — which silently
+    broke the report-back URL (103 chars) mid string on any 80-column terminal,
+    leaving the tool's main call to action unclickable and uncopyable. It also
+    made output depend on whether rich was installed at all, since the fallback
+    above never wraps. Prose that needs wrapping asks for it explicitly via
+    _cprint_wrapped.
+    """
     if _CONSOLE is None:
-        print(text, file=sys.stdout if _PLAIN_TO_STDOUT else sys.stderr)
+        print(text)
         return
     _CONSOLE.print(text, style=style, soft_wrap=True)
 
@@ -1123,7 +1116,7 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     except Exception as e:  # pragma: no cover — defensive
         return None, [f"could not import speaker probe: {e}"]
 
-    # Terse, description-less form of the shared diagnostic (stderr warnings).
+    # Terse, description-less form of the shared diagnostic (console warnings).
     def _diag(sink: dict) -> str:
         return _sink_diag_line(sink, with_description=False)
 
@@ -1727,12 +1720,12 @@ def _tilde(path) -> str:
 
 
 def report_pw_doctor() -> int:
-    """Print the PipeWire-side diagnostic report. Returns a process exit code."""
-    with _report_on_stdout():
-        return _report_pw_doctor()
+    """Print the PipeWire-side diagnostic report. Returns a process exit code.
 
-
-def _report_pw_doctor() -> int:
+    Every line lands on stdout, console-styled or not, so
+    `--doctor > report.txt` captures the whole report — which is the point of
+    a block written to be redirected to a file or pasted into an issue.
+    """
     checks, confs, chains, facts = gather_pw_doctor()
 
     # The project name, not this module's: dolby_to_pipewire.py --doctor runs

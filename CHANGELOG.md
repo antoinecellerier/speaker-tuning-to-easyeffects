@@ -198,6 +198,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   the conf and impulse response would be written, and nothing else. To get a
   conf without installing it, pass `ee_to_pipewire.py --output PATH` (or
   `dolby_to_pipewire.py --output-dir DIR --no-activate`).
+- `ee_to_pipewire.py` and `dolby_to_pipewire.py` now print everything you read
+  on stdout instead of stderr, matching `dolby_to_easyeffects.py`: a run pipes
+  into a file or a pager whole, and `2>/dev/null` no longer hides it.
 - `--doctor` now prints the fix commands it used to point at: the speaker-pin
   `hda_model=` procedure, which asked you to re-run without `--doctor`, and the
   smart-amp firmware-gate `amixer` line, which sent you to a section further

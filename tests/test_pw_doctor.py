@@ -271,12 +271,17 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     silence_console(e)
 
     assert e.report_pw_doctor() == 0
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    out = captured.out
     assert "Stacked filter chains" in out
     assert "No blocking problems detected." not in out
     assert "systemctl --user restart pipewire" in out
     # The paste block is the point of running this before filing an issue.
     assert "paste this into your issue" in out
+    # ...and `--doctor > report.txt` has to capture all of it. The console and
+    # the bare prints here both target stdout, so the report arrives whole with
+    # no mechanism holding the two together.
+    assert captured.err == ""
 
 
 def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
@@ -362,9 +367,9 @@ def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
     _write_conf(second, node="Dolby_Warm")
 
     e.warn_if_stacked(second, SPEAKER)
-    err = capsys.readouterr().err
-    assert "Dolby_Balanced.conf" in err
-    assert "one after another" in err
+    out = capsys.readouterr().out
+    assert "Dolby_Balanced.conf" in out
+    assert "one after another" in out
 
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
@@ -375,14 +380,14 @@ def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
     only = tmp_path / "Dolby_Balanced.conf"
     _write_conf(only)
     e.warn_if_stacked(only, SPEAKER)
-    assert capsys.readouterr().err == "", "a lone chain stacks with nothing"
+    assert capsys.readouterr().out == "", "a lone chain stacks with nothing"
 
     # --target-sink '' emits no smart filter, so several never chain — that is
     # the whole reason --variant all requires it.
     other = tmp_path / "Dolby_Warm.conf"
     _write_conf(other, node="Dolby_Warm")
     e.warn_if_stacked(other, None)
-    assert capsys.readouterr().err == ""
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
@@ -394,7 +399,7 @@ def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,
     second = tmp_path / "Dolby_Warm.conf"
     _write_conf(second, node="Dolby_Warm")
     e.warn_if_stacked(second, SPEAKER)
-    assert capsys.readouterr().err == ""
+    assert capsys.readouterr().out == ""
 
 
 def test_emit_check_wraps_prose_and_leaves_steps_alone(capsys):

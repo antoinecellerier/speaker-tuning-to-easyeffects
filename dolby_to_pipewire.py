@@ -12,7 +12,6 @@ See docs/ee-to-pipewire.md.
 """
 
 import argparse
-import contextlib
 import shlex
 import shutil
 import subprocess
@@ -601,21 +600,19 @@ def main(argv: list[str] | None = None) -> int:
     # failure paths above: they return early, and an ask is the wrong thing to
     # close on when nothing was installed.
     #
-    # Always onto stderr, not just under --dry-run: this is the wrapper's
-    # closing output now, and the phase banners it has to follow are on
-    # stderr. Same stream is what makes "after [3/3]" true rather than a
-    # coincidence of the two being the same terminal.
-    with contextlib.redirect_stdout(sys.stderr):
-        if troubleshooting:
-            dolby_to_easyeffects.print_troubleshooting(
-                troubleshooting["findings"],
-                troubleshooting["filters_by_profile"],
-                installs_presets=False,
-                enabled_by_flag=troubleshooting["enabled_by_flag"],
-                dry_run=args.dry_run)
-        dolby_to_easyeffects.print_project_asks(
-            closing, dry_run=args.dry_run, pipewire_native=True,
-            xml_path=resolved.get("xml_path"))
+    # Both scripts print through a console on stdout, so "after [3/3]" is an
+    # ordering guarantee rather than a coincidence of two streams happening to
+    # share a terminal.
+    if troubleshooting:
+        dolby_to_easyeffects.print_troubleshooting(
+            troubleshooting["findings"],
+            troubleshooting["filters_by_profile"],
+            installs_presets=False,
+            enabled_by_flag=troubleshooting["enabled_by_flag"],
+            dry_run=args.dry_run)
+    dolby_to_easyeffects.print_project_asks(
+        closing, dry_run=args.dry_run, pipewire_native=True,
+        xml_path=resolved.get("xml_path"))
     return rc
 
 
