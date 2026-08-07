@@ -27,6 +27,8 @@ import ee_to_pipewire
 from lib import version
 from dolby_to_pipewire import main as wrapper_main
 from tests.conftest import write_synthetic_tuning_xml
+from lib.report import findings as report_findings
+from lib.report import messages
 
 SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_pipewire.py"
 
@@ -121,9 +123,9 @@ def test_shared_choices_cannot_drift():
     by_dest = {a.dest: a for g in wrapper_parser._action_groups
                for a in g._group_actions}
     assert list(by_dest["disable"].choices) == \
-        list(dolby_to_easyeffects.DISABLEABLE_FILTERS)
+        list(messages.DISABLEABLE_FILTERS)
     assert list(by_dest["enable"].choices) == \
-        list(dolby_to_easyeffects.ENABLEABLE_FILTERS)
+        list(messages.ENABLEABLE_FILTERS)
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +489,7 @@ def test_e2e_dry_run_writes_nothing_outside_staging(tmp_path):
     # carries nothing.
     assert "ieq-amount" in result.stdout
     # ...including the closing block we print on the generator's behalf.
-    assert dolby_to_easyeffects._REPORT_FORM_URL in result.stdout
+    assert report_findings._REPORT_FORM_URL in result.stdout
     assert result.stderr == ""
 
 
@@ -527,7 +529,7 @@ def test_e2e_report_cta_is_printed_once_and_last(tmp_path):
     # One stream for both scripts, so "after [3/3]" is an ordering guarantee
     # and not a coincidence of two streams sharing a terminal.
     report = result.stdout
-    url = dolby_to_easyeffects._REPORT_FORM_URL
+    url = report_findings._REPORT_FORM_URL
     assert report.count(url) == 1
     assert report.index(url) > report.index("[3/3]")
 

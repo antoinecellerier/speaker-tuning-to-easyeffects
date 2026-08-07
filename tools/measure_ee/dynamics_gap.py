@@ -34,6 +34,8 @@ sys.path.insert(0, str(ROOT))
 import dolby_to_easyeffects as d  # noqa: E402
 from lib.dax import parse  # noqa: E402
 from lib.preset import fir  # noqa: E402
+from lib.preset import bands
+from lib.preset import plugins
 
 SR = 48000
 # Defaults point into the untracked localresearch tree, where the capture
@@ -174,11 +176,11 @@ def ee_chain_mag_db(tuning, freqs_probe):
     fir_mag = 20 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
     # PEQ (left channel) — read the builder output so the -peak_boost
     # output-gain is included exactly as emitted.
-    peq = d.make_peq_eq([pf for pf in tuning.peq_filters if pf["speaker"] == 0])
+    peq = bands.make_peq_eq([pf for pf in tuning.peq_filters if pf["speaker"] == 0])
     peq_out_gain = peq["output-gain"] if peq else 0.0
     peq_bands = list(peq["left"].values()) if peq else []
     # dialog enhancer (HDA path) — broad +gain @ 2.5 kHz
-    de = d.make_dialog_enhancer(tuning.dialog_enhancer, is_soundwire=False)
+    de = plugins.make_dialog_enhancer(tuning.dialog_enhancer, is_soundwire=False)
     de_bands = list(de["left"].values()) if de else []
     out = {}
     for fr in freqs_probe:
@@ -252,7 +254,7 @@ def analyse():
     tuning = parse.parse_xml(XML, profile_type="dynamic")
 
     # ---- decoded chain numbers ----
-    decoded = d.decode_mbc_bands(tuning.mb_comp)
+    decoded = plugins.decode_mbc_bands(tuning.mb_comp)
     print("\n" + "=" * 72)
     print("DECODED EE DYNAMICS (from dev XML, profile=dynamic)")
     print("=" * 72)

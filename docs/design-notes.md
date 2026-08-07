@@ -3029,6 +3029,47 @@ optional presentation dependency is contained there rather than spread across
 whatever else gets extracted, which is why it is absent from
 `tests/test_layout.py`'s `STDLIB_ONLY` list while still bound by the DSP rule.
 
+Slice 5 landed the `report/` and `preset/` halves of that tree with two
+deviations from it, both forced rather than chosen.
+
+**The `--disable`/`--enable`/experimental menus went to `report/messages.py`,
+not `preset/plugins.py`.** They are read twice: by `print_troubleshooting`,
+and by `add_filter_tweak_args` while argparse builds `choices` — which happens
+on the completion path, where `_load_dsp` has deliberately not run. And
+`plugins.py` reaches numpy (`decode_mbc_time_constant` wants `fir.SAMPLE_RATE`
+for the block rate), so a generator that imported it at the top to read a
+symptom string would put 0.4 s on every TAB press and fail
+`tests/test_completions.py::test_completion_path_skips_the_dsp_import`. The
+tables are copy anyway, in the same register as the block that prints them, so
+the home the constraint picked is the one the content wanted. `plugins.py` and
+`build.py` are consequently bound in `_load_dsp` beside `fir`; `bands.py` and
+`autoload.py` are stdlib-only and imported at the top like everything else.
+
+**`--doctor` split along its own comment line rather than at the section
+boundary.** The banner over that block already said it: *"the pure helpers
+below take plain inputs so they're unit-tested without touching the system;
+the `_probe_`/`_gather_` wrappers do the I/O."* The pure half — every
+`*_status` verdict and the shared message builders, which is where the copy
+is — is what moved to `report/environment.py`. The I/O half stayed, because
+each piece of it reads something that has not moved yet: `_probe_ee_version`
+and `warn_ee_environment` want the `_USE_FLATPAK` / `DEFAULT_*` install-path
+constants, `_gather_doctor_report` wants `_gather_speaker_info`,
+`_print_doctor_report` wants `_print_speaker_info`, and `speaker_pin_status`
+wants the pin-fix step builders — all of them generator residents that the
+hardware slice left behind. Carrying them anyway would have meant re-pointing
+calls inside a moved body, which is exactly what `-C` cannot follow. They come
+free once `_gather_speaker_info` / `_print_speaker_info` reach `lib/` and the
+EE install paths resolve through `lib/ee_paths.py`.
+
+The dividend of that second choice is measurable: the suite's
+`monkeypatch.setattr` inventory is **byte-identical before and after the
+slice**. Not one patch target moved, because every patched symbol
+(`_probe_ee_version`, `warn_ee_environment`, `_print_speaker_info`, and the
+`subprocess`/`shutil` module objects the probes reach through) is on the I/O
+side that stayed. What did change is which module the tests *import* the moved
+names from, which no `test_no_test_patches_a_re_exported_name` failure can
+hide behind.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

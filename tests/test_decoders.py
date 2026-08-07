@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import dolby_to_easyeffects
-from dolby_to_easyeffects import (
+from lib.preset.plugins import (
     decode_mbc_time_constant,
     make_multiband_compressor,
 )

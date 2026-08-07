@@ -29,6 +29,8 @@ import ee_to_pipewire
 from lib import console, version
 from dolby_to_easyeffects import _HelpHintParser
 from ee_to_pipewire import DEFAULT_NODE_NAME, _sanitize_name
+from lib.report import findings as report_findings
+from lib.report import messages
 
 
 # The Balanced/Detailed/Warm stems _emit_ieq_presets emits, keyed by the
@@ -592,13 +594,13 @@ def main(argv: list[str] | None = None) -> int:
     # ordering guarantee rather than a coincidence of two streams happening to
     # share a terminal.
     if troubleshooting:
-        dolby_to_easyeffects.print_troubleshooting(
+        messages.print_troubleshooting(
             troubleshooting["findings"],
             troubleshooting["filters_by_profile"],
             installs_presets=False,
             enabled_by_flag=troubleshooting["enabled_by_flag"],
             dry_run=args.dry_run)
-    dolby_to_easyeffects.print_project_asks(
+    report_findings.print_project_asks(
         closing, dry_run=args.dry_run, pipewire_native=True,
         xml_path=resolved.get("xml_path"))
     return rc

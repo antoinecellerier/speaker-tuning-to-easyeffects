@@ -23,6 +23,7 @@ import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
 from lib.hardware import sinks
+from lib.report import messages
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = (
@@ -194,12 +195,12 @@ def test_disable_completes_exactly_the_disableable_filters():
     """The value list a user tabs through is read off the parser, so it cannot
     drift from DISABLEABLE_FILTERS. This asserts that wiring end to end."""
     got = _complete(SCRIPTS[0], "dolby_to_easyeffects.py --disable ")
-    assert got == list(dolby_to_easyeffects.DISABLEABLE_FILTERS)
+    assert got == list(messages.DISABLEABLE_FILTERS)
 
 
 def test_enable_completes_exactly_the_enableable_filters():
     got = _complete(SCRIPTS[0], "dolby_to_easyeffects.py --enable ")
-    assert got == list(dolby_to_easyeffects.ENABLEABLE_FILTERS)
+    assert got == list(messages.ENABLEABLE_FILTERS)
 
 
 def test_variant_completes_the_wrapper_choices():

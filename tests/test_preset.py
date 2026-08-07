@@ -33,42 +33,48 @@ from lib.dax import parse
 from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from dolby_to_easyeffects import (
+    CheckResult,
     DOCTOR_FAIL,
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
-    BYPASS_PRESET_NAME,
-    CheckResult,
-    DoctorReport,
-    _atomic_write,
-    _atomic_write_text,
-    _disabled_band,
-    _doctor_summary,
     _print_doctor_report,
     _report_parsed_profile,
-    autostart_status,
-    check_preset_kernel,
+    parse_ee_version,
+    save_wav_stereo,
+)
+from lib.preset.autoload import (
+    BYPASS_PRESET_NAME,
+    _atomic_write,
+    _atomic_write_text,
+    read_ee_rc,
+    set_autoload_fallback,
+    write_autoload,
+    write_bypass_preset,
+)
+from lib.preset.bands import make_peq_eq
+from lib.preset.build import make_preset
+from lib.preset.plugins import (
+    _disabled_band,
     decode_mbc_bands,
-    ee_version_status,
-    firmware_gate_status,
-    install_status,
-    kernel_age_status,
-    loaded_preset_status,
     make_autogain,
     make_bass_enhancer,
     make_dialog_enhancer,
     make_limiter,
     make_multiband_compressor,
-    make_peq_eq,
-    make_preset,
     make_regulator,
-    parse_ee_version,
+)
+from lib.report.environment import (
+    DoctorReport,
+    _doctor_summary,
+    autostart_status,
+    check_preset_kernel,
+    ee_version_status,
+    firmware_gate_status,
+    install_status,
+    kernel_age_status,
+    loaded_preset_status,
     parse_kernel_series,
-    read_ee_rc,
-    save_wav_stereo,
-    set_autoload_fallback,
-    write_autoload,
-    write_bypass_preset,
 )
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
@@ -79,6 +85,8 @@ from tests.conftest import (
     synthetic_regulator,
     write_synthetic_tuning_xml,
 )
+from lib.report import environment
+from lib.report import findings as report_findings
 
 # For the one trap that has to drive the whole CLI (the impulse responses
 # are written by main(), not by make_preset).
@@ -755,7 +763,7 @@ def test_regulator_isolated_data_alone_changes_nothing():
 def test_coupled_bands_eligibility_helper():
     """_coupled_bands_eligible drives the end-of-run --enable hint: true
     only when a >= 0 dB band is marked non-isolated."""
-    from dolby_to_easyeffects import _coupled_bands_eligible
+    from lib.preset.plugins import _coupled_bands_eligible
     th = [-6.0] * 10 + [0.0] * 10
     assert _coupled_bands_eligible(
         synthetic_regulator(th, isolated_band=[1] * 10 + [0] * 10))
@@ -1028,7 +1036,7 @@ def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
     """
     import dolby_to_easyeffects as d
 
-    finding = d._leveler_gap_finding(["volume-leveler-compressor"],
+    finding = report_findings._leveler_gap_finding(["volume-leveler-compressor"],
                                           autogain_on)
     assert expect in finding.detail
     assert "You enabled autogain" not in finding.detail
@@ -1040,7 +1048,7 @@ def test_substage_summary_escalates_when_the_leveler_runs(autogain_on, expect):
 def test_substage_summary_silent_when_there_is_nothing_to_say():
     import dolby_to_easyeffects as d
 
-    assert d._leveler_gap_finding([], autogain_on=True) is None
+    assert report_findings._leveler_gap_finding([], autogain_on=True) is None
 
 
 def test_findings_never_carry_a_url(capsys):
@@ -1073,9 +1081,9 @@ def test_findings_never_carry_a_url(capsys):
         assert "http" not in finding.detail + finding.ask, finding.slug
 
     # ...and the one link the block itself prints survives wrapping intact.
-    d.print_project_asks(found)
+    report_findings.print_project_asks(found)
     lines = capsys.readouterr().out.splitlines()
-    assert any(d._REPORT_FORM_URL in line for line in lines)
+    assert any(report_findings._REPORT_FORM_URL in line for line in lines)
 
 
 # --- LOCK-IN: make_multiband_compressor split frequency from xover_idx ---
@@ -1741,19 +1749,19 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     flat = lambda s: " ".join(s.split())       # noqa: E731 — undo line wrapping
 
     # EasyEffects 7: doctor detail and the end-of-run banner
-    assert flat(d.ee_v7_message("7.1.5")) in flat(
-        d.ee_version_status((7, 1, 5), found=True).detail)
+    assert flat(environment.ee_v7_message("7.1.5")) in flat(
+        environment.ee_version_status((7, 1, 5), found=True).detail)
     monkeypatch.setattr(d, "_probe_ee_version",
                         lambda: d.EEProbe((7, 1, 5), True, "test", False))
     d.warn_ee_environment(SimpleNamespace(output_dir=d.DEFAULT_OUTPUT_DIR,
                                           irs_dir=d.DEFAULT_IRS_DIR))
-    assert flat(d.ee_v7_message("7.1.5")) in flat(capsys.readouterr().out)
+    assert flat(environment.ee_v7_message("7.1.5")) in flat(capsys.readouterr().out)
 
     # Old kernel: doctor detail and the end-of-run hint
     old = "6.12.74+deb13+1-amd64"
-    assert flat(d.kernel_old_message()) in flat(d.kernel_age_status(old).detail)
-    d.warn_old_kernel(old)
-    assert flat(d.kernel_old_message()) in flat(capsys.readouterr().out)
+    assert flat(environment.kernel_old_message()) in flat(environment.kernel_age_status(old).detail)
+    environment.warn_old_kernel(old)
+    assert flat(environment.kernel_old_message()) in flat(capsys.readouterr().out)
 
 
 def test_probe_ee_version_installed_but_headless(monkeypatch):
@@ -1779,7 +1787,7 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
     assert "could not connect to display" in probe.silent
 
     # …and it surfaces as UNKNOWN with an accurate message, not "not found".
-    status = d.ee_version_status(probe.version, probe.found, probe.silent)
+    status = environment.ee_version_status(probe.version, probe.found, probe.silent)
     assert status.status == d.DOCTOR_UNKNOWN
     assert "installed" in status.detail and "not found" not in status.detail
 
@@ -1799,7 +1807,7 @@ def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
     monkeypatch.setattr(d.shutil, "which", lambda _name: None)
     probe = d._probe_ee_version()
     assert probe.found is False and probe.silent is None
-    assert d.ee_version_status(probe.version, probe.found,
+    assert environment.ee_version_status(probe.version, probe.found,
                                probe.silent).status == d.DOCTOR_WARN
 
 

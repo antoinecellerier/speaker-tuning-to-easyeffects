@@ -38,9 +38,9 @@ from dolby_to_easyeffects import (
     _walk_for_dolby_xml_dirs,
     get_profile_types,
     is_soundwire_xml,
-    make_preset,
     save_wav_stereo,
 )
+from lib.preset.build import make_preset
 from lib.dax.parse import DB_FIXED_POINT_SCALE, ParsedTuning, parse_xml
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from tests.conftest import is_minimum_phase, read_irs_file

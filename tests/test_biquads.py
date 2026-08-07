@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pytest
 
-from dolby_to_easyeffects import (
+from lib.preset.bands import (
     _shelf_q_from_s,
     make_band,
     make_hishelf_band,

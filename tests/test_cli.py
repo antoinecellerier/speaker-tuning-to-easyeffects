@@ -32,12 +32,14 @@ from lib.hardware import codecs, speakers
 # local in six tests, and the module has to stay reachable from all of them.
 from lib.report import findings as report_findings
 from dolby_to_easyeffects import (
-    DISABLEABLE_FILTERS,
-    ENABLEABLE_FILTERS,
     DOLBY_FILENAME_RE,
     autoprobe_dolby_source,
     find_tuning_xml,
-    make_preset,
+)
+from lib.preset.build import make_preset
+from lib.report.messages import (
+    DISABLEABLE_FILTERS,
+    ENABLEABLE_FILTERS,
 )
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
@@ -46,6 +48,7 @@ from tests.conftest import (
     synthetic_regulator,
     write_synthetic_tuning_xml,
 )
+from lib.report import messages
 
 
 SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_easyeffects.py"
@@ -141,11 +144,11 @@ def test_disable_autogain_menu_row_needs_the_active_marker(silence_console,
     import dolby_to_easyeffects
     silence_console(console)
 
-    dolby_to_easyeffects.print_troubleshooting(
+    messages.print_troubleshooting(
         [], {"autogain-active": {"default"}})
     assert "--disable autogain" in capsys.readouterr().out
 
-    dolby_to_easyeffects.print_troubleshooting([], {"autogain": {"default"}})
+    messages.print_troubleshooting([], {"autogain": {"default"}})
     out = capsys.readouterr().out
     assert "--disable autogain" not in out
     # The bypassed state still reaches the user, via the --enable menu.
@@ -174,7 +177,7 @@ def test_disable_menu_never_offers_to_revert_an_enable_flag(silence_console,
     undo for a flag you typed is removing it, and offering the opposite flag
     would steer the next command straight into the both-directions error."""
     silence_console(console)
-    dolby_to_easyeffects.print_troubleshooting(
+    messages.print_troubleshooting(
         [], {"autogain-active": {"default"}, "mbc": {"default"}},
         enabled_by_flag=frozenset({"autogain"}))
     out = capsys.readouterr().out
@@ -255,7 +258,7 @@ def test_experimental_markers_cover_coupled_bands_activation():
     "please report back" prompt — the flag ships unheard on device and
     the feedback ask is the validation path. Locks the full marker set
     so drift in either direction is deliberate."""
-    from dolby_to_easyeffects import EXPERIMENTAL_MARKERS
+    from lib.report.messages import EXPERIMENTAL_MARKERS
     assert set(EXPERIMENTAL_MARKERS) == {
         "high-shelf", "lo-pass", "mbc-1band", "coupled-bands-active",
         "level-restore-active",
@@ -1095,7 +1098,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_report_form_url_targets_device_report_template():
-    assert "issues/new?template=device-report.yml" in dolby_to_easyeffects._REPORT_FORM_URL
+    assert "issues/new?template=device-report.yml" in report_findings._REPORT_FORM_URL
 
 
 def test_report_url_is_not_folded_by_the_console(capsys):
@@ -1108,7 +1111,7 @@ def test_report_url_is_not_folded_by_the_console(capsys):
     depending on whether rich was installed, since the no-rich fallback never
     wraps. cprint pins soft_wrap; this holds it there.
     """
-    url = dolby_to_easyeffects._REPORT_FORM_URL
+    url = report_findings._REPORT_FORM_URL
     console.cprint("cta", f"  {url}")
     first = capsys.readouterr().out.splitlines()[0]
     assert url in first, "the URL must survive on a single line"
@@ -1119,7 +1122,7 @@ def test_device_report_form_is_valid():
 
     # Derive the filename from the CTA URL so a rename can't silently split
     # the constant from the file it names.
-    template = dolby_to_easyeffects._REPORT_FORM_URL.split("template=", 1)[1]
+    template = report_findings._REPORT_FORM_URL.split("template=", 1)[1]
     form_path = _REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / template
     assert form_path.is_file(), f"{form_path} (named by _REPORT_FORM_URL) is missing"
 
@@ -1199,9 +1202,9 @@ def _every_finding():
     # Only the escalated strength here: the bypassed one shares this slug by
     # design (same site, two wordings) and carries no ask, so it has nothing
     # for these checks to bite on. tests/test_preset.py covers both.
-    found.append(dolby_to_easyeffects._leveler_gap_finding(
+    found.append(report_findings._leveler_gap_finding(
         ["volume-leveler-compressor"], autogain_on=True))
-    found.append(dolby_to_easyeffects._firmware_gate_finding())
+    found.append(report_findings._firmware_gate_finding())
     # Only the forcible shape, for the same reason as the unmodeled-feature
     # one above: the model-less wording shares this slug by design (same site,
     # two wordings) and deliberately carries no ask, so it has nothing for
@@ -1228,10 +1231,10 @@ def _every_finding():
     # definitions of one string and exactly the drift these checks exist to
     # stop.
     found += [
-        dolby_to_easyeffects._profile_mismatch_finding("music", "dynamic"),
-        dolby_to_easyeffects._loudness_untamed_finding(),
-        dolby_to_easyeffects._boost_unlimited_finding(12.0, 120),
-        dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+        report_findings._profile_mismatch_finding("music", "dynamic"),
+        report_findings._loudness_untamed_finding(),
+        report_findings._boost_unlimited_finding(12.0, 120),
+        report_findings._experimental_finding("type-3 high-shelf",
                                                    ["high-shelf"]),
     ]
     return [f for f in found if f is not None]
@@ -1251,7 +1254,7 @@ def test_ask_stays_one_short_sentence(finding, capsys, monkeypatch):
     if not finding.ask:
         return
     monkeypatch.setattr(console, "_wrap_width", lambda: 72)
-    dolby_to_easyeffects._print_ask("cta", finding)
+    report_findings._print_ask("cta", finding)
     rendered = capsys.readouterr().out.rstrip("\n").splitlines()
     assert len(rendered) <= 2, f"{finding.slug} renders {len(rendered)} lines"
     assert finding.ask.count(". ") == 0, f"{finding.slug} is multi-sentence"
@@ -1314,11 +1317,11 @@ def test_skip_closing_gates_only_the_ask_block(monkeypatch, tmp_path,
             "--irs-dir", str(tmp_path / "irs")]
 
     dolby_to_easyeffects.main(base)
-    assert dolby_to_easyeffects._REPORT_FORM_URL in capsys.readouterr().out
+    assert report_findings._REPORT_FORM_URL in capsys.readouterr().out
 
     dolby_to_easyeffects.main(base + ["--skip-closing"])
     out = capsys.readouterr().out
-    assert dolby_to_easyeffects._REPORT_FORM_URL not in out
+    assert report_findings._REPORT_FORM_URL not in out
     # Both closing blocks go, not just the ask. dolby_to_pipewire.py stages
     # into a tempdir it then deletes, so "wrote 3 presets to /tmp/…, open
     # EasyEffects and pick one" pointed at a directory that no longer existed.
@@ -1350,11 +1353,11 @@ def test_troubleshooting_menu_renders_every_emitted_filter(silence_console,
     and the whole suite stayed green. It is the most-seen block in the output.
     """
     silence_console(console)
-    findings = [dolby_to_easyeffects._loudness_untamed_finding()]
+    findings = [report_findings._loudness_untamed_finding()]
     by_profile = {name: {"default"} for name in
                   ("volmax", "mbc", "regulator", "dialog")}
     by_profile["autogain"] = {"default"}
-    dolby_to_easyeffects.print_troubleshooting(findings, by_profile)
+    messages.print_troubleshooting(findings, by_profile)
     # Collapsed, because the advice wraps to the terminal and the phrases
     # asserted below would otherwise straddle a line break.
     out = " ".join(capsys.readouterr().out.split())
@@ -1380,7 +1383,7 @@ def test_regulator_stays_on_the_menu_without_the_inert_hint(silence_console,
     a run that never claimed the regulator was inert still offers it."""
     silence_console(console)
     by_profile = {"regulator": {"default"}, "mbc": {"default"}}
-    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    messages.print_troubleshooting([], by_profile)
     assert "--disable regulator" in capsys.readouterr().out
 
 
@@ -1393,11 +1396,11 @@ def test_apply_hint_skips_easyeffects_for_a_wrapper(silence_console, capsys):
 
     # Collapsed: the advice wraps to the terminal, so these phrases would
     # otherwise straddle a line break.
-    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    messages.print_troubleshooting([], by_profile)
     assert "reload the preset in EasyEffects" in " ".join(
         capsys.readouterr().out.split())
 
-    dolby_to_easyeffects.print_troubleshooting([], by_profile,
+    messages.print_troubleshooting([], by_profile,
                                                installs_presets=False)
     out = " ".join(capsys.readouterr().out.split())
     assert "EasyEffects" not in out
@@ -1412,24 +1415,24 @@ def test_every_shown_tag_is_quotable(silence_console, capsys):
     reporters to quote the speculative one and never mention the real
     finding."""
     silence_console(console)
-    hint = dolby_to_easyeffects._loudness_untamed_finding()
-    ask = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+    hint = report_findings._loudness_untamed_finding()
+    ask = report_findings._experimental_finding("type-3 high-shelf",
                                                      ["high-shelf"])
 
     # With an ask, the header must not imply only the listed tags count —
     # "which line you mean" leaves it open to any tagged line in the run.
-    dolby_to_easyeffects.print_project_asks([hint, ask])
+    report_findings.print_project_asks([hint, ask])
     out = " ".join(capsys.readouterr().out.split())
     assert "quote the [tag] so we know which line you mean" in out
 
     # With a hint and no ask there is no list at all, so the tag would
     # otherwise go unexplained.
-    dolby_to_easyeffects.print_project_asks([hint])
+    report_findings.print_project_asks([hint])
     out = " ".join(capsys.readouterr().out.split())
     assert "Saw a [tag] above?" in out
 
     # A clean run mentions tags not at all.
-    dolby_to_easyeffects.print_project_asks([])
+    report_findings.print_project_asks([])
     assert "[tag]" not in capsys.readouterr().out
 
 
@@ -1441,13 +1444,13 @@ def test_autogain_entry_warns_when_it_enables_an_unreproduced_stage(
     was about."""
     silence_console(console)
     by_profile = {"autogain": {"default"}}
-    gap = dolby_to_easyeffects._leveler_gap_finding(
+    gap = report_findings._leveler_gap_finding(
         ["volume-leveler-compressor"], autogain_on=False)
 
-    dolby_to_easyeffects.print_troubleshooting([gap], by_profile)
+    messages.print_troubleshooting([gap], by_profile)
     assert "leveler-gap" in " ".join(capsys.readouterr().out.split())
 
-    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    messages.print_troubleshooting([], by_profile)
     assert "leveler-gap" not in capsys.readouterr().out
 
 
@@ -1461,17 +1464,17 @@ def test_xml_path_prints_for_every_ask(silence_console, capsys):
         slug="peak-level", kind="ask", detail="x",
         ask="Send us the XML and we can confirm it.")
 
-    dolby_to_easyeffects.print_project_asks([wants], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([wants], xml_path="/tmp/DEV_X.xml")
     assert "'/tmp/DEV_X.xml'" in capsys.readouterr().out
 
     # Asks that never mention the file still get it named.
-    other = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
+    other = report_findings._experimental_finding("type-3 high-shelf",
                                                        ["high-shelf"])
-    dolby_to_easyeffects.print_project_asks([other], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([other], xml_path="/tmp/DEV_X.xml")
     assert "'/tmp/DEV_X.xml'" in capsys.readouterr().out
 
     # No asks at all → no path dumped.
-    dolby_to_easyeffects.print_project_asks([], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([], xml_path="/tmp/DEV_X.xml")
     assert "/tmp/DEV_X.xml" not in capsys.readouterr().out
 
 
@@ -1488,7 +1491,7 @@ def test_dropped_stages_reach_the_closing_block(silence_console, capsys):
         </tuning-cp></profile>"""))
     assert dropped and not dropped[0].ask
 
-    dolby_to_easyeffects.print_project_asks(dropped)
+    report_findings.print_project_asks(dropped)
     out = " ".join(capsys.readouterr().out.split())
     assert ("doesn't rebuild: [speaker-optimizer]" in out)
     # The mention carries its reason — an entry with nothing to do and no
@@ -1496,7 +1499,7 @@ def test_dropped_stages_reach_the_closing_block(silence_console, capsys):
     assert "so we know which devices have them" in out
 
     # It stays one line of context, not another bulleted thing to action.
-    dolby_to_easyeffects.print_project_asks(dropped)
+    report_findings.print_project_asks(dropped)
     assert not any(line.lstrip().startswith("•")
                    for line in capsys.readouterr().out.splitlines())
 
@@ -1508,11 +1511,11 @@ def test_flag_menu_lead_is_dry_run_aware(silence_console, capsys):
     silence_console(console)
     by_profile = {"mbc": {"default"}}
 
-    dolby_to_easyeffects.print_troubleshooting([], by_profile, dry_run=True)
+    messages.print_troubleshooting([], by_profile, dry_run=True)
     out = " ".join(capsys.readouterr().out.split())
     assert "re-run without --dry-run" in out
 
-    dolby_to_easyeffects.print_troubleshooting([], by_profile)
+    messages.print_troubleshooting([], by_profile)
     out = " ".join(capsys.readouterr().out.split())
     assert "the same command you ran" in out
 
@@ -1552,7 +1555,7 @@ def test_tag_convention_prints_once_with_the_first_finding(monkeypatch,
     line rides the first finding; repeating it per finding would be a nag."""
     silence_console(console)
     monkeypatch.setattr(report_findings, "_TAG_CONVENTION_SHOWN", False)
-    finding = dolby_to_easyeffects._loudness_untamed_finding()
+    finding = report_findings._loudness_untamed_finding()
     dolby_to_easyeffects._print_finding_detail(finding)
     dolby_to_easyeffects._print_finding_detail(finding)
     out = " ".join(capsys.readouterr().out.split())
@@ -1627,7 +1630,7 @@ def test_every_disableable_filter_is_classified_for_the_section_trap():
     trap's coverage quietly shrinks."""
     peq_row_types = {"high-shelf", "lo-pass"}
     assert _SECTION_OWNING_FILTERS | peq_row_types == set(
-        dolby_to_easyeffects.DISABLEABLE_FILTERS)
+        messages.DISABLEABLE_FILTERS)
 
 
 def _fully_stocked_tuning():
@@ -1691,17 +1694,17 @@ def test_an_ask_never_names_a_flag_the_same_run_withholds(silence_console,
     re-run answered "--enable coupled-bands had no effect".
     """
     silence_console(console)
-    findings = [dolby_to_easyeffects._loudness_untamed_finding(
+    findings = [report_findings._loudness_untamed_finding(
         coupled_bands_possible=False)]
     by_profile = {name: {"default"} for name in
                   ("volmax", "mbc", "regulator", "dialog")}
-    dolby_to_easyeffects.print_troubleshooting(findings, by_profile)
+    messages.print_troubleshooting(findings, by_profile)
     menu = " ".join(capsys.readouterr().out.split())
 
-    dolby_to_easyeffects.print_project_asks(findings)
+    report_findings.print_project_asks(findings)
     asks = " ".join(capsys.readouterr().out.split())
     for hint in findings:
-        dolby_to_easyeffects._print_ask("cta", hint)
+        report_findings._print_ask("cta", hint)
     asks += " " + " ".join(capsys.readouterr().out.split())
 
     for flag in re.findall(r"--(?:disable|enable) [a-z-]+", asks):
@@ -1715,7 +1718,7 @@ def test_clean_run_closing_block_is_just_the_ask(silence_console, capsys):
     heading over a bare report-back line would be noise on every clean run,
     which is how a block earns being skipped."""
     silence_console(console)
-    dolby_to_easyeffects.print_project_asks([])
+    report_findings.print_project_asks([])
     out = capsys.readouterr().out.strip().splitlines()
     # Two or three lines depending on how wide the sentence wraps; what
     # matters is that there is no rule, no heading and no bullet list.
@@ -1723,4 +1726,4 @@ def test_clean_run_closing_block_is_just_the_ask(silence_console, capsys):
     assert "=====" not in "".join(out)
     assert "Help the project" not in "".join(out)
     assert not any(line.lstrip().startswith("•") for line in out)
-    assert out[-1].strip() == dolby_to_easyeffects._REPORT_FORM_URL
+    assert out[-1].strip() == report_findings._REPORT_FORM_URL

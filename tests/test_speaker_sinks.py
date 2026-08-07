@@ -28,6 +28,7 @@ from lib.hardware import amps, codecs, speakers
 # Aliased: several tests bind a local named `sinks` for a synthetic sink
 # list, which would shadow the module.
 from lib.hardware import sinks as hw_sinks
+from lib.report import environment
 
 
 # --- Synthetic sinks (in the _enumerate_audio_sinks() dict shape) -----------
@@ -641,23 +642,23 @@ def test_warn_firmware_gate_silent_when_not_off(silence_console, capsys,
 
 def test_warn_old_kernel_prints_hint(silence_console, capsys):
     silence_console(console)
-    d.warn_old_kernel("6.12.74+deb13+1-amd64")
+    environment.warn_old_kernel("6.12.74+deb13+1-amd64")
     out = capsys.readouterr().out
     assert "6.12" in out
     assert "2024-11" in out                    # names the release month
     # The explanation is the one --doctor gives, verbatim (modulo line wrapping)
     # rather than a second hand-maintained copy that can drift from it. It
     # carries the confirm-symptom and the remedy with the acronym spelt out.
-    assert " ".join(d.kernel_old_message().split()) in " ".join(out.split())
-    assert "EasyEffects off" in d.kernel_old_message()
-    assert "hardware-enablement/HWE" in d.kernel_old_message()
+    assert " ".join(environment.kernel_old_message().split()) in " ".join(out.split())
+    assert "EasyEffects off" in environment.kernel_old_message()
+    assert "hardware-enablement/HWE" in environment.kernel_old_message()
 
 
 @pytest.mark.parametrize("release", ["99.0.0-future", "not-a-kernel"])
 def test_warn_old_kernel_silent_when_recent_or_unparseable(silence_console,
                                                            capsys, release):
     silence_console(console)
-    d.warn_old_kernel(release)
+    environment.warn_old_kernel(release)
     assert capsys.readouterr().out == ""
 
 

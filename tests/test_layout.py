@@ -53,6 +53,12 @@ STDLIB_ONLY = (
     "lib.hardware.codecs",
     "lib.hardware.amps",
     "lib.hardware.speakers",
+    # The two halves of preset construction that need no DSP: the closed-form
+    # band arithmetic, and the writers. Their siblings lib.preset.plugins and
+    # lib.preset.build reach numpy through lib.preset.fir and are absent here
+    # for that reason, not by oversight.
+    "lib.preset.bands",
+    "lib.preset.autoload",
 )
 
 

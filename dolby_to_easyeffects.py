@@ -48,9 +48,11 @@ from lib.hardware import amps, codecs, speakers
 # Aliased: main() binds a local named `sinks` for the resolver's result, which
 # would shadow the module for every later line that reads through it.
 from lib.hardware import sinks as hardware_sinks
+from lib.preset import autoload, bands
 # Aliased: main() binds a local named `findings`, which would shadow the
 # module for the one line that resets _TAG_CONVENTION_SHOWN through it.
 from lib.report import findings as report_findings
+from lib.report import environment, messages
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
 # script behaves exactly as before — same contract as rich in lib/console.py.
@@ -72,12 +74,16 @@ def _load_dsp() -> None:
 
     lib.preset.fir is bound here for the same reason and not at the top of
     this file: it imports numpy itself, so importing it eagerly would undo
-    the deferral this function exists for.
+    the deferral this function exists for. lib.preset.plugins reaches numpy
+    through fir (the sample rate its MBC time constants decode against) and
+    lib.preset.build through plugins, so those two ride along. The rest of
+    lib/preset — bands, autoload — is stdlib-only and imported at the top.
     """
-    global np, wavfile, fir
+    global np, wavfile, fir, plugins, build
     import numpy as np
     from scipy.io import wavfile
     from lib.preset import fir
+    from lib.preset import build, plugins
 
 
 if "_ARGCOMPLETE" not in os.environ:
@@ -105,8 +111,6 @@ DEFAULT_AUTOLOAD_DIR = _EASYEFFECTS_BASE / "autoload" / "output"
 _FLATPAK_RC = Path.home() / ".var" / "app" / _FLATPAK_APP_ID / "config" / "easyeffects" / "db" / "easyeffectsrc"
 _NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
 DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _USE_FLATPAK else _NATIVE_RC
-
-BYPASS_PRESET_NAME = "Nothing"
 
 
 def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | None:
@@ -194,7 +198,7 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     # lines here, deliberately whispered so it wouldn't rival the closing call
     # to action. It travels to that block instead now, where it can be a
     # normal ask without competing with anything.
-    return _firmware_gate_finding()
+    return report_findings._firmware_gate_finding()
 
 
 _MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
@@ -223,8 +227,8 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
     if not quirk.since:
         return ("The fix is merged upstream but is not in any released kernel "
                 "yet, so upgrading won't help today." + tail)
-    running = parse_kernel_series(release or platform.release())
-    fixed_in = parse_kernel_series(quirk.since)
+    running = environment.parse_kernel_series(release or platform.release())
+    fixed_in = environment.parse_kernel_series(quirk.since)
     if running and fixed_in and running >= fixed_in:
         return (f"Linux {quirk.since} carries this fix and you are on "
                 f"{running[0]}.{running[1]}, so it should already be applying "
@@ -618,8 +622,8 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
     kernel_line = f"  Kernel:  {info.kernel}"
     # Age annotation (issue #33): makes a pasted report self-triaging — an old
     # series is a real bad-sound suspect regardless of the preset.
-    series = parse_kernel_series(info.kernel)
-    aged = _kernel_series_age(series, date.today()) if series else None
+    series = environment.parse_kernel_series(info.kernel)
+    aged = environment._kernel_series_age(series, date.today()) if series else None
     if aged:
         released, months = aged
         plural = "" if months == 1 else "s"
@@ -748,25 +752,6 @@ DOCTOR_FAIL = doctor.DOCTOR_FAIL
 DOCTOR_UNKNOWN = doctor.DOCTOR_UNKNOWN
 CheckResult = doctor.CheckResult
 
-# EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
-# match the speaker-correction convolver regardless of its index. Keep the
-# "kernel-name" literal in step with make_convolver().
-_CONVOLVER_KEY_RE = re.compile(r"^convolver#\d+$")
-
-
-@dataclass
-class DoctorReport:
-    checks: list[CheckResult] = field(default_factory=list)
-    facts: dict = field(default_factory=dict)   # raw probed values, always shown
-    speaker_info: "speakers.SpeakerInfo | None" = None
-
-
-def _tilde(path) -> str:
-    """Render a path with $HOME collapsed to ~ — paste-safe (no username)."""
-    s = str(path)
-    home = str(Path.home())
-    return "~" + s[len(home):] if s == home or s.startswith(home + os.sep) else s
-
 
 def parse_ee_version(text: str) -> tuple[int, int, int] | None:
     """Extract (major, minor, patch) from an EasyEffects version string.
@@ -779,260 +764,6 @@ def parse_ee_version(text: str) -> tuple[int, int, int] | None:
     if not m:
         return None
     return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
-
-
-def ee_silent_message(reason: str, tail: str) -> str:
-    """The 'installed but --version didn't answer' explanation, shared by
-    --doctor and the end-of-run warning so the two can't drift. ``tail``
-    finishes the sentence with what it means where it's being said."""
-    return (f"EasyEffects is installed but `easyeffects --version` didn't "
-            f"answer ({reason}), so its version wasn't checked. EasyEffects 8 "
-            f"needs a display to answer --version, so this is expected from a "
-            f"headless shell (ssh, tmux){tail}")
-
-
-def ee_v7_message(vstr: str) -> str:
-    """Why an EasyEffects before 8 can't use these presets, shared by --doctor
-    and the end-of-run warning so the two can't drift. Callers supply their own
-    headline and install instructions — one inline sentence for the report,
-    copy-paste commands for the warning."""
-    return (f"EasyEffects 8 changed the preset (filter-chain) format, and these "
-            f"presets use the new one. On {vstr} they don't load correctly — the "
-            "speaker-correction filter loads nothing, so you'll hear little or "
-            "no difference.")
-
-
-def ee_version_status(version: tuple[int, int, int] | None,
-                      found: bool, silent: str | None = None) -> CheckResult:
-    """Verdict for the EasyEffects version. FAIL — the only loud error — is
-    reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
-    they're on 7. ``found`` distinguishes "no EE at all" (a valid
-    generating-for-another-machine case → WARN) from "installed but version
-    unreadable" (→ UNKNOWN); ``silent`` names the reason when EE is installed
-    but never answered at all (→ UNKNOWN, never "not found")."""
-    if version is None:
-        if not found and silent:
-            return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
-                ee_silent_message(silent, " — re-run this from your desktop "
-                                          "session to check the version."))
-        if not found:
-            return CheckResult(DOCTOR_WARN, "EasyEffects version",
-                "not found on PATH or via Flatpak. If you're generating presets "
-                "to copy to another machine, ignore this — otherwise install "
-                "EasyEffects 8 (e.g. the Flathub Flatpak).")
-        return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
-            "EasyEffects is installed but its version couldn't be read — make "
-            "sure it's version 8 or newer.")
-    vstr = ".".join(str(x) for x in version)
-    if version[0] < 8:
-        return CheckResult(DOCTOR_FAIL, "EasyEffects version",
-            f"{vstr} detected — these presets need EasyEffects 8. "
-            + ee_v7_message(vstr) +
-            " Install EasyEffects 8 (the Flathub Flatpak, or your distro's "
-            "package if it ships 8.x).")
-    return CheckResult(DOCTOR_PASS, "EasyEffects version", f"{vstr} (compatible).")
-
-
-# A stable distro's kernel is at most ~9 months old on the distro's release day
-# (Debian 13 shipped 6.12 at 9 months; Ubuntu LTS GA kernels at ~1 month), so
-# 18 months keeps every fresh install quiet for 9+ months and never flags
-# HWE/Fedora/Arch users — while still catching the real case we have (#33
-# fired at 6.12 + 20 months; LTS point releases backport one-line quirks but
-# not the driver rework / power-management fixes of that class).
-_KERNEL_OLD_MONTHS = 18
-
-
-def parse_kernel_series(release: str) -> tuple[int, int] | None:
-    """(major, minor) from a ``platform.release()`` string, e.g.
-    ``"6.12.74+deb13+1-amd64"`` → ``(6, 12)``. None when unparseable."""
-    m = re.match(r"(\d+)\.(\d+)", (release or "").strip())
-    return (int(m.group(1)), int(m.group(2))) if m else None
-
-
-def _kernel_series_age(series: tuple[int, int],
-                       today: date) -> tuple[str, int] | None:
-    """(release "YYYY-MM", age in whole months) for an in-table series."""
-    released = kernel_releases._KERNEL_SERIES_RELEASES.get(series)
-    if not released:
-        return None
-    y, mo = (int(x) for x in released.split("-"))
-    return released, (today.year - y) * 12 + (today.month - mo)
-
-
-def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
-    """Verdict for the running kernel's age. WARN is a hint, not an error: an
-    old series *can* be the whole problem on laptop speakers (issue #33), but
-    only the user can tell — the detail says what symptom would confirm it."""
-    today = today or date.today()
-    label = "Kernel age"
-    series = parse_kernel_series(release)
-    if series is None:
-        return CheckResult(DOCTOR_UNKNOWN, label,
-            f"couldn't parse a kernel version from {release!r}.")
-    sstr = f"{series[0]}.{series[1]}"
-    if series > max(kernel_releases._KERNEL_SERIES_RELEASES):
-        return CheckResult(DOCTOR_PASS, label,
-            f"{sstr} — newer than any series this tool knows about.")
-    aged = _kernel_series_age(series, today)
-    if aged is None:
-        if series < min(kernel_releases._KERNEL_SERIES_RELEASES):
-            return CheckResult(DOCTOR_WARN, label,
-                f"{sstr} is very old (pre-2021). Laptop speaker support "
-                "lands kernel-side; strongly consider a newer kernel.")
-        return CheckResult(DOCTOR_UNKNOWN, label, f"{sstr} — unknown series.")
-    released, months = aged
-    if months <= _KERNEL_OLD_MONTHS:
-        plural = "" if months == 1 else "s"
-        return CheckResult(DOCTOR_PASS, label,
-            f"{sstr} (released {released}, ~{months} month{plural} old).")
-    return CheckResult(DOCTOR_WARN, label,
-        f"{sstr} was released {released} (~{months} months ago). "
-        + kernel_old_message())
-
-
-def kernel_old_message() -> str:
-    """Why an old kernel series matters for laptop speakers, shared by --doctor
-    and the end-of-run hint so the two can't drift. Callers supply the headline
-    naming the series and its age."""
-    return ("Laptop speaker fixes (amp drivers, codec setup, power-management "
-            "quirks) land kernel-side and are not always backported to older "
-            "series — if your speakers sound thin, muffled or garbled even with "
-            "EasyEffects off, a newer kernel (your distro's backports or "
-            "hardware-enablement/HWE kernel) may fix that.")
-
-
-def install_status(flatpak_exists: bool, native_exists: bool,
-                   base_is_flatpak: bool, base_display: str,
-                   ee_is_flatpak: bool | None) -> CheckResult:
-    """Verdict for where presets are written vs where EE actually runs.
-    ``ee_is_flatpak`` is which install answered the version probe (None if
-    unknown)."""
-    where = "Flatpak" if base_is_flatpak else "native"
-    if not flatpak_exists and not native_exists:
-        return CheckResult(DOCTOR_WARN, "Install location",
-            f"no EasyEffects data dir found yet; presets go to the {where} "
-            f"location ({base_display}). Launch EasyEffects once, or pass "
-            "--output-dir/--irs-dir.")
-    if ee_is_flatpak is not None:
-        run_where = "Flatpak" if ee_is_flatpak else "native"
-        if run_where != where:
-            # WARN, not FAIL: the install that answered the probe isn't
-            # necessarily the one the user launches (dual-install systems), so
-            # we can't assert "EE never sees them" with certainty.
-            return CheckResult(DOCTOR_WARN, "Install location",
-                f"presets were written to the {where} location ({base_display}), "
-                f"but the EasyEffects detected is the {run_where} build — if "
-                "that's the one you run, it won't see them. Re-run with "
-                "--output-dir/--irs-dir for the install you use.")
-        return CheckResult(DOCTOR_PASS, "Install location",
-            f"{run_where} install; presets written to {base_display}.")
-    if flatpak_exists and native_exists:
-        return CheckResult(DOCTOR_WARN, "Install location",
-            f"both Flatpak and native data dirs exist; the script writes to the "
-            f"{where} one ({base_display}) — make sure that's the EasyEffects "
-            "you run.")
-    return CheckResult(DOCTOR_PASS, "Install location",
-        f"{where} install; presets written to {base_display}.")
-
-
-def check_preset_kernel(preset_json: dict, irs_stems: set,
-                        preset_name: str) -> CheckResult:
-    """Verify a generated output preset's speaker-correction filter (convolver)
-    references an impulse file (.irs) that actually exists. A missing or
-    misnamed impulse = silent passthrough: the dominant audible block does
-    nothing. ``irs_stems`` are the .irs filename stems present in the irs dir."""
-    label = f"Preset {preset_name}"
-    if not isinstance(preset_json, dict) or not isinstance(
-            preset_json.get("output"), dict):
-        return CheckResult(DOCTOR_FAIL, label,
-            "not a valid EasyEffects output preset (no 'output' section).")
-    conv_keys = [k for k in preset_json["output"] if _CONVOLVER_KEY_RE.match(k)]
-    if not conv_keys:
-        return CheckResult(DOCTOR_WARN, label,
-            "no speaker-correction filter (convolver) in this preset.")
-    conv = preset_json["output"][conv_keys[0]]
-    conv = conv if isinstance(conv, dict) else {}
-    if "kernel-path" in conv and "kernel-name" not in conv:
-        return CheckResult(DOCTOR_FAIL, label,
-            "uses the old EasyEffects 7 'kernel-path' format — these presets "
-            "need EasyEffects 8.")
-    name = conv.get("kernel-name", "")
-    if not name:
-        return CheckResult(DOCTOR_FAIL, label,
-            "the speaker-correction filter has no impulse file set — it's silent.")
-    if name not in irs_stems:
-        return CheckResult(DOCTOR_FAIL, label,
-            f"impulse file '{name}.irs' is missing from the irs dir — the "
-            "speaker-correction filter loads nothing (silent). Re-run the "
-            "script so the .irs is written next to the preset.")
-    if conv.get("bypass") is True:
-        return CheckResult(DOCTOR_WARN, label,
-            f"loads {name}.irs but the speaker-correction filter is bypassed in "
-            "the preset.")
-    return CheckResult(DOCTOR_PASS, label,
-        f"speaker-correction filter loads {name}.irs.")
-
-
-def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
-    """Whether EasyEffects' selected output preset is one this script generated.
-    Reports last-loaded / fallback without over-claiming which is *active*
-    (per-device autoloading lives elsewhere in EE's config). The empty
-    ``Nothing`` bypass preset is excluded from "generated": having it selected
-    is itself a "sounds like nothing" cause, not a healthy state."""
-    dolby = {n for n in generated_names if n != BYPASS_PRESET_NAME}
-    loaded = rc_data.get("last_output_preset", "")
-    fallback = rc_data.get("fallback_preset", "")
-    if not loaded and not fallback:
-        return CheckResult(DOCTOR_WARN, "Selected preset",
-            "EasyEffects has no output preset recorded yet — open it and load a "
-            "Dolby-* preset for the speakers.")
-    if loaded == BYPASS_PRESET_NAME:
-        return CheckResult(DOCTOR_WARN, "Selected preset",
-            f"the silent '{BYPASS_PRESET_NAME}' bypass preset is selected — that's "
-            "no processing by design. Load a Dolby-* preset in EasyEffects.")
-    if loaded in dolby:
-        matched = loaded
-    elif rc_data.get("uses_fallback") and fallback in dolby:
-        matched = fallback
-    else:
-        matched = ""
-    if matched:
-        return CheckResult(DOCTOR_PASS, "Selected preset",
-            f"EasyEffects last loaded '{matched}'.")
-    return CheckResult(DOCTOR_WARN, "Selected preset",
-        f"EasyEffects' selected output preset is '{loaded or fallback}', which "
-        "this script didn't generate — load a Dolby-* preset in EasyEffects.")
-
-
-def autostart_status(rc_data: dict) -> CheckResult:
-    """Whether EasyEffects is set to keep running in the background so the
-    preset stays applied. Two Background-Service toggles matter, both persisted
-    in ``[Window]``: ``autostartOnLogin`` (launch at login — default off) and
-    ``enableServiceMode`` (stay active when the window is closed — default on).
-    The preset only processes audio while EasyEffects runs, so if EITHER is off
-    it silently stops applying after a window-close or reboot — a common "it was
-    working, now it sounds like nothing" cause. Both off and a single one off
-    are all problem states, so we name exactly the toggle(s) that are off."""
-    autostart = rc_data.get("autostart_on_login")
-    service = rc_data.get("service_mode")
-    if autostart and service:
-        return CheckResult(DOCTOR_PASS, "Background service",
-            "EasyEffects autostarts as a background service at login — the "
-            "preset applies automatically and survives reboots.")
-    # Name the toggle(s) up front and adjacent, then group the explanations —
-    # inline parentheticals buried the second toggle so it read as one warning.
-    off, why = [], []
-    if not service:
-        off.append("'Enable service mode'")
-        why.append("service mode keeps it running once the window is closed")
-    if not autostart:
-        off.append("'Autostart on login'")
-        why.append("autostart relaunches it after a reboot")
-    return CheckResult(DOCTOR_WARN, "Background service",
-        "EasyEffects won't reliably keep processing in the background, so the "
-        "preset applies only while it's open. In EasyEffects > Preferences > "
-        "Background Service, turn on " + " and ".join(off)
-        + " (" + "; ".join(why) + ").")
 
 
 def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
@@ -1067,43 +798,6 @@ def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
                                     speakers._card_uses_sof(info.sound_cards),
                                     console._wrap_width() - 9,
                                     speaker_info_below=True))
-
-
-def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | None:
-    """Verdict line for the smart-amp firmware gates, or None when the machine
-    exposes no such control (most don't — there is nothing to report either
-    way, and a PASS for an absent control is noise).
-
-    The gate sits *upstream* of everything EasyEffects does, which is why it
-    belongs among the checks and not only in the raw hardware dump: a report
-    that says "no blocking problems" beside a gate that is off is wrong about
-    the one thing most likely to explain silence.
-
-    WARN, not FAIL: an off gate mutes the woofers on most laptops, but on some
-    the firmware auto-loads anyway and flipping it is an audible no-op (#39),
-    so it is a strong suspect rather than a proven fault.
-
-    The command rides in ``steps``, unwrapped. It also prints in the amp
-    section further down, which --speaker-info reaches and this check does
-    not, so the repeat within a --doctor run is deliberate: the check is where
-    a reader acts, the section is raw evidence.
-    """
-    if not gates:
-        return None
-    off = [g for g in gates if not g.on]
-    if not off:
-        return CheckResult(DOCTOR_PASS, "Speaker firmware gate",
-                           "the amplifier is allowed to load its firmware.")
-    names = ", ".join(g.name for g in off)
-    return CheckResult(
-        DOCTOR_WARN, "Speaker firmware gate",
-        f"{names} is off, so the amplifier runs untuned ahead of the preset "
-        "and your speakers may be silent, thin or crackly whatever the preset "
-        "does. Switch it on:",
-        steps=tuple(("cta", speakers.amixer_enable_cmd(g)) for g in off))
-
-
-_doctor_summary = doctor.summarize
 
 
 def _flatpak_version_text(info_output: str) -> str:
@@ -1197,26 +891,26 @@ def _probe_ee_version() -> EEProbe:
 
 
 def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
-                          custom_dirs: bool = False) -> DoctorReport:
+                          custom_dirs: bool = False) -> environment.DoctorReport:
     """Run every probe and assemble a DoctorReport. All I/O is wrapped so a
     missing binary / unreadable file degrades to a soft line, never a crash."""
-    report = DoctorReport()
+    report = environment.DoctorReport()
 
     # 1. EasyEffects version / compatibility
     probe = _probe_ee_version()
     version, found, source, ee_is_flatpak = (
         probe.version, probe.found, probe.source, probe.is_flatpak)
-    report.checks.append(ee_version_status(version, found, probe.silent))
+    report.checks.append(environment.ee_version_status(version, found, probe.silent))
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
         report.checks.append(CheckResult(DOCTOR_PASS, "Install location",
-            f"custom output dir ({_tilde(output_dir)}) — skipping EasyEffects "
+            f"custom output dir ({environment._tilde(output_dir)}) — skipping EasyEffects "
             "location checks."))
     else:
-        report.checks.append(install_status(
+        report.checks.append(environment.install_status(
             _FLATPAK_BASE.exists(), _NATIVE_BASE.exists(), _USE_FLATPAK,
-            _tilde(_EASYEFFECTS_BASE), ee_is_flatpak))
+            environment._tilde(_EASYEFFECTS_BASE), ee_is_flatpak))
 
     # 3. Preset + impulse-file integrity
     try:
@@ -1228,10 +922,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     except OSError:
         preset_paths = []
     generated_names = [p.stem for p in preset_paths]
-    dolby_presets = [p for p in preset_paths if p.stem != BYPASS_PRESET_NAME]
+    dolby_presets = [p for p in preset_paths if p.stem != autoload.BYPASS_PRESET_NAME]
     if not dolby_presets:
         report.checks.append(CheckResult(DOCTOR_WARN, "Generated presets",
-            f"no presets found in {_tilde(output_dir)} — run the script on your "
+            f"no presets found in {environment._tilde(output_dir)} — run the script on your "
             "tuning XML first."))
     else:
         for p in dolby_presets:
@@ -1241,29 +935,29 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
                 report.checks.append(CheckResult(DOCTOR_FAIL, f"Preset {p.stem}",
                     "could not be read / not valid JSON."))
                 continue
-            report.checks.append(check_preset_kernel(data, irs_stems, p.stem))
+            report.checks.append(environment.check_preset_kernel(data, irs_stems, p.stem))
 
     # 4. EasyEffects runtime state (loaded preset, sink, chain)
     try:
         rc_text = rc_path.read_text(encoding="utf-8")
     except OSError:
         rc_text = ""
-    rc = read_ee_rc(rc_text)
+    rc = autoload.read_ee_rc(rc_text)
     # The selected-preset check compares against presets in output_dir; that's
     # only meaningful when output_dir is where EE actually loads from (default
     # dirs). Under custom dirs, surface the loaded preset as a fact instead.
     if rc_text and not custom_dirs:
-        report.checks.append(loaded_preset_status(rc, generated_names))
+        report.checks.append(environment.loaded_preset_status(rc, generated_names))
     # Background-service / autostart is install-global, not output-dir-specific,
     # so it runs even under custom dirs (unlike the selected-preset check).
     if rc_text:
-        report.checks.append(autostart_status(rc))
+        report.checks.append(environment.autostart_status(rc))
 
     # 5. Hardware / codec context (folds in --speaker-info)
     report.speaker_info = _gather_speaker_info()
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
-    gate_check = firmware_gate_status(report.speaker_info.firmware_gates)
+    gate_check = environment.firmware_gate_status(report.speaker_info.firmware_gates)
     if gate_check is not None:
         report.checks.append(gate_check)
 
@@ -1274,18 +968,18 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         report.checks.append(pin_check)
 
     # 8. Kernel age — speaker-amp fixes land kernel-side (issue #33)
-    report.checks.append(kernel_age_status(report.speaker_info.kernel))
+    report.checks.append(environment.kernel_age_status(report.speaker_info.kernel))
 
     report.facts = {
         "ee_version": (".".join(map(str, version)) if version else "unknown")
                       + (f" (via {source})" if source else ""),
         "ee_running": easyeffects_is_running(),
         "install": "Flatpak" if _USE_FLATPAK else "native",
-        "output_dir": _tilde(output_dir),
-        "irs_dir": _tilde(irs_dir),
+        "output_dir": environment._tilde(output_dir),
+        "irs_dir": environment._tilde(irs_dir),
         "preset_count": len(generated_names),
         "irs_count": len(irs_stems),
-        "rc_path": _tilde(rc_path),
+        "rc_path": environment._tilde(rc_path),
         "rc_present": bool(rc_text),
         "selected_preset": rc.get("last_output_preset", "")
                            or rc.get("fallback_preset", ""),
@@ -1297,51 +991,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
-def emit_check(check: CheckResult) -> None:
-    """Print one diagnostic line: status box, label, wrapped detail, steps.
-
-    Hands off to the shared printer so this report and ee_to_pipewire.py's
-    PipeWire-side one read as one tool. This used to be a second
-    implementation of it, which is how a check's ``steps`` reached the
-    PipeWire doctor and not this one — the same duplication the steps
-    themselves exist to end.
-    """
-    doctor.emit_check(check, console.cprint, console._wrap_width())
-
-
-def print_doctor_summary(checks: list[CheckResult]) -> None:
-    """Print the counted one-line summary. Split from the verdict below it
-    because the two surfaces put different things between them — the
-    EasyEffects report interleaves its paste block."""
-    fail, warn, ok, unknown = _doctor_summary(checks)
-    parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
-    if unknown:
-        parts.append(f"{unknown} UNKNOWN")
-    console.cprint("err" if fail else ("warn" if (warn or unknown) else "ok"),
-           "Summary: " + ", ".join(parts))
-
-
-def print_doctor_verdict(checks: list[CheckResult]) -> None:
-    """Print the one-line verdict, shared so both doctors conclude the same way.
-
-    A WARN suppresses the all-clear: every warning either report can raise
-    names something that plausibly explains "I hear no difference", so
-    "no blocking problems" printed beside one contradicts the lines above it.
-    """
-    fail, warn, ok, unknown = _doctor_summary(checks)
-    if not (fail or warn or unknown):
-        console.cprint("ok", "No blocking problems detected.")
-    elif warn and not fail:
-        console.cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
-                       "to fix first.")
-    elif unknown and not fail:
-        console.cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
-                       "above); the rest look OK.")
-
-
-def _print_doctor_report(report: DoctorReport) -> None:
+def _print_doctor_report(report: environment.DoctorReport) -> None:
     """Print a compact, paste-safe diagnostic report."""
-    emit = emit_check
+    emit = environment.emit_check
 
     console.cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
     console.cprint("head", "=== EasyEffects doctor ===")
@@ -1364,7 +1016,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
             continue
         emit(c)
     print()
-    print_doctor_summary(report.checks)
+    environment.print_doctor_summary(report.checks)
     print()
 
     # Raw probed facts — always shown so an issue can be diagnosed remotely even
@@ -1391,7 +1043,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
     print()
 
     # What the doctor can't see — guide the user through the manual checks.
-    print_doctor_verdict(report.checks)
+    environment.print_doctor_verdict(report.checks)
     console.cprint("dim", "If you still hear no difference between the preset and bypass:")
     console.cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
     console.cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
@@ -1402,7 +1054,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
         _print_speaker_info(report.speaker_info)
 
     console.cprint("cta", "Still stuck? Paste everything above into an issue:")
-    console.cprint("cta", f"  {_REPORT_FORM_URL}")
+    console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")
 
 
 def report_doctor(args) -> None:
@@ -1420,14 +1072,14 @@ def warn_ee_environment(args) -> None:
     happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate."""
     probe = _probe_ee_version()
     version, found, ee_is_flatpak = probe.version, probe.found, probe.is_flatpak
-    ver = ee_version_status(version, found, probe.silent)
+    ver = environment.ee_version_status(version, found, probe.silent)
 
     if ver.status == DOCTOR_FAIL:
         vstr = ".".join(str(x) for x in version)
         console.cprint("err", f"\n{'=' * 60}")
         console.cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
         print()
-        console._cprint_wrapped("dim", ee_v7_message(vstr))
+        console._cprint_wrapped("dim", environment.ee_v7_message(vstr))
         print()
         console.cprint("dim", "To fix, install EasyEffects 8:")
         console.cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
@@ -1442,7 +1094,7 @@ def warn_ee_environment(args) -> None:
         # "written above" only holds on a run that wrote something: this check
         # is gated on --skip-ee-check alone, so on a dry run it referred to
         # presets the same output twice says were not written.
-        console.cprint("warn", "\n⚠  " + ee_silent_message(
+        console.cprint("warn", "\n⚠  " + environment.ee_silent_message(
             probe.silent,
             " and doesn't affect what this run would write." if args.dry_run
             else " and doesn't affect the presets written above."))
@@ -1461,25 +1113,6 @@ def warn_ee_environment(args) -> None:
         console.cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
                        f"location, but the {run_where} install was detected — if "
                        "that's the one you use, it won't see them (run --doctor).")
-
-
-def warn_old_kernel(release: str | None = None) -> None:
-    """End-of-run hint: an old kernel series can mis-configure the speaker
-    path no matter how good the preset is — issue #33 was fixed by a
-    kernel upgrade, not a preset change. Silent unless the running series is
-    older than _KERNEL_OLD_MONTHS. Mirrors warn_ee_environment."""
-    if release is None:
-        import platform
-        release = platform.release()
-    if kernel_age_status(release).status != DOCTOR_WARN:
-        return
-    series = parse_kernel_series(release)
-    aged = _kernel_series_age(series, date.today()) if series else None
-    sstr = f"{series[0]}.{series[1]}" if series else release
-    when = f" (released {aged[0]}, ~{aged[1]} months ago)" if aged else ""
-
-    console.cprint("warn", f"\n⚠  Your kernel series {sstr} is old{when}.")
-    console._cprint_wrapped("dim", kernel_old_message())
 
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
@@ -2108,175 +1741,6 @@ def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> li
     return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
 
 
-@contextlib.contextmanager
-def _atomic_write(path: Path):
-    """Yield a same-directory temp path, then os.replace it into place when the
-    block completes — so a crash mid-write can't leave a truncated file that
-    EasyEffects would silently fail to load. The dotfile temp name keeps a
-    leftover from a failed write out of EE's ``*.json`` / ``*.irs`` scan. The
-    single home for the temp-then-rename pattern; callers fill the temp however
-    they like (text, WAV, configparser)."""
-    tmp = path.with_name(f".{path.name}.tmp")
-    try:
-        yield tmp
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    os.replace(tmp, path)
-
-
-def _atomic_write_text(path: Path, data: str) -> None:
-    """Atomically write text to ``path`` (see _atomic_write)."""
-    with _atomic_write(path) as tmp:
-        tmp.write_text(data)
-
-
-def write_autoload(autoload_dir: Path, device_name: str, device_description: str,
-                   device_profile: str, preset_name: str, dry_run: bool = False) -> Path:
-    """Write an EasyEffects autoload config file for a device/route → preset mapping.
-
-    EasyEffects loads this file when the given PipeWire sink becomes the active
-    output, automatically switching to the named preset.
-
-    File is named '{device_name}:{device_profile}.json' (with '/' replaced by '_'),
-    matching EasyEffects' AutoloadManager::getFilePath() convention.
-    """
-    safe_name = device_name.replace("/", "_")
-    safe_profile = device_profile.replace("/", "_")
-    path = autoload_dir / f"{safe_name}:{safe_profile}.json"
-    if dry_run:
-        return path
-    autoload_dir.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(path, json.dumps({
-        "device": device_name,
-        "device-description": device_description,
-        "device-profile": device_profile,
-        "preset-name": preset_name,
-    }, indent=4) + "\n")
-    return path
-
-
-def write_bypass_preset(output_dir: Path, preset_name: str,
-                        dry_run: bool = False) -> tuple[Path, str]:
-    """Write an empty bypass preset used as EasyEffects' global fallback.
-
-    Returns (path, status) where status is "written", "kept", or "would-write".
-    If a preset of the same name already exists on disk, it is preserved — the
-    user may have hand-built one and we don't want to clobber it.
-    """
-    path = output_dir / f"{preset_name}.json"
-    if path.exists():
-        return path, "kept"
-    if dry_run:
-        return path, "would-write"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(path, json.dumps({
-        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
-        "output": {"blocklist": [], "plugins_order": []},
-    }, indent=4) + "\n")
-    return path, "written"
-
-
-def _ee_rc_parser() -> configparser.ConfigParser:
-    """A ConfigParser configured to read/write an easyeffectsrc faithfully.
-
-    EE uses camelCase keys and INI files with no interpolation; the default
-    parser would lowercase keys (EE then ignores them) and choke on '%'.
-    """
-    parser = configparser.ConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str
-    return parser
-
-
-def read_ee_rc(rc_text: str) -> dict:
-    """Parse easyeffectsrc text into the fields the diagnostics care about.
-
-    Pure (text in, dict out — no filesystem). Verified key locations against a
-    live EE 8.x rc: the loaded output preset is ``[Presets]
-    lastLoadedOutputPreset``; the global Fallback Preset toggle and the
-    Background-Service ``autostartOnLogin`` / ``enableServiceMode`` flags are
-    ``[Window]`` keys (``enableServiceMode`` is written only when toggled off —
-    an absent key is the ON default); the target sink and active plugin chain
-    are
-    ``[StreamOutputs] outputDevice``/``plugins``. Missing sections/keys fall
-    back to empty/False so callers never KeyError on a partial or older rc.
-    Note there is NO global-bypass key here — that toggle is runtime/GUI only.
-    """
-    parser = _ee_rc_parser()
-    try:
-        parser.read_string(rc_text)
-    except configparser.Error:
-        pass  # garbage rc → all defaults below
-
-    def g(section: str, key: str, default: str = "") -> str:
-        return parser.get(section, key, fallback=default).strip()
-
-    plugins = g("StreamOutputs", "plugins")
-    return {
-        "last_output_preset": g("Presets", "lastLoadedOutputPreset"),
-        "fallback_preset": g("Window", "outputAutoloadingFallbackPreset"),
-        # EE serialises booleans as the literal KConfig strings "true"/"false",
-        # so `.lower() == "true"` is an exact-format check matching what EE 8.x
-        # writes. If EE ever emitted "1"/"yes" these would read False and the
-        # autoload patch would re-run on every invocation.
-        "uses_fallback": g("Window", "outputAutoloadingUsesFallback",
-                           "false").lower() == "true",
-        "autostart_on_login": g("Window", "autostartOnLogin",
-                                "false").lower() == "true",
-        # enableServiceMode is written only when toggled OFF (non-default);
-        # an absent key is the ON default — hence default "true" here, the
-        # opposite polarity to autostartOnLogin above.
-        "service_mode": g("Window", "enableServiceMode",
-                          "true").lower() == "true",
-        "output_device": g("StreamOutputs", "outputDevice"),
-        "output_plugins": [p for p in plugins.split(",") if p],
-    }
-
-
-def set_autoload_fallback(rc_path: Path, preset_name: str,
-                          dry_run: bool = False) -> tuple[str, str]:
-    """Enable EasyEffects' global Fallback Preset toggle in its KConfig file.
-
-    EasyEffects 8.x stores the toggle as two keys under the [Window] section
-    (they're bound to QML properties attached to the main window object —
-    quirky location, but matches EE's config binding). No EE CLI or D-Bus
-    interface exists for this setting, so direct file edit is the only option.
-
-    Returns (status, existing_preset) where status is one of:
-      - "already-configured": both keys set and fallback enabled; file untouched.
-      - "patched": file created or keys set/updated.
-      - "would-patch": dry-run equivalent of "patched".
-    """
-    rc_text = ""
-    if rc_path.exists():
-        try:
-            rc_text = rc_path.read_text(encoding="utf-8")
-        except OSError:
-            rc_text = ""
-
-    rc = read_ee_rc(rc_text)
-    existing_preset = rc["fallback_preset"]
-    if rc["uses_fallback"] and existing_preset:
-        return "already-configured", existing_preset
-
-    if dry_run:
-        return "would-patch", existing_preset
-
-    parser = _ee_rc_parser()
-    if rc_text:
-        parser.read_string(rc_text)
-    section = "Window"
-    if not parser.has_section(section):
-        parser.add_section(section)
-    parser.set(section, "outputAutoloadingFallbackPreset", preset_name)
-    parser.set(section, "outputAutoloadingUsesFallback", "true")
-
-    rc_path.parent.mkdir(parents=True, exist_ok=True)
-    with _atomic_write(rc_path) as tmp, tmp.open("w", encoding="utf-8") as f:
-        parser.write(f, space_around_delimiters=False)
-    return "patched", existing_preset
-
-
 def easyeffects_is_running() -> bool:
     """Return True if an EasyEffects process is currently running.
 
@@ -2305,1703 +1769,22 @@ Finding = report_findings.Finding
 _print_finding_detail = report_findings._print_finding_detail
 
 
-# The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml).
-# There is exactly one link in the output and this is it. Everything the
-# closing block asks about is device-specific, and acting on any of it needs
-# what this form requires — model, --speaker-info output, the generation log.
-# A second, generic /issues link used to ride the mid-run feature-gap
-# warnings; once those moved into the same closing block it was simply a rival
-# call to action, pointing somewhere reports arrive stripped of that context.
-_REPORT_FORM_URL = (
-    "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
-    "/issues/new?template=device-report.yml"
-)
-
-
-# --- Finding factories -----------------------------------------------------
-#
-# Every finding raised outside the _UNMODELED_FEATURES table is built here,
-# one function each, rather than inline at its raise site. They are the single
-# definition of their wording: an earlier arrangement had the strings inline
-# and the contract tests restating them, which is the drift e3a7ee4 removed
-# from the doctor/warning pair — two copies, edited one at a time.
-
-def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
-    """Dolby names a different profile than the one we built."""
-    # kind="ask": "tell us which sounds better" is something the project
-    # needs, and hint-routing left the one ending that solicits the
-    # comparison without the Help-the-project block or the attach path
-    # (round 8). This is also the confirmation channel the parked
-    # build-the-declared-default change waits on.
-    return Finding(
-        slug="profile-mismatch", kind="ask",
-        # The naming note pre-empts a round-6 worry: a reviewer assumed the
-        # suggested --profile re-run would overwrite the presets they were
-        # told to compare against.
-        detail=f"This XML names '{declared}' as the profile the device ships "
-               f"on under Windows, but we built '{profile_used}' (this "
-               "speaker's first-listed). A --profile re-run writes its own "
-               "preset files, so both stay installed.",
-        # Names the action and what it gets you. An earlier wording led with
-        # "worth an A/B against Windows", which read as though the user had to
-        # go and do something in Windows.
-        # Names both sides. "the profile this device ships on" alone left the
-        # reader unable to tell what they'd be comparing against, and reading
-        # as though the tool had knowingly picked the wrong one.
-        # Says why the names matter and closes the loop: "re-run to compare"
-        # alone left a reviewer comparing with no idea what to do with the
-        # result, and the two names connected to nothing else in the block.
-        # "the Windows default", not "Windows uses": default_profile is the
-        # shipping default; what the user actually ran on Windows may
-        # differ.
-        ask=f"We built '{profile_used}' but the Windows default is "
-            f"'{declared}' — re-run with --profile {declared} and tell us "
-            "which sounds better.")
-
-
-def _untamed_boost_ask(coupled_bands_possible: bool) -> str:
-    """The two-step ask both members of the untamed-boost family carry.
-
-    One template for one risk family (round 8: two wordings for the same risk
-    left the reader unsure which explanation to trust) — but step 2 only
-    exists where `--enable coupled-bands` could actually do something. On a
-    tuning with no qualifying band the flag changes nothing, the run's own
-    "Optional extras" menu doesn't offer it, and a re-run answers
-    "--enable coupled-bands had no effect".
-
-    "(not both)": every compact form — "swap it for" (round 3), "instead"
-    (round 5), "just" (round 8), "replace that flag with" (round 9) — kept
-    reading ambiguous against the seam line's "they combine". The
-    parenthetical says it outright.
-    """
-    if not coupled_bands_possible:
-        return "If loud parts distort, re-run with --disable volmax."
-    return ("If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, swap to --enable coupled-bands (not both).")
-
-
-def _loudness_untamed_finding(coupled_bands_possible: bool = True) -> Finding:
-    """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
-    return Finding(
-        slug="loudness-untamed",
-        # Self-contained: it used to say "threshold_high above", pointing at
-        # a table that only prints with -v now. The field name stays in
-        # parentheses as the grep handle. No limiter noun at all (round 8):
-        # "brickwall" → "final safety limiter" → "the preset's own output
-        # limiter" each read as a second mystery stage; what the reader
-        # needs is the consequence, phrased identically to the
-        # boost-unlimited sibling — one template for one risk family.
-        # No raw field name (round 9): "threshold_high" read as leaked
-        # code and undercut trust. The -v table still prints the field.
-        # "band by band" is load-bearing, not filler: limiter#0 ships on
-        # every preset, so the bare "nothing limits it" that dropping the
-        # noun left behind was false. The qualifier keeps the sentence
-        # true without reintroducing a stage the reader has to look up.
-        detail="This tuning's regulator never engages — every band's "
-               "limit sits at or above full volume — so nothing trims "
-               "the loudness boost band by band on its way out.",
-        # Same two-step ask as boost-unlimited — one template for one risk
-        # family (round 9); coupled-bands is exactly the all-inert class's
-        # remedy (issue #27), where it qualifies.
-        ask=_untamed_boost_ask(coupled_bands_possible))
-
-
-def _boost_unlimited_finding(peak_db: float, freq,
-                             coupled_bands_possible: bool = True,
-                             restored: bool = False) -> Finding:
-    """The band carrying the largest boost is one the regulator leaves free."""
-    # Name everything riding on that band, not just volmax: under
-    # --enable level-restore the peak itself is added back as gain, so
-    # "with the volmax boost on top" would describe half the drive. The
-    # clause stays one phrase either way — this is a detail line, and the
-    # flag's own menu entry carries the "may distort" caveat.
-    on_top = ("the volmax boost and the restored level on top" if restored
-              else "the volmax boost on top")
-    return Finding(
-        slug="boost-unlimited",
-        # Same closing formula as loudness-untamed — one template for one
-        # risk family (round 8: two wordings for the same risk left the
-        # reader unsure which explanation to trust).
-        detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
-               f"lands on a band the regulator leaves unlimited, with "
-               f"{on_top} — nothing trims it band by band on its "
-               "way out.",
-        # Sequenced, and step 2 speaks the menu's symptom family for
-        # coupled-bands (harshness) instead of inventing its own: with
-        # "if they still distort" the same screen sold the flag for
-        # distortion while the menu sold it for harshness (rounds 3 and 5
-        # — one heard symptom per flag). Not "loud music": the vocabulary
-        # trap reserves "music" for the mbc symptom. No region word — the
-        # unlimited band's frequency is device-specific and the detail
-        # above already names it. Wording and the "(not both)" rationale
-        # live in _untamed_boost_ask, shared with loudness-untamed.
-        ask=_untamed_boost_ask(coupled_bands_possible))
-
-
-def _experimental_finding(named: str, flags: list[str]) -> Finding:
-    """Emission paths reproduced from the XML but never confirmed by ear.
-
-    The ask has to say what to listen for and how to compare, because the
-    reader has no reference: they have never heard this laptop tuned
-    correctly, so "does it sound right?" is unanswerable on its own. Naming
-    the --disable flag turns it into an A/B they can actually run.
-    """
-    if len(flags) == 1:
-        ask = (f"Re-run with --disable {flags[0]} and tell us which version "
-               "sounded better.")
-    else:
-        ask = "Tell us whether it sounds right — either answer helps."
-    # Not slug="experimental": the --enable menu describes coupled-bands as
-    # "experimental (issue #44)" on the same screen, so a report quoting
-    # "[experimental]" could mean either. The slug states the situation the
-    # detail describes; the menus keep "experimental" as an adjective.
-    return Finding(
-        slug="unconfirmed-by-ear", kind="ask",
-        detail=f"Built from your tuning but never confirmed by ear: {named}. "
-               "These come straight out of the Dolby file and the numbers "
-               "check out, but nobody with a device that uses them has told "
-               "us how they sound.",
-        ask=ask)
-
-
-def _firmware_gate_finding() -> Finding:
-    """Whether toggling the smart-amp gate actually restored the bass."""
-    return Finding(
-        slug="firmware-gate", kind="ask",
-        detail="Smart-amp firmware gate is off — see the procedure above.",
-        ask="Did toggling the smart-amp control change how it sounds? "
-            "(issue #17)")
-
-
-def _leveler_gap_finding(substages: list[str], autogain_on: bool,
-                              autogain_available: bool = True,
-                              disabled_by_flag: bool = False) -> Finding | None:
-    """The Dolby leveler companion stages this converter cannot reproduce.
-
-    Unlike every other mapping these carry no parameters at all — the schema
-    has an on/off bit and nothing else, no threshold, ratio, attack or release
-    in either tuning block — so no stage can be derived from them, and
-    inventing one is the per-device hand-tuning the XML-only rule forbids.
-
-    Two strengths. Where the leveler ships bypassed (HDA default) the
-    companions cannot be heard and there is nothing for anyone to do: detail
-    only, no ask. Where the leveler runs (SoundWire default, or ``--enable
-    autogain``) it runs without the compressor Dolby pairs with it — a
-    plausible cause of exactly the pumping that state gets blamed for — so
-    that case asks for the one capture that could settle it, and names
-    ``--disable autogain`` as the off-switch.
-
-    "May be part of it", not "the most likely reason": the measured driver of
-    quiet-swell/loud-duck is EE's own non-content-aware autogain (design-notes,
-    "Why autogain is bypassed by default"), and the corpus doc records that the
-    companion compressor does not explain the issue-#25 overshoot — neither
-    device carrying it. The copy had promoted this docstring's own hedge.
-
-    Every user-review round misread this copy until it said where the
-    leveler itself stands: the parsed-XML block above prints the leveler's
-    own amount/targets, so "cannot reproduce" without an owner read as the
-    converter contradicting itself about the leveler.
-    """
-    if not substages:
-        return None
-    named = ", ".join(substages)
-    # Plain words first, raw names in parentheses (round 7): the raw
-    # volume-leveler-drc/-compressor tokens were the one list without the
-    # friendly-name treatment every other stage gets.
-    head = ("Also in your tuning but not rebuilt: companion compression "
-            f"stages Dolby pairs with its volume leveler ({named}). "
-            "Harmless as built: ")
-    if not autogain_on:
-        # Only point at --enable autogain when it could actually change this.
-        # On a tuning whose XML disables the leveler outright the flag does
-        # nothing, and suggesting it contradicts the "had no effect" warning
-        # printed just above.
-        #
-        # --disable autogain also clears the marker, so without its own
-        # branch this blamed the tuning for the reader's own flag — while
-        # the leveler section a few lines up correctly credited the flag.
-        if disabled_by_flag:
-            tail = ("--disable autogain switched the leveler off in this "
-                    "preset, so they cannot be heard.")
-        elif autogain_available:
-            tail = ("the leveler ships switched off in this preset, so they "
-                    "cannot be heard — this only matters if you rebuild with "
-                    "--enable autogain.")
-        else:
-            tail = ("your tuning switches the leveler off outright, so they "
-                    "cannot be heard and no flag here changes that.")
-        return Finding(slug="leveler-gap", kind="ask", detail=head + tail)
-    return Finding(
-        slug="leveler-gap", kind="ask",
-        detail="The volume leveler itself is rebuilt and running in this "
-               "preset. But your tuning pairs it with companion "
-               f"compression stage(s) ({named}) this converter cannot "
-               "rebuild: the tuning file "
-               "records only that they are switched on, not how they are "
-               "set. If quiet passages swell then duck when things get "
-               "loud, that gap may be part of it (--disable "
-               "autogain switches the "
-               "leveler off). Settling it needs a capture from a Windows "
-               "install with Dolby on this same machine — a few minutes "
-               "of scripted recording; if you dual-boot, we'll walk you "
-               "through it.",
-        # Deliberately does not ask them to go and do the capture, and does
-        # not point at the measure_dax README: two rounds of reviewers read
-        # the self-serve route as homework that gates help and said they'd
-        # give up there — the ask below owns the route ("tell us, we'll
-        # walk you through it"), and the procedure link belongs in that
-        # conversation. It is a multi-step measurement on a second OS, and
-        # most people run this script once. The walk-you-through offer also
-        # rides the detail (round 4: read top-down, "settling it needs a
-        # capture" arrived 40 lines before the offer and read as an
-        # unexplained requirement).
-        # Names Windows so anyone who doesn't dual-boot can skip the line
-        # rather than reading to the end to find out they can't help — the
-        # capture measures what DAX does, so it has to run there.
-        # Vocabulary is the autogain row's ("swell then duck"), NOT the
-        # regulator's "wobbles or surges" — a round-2 reviewer hearing
-        # volume movement couldn't tell which of the two remedies to try
-        # because both claimed "surges".
-        ask="If quiet passages swell then duck, tell us — a Windows "
-            "capture would settle it and we'll walk you through it.")
-
-
-def _print_ask(style: str, finding: Finding) -> None:
-    """One bullet: the sentence first, then the slug, dimmed.
-
-    The slug trails because a first-time reader needs the sentence, not the
-    tag — it only matters once they want to scroll back to the detail it was
-    raised with, so it should not be the first thing the eye lands on. Dim for
-    the same reason.
-
-    Two styles on one line means assembling spans rather than handing cprint a
-    string: the console runs with markup off, so bracket syntax in the text is
-    literal (which is what keeps ``[slug]`` printable at all). Spans sidestep
-    that entirely — nothing is parsed out of the message.
-    """
-    # Scope rides in the tag, not the sentence: it is bookkeeping, and the
-    # sentence has a one-line budget to keep. Silent when the finding applies
-    # everywhere, which on a default single-profile run is always — so the
-    # common case pays nothing for it.
-    tag = (f"[{finding.slug} · {finding.scope}]" if finding.scope
-           else f"[{finding.slug}]")
-    lines = textwrap.wrap(f"  • {finding.ask}  {tag}", width=console._wrap_width(),
-                          subsequent_indent="    ", break_on_hyphens=False)
-    for line in lines:
-        if console._CONSOLE is not None and line.endswith(tag):
-            # Imported here, not beside the console: this is rich's only
-            # caller outside cprint, and a live console already proves the
-            # import succeeds. Nothing else needs the two-style path.
-            from rich.text import Text
-            span = Text()
-            span.append(line[:-len(tag)], style=style)
-            span.append(tag, style="dim")
-            console._CONSOLE.print(span, soft_wrap=True)
-        else:
-            console.cprint(style, line)
-
-
-def _print_attach_lines(xml_path) -> None:
-    """The what-to-send lines, shared by both closing branches.
-
-    cta, not dim: this is the one concrete task the report needs, and it
-    printed fainter than the reassurance bullet above it (round-2 color
-    finding). "If you report", the intro line's vocabulary: unconditional
-    "attach this to your report" left a round-4 reviewer unsure whether
-    filing was mandatory. Download link preferred over attaching: a
-    driver-package link identifies the exact tuning build and carries
-    every sibling XML for the device; "(if you know it)" because a reader
-    who found the file on their Windows partition has no download to link
-    (round 8).
-    """
-    if xml_path is None:
-        return
-    print()
-    console._cprint_wrapped("cta", "  If you report, best is a link to "
-                           "your device's audio-driver download "
-                           "(if you know it) — or just attach the "
-                           "XML file:",
-                    indent="  ")
-    # Absolute and quoted. Dolby's own directory names contain '$'
-    # (…/code$GetExtractPath$/…), so an unquoted relative path is
-    # eaten by the shell the moment anyone types ls on it and the
-    # file looks missing. Same cta as its instruction — the copy
-    # target must not be the faintest line in the block.
-    console.cprint("cta", f"    '{Path(xml_path).resolve()}'")
-
-
-def print_project_asks(findings: list[Finding], dry_run: bool = False,
-                       xml_path=None, pipewire_native: bool = False) -> None:
-    """Print the closing block: what the project needs, then the one ask.
-
-    Always prints. Most people run this script once, on one machine, and
-    never again, so whatever we want from them we get on this run or not at
-    all — there is no next run to defer to. On a clean run that means three
-    lines and no header; a rule and a heading over a bare "how does it sound"
-    would be noise on the common path.
-
-    Specifics first and the link last, so the bullets make the case for why
-    this particular run is worth reporting and the URL is what is still on
-    screen when the run ends.
-
-    ``dry_run`` swaps the closing line, because nothing was installed and
-    "how does it sound?" is then an impossible instruction — the announcement
-    that this was a dry run is hundreds of lines up by the time anyone reads
-    the end, so the last thing on screen has to carry it too.
-    """
-    asks = [f for f in findings if f.kind == "ask" and f.ask]
-    # Every tag shown this run, not just the ones with an ask. A hint like
-    # [loudness-untamed] is often the only finding that actually fired for
-    # the device, and listing only asks under "quote the tag in brackets"
-    # sent reporters to quote the speculative one and never mention it.
-    tagged = [f for f in findings if f.slug]
-    print()
-    if asks:
-        console.cprint("head", "=" * 60)
-        console.cprint("head", "Help the project")
-        print()
-        # Say what the bracketed tags are for. Read cold they look like debug
-        # labels that leaked out of the code, which is how they get ignored.
-        # "these most of all" introduced a list that is usually one item
-        # long, and its "these" pointed backwards at nothing on a top-down
-        # read.
-        console._cprint_wrapped("dim", "Some of this only a real device can answer. "
-                               "If you report, quote the [tag] so we know "
-                               "which line you mean:")
-        # Plain, not cta: bold-magenta bullets read as warnings — a round-4
-        # reviewer took the peak-level reassurance ("should sound right")
-        # for something being wrong, because it matched the report call's
-        # color. The hierarchy is dim intro → plain bullets → cta
-        # instructions (attach line, final call), so the calls to action
-        # still print brighter than the specifics (round-2 rule).
-        for finding in asks:
-            _print_ask("", finding)
-        # The tool found the tuning XML; the user never went looking for it,
-        # so an ask to "send us your tuning XML" is unactionable without the
-        # path. Printed once here rather than inside each bullet, which the
-        # one-sentence budget has no room for.
-        # For every ask, not just ones whose wording mentions the XML
-        # (round 6): the file helps triage whatever the report is about,
-        # and the old wording-sniffing gate was one rewording away from
-        # silently switching the path off.
-        _print_attach_lines(xml_path)
-        print()
-    elif tagged:
-        # No ask fired, but something upstream still carries a tag. Say it is
-        # worth quoting, or the reader is left holding a bracketed token with
-        # no reason to think it means anything to us. The attach lines print
-        # here too (round 10, user-picked): a run whose only findings are ⚠
-        # warnings is exactly one the project wants the tuning source for,
-        # and this branch used to leave its reporter with nothing to attach.
-        console.cprint("head", "=" * 60)
-        console._cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
-                               "it tells us which finding you mean.")
-        _print_attach_lines(xml_path)
-        print()
-
-    # Stages this tuning has that we drop. They carry no ask, because there is
-    # nothing anyone can do about them — but they printed two hundred lines
-    # up and never again, so the closing block read as the whole story when a
-    # piece of the tuning was missing from it. One line, no bullet list: it is
-    # context for a report, not another thing to action.
-    dropped = [f.slug for f in findings if f.kind == "ask" and not f.ask]
-    if dropped:
-        # Not "Not reproduced on this device" — reviewers read that as
-        # issue-tracker language ("we couldn't reproduce your bug"), the
-        # opposite of what it says. And the mention needs a reason, or it is
-        # a nothing-to-do entry that teaches readers to skip the block.
-        console._cprint_wrapped("dim", "Parts of your tuning this converter doesn't "
-                               "rebuild: "
-                               + ", ".join(f"[{s}]" for s in dropped)
-                               + " — nothing you need to do, but mention "
-                                 "them if you report so we know which "
-                                 "devices have them.")
-        print()
-    # The link prints either way. Suppressing it on a dry run left the block
-    # above saying "quote the tag in brackets if you report one" with nowhere
-    # to report to — worse than the impossible "how does it sound?" it was
-    # meant to fix, because that at least named a destination.
-    # For the wrapper's reader the repo name says "easyeffects" — the very
-    # thing they chose this path to avoid — and the only link in the run
-    # points there, so one clause says their report belongs here too.
-    if dry_run:
-        # Just the pointer. That nothing was written is said immediately
-        # above by whoever ran the dry run — print_what_now here, the [3/3]
-        # banner under dolby_to_pipewire.py — and saying it twice in
-        # consecutive sentences reads like a stutter.
-        lead = ("Reporting anything above? PipeWire-only reports are "
-                "welcome — here's where:" if pipewire_native else
-                "Reporting anything above? Here's where:")
-    else:
-        lead = ("How does it sound? Please report back — good or bad, or "
-                "if you need help"
-                + (" (PipeWire-only reports are welcome)"
-                   if pipewire_native else "") + ":")
-    console._cprint_wrapped("cta", lead)
-    # The URL gets its own line and is never wrapped: broken across lines it
-    # can't be clicked or copied, which defeats the whole point of the ask.
-    console.cprint("cta", f"  {_REPORT_FORM_URL}")
-
-
 # --- FIR generation ---
 #
-# make_fir and friends are in lib/preset/fir.py. This one stayed: it writes
-# through _atomic_write, which four other callers here share and which has no
-# home in lib/ yet, and a move commit may not re-point a body it carries.
+# make_fir and friends are in lib/preset/fir.py. This one stayed behind them
+# because binding `wavfile` in a module that isn't this one means writing a
+# second deferred import, which is new code rather than motion. It is the
+# only remaining caller of lib/preset/autoload.py's _atomic_write outside
+# that module.
 
 
 def save_wav_stereo(path: Path, fir_left: np.ndarray,
                     fir_right: np.ndarray) -> None:
     """Save stereo impulse response as 32-bit float WAV."""
     stereo = np.column_stack([fir_left, fir_right]).astype(np.float32)
-    with _atomic_write(path) as tmp:
+    with autoload._atomic_write(path) as tmp:
         wavfile.write(str(tmp), fir.SAMPLE_RATE, stereo)
 
-
-# --- EasyEffects preset builders ---
-
-def _eq_band(*, frequency, gain, q, slope, lsp_type) -> dict:
-    """One EQ band in EE PEQ schema order. ``mode``/``mute``/``solo``/``width``
-    are EE-schema fillers (topology, not tuning) — defined once here so a future
-    EE-schema tweak lands in a single place. The per-band builders below pass
-    only the values that differ (frequency/gain/q/slope/type)."""
-    return {
-        "frequency": frequency,
-        "gain": gain,
-        "mode": "RLC (BT)",
-        "mute": False,
-        "q": q,
-        "slope": slope,
-        "solo": False,
-        "type": lsp_type,
-        "width": 4.0,
-    }
-
-
-def make_band(freq: float, gain: float, q=1.5) -> dict:
-    return _eq_band(
-        frequency=freq, gain=round(gain, 4), q=q, slope="x1", lsp_type="Bell"
-    )
-
-
-def make_convolver(kernel_name: str) -> dict:
-    """Convolver plugin config referencing an IR by name.
-
-    EasyEffects 8.x uses kernel-name (filename stem without extension),
-    and looks for the WAV in its irs/ directory.
-    """
-    return {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "kernel-name": kernel_name,
-        "ir-width": 100,
-        "autogain": False,
-    }
-
-
-# Dolby HP/LP ``order=N`` → LSP user-facing slope ``x{N/2}`` (LSP internally
-# doubles the slope so nSlope equals the filter order; see make_hp_band).
-_ORDER_TO_LSP_SLOPE = {2: "x1", 4: "x2", 6: "x3", 8: "x4"}
-
-
-def _make_passfilter(freq: float, order: int, lsp_type: str) -> dict:
-    """Shared HP/LP pass-filter band. ``lsp_type`` selects the LSP ``type``
-    label ("Hi-pass"/"Lo-pass"); the rest is identical between directions
-    (see make_hp_band / make_lp_band for the slope-doubling rationale)."""
-    return _eq_band(
-        frequency=freq,
-        gain=0.0,
-        q=0.707,
-        slope=_ORDER_TO_LSP_SLOPE.get(order, "x4"),
-        lsp_type=lsp_type,
-    )
-
-
-def make_hp_band(freq: float, order: int) -> dict:
-    """High-pass filter band for speaker protection.
-
-    Dolby's ``order=N`` declares an N-th-order high-pass. LSP's
-    ``RLC (BT)`` HP user-facing slope ``x1..x4`` is *internally doubled*
-    to ``nSlope=2,4,6,8`` (that's literally ``*slope = 2 * *slope`` in
-    ``para_equalizer.cpp:167``), and ``calc_rlc_filter`` then builds
-    ``nSlope/2`` cascaded 2nd-order sections at the user-Q — so internal
-    ``nSlope`` equals filter order. So Dolby ``order=N`` maps to LSP
-    user-facing slope ``x{N/2}`` (see ``_ORDER_TO_LSP_SLOPE``). Corpus has
-    order ∈ {2, 4, 8}.
-    """
-    return _make_passfilter(freq, order, "Hi-pass")
-
-
-def _shelf_q_from_s(gain: float, s: float) -> float:
-    """Standard audio S-to-Q conversion for shelving filters.
-
-    Q = 1/sqrt((A + 1/A) * (1/S - 1) + 2) where A = 10^(gain/40).
-    For S=1.0 this simplifies to Q ≈ 0.707 (Butterworth). The
-    (A + 1/A) term is symmetric in A↔1/A, so the sign of gain does
-    not affect Q — and the formula is also symmetric between
-    low-shelf and high-shelf variants.
-    """
-    a = 10 ** (gain / 40.0) if gain != 0 else 1.0
-    denom = (a + 1.0 / a) * (1.0 / s - 1.0) + 2.0
-    return 1.0 / math.sqrt(max(denom, 0.01))
-
-
-def _make_shelf(freq: float, gain: float, s: float, lsp_type: str) -> dict:
-    """Shared low/high-shelf band. ``lsp_type`` selects the LSP ``type``
-    label ("Lo-shelf"/"Hi-shelf"); the Q-from-S derivation is identical in
-    both directions (``_shelf_q_from_s`` is symmetric in shelf direction)."""
-    return _eq_band(
-        frequency=freq,
-        gain=round(gain, 4),
-        q=round(_shelf_q_from_s(gain, s), 4),
-        slope="x1",
-        lsp_type=lsp_type,
-    )
-
-
-def make_shelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
-    """Low-shelf filter band from Dolby PEQ type 4."""
-    return _make_shelf(freq, gain, s, "Lo-shelf")
-
-
-def make_hishelf_band(freq: float, gain: float, s: float = 1.0) -> dict:
-    """High-shelf filter band from Dolby PEQ type 3.
-
-    Mirror of make_shelf_band with LSP's "Hi-shelf" mode. Same Q-from-S
-    derivation — the formula is symmetric in shelf direction. Corpus
-    gains are strictly non-negative (0 to +15 dB) across the 1754
-    type-3 filters observed, typically a +2-5 dB presence lift around
-    2.7 kHz. Experimental path — not yet audibly validated.
-    """
-    return _make_shelf(freq, gain, s, "Hi-shelf")
-
-
-def make_lp_band(freq: float, order: int) -> dict:
-    """Low-pass filter band from Dolby PEQ types 6 and 8.
-
-    Mirror of make_hp_band with LSP's "Lo-pass" mode — same LSP slope
-    doubling convention (see make_hp_band docstring), so order N maps
-    to slope ``x{N/2}`` via ``_ORDER_TO_LSP_SLOPE``. Rare: a few hundred LP
-    filters across the corpus, mostly order=8 tweeter-guard rolloff.
-    Experimental path — not yet audibly validated.
-    """
-    return _make_passfilter(freq, order, "Lo-pass")
-
-
-def make_peq_eq(peq_filters: list[dict]) -> dict | None:
-    """Parametric EQ for the explicit speaker PEQ from Dolby.
-
-    Handles filter types: 1 (bell), 4 (low-shelf), 7/9 (high-pass),
-    3 (high-shelf, experimental), 6/8 (low-pass, experimental). The HP
-    protects laptop speakers from sub-bass energy they can't reproduce;
-    the LP is a tweeter-guard rolloff seen on a handful of ALC274 SKUs.
-    """
-    bells_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
-    bells_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
-    hp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (7, 9)]
-    hp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (7, 9)]
-    lp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (6, 8)]
-    lp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (6, 8)]
-    loshelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 4]
-    loshelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 4]
-    hishelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 3]
-    hishelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 3]
-
-    num_bells = max(len(bells_l), len(bells_r))
-    num_hp = max(len(hp_l), len(hp_r))
-    num_lp = max(len(lp_l), len(lp_r))
-    num_loshelf = max(len(loshelf_l), len(loshelf_r))
-    num_hishelf = max(len(hishelf_l), len(hishelf_r))
-    num_bands = num_hp + num_lp + num_loshelf + num_hishelf + num_bells
-
-    if num_bands == 0:
-        return None
-
-    left_bands = {}
-    right_bands = {}
-
-    def place(bucket_l, bucket_r, builder, off):
-        for j, pf in enumerate(bucket_l):
-            left_bands[f"band{off + j}"] = builder(pf)
-        for j, pf in enumerate(bucket_r):
-            right_bands[f"band{off + j}"] = builder(pf)
-
-    off = 0
-    place(hp_l, hp_r, lambda pf: make_hp_band(pf["f0"], pf["order"]), off)
-    off += num_hp
-    place(lp_l, lp_r, lambda pf: make_lp_band(pf["f0"], pf["order"]), off)
-    off += num_lp
-    place(loshelf_l, loshelf_r,
-          lambda pf: make_shelf_band(pf["f0"], pf["gain"], pf["s"]), off)
-    off += num_loshelf
-    place(hishelf_l, hishelf_r,
-          lambda pf: make_hishelf_band(pf["f0"], pf["gain"], pf["s"]), off)
-    off += num_hishelf
-    place(bells_l, bells_r,
-          lambda pf: make_band(pf["f0"], pf["gain"], q=pf["q"]), off)
-
-    # Fill missing bands on whichever channel is shorter. Each slot keeps
-    # its filter category so the channels stay topologically matched.
-    fillers = []
-    for _ in range(num_hp):
-        fillers.append(lambda: make_hp_band(100.0, 4))
-    for _ in range(num_lp):
-        fillers.append(lambda: make_lp_band(20000.0, 4))
-    for _ in range(num_loshelf):
-        fillers.append(lambda: make_shelf_band(100.0, 0.0))
-    for _ in range(num_hishelf):
-        fillers.append(lambda: make_hishelf_band(10000.0, 0.0))
-    for _ in range(num_bells):
-        fillers.append(lambda: make_band(1000.0, 0.0))
-    for idx in range(num_bands):
-        key = f"band{idx}"
-        if key not in left_bands:
-            left_bands[key] = fillers[idx]()
-        if key not in right_bands:
-            right_bands[key] = fillers[idx]()
-
-    # Compensate for PEQ boost to prevent clipping. Bells are scaled by
-    # bandwidth: a narrow Q=4.6 bell at +4 dB barely raises broadband
-    # level, while a wide Q=0.7 bell at +4 dB raises it nearly 4 dB
-    # (effective boost ≈ gain * min(1, 2/Q)). Shelves (both low- and
-    # high-shelf) contribute their full gain because they raise an entire
-    # half-band above/below the corner. HP/LP filters are cut-only and
-    # reduce headroom, so they don't enter the compensation sum.
-    effective_boosts = []
-    for pf in bells_l + bells_r:
-        if pf["gain"] <= 0:
-            continue
-        q = pf.get("q", 1.0)
-        effective_boosts.append(pf["gain"] * min(1.0, 2.0 / q))
-    for pf in loshelf_l + loshelf_r + hishelf_l + hishelf_r:
-        if pf["gain"] <= 0:
-            continue
-        effective_boosts.append(pf["gain"])
-    peak_boost = max(effective_boosts, default=0.0)
-    output_gain = -peak_boost
-
-    return {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": round(output_gain, 2),
-        "mode": "IIR",
-        "num-bands": num_bands,
-        "split-channels": True,
-        "left": left_bands,
-        "right": right_bands,
-    }
-
-
-# NOTE: there is deliberately no surround→stereo-widening builder. Earlier
-# revisions mapped `surround-boost` to a Calf Stereo Tools `stereo-base`
-# widening (commit 82d7f3d). A 2026-06-13 DAX capture on the X1 Yoga
-# falsified that mapping: on 2-channel content DAX applies *zero* stereo
-# widening — `surround-boost=96` (movie) is identical to `surround-boost=0`
-# (game) to 0.01 dB RMS in both L and R, and leaves the L/R correlation
-# untouched (no magnitude M/S rebalance, no phase decorrelation). The field
-# is a virtualization/surround-render depth control that is dormant without
-# a multichannel/object bed, not a stereo-width knob — so the faithful
-# stereo-playback behaviour is to not widen. See docs/design-notes.md,
-# unvalidated-scaling entry 2. (ee_to_pipewire.py keeps `emit_stereo_tools`
-# as a translator for any preset that still carries a stereo_tools block.)
-
-
-def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
-    """Dialog enhancer mapped as a broad speech-band EQ boost.
-
-    Dolby's dialog enhancer (DE) isolates speech frequencies and
-    selectively boosts them. We approximate this with a broad Bell
-    filter centered at 2.5 kHz (speech presence region), with gain
-    scaled by the DE amount (0-16 scale): amount/16 * 6 dB, giving a
-    maximum of +6 dB.
-
-    (An earlier SoundWire-only variant used a stronger *8 mapping plus
-    a 4 kHz "clarity" bell — removed: it was calibrated against the
-    pre-#13 chain whose over-applied IEQ crushed the treble it was
-    compensating; see design-notes unvalidated-scaling entry 1.)
-    """
-    if not dialog_enhancer:
-        return None
-
-    amount = dialog_enhancer["amount"]
-
-    gain = round(amount / parse.DB_FIXED_POINT_SCALE * 6.0, 2)
-    if gain <= 0:
-        return None
-
-    return {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "mode": "IIR",
-        "num-bands": 1,
-        "split-channels": False,
-        "left": {"band0": make_band(2500.0, gain, q=0.7)},
-        "right": {"band0": make_band(2500.0, gain, q=0.7)},
-    }
-
-
-def make_autogain(vol_leveler: dict | None,
-                  conservative: bool = False,
-                  enabled: bool = False) -> dict | None:
-    """Autogain plugin mapping from Dolby volume leveler.
-
-    The Dolby volume leveler brings quiet passages up to a target loudness.
-    EasyEffects' autogain does the same using EBU R 128 loudness measurement.
-
-    Dolby volume-leveler-amount (0-10) maps to aggressiveness:
-      0 = gentle (long history window)
-      10 = aggressive (short history window)
-
-    For HDA presets: bypassed by default. EE's leveler has no equivalent
-    of Dolby's MI steering: it boosts legitimate quiet content (a low
-    background under intermittent speech, ~+14 dB measured) and each loud
-    onset then rides ~4 dB of overshoot into the downstream dynamics —
-    audible saturation, measured independent of `maximum-history`
-    (design-notes). `--enable autogain` (enabled=True) opts in for the
-    ~+9 dB program loudness it brings (issue #25). Either way the silence
-    gate ships at -50 dB — the #25 field-confirmed fix for crackle on
-    short sounds arriving after silence — so manual GUI enabling is safe.
-
-    For SoundWire presets (conservative=True): active with gentler
-    settings — a -6 dB target offset and a longer history window.
-    """
-    if not vol_leveler or not vol_leveler["enable"]:
-        return None
-
-    amount = vol_leveler["amount"]
-    target = vol_leveler["out_target"]
-
-    if conservative:
-        max_history = max(40 - amount * 4, 15)
-        target -= 6.0
-    else:
-        max_history = max(30 - amount * 5, 10)
-    return {
-        "bypass": not (conservative or enabled),
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "maximum-history": max_history,
-        "reference": "Geometric Mean (MSI)",
-        "silence-threshold": -50.0,
-        "target": round(target, 1),
-    }
-
-
-# Dolby DSP coefficients (MBC gain/attack/release) are Q15 fixed point:
-# the stored int divided by 2^15 gives the fractional value; 2^15 is "unity".
-Q15_SCALE = 32768.0
-# The Dolby MB compressor operates per block of this many samples (not per
-# sample), so time-constant decoding converts via blocks-per-second.
-MBC_BLOCK_SIZE = 256
-
-
-def decode_mbc_time_constant(coeff: int, block_size: int = MBC_BLOCK_SIZE) -> float:
-    """Decode a Dolby time constant coefficient to milliseconds.
-
-    Dolby stores time constants as exponential smoothing coefficients
-    in Q15 fixed-point format, operating per block (not per sample).
-    coeff/32768 = (1 - alpha), where alpha = 1 - exp(-1/(tau * blocks_per_sec)).
-    """
-    blocks_per_sec = fir.SAMPLE_RATE / block_size
-    one_minus_alpha = coeff / Q15_SCALE
-    if one_minus_alpha <= 0.0 or one_minus_alpha >= 1.0:
-        return 100.0  # fallback
-    tau = -1.0 / (blocks_per_sec * math.log(one_minus_alpha))
-    return tau * 1000.0  # seconds to ms
-
-
-# LSP MBC/limiter release-threshold floor: parked just under -80 dB so the
-# release stage effectively never re-triggers. Shared by the disabled and
-# active band builders.
-MBC_RELEASE_THRESHOLD_FLOOR = -80.01
-
-
-def _disabled_band() -> dict:
-    """The LSP 'band off' parameter dict, shared by make_multiband_compressor
-    and make_regulator (the literal was byte-identical in both).
-
-    Key order and the trap-fix values are load-bearing: the preset JSON
-    preserves insertion order, and design-notes track compression-mode
-    "Downward" (over LSP's "Upward" default), boost-amount 0.0, and
-    enable-band False as the LSP defaults that must be explicitly overridden.
-    Returns a fresh dict each call so each band gets its own object.
-    """
-    return {
-        "enable-band": False,
-        "compressor-enable": False,
-        "mute": False,
-        "solo": False,
-        "attack-threshold": -12.0,
-        "attack-time": 20.0,
-        "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
-        "release-time": 100.0,
-        "ratio": 1.0,
-        "knee": -6.0,
-        "makeup": 0.0,
-        "compression-mode": "Downward",
-        "sidechain-type": "Internal",
-        "sidechain-mode": "RMS",
-        "sidechain-source": "Middle",
-        "stereo-split-source": "Left/Right",
-        "sidechain-lookahead": 0.0,
-        "sidechain-reactivity": 10.0,
-        "sidechain-preamp": 0.0,
-        "sidechain-custom-lowcut-filter": False,
-        "sidechain-custom-highcut-filter": False,
-        "sidechain-lowcut-frequency": 10.0,
-        "sidechain-highcut-frequency": 20000.0,
-        "boost-threshold": -60.0,
-        "boost-amount": 0.0,
-    }
-
-
-def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
-    """Decode Dolby mb-compressor band_groups into per-band dynamics dicts.
-
-    Single source of truth for the MBC band decode: both
-    ``make_multiband_compressor`` (the LSP builder) and the main()
-    diagnostics printer (`_report_parsed_profile`) call this so they can
-    never drift. Returns a list of dicts, one per emitted band, each with
-    keys: ``xover_idx``, ``threshold`` (dB), ``ratio`` (x:1),
-    ``attack_ms``, ``release_ms``, ``makeup`` (dB).
-
-    PURE — no printing or warnings. The R5 out-of-range fallback warnings
-    (ratio clamp, attack/release Q15-range fallbacks) are emitted by the
-    builder only, so they fire exactly once per band per run (this decode
-    is also called by the silent diagnostics path). Out-of-range values
-    are still *handled* here (ratio clamps to 100.0, time constants fall
-    back via ``decode_mbc_time_constant``) so the returned values match
-    what the builder emits — the builder just additionally warns.
-
-    Band selection mirrors the builder: at most ``group_count`` bands,
-    capped by the number of band_groups parsed and LSP's 8-band limit.
-    Returns ``[]`` when there is nothing to decode.
-    """
-    if not mb_comp:
-        return []
-
-    band_groups = mb_comp["band_groups"]
-    n_bands = min(mb_comp["group_count"], len(band_groups), 8)
-    if n_bands < 1:
-        return []
-
-    decoded = []
-    for bg in band_groups[:n_bands]:
-        xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
-        threshold = thresh_raw / parse.DB_FIXED_POINT_SCALE
-        # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
-        gain_frac = gain_raw / Q15_SCALE
-        # out-of-range gain → clamp to practical max (builder warns)
-        ratio = 1.0 / gain_frac if gain_frac > 0.01 else 100.0
-        attack_ms = decode_mbc_time_constant(attack_raw)
-        release_ms = decode_mbc_time_constant(release_raw)
-        makeup = makeup_raw / parse.DB_FIXED_POINT_SCALE
-        decoded.append({
-            "xover_idx": xover_idx,
-            "threshold": threshold,
-            "ratio": ratio,
-            "attack_ms": attack_ms,
-            "release_ms": release_ms,
-            "makeup": makeup,
-        })
-    return decoded
-
-
-def make_multiband_compressor(mb_comp: dict | None,
-                              freqs: list[int]) -> dict | None:
-    """Multi-band compressor mapping from Dolby mb-compressor-tuning.
-
-    The Dolby MB compressor uses raw DSP coefficients in 6-tuples:
-      [crossover_band_idx, threshold_q4, gain_coeff_q15,
-       attack_coeff_q15, release_coeff_q15, makeup_q4]
-
-    Where:
-      - crossover_band_idx: index into the 20-band frequency table.
-        For each band i, this is the *upper* edge of that band; the
-        last band's value is a sentinel (typically len(freqs) = 20)
-        meaning "up to Nyquist".
-      - threshold: in 1/16 dB
-      - gain_coeff: Q15 fixed-point, 32767 = unity (bypass)
-        ratio ≈ 1 / (gain_coeff / 32768)
-      - attack/release: exponential smoothing coefficients (block-rate)
-      - makeup: in 1/16 dB
-
-    Corpus composition (1050-XML cohort, MBC-enabled rows): 1 band on
-    294 profiles (music-dominated, fast attack/release used as a
-    loudness maximiser with full-band ratio up to 2:1), 2 bands on
-    561, 3 on 175, 4 on 121. LSP MBC supports 8 bands max, so any
-    value above that would be clipped — but Dolby's schema only
-    allocates 4 band_group_N elements. For group_count=1 the single
-    band covers the whole spectrum (no split frequency); bands 1-7
-    in the emitted config stay disabled via enable-band=False.
-    """
-    if not mb_comp:
-        return None
-
-    decoded = decode_mbc_bands(mb_comp)
-    n_bands = len(decoded)
-    if n_bands < 1:
-        return None
-    band_groups = mb_comp["band_groups"]
-
-    # R5 fallback warnings about the EMITTED dynamics. decode_mbc_bands is
-    # pure/silent (it is also called by the main() diagnostics, which must
-    # not re-warn), so the warnings live here in the builder path only —
-    # firing exactly once per affected band per run. Walk the decoded bands
-    # alongside their raw band_groups to inspect the original coefficients.
-    for i, (b, bg) in enumerate(zip(decoded, band_groups[:n_bands])):
-        _, _, gain_raw, attack_raw, release_raw, _ = bg
-        if not gain_raw / Q15_SCALE > 0.01:
-            console.warn(f"MBC band {i} gain coeff {gain_raw} "
-                 f"out of range — clamping ratio to {b['ratio']:.0f}:1")
-        if not 0 < attack_raw < Q15_SCALE:
-            console.warn(f"MBC band {i} attack coeff {attack_raw} "
-                 f"out of range — using {b['attack_ms']:.0f} ms fallback")
-        if not 0 < release_raw < Q15_SCALE:
-            console.warn(f"MBC band {i} release coeff {release_raw} "
-                 f"out of range — using {b['release_ms']:.0f} ms fallback")
-
-    # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
-    # band i+1's lower edge is the same frequency. Only the first n_bands - 1
-    # crossovers are meaningful — the last band's xover_idx is the high-cap
-    # sentinel and isn't used as a split point.
-    def xover_to_freq(idx, fallback):
-        if 0 <= idx < len(freqs):
-            return float(freqs[idx])
-        return fallback
-
-    crossovers = [xover_to_freq(decoded[i]["xover_idx"], 500.0)
-                  for i in range(n_bands - 1)]
-
-    result = {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "dry": -80.01,
-        "wet": 0.0,
-        "compressor-mode": "Modern",
-        "envelope-boost": "None",
-        "stereo-split": False,
-    }
-
-    for i in range(8):
-        bandn = f"band{i}"
-        if i < n_bands:
-            b = decoded[i]
-            # Band i sits between its lower edge (crossovers[i-1] for i>0,
-            # else 0/DC) and its upper edge (crossovers[i] for i<n_bands-1,
-            # else 20 kHz Nyquist).
-            lower = crossovers[i - 1] if i > 0 else 10.0
-            upper = crossovers[i] if i < n_bands - 1 else 20000.0
-            band = {}
-            if i > 0:
-                # Band 0 is always enabled with no split-frequency; bands 1+
-                # need both fields set so LSP MBC actually splits at lower.
-                band["enable-band"] = True
-                band["split-frequency"] = lower
-            band.update({
-                "compressor-enable": True,
-                "mute": False,
-                "solo": False,
-                "attack-threshold": round(b["threshold"], 4),
-                "attack-time": round(b["attack_ms"], 4),
-                "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
-                "release-time": round(b["release_ms"], 4),
-                "ratio": round(b["ratio"], 4),
-                "knee": -6.0,
-                "makeup": round(b["makeup"], 4),
-                "compression-mode": "Downward",
-                "sidechain-type": "Internal",
-                "sidechain-mode": "RMS",
-                "sidechain-source": "Middle",
-                "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 0.0,
-                "sidechain-reactivity": 10.0,
-                "sidechain-preamp": 0.0,
-                "sidechain-custom-lowcut-filter": False,
-                "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": lower,
-                "sidechain-highcut-frequency": upper,
-                "boost-threshold": -60.0,
-                "boost-amount": 0.0,
-            })
-            result[bandn] = band
-        else:
-            # Disabled bands
-            result[bandn] = _disabled_band()
-
-    return result
-
-
-def make_regulator(regulator: dict | None, freqs: list[int],
-                   volmax_boost: float = 0.0,
-                   volmax_slot: str = "input-gain",
-                   couple_bands: bool = False) -> dict | None:
-    """Per-band limiter mapped from Dolby regulator-tuning.
-
-    The Dolby regulator is a 20-band limiter that prevents speaker
-    distortion. We approximate it using EasyEffects' multiband compressor
-    configured as a limiter.
-
-    The 20 Dolby bands are grouped into zones with similar thresholds
-    to fit within EasyEffects' 8-band limit.
-
-    Regulator parameters mapped:
-      - distortion_slope: controls limiter ratio. 1.0 = hard limiter
-        (infinity:1), lower values = softer limiting. Mapped as
-        ratio = 1 / (1 - slope) when slope < 1, else 100:1.
-      - timbre_preservation: 0-1, controls knee softness. Higher values
-        mean softer knee to preserve spectral shape. Mapped to
-        knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
-
-    `regulator-stress-amount`, `regulator-overdrive` and
-    `regulator-relaxation-amount` are parsed for visibility (debug
-    print + `_UNMODELED_FEATURES` watch list) but not mapped here. See
-    docs/design-notes.md "Follow-ups" entry on regulator-stress for
-    the empirical work that closed that hypothesis.
-
-    couple_bands (experimental, `--enable coupled-bands`, issue #44):
-    by default a zone whose threshold_high is >= 0 dBFS is treated as
-    "never triggers" and disabled. A second-device DAX capture showed
-    band dynamics on exactly such bands when the XML marks them
-    non-isolated (`isolated_band` 0). With couple_bands on, a zero-dB
-    zone whose bands are all isolated_band==0 takes its threshold at
-    face value instead — a live limiter at full scale, which engages
-    when upstream gain (e.g. volmax on input-gain) pushes the band past
-    0 dBFS. Zones without isolated data, or containing an
-    isolated_band==1 band, keep the default disabled behaviour. See
-    design-notes Finding 10 / unvalidated-scaling entry 11 (f).
-
-    volmax_boost lands on `input-gain` by default (issue #23) so the per-band
-    compression tames the boosted low end before the brickwall;
-    `volmax_slot="output-gain"` opts back into the older post-band-limiting
-    placement. See `make_preset` for how that interacts with the chain.
-    """
-    if not regulator:
-        return None
-
-    th = regulator["threshold_high"]
-    slope = regulator.get("distortion_slope", 1.0)
-    timbre = regulator.get("timbre_preservation", 0.75)
-
-    # Derive ratio from distortion slope:
-    # slope=1.0 → hard limiter (use 100:1 as practical maximum)
-    # slope=0.5 → ratio=2:1 (moderate compression)
-    if slope >= 1.0:
-        ratio = 100.0
-    elif slope <= 0.0:
-        ratio = 1.0  # bypass
-    else:
-        ratio = 1.0 / (1.0 - slope)
-
-    # Derive knee from timbre preservation:
-    # timbre=0 → hard knee (0 dB), timbre=1 → soft knee (-6 dB)
-    knee = -6.0 * timbre
-
-    # Group the 20 bands into zones with distinct thresholds.
-    # Find runs of identical threshold_high values.
-    zones = []  # list of (start_idx, end_idx, threshold)
-    i = 0
-    while i < len(th):
-        j = i + 1
-        while j < len(th) and th[j] == th[i]:
-            j += 1
-        zones.append((i, j - 1, th[i]))
-        i = j
-
-    # Merge zones if we have more than 8 (EasyEffects limit)
-    # In practice, Dolby regulators typically produce 2-5 zones
-    while len(zones) > 8:
-        # Merge the two adjacent zones with the smallest threshold difference
-        min_diff = float("inf")
-        min_idx = 0
-        for k in range(len(zones) - 1):
-            diff = abs(zones[k][2] - zones[k + 1][2])
-            if diff < min_diff:
-                min_diff = diff
-                min_idx = k
-        z1 = zones[min_idx]
-        z2 = zones[min_idx + 1]
-        merged_thresh = max(z1[2], z2[2])  # use the less aggressive threshold
-        zones[min_idx] = (z1[0], z2[1], merged_thresh)
-        del zones[min_idx + 1]
-
-    # Build the multiband compressor (used as limiter: ratio=100:1, fast attack).
-    # volmax_slot picks which gain slot carries the static volmax-boost:
-    # input-gain (default, issue #23) applies it pre-band-limiting, letting the
-    # regulator's per-band downward compression tame the boosted low end before
-    # the brickwall; output-gain opts back into post-band-limiting placement
-    # (the full loudness makeup straight into the brickwall — the pre-#23
-    # behaviour, kept for A/B and aggressive-regulator loudness recovery).
-    # Neither placement is Dolby-documented (volmax-boost is a CP-stage leveler
-    # ceiling; both slots are pragmatic approximations). Any value other than
-    # "output-gain" keeps the input-gain default.
-    boost = round(volmax_boost, 1)
-    on_input = volmax_slot != "output-gain"
-    result = {
-        "bypass": False,
-        "input-gain": boost if on_input else 0.0,
-        "output-gain": 0.0 if on_input else boost,
-        "dry": -80.01,
-        "wet": 0.0,
-        "compressor-mode": "Modern",
-        "envelope-boost": "None",
-        "stereo-split": False,
-    }
-
-    for i in range(8):
-        bandn = f"band{i}"
-        if i < len(zones):
-            zone_start, zone_end, threshold = zones[i]
-            # Crossover at the geometric mean between the last freq of this
-            # zone and the first freq of the next zone
-            if i > 0:
-                prev_end = zones[i - 1][1]
-                cross_freq = math.sqrt(freqs[prev_end] * freqs[zone_start])
-            else:
-                cross_freq = 10.0  # not used for band 0
-
-            # Bands with threshold >= 0 dB never trigger; disable to save CPU
-            # — unless the experimental coupled-bands mapping takes the 0 dBFS
-            # threshold at face value on a fully non-isolated zone (docstring).
-            is_active = threshold < 0
-            if not is_active and couple_bands:
-                iso = regulator.get("isolated_band")
-                is_active = (iso is not None and
-                             all(iso[k] == 0
-                                 for k in range(zone_start, zone_end + 1)))
-            band = {
-                "compressor-enable": is_active,
-                "mute": False,
-                "solo": False,
-                "attack-threshold": round(threshold, 4),
-                "attack-time": 1.0,  # very fast for limiting
-                "release-threshold": MBC_RELEASE_THRESHOLD_FLOOR,
-                "release-time": 50.0,
-                "ratio": round(ratio, 4),
-                "knee": round(knee, 4),
-                "makeup": 0.0,
-                "compression-mode": "Downward",
-                "sidechain-type": "Internal",
-                "sidechain-mode": "Peak",  # peak detection for limiting
-                "sidechain-source": "Middle",
-                "stereo-split-source": "Left/Right",
-                "sidechain-lookahead": 1.0,  # 1 ms head start for transients
-                "sidechain-reactivity": 10.0,
-                "sidechain-preamp": 0.0,
-                "sidechain-custom-lowcut-filter": False,
-                "sidechain-custom-highcut-filter": False,
-                "sidechain-lowcut-frequency": 10.0,
-                "sidechain-highcut-frequency": 20000.0,
-                "boost-threshold": -60.0,
-                "boost-amount": 0.0,
-            }
-            if i > 0:
-                band["enable-band"] = True
-                band["split-frequency"] = round(cross_freq, 1)
-            result[bandn] = band
-        else:
-            # Disabled band
-            result[bandn] = _disabled_band()
-
-    return result
-
-
-def _coupled_bands_eligible(regulator: dict | None) -> bool:
-    """True when the XML carries bands the experimental coupled-bands
-    mapping could activate: threshold_high >= 0 dBFS (excluded from
-    limiting by default) while marked non-isolated (isolated_band == 0).
-    Band-level check used for the end-of-run `--enable` hint; the actual
-    activation in make_regulator is zone-level and can be stricter."""
-    iso = (regulator or {}).get("isolated_band")
-    if not iso:
-        return False
-    return any(t >= 0 and i == 0
-               for t, i in zip(regulator["threshold_high"], iso))
-
-
-def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
-    """Psychoacoustic bass enhancement via harmonic generation.
-
-    Small laptop speakers cannot reproduce low frequencies physically.
-    The bass enhancer generates upper harmonics of the bass content,
-    which the brain perceives as bass (the "missing fundamental" effect).
-
-    Scope is set to 2x the high-pass cutoff so harmonics are generated
-    only for frequencies the speaker rolls off.
-    """
-    scope = min(hp_freq * 2.0, 300.0)
-    return {
-        "bypass": False,
-        "input-gain": 0.0,
-        "output-gain": 0.0,
-        "amount": round(amount, 1),
-        "harmonics": 10.0,
-        "scope": round(scope, 1),
-        "floor": 10.0,
-        "blend": -10.0,
-        "floor-active": True,
-        "listen": False,
-    }
-
-
-def bass_enhancer_from_peq(peq_filters: list[dict]) -> dict:
-    """The bass-enhancer stage as make_preset ships it for SoundWire,
-    derived from the PEQ high-pass corner (fallback 100 Hz). Shared with
-    the run report so the printed numbers cannot drift from the built
-    stage.
-
-    Whether the corner was derived or fell back is answered by
-    ``bass_enhancer_scope_is_derived`` rather than a key on the returned
-    stage: every key here is emitted into the preset, and the converter's
-    coverage guard rightly rejects one it cannot translate.
-    """
-    hp = [f for f in peq_filters if f["type"] in (7, 9)]
-    return make_bass_enhancer(hp[0]["f0"] if hp else 100.0)
-
-
-def bass_enhancer_scope_is_derived(peq_filters: list[dict]) -> bool:
-    """True when the bass-enhancer range came from the tuning's own high-pass.
-
-    Most SoundWire tunings carry no PEQ at all — 36 of 39 distinct corpus
-    files — so the printed range is twice the 100 Hz fallback, and the run
-    report used to credit that constant to "this speaker's bass cutoff".
-    """
-    return any(f["type"] in (7, 9) for f in peq_filters)
-
-
-def make_limiter(input_gain: float = 0.0) -> dict:
-    """Brickwall output limiter to catch any remaining overshoot.
-
-    Placed at the very end of the chain as a safety net. Uses the LSP
-    limiter plugin with a -1 dB threshold and 1 ms lookahead for
-    transparent true-peak limiting.
-
-    input_gain is the fallback injection point for Dolby's volmax-boost
-    when the regulator (multiband_compressor#1) is absent, so the
-    static loudness boost still pushes peaks into the brick-wall and
-    the resulting limiting acts as a crude loudness maximiser.
-    """
-    return {
-        "bypass": False,
-        "input-gain": round(input_gain, 1),
-        "output-gain": 0.0,
-        "mode": "Herm Thin",
-        "oversampling": "None",
-        "dithering": "None",
-        "sidechain-type": "Internal",
-        "lookahead": 1.0,
-        "attack": 1.0,
-        "release": 5.0,
-        "threshold": -1.0,
-        "gain-boost": False,
-        "stereo-link": 100.0,
-        "alr": False,
-        "sidechain-preamp": 0.0,
-    }
-
-
-# Single source of truth for the --disable flag. Adding a new entry here
-# automatically extends the argparse choices and the end-of-run hint
-# block; each emission branch in `make_preset` is responsible for
-# recording its name into the returned `emitted` set when it actually
-# runs, so there is no separate plugin-key → name map to keep in sync.
-# The symptoms must not overlap. They used to share vocabulary — volmax said
-# "pumping/squash", mbc "squashed character", regulator "spectral pumping" —
-# so a user who hears squashed sound gets three candidates and no way to
-# choose, which is the same as getting none. Each one now claims a distinct
-# thing you can hear, in words someone who has never read an audio manual can
-# match against, and they are ordered most-likely-to-help first.
-DISABLEABLE_FILTERS = {
-    "volmax": ("loud parts distort or sound crushed",
-               "drops the +volmax-boost static loudness gain"),
-    "mbc": ("music sounds flat and lifeless, with no light and shade",
-            "drops the Dolby multi-band compressor"),
-    "regulator": ("the volume audibly wobbles or surges on its own",
-                  "drops the per-band limiter"),
-    "autogain": ("quiet passages swell, then duck when things get loud",
-                 "drops the volume leveler"),
-    "bass-enhancer": ("bass sounds artificial or buzzy",
-                      "drops the harmonic bass generator"),
-    "dialog": ("voices are too forward or shouty",
-               "drops the 2.5 kHz speech-band EQ"),
-    "high-shelf": ("cymbals and 's' sounds are piercing",
-                   "drops Dolby's type-3 high-shelf boost (experimental)"),
-    "lo-pass": ("the top end sounds dull or muffled",
-                "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
-}
-
-# One stage sits in both menus: the volume leveler ships active on SoundWire
-# (--disable autogain switches it off) and bypassed on HDA (--enable autogain
-# switches it on). Its --disable row must key off the -active marker, not the
-# "autogain" marker that means "present but bypassed" and feeds the --enable
-# menu — otherwise every HDA run would offer to disable a stage that is
-# already off.
-_DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
-
-# Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
-# --enable NAME activates them on a rebuild. Same contract — adding an
-# entry extends the argparse choices and the end-of-run hint block.
-# The caveat is one short clause, not an explanation: this menu sits beside
-# the one-line --disable menu and reads as its twin. What the stage actually
-# does, and why the mapping is what it is, live in the README and design-notes
-# behind the issue number — which stays, because switching a stage ON is the
-# direction that carries a risk worth naming before someone tries it.
-ENABLEABLE_FILTERS = {
-    # "enabling may…" marks the second clause as the flag's side effect —
-    # run together with the trigger it read as one continuous symptom. The
-    # risk wording is the leveler family's one phrasing ("swell then
-    # duck"); three variants for one risk read as three different risks
-    # (round 3).
-    # Autogain says its piece three times in a run — here, at the stage that
-    # detects it, and in the closing block's guaranteed-differences line — and
-    # that is deliberate (user decision, round 12, after a reviewer called the
-    # third one padding). The three serve different readers: one scrolled back
-    # to the detection site, one reading only the closing block, one scanning
-    # this menu. Trimming any of them leaves that reader with nothing.
-    "autogain": ("it sounds right but quieter than it did on Windows",
-                 "enabling may make quiet passages swell then duck "
-                 "(issue #25)"),
-    # Describes what you'd hear, not where in the chain it happens: "where the
-    # limiter is inactive" names an internal state the listener has no access
-    # to, so it can't be matched against anything.
-    # No region claim ("in the treble"): the flag extends limiting to
-    # whichever zero-threshold non-isolated bands the tuning has — treble
-    # on the two examined devices (3-6 kHz dev XML, 13.9 kHz #44), but
-    # full-band on the issue-#27 class, so naming treble over-claims.
-    # "(issue #NN)", not the bare "(#NN)": reviewers guessed the numbers
-    # were GitHub issues but had no confirmation. Still no URL — the one
-    # link rule.
-    "coupled-bands": ("loud music turns harsh",
-                      "experimental (issue #44)"),
-    # Trigger says "than with the preset off", not "than on Windows": that
-    # second phrasing is autogain's, and the two flags sit in the same menu.
-    # The distinction is the whole diagnosis — autogain closes a gap against
-    # Windows, this one closes a gap against bypass, which is the symptom
-    # that identifies a curve whose peak outruns its volmax-boost.
-    "level-restore": ("it sounds quieter than with the preset switched off",
-                      "experimental; loud content may distort (issue #50)"),
-}
-
-# Emission paths that are numerically verified but not yet user-validated
-# on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
-# off with --disable <key>; "mbc-1band" is a marker-only name (no separate
-# flag — users who want it off should pass --disable mbc instead), and
-# "coupled-bands-active" is the marker make_preset emits when --enable
-# coupled-bands actually engaged a zone (drop the --enable flag to turn it
-# off). Used to trigger a targeted "please report" prompt at end-of-run
-# when any of these fired for the current preset.
-# Plain name first, the tuning's own token in parentheses (round 8:
-# "type-3 high-shelf" bare read as an undefined severity level).
-EXPERIMENTAL_MARKERS = {
-    "high-shelf": "a treble shelf boost (the tuning's type-3 high-shelf)",
-    "lo-pass": "a top-end rolloff (type-6/8 low-pass)",
-    "mbc-1band": "the compressor running as a single band (group_count=1)",
-    "coupled-bands-active": "the coupled-bands limiter (isolated_band)",
-    "level-restore-active": "the level the impulse response was normalised by, "
-                            "handed back as a static gain",
-}
-
-
-def print_what_now(preset_names: list[str], autoloaded: bool,
-                   dry_run: bool, output_dir=None,
-                   profile_used: str | None = None,
-                   n_modes: int = 0,
-                   default_unknown: bool = False,
-                   autogain_off: bool = False,
-                   menu_printed: bool = False,
-                   declared_default: str | None = None) -> None:
-    """Say the run worked and how to start using it.
-
-    ``profile_used``/``n_modes`` let the closing say the presets voice one
-    sound mode of several (round 5: the pick was explained at the top, but
-    the closing never said the other modes exist or that this run built
-    only this one — --all-profiles is the answer, and it was never
-    mentioned anywhere a user reads). ``default_unknown`` adds the guess
-    caveat to that line (round 6: the caveat lived only at the top banner,
-    which a Done-stopper never rereads). ``autogain_off`` adds the one
-    guaranteed audible difference from Windows — the tuning's leveler
-    shipping off — for the same reason: it never reached the last screen
-    (round 6).
-
-    The run reports each file as it writes it, hundreds of lines before the
-    end, and then closed on troubleshooting advice for problems the user
-    hasn't had yet — so the last screen never confirmed success and never
-    said what to do with any of it. Someone running this once has no idea
-    that a preset is a thing you go and select in EasyEffects.
-
-    Silent under --autoload, which already wired the preset to the speakers
-    and printed its own confirmation: repeating "go and select it" there
-    would be wrong.
-    """
-    if not preset_names or autoloaded:
-        return
-    # One wording for both branches. The swell/duck caveat rides the
-    # suggestion (round 7): alone on the last screen, "add --enable
-    # autogain" read as a no-downside fix while its known side effect sat
-    # scrolled away. Same risk phrasing as the leveler family everywhere.
-    autogain_note = ("  Likely quieter than on Windows: your tuning's "
-                     "volume leveler ships off here — --enable autogain "
-                     "turns it on (may make quiet passages swell then "
-                     "duck).")
-    # The mismatch echo mirrors the autogain-note pattern (round 10): the
-    # most actionable fix in the run lived only at the top and in the ask
-    # small-print, never on the screen people act from.
-    mismatch_note = None
-    if (declared_default and profile_used
-            and declared_default != profile_used):
-        mismatch_note = (f"  Windows ships this device on "
-                         f"'{declared_default}'; these voice "
-                         f"'{profile_used}' — --profile "
-                         f"{declared_default} rebuilds.")
-    # Derived from what was actually built (round 7, user catch): a
-    # tuning lacking a voicing curve skips that preset, so the hint must
-    # not describe a preset that doesn't exist.
-    hints = []
-    if any(n.endswith("-Detailed") for n in preset_names):
-        hints.append("Detailed is brighter")
-    if any(n.endswith("-Warm") for n in preset_names):
-        hints.append("Warm softer")
-    voicing_hint = f" ({', '.join(hints)})" if hints else ""
-    console.cprint("head", f"\n{'=' * 60}")
-    if dry_run:
-        # cta, not ok: green is this run's "check passed, nothing to do"
-        # color, and the one line that still demands a re-run read as "all
-        # done" in the same green (round-2 color finding).
-        console.cprint("cta", f"Dry run — nothing was written. Re-run without "
-                      f"--dry-run to install these {len(preset_names)} presets:")
-        # One comma-separated line, not one name per line (round 7): the
-        # vertical list ate the last screen's budget.
-        console._cprint_wrapped("dim", "    " + ", ".join(preset_names),
-                        indent="    ")
-        # One clause on what installing gets them: a dry-run reader asked
-        # "do I hear the change after re-running, or is there another step?"
-        # and had nothing to go on until the real run printed its answer.
-        # Only reached without --autoload (the early return above owns that
-        # case), so "pick one yourself" is true here — and naming --autoload
-        # gives the reader the self-loading default before the re-run, not
-        # after it.
-        console._cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
-                               f"start with {preset_names[0]}"
-                               f"{voicing_hint}; the real run "
-                               "prints the exact steps. (Or add --autoload "
-                               "and it loads itself for your speakers.)",
-                        indent="  ")
-        if profile_used and n_modes > 1:
-            caveat = (" (we assume it is your Windows default)"
-                      if default_unknown else "")
-            console._cprint_wrapped("dim", f"  These voice the '{profile_used}' "
-                                   f"sound mode only{caveat} — "
-                                   "--all-profiles builds every mode.",
-                            indent="  ")
-        if mismatch_note:
-            console._cprint_wrapped("dim", mismatch_note, indent="  ")
-        if autogain_off:
-            console._cprint_wrapped("dim", autogain_note, indent="  ")
-        return
-    # "starting in": each preset is two files and only the .json lands in
-    # output_dir — the .irs impulse response goes to --irs-dir, a different
-    # directory by default. "wrote N presets to <dir>" named half of what
-    # the run had just listed above.
-    console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
-                 + (f", starting in {output_dir}:" if output_dir else ":"))
-    # Name them all — naming only the first left the reader wondering what
-    # the other two were — but on one comma-separated line (round 7): the
-    # vertical list ate the last screen's budget. No blank after (round
-    # 10, user-picked): the closing had grown exactly one line past a
-    # 26-line window, scrolling the green "Done" off the last screen.
-    console._cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
-    # "Brighter"/"softer" measured against ieq_balanced on the corpus
-    # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
-    # treble. Round 5: the closing named a starting preset but never said
-    # what the other two are for, so nobody would try them.
-    console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
-                           f"pick '{preset_names[0]}' from the Presets menu — "
-                           f"that's the one to start with{voicing_hint}. "
-                           "Or re-run with "
-                           "--autoload to have it load itself for your "
-                           "speakers.", indent="  ")
-    if profile_used and n_modes > 1:
-        caveat = (" (we assume it is your Windows default)"
-                  if default_unknown else "")
-        console._cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
-                               f"mode only{caveat} — --all-profiles builds "
-                               "every mode.", indent="  ")
-    if mismatch_note:
-        console._cprint_wrapped("dim", mismatch_note, indent="  ")
-    if autogain_off:
-        console._cprint_wrapped("dim", autogain_note, indent="  ")
-    # The one-line map back to the menu (round 7): with the Done block
-    # grown, the symptom→flag menu scrolls off a 26-line screen and the
-    # reader said they'd never think to scroll. The pointer puts the
-    # menu's existence on the last screen without re-breaking the round-3
-    # order (success last, not troubleshooting).
-    # "(re-running ... reprints it)": scrollback is gone once the terminal
-    # closes, and the pointer alone was a dead end then (round 9).
-    if menu_printed:
-        console._cprint_wrapped("dim", "  Something sound off later? Scroll up to "
-                               "\"If something doesn't sound right\" "
-                               "(re-running this command reprints it).",
-                        indent="  ")
-
-
-# Width of the "    --disable volmax      " gutter each flag row hangs from,
-# so a wrapped symptom lines up under the text it continues rather than under
-# the flag.
-_FLAG_GUTTER = 30
-
-
-def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
-    """One row of a flag menu: the flag, its symptom, optionally its effect.
-
-    Wrapped explicitly, because cprint hands text to the console verbatim so
-    that URLs survive — which means anything long enough to need folding has
-    to ask for it.
-    """
-    gutter = " " * _FLAG_GUTTER
-    # Continuations indent two past the gutter so they land under the
-    # comment text, not under its "#" — flush with the marker they read as
-    # stray fragments (round 2).
-    # Plain, not dim (round 5): fully dimmed rows read as less important
-    # than the report asks below — these are the fix a user with bad audio
-    # needs. Plain keeps them a step below the bold asks, which stay the
-    # block's emphasis (user decision).
-    console._cprint_wrapped("", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
-                    indent=gutter + "  ")
-    if effect:
-        console._cprint_wrapped("", f"{gutter}({effect})", indent=gutter + " ")
-
-
-def print_troubleshooting(findings: list[Finding],
-                          filters_by_profile: dict[str, set[str]],
-                          installs_presets: bool = True,
-                          enabled_by_flag: frozenset[str] = frozenset(),
-                          dry_run: bool = False) -> bool:
-    """Print what the user can do about their own audio, most specific first.
-
-    Someone with a symptom scans until something matches and stops reading, so
-    the findings this run actually raised come before the generic menu — and a
-    hint that says "re-run with --disable volmax" turns that menu into context
-    rather than arriving as a repeat of it.
-
-    The menu is the longest, least targeted block in the tail, so it is one
-    line per filter: the symptom is what someone picks a flag by, and the
-    effect clause ("drops the per-band limiter") restates what the flag name
-    already says. It used to carry that clause plus a per-profile scope note
-    and shrink only once a hint had named a flag — two renderings of one menu,
-    for a reason no single user could see, since each one sees one run.
-
-    The symptom text stays rather than deferring to --help: --help lists the
-    valid names and two examples, not the per-filter symptom, so pointing at
-    it would be a claim that isn't true.
-    """
-    hints = [f for f in findings if f.kind == "hint" and f.ask]
-    # A stage the user switched on with --enable never gets a --disable row:
-    # both flags at once is a hard error, and the undo for a flag you typed
-    # is removing it, not stacking its opposite. Only a stage active by the
-    # device's own default (the leveler on SoundWire) is offered here.
-    shown = [k for k in DISABLEABLE_FILTERS
-             if _DISABLE_MENU_MARKER.get(k, k) in filters_by_profile
-             and k not in enabled_by_flag]
-    # Don't offer to switch off a stage this run already reported as never
-    # engaging: "the volume wobbles on its own — --disable regulator" under a
-    # warning that the regulator never does anything is a straight
-    # contradiction, and the reader can't tell which half to believe.
-    if any(f.slug == "loudness-untamed" for f in hints):
-        shown = [k for k in shown if k != "regulator"]
-    enable_hints = [k for k in ENABLEABLE_FILTERS if k in filters_by_profile]
-    if not hints and not shown and not enable_hints:
-        # Returns whether the menu printed, so the closing's scroll-up
-        # pointer never points at a menu that isn't there.
-        return False
-
-    console.cprint("head", f"\n{'=' * 60}")
-    console.cprint("head", "If something doesn't sound right")
-    if hints:
-        print()
-        for finding in hints:
-            _print_ask("warn", finding)
-
-    # The menu lists every filter this run emitted, including any a hint above
-    # already named. Omitting those looked tidier and read as a bug: a hint
-    # says "re-run with --disable volmax" and the list of valid filters right
-    # under it doesn't contain volmax, so the reader concludes one of the two
-    # is stale and trusts neither.
-    # Both autogain rows point at [leveler-gap] when that note fired: the
-    # note names --disable autogain as the off-switch, and round 4 found
-    # the pointer on the --enable row (leveler off by default) but missing
-    # from the --disable row (leveler running), where the note is live.
-    gap = any(f.slug == "leveler-gap" for f in findings)
-    if shown:
-        print()
-        # Opens on the condition, so the list reads as "only if you hear it"
-        # rather than as a to-do for a preset nobody has heard yet — on a
-        # clean device this is the first thing under the heading.
-        console._cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
-                               "can rebuild without specific filters:",
-                        indent="  ")
-        for name in shown:
-            symptom, _effect = DISABLEABLE_FILTERS[name]
-            comment = f"# {symptom}"
-            if name == "autogain" and gap:
-                comment += " — see [leveler-gap]"
-            _print_flag_hint(f"--disable {name}", comment)
-
-    # Same one-line shape as the --disable menu above, with the caveat folded
-    # into the same line rather than hanging under it. "Shipped present but
-    # inactive" was the old heading and could not be parsed cold — it names an
-    # internal state (the stage is in the preset, bypassed) rather than
-    # anything the reader can act on.
-    if enable_hints:
-        print()
-        console.cprint("dim", "  Optional extras, switched off by default:")
-        # On a device whose tuning pairs the leveler with sub-stages we can't
-        # reproduce, --enable autogain is the switch that turns them on. The
-        # run says so in the leveler-gap note far above; the menu offered the
-        # flag with no hint of it, so the two never met.
-        for name in enable_hints:
-            symptom, caveat = ENABLEABLE_FILTERS[name]
-            if name == "autogain" and gap:
-                # The flag cannot enable a stage the preset never contains.
-                # What it does is run our leveler without the companion
-                # compression Dolby pairs with it — which is what the inline
-                # [leveler-gap] note says, and what this row said backwards.
-                caveat = ("on this device it runs without the companion "
-                          "stage we can't reproduce, so quiet passages may "
-                          "swell then duck — see [leveler-gap]")
-            _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
-
-    # How to actually apply any of the above. Every suggestion here is a flag
-    # on a re-run, and the output never said what to re-run, that flags can be
-    # combined, or that EasyEffects keeps serving the old preset until it is
-    # reloaded — so a rebuild that silently didn't take effect reads as "the
-    # flag didn't help".
-    if shown or enable_hints:
-        print()
-        # Only mention reloading in EasyEffects when this run is the thing
-        # that put a preset there. Under dolby_to_pipewire.py these presets
-        # are staged and thrown away, and the reader picked that path
-        # precisely because they don't run EasyEffects — so the sentence that
-        # tells them how to apply a fix ended in something they can't do. The
-        # wrapper's own [3/3] steps cover applying it there.
-        tail = (" Then reload the preset in EasyEffects to hear the change."
-                if installs_presets else "")
-        # Under --dry-run, "the same command you ran" would rebuild nothing —
-        # the reader is four lines from being told nothing was written, and
-        # telling them to reload a preset that doesn't exist read as the two
-        # blocks not knowing about each other.
-        # "the flags above", not "these": on a terminal whose window folds
-        # exactly at this sentence, "these" is the first visible word of the
-        # last screen with its antecedent scrolled off (round 4). Naming the
-        # referent keeps the sentence whole at any fold.
-        lead = ("Add any of the flags above when you re-run without "
-                "--dry-run"
-                if dry_run else
-                "Add any of the flags above to the same command you ran")
-        console._cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
-    return True
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
 # same style the left column uses for metavar placeholders, so
@@ -4014,7 +1797,7 @@ def print_troubleshooting(findings: list[Finding],
 if console._HelpFormatter is not argparse.HelpFormatter:
     _FILTER_NAME_ALTERNATION = "|".join(
         re.escape(name)
-        for name in sorted({*DISABLEABLE_FILTERS, *ENABLEABLE_FILTERS},
+        for name in sorted({*messages.DISABLEABLE_FILTERS, *messages.ENABLEABLE_FILTERS},
                            key=len, reverse=True))
     console._HelpFormatter.highlights = [
         *console._HelpFormatter.highlights,
@@ -4024,173 +1807,6 @@ if console._HelpFormatter is not argparse.HelpFormatter:
         # ": "/", " and ","/"." there, which prose mentions never do
         rf"(?<=[:,] )(?P<metavar>{_FILTER_NAME_ALTERNATION})(?=[,.])",
     ]
-
-
-def make_preset(kernel_name: str, peq_filters: list[dict],
-                vol_leveler: dict | None = None,
-                dialog_enhancer: dict | None = None,
-                mb_comp: dict | None = None, regulator: dict | None = None,
-                freqs: list[int] | None = None,
-                is_soundwire: bool = False, volmax_boost: float = 0.0,
-                volmax_slot: str = "input-gain",
-                fir_peak_db: float = 0.0,
-                enabled: set[str] | None = None,
-                disabled: set[str] | None = None) -> tuple[dict, set[str]]:
-    """Build a preset dict.
-
-    Returns (preset, emitted) where emitted is the set of flag-actionable
-    names for a rerun: DISABLEABLE_FILTERS names that actually ran
-    (--disable candidates) plus ENABLEABLE_FILTERS names that shipped
-    present but inactive (--enable candidates). Tracked inline with each
-    emission branch so the set can't drift from what is in the returned
-    dict.
-    """
-    enabled = enabled or set()
-    disabled = disabled or set()
-    emitted = set()
-    preset = {
-        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
-        "output": {
-            "blocklist": [],
-            "convolver#0": make_convolver(kernel_name),
-            "plugins_order": ["convolver#0"],
-        }
-    }
-
-    # SoundWire speakers lack Dolby's proprietary Virtual Bass Enhancement
-    # (VBE) that runs in the Windows driver. Compensate with psychoacoustic
-    # harmonic generation so small speakers still produce perceived bass.
-    if is_soundwire and "bass-enhancer" not in disabled:
-        preset["output"]["bass_enhancer#0"] = bass_enhancer_from_peq(
-            peq_filters)
-        preset["output"]["plugins_order"].append("bass_enhancer#0")
-        emitted.add("bass-enhancer")
-
-    # No stereo widening: `surround-boost` is a virtualization-render-depth
-    # control, dormant on 2-channel content — DAX applies no stereo widening
-    # on stereo playback (design-notes entry 2). Earlier revisions emitted a
-    # stereo_tools#0 widener here.
-
-    effective_peq = peq_filters
-    if "high-shelf" in disabled:
-        effective_peq = [f for f in effective_peq if f["type"] != 3]
-    if "lo-pass" in disabled:
-        effective_peq = [f for f in effective_peq if f["type"] not in (6, 8)]
-    peq = make_peq_eq(effective_peq)
-    if peq:
-        preset["output"]["equalizer#0"] = peq
-        preset["output"]["plugins_order"].append("equalizer#0")
-        if any(f["type"] == 3 for f in effective_peq):
-            emitted.add("high-shelf")
-        if any(f["type"] in (6, 8) for f in effective_peq):
-            emitted.add("lo-pass")
-
-    # Dialog enhancer (speech presence boost) before the volume leveler,
-    # matching Dolby's CP order: DE → IEQ → Volume Leveler.
-    if "dialog" not in disabled:
-        de = make_dialog_enhancer(dialog_enhancer)
-        if de:
-            preset["output"]["equalizer#1"] = de
-            preset["output"]["plugins_order"].append("equalizer#1")
-            emitted.add("dialog")
-
-    # Autogain (volume leveler) goes before the compressor/regulator to match
-    # Dolby's signal flow: CP (volume leveler) → VLLDP (compressor → regulator).
-    # This lets the compressor and regulator catch any overshoot from the leveler.
-    if "autogain" not in disabled:
-        autogain = make_autogain(vol_leveler, conservative=is_soundwire,
-                                 enabled="autogain" in enabled)
-        if autogain:
-            preset["output"]["autogain#0"] = autogain
-            preset["output"]["plugins_order"].append("autogain#0")
-            if autogain["bypass"]:
-                emitted.add("autogain")  # actionable via --enable on a rerun
-            else:
-                # Marker (not an ENABLEABLE_FILTERS key, so it never reaches
-                # the hint block): lets main() tell "--enable autogain worked"
-                # from "the XML's leveler is disabled, so the flag did
-                # nothing".
-                emitted.add("autogain-active")
-
-    if "mbc" not in disabled:
-        mbc = make_multiband_compressor(mb_comp, freqs)
-        if mbc:
-            preset["output"]["multiband_compressor#0"] = mbc
-            preset["output"]["plugins_order"].append("multiband_compressor#0")
-            emitted.add("mbc")
-            if mb_comp and mb_comp["group_count"] == 1:
-                emitted.add("mbc-1band")
-
-    # volmax-boost injection: regulator input-gain is the default slot (issue
-    # #23) — placed pre-band-limiting so the per-band compression tames the
-    # boosted low end before the brickwall, instead of feeding the full static
-    # makeup straight into it (volmax-boost is a CP-stage volume-leveler
-    # ceiling, not a Dolby-documented placement; this is a pragmatic
-    # approximation). --volmax-slot output-gain opts back into the pre-#23
-    # post-band placement. If the regulator is disabled or absent from the XML,
-    # fall back to limiter#0 input-gain so the boost still happens. Never both.
-    # volmax_slot only re-routes the regulator path; the limiter fallback is
-    # unaffected.
-    apply_volmax = volmax_boost if "volmax" not in disabled else 0.0
-    # --enable level-restore rides the same slot rather than adding a stage of
-    # its own: it is a static broadband gain like volmax-boost, and issue #23
-    # measured what the placement is worth (0.06% THD pre-band-limiting vs
-    # 11.6% straight into the brickwall). fir_peak_db is what make_fir divided
-    # out of the impulse response, so this restores a measured quantity rather
-    # than applying an offset. --disable volmax drops only its own term; the
-    # two are independent.
-    level_restore = fir_peak_db if "level-restore" in enabled else 0.0
-    static_boost = apply_volmax + level_restore
-    reg = None
-    if "regulator" not in disabled:
-        reg = make_regulator(regulator, freqs, volmax_boost=static_boost,
-                             volmax_slot=volmax_slot,
-                             couple_bands="coupled-bands" in enabled)
-    if reg:
-        preset["output"]["multiband_compressor#1"] = reg
-        preset["output"]["plugins_order"].append("multiband_compressor#1")
-        emitted.add("regulator")
-        limiter_boost = 0.0
-        # A band that is enabled at a >= 0 dB threshold can only come from
-        # the coupled-bands mapping — the default path disables those.
-        coupled_fired = any(
-            reg[f"band{i}"]["compressor-enable"]
-            and reg[f"band{i}"]["attack-threshold"] >= 0
-            for i in range(8))
-        if "coupled-bands" in enabled and coupled_fired:
-            # Marker (not an ENABLEABLE_FILTERS key): lets main() tell
-            # "--enable coupled-bands worked" from "nothing to couple in"
-            # — same contract as autogain-active above.
-            emitted.add("coupled-bands-active")
-        elif _coupled_bands_eligible(regulator):
-            emitted.add("coupled-bands")  # actionable via --enable on a rerun
-    else:
-        limiter_boost = static_boost
-
-    if apply_volmax > 0:
-        emitted.add("volmax")
-    if level_restore != 0:
-        # Marker, not an --enable candidate: the flag is already on when this
-        # fires. Same contract as autogain-active/coupled-bands-active.
-        # `!= 0`, not `> 0`: a curve that only cuts normalises to a peak below
-        # unity, so make_fir *adds* gain there and restoring it is negative.
-        # No corpus XML does that (0 of 3051 checked 2026-08-04), but the
-        # marker should track "the flag changed the output", not its sign.
-        emitted.add("level-restore-active")
-    elif fir_peak_db > apply_volmax:
-        # Offer the flag only where it would do something (the precedent is
-        # coupled-bands, 619a663). The gate is the deficit itself: the
-        # convolver gives back fir_peak_db less than the tuning asks for, and
-        # only the static boost puts any of it back — so a peak above it is
-        # a preset that plays quieter than bypass. Below it there is nothing
-        # to restore and the menu stays quiet.
-        emitted.add("level-restore")
-
-    # Brickwall limiter at the end as a safety net
-    preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
-    preset["output"]["plugins_order"].append("limiter#0")
-
-    return preset, emitted
 
 
 class _HelpHintParser(argparse.ArgumentParser):
@@ -4234,7 +1850,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 
     declared = tuning.default_profile
     if declared and declared != tuning.profile_used:
-        findings.append(_profile_mismatch_finding(declared,
+        findings.append(report_findings._profile_mismatch_finding(declared,
                                                  tuning.profile_used))
         _print_finding_detail(findings[-1])
 
@@ -4398,7 +2014,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # translate. It was the one active stage the run never mentioned —
         # so the --disable menu offered to drop something the reader had
         # never heard of (user-review round 1).
-        be = bass_enhancer_from_peq(peq_filters)
+        be = plugins.bass_enhancer_from_peq(peq_filters)
         # "Separate from" only when the [speaker-optimizer] note fired this
         # run: a round-4 reviewer couldn't tell this boost and that
         # dropped protection stage apart ("is my bass protected or not?"),
@@ -4425,7 +2041,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         #   frozen (enable 0). What is missing is a tuning to copy, not the
         #   fields. The +dB is our own choice either way.
         scope_why = ("sized from this speaker's bass cutoff"
-                     if bass_enhancer_scope_is_derived(peq_filters) else
+                     if plugins.bass_enhancer_scope_is_derived(peq_filters) else
                      "our default range — your tuning sets no bass cutoff")
         console._cprint_wrapped("", f"Bass enhancer: +{be['amount']:.1f} dB "
                             f"harmonics below {be['scope']:.0f} Hz "
@@ -4549,7 +2165,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # warnings (those fire in make_multiband_compressor). xover_hz is a
         # display concern derived here from the stored xover_idx + band
         # position, exactly as before.
-        decoded = decode_mbc_bands(mb_comp)
+        decoded = plugins.decode_mbc_bands(mb_comp)
         # The threshold range is the summary's diagnostic payload: it is
         # the first thing a triage of a squashed-sounding report reaches
         # for, and most reports arrive at normal verbosity.
@@ -4627,7 +2243,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # unlimited band is also marked isolated the flag adds nothing, and
         # this line offered an effect in a run whose own menu didn't list
         # the flag and whose re-run answers "had no effect".
-        if _coupled_bands_eligible(regulator):
+        if plugins._coupled_bands_eligible(regulator):
             # Co-located with the fact it explains: the only plain wording
             # for coupled-bands used to sit a screen away in the flag menu
             # (rounds 2–3). Mechanism only, no second count (round 7, user
@@ -4706,9 +2322,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             and regulator and "regulator" not in disabled
             and all(t >= 0 for t in regulator["threshold_high"])
             and not ("coupled-bands" in (enabled or set())
-                     and _coupled_bands_eligible(regulator))):
-        findings.append(_loudness_untamed_finding(
-            _coupled_bands_eligible(regulator)))
+                     and plugins._coupled_bands_eligible(regulator))):
+        findings.append(report_findings._loudness_untamed_finding(
+            plugins._coupled_bands_eligible(regulator)))
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
@@ -4736,7 +2352,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     elif (volmax_boost > 0 and "volmax" not in disabled
             and regulator and "regulator" not in disabled
             and not ("coupled-bands" in (enabled or set())
-                     and _coupled_bands_eligible(regulator))):
+                     and plugins._coupled_bands_eligible(regulator))):
         peak_band = max(range(len(ao_db_left)),
                         key=lambda i: max(ao_db_left[i], ao_db_right[i]))
         peak_db = max(ao_db_left[peak_band], ao_db_right[peak_band])
@@ -4746,9 +2362,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         if ((at_rail or restored)
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
-            findings.append(_boost_unlimited_finding(
+            findings.append(report_findings._boost_unlimited_finding(
                 peak_db, freqs[peak_band],
-                _coupled_bands_eligible(regulator), restored))
+                plugins._coupled_bands_eligible(regulator), restored))
             _print_finding_detail(findings[-1])
     print()
     return findings
@@ -4847,7 +2463,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
-        preset, emitted = make_preset(preset_name, peq_filters, vol_leveler,
+        preset, emitted = build.make_preset(preset_name, peq_filters, vol_leveler,
                                       dialog_enhancer, mb_comp, regulator,
                                       freqs, is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
@@ -4859,7 +2475,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             filters_by_profile.setdefault(name, set()).add(profile_label)
         out_path = args.output_dir / f"{preset_name}.json"
         if not args.dry_run:
-            _atomic_write_text(out_path, json.dumps(preset, indent=4) + "\n")
+            autoload._atomic_write_text(out_path, json.dumps(preset, indent=4) + "\n")
 
         all_preset_names.append(preset_name)
 
@@ -5094,7 +2710,7 @@ def add_autoload_args(container, *, only=None):
         "--no-autoload-bypass",
         dest="autoload_bypass",
         action="store_false",
-        help=f"with --autoload, do not write a '{BYPASS_PRESET_NAME}' bypass "
+        help=f"with --autoload, do not write a '{autoload.BYPASS_PRESET_NAME}' bypass "
              "preset or enable EasyEffects' global Fallback Preset. Use if "
              "you manage the fallback yourself. Existing user setups are "
              "preserved even without this flag.",
@@ -5132,10 +2748,10 @@ def add_filter_tweak_args(container, *, only=None):
         "--disable",
         action="append",
         default=[],
-        choices=list(DISABLEABLE_FILTERS),
+        choices=list(messages.DISABLEABLE_FILTERS),
         metavar="NAME",
         help="drop a filter from the generated preset (repeatable). "
-             f"Valid names: {', '.join(DISABLEABLE_FILTERS)}. "
+             f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud / saturated, or "
              "--disable mbc if you dislike the compressor character.",
     )
@@ -5143,10 +2759,10 @@ def add_filter_tweak_args(container, *, only=None):
         "--enable",
         action="append",
         default=[],
-        choices=list(ENABLEABLE_FILTERS),
+        choices=list(messages.ENABLEABLE_FILTERS),
         metavar="NAME",
         help="activate a filter that ships present but inactive "
-             f"(repeatable). Valid names: {', '.join(ENABLEABLE_FILTERS)}. "
+             f"(repeatable). Valid names: {', '.join(messages.ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
              "than Windows (issue #25), --enable coupled-bands "
              "(experimental) if loud content turns harsh where the "
@@ -5520,7 +3136,7 @@ def main(argv: list[str] | None = None,
                                    "with this device as the active output, or set "
                                    "the autoload profile manually in EasyEffects.")
                     continue
-                path = write_autoload(
+                path = autoload.write_autoload(
                     args.autoload_dir,
                     sink["name"],
                     sink["description"],
@@ -5536,9 +3152,9 @@ def main(argv: list[str] | None = None,
         # entry. Without this, EE keeps the last-loaded preset applied and
         # mangles audio on outputs the Dolby tuning wasn't designed for.
         if args.autoload_bypass:
-            console.cprint("head", f"\nConfiguring fallback preset → '{BYPASS_PRESET_NAME}':")
-            bypass_path, bypass_status = write_bypass_preset(
-                args.output_dir, BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            console.cprint("head", f"\nConfiguring fallback preset → '{autoload.BYPASS_PRESET_NAME}':")
+            bypass_path, bypass_status = autoload.write_bypass_preset(
+                args.output_dir, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if bypass_status == "kept":
                 console.cprint("ok", f"  Kept existing {bypass_path}")
@@ -5547,8 +3163,8 @@ def main(argv: list[str] | None = None,
             else:
                 console.cprint("ok", f"  Wrote {bypass_path}")
 
-            fallback_status, existing = set_autoload_fallback(
-                DEFAULT_EASYEFFECTS_RC, BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            fallback_status, existing = autoload.set_autoload_fallback(
+                DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if fallback_status == "already-configured":
                 console.cprint("ok", f"  Fallback preset already configured "
@@ -5570,7 +3186,7 @@ def main(argv: list[str] | None = None,
             _rc_text = DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
         except OSError:
             _rc_text = ""
-        _rc = read_ee_rc(_rc_text)
+        _rc = autoload.read_ee_rc(_rc_text)
         if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
             console.cprint("warn", "  Tip: enable Background Service + Autostart on login in "
                            "EasyEffects' preferences so this autoloads on every login.")
@@ -5623,7 +3239,7 @@ def main(argv: list[str] | None = None,
             findings.setdefault(count_finding.slug, count_finding)
         # An old kernel can mis-configure the speaker path below any preset
         # (issue #33) — hint at it, softly, when the series is old.
-        warn_old_kernel()
+        environment.warn_old_kernel()
 
     # Proactively flag an EasyEffects install that can't use what we just wrote
     # — the failure mode #22 surfaced (a correct preset silently inaudible
@@ -5640,21 +3256,21 @@ def main(argv: list[str] | None = None,
     # Experimental emissions are numerically verified but have never been
     # confirmed by ear, and a user with an affected device is the only way
     # that changes — so they ask rather than merely announcing themselves.
-    fired = [k for k in EXPERIMENTAL_MARKERS if k in filters_by_profile]
-    experimental = [EXPERIMENTAL_MARKERS[k] for k in fired]
+    fired = [k for k in messages.EXPERIMENTAL_MARKERS if k in filters_by_profile]
+    experimental = [messages.EXPERIMENTAL_MARKERS[k] for k in fired]
     if experimental:
         # Only the markers that are also --disable names give the user an A/B;
         # "mbc-1band" and "coupled-bands-active" have no flag of their own.
-        findings.setdefault("unconfirmed-by-ear", _experimental_finding(
+        findings.setdefault("unconfirmed-by-ear", report_findings._experimental_finding(
             ", ".join(experimental),
-            [k for k in fired if k in DISABLEABLE_FILTERS]))
+            [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
         _print_finding_detail(findings["unconfirmed-by-ear"])
 
     # Gated on the leveler actually running, not on the flag being passed:
     # --enable autogain does nothing when the XML disables the leveler, and
     # escalating on the flag alone contradicted the "had no effect" warning
     # printed a few lines above on exactly those devices.
-    substage_finding = _leveler_gap_finding(
+    substage_finding = report_findings._leveler_gap_finding(
         list(leveler_substages),
         autogain_on="autogain-active" in filters_by_profile,
         # "autogain" is the marker for a leveler that shipped bypassed but
@@ -5694,7 +3310,7 @@ def main(argv: list[str] | None = None,
             filters_by_profile=filters_by_profile,
             enabled_by_flag=frozenset(args.enable))
     else:
-        menu_printed = print_troubleshooting(
+        menu_printed = messages.print_troubleshooting(
             scoped, filters_by_profile,
             installs_presets=not args.skip_closing,
             enabled_by_flag=frozenset(args.enable),
@@ -5717,7 +3333,7 @@ def main(argv: list[str] | None = None,
             profile_used = tuning.profile_used
             n_modes = len(get_profile_types(xml_path, args.endpoint,
                                             args.mode))
-        print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
+        messages.print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
                        default_unknown=(args.profile is None
@@ -5737,7 +3353,7 @@ def main(argv: list[str] | None = None,
     if closing is not None:
         closing.extend(scoped)
     if not args.skip_closing:
-        print_project_asks(scoped, dry_run=args.dry_run, xml_path=xml_path)
+        report_findings.print_project_asks(scoped, dry_run=args.dry_run, xml_path=xml_path)
 
 
 def run_cli(argv: list[str] | None = None,
