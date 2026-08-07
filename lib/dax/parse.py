@@ -28,6 +28,7 @@ time those bodies change for another reason.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -35,6 +36,47 @@ from pathlib import Path
 
 from lib import console
 from lib.report.findings import Finding, _print_finding_detail
+
+
+def list_endpoints(path: Path):
+    """Print available endpoints and profiles in the XML."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    for ep in root.findall(".//endpoint"):
+        ep_type = ep.get("type")
+        op_mode = ep.get("operating_mode")
+        profiles = [p.get("type") for p in ep.findall("profile")]
+        print(f"  endpoint: {ep_type} (operating_mode={op_mode})")
+        for p in profiles:
+            print(f"    profile: {p}")
+
+
+_SAFE_PROFILE_RE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def sanitize_profile_type(t: str) -> str:
+    """Normalize a profile type for safe use in output file paths.
+
+    Profile names flow into `{output_dir}/{...}-{profile}-....json` and the
+    matching `.irs`, so values like `../foo` from a crafted XML would escape
+    the intended directory. Replace anything outside a plain identifier with
+    `_` rather than rejecting — unknown vendor profile names should still
+    produce a usable (if ugly) preset name.
+    """
+    safe = _SAFE_PROFILE_RE.sub("_", t)
+    return safe or "_"
+
+
+def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> list[str]:
+    """Return all profile type names for the given endpoint/mode, excluding 'off'."""
+    tree = ET.parse(path)
+    root = tree.getroot()
+    ep = root.find(
+        f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
+    )
+    if ep is None:
+        return []
+    return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
 
 
 def parse_csv_ints(s: str) -> list[int]:

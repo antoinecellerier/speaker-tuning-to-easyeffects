@@ -93,47 +93,6 @@ if "_ARGCOMPLETE" not in os.environ:
     _load_dsp()
 
 
-def list_endpoints(path: Path):
-    """Print available endpoints and profiles in the XML."""
-    tree = ET.parse(path)
-    root = tree.getroot()
-    for ep in root.findall(".//endpoint"):
-        ep_type = ep.get("type")
-        op_mode = ep.get("operating_mode")
-        profiles = [p.get("type") for p in ep.findall("profile")]
-        print(f"  endpoint: {ep_type} (operating_mode={op_mode})")
-        for p in profiles:
-            print(f"    profile: {p}")
-
-
-_SAFE_PROFILE_RE = re.compile(r"[^A-Za-z0-9_-]")
-
-
-def sanitize_profile_type(t: str) -> str:
-    """Normalize a profile type for safe use in output file paths.
-
-    Profile names flow into `{output_dir}/{...}-{profile}-....json` and the
-    matching `.irs`, so values like `../foo` from a crafted XML would escape
-    the intended directory. Replace anything outside a plain identifier with
-    `_` rather than rejecting — unknown vendor profile names should still
-    produce a usable (if ugly) preset name.
-    """
-    safe = _SAFE_PROFILE_RE.sub("_", t)
-    return safe or "_"
-
-
-def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> list[str]:
-    """Return all profile type names for the given endpoint/mode, excluding 'off'."""
-    tree = ET.parse(path)
-    root = tree.getroot()
-    ep = root.find(
-        f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
-    )
-    if ep is None:
-        return []
-    return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
-
-
 # Raised all over this file and consumed by the closing block, so the record
 # type is shared rather than owned (see lib/report/findings.py). Kept under
 # the names the rest of this file already uses.
@@ -612,7 +571,7 @@ def main(argv: list[str] | None = None,
 
     if args.list:
         console.cprint("head", f"Endpoints and profiles in {xml_path}:")
-        list_endpoints(xml_path)
+        parse.list_endpoints(xml_path)
         return
 
     if args.dry_run:
@@ -623,7 +582,7 @@ def main(argv: list[str] | None = None,
 
     # Determine which profiles to process
     if args.all_profiles:
-        profile_types = get_profile_types(xml_path, args.endpoint, args.mode)
+        profile_types = parse.get_profile_types(xml_path, args.endpoint, args.mode)
         if not profile_types:
             console.cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
             return
@@ -657,7 +616,7 @@ def main(argv: list[str] | None = None,
         if args.mode != "normal":
             name_parts.append(args.mode.title())
         if profile_type or args.all_profiles:
-            safe_profile = sanitize_profile_type(profile_type or "default")
+            safe_profile = parse.sanitize_profile_type(profile_type or "default")
             if profile_type and safe_profile != profile_type:
                 console.warn(f"sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
             name_parts.append(safe_profile.title())
@@ -941,8 +900,8 @@ def main(argv: list[str] | None = None,
         profile_used = n_modes = None
         if not args.all_profiles and len(profile_types) == 1:
             profile_used = tuning.profile_used
-            n_modes = len(get_profile_types(xml_path, args.endpoint,
-                                            args.mode))
+            n_modes = len(parse.get_profile_types(xml_path, args.endpoint,
+                                                  args.mode))
         messages.print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
