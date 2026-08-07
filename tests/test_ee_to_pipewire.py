@@ -2381,11 +2381,30 @@ def test_filter_graph_declares_inputs_and_outputs(generated):
 def test_irs_default_matches_the_generator():
     """The standalone two-step converts a preset the generator wrote and reads
     the .irs beside it, so both scripts have to resolve the same install. Two
-    copies of that logic drift: this one was hardcoded to the native path and
-    sent Flatpak users looking in a directory that never had the file."""
+    copies of that logic drift: the converter's was once hardcoded to the
+    native path and sent Flatpak users looking in a directory that never had
+    the file.
+
+    Both now read `lib.ee_paths.DEFAULT_IRS_DIR`, so the constants can no
+    longer disagree — what still can is the flag, if one script's `--irs-dir`
+    is given a default of its own. So this asks the two parsers, which is the
+    layer a user meets.
+
+    Identity, not equality, and that is the whole test: the original bug was a
+    *second derivation* of the same idea, and on a native-install machine a
+    re-derived (or hardcoded-to-native) default compares equal to the right
+    answer while being wrong for every Flatpak user. `is` fails on any object
+    that didn't come from the one attribute, whichever install this runs on."""
     import dolby_to_easyeffects as d
-    from lib.pipewire import install
-    assert install.DEFAULT_IRS_DIR == d.DEFAULT_IRS_DIR
+    import ee_to_pipewire as e
+    from lib import ee_paths
+
+    def irs_default(parser):
+        (action,) = [a for a in parser._actions if "--irs-dir" in a.option_strings]
+        return action.default
+
+    for parser in (e.build_parser([]), d.build_parser([])):
+        assert irs_default(parser) is ee_paths.DEFAULT_IRS_DIR
 
 
 @pytest.mark.parametrize("flatpak_run,native_run,installed,expected", [

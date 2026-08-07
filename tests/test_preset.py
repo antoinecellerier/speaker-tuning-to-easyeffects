@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lib import console
+from lib import console, ee_paths
 from lib.dax import parse
 from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
@@ -1753,8 +1753,8 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
         environment.ee_version_status((7, 1, 5), found=True).detail)
     monkeypatch.setattr(d, "_probe_ee_version",
                         lambda: d.EEProbe((7, 1, 5), True, "test", False))
-    d.warn_ee_environment(SimpleNamespace(output_dir=d.DEFAULT_OUTPUT_DIR,
-                                          irs_dir=d.DEFAULT_IRS_DIR))
+    d.warn_ee_environment(SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
+                                          irs_dir=ee_paths.DEFAULT_IRS_DIR))
     assert flat(environment.ee_v7_message("7.1.5")) in flat(capsys.readouterr().out)
 
     # Old kernel: doctor detail and the end-of-run hint

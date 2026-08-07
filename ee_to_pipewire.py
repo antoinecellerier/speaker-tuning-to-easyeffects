@@ -30,7 +30,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, version
+from lib import console, ee_paths, version
 from lib.pipewire import checks, install
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
@@ -137,9 +137,9 @@ def add_impulse_response_args(container, *, only=None):
     add(
         "--irs-dir",
         type=Path,
-        default=install.DEFAULT_IRS_DIR,
+        default=ee_paths.DEFAULT_IRS_DIR,
         help=f"directory containing the .irs file referenced by the "
-             f"preset's convolver (default: {install.DEFAULT_IRS_DIR})",
+             f"preset's convolver (default: {ee_paths.DEFAULT_IRS_DIR})",
     )
     add(
         "--no-copy-irs",

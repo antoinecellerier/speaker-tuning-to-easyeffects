@@ -1,10 +1,12 @@
 """Where the conf and its impulse response go, and what to do once they're there.
 
 The write itself stays in ``ee_to_pipewire.py``'s ``main`` — this is
-everything around it: the default install locations, the smart-filter target
-sink to pin to, the ``lv2info`` schema self-check the conf is run through
-before it is written, the convolver retarget that makes the conf
-self-contained, and the two blocks a user reads afterwards.
+everything around it: the smart-filter target sink to pin to, the ``lv2info``
+schema self-check the conf is run through before it is written, the convolver
+retarget that makes the conf self-contained, and the two blocks a user reads
+afterwards. Where the impulse response is read *from* is not decided here:
+``--irs-dir`` defaults to ``lib.ee_paths.DEFAULT_IRS_DIR``, the same attribute
+the generator's ``--irs-dir`` writes to, so the two cannot drift apart.
 
 ``_autodetect_speaker_sink`` shares its probe with the EasyEffects autoload
 pathway (``lib.hardware.sinks``), imported inside the function so a converter
@@ -25,19 +27,11 @@ import sys
 from pathlib import Path
 
 from lib import console
-from lib.ee_paths import easyeffects_base
 from lib.paths import REPO_ROOT
 from lib.pipewire.conf import _sanitize_name
 
 
 VALIDATE_CONF_SCRIPT = REPO_ROOT / "tools" / "measure_pw" / "validate_conf.py"
-
-
-# Matches whichever EasyEffects install the generator writes to — native
-# or Flatpak, which keep their presets in different trees. Hardcoding the
-# native path sent the standalone two-step looking for the impulse
-# response somewhere Flatpak users never had it.
-DEFAULT_IRS_DIR = easyeffects_base() / "irs"
 
 
 def _retarget_convolver_irs(stages: list["Stage"],

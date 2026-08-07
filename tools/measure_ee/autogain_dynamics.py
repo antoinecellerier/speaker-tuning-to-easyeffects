@@ -47,9 +47,11 @@ REPO_ROOT = SCRIPT_DIR.parent.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(REPO_ROOT))
 import smoke  # noqa: E402
-# Reuse the generator's EasyEffects base detection so this harness follows a
+# Reuse the scripts' EasyEffects base detection so this harness follows a
 # Flatpak install the same way the generated presets do.
-from dolby_to_easyeffects import DEFAULT_OUTPUT_DIR as EE_OUTPUT_DIR  # noqa: E402
+from lib import ee_paths  # noqa: E402
+
+EE_OUTPUT_DIR = ee_paths.DEFAULT_OUTPUT_DIR
 
 SR = 48000
 VARIANT_PREFIX = "_AgProto-"

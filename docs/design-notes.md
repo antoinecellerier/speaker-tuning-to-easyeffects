@@ -3154,6 +3154,50 @@ nothing leaves a passing test that quietly ran the real code — so each was
 checked by breaking the production function and confirming the test stayed
 green.
 
+### The EasyEffects install paths, and the duplicate that was real
+
+The second wave opens with the smallest step there is: the `DEFAULT_OUTPUT_DIR`
+/ `DEFAULT_IRS_DIR` / `DEFAULT_AUTOLOAD_DIR` / `DEFAULT_EASYEFFECTS_RC` block
+left the generator for `lib/ee_paths.py`, where the base it derives from
+already lived. It goes first because it is what the slice-5 note said the
+stranded `--doctor` I/O half was waiting on, and because the readers that
+*can't* move — `add_autoload_args`, `add_output_args`, `_complete_preset_names`
+and `main` — re-point for free from a root script.
+
+Two constants named `DEFAULT_*_DIR` looked like the same duplication and were
+not:
+
+- `lib/pipewire/install.py`'s `DEFAULT_IRS_DIR` was a genuine second
+  definition — the same `easyeffects_base() / "irs"`, written twice — and is
+  gone. The converter's `--irs-dir` default now reads the generator's
+  attribute, which is what `tests/test_ee_to_pipewire.py`'s
+  `test_irs_default_matches_the_generator` had existed to police.
+- `lib/pipewire/checks.py`'s `DEFAULT_OUTPUT_DIR` shares a name with the
+  generator's and nothing else: it is `~/.config/pipewire/pipewire.conf.d`,
+  PipeWire's drop-in directory, against the EasyEffects preset directory under
+  `~/.local/share`. Collapsing the two would have redirected every conf this
+  repo writes. It stays exactly where slice 6 put it, patch target included.
+
+That test survives rather than being deleted, because the layer where drift is
+still possible moved up: the constants can no longer disagree, but a `--irs-dir`
+given a default of its own can. It now asks both parsers, and asserts
+**identity** with `lib.ee_paths.DEFAULT_IRS_DIR` rather than equality — on a
+native-install machine a hardcoded native path compares equal to the right
+answer while being wrong for exactly the Flatpak users the original bug hit.
+Checked by re-introducing both failure shapes (hardcoded, and re-derived
+through `easyeffects_base()`) and confirming it fails on each.
+
+This slice is deliberately **not** a seed/trim pair, and it is the counterexample
+worth having next to the rule above. Seventeen lines of constants sit under the
+threshold where a copy edge earns its commit — and the seed could not have
+recovered much of them anyway, because the move is not verbatim: the block's
+private aliases (`_EASYEFFECTS_BASE`, `_USE_FLATPAK`, `_FLATPAK_APP_ID`) become
+the module's own public names, so `check_move_purity.py` reports the derivations
+as changed rather than moved, correctly. The provenance that mattered here was
+never `git blame`'s; it was proving the resolved paths didn't move, which is a
+`git worktree add --detach <scratch> HEAD` copy printing every constant either
+side.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

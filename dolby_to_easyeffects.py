@@ -90,29 +90,6 @@ if "_ARGCOMPLETE" not in os.environ:
     _load_dsp()
 
 
-# Shared with ee_to_pipewire.py, which resolves the same install root for its
-# own --irs-dir default and must not import this module to do it (numpy/scipy
-# in a converter that does no DSP). Kept under the private names the rest of
-# this file already uses.
-_FLATPAK_APP_ID = ee_paths.FLATPAK_APP_ID
-_FLATPAK_BASE = ee_paths.FLATPAK_BASE
-_NATIVE_BASE = ee_paths.NATIVE_BASE
-_prefer_flatpak = ee_paths.prefer_flatpak
-
-_USE_FLATPAK = _prefer_flatpak()
-_EASYEFFECTS_BASE = ee_paths.easyeffects_base()
-
-DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
-DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
-DEFAULT_AUTOLOAD_DIR = _EASYEFFECTS_BASE / "autoload" / "output"
-
-# EasyEffects 8.x KConfig file. Separate from _EASYEFFECTS_BASE (which is
-# under XDG_DATA_HOME for presets/IRs); this one is under XDG_CONFIG_HOME.
-_FLATPAK_RC = Path.home() / ".var" / "app" / _FLATPAK_APP_ID / "config" / "easyeffects" / "db" / "easyeffectsrc"
-_NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
-DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _USE_FLATPAK else _NATIVE_RC
-
-
 def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | None:
     """Warn — with copy-paste fixes — about any firmware-load gate that's off,
     and return the ask for whether toggling it worked.
@@ -830,7 +807,7 @@ def _probe_ee_version() -> EEProbe:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
     raises.
 
-    Probes the install the script writes to (per _USE_FLATPAK) first, then the
+    Probes the install the script writes to (per ee_paths.USE_FLATPAK) first, then the
     other, and prefers a *parseable* version over a found-but-unreadable answer
     — so a stale/shim binary on one install can't mask a healthy version on the
     other (issue #22 review). ``found`` means an EE binary actually answered, so
@@ -867,12 +844,12 @@ def _probe_ee_version() -> EEProbe:
     def flatpak():
         # `flatpak info` exits non-zero precisely when the app isn't installed,
         # so a failure here is absence — never the silent-but-installed case.
-        out, _failure = run(["flatpak", "info", _FLATPAK_APP_ID])
+        out, _failure = run(["flatpak", "info", ee_paths.FLATPAK_APP_ID])
         if out is None:
             return None, False, None
         return parse_ee_version(_flatpak_version_text(out)), True, None
 
-    probes = ([(True, flatpak), (False, native)] if _USE_FLATPAK
+    probes = ([(True, flatpak), (False, native)] if ee_paths.USE_FLATPAK
               else [(False, native), (True, flatpak)])
     fallback = EEProbe()                 # best found-but-unparseable, in order
     for is_flatpak, probe in probes:
@@ -909,8 +886,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
             "location checks."))
     else:
         report.checks.append(environment.install_status(
-            _FLATPAK_BASE.exists(), _NATIVE_BASE.exists(), _USE_FLATPAK,
-            environment._tilde(_EASYEFFECTS_BASE), ee_is_flatpak))
+            ee_paths.FLATPAK_BASE.exists(), ee_paths.NATIVE_BASE.exists(), ee_paths.USE_FLATPAK,
+            environment._tilde(ee_paths.EASYEFFECTS_BASE), ee_is_flatpak))
 
     # 3. Preset + impulse-file integrity
     try:
@@ -974,7 +951,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "ee_version": (".".join(map(str, version)) if version else "unknown")
                       + (f" (via {source})" if source else ""),
         "ee_running": easyeffects_is_running(),
-        "install": "Flatpak" if _USE_FLATPAK else "native",
+        "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
         "output_dir": environment._tilde(output_dir),
         "irs_dir": environment._tilde(irs_dir),
         "preset_count": len(generated_names),
@@ -1059,10 +1036,10 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
 
 def report_doctor(args) -> None:
     """--doctor entry point: run environment self-diagnostics and print them."""
-    custom_dirs = (args.output_dir != DEFAULT_OUTPUT_DIR
-                   or args.irs_dir != DEFAULT_IRS_DIR)
+    custom_dirs = (args.output_dir != ee_paths.DEFAULT_OUTPUT_DIR
+                   or args.irs_dir != ee_paths.DEFAULT_IRS_DIR)
     report = _gather_doctor_report(args.output_dir, args.irs_dir,
-                                   DEFAULT_EASYEFFECTS_RC, custom_dirs=custom_dirs)
+                                   ee_paths.DEFAULT_EASYEFFECTS_RC, custom_dirs=custom_dirs)
     _print_doctor_report(report)
 
 
@@ -1106,10 +1083,10 @@ def warn_ee_environment(args) -> None:
     # Install-location mismatch (only meaningful for the default EE dirs): the
     # detected EE build differs from where we wrote. Warn so the user can point
     # --output-dir/--irs-dir at the install they actually run.
-    if (args.output_dir == DEFAULT_OUTPUT_DIR and args.irs_dir == DEFAULT_IRS_DIR
-            and ee_is_flatpak is not None and ee_is_flatpak != _USE_FLATPAK):
+    if (args.output_dir == ee_paths.DEFAULT_OUTPUT_DIR and args.irs_dir == ee_paths.DEFAULT_IRS_DIR
+            and ee_is_flatpak is not None and ee_is_flatpak != ee_paths.USE_FLATPAK):
         run_where = "Flatpak" if ee_is_flatpak else "native"
-        where = "Flatpak" if _USE_FLATPAK else "native"
+        where = "Flatpak" if ee_paths.USE_FLATPAK else "native"
         console.cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
                        f"location, but the {run_where} install was detected — if "
                        "that's the one you use, it won't see them (run --doctor).")
@@ -1763,8 +1740,8 @@ def easyeffects_is_running() -> bool:
 
 # Raised all over this file and consumed by the closing block, so the record
 # type is shared rather than owned (see lib/report/findings.py). Kept under
-# the names the rest of this file already uses, like the ee_paths and doctor
-# re-exports above.
+# the names the rest of this file already uses, like the doctor re-exports
+# above.
 Finding = report_findings.Finding
 _print_finding_detail = report_findings._print_finding_detail
 
@@ -2690,8 +2667,8 @@ def add_autoload_args(container, *, only=None):
     add(
         "--autoload-dir",
         type=Path,
-        default=DEFAULT_AUTOLOAD_DIR,
-        help=f"EasyEffects autoload directory (default: {DEFAULT_AUTOLOAD_DIR})",
+        default=ee_paths.DEFAULT_AUTOLOAD_DIR,
+        help=f"EasyEffects autoload directory (default: {ee_paths.DEFAULT_AUTOLOAD_DIR})",
     )
     add(
         "--autoload-sink",
@@ -2729,14 +2706,14 @@ def add_output_args(container, *, only=None):
     add(
         "--output-dir",
         type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help=f"EasyEffects output preset directory (default: {DEFAULT_OUTPUT_DIR})",
+        default=ee_paths.DEFAULT_OUTPUT_DIR,
+        help=f"EasyEffects output preset directory (default: {ee_paths.DEFAULT_OUTPUT_DIR})",
     )
     add(
         "--irs-dir",
         type=Path,
-        default=DEFAULT_IRS_DIR,
-        help=f"EasyEffects impulse response directory (default: {DEFAULT_IRS_DIR})",
+        default=ee_paths.DEFAULT_IRS_DIR,
+        help=f"EasyEffects impulse response directory (default: {ee_paths.DEFAULT_IRS_DIR})",
     )
     return added
 
@@ -2878,7 +2855,7 @@ def _complete_preset_names(prefix: str, **_kwargs) -> list[str]:
     """Tab-completion for --autoload's optional PRESET: the preset stems
     already present in the EasyEffects output directory."""
     try:
-        stems = [p.stem for p in DEFAULT_OUTPUT_DIR.glob("*.json")]
+        stems = [p.stem for p in ee_paths.DEFAULT_OUTPUT_DIR.glob("*.json")]
     except OSError:
         return []
     return [s for s in stems if s.startswith(prefix)]
@@ -3164,15 +3141,15 @@ def main(argv: list[str] | None = None,
                 console.cprint("ok", f"  Wrote {bypass_path}")
 
             fallback_status, existing = autoload.set_autoload_fallback(
-                DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
+                ee_paths.DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if fallback_status == "already-configured":
                 console.cprint("ok", f"  Fallback preset already configured "
-                              f"('{existing}') in {DEFAULT_EASYEFFECTS_RC} — leaving as-is")
+                              f"('{existing}') in {ee_paths.DEFAULT_EASYEFFECTS_RC} — leaving as-is")
             elif fallback_status == "would-patch":
-                console.cprint("ok", f"  Would enable fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Would enable fallback preset in {ee_paths.DEFAULT_EASYEFFECTS_RC}")
             else:
-                console.cprint("ok", f"  Enabled fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Enabled fallback preset in {ee_paths.DEFAULT_EASYEFFECTS_RC}")
                 if easyeffects_is_running():
                     console.cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
@@ -3183,7 +3160,7 @@ def main(argv: list[str] | None = None,
         # nudge toward the prefs, but only when one is off so the fully
         # configured case stays quiet.
         try:
-            _rc_text = DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
+            _rc_text = ee_paths.DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
         except OSError:
             _rc_text = ""
         _rc = autoload.read_ee_rc(_rc_text)
