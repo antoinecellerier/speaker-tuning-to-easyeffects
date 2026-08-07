@@ -28,6 +28,9 @@ from lib import console, version
 from lib.data import speaker_pin_quirks
 from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
+# Aliased like the generator's own import, and for the same reason: one
+# letter apart from lib.hardware.speakers above.
+from lib.report import speaker as report_speaker
 # Aliased like the generator's own import: this file binds `findings` as a
 # local in six tests, and the module has to stay reachable from all of them.
 from lib.report import findings as report_findings
@@ -1146,10 +1149,10 @@ def test_speaker_info_output_is_version_stamped(monkeypatch, silence_console,
     the issue form, so the maintainer can tell which build was tested."""
     silence_console(console)
     monkeypatch.setattr(version, "get_version", lambda: "vTEST-42")
-    monkeypatch.setattr(dolby_to_easyeffects, "_gather_speaker_info", lambda: None)
-    monkeypatch.setattr(dolby_to_easyeffects, "_print_speaker_info", lambda info: None)
+    monkeypatch.setattr(report_speaker, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(report_speaker, "_print_speaker_info", lambda info: None)
 
-    dolby_to_easyeffects.report_speaker_info()
+    report_speaker.report_speaker_info()
 
     out = capsys.readouterr().out
     assert "speaker-tuning-to-easyeffects vTEST-42" in out
@@ -1164,11 +1167,11 @@ def test_speaker_info_output_is_version_stamped(monkeypatch, silence_console,
 def test_get_distro_pretty_name_parses(tmp_path, content, expected):
     p = tmp_path / "os-release"
     p.write_text(content)
-    assert dolby_to_easyeffects.get_distro_pretty_name(p) == expected
+    assert report_speaker.get_distro_pretty_name(p) == expected
 
 
 def test_get_distro_pretty_name_missing_file(tmp_path):
-    assert dolby_to_easyeffects.get_distro_pretty_name(tmp_path / "nope") == ""
+    assert report_speaker.get_distro_pretty_name(tmp_path / "nope") == ""
 
 
 # --- Closing-block copy contract ---
@@ -1211,7 +1214,7 @@ def _every_finding():
     # one above: the model-less wording shares this slug by design (same site,
     # two wordings) and deliberately carries no ask, so it has nothing for
     # these checks to bite on. tests/test_speaker_sinks.py covers both.
-    found.append(dolby_to_easyeffects._hidden_pin_finding(
+    found.append(report_speaker._hidden_pin_finding(
         speaker_pin_quirks.PinQuirk("alc287-yoga9-bass-spk-pin",
                                     pins="0x17", since="", codec_only=True),
         ["0x17"]))
@@ -1226,7 +1229,7 @@ def _every_finding():
         unconfigured_pins=[speakers.UnconfiguredPin(
             node="0x17", codec="17AA9999", pincap="OUT",
             pin_default="0x411111f0")])
-    found.append(dolby_to_easyeffects.unlisted_speaker_pin_finding(info))
+    found.append(report_speaker.unlisted_speaker_pin_finding(info))
     # Raised inside _report_parsed_profile / main(), which would need a whole
     # run to reach. Called through their factories rather than restated here:
     # this fixture used to carry its own copy of each sentence, which is two

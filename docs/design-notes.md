@@ -3246,6 +3246,111 @@ narrow what the generator can match. The fourth is across the boundary:
 `autoprobe_dolby_source`'s mount-then-CWD walk, which its own docstring already
 admits.
 
+### The speaker report, and where a `lib/` caller may be re-pointed
+
+649 lines — `warn_speaker_firmware_gate` through `report_speaker_info`, plus
+`speaker_pin_status` — left the generator for `lib/report/speaker.py`, taking
+it from 2,769 lines to 2,116. This is the *reporting* half of a split whose
+probing half became `lib/hardware/speakers.py` in wave 1: that module answers
+what is wired to what, and everything here decides what to say about the
+answer, across the three surfaces that must not drift — `--speaker-info`,
+`--doctor`, and the findings a normal run raises.
+
+`speaker_pin_status` came along even though it is a `--doctor` verdict and the
+slice-5 note above parked it with the I/O half. It is a verdict *about the
+speakers*, it reads `_pin_phrase` / `upgrade_prospect` /
+`speaker_pin_fix_steps`, and moving it now is what leaves the `--doctor` I/O
+that comes next with no pin edge at all.
+
+`symtable` over the block says it reaches fourteen names it does not define:
+`Path`, `date`, `textwrap`; `console`, `version`, `amps`, `codecs`, `speakers`,
+`speaker_pin_quirks`, `environment`, `report_findings`; and `Finding`,
+`CheckResult`, `DOCTOR_WARN`. Nothing had to be dragged along beyond
+`_MODPROBE_CONF` and `_pin_phrase`, both private to the block, and no moved
+body needed a call re-pointed. The last three arrive as bare names on
+`lib/report/environment.py`'s precedent — a frozen dataclass and two string
+constants, nothing a test would patch — and `report_findings` keeps the
+generator's alias because the moved lines read through it. In the generator and
+in both test files the new module is imported as `report_speaker`: one letter
+from `lib.hardware.speakers`, which those files still use.
+
+**The cycle that had to be checked, and wasn't one.** `upgrade_prospect` reads
+`environment.parse_kernel_series` and `_print_speaker_info` reads
+`environment._kernel_series_age`, so `speaker.py` imports `environment.py`.
+Nothing goes back the other way: `environment.py` reaches
+`lib/hardware/speakers.py` for a type and never the report. The edge is
+one-directional and the `--doctor` I/O that assembles both sits above them —
+which is the whole reason it is going into a module of its own rather than
+back into `environment.py`.
+
+**A `lib/`-side call site can only be re-pointed in three places.** The one
+caller of this code outside the generator is `lib/pipewire/checks.py`, whose
+PipeWire `--doctor` ends on the same hardware dump. It reached it through a
+deferred, `try`-guarded `import dolby_to_easyeffects as gen` — deferred because
+that import cost the generator's NumPy/SciPy on a path that does no DSP.
+Retargeting it looks like a one-line edit and is not: `check_move_purity.py`
+exempts a module's docstring, its top-level import block and blank lines, so in
+a file already under `lib/` the *only* pure edits are a deletion, a top-level
+import, and docstring prose. A rewritten line inside a function body is a
+violation whether or not it is a moved line, and the tool cannot tell the two
+apart. So the import moved to the top of the file as
+`from lib.report import speaker as gen`, the `try` came out, and the two call
+lines were left untouched — including the alias, which now reads oddly and is
+kept for exactly that reason. The sentence the deleted comment carried moved
+into the docstring, where it is exempt. What it buys: the PipeWire doctor no
+longer pulls numpy and scipy to print a hardware dump, which was the reason the
+import was deferred in the first place.
+
+`lib/report/speaker.py` is stdlib-only in the sense the converter's startup
+cares about and still cannot join `tests/test_layout.py`'s `STDLIB_ONLY`: it
+prints, so it reaches `lib/console.py` and the optional `rich` that list's
+`FORBIDDEN` also covers. Checked rather than assumed — importing it leaves
+`rich,rich_argparse` in `sys.modules`. No `lib/report` module can ever be
+eligible, since the package exists to print, so the tuple now says so once for
+all four rather than leaving each absence to be re-discovered.
+
+The patch inventory is two calls, both in `tests/test_cli.py`
+(`_gather_speaker_info`, `_print_speaker_info`) and both retargeted to the new
+module. Small, but not to be trusted on a green suite alone: each was checked
+in both directions — break the production function and the patching test must
+still pass, then aim the same patch at a throwaway object and it must fail with
+the sabotage reaching the real function. The third patch in that test,
+`version.get_version`, needed no retargeting and is the payoff of `c6f90db`:
+had the generator still been re-exporting that name, the moved caller would
+have read the real version through `lib/version.py` while the patch rebound a
+copy, and the assertion about a version-stamped header would have passed
+anyway. The other 57 references — 52 in `tests/test_speaker_sinks.py`, five in
+`tests/test_cli.py` — are plain calls, and every `monkeypatch.setattr` those
+tests rely on already names `lib.hardware.*` rather than the generator.
+
+Five duplications were **noticed and deliberately left**, for the reason the
+rule gives: collapsing one inside a move commit is a behaviour change under a
+subject line promising there isn't one.
+
+- `_gather_speaker_pins` and `_gather_speaker_info` share their first dozen
+  lines verbatim — the `/proc/asound/cards` read, the three `codecs.get_*`
+  probes, the demo-injection guard around `_detect_hda_speakers`. The split is
+  deliberate and documented (the cheap one must not pay for `amixer`,
+  `journalctl` and a `/lib/firmware` glob), but the overlap is copy, not
+  design.
+- The pin sentence is written twice: `warn_hidden_speaker_pin`'s "Upstream
+  Linux carries a fix for this exact model that declares {phrase} on codec
+  {ssid} an internal speaker, and your kernel isn't applying it" and
+  `speaker_pin_status`'s lowercase near-identical detail. Two surfaces, one
+  claim, and the *procedure* under it is already shared through
+  `speaker_pin_fix_steps` — so this is the half that got left behind when the
+  rest was unified.
+- The firmware-gate symptom ("silent, thin or crackly") is spelled out in
+  `warn_speaker_firmware_gate` and again in `_amp_status_lines`, with a comment
+  in the second saying it is hedged for the same reason as the first.
+- `speakers.find_hidden_speaker_pin(info)` is called twice inside
+  `_print_speaker_info` — once for the flagged-pin set, once for the layout
+  line — and a third time by `unlisted_speaker_pin_finding`, all on the same
+  `SpeakerInfo`. Pure recomputation of a pure function; cheap, but three
+  answers where there is one question.
+- `_pin_phrase(missing)` is computed in `warn_hidden_speaker_pin` and again in
+  the `_hidden_pin_finding` it calls two lines later with the same argument.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

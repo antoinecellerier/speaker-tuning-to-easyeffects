@@ -29,6 +29,9 @@ from lib.hardware import amps, codecs, speakers
 # list, which would shadow the module.
 from lib.hardware import sinks as hw_sinks
 from lib.report import environment
+# Aliased like the generator's own import, and for the same reason: one
+# letter apart from lib.hardware.speakers above.
+from lib.report import speaker as report_speaker
 
 
 # --- Synthetic sinks (in the _enumerate_audio_sinks() dict shape) -----------
@@ -569,7 +572,7 @@ def test_demo_speaker_pin_reaches_the_warning(monkeypatch, hda, soundwire):
     monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: hda)
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: soundwire)
     monkeypatch.setenv("DEMO_SPEAKER_PIN", "17aa386a")   # case-insensitive
-    info = d._gather_speaker_pins()
+    info = report_speaker._gather_speaker_pins()
     found = speakers.find_hidden_speaker_pin(info)
     assert found and found[2] == ["0x17"]
     assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
@@ -578,7 +581,7 @@ def test_demo_speaker_pin_reaches_the_warning(monkeypatch, hda, soundwire):
     # against the stub rather than against the demo tuple, so the check can't
     # come out true by accident on a host that has no codecs to begin with.
     monkeypatch.delenv("DEMO_SPEAKER_PIN")
-    assert d._gather_speaker_pins().hda_codecs == hda
+    assert report_speaker._gather_speaker_pins().hda_codecs == hda
 
 
 def test_demo_speaker_pin_reaches_the_speaker_report(monkeypatch):
@@ -589,7 +592,7 @@ def test_demo_speaker_pin_reaches_the_speaker_report(monkeypatch):
     monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", list)  # no amixer
     monkeypatch.setattr(amps, "_gather_amp_evidence", lambda info: None)
     monkeypatch.setenv("DEMO_SPEAKER_PIN", "17AA386A")
-    info = d._gather_speaker_info()
+    info = report_speaker._gather_speaker_info()
     assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
     assert speakers.find_hidden_speaker_pin(info)
 
@@ -603,7 +606,7 @@ def _gate(on):
 
 def test_warn_firmware_gate_off_prints_fix(silence_console, capsys):
     silence_console(console)
-    finding = d.warn_speaker_firmware_gate([_gate(on=False)])
+    finding = report_speaker.warn_speaker_firmware_gate([_gate(on=False)])
     out = capsys.readouterr().out
     # iface= must be spelled out — bare name= means iface=MIXER to amixer and
     # fails on the iface=CARD gates modern kernels expose (#39 regression).
@@ -630,7 +633,7 @@ def test_warn_firmware_gate_off_prints_fix(silence_console, capsys):
 def test_warn_firmware_gate_silent_when_not_off(silence_console, capsys,
                                                 gates):
     silence_console(console)
-    assert d.warn_speaker_firmware_gate(gates) is None
+    assert report_speaker.warn_speaker_firmware_gate(gates) is None
     assert capsys.readouterr().out == ""
 
 
@@ -805,7 +808,7 @@ def test_amp_status_lines_healthy_is_terse():
     info.amp_status = [_astat(f"sdw:{i}") for i in range(6)]
     info.amp_firmware = ["cirrus/cs35l56-amp1.bin"]
     info.amp_log = [(False, "DSP1: cirrus/cs35l56.wmfw")]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert lines[0] == "  6 amplifier(s) bound (cs35l56); 1ch"
     assert not any("⚠" in l for l in lines)
 
@@ -813,7 +816,7 @@ def test_amp_status_lines_healthy_is_terse():
 def test_amp_status_lines_unbound_is_neutral():
     info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0", bound=False, channels=0), _astat("sdw:1")]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert any("no driver bound" in l and "sdw:0" in l for l in lines)
     assert not any("⚠" in l for l in lines)  # neutral — not a "silent speaker" alarm
 
@@ -823,7 +826,7 @@ def test_amp_status_lines_includes_firmware_gate_off():
     info.amp_status = [_astat("sdw:0")]
     info.firmware_gates = [speakers.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=False)]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert any("Force Firmware Load" in l and "OFF" in l for l in lines)
     # This section is where --speaker-info and --doctor both end, so it is the
     # only place either can hand over the fix — flagging without it leaves the
@@ -837,7 +840,7 @@ def test_amp_status_lines_gate_on_offers_no_fix():
     info = speakers.SpeakerInfo()
     info.firmware_gates = [speakers.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=True)]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert not any("amixer" in l for l in lines)
     assert not any("⚠" in l for l in lines)
 
@@ -848,7 +851,7 @@ def test_amp_status_lines_flags_log_error_and_missing_firmware():
     info.amp_firmware = []
     info.amp_firmware_missing = True
     info.amp_log = [(True, "Firmware boot timed out(3): HALO_STATE=0x2")]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert any("amp firmware/init error" in l for l in lines)
     assert any("Firmware boot timed out" in l for l in lines)
     assert any("none found under /lib/firmware" in l for l in lines)
@@ -861,7 +864,7 @@ def test_amp_status_lines_log_error_truncation_is_surfaced():
     info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log = [(True, f"cs35l56 sdw:0:{i}: FIRMWARE_MISSING") for i in range(6)]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert sum("FIRMWARE_MISSING" in l for l in lines) == 3
     assert any("+3 more" in l for l in lines)
 
@@ -870,7 +873,7 @@ def test_amp_status_lines_no_ok_verdict_when_log_clean():
     info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw")]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     joined = "\n".join(lines).lower()
     # Points at the raw log AND tells the reader our scan isn't authoritative.
     assert "no known failure marker" in joined
@@ -886,7 +889,7 @@ def test_amp_status_lines_grep_hint_uses_scanned_keywords():
     info.amp_status = [_astat("sdw:0", driver="max98373")]
     info.amp_log_grep = "max98"
     info.amp_log = [(False, "max98373 ...: some line")]
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert any("grep -iE 'max98'" in l for l in lines)
     assert not any("cs35l|tas2|cirrus" in l for l in lines)
 
@@ -898,7 +901,7 @@ def test_amp_status_lines_missing_firmware_clean_log_still_points_at_log():
     info.amp_status = [_astat("sdw:0")]
     info.amp_firmware_missing = True
     info.amp_log = []  # readable, but no amp lines this boot
-    lines = d._amp_status_lines(info)
+    lines = report_speaker._amp_status_lines(info)
     assert any("inspect" in l and "journalctl" in l for l in lines)
 
 
@@ -906,11 +909,11 @@ def test_amp_status_lines_log_inaccessible():
     info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log_available = False
-    assert any("not accessible" in l for l in d._amp_status_lines(info))
+    assert any("not accessible" in l for l in report_speaker._amp_status_lines(info))
 
 
 def test_amp_status_lines_empty():
-    assert d._amp_status_lines(speakers.SpeakerInfo()) == ["  (no smart amplifier detected)"]
+    assert report_speaker._amp_status_lines(speakers.SpeakerInfo()) == ["  (no smart amplifier detected)"]
 
 
 @pytest.mark.parametrize("mode,check", [
@@ -923,7 +926,7 @@ def test_demo_amp_status_env(monkeypatch, mode, check):
     monkeypatch.setenv("ATMOS_DEMO_AMP_STATUS", mode)
     info = speakers.SpeakerInfo()
     assert speakers._maybe_demo_amp_status(info) is True
-    assert check(d._amp_status_lines(info))
+    assert check(report_speaker._amp_status_lines(info))
 
 
 @pytest.mark.parametrize("value", ["", "faill", "true", "1"])
@@ -1156,7 +1159,7 @@ def test_speaker_info_tags_an_overridden_pin(capsys):
     """Without the tag, an applied fixup and a BIOS-declared speaker render
     identically — leaving the user's verification step nothing to look at."""
     info = _info([CODEC_FIXUP_APPLIED], overrides=FIXUP_OVERRIDE)
-    d._print_speaker_info(info)
+    report_speaker._print_speaker_info(info)
     out = capsys.readouterr().out
     assert "0x17: Bass Speaker Playback Switch (woofer, stereo) [kernel fixup]" in out
     assert "0x14: Speaker Playback Switch (tweeter, stereo)\n" in out
@@ -1242,7 +1245,7 @@ def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
     saying an upgrade is the only route."""
     info = _info([_codec_dump(ssid="0x17aa38cf",
                               bass_pin_default="0x411111f0")])
-    assert d.warn_hidden_speaker_pin(
+    assert report_speaker.warn_hidden_speaker_pin(
         speakers.find_hidden_speaker_pin(info), info) is not None
     out = capsys.readouterr().out
     assert "sudo tee" not in out and "hda_model" not in out
@@ -1252,30 +1255,30 @@ def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
 def test_hidden_pin_warning_copy(capsys):
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    finding = d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
+    finding = report_speaker.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     out = capsys.readouterr().out
     assert finding is not None and finding.kind == "hint"
     # The fix, its verification, and its undo must all be present: a modprobe
     # line with no way back is not a safe thing to print.
     assert "alc287-yoga9-bass-spk-pin" in out
     assert "--speaker-info" in out
-    assert f"rm {d._MODPROBE_CONF}" in out
+    assert f"rm {report_speaker._MODPROBE_CONF}" in out
     # 386A's quirk is mainline-only, so "upgrade your kernel" would be a dead
     # end and must not be what the user is told to do.
     assert "not in any released kernel yet" in out
 
 
 def test_hidden_pin_warning_silent_without_match(capsys):
-    assert d.warn_hidden_speaker_pin(None, speakers.SpeakerInfo()) is None
+    assert report_speaker.warn_hidden_speaker_pin(None, speakers.SpeakerInfo()) is None
     assert capsys.readouterr().out == ""
 
 
 def test_speaker_pin_doctor_check():
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    check = d.speaker_pin_status(info)
+    check = report_speaker.speaker_pin_status(info)
     assert check is not None and check.status == d.DOCTOR_WARN
-    assert d.speaker_pin_status(_info([_codec_dump(ssid=ISSUE_53_SSID)])) is None
+    assert report_speaker.speaker_pin_status(_info([_codec_dump(ssid=ISSUE_53_SSID)])) is None
 
 
 def test_hda_model_module_falls_back_to_legacy(tmp_path):
@@ -1304,13 +1307,13 @@ def _quirk(since, model="alc287-yoga9-bass-spk-pin"):
 
 
 def test_upgrade_prospect_not_in_any_release():
-    text = d.upgrade_prospect(_quirk(""), release="7.1.5-amd64")
+    text = report_speaker.upgrade_prospect(_quirk(""), release="7.1.5-amd64")
     assert "not in any released kernel yet" in text
     assert "upgrad" in text  # says so explicitly rather than staying silent
 
 
 def test_upgrade_prospect_user_is_behind():
-    text = d.upgrade_prospect(_quirk("7.2"), release="7.0.0-1009-oem")
+    text = report_speaker.upgrade_prospect(_quirk("7.2"), release="7.0.0-1009-oem")
     assert "Linux 7.2 and newer" in text
     assert "already" not in text
 
@@ -1319,13 +1322,13 @@ def test_upgrade_prospect_user_is_already_past_it():
     """The case a boolean could not express: their kernel carries the fix and
     the pin is still missing, so telling them to upgrade is telling them to go
     and get what they have."""
-    text = d.upgrade_prospect(_quirk("6.15"), release="7.1.5+deb14-amd64")
+    text = report_speaker.upgrade_prospect(_quirk("6.15"), release="7.1.5+deb14-amd64")
     assert "should already be" in text
     assert "7.1" in text and "6.15" in text
 
 
 def test_upgrade_prospect_unparseable_kernel_falls_back_to_upgrade_advice():
-    text = d.upgrade_prospect(_quirk("7.2"), release="not-a-version")
+    text = report_speaker.upgrade_prospect(_quirk("7.2"), release="not-a-version")
     assert "Linux 7.2 and newer" in text
 
 
@@ -1369,7 +1372,7 @@ def test_silent_once_every_declared_pin_is_present():
 def test_asks_about_speaker_count_when_nothing_matched():
     info = _info([_codec_dump(ssid="0x17aa9999",
                               bass_pin_default="0x411111f0")])
-    finding = d.unlisted_speaker_pin_finding(info)
+    finding = report_speaker.unlisted_speaker_pin_finding(info)
     assert finding is not None and finding.kind == "ask"
     assert "more speakers" in finding.ask
     # Names the pins, since nothing is printed above it in a normal run.
@@ -1379,14 +1382,14 @@ def test_asks_about_speaker_count_when_nothing_matched():
 def test_no_speaker_count_ask_when_the_pair_is_complete():
     """Two speaker pins and spare output pins is the development machine —
     nothing ambiguous, so nothing to ask."""
-    assert d.unlisted_speaker_pin_finding(_info([_codec_dump()])) is None
+    assert report_speaker.unlisted_speaker_pin_finding(_info([_codec_dump()])) is None
 
 
 def test_no_speaker_count_ask_when_a_quirk_already_matched():
     """That run has a real fix to offer; a question would compete with it."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    assert d.unlisted_speaker_pin_finding(info) is None
+    assert report_speaker.unlisted_speaker_pin_finding(info) is None
 
 
 def test_no_speaker_count_ask_without_spare_output_pins():
@@ -1395,7 +1398,7 @@ def test_no_speaker_count_ask_without_spare_output_pins():
     dump = _codec_dump(ssid="0x17aa9999", bass_pin_default="0x411111f0")
     info = _info([dump])
     info.unconfigured_pins.clear()
-    assert d.unlisted_speaker_pin_finding(info) is None
+    assert report_speaker.unlisted_speaker_pin_finding(info) is None
 
 
 # --- Regressions caught in review of the issue #53 work ---------------------
@@ -1461,7 +1464,7 @@ def test_warning_names_only_the_missing_pin(capsys):
     would send the reader after a pin that works."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
+    report_speaker.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     out = capsys.readouterr().out
     assert "pin 0x17" in out and "0x14" not in out
 
@@ -1474,9 +1477,9 @@ def test_copy_never_asserts_a_pin_count_it_cannot_know(capsys):
                         "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
     info = _info([dump])
     found = speakers.find_hidden_speaker_pin(info)
-    d.warn_hidden_speaker_pin(found, info)
+    report_speaker.warn_hidden_speaker_pin(found, info)
     out = capsys.readouterr().out
-    check = d.speaker_pin_status(info)
+    check = report_speaker.speaker_pin_status(info)
     assert "one internal speaker pin" not in out + check.detail
     assert "second one" not in out + check.detail
     assert "pin 0x14" in out and "pin 0x14" in check.detail
@@ -1489,7 +1492,7 @@ def test_doctor_carries_the_fix_only_when_there_is_one():
     the 30 model-less rows have none to send them to."""
     listed = _info([_codec_dump(ssid=ISSUE_53_SSID,
                                 bass_pin_default="0x411111f0")])
-    check = d.speaker_pin_status(listed)
+    check = report_speaker.speaker_pin_status(listed)
     assert any("| sudo tee /etc/modprobe.d/speaker-pin-fix.conf" in text
                for _, text in check.steps)
     # Nothing may send the reader off to another invocation for the fix.
@@ -1497,7 +1500,7 @@ def test_doctor_carries_the_fix_only_when_there_is_one():
 
     nameless = _info([_codec_dump(ssid="0x17aa38cf",
                                   bass_pin_default="0x411111f0")])
-    nameless_check = d.speaker_pin_status(nameless)
+    nameless_check = report_speaker.speaker_pin_status(nameless)
     assert nameless_check.steps == ()
     assert "modprobe" not in nameless_check.detail
 
@@ -1507,9 +1510,9 @@ def test_doctor_and_the_end_of_run_block_print_one_procedure(capsys):
     builder now, so a command edited on one side can't go stale on the other."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
+    report_speaker.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     printed = capsys.readouterr().out
-    commands = [t for style, t in d.speaker_pin_status(info).steps
+    commands = [t for style, t in report_speaker.speaker_pin_status(info).steps
                 if style == "cta"]
     assert commands
     for text in commands:
@@ -1520,7 +1523,7 @@ def test_pin_fix_names_the_module_that_owns_the_codec():
     """Legacy HDA takes `model=`; the SOF parameter is scanned from /sys/module
     and covered by test_modprobe_line_names_the_driver_that_owns_the_codec."""
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
-    legacy = [t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], False, 90)]
+    legacy = [t for _, t in report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], False, 90)]
     assert any("options snd_hda_intel model=alc287-yoga9-bass-spk-pin" in t
                for t in legacy)
 
@@ -1529,7 +1532,7 @@ def test_pin_fix_wraps_prose_but_never_a_command():
     """A command folded by textwrap doesn't run; the terminal soft-wrapping a
     long one is fine. So width may only reflow the prose."""
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
-    narrow = d.speaker_pin_fix_steps(quirk, ["0x17"], True, 40)
+    narrow = report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], True, 40)
     commands = [t for style, t in narrow if style == "cta"]
     assert any(len(t) > 40 for t in commands)          # left intact
     assert all(len(t) <= 40 for style, t in narrow if style == "dim")
@@ -1542,7 +1545,7 @@ def test_report_never_calls_a_flagged_pin_an_ordinary_spare(capsys):
     of the fix they were just handed."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    d._print_speaker_info(info)
+    report_speaker._print_speaker_info(info)
     out = capsys.readouterr().out
 
     assert "0x17: pincap OUT HP Detect" in out
@@ -1557,7 +1560,7 @@ def test_report_never_calls_a_flagged_pin_an_ordinary_spare(capsys):
 def test_ordinary_machine_keeps_the_plain_spare_pin_note(capsys):
     """The development machine's 0x1b/0x1e really are spare, and nothing here
     may imply otherwise — most reports come from machines like this one."""
-    d._print_speaker_info(_info([_codec_dump()]))
+    report_speaker._print_speaker_info(_info([_codec_dump()]))
     out = capsys.readouterr().out
     assert "(spare pins are normal" in out
     assert "⚠" not in out and "flagged pin" not in out
@@ -1567,8 +1570,8 @@ def test_verification_step_points_at_the_surface_the_reader_is_on():
     """A --doctor reader has the hardware section on screen already; telling
     them to re-run with --speaker-info reads as a third command to type."""
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
-    run = " ".join(t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], True, 90))
-    doctor = " ".join(t for _, t in d.speaker_pin_fix_steps(
+    run = " ".join(t for _, t in report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], True, 90))
+    doctor = " ".join(t for _, t in report_speaker.speaker_pin_fix_steps(
         quirk, ["0x17"], True, 90, speaker_info_below=True))
 
     assert "re-run with --speaker-info" in run
@@ -1576,9 +1579,9 @@ def test_verification_step_points_at_the_surface_the_reader_is_on():
     assert "section below" in doctor
     assert "[kernel fixup]" in run and "[kernel fixup]" in doctor
     # Only the pointer may differ — the commands are the shared part.
-    assert ([t for s, t in d.speaker_pin_fix_steps(quirk, ["0x17"], True, 90)
+    assert ([t for s, t in report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], True, 90)
              if s == "cta"]
-            == [t for s, t in d.speaker_pin_fix_steps(
+            == [t for s, t in report_speaker.speaker_pin_fix_steps(
                 quirk, ["0x17"], True, 90, speaker_info_below=True)
                 if s == "cta"])
 
@@ -1588,7 +1591,7 @@ def test_fix_says_the_quirk_name_is_not_a_model_name():
     in a line the reader is about to run with sudo — upstream's own entry for
     this codec id is named "Lenovo Yoga 7 16IAP7"."""
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
-    prose = " ".join(t for s, t in d.speaker_pin_fix_steps(
+    prose = " ".join(t for s, t in report_speaker.speaker_pin_fix_steps(
         quirk, ["0x17"], True, 90) if s != "cta")
     assert "not your model" in prose and "hardware id" in prose
 
@@ -1596,16 +1599,16 @@ def test_fix_says_the_quirk_name_is_not_a_model_name():
 def test_pin_fix_is_empty_without_a_forcible_name():
     nameless = speaker_pin_quirks.PinQuirk("", pins="0x17", since="6.10",
                                            codec_only=True)
-    assert d.speaker_pin_fix_steps(nameless, ["0x17"], True, 90) == ()
+    assert report_speaker.speaker_pin_fix_steps(nameless, ["0x17"], True, 90) == ()
 
 
 def test_no_ask_when_the_run_printed_no_procedure():
     """user-messages.md: a finding the user cannot act on carries no ask."""
     nameless = speaker_pin_quirks.PinQuirk("", pins="0x17", since="6.10",
                                            codec_only=True)
-    assert d._hidden_pin_finding(nameless, ["0x17"]).ask == ""
+    assert report_speaker._hidden_pin_finding(nameless, ["0x17"]).ask == ""
     forcible = nameless._replace(model="alc287-yoga9-bass-spk-pin")
-    assert d._hidden_pin_finding(forcible, ["0x17"]).ask
+    assert report_speaker._hidden_pin_finding(forcible, ["0x17"]).ask
 
 
 def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
@@ -1616,5 +1619,5 @@ def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
 
     monkeypatch.setattr(amps, "_gather_amp_evidence", boom)
     monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", boom)
-    info = d._gather_speaker_pins()
+    info = report_speaker._gather_speaker_pins()
     assert isinstance(info, speakers.SpeakerInfo)

@@ -25,6 +25,18 @@ EasyEffects doctor so the two read as one tool. It and the plugin URIs are
 imported under bare names because that is how these lines read in
 ``ee_to_pipewire.py`` and a move may not re-point what it carries; they are
 constants and a frozen dataclass, so there is nothing here a test would patch.
+
+This doctor ends on the same hardware dump the EasyEffects one prints, because
+hardware sits under the whole chain and the questions it answers are the same
+either side. It comes from ``lib/report/speaker.py``, imported at the top now
+that it is a sibling under ``lib/`` — it used to be a deferred ``import
+dolby_to_easyeffects`` guarded by a ``try``, because reaching it meant paying
+the generator's NumPy/SciPy on a path that does no DSP. It no longer does: the
+report costs a few milliseconds of stdlib on top of what this module already
+imports, and an ImportError on a lib sibling is a bug rather than a condition
+to degrade around. It keeps the local name ``gen`` the deferred import gave
+it — the two call lines are moved lines, and a move commit may not re-point
+what it carries.
 """
 
 from __future__ import annotations
@@ -51,6 +63,7 @@ from lib.pipewire.plugins import (
     LSP_MBC_URI,
     LSP_PEQ_URI,
 )
+from lib.report import speaker as gen
 
 
 # PipeWire's stock pipewire.conf only auto-includes the
@@ -561,14 +574,6 @@ def report_pw_doctor() -> int:
     console.cprint("cta", f"  systemctl --user restart pipewire pipewire-pulse")
     print()
 
-    # Hardware sits under the whole chain, so the same questions apply here as
-    # on the EasyEffects path. Imported lazily: this pulls the generator's
-    # NumPy/SciPy (~0.4s), which a conversion run must not pay for.
-    try:
-        import dolby_to_easyeffects as gen
-    except Exception as e:  # pragma: no cover — defensive
-        console.cprint("dim", f"(hardware report unavailable: {e})")
-        return 0
     info = gen._gather_speaker_info()
     gen._print_speaker_info(info)
     return 0
