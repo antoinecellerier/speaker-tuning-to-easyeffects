@@ -41,10 +41,10 @@ from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
-from lib import doctor, ee_paths, version
+from lib import console, doctor, ee_paths, version
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
-# script behaves exactly as before — same contract as rich below.
+# script behaves exactly as before — same contract as rich in lib/console.py.
 try:
     import argcomplete
 except ImportError:
@@ -69,81 +69,6 @@ def _load_dsp() -> None:
 if "_ARGCOMPLETE" not in os.environ:
     _load_dsp()
 
-
-# Prose wraps to the terminal, within bounds. Below the floor, a hanging
-# indent eats the line and hyphenated XML element names get unreadable; above
-# the cap, a paragraph stretches into one long unscannable line — measure, not
-# window width, is what makes prose readable. Everything here is hand-wrapped
-# rather than reflowed by rich (see cprint), so this is the number that
-# matters.
-_WRAP_CAP = 120
-_WRAP_FLOOR = 60
-
-
-def _wrap_width() -> int:
-    return max(_WRAP_FLOOR,
-               min(_WRAP_CAP, shutil.get_terminal_size((80, 24)).columns))
-
-
-try:
-    from rich.console import Console
-    from rich.theme import Theme
-    _CONSOLE = Console(
-        theme=Theme({
-            "err":  "bold red",
-            "head": "bold cyan",
-            "ok":   "green",
-            "warn": "yellow",
-            "cta":  "bold magenta",
-            "dim":  "dim",
-        }),
-        markup=False,
-        highlight=False,
-        width=_wrap_width(),
-    )
-except ImportError:
-    _CONSOLE = None
-
-try:
-    from rich_argparse import RichHelpFormatter as _HelpFormatter
-except ImportError:
-    _HelpFormatter = argparse.HelpFormatter
-
-_MISSING_COLOR_DEPS = []
-if _CONSOLE is None:
-    _MISSING_COLOR_DEPS.append("rich")
-if _HelpFormatter is argparse.HelpFormatter:
-    _MISSING_COLOR_DEPS.append("rich-argparse")
-
-
-def cprint(style: str, text: str = "") -> None:
-    """Print `text` in the given semantic style, or plain if rich is absent.
-
-    ``soft_wrap=True`` keeps the text exactly as written. Without it rich
-    reflows at the console width and folds anything longer — which silently
-    broke the report-back URL (103 chars) mid string on any 80-column terminal,
-    leaving the tool's main call to action unclickable and uncopyable. It also
-    made output depend on whether rich was installed at all, since the fallback
-    above never wraps. Prose that needs wrapping asks for it explicitly via
-    _cprint_wrapped.
-    """
-    if _CONSOLE is None:
-        print(text)
-        return
-    _CONSOLE.print(text, style=style, soft_wrap=True)
-
-
-def warn(msg: str) -> None:
-    """Emit a contextual detail warning with the standard ``  Warning: ``
-    prefix, so per-band / per-filter / per-profile warnings read uniformly.
-    Section-level warnings that want their own blank-line spacing call cprint
-    directly."""
-    cprint("warn", f"  Warning: {msg}")
-
-
-def _disable_color() -> None:
-    global _CONSOLE
-    _CONSOLE = None
 
 # Shared with ee_to_pipewire.py, which resolves the same install root for its
 # own --irs-dir default and must not import this module to do it (numpy/scipy
@@ -862,37 +787,37 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
         return None
     g0 = off[0]  # representative gate for the verify examples
 
-    cprint("warn", f"\n{'=' * 60}")
-    cprint("warn", "⚠  [firmware-gate] Smart-amp firmware gate is OFF — your speakers")
-    cprint("warn", "   may be silent, thin or crackly even though the preset is correct.")
-    cprint("dim", "Many devices drive their speakers through a TI TAS2563/2781 smart")
-    cprint("dim", "amplifier whose firmware does not auto-load; until this ALSA control")
-    cprint("dim", "is switched on the amp runs untuned upstream of the preset. On most")
-    cprint("dim", "devices that mutes the woofers; where the amp drives every speaker,")
-    cprint("dim", "it can instead make everything thin, quiet or prone to dropouts.")
+    console.cprint("warn", f"\n{'=' * 60}")
+    console.cprint("warn", "⚠  [firmware-gate] Smart-amp firmware gate is OFF — your speakers")
+    console.cprint("warn", "   may be silent, thin or crackly even though the preset is correct.")
+    console.cprint("dim", "Many devices drive their speakers through a TI TAS2563/2781 smart")
+    console.cprint("dim", "amplifier whose firmware does not auto-load; until this ALSA control")
+    console.cprint("dim", "is switched on the amp runs untuned upstream of the preset. On most")
+    console.cprint("dim", "devices that mutes the woofers; where the amp drives every speaker,")
+    console.cprint("dim", "it can instead make everything thin, quiet or prone to dropouts.")
     print()
     # Enable now: no root needed — the active logind session already holds an
     # ACL on /dev/snd/control*. Persist with `alsactl store`, which saves the
     # state that alsa-restore.service replays at boot (the standard ALSA path).
-    cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
+    console.cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
     for g in off:
-        cprint("cta", f"     {amixer_enable_cmd(g)}")
+        console.cprint("cta", f"     {amixer_enable_cmd(g)}")
     print()
     # The card name is this machine's own (read from /proc/asound/cardN/id),
     # so the command is right as printed — but a card that renumbers between
     # boots, or a copy-paste into a later session, lands on "cannot find
     # card", and until now the only recovery text covered the command working
     # and changing nothing.
-    cprint("dim", "   Errors with \"cannot find card\"? The card was renamed or")
-    cprint("dim", "   renumbered since this run — list them with:  aplay -l")
-    cprint("dim", f"   and use the name it shows in place of {g0.card_id}.")
+    console.cprint("dim", "   Errors with \"cannot find card\"? The card was renamed or")
+    console.cprint("dim", "   renumbered since this run — list them with:  aplay -l")
+    console.cprint("dim", f"   and use the name it shows in place of {g0.card_id}.")
     print()
-    cprint("dim", "   No change at all, and nothing sounded wrong to begin with? Then")
-    cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
+    console.cprint("dim", "   No change at all, and nothing sounded wrong to begin with? Then")
+    console.cprint("dim", "   this gate wasn't your problem — skip the rest of this section.")
     print()
-    cprint("dim", "2. If that worked, persist it across reboots — saves the ALSA state")
-    cprint("dim", "   that alsa-restore replays at boot:")
-    cprint("cta", "     sudo alsactl store")
+    console.cprint("dim", "2. If that worked, persist it across reboots — saves the ALSA state")
+    console.cprint("dim", "   that alsa-restore replays at boot:")
+    console.cprint("cta", "     sudo alsactl store")
     print()
     # No systemd-unit fallback here any more. It named one ("fall back to a
     # systemd --user oneshot that runs the amixer command above at login")
@@ -900,25 +825,25 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     # unusable for the same reason as the old firmware-extraction line: a fix
     # you can name but not run. Writing the unit out is four more lines for a
     # case we have never seen reported, so the ask goes back to us instead.
-    cprint("dim", "   (Doesn't survive a reboot? alsa-restore can race the driver on")
-    cprint("dim", "   some setups — tell us and we'll work out the fix with you.)")
+    console.cprint("dim", "   (Doesn't survive a reboot? alsa-restore can race the driver on")
+    console.cprint("dim", "   some setups — tell us and we'll work out the fix with you.)")
     print()
-    cprint("dim", "3. Self-check — confirm the control stuck and the firmware loaded:")
-    cprint("cta", f"     amixer -c {g0.card_id} cget "
+    console.cprint("dim", "3. Self-check — confirm the control stuck and the firmware loaded:")
+    console.cprint("cta", f"     amixer -c {g0.card_id} cget "
                   f"\"iface={g0.iface},name='{g0.name}'\"")
     # No ".bin" suffix in the glob: distros may ship the blobs compressed
     # (TAS2XXX….bin.zst on SteamOS — the kernel decompresses transparently)
     # and the narrower pattern would report them "missing" (#39).
-    cprint("cta", "     journalctl -k -b | grep -iE 'tas2|firmware'")
-    cprint("cta", "     ls -l /lib/firmware/TAS2*")
-    cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
+    console.cprint("cta", "     journalctl -k -b | grep -iE 'tas2|firmware'")
+    console.cprint("cta", "     ls -l /lib/firmware/TAS2*")
+    console.cprint("dim", "   (no journal access? try:  sudo dmesg | grep -i tas2)")
     print()
-    cprint("dim", "   Still wrong, and the log shows 'Direct firmware load for")
-    cprint("dim", "   TAS2XXX….bin failed' or no such file exists? Your distro's")
-    cprint("dim", "   linux-firmware is missing this machine's blob, and no preset")
-    cprint("dim", "   makes up for it. Update linux-firmware; if the file still")
-    cprint("dim", "   doesn't turn up, report it with that log line — it names the")
-    cprint("dim", "   exact file the kernel wants.")
+    console.cprint("dim", "   Still wrong, and the log shows 'Direct firmware load for")
+    console.cprint("dim", "   TAS2XXX….bin failed' or no such file exists? Your distro's")
+    console.cprint("dim", "   linux-firmware is missing this machine's blob, and no preset")
+    console.cprint("dim", "   makes up for it. Update linux-firmware; if the file still")
+    console.cprint("dim", "   doesn't turn up, report it with that log line — it names the")
+    console.cprint("dim", "   exact file the kernel wants.")
     # No extraction pointer here, deliberately. The old wording ("extract it
     # from your Windows driver or TI's TAS2781-LINUX package and drop it into
     # /lib/firmware") read as a step and stopped a reviewer dead: no tool, no
@@ -1225,9 +1150,9 @@ def warn_hidden_speaker_pin(
     # "the preset shapes the rest alone" only holds if a speaker pin survived:
     # where the fixup declares the machine's only one, there is no rest.
     others = any(p.codec == codec_ssid for p in info.speakers)
-    cprint("warn", f"\n{'=' * 60}")
-    cprint("warn", "⚠  [speaker-pin] Linux isn't driving all of your speakers.")
-    _cprint_wrapped("dim",
+    console.cprint("warn", f"\n{'=' * 60}")
+    console.cprint("warn", "⚠  [speaker-pin] Linux isn't driving all of your speakers.")
+    console._cprint_wrapped("dim",
         f"Upstream Linux carries a fix for this exact model that declares "
         f"{phrase} on codec {codec_ssid} an internal speaker, and your kernel "
         "isn't applying it. Your machine's firmware describes it as "
@@ -1235,15 +1160,15 @@ def warn_hidden_speaker_pin(
         "drives — often the woofers — gets no signal"
         + (", and the preset shapes the rest alone." if others else "."))
     print()
-    _cprint_wrapped("dim", upgrade_prospect(quirk))
+    console._cprint_wrapped("dim", upgrade_prospect(quirk))
     steps = speaker_pin_fix_steps(quirk, missing,
                                   _card_uses_sof(info.sound_cards),
-                                  _wrap_width())
+                                  console._wrap_width())
     if steps:
         print()
     for style, text in steps:
         if text:
-            cprint(style, text)
+            console.cprint(style, text)
         else:
             print()
     print()
@@ -1852,7 +1777,7 @@ def _print_speaker_info(info: SpeakerInfo):
                  if flagged else
                  "(spare pins are normal — this only matters if your device "
                  "has more speakers than are listed above)"),
-                width=_wrap_width(), initial_indent="    ",
+                width=console._wrap_width(), initial_indent="    ",
                 subsequent_indent="     ", break_on_hyphens=False)
         sections.append(("HDA internal speakers", speaker_lines))
 
@@ -1874,7 +1799,7 @@ def _print_speaker_info(info: SpeakerInfo):
     sections.append(("Speaker layout estimate", [layout]))
 
     for title, lines in sections:
-        cprint("head", f"=== {title} ===")
+        console.cprint("head", f"=== {title} ===")
         print("\n".join(lines))
         print()
 
@@ -1883,7 +1808,7 @@ def report_speaker_info():
     """Report detected audio hardware and speaker layout."""
     # Version-stamp the block: users paste this verbatim into the device-report
     # issue form, so the maintainer can see which build was tested.
-    cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
+    console.cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
     print()
     info = _gather_speaker_info()
     _print_speaker_info(info)
@@ -2250,7 +2175,7 @@ def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
         # the prose here lines up with the prose above it.
         steps=speaker_pin_fix_steps(quirk, missing,
                                     _card_uses_sof(info.sound_cards),
-                                    _wrap_width() - 9,
+                                    console._wrap_width() - 9,
                                     speaker_info_below=True))
 
 
@@ -2491,7 +2416,7 @@ def emit_check(check: CheckResult) -> None:
     PipeWire doctor and not this one — the same duplication the steps
     themselves exist to end.
     """
-    doctor.emit_check(check, cprint, _wrap_width())
+    doctor.emit_check(check, console.cprint, console._wrap_width())
 
 
 def print_doctor_summary(checks: list[CheckResult]) -> None:
@@ -2502,7 +2427,7 @@ def print_doctor_summary(checks: list[CheckResult]) -> None:
     parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
     if unknown:
         parts.append(f"{unknown} UNKNOWN")
-    cprint("err" if fail else ("warn" if (warn or unknown) else "ok"),
+    console.cprint("err" if fail else ("warn" if (warn or unknown) else "ok"),
            "Summary: " + ", ".join(parts))
 
 
@@ -2515,12 +2440,12 @@ def print_doctor_verdict(checks: list[CheckResult]) -> None:
     """
     fail, warn, ok, unknown = _doctor_summary(checks)
     if not (fail or warn or unknown):
-        cprint("ok", "No blocking problems detected.")
+        console.cprint("ok", "No blocking problems detected.")
     elif warn and not fail:
-        cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
+        console.cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
                        "to fix first.")
     elif unknown and not fail:
-        cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
+        console.cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
                        "above); the rest look OK.")
 
 
@@ -2528,8 +2453,8 @@ def _print_doctor_report(report: DoctorReport) -> None:
     """Print a compact, paste-safe diagnostic report."""
     emit = emit_check
 
-    cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
-    cprint("head", "=== EasyEffects doctor ===")
+    console.cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
+    console.cprint("head", "=== EasyEffects doctor ===")
     print()
     # Per-preset checks collapse to one line when they all pass (a machine can
     # have dozens of profiles); any problem preset is still listed individually.
@@ -2542,7 +2467,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
                 shown_presets = True
                 ok_n = len(preset_checks) - len(preset_problems)
                 if ok_n:
-                    cprint("ok", f"  [{DOCTOR_PASS:^4}] Presets "
+                    console.cprint("ok", f"  [{DOCTOR_PASS:^4}] Presets "
                                  f"({ok_n}/{len(preset_checks)} load their impulse file)")
                 for pc in preset_problems:
                     emit(pc)
@@ -2555,7 +2480,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
     # Raw probed facts — always shown so an issue can be diagnosed remotely even
     # when a heuristic verdict is UNKNOWN or wrong.
     f = report.facts
-    cprint("head", "=== Environment (paste this into your issue) ===")
+    console.cprint("head", "=== Environment (paste this into your issue) ===")
     print(f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}")
     print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
           f"running: {'yes' if f.get('ee_running') else 'no'}")
@@ -2577,17 +2502,17 @@ def _print_doctor_report(report: DoctorReport) -> None:
 
     # What the doctor can't see — guide the user through the manual checks.
     print_doctor_verdict(report.checks)
-    cprint("dim", "If you still hear no difference between the preset and bypass:")
-    cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
-    cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
-    cprint("dim", "  • Confirm system output is the speaker sink and volume is up.")
+    console.cprint("dim", "If you still hear no difference between the preset and bypass:")
+    console.cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
+    console.cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
+    console.cprint("dim", "  • Confirm system output is the speaker sink and volume is up.")
     print()
 
     if report.speaker_info is not None:
         _print_speaker_info(report.speaker_info)
 
-    cprint("cta", "Still stuck? Paste everything above into an issue:")
-    cprint("cta", f"  {_REPORT_FORM_URL}")
+    console.cprint("cta", "Still stuck? Paste everything above into an issue:")
+    console.cprint("cta", f"  {_REPORT_FORM_URL}")
 
 
 def report_doctor(args) -> None:
@@ -2597,27 +2522,6 @@ def report_doctor(args) -> None:
     report = _gather_doctor_report(args.output_dir, args.irs_dir,
                                    DEFAULT_EASYEFFECTS_RC, custom_dirs=custom_dirs)
     _print_doctor_report(report)
-
-
-def _cprint_wrapped(style: str, text: str, width: int | None = None,
-                    indent: str = "") -> None:
-    """Print prose as wrapped lines, the way --doctor renders a check detail.
-
-    Wraps to the terminal by default (``_wrap_width``), so a wide window is
-    not stuck reading 72-column text and a narrow one does not overflow.
-    Pass ``width`` only where the number is part of a fixed layout.
-    Lets the end-of-run warnings share their wording with the doctor's
-    CheckResult details instead of keeping a hand-wrapped second copy.
-
-    ``indent`` prefixes continuation lines, so a bulleted or ⚠-prefixed
-    paragraph stays visually attached to its marker. Hyphenated words are
-    never split — most of what gets wrapped here is XML element names like
-    ``volume-leveler-compressor-enable``, and breaking one across lines makes
-    it unsearchable."""
-    for line in textwrap.wrap(text, width=width or _wrap_width(),
-                              subsequent_indent=indent,
-                              break_on_hyphens=False):
-        cprint(style, line)
 
 
 def warn_ee_environment(args) -> None:
@@ -2630,16 +2534,16 @@ def warn_ee_environment(args) -> None:
 
     if ver.status == DOCTOR_FAIL:
         vstr = ".".join(str(x) for x in version)
-        cprint("err", f"\n{'=' * 60}")
-        cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
+        console.cprint("err", f"\n{'=' * 60}")
+        console.cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
         print()
-        _cprint_wrapped("dim", ee_v7_message(vstr))
+        console._cprint_wrapped("dim", ee_v7_message(vstr))
         print()
-        cprint("dim", "To fix, install EasyEffects 8:")
-        cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
-        cprint("cta", "      flatpak install flathub com.github.wwmm.easyeffects")
-        cprint("dim", "  • Or your distro's own package if it already ships 8.x")
-        cprint("dim", "    (Debian trixie, Ubuntu 24.04+ and Fedora ≤43 still ship 7.x).")
+        console.cprint("dim", "To fix, install EasyEffects 8:")
+        console.cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
+        console.cprint("cta", "      flatpak install flathub com.github.wwmm.easyeffects")
+        console.cprint("dim", "  • Or your distro's own package if it already ships 8.x")
+        console.cprint("dim", "    (Debian trixie, Ubuntu 24.04+ and Fedora ≤43 still ship 7.x).")
         return
 
     if not found and probe.silent:
@@ -2648,12 +2552,12 @@ def warn_ee_environment(args) -> None:
         # "written above" only holds on a run that wrote something: this check
         # is gated on --skip-ee-check alone, so on a dry run it referred to
         # presets the same output twice says were not written.
-        cprint("warn", "\n⚠  " + ee_silent_message(
+        console.cprint("warn", "\n⚠  " + ee_silent_message(
             probe.silent,
             " and doesn't affect what this run would write." if args.dry_run
             else " and doesn't affect the presets written above."))
     elif not found:
-        cprint("warn", "\n⚠  Couldn't find EasyEffects — install version 8 to use these "
+        console.cprint("warn", "\n⚠  Couldn't find EasyEffects — install version 8 to use these "
                        "presets (e.g. the Flathub Flatpak). Ignore if you're "
                        "generating for another machine.")
 
@@ -2664,7 +2568,7 @@ def warn_ee_environment(args) -> None:
             and ee_is_flatpak is not None and ee_is_flatpak != _USE_FLATPAK):
         run_where = "Flatpak" if ee_is_flatpak else "native"
         where = "Flatpak" if _USE_FLATPAK else "native"
-        cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
+        console.cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
                        f"location, but the {run_where} install was detected — if "
                        "that's the one you use, it won't see them (run --doctor).")
 
@@ -2684,8 +2588,8 @@ def warn_old_kernel(release: str | None = None) -> None:
     sstr = f"{series[0]}.{series[1]}" if series else release
     when = f" (released {aged[0]}, ~{aged[1]} months ago)" if aged else ""
 
-    cprint("warn", f"\n⚠  Your kernel series {sstr} is old{when}.")
-    _cprint_wrapped("dim", kernel_old_message())
+    console.cprint("warn", f"\n⚠  Your kernel series {sstr} is old{when}.")
+    console._cprint_wrapped("dim", kernel_old_message())
 
 
 # Dolby tuning XML filename sentinel. All three Dolby filename styles
@@ -2925,9 +2829,9 @@ def autoprobe_dolby_source() -> Path:
 
     def _announce(winner: Path) -> None:
         if winner in mount_candidates:
-            cprint("ok", f"Auto-detected Windows mount: {winner}")
+            console.cprint("ok", f"Auto-detected Windows mount: {winner}")
         else:
-            cprint("ok", f"Auto-detected extracted DriverStore: {winner}")
+            console.cprint("ok", f"Auto-detected extracted DriverStore: {winner}")
 
     if len(candidates) == 1:
         _announce(candidates[0])
@@ -3163,7 +3067,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     if not candidates and hda_subsys_only:
         candidates = hda_subsys_only
         if len(hda_subsys_only) > 1:
-            warn(
+            console.warn(
                 "Multiple tunings match the codec subsystem but none match its "
                 "device id; selecting the highest tuning_version. Pass the XML "
                 "path explicitly if the result sounds wrong."
@@ -3173,7 +3077,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     if not candidates and sdw_pci_only:
         candidates = sdw_pci_only
         if len(sdw_pci_only) > 1:
-            warn(
+            console.warn(
                 "Multiple SoundWire tunings share this PCI subsystem with a "
                 "non-part FUNC; selecting the highest tuning_version. Pass the "
                 "XML path explicitly if the result sounds wrong."
@@ -3204,18 +3108,18 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
         exact = [g for g in guesses if pci_subsys_id and g[2] == pci_subsys_id]
         if len(exact) == 1:
             path = exact[0][0]
-            cprint("ok", f"Matched tuning XML (by security-key PCI subsystem): {path}")
+            console.cprint("ok", f"Matched tuning XML (by security-key PCI subsystem): {path}")
             return path
 
         if best_guess and len(guesses) == 1:
             path, man, subsys = guesses[0]
-            warn(
+            console.warn(
                 f"--best-guess: no exact hardware match; using the only "
                 f"internal-speaker tuning for manufacturer {man} — {path.name} "
                 f"(SUBSYS_{subsys}). Unverified: matched by manufacturer only, "
                 f"not by device id."
             )
-            cprint("ok", f"Matched tuning XML (best-guess): {path}")
+            console.cprint("ok", f"Matched tuning XML (best-guess): {path}")
             return path
 
         lines = [f"No matching DAX3 tuning XML found in {driver_store}. {detected}"]
@@ -3261,14 +3165,14 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
             reverse=True,
         )
         candidates = [path for path, _version, _ver in ranked]
-        cprint("head", "Multiple matching XMLs found, using highest tuning version:")
+        console.cprint("head", "Multiple matching XMLs found, using highest tuning version:")
         for i, (c, _version, ver) in enumerate(ranked):
             if i == 0:
-                cprint("ok", f"  → {c} (tuning_version={ver})")
+                console.cprint("ok", f"  → {c} (tuning_version={ver})")
             else:
                 print(f"    {c} (tuning_version={ver})")
     else:
-        cprint("ok", f"Matched tuning XML: {candidates[0]}")
+        console.cprint("ok", f"Matched tuning XML: {candidates[0]}")
 
     return candidates[0]
 
@@ -3496,7 +3400,7 @@ def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
 def _print_sink_candidates(sinks: list[dict]) -> None:
     """Print a numbered candidate list (shared by the picker and skip paths)."""
     for i, s in enumerate(sinks, 1):
-        cprint("dim", f"  [{i}] {_sink_diag_line(s)}")
+        console.cprint("dim", f"  [{i}] {_sink_diag_line(s)}")
 
 
 def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
@@ -3521,10 +3425,10 @@ def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
     try:
         idx = int(raw)
     except ValueError:
-        cprint("warn", f"  Not a number: {raw!r} — skipping autoload.")
+        console.cprint("warn", f"  Not a number: {raw!r} — skipping autoload.")
         return None
     if not (1 <= idx <= len(candidates)):
-        cprint("warn", f"  Out of range: {idx} — skipping autoload.")
+        console.cprint("warn", f"  Out of range: {idx} — skipping autoload.")
         return None
     return candidates[idx - 1]
 
@@ -3545,7 +3449,7 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
         for name in override_names:
             sink = by_name.get(name)
             if sink is None:
-                cprint("warn", f"  --autoload-sink {name!r}: not currently in "
+                console.cprint("warn", f"  --autoload-sink {name!r}: not currently in "
                                "pw-dump, so its output route is unknown.")
                 sink = {"name": name, "description": name, "profile": "", "route": ""}
             resolved.append(sink)
@@ -3559,37 +3463,37 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
 
     if tier == "relaxed":
         candidates = sel["selected"]
-        cprint("warn", "\nNo sink is tagged as an internal speaker "
+        console.cprint("warn", "\nNo sink is tagged as an internal speaker "
                        "(device.icon_name=audio-speakers).")
         if len(candidates) == 1:
             sink = candidates[0]
-            cprint("warn", "  Falling back to the only internal analog output found:")
-            cprint("dim", f"    {_sink_diag_line(sink)}")
-            cprint("dim", "  If this is wrong, re-run with --autoload-sink <node.name>.")
+            console.cprint("warn", "  Falling back to the only internal analog output found:")
+            console.cprint("dim", f"    {_sink_diag_line(sink)}")
+            console.cprint("dim", "  If this is wrong, re-run with --autoload-sink <node.name>.")
             return [sink]
         # Ambiguous: list, then prompt on a TTY (never under --dry-run).
-        cprint("warn", f"  Found {len(candidates)} internal analog sinks:")
+        console.cprint("warn", f"  Found {len(candidates)} internal analog sinks:")
         _print_sink_candidates(candidates)
         chosen = None if dry_run else _prompt_pick_sink(candidates)
         if chosen is not None:
             return [chosen]
-        cprint("dim", "  Re-run with --autoload-sink <node.name> (repeatable) to choose.")
+        console.cprint("dim", "  Re-run with --autoload-sink <node.name> (repeatable) to choose.")
         return []
 
     # tier == "none"
     all_sinks = sel["all_sinks"]
     if not all_sinks:
-        cprint("warn", "\nWarning: no Audio/Sink nodes found via pw-dump; "
+        console.cprint("warn", "\nWarning: no Audio/Sink nodes found via pw-dump; "
                        "cannot configure autoload.")
-        cprint("dim", "  Is PipeWire running? Run this from your logged-in "
+        console.cprint("dim", "  Is PipeWire running? Run this from your logged-in "
                       "desktop session.")
     else:
-        cprint("warn", "\nWarning: no internal-speaker sink found (none tagged "
+        console.cprint("warn", "\nWarning: no internal-speaker sink found (none tagged "
                        "device.icon_name=audio-speakers, and no internal analog "
                        "output).")
-        cprint("head", "  Audio/Sink nodes seen:")
+        console.cprint("head", "  Audio/Sink nodes seen:")
         _print_sink_candidates(all_sinks)
-        cprint("dim", "  Re-run with --autoload-sink <node.name> to bind autoload manually.")
+        console.cprint("dim", "  Re-run with --autoload-sink <node.name> to bind autoload manually.")
     return []
 
 
@@ -3911,14 +3815,14 @@ def _print_finding_detail(finding: Finding) -> None:
     global _TAG_CONVENTION_SHOWN
     if not _TAG_CONVENTION_SHOWN:
         _TAG_CONVENTION_SHOWN = True
-        _cprint_wrapped("dim", "  (bracketed [tags] like the one below are "
+        console._cprint_wrapped("dim", "  (bracketed [tags] like the one below are "
                                "handles — quote one if you report, so we "
                                "know which line you mean)", indent="   ")
     if finding.kind == "hint":
-        _cprint_wrapped("warn", f"  ⚠ [{finding.slug}] {finding.detail}",
+        console._cprint_wrapped("warn", f"  ⚠ [{finding.slug}] {finding.detail}",
                         indent="    ")
     else:
-        _cprint_wrapped("dim", f"  [{finding.slug}] {finding.detail}",
+        console._cprint_wrapped("dim", f"  [{finding.slug}] {finding.detail}",
                         indent="    ")
 
 
@@ -4075,7 +3979,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     if announce_profile:
         name = profile.get("type")
         if profile_type:
-            cprint("head", f"Profile: {profile_type}")
+            console.cprint("head", f"Profile: {profile_type}")
         else:
             # "this speaker's first-listed", one anchor phrase everywhere:
             # the banner, the profile-mismatch detail, and the parse error
@@ -4087,10 +3991,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             # name distinct from the three voicings two lines down.
             shown = name if name else "(unnamed)"
             if n_profiles == 1:
-                cprint("head", f"Profile: {shown} (this speaker's only "
+                console.cprint("head", f"Profile: {shown} (this speaker's only "
                                "sound mode)")
             else:
-                cprint("head", f"Profile: {shown} (the first-listed of "
+                console.cprint("head", f"Profile: {shown} (the first-listed of "
                                f"this speaker's {n_profiles} sound modes — "
                                "--list names them; --profile picks)")
                 # Round 5, all three reviewers: understanding HOW the pick
@@ -4103,7 +4007,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 # the Dolby app). The mismatch case says nothing here:
                 # [profile-mismatch] owns it, with the ask.
                 if name and declared_name == name:
-                    cprint("dim", "  (also the Windows default for this "
+                    console.cprint("dim", "  (also the Windows default for this "
                                   "device)")
                 elif not declared_name:
                     # A dim aside, not a finding (user decision, round 6):
@@ -4114,9 +4018,9 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                     # The where-to-check pointer (rounds 4-9, every
                     # reviewer; user approved round 9): the app shows the
                     # ACTIVE profile — never claim it shows "the default".
-                    cprint("dim", "  (we assume it's also the Windows "
+                    console.cprint("dim", "  (we assume it's also the Windows "
                                   "default — your file doesn't say)")
-                    cprint("dim", "  (the Dolby app on Windows shows the "
+                    console.cprint("dim", "  (the Dolby app on Windows shows the "
                                   "profile you used — --profile matches "
                                   "it)")
 
@@ -4210,7 +4114,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         converted = ("the speaker correction below is all there and converted"
                      if ao_enabled else
                      "the speaker correction it carries is read in full")
-        _cprint_wrapped("", "  Your tuning uses Dolby's simpler format — "
+        console._cprint_wrapped("", "  Your tuning uses Dolby's simpler format — "
                             f"normal for this device, nothing is missing: "
                             f"{converted}; this format just never carries "
                             "Dolby's optional multi-band compressor or "
@@ -4226,10 +4130,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             try:
                 ftype = int(f.get("type"))
             except (TypeError, ValueError):
-                warn(f"PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
+                console.warn(f"PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
                 continue
             if ftype not in (1, 3, 4, 6, 7, 8, 9):
-                warn(f"unknown PEQ filter type {ftype}, skipping")
+                console.warn(f"unknown PEQ filter type {ftype}, skipping")
                 continue
             try:
                 peq_filters.append({
@@ -4242,7 +4146,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                     "order": int(f.get("order", "0")),
                 })
             except (TypeError, ValueError):
-                warn("PEQ filter has missing/garbage f0/speaker/order, skipping")
+                console.warn("PEQ filter has missing/garbage f0/speaker/order, skipping")
                 continue
 
     # Volume leveler settings (from tuning-cp of the selected profile)
@@ -4363,10 +4267,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 _c1 = _el.find("ch_01") if _el is not None else None
                 if (_c0 is not None and _c1 is not None
                         and resolve_xml_value(_c0, constant) != resolve_xml_value(_c1, constant)):
-                    cprint("warn", f"  {path.name}: regulator {_name} ch_00 ≠ ch_01 "
+                    console.cprint("warn", f"  {path.name}: regulator {_name} ch_00 ≠ ch_01 "
                                    "(L/R asymmetric); using ch_00 for the stereo limiter.")
             if not th_val:
-                cprint("warn", f"  {path.name}: regulator enabled but threshold_high "
+                console.cprint("warn", f"  {path.name}: regulator enabled but threshold_high "
                                "has no value/preset/ch_00 — no per-band limiting applied.")
             th = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
             tl = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
@@ -4404,7 +4308,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             iso_val = resolve_channel_or_direct(iso_el, constant)
             isolated = parse_csv_ints(iso_val) if iso_val else None
             if isolated is not None and len(isolated) != len(freqs):
-                cprint("warn", f"  {path.name}: regulator isolated_band has "
+                console.cprint("warn", f"  {path.name}: regulator isolated_band has "
                                f"{len(isolated)} values for {len(freqs)} "
                                "bands — ignoring it.")
                 isolated = None
@@ -4875,10 +4779,10 @@ def _print_ask(style: str, finding: Finding) -> None:
     # common case pays nothing for it.
     tag = (f"[{finding.slug} · {finding.scope}]" if finding.scope
            else f"[{finding.slug}]")
-    lines = textwrap.wrap(f"  • {finding.ask}  {tag}", width=_wrap_width(),
+    lines = textwrap.wrap(f"  • {finding.ask}  {tag}", width=console._wrap_width(),
                           subsequent_indent="    ", break_on_hyphens=False)
     for line in lines:
-        if _CONSOLE is not None and line.endswith(tag):
+        if console._CONSOLE is not None and line.endswith(tag):
             # Imported here, not beside the console: this is rich's only
             # caller outside cprint, and a live console already proves the
             # import succeeds. Nothing else needs the two-style path.
@@ -4886,9 +4790,9 @@ def _print_ask(style: str, finding: Finding) -> None:
             span = Text()
             span.append(line[:-len(tag)], style=style)
             span.append(tag, style="dim")
-            _CONSOLE.print(span, soft_wrap=True)
+            console._CONSOLE.print(span, soft_wrap=True)
         else:
-            cprint(style, line)
+            console.cprint(style, line)
 
 
 def _print_attach_lines(xml_path) -> None:
@@ -4907,7 +4811,7 @@ def _print_attach_lines(xml_path) -> None:
     if xml_path is None:
         return
     print()
-    _cprint_wrapped("cta", "  If you report, best is a link to "
+    console._cprint_wrapped("cta", "  If you report, best is a link to "
                            "your device's audio-driver download "
                            "(if you know it) — or just attach the "
                            "XML file:",
@@ -4917,7 +4821,7 @@ def _print_attach_lines(xml_path) -> None:
     # eaten by the shell the moment anyone types ls on it and the
     # file looks missing. Same cta as its instruction — the copy
     # target must not be the faintest line in the block.
-    cprint("cta", f"    '{Path(xml_path).resolve()}'")
+    console.cprint("cta", f"    '{Path(xml_path).resolve()}'")
 
 
 def print_project_asks(findings: list[Finding], dry_run: bool = False,
@@ -4947,15 +4851,15 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     tagged = [f for f in findings if f.slug]
     print()
     if asks:
-        cprint("head", "=" * 60)
-        cprint("head", "Help the project")
+        console.cprint("head", "=" * 60)
+        console.cprint("head", "Help the project")
         print()
         # Say what the bracketed tags are for. Read cold they look like debug
         # labels that leaked out of the code, which is how they get ignored.
         # "these most of all" introduced a list that is usually one item
         # long, and its "these" pointed backwards at nothing on a top-down
         # read.
-        _cprint_wrapped("dim", "Some of this only a real device can answer. "
+        console._cprint_wrapped("dim", "Some of this only a real device can answer. "
                                "If you report, quote the [tag] so we know "
                                "which line you mean:")
         # Plain, not cta: bold-magenta bullets read as warnings — a round-4
@@ -4983,8 +4887,8 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # here too (round 10, user-picked): a run whose only findings are ⚠
         # warnings is exactly one the project wants the tuning source for,
         # and this branch used to leave its reporter with nothing to attach.
-        cprint("head", "=" * 60)
-        _cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
+        console.cprint("head", "=" * 60)
+        console._cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
                                "it tells us which finding you mean.")
         _print_attach_lines(xml_path)
         print()
@@ -5000,7 +4904,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # issue-tracker language ("we couldn't reproduce your bug"), the
         # opposite of what it says. And the mention needs a reason, or it is
         # a nothing-to-do entry that teaches readers to skip the block.
-        _cprint_wrapped("dim", "Parts of your tuning this converter doesn't "
+        console._cprint_wrapped("dim", "Parts of your tuning this converter doesn't "
                                "rebuild: "
                                + ", ".join(f"[{s}]" for s in dropped)
                                + " — nothing you need to do, but mention "
@@ -5027,10 +4931,10 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
                 "if you need help"
                 + (" (PipeWire-only reports are welcome)"
                    if pipewire_native else "") + ":")
-    _cprint_wrapped("cta", lead)
+    console._cprint_wrapped("cta", lead)
     # The URL gets its own line and is never wrapped: broken across lines it
     # can't be clicked or copied, which defeats the whole point of the ask.
-    cprint("cta", f"  {_REPORT_FORM_URL}")
+    console.cprint("cta", f"  {_REPORT_FORM_URL}")
 
 
 # --- FIR generation ---
@@ -5601,13 +5505,13 @@ def make_multiband_compressor(mb_comp: dict | None,
     for i, (b, bg) in enumerate(zip(decoded, band_groups[:n_bands])):
         _, _, gain_raw, attack_raw, release_raw, _ = bg
         if not gain_raw / Q15_SCALE > 0.01:
-            warn(f"MBC band {i} gain coeff {gain_raw} "
+            console.warn(f"MBC band {i} gain coeff {gain_raw} "
                  f"out of range — clamping ratio to {b['ratio']:.0f}:1")
         if not 0 < attack_raw < Q15_SCALE:
-            warn(f"MBC band {i} attack coeff {attack_raw} "
+            console.warn(f"MBC band {i} attack coeff {attack_raw} "
                  f"out of range — using {b['attack_ms']:.0f} ms fallback")
         if not 0 < release_raw < Q15_SCALE:
-            warn(f"MBC band {i} release coeff {release_raw} "
+            console.warn(f"MBC band {i} release coeff {release_raw} "
                  f"out of range — using {b['release_ms']:.0f} ms fallback")
 
     # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
@@ -6112,16 +6016,16 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if any(n.endswith("-Warm") for n in preset_names):
         hints.append("Warm softer")
     voicing_hint = f" ({', '.join(hints)})" if hints else ""
-    cprint("head", f"\n{'=' * 60}")
+    console.cprint("head", f"\n{'=' * 60}")
     if dry_run:
         # cta, not ok: green is this run's "check passed, nothing to do"
         # color, and the one line that still demands a re-run read as "all
         # done" in the same green (round-2 color finding).
-        cprint("cta", f"Dry run — nothing was written. Re-run without "
+        console.cprint("cta", f"Dry run — nothing was written. Re-run without "
                       f"--dry-run to install these {len(preset_names)} presets:")
         # One comma-separated line, not one name per line (round 7): the
         # vertical list ate the last screen's budget.
-        _cprint_wrapped("dim", "    " + ", ".join(preset_names),
+        console._cprint_wrapped("dim", "    " + ", ".join(preset_names),
                         indent="    ")
         # One clause on what installing gets them: a dry-run reader asked
         # "do I hear the change after re-running, or is there another step?"
@@ -6130,7 +6034,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # case), so "pick one yourself" is true here — and naming --autoload
         # gives the reader the self-loading default before the re-run, not
         # after it.
-        _cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
+        console._cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
                                f"start with {preset_names[0]}"
                                f"{voicing_hint}; the real run "
                                "prints the exact steps. (Or add --autoload "
@@ -6139,32 +6043,32 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         if profile_used and n_modes > 1:
             caveat = (" (we assume it is your Windows default)"
                       if default_unknown else "")
-            _cprint_wrapped("dim", f"  These voice the '{profile_used}' "
+            console._cprint_wrapped("dim", f"  These voice the '{profile_used}' "
                                    f"sound mode only{caveat} — "
                                    "--all-profiles builds every mode.",
                             indent="  ")
         if mismatch_note:
-            _cprint_wrapped("dim", mismatch_note, indent="  ")
+            console._cprint_wrapped("dim", mismatch_note, indent="  ")
         if autogain_off:
-            _cprint_wrapped("dim", autogain_note, indent="  ")
+            console._cprint_wrapped("dim", autogain_note, indent="  ")
         return
     # "starting in": each preset is two files and only the .json lands in
     # output_dir — the .irs impulse response goes to --irs-dir, a different
     # directory by default. "wrote N presets to <dir>" named half of what
     # the run had just listed above.
-    cprint("ok", f"Done — wrote {len(preset_names)} presets"
+    console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f", starting in {output_dir}:" if output_dir else ":"))
     # Name them all — naming only the first left the reader wondering what
     # the other two were — but on one comma-separated line (round 7): the
     # vertical list ate the last screen's budget. No blank after (round
     # 10, user-picked): the closing had grown exactly one line past a
     # 26-line window, scrolling the green "Done" off the last screen.
-    _cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
+    console._cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
     # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
     # treble. Round 5: the closing named a starting preset but never said
     # what the other two are for, so nobody would try them.
-    _cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
+    console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
                            f"pick '{preset_names[0]}' from the Presets menu — "
                            f"that's the one to start with{voicing_hint}. "
                            "Or re-run with "
@@ -6173,13 +6077,13 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if profile_used and n_modes > 1:
         caveat = (" (we assume it is your Windows default)"
                   if default_unknown else "")
-        _cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
+        console._cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
                                f"mode only{caveat} — --all-profiles builds "
                                "every mode.", indent="  ")
     if mismatch_note:
-        _cprint_wrapped("dim", mismatch_note, indent="  ")
+        console._cprint_wrapped("dim", mismatch_note, indent="  ")
     if autogain_off:
-        _cprint_wrapped("dim", autogain_note, indent="  ")
+        console._cprint_wrapped("dim", autogain_note, indent="  ")
     # The one-line map back to the menu (round 7): with the Done block
     # grown, the symptom→flag menu scrolls off a 26-line screen and the
     # reader said they'd never think to scroll. The pointer puts the
@@ -6188,7 +6092,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # "(re-running ... reprints it)": scrollback is gone once the terminal
     # closes, and the pointer alone was a dead end then (round 9).
     if menu_printed:
-        _cprint_wrapped("dim", "  Something sound off later? Scroll up to "
+        console._cprint_wrapped("dim", "  Something sound off later? Scroll up to "
                                "\"If something doesn't sound right\" "
                                "(re-running this command reprints it).",
                         indent="  ")
@@ -6215,10 +6119,10 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
     # than the report asks below — these are the fix a user with bad audio
     # needs. Plain keeps them a step below the bold asks, which stay the
     # block's emphasis (user decision).
-    _cprint_wrapped("", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
+    console._cprint_wrapped("", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
                     indent=gutter + "  ")
     if effect:
-        _cprint_wrapped("", f"{gutter}({effect})", indent=gutter + " ")
+        console._cprint_wrapped("", f"{gutter}({effect})", indent=gutter + " ")
 
 
 def print_troubleshooting(findings: list[Finding],
@@ -6264,8 +6168,8 @@ def print_troubleshooting(findings: list[Finding],
         # pointer never points at a menu that isn't there.
         return False
 
-    cprint("head", f"\n{'=' * 60}")
-    cprint("head", "If something doesn't sound right")
+    console.cprint("head", f"\n{'=' * 60}")
+    console.cprint("head", "If something doesn't sound right")
     if hints:
         print()
         for finding in hints:
@@ -6286,7 +6190,7 @@ def print_troubleshooting(findings: list[Finding],
         # Opens on the condition, so the list reads as "only if you hear it"
         # rather than as a to-do for a preset nobody has heard yet — on a
         # clean device this is the first thing under the heading.
-        _cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
+        console._cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
                                "can rebuild without specific filters:",
                         indent="  ")
         for name in shown:
@@ -6303,7 +6207,7 @@ def print_troubleshooting(findings: list[Finding],
     # anything the reader can act on.
     if enable_hints:
         print()
-        cprint("dim", "  Optional extras, switched off by default:")
+        console.cprint("dim", "  Optional extras, switched off by default:")
         # On a device whose tuning pairs the leveler with sub-stages we can't
         # reproduce, --enable autogain is the switch that turns them on. The
         # run says so in the leveler-gap note far above; the menu offered the
@@ -6347,7 +6251,7 @@ def print_troubleshooting(findings: list[Finding],
                 "--dry-run"
                 if dry_run else
                 "Add any of the flags above to the same command you ran")
-        _cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
+        console._cprint_wrapped("dim", f"  {lead}; they combine.{tail}", indent="  ")
     return True
 
 # Colorize the --disable/--enable NAME values inside --help prose with the
@@ -6358,13 +6262,13 @@ def print_troubleshooting(findings: list[Finding],
 # The lookarounds exclude hyphen-adjacent hits so `volmax` never matches
 # inside `volmax-boost` or `--volmax-slot`. Appended once at import time
 # (the parser factory may run more than once under tests).
-if _HelpFormatter is not argparse.HelpFormatter:
+if console._HelpFormatter is not argparse.HelpFormatter:
     _FILTER_NAME_ALTERNATION = "|".join(
         re.escape(name)
         for name in sorted({*DISABLEABLE_FILTERS, *ENABLEABLE_FILTERS},
                            key=len, reverse=True))
-    _HelpFormatter.highlights = [
-        *_HelpFormatter.highlights,
+    console._HelpFormatter.highlights = [
+        *console._HelpFormatter.highlights,
         # "--disable volmax" / "--enable autogain" usage examples
         rf"--(?:disable|enable)\s+(?P<metavar>{_FILTER_NAME_ALTERNATION})",
         # the "Valid names: a, b, c." enumerations — each name sits between
@@ -6607,7 +6511,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         names = "/".join(voicings)
         plural = "s" if len(voicings) > 1 else ""
         if tuning.ieq_enabled:
-            _cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
+            console._cprint_wrapped("", f"Voicing strength (ieq-amount): {ieq_amount}% "
                                 f"of full strength — this profile's {n_voc} "
                                 f"voicing{plural} ({names}) "
                                 + ("all apply" if len(voicings) > 1
@@ -6626,7 +6530,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # number arrives as ours. What it buys is worth saying: that
             # scale multiplies the per-voicing curve and nothing else varies
             # between the three presets, so at 0 they would be one file.
-            _cprint_wrapped("", "Voicing strength (ieq-amount): this profile "
+            console._cprint_wrapped("", "Voicing strength (ieq-amount): this profile "
                                 "switches the voicing off, so Windows applies "
                                 f"none. We use {ieq_amount}% of full strength "
                                 "instead — without it "
@@ -6644,7 +6548,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     ao_l, ao_r = np.asarray(ao_db_left), np.asarray(ao_db_right)
     if not tuning.ao_enabled:
         print("\nAudio-optimizer: switched off in this profile")
-        cprint("warn", "  audio-optimizer-enable=0 — the correction curve "
+        console.cprint("warn", "  audio-optimizer-enable=0 — the correction curve "
                        "this profile ships is not applied; only the IEQ "
                        "voicing reaches the convolver here.")
     else:
@@ -6774,7 +6678,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         scope_why = ("sized from this speaker's bass cutoff"
                      if bass_enhancer_scope_is_derived(peq_filters) else
                      "our default range — your tuning sets no bass cutoff")
-        _cprint_wrapped("", f"Bass enhancer: +{be['amount']:.1f} dB "
+        console._cprint_wrapped("", f"Bass enhancer: +{be['amount']:.1f} dB "
                             f"harmonics below {be['scope']:.0f} Hz "
                             f"({scope_why}) — our own stand-in for Dolby's "
                             "in-driver bass enhancement, which every tuning "
@@ -6962,7 +6866,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   + ("" if verbose else "  (full tables with -v)"))
         else:
             print()
-            _cprint_wrapped("", "Regulator (per-band limiter): configured "
+            console._cprint_wrapped("", "Regulator (per-band limiter): configured "
                                 "never to engage on this tuning — every "
                                 "band's limit sits at or above full volume"
                                 + ("" if verbose
@@ -6991,7 +6895,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # "extends limiting to" (round 10): on all-inert tunings —
             # where the flag helps most — "extends" read as growing
             # existing limits, of which that reader has none.
-            _cprint_wrapped("", "  --enable coupled-bands adds a limit to "
+            console._cprint_wrapped("", "  --enable coupled-bands adds a limit to "
                                 "some of the bands the tuning leaves "
                                 "unlimited (experimental, issue #44)",
                             indent="    ")
@@ -7040,7 +6944,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         else:
             tail = "(--disable volmax turns it off)"
         print()
-        _cprint_wrapped("", "Loudness boost (volmax-boost): "
+        console._cprint_wrapped("", "Loudness boost (volmax-boost): "
                             f"{volmax_boost:+.1f} dB from your tuning "
                             f"{tail}", indent="  ")
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
@@ -7148,7 +7052,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
-            cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+            console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
             continue
 
         gains_raw = curves[curve_key]
@@ -7220,8 +7124,8 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             style, verb = "dim", "Staged"
         else:
             style, verb = "ok", "Wrote"
-        cprint(style, f"{verb} {irs_path}")
-        cprint(style, f"{verb} {out_path}")
+        console.cprint(style, f"{verb} {irs_path}")
+        console.cprint(style, f"{verb} {out_path}")
         # The tables are behind -v: even marked skippable they were the
         # bulk of the output, burying the findings between them, and their
         # only reader is someone diagnosing a wrong-sounding preset — who
@@ -7234,7 +7138,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                 print(f"  {f:>7} Hz  {ieq_db[i]:+5.1f}  {ao_db_left[i]:+5.1f}  {combined_left[i]:+7.1f}")
         elif tables_hint_pending:
             tables_hint_pending = False
-            cprint("dim", "  (frequency tables hidden — re-run with -v to "
+            console.cprint("dim", "  (frequency tables hidden — re-run with -v to "
                           "print them)")
 
         # Verify FIR frequency response — the math runs either way; -v only
@@ -7243,7 +7147,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
         mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
         if args.verbose:
-            cprint("dim", "\n  FIR verification (left, normalized to "
+            console.cprint("dim", "\n  FIR verification (left, normalized to "
                           "peak=0):")
         worst = 0.0
         for i, f in enumerate(freqs):
@@ -7253,7 +7157,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             err = mag_db[idx] - target
             worst = max(worst, abs(err))
             if args.verbose:
-                cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
+                console.cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
                       f"actual: {mag_db[idx]:+6.1f}  "
                       f"error: {err:+5.2f}")
         # A table of sixty "error" rows with no verdict reads as a slow
@@ -7274,11 +7178,11 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             # is the curve computed from their tuning — say that, since the
             # whole value of the line is which side it certifies.
             if worst <= FIR_VERIFY_OK_DB:
-                cprint("ok", f"  Correction check passed: the built filter "
+                console.cprint("ok", f"  Correction check passed: the built filter "
                              f"matches the curve your tuning file asks for, "
                              f"within {worst:.2f} dB")
             else:
-                cprint("warn", f"  Correction check: {worst:.2f} dB away from "
+                console.cprint("warn", f"  Correction check: {worst:.2f} dB away from "
                                "the curve your tuning file asks for, at worst "
                                "— unexpected, please report this run")
         print()
@@ -7290,13 +7194,13 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             # Dim, not green, when a ⚠ fired above: the celebratory color
             # read as cancelling the warning (round 9, user-picked
             # rendering) — the check only covers curve accuracy.
-            cprint("dim" if warned else "ok",
+            console.cprint("dim" if warned else "ok",
                    f"  Correction check passed: all "
                    f"{len(check_results)} filters match the curve your tuning "
                    f"file asks for, within {worst_all:.2f} dB")
         else:
             for name, w in fails:
-                cprint("warn", f"  Correction check ({name}): {w:.2f} dB away "
+                console.cprint("warn", f"  Correction check ({name}): {w:.2f} dB away "
                                "from the curve your tuning file asks for, at "
                                "worst — unexpected, please report this run")
         print()
@@ -7568,11 +7472,11 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     # --no-color must be honored before argparse prints --help; pre-scan
     # argv so the formatter falls back to plain when requested.
     _argv = sys.argv[1:] if argv is None else argv
-    formatter_class = argparse.HelpFormatter if "--no-color" in _argv else _HelpFormatter
+    formatter_class = argparse.HelpFormatter if "--no-color" in _argv else console._HelpFormatter
     epilog = None
-    if _MISSING_COLOR_DEPS:
+    if console._MISSING_COLOR_DEPS:
         epilog = (
-            f"Tip: install {' and '.join(_MISSING_COLOR_DEPS)} for colored output "
+            f"Tip: install {' and '.join(console._MISSING_COLOR_DEPS)} for colored output "
             "(see README for distro packages)."
         )
     parser = _HelpHintParser(
@@ -7686,7 +7590,7 @@ def main(argv: list[str] | None = None,
     global _TAG_CONVENTION_SHOWN
     _TAG_CONVENTION_SHOWN = False
     if args.no_color:
-        _disable_color()
+        console._disable_color()
     disabled = set(args.disable)
     # A name in both directions is a contradiction, not a preference to
     # resolve — silently picking a winner would leave the user believing
@@ -7712,7 +7616,7 @@ def main(argv: list[str] | None = None,
         parser.error("specify either xml_file or --windows, not both")
     elif args.windows:
         xml_path = find_tuning_xml(args.windows, best_guess=args.best_guess)
-        cprint("ok", f"Auto-detected: {xml_path}")
+        console.cprint("ok", f"Auto-detected: {xml_path}")
     elif args.xml_file:
         xml_path = args.xml_file
     else:
@@ -7723,7 +7627,7 @@ def main(argv: list[str] | None = None,
         # 2, framing it as a syntax error the user can't fix by reading usage.
         windows_root = autoprobe_dolby_source()
         xml_path = find_tuning_xml(windows_root, best_guess=args.best_guess)
-        cprint("ok", f"Auto-detected: {xml_path}")
+        console.cprint("ok", f"Auto-detected: {xml_path}")
 
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
@@ -7734,12 +7638,12 @@ def main(argv: list[str] | None = None,
     is_soundwire = is_soundwire_xml(Path(xml_path).name)
 
     if args.list:
-        cprint("head", f"Endpoints and profiles in {xml_path}:")
+        console.cprint("head", f"Endpoints and profiles in {xml_path}:")
         list_endpoints(xml_path)
         return
 
     if args.dry_run:
-        cprint("head", "Dry run: no files will be written to disk.")
+        console.cprint("head", "Dry run: no files will be written to disk.")
     else:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         args.irs_dir.mkdir(parents=True, exist_ok=True)
@@ -7748,9 +7652,9 @@ def main(argv: list[str] | None = None,
     if args.all_profiles:
         profile_types = get_profile_types(xml_path, args.endpoint, args.mode)
         if not profile_types:
-            cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
+            console.cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
             return
-        cprint("head", f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
+        console.cprint("head", f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
     else:
         profile_types = [args.profile]  # None means "first profile"
 
@@ -7782,11 +7686,11 @@ def main(argv: list[str] | None = None,
         if profile_type or args.all_profiles:
             safe_profile = sanitize_profile_type(profile_type or "default")
             if profile_type and safe_profile != profile_type:
-                warn(f"sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
+                console.warn(f"sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
             name_parts.append(safe_profile.title())
         name_base = "-".join(name_parts)
 
-        cprint("head", f"\n{'='*60}")
+        console.cprint("head", f"\n{'='*60}")
         if is_soundwire:
             # Names the practical difference — "enhanced preset generation"
             # told the reader nothing and read as either good news or a
@@ -7796,13 +7700,13 @@ def main(argv: list[str] | None = None,
             # the leveler outright (voice, off, most game). The flat "on by
             # default" then contradicted the leveler section four lines
             # below, which correctly said "switched off in your tuning".
-            cprint("head", "SoundWire speaker hardware detected — adds a "
+            console.cprint("head", "SoundWire speaker hardware detected — adds a "
                            "bass enhancer, and keeps the volume leveler on "
                            "where your tuning enables it")
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
-        cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
+        console.cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
                        "presets are for)")
         tuning = parse_xml(
             xml_path,
@@ -7851,7 +7755,7 @@ def main(argv: list[str] | None = None,
         autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
         sinks = _resolve_autoload_sinks(args.autoload_sink, args.dry_run)
         if sinks:
-            cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
+            console.cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
             verb = "Would write" if args.dry_run else "Wrote"
             for sink in sinks:
                 # EasyEffects keys the autoload file on the active output route
@@ -7862,7 +7766,7 @@ def main(argv: list[str] | None = None,
                 # skip and say why rather than write a file that never matches.
                 route = sink.get("route", "")
                 if not route:
-                    cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
+                    console.cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
                                    "its active output route from PipeWire, which is "
                                    "what EasyEffects matches autoload on. Re-run "
                                    "with this device as the active output, or set "
@@ -7876,7 +7780,7 @@ def main(argv: list[str] | None = None,
                     autoload_preset,
                     dry_run=args.dry_run,
                 )
-                cprint("ok", f"  {verb} {path}")
+                console.cprint("ok", f"  {verb} {path}")
                 print(f"  Device: {sink['description'] or sink['name']} ({route})")
 
         # Fallback preset: neutralize the Dolby chain on any non-speaker sink
@@ -7884,29 +7788,29 @@ def main(argv: list[str] | None = None,
         # entry. Without this, EE keeps the last-loaded preset applied and
         # mangles audio on outputs the Dolby tuning wasn't designed for.
         if args.autoload_bypass:
-            cprint("head", f"\nConfiguring fallback preset → '{BYPASS_PRESET_NAME}':")
+            console.cprint("head", f"\nConfiguring fallback preset → '{BYPASS_PRESET_NAME}':")
             bypass_path, bypass_status = write_bypass_preset(
                 args.output_dir, BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if bypass_status == "kept":
-                cprint("ok", f"  Kept existing {bypass_path}")
+                console.cprint("ok", f"  Kept existing {bypass_path}")
             elif bypass_status == "would-write":
-                cprint("ok", f"  Would write {bypass_path}")
+                console.cprint("ok", f"  Would write {bypass_path}")
             else:
-                cprint("ok", f"  Wrote {bypass_path}")
+                console.cprint("ok", f"  Wrote {bypass_path}")
 
             fallback_status, existing = set_autoload_fallback(
                 DEFAULT_EASYEFFECTS_RC, BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if fallback_status == "already-configured":
-                cprint("ok", f"  Fallback preset already configured "
+                console.cprint("ok", f"  Fallback preset already configured "
                               f"('{existing}') in {DEFAULT_EASYEFFECTS_RC} — leaving as-is")
             elif fallback_status == "would-patch":
-                cprint("ok", f"  Would enable fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Would enable fallback preset in {DEFAULT_EASYEFFECTS_RC}")
             else:
-                cprint("ok", f"  Enabled fallback preset in {DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Enabled fallback preset in {DEFAULT_EASYEFFECTS_RC}")
                 if easyeffects_is_running():
-                    cprint("warn", "  EasyEffects is currently running — restart it for "
+                    console.cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
                                    "this file on exit).")
 
@@ -7920,7 +7824,7 @@ def main(argv: list[str] | None = None,
             _rc_text = ""
         _rc = read_ee_rc(_rc_text)
         if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
-            cprint("warn", "  Tip: enable Background Service + Autostart on login in "
+            console.cprint("warn", "  Tip: enable Background Service + Autostart on login in "
                            "EasyEffects' preferences so this autoloads on every login.")
 
     # A requested --enable that never produced an active stage is silent
@@ -7930,14 +7834,14 @@ def main(argv: list[str] | None = None,
     # rather than something we noticed.
     if "autogain" in args.enable and "autogain-active" not in filters_by_profile:
         print()
-        _cprint_wrapped("warn", "--enable autogain had no effect: this "
+        console._cprint_wrapped("warn", "--enable autogain had no effect: this "
                                 "tuning's volume leveler is disabled in the "
                                 "XML, so there is no leveler stage to "
                                 "activate. The preset is unchanged.")
     if ("coupled-bands" in args.enable
             and "coupled-bands-active" not in filters_by_profile):
         print()
-        _cprint_wrapped("warn", "--enable coupled-bands had no effect: this "
+        console._cprint_wrapped("warn", "--enable coupled-bands had no effect: this "
                                 "tuning's regulator has no 0 dBFS zone whose "
                                 "bands are all marked non-isolated "
                                 "(isolated_band), so there is nothing to "
@@ -8099,8 +8003,8 @@ def run_cli(argv: list[str] | None = None,
         main(argv, closing=closing, troubleshooting=troubleshooting,
              resolved=resolved, staged=staged)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
-        cprint("err", f"Error: {e}")
-        cprint("cta", "Run with --help to see usage and all options.")
+        console.cprint("err", f"Error: {e}")
+        console.cprint("cta", "Run with --help to see usage and all options.")
         return 1
     return 0
 

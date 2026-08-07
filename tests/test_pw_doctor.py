@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import ee_to_pipewire as e
+from lib import console
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
 
 SPEAKER = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
@@ -268,7 +269,7 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     monkeypatch.setattr(e, "_plugin_presence", lambda: [])
     monkeypatch.setattr(e, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(e, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
-    silence_console(e)
+    silence_console(console)
 
     assert e.report_pw_doctor() == 0
     captured = capsys.readouterr()
@@ -291,7 +292,7 @@ def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
     monkeypatch.setattr(e, "_plugin_presence", lambda: [])
     monkeypatch.setattr(e, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(e, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
-    silence_console(e)
+    silence_console(console)
 
     assert e.report_pw_doctor() == 0
     out = capsys.readouterr().out
@@ -361,7 +362,7 @@ def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
     """Trying another voicing is the obvious next step and the run's own copy
     suggests it — but --force only guards one output path, so the second conf
     lands beside the first and WirePlumber runs both in series."""
-    silence_console(e)
+    silence_console(console)
     first, second = tmp_path / "Dolby_Balanced.conf", tmp_path / "Dolby_Warm.conf"
     _write_conf(first)
     _write_conf(second, node="Dolby_Warm")
@@ -376,7 +377,7 @@ def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
                     reason="spa-json-dump not installed")
 def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
                                                   capsys):
-    silence_console(e)
+    silence_console(console)
     only = tmp_path / "Dolby_Balanced.conf"
     _write_conf(only)
     e.warn_if_stacked(only, SPEAKER)
@@ -394,7 +395,7 @@ def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
                     reason="spa-json-dump not installed")
 def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,
                                                capsys):
-    silence_console(e)
+    silence_console(console)
     _write_conf(tmp_path / "Dolby_Balanced.conf", target="alsa_output.hdmi")
     second = tmp_path / "Dolby_Warm.conf"
     _write_conf(second, node="Dolby_Warm")

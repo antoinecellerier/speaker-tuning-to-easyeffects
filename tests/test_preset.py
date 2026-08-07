@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from lib import console
 from dolby_to_easyeffects import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -792,8 +793,7 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
         expect_warn):
     """The 'regulator never engages' heads-up fires exactly when the volmax
     boost rides a regulator whose bands are all threshold >= 0 dB."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(threshold_high), volmax_boost),
         [0.0] * 20, [0.0] * 20, 0.1, disabled)
@@ -806,8 +806,7 @@ def test_report_summarises_by_default_and_dumps_with_verbose(silence_console,
     """Normal-verbosity output is what most reports paste, so the default
     summary lines must carry the triage payload (active-band count, floor);
     the raw arrays print only with -v."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
 
     _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
@@ -836,8 +835,7 @@ def test_report_names_the_bass_enhancer_it_ships(silence_console, capsys,
     """The SoundWire build adds a converter-side bass enhancer with no XML
     source; the run must say so inline — it was the one active stage the
     --disable menu offered to drop that the output had never mentioned."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 0.0),
         [0.0] * 20, [0.0] * 20, 0.1, disabled, is_soundwire=is_soundwire)
@@ -869,8 +867,7 @@ def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
     """Issue #46: the regulator limits *somewhere*, so the all-inert warning
     stays quiet, but the band carrying the largest correction boost is one it
     leaves alone — that boost plus volmax hits the brickwall unprotected."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     peak_band = 1
     th = [-6.0 if peak_limited else 0.0] * 20
     th[10] = -6.0                              # limits somewhere regardless
@@ -888,8 +885,7 @@ def test_report_unlimited_boost_warning_uses_the_xml_declared_range(
         silence_console, capsys):
     """The gate is this XML's own stated per-band gain range, not a fixed
     +12 dB: a file declaring a wider range needs a bigger boost to trip it."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     th = [0.0] * 20
     th[10] = -6.0
     ao = _peaked_ao(1, 12.0)
@@ -909,8 +905,7 @@ def test_report_notes_dolby_declared_default_profile(
         silence_console, capsys, profile_used, declared, expect_note):
     """<setting><default_profile> names the profile the device ships on under
     Windows. We still build the first profile, so say when they differ."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     findings = _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 6.0,
                        profile_used=profile_used, default_profile=declared),
@@ -1656,8 +1651,7 @@ def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     """TRAP: --doctor is the output the issue form asks people to paste when
     something is wrong. A gate that mutes the speakers upstream of the whole
     preset must reach the verdict, not just the hardware dump below it."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     report = DoctorReport(checks=[
         CheckResult(DOCTOR_PASS, "EasyEffects version", "8.1.0"),
         firmware_gate_status([_gate(False)]),
@@ -1672,8 +1666,7 @@ def test_doctor_report_unknown_not_summarised_as_clean(silence_console,
                                                        capsys):
     """TRAP: an UNKNOWN-only report must NOT print the green 'No blocking
     problems detected' line, and the summary must surface the UNKNOWN count."""
-    import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     report = DoctorReport(checks=[
         CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
                     "installed but version unreadable"),
@@ -1744,7 +1737,7 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     from types import SimpleNamespace
 
     import dolby_to_easyeffects as d
-    silence_console(d)
+    silence_console(console)
     flat = lambda s: " ".join(s.split())       # noqa: E731 — undo line wrapping
 
     # EasyEffects 7: doctor detail and the end-of-run banner

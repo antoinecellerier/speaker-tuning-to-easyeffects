@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from lib import doctor, version
+from lib import console, doctor, version
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -53,77 +53,6 @@ try:
 except ImportError:
     argcomplete = None
 
-
-# Colored terminal output (optional rich). Built exactly as
-# dolby_to_easyeffects.py builds it, down to the width: a run of either script
-# is one report, on one stream, and the pair have to read as one tool.
-
-# Prose wraps to the terminal, within bounds. Below the floor, a hanging
-# indent eats the line and hyphenated XML element names get unreadable; above
-# the cap, a paragraph stretches into one long unscannable line — measure, not
-# window width, is what makes prose readable. Everything here is hand-wrapped
-# rather than reflowed by rich (see cprint), so this is the number that
-# matters.
-_WRAP_CAP = 120
-_WRAP_FLOOR = 60
-
-
-def _wrap_width() -> int:
-    return max(_WRAP_FLOOR,
-               min(_WRAP_CAP, shutil.get_terminal_size((80, 24)).columns))
-
-
-try:
-    from rich.console import Console
-    from rich.theme import Theme
-    _CONSOLE = Console(
-        theme=Theme({
-            "err":  "bold red",
-            "head": "bold cyan",
-            "ok":   "green",
-            "warn": "yellow",
-            "cta":  "bold magenta",
-            "dim":  "dim",
-        }),
-        markup=False,
-        highlight=False,
-        width=_wrap_width(),
-    )
-except ImportError:
-    _CONSOLE = None
-
-try:
-    from rich_argparse import RichHelpFormatter as _HelpFormatter
-except ImportError:
-    _HelpFormatter = argparse.HelpFormatter
-
-_MISSING_COLOR_DEPS = []
-if _CONSOLE is None:
-    _MISSING_COLOR_DEPS.append("rich")
-if _HelpFormatter is argparse.HelpFormatter:
-    _MISSING_COLOR_DEPS.append("rich-argparse")
-
-
-def cprint(style: str, text: str = "") -> None:
-    """Print `text` in the given semantic style, or plain if rich is absent.
-
-    ``soft_wrap=True`` keeps the text exactly as written. Without it rich
-    reflows at the console width and folds anything longer — which silently
-    broke the report-back URL (103 chars) mid string on any 80-column terminal,
-    leaving the tool's main call to action unclickable and uncopyable. It also
-    made output depend on whether rich was installed at all, since the fallback
-    above never wraps. Prose that needs wrapping asks for it explicitly via
-    _cprint_wrapped.
-    """
-    if _CONSOLE is None:
-        print(text)
-        return
-    _CONSOLE.print(text, style=style, soft_wrap=True)
-
-
-def _disable_color() -> None:
-    global _CONSOLE
-    _CONSOLE = None
 
 VALIDATE_CONF_SCRIPT = REPO_ROOT / "tools" / "measure_pw" / "validate_conf.py"
 
@@ -1187,13 +1116,13 @@ def _print_results(conf_path: Path, irs_path: Path | None,
     # "impulse response (.irs)", not the bare acronym: it is never expanded
     # anywhere else a user reads (round 5).
     if dry_run:
-        cprint("ok", f"Would write conf: {conf_path}")
+        console.cprint("ok", f"Would write conf: {conf_path}")
         if irs_path is not None:
-            cprint("ok", f"Would copy impulse response (.irs): {irs_path}")
+            console.cprint("ok", f"Would copy impulse response (.irs): {irs_path}")
     else:
-        cprint("ok", f"Wrote conf: {conf_path}")
+        console.cprint("ok", f"Wrote conf: {conf_path}")
         if irs_path is not None:
-            cprint("ok", f"Copied impulse response (.irs): {irs_path}")
+            console.cprint("ok", f"Copied impulse response (.irs): {irs_path}")
 
 
 def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
@@ -1214,46 +1143,46 @@ def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
               and c.path.resolve() != output_path.resolve()]
     if not others:
         return
-    cprint("warn", "")
-    cprint("warn", "⚠  Another filter chain is already attached to the same "
+    console.cprint("warn", "")
+    console.cprint("warn", "⚠  Another filter chain is already attached to the same "
                    "speakers:")
     for name in others:
-        cprint("warn", f"     {name}")
-    cprint("dim", "   PipeWire runs them one after another, not as "
+        console.cprint("warn", f"     {name}")
+    console.cprint("dim", "   PipeWire runs them one after another, not as "
                   "alternatives — every")
-    cprint("dim", "   stage applies twice. If you were trying a different "
+    console.cprint("dim", "   stage applies twice. If you were trying a different "
                   "voicing or profile,")
-    cprint("dim", "   delete the one you don't want (and its .irs), then "
+    console.cprint("dim", "   delete the one you don't want (and its .irs), then "
                   "restart PipeWire.")
-    cprint("dim", "   --doctor lists what is installed and what it does.")
+    console.cprint("dim", "   --doctor lists what is installed and what it does.")
 
 
 def _print_next_steps(node_name: str,
                       target_object: str | None = None) -> None:
     """The actions to take after a real (non-dry-run) write."""
-    cprint("head", "Next steps:")
-    cprint("cta", "  1. Restart PipeWire:        "
+    console.cprint("head", "Next steps:")
+    console.cprint("cta", "  1. Restart PipeWire:        "
                   "systemctl --user restart pipewire pipewire-pulse")
     # Stays a numbered step here, unlike the wrapper's footnote: this script
     # converts an existing EasyEffects preset, so its caller almost certainly
     # runs EasyEffects. "Stop it starting again" because quitting the window
     # ends double-processing for this session only — the background service
     # and autostart entry bring it back at the next login.
-    cprint("cta", "  2. Avoid double-processing: quit EasyEffects and stop "
+    console.cprint("cta", "  2. Avoid double-processing: quit EasyEffects and stop "
                   "it starting again (its Background Service and autostart, "
                   "or remove its autoload for this device)")
-    cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
+    console.cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
                   f"{_sanitize_name(node_name)}")
     # What success looks like (round 6): with no expected output stated, an
     # empty grep couldn't be told apart from "this step doesn't matter".
     # Names the usual cause of an empty grep rather than blaming the restart:
     # a missing LSP/Calf plugin makes module-filter-chain drop the whole
     # conf, so no node appears and re-restarting never helps.
-    cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
+    console.cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
                   "nothing usually means the LSP or Calf LV2 plugins are "
                   "missing, so the whole file failed to load)")
     if target_object:
-        cprint("cta", "  4. Verify routing:          "
+        console.cprint("cta", "  4. Verify routing:          "
                       f"pw-link -l | grep {target_object}")
 
 
@@ -1731,18 +1660,18 @@ def report_pw_doctor() -> int:
     # The project name, not this module's: dolby_to_pipewire.py --doctor runs
     # the same report, and a header naming the other script reads as a
     # mis-invocation.
-    cprint("head", f"speaker-tuning-to-easyeffects {facts['version']}")
-    cprint("head", "=== PipeWire filter-chain doctor ===")
+    console.cprint("head", f"speaker-tuning-to-easyeffects {facts['version']}")
+    console.cprint("head", "=== PipeWire filter-chain doctor ===")
     print()
     for c in checks:
-        doctor.emit_check(c, cprint)
+        doctor.emit_check(c, console.cprint)
     print()
-    doctor.print_summary(checks, cprint)
+    doctor.print_summary(checks, console.cprint)
     print()
 
     # Raw probed facts, always shown: a verdict can be wrong or UNKNOWN and
     # the report still has to be diagnosable by someone reading it remotely.
-    cprint("head", "=== Environment (paste this into your issue) ===")
+    console.cprint("head", "=== Environment (paste this into your issue) ===")
     wp = facts["wireplumber"]
     print(f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
           " (PipeWire path)")
@@ -1762,14 +1691,14 @@ def report_pw_doctor() -> int:
         print(f"  {line}")
     print()
 
-    doctor.print_verdict(checks, cprint)
+    doctor.print_verdict(checks, console.cprint)
     print()
 
     # Removing a conf and restarting is the answer to most of the above, and
     # it is the one step a reader can't derive from a diagnosis.
-    cprint("dim", "To remove a chain: delete its .conf (and matching .irs), "
+    console.cprint("dim", "To remove a chain: delete its .conf (and matching .irs), "
                   "then restart PipeWire:")
-    cprint("cta", f"  systemctl --user restart pipewire pipewire-pulse")
+    console.cprint("cta", f"  systemctl --user restart pipewire pipewire-pulse")
     print()
 
     # Hardware sits under the whole chain, so the same questions apply here as
@@ -1778,7 +1707,7 @@ def report_pw_doctor() -> int:
     try:
         import dolby_to_easyeffects as gen
     except Exception as e:  # pragma: no cover — defensive
-        cprint("dim", f"(hardware report unavailable: {e})")
+        console.cprint("dim", f"(hardware report unavailable: {e})")
         return 0
     info = gen._gather_speaker_info()
     gen._print_speaker_info(info)
@@ -1926,10 +1855,10 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     # argv to pick the help formatter (color itself is disabled after parsing).
     _argv = sys.argv[1:] if argv is None else argv
     formatter_class = (argparse.HelpFormatter
-                       if "--no-color" in _argv else _HelpFormatter)
+                       if "--no-color" in _argv else console._HelpFormatter)
     epilog = None
-    if _MISSING_COLOR_DEPS:
-        epilog = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+    if console._MISSING_COLOR_DEPS:
+        epilog = ("Tip: install " + " and ".join(console._MISSING_COLOR_DEPS)
                   + " for colored output (see README for distro packages).")
     parser = argparse.ArgumentParser(
         description="Convert an EasyEffects output preset to a PipeWire "
@@ -2003,7 +1932,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
     if args.no_color:
-        _disable_color()
+        console._disable_color()
 
     # Inspection mode: reads the installed state, converts nothing, so the
     # preset positional is optional — and required for everything else.
@@ -2015,12 +1944,12 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
 
     preset_path: Path = args.preset
     if not preset_path.is_file():
-        cprint("err", f"error: preset not found: {preset_path}")
+        console.cprint("err", f"error: preset not found: {preset_path}")
         return 2
     try:
         preset = json.loads(preset_path.read_text())
     except json.JSONDecodeError as e:
-        cprint("err", f"error: preset JSON is malformed: {e}")
+        console.cprint("err", f"error: preset JSON is malformed: {e}")
         return 2
 
     # Default node-name / -description are derived from the preset
@@ -2052,11 +1981,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         chain = build_chain(preset, args.irs_dir.expanduser(),
                             must_exist=not args.dry_run)
     except FileNotFoundError as e:
-        cprint("err", f"error: {e}")
+        console.cprint("err", f"error: {e}")
         return 2
 
     if not chain.stages:
-        cprint("err", "error: no stages emitted (preset is empty or every "
+        console.cprint("err", "error: no stages emitted (preset is empty or every "
                       "plugin was skipped)")
         return 1
 
@@ -2081,32 +2010,32 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     # through to autodetection.
     if args.target_sink == "":
         target_sink: str | None = None
-        cprint("dim", "[smart-filter] disabled by --target-sink ''; emitting "
+        console.cprint("dim", "[smart-filter] disabled by --target-sink ''; emitting "
                       "v1 virtual-sink conf (apps will target effect_input."
                       f"{safe_node_name} directly)")
     elif args.target_sink:
         target_sink = args.target_sink
-        cprint("ok", f"[smart-filter] target sink: {target_sink} (from "
+        console.cprint("ok", f"[smart-filter] target sink: {target_sink} (from "
                      "--target-sink)")
     else:
         target_sink, detect_warnings = _autodetect_speaker_sink()
         # Warnings print on both paths: a relaxed-tier match returns a name
         # *and* a warning explaining the fallback.
         for w in detect_warnings:
-            cprint("warn", f"[smart-filter] {w}")
+            console.cprint("warn", f"[smart-filter] {w}")
         if target_sink:
             # Names the override (round 7): without it a reader whose
             # detection picked the wrong device assumed their only path
             # was filing a report. And how to find NAME (round 8): the
             # flag alone left them with no way to discover a value.
-            cprint("ok", f"[smart-filter] your built-in speakers: "
+            console.cprint("ok", f"[smart-filter] your built-in speakers: "
                          f"{target_sink} "
                          "(autodetected — wrong device? --target-sink NAME "
                          "overrides)")
-            cprint("dim", "  (list sink names with: pw-cli ls Node | grep "
+            console.cprint("dim", "  (list sink names with: pw-cli ls Node | grep "
                           "alsa_output)")
         else:
-            cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
+            console.cprint("warn", "[smart-filter] falling back to v1 virtual-sink "
                            "conf (apps will target effect_input."
                            f"{safe_node_name}); pass --target-sink "
                            "<node.name> to enable smart-filter routing.")
@@ -2119,16 +2048,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                        warnings=chain.warnings)
 
     for w in chain.warnings:
-        cprint("warn", f"[warn] {w}")
+        console.cprint("warn", f"[warn] {w}")
 
     if not args.no_validate:
         rc, output = _validate_conf(conf)
         if rc == -1:
-            cprint("dim", f"[validate] skipped: {output.strip()}")
+            console.cprint("dim", f"[validate] skipped: {output.strip()}")
             # Without lv2info the plugin set can't be checked, so a missing
             # runtime dependency would otherwise pass unnoticed — remind the
             # user what the chain needs.
-            cprint("warn", "[validate] the plugin set wasn't checked — make "
+            console.cprint("warn", "[validate] the plugin set wasn't checked — make "
                            "sure the LV2 plugins this conf uses are installed: "
                            "LSP (lsp-plugins-lv2) for the PEQ / MBC / limiter, "
                            "plus Calf (calf-plugins) if it includes "
@@ -2136,11 +2065,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                            "won't load.")
         elif rc == 2:
             # Setup error inside validate_conf.py — degraded gracefully.
-            cprint("dim", f"[validate] skipped (setup): {output.strip()}")
+            console.cprint("dim", f"[validate] skipped (setup): {output.strip()}")
         elif rc != 0:
             if output.strip():
-                cprint("err", output.rstrip())
-            cprint("err", "error: schema validation failed; conf not written")
+                console.cprint("err", output.rstrip())
+            console.cprint("err", "error: schema validation failed; conf not written")
             return 1
         elif output.strip():
             # Validation passed, but validate_conf still emits warnings — most
@@ -2150,7 +2079,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # "successfully" while the chain silently fails to load for a
             # missing runtime dependency.
             for line in output.strip().splitlines():
-                cprint("warn", f"[validate] {line}")
+                console.cprint("warn", f"[validate] {line}")
 
     if args.dry_run:
         # The conf itself is not shown: on a terminal it is a few hundred
@@ -2169,7 +2098,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
 
     assert output_path is not None
     if output_path.exists() and not args.force:
-        cprint("err", f"error: {output_path} exists; pass --force to overwrite")
+        console.cprint("err", f"error: {output_path} exists; pass --force to overwrite")
         return 1
 
     # IRS copy: skip when source and target are the same path (no-op),
@@ -2177,7 +2106,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     copied_irs: Path | None = None
     if src_irs is not None and src_irs.resolve() != target_irs.resolve():
         if target_irs.exists() and not args.force:
-            cprint("err", f"error: {target_irs} exists; pass --force to "
+            console.cprint("err", f"error: {target_irs} exists; pass --force to "
                           "overwrite")
             return 1
         target_irs.parent.mkdir(parents=True, exist_ok=True)
@@ -2193,7 +2122,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # unmentioned as inactive — keep the one action that makes it live.
         # Unless a wrapper is driving: its [3/3] owns activation.
         if not wrapped:
-            cprint("cta", "To activate: systemctl --user restart pipewire "
+            console.cprint("cta", "To activate: systemctl --user restart pipewire "
                           "pipewire-pulse")
     else:
         _print_next_steps(node_name, target_object=args.target_object)

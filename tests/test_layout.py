@@ -12,6 +12,13 @@ tempting shortcut is to reach for numpy in a module one of these already
 imports — this fails the moment that happens, at the cheap end of the pipeline
 rather than in a user's startup time.
 
+`STDLIB_ONLY` is a list of modules that promised it, not a rule over `lib/`.
+`lib/console.py` is deliberately absent: it owns the optional rich import, so
+holding it to the stdlib would mean no coloured output anywhere. What binds
+*every* module, listed or not, is the DSP half — `numpy`/`scipy` cost 0.4 s
+where rich costs milliseconds — and that is checked from the converter's end
+by `test_converter_startup_pulls_in_no_dsp`, which needs no list.
+
 **Import the module, not the name.** Across a `lib/` boundary a caller binds
 the module (`from lib.hardware import codecs`, then `codecs.get_soundwire_ids()`)
 so that a `monkeypatch.setattr` on the defining module reaches it. A root script

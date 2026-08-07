@@ -26,21 +26,9 @@ from pathlib import Path
 # see its _load_dsp.)
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib import version
+from lib import console, version
 from dolby_to_easyeffects import _HelpHintParser
-from ee_to_pipewire import (
-    DEFAULT_NODE_NAME,
-    _HelpFormatter,
-    _MISSING_COLOR_DEPS,
-    _sanitize_name,
-    cprint,
-)
-
-
-def _disable_color() -> None:
-    """Both converters hold their own console; silence the pair."""
-    dolby_to_easyeffects._disable_color()
-    ee_to_pipewire._disable_color()
+from ee_to_pipewire import DEFAULT_NODE_NAME, _sanitize_name
 
 
 # The Balanced/Detailed/Warm stems _emit_ieq_presets emits, keyed by the
@@ -57,10 +45,10 @@ def _compose_parser(argv=None):
     lists drive rebuild_argv() so forwarding can't drift from the CLI."""
     _argv = sys.argv[1:] if argv is None else argv
     formatter_class = (argparse.HelpFormatter
-                       if "--no-color" in _argv else _HelpFormatter)
+                       if "--no-color" in _argv else console._HelpFormatter)
     epilog = None
-    if _MISSING_COLOR_DEPS:
-        epilog = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+    if console._MISSING_COLOR_DEPS:
+        epilog = ("Tip: install " + " and ".join(console._MISSING_COLOR_DEPS)
                   + " for colored output (see README for distro packages).")
     parser = _HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to an active PipeWire "
@@ -234,8 +222,8 @@ def _print_undo(written: list[Path]) -> None:
     if not paths:
         return
     files = " ".join(f"'{p}'" for p in paths)
-    cprint("dim", "  To undo: rm " + files)
-    cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
+    console.cprint("dim", "  To undo: rm " + files)
+    console.cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
 
 
 def _print_manual_activation(node_names: list[str],
@@ -244,13 +232,13 @@ def _print_manual_activation(node_names: list[str],
     # The EasyEffects caveat is a footnote, not a numbered step (round
     # 10): this script's reader chose it to avoid EasyEffects, and seeing
     # EE in the critical path made them doubt they had.
-    cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
-    cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
+    console.cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
+    console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
     # Numbered per sink rather than all "2.": with --variant all this loop
     # printed three consecutive steps sharing one number, under a note
     # referring back to "step 1".
     for i, name in enumerate(node_names, start=2):
-        cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
+        console.cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
     # What success looks like (round 6): with no expected output stated, an
     # empty grep couldn't be told apart from "this step doesn't matter".
@@ -268,10 +256,10 @@ def _print_manual_activation(node_names: list[str],
     tail = ("once the line is there, pick it as your output in sound settings"
             if selectable else
             "once the line is there, it's pinned to your speakers automatically")
-    cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
+    console.cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
                   "nothing usually means the LSP or Calf LV2 plugins are "
                   f"missing, so the whole file failed to load — {tail})")
-    cprint("dim", f"  Note: {QUIT_EE_HINT}.")
+    console.cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
 
@@ -281,7 +269,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     moment to load after the restart. Missing after the timeout usually
     means a missing LV2 plugin."""
     if shutil.which("pw-cli") is None:
-        cprint("warn", "pw-cli not found — can't verify the sinks loaded; "
+        console.cprint("warn", "pw-cli not found — can't verify the sinks loaded; "
                        "check with: pw-cli ls Node | grep <name>")
         return 0
     deadline = time.monotonic() + timeout
@@ -299,12 +287,12 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         time.sleep(interval)
     for name in node_names:
         if name not in missing:
-            cprint("ok", f"Sink loaded: {name}")
+            console.cprint("ok", f"Sink loaded: {name}")
     if missing:
         for name in missing:
-            cprint("err", f"error: sink {name} did not appear after the "
+            console.cprint("err", f"error: sink {name} did not appear after the "
                           "restart")
-        cprint("cta", "Check that the LSP/Calf LV2 plugins are installed "
+        console.cprint("cta", "Check that the LSP/Calf LV2 plugins are installed "
                       "(README: Plugin dependencies and validation), then "
                       f"retry: {PIPEWIRE_RESTART_CMD}")
         return 1
@@ -312,25 +300,25 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
 
 
 def _activate(node_names: list[str], selectable: bool) -> int:
-    cprint("head", "[3/3] Activating: restarting PipeWire")
+    console.cprint("head", "[3/3] Activating: restarting PipeWire")
     # Not only "otherwise both chains process the audio": the restart itself
     # stops a running EasyEffects (it doesn't survive its server going away),
     # so whatever EasyEffects was applying stops here whether or not the
     # reader acts. Said plainly, because the alternative is discovering it as
     # "the update broke my audio".
-    cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
+    console.cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
                    "audio at once. The restart below stops it for this "
                    "session either way, so anything it was applying goes "
                    "with it.")
     try:
         proc = subprocess.run(PIPEWIRE_RESTART_CMD.split())
     except FileNotFoundError:
-        cprint("warn", "systemctl not found (not a systemd system?) — "
+        console.cprint("warn", "systemctl not found (not a systemd system?) — "
                        "restart PipeWire yourself; the systemd equivalent "
                        f"is: {PIPEWIRE_RESTART_CMD}")
         return 0
     if proc.returncode != 0:
-        cprint("err", f"error: PipeWire restart failed (rc "
+        console.cprint("err", f"error: PipeWire restart failed (rc "
                       f"{proc.returncode}) — run it manually: "
                       f"{PIPEWIRE_RESTART_CMD}")
         return 1
@@ -349,13 +337,13 @@ def _print_selection_step(node_names: list[str], selectable: bool) -> None:
     "Sink loaded" leaves the reader believing it is already working.
     """
     if not selectable:
-        cprint("dim", "     (pinned to your speakers automatically — apps "
+        console.cprint("dim", "     (pinned to your speakers automatically — apps "
                       "keep playing to the speaker as usual)")
         return
-    cprint("cta", "  Now pick it as your output in sound settings — until "
+    console.cprint("cta", "  Now pick it as your output in sound settings — until "
                   "you do, it processes nothing:")
     for name in node_names:
-        cprint("cta", f"    {name}")
+        console.cprint("cta", f"    {name}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -370,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     dolby_to_easyeffects.ensure_dsp()
     args = parser.parse_args(argv)
     if args.no_color:
-        _disable_color()
+        console._disable_color()
 
     # Pre-check the one cross-flag rule the generator enforces post-parse,
     # so the error is framed by the wrapper instead of mid-run by the child.
@@ -435,9 +423,9 @@ def main(argv: list[str] | None = None) -> int:
     if multi and pin_target is None:
         pin_target, detect_warnings = ee_to_pipewire._autodetect_speaker_sink()
         for w in detect_warnings:
-            cprint("warn", f"[routing] {w}")
+            console.cprint("warn", f"[routing] {w}")
         if pin_target is None:
-            cprint("err", "error: couldn't tell which sink drives your "
+            console.cprint("err", "error: couldn't tell which sink drives your "
                           "speakers, so the chains can't be kept apart. Name "
                           "it with --target-object <node.name> (pw-cli ls "
                           "Node lists them), or install one at a time")
@@ -461,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
         # Not "no EasyEffects files are installed": the reader picked this
         # script to avoid EasyEffects, and opening the run by naming it made
         # a reviewer stop and re-check they'd run the right one.
-        cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
+        console.cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
                        "deleted when done — nothing is installed on your "
                        "system in this step)")
         # Echo the invocation (round 8): the closing's "add any of the
@@ -474,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
         # just invent a different command from the one that was typed (the
         # scripts are executable, so ./dolby_to_pipewire.py is equally
         # likely). argv[0] keeps the path the reader used.
-        cprint("dim", "      (your command: "
+        console.cprint("dim", "      (your command: "
                       + shlex.join([sys.executable, *sys.argv]) + ")")
         rc = _run_generator(step1_common
                             + ["--output-dir", tmp, "--irs-dir", tmp],
@@ -489,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
                    for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
         if not presets:
             wanted = ", ".join(variants)
-            cprint("err", f"error: no {wanted} preset was generated — see "
+            console.cprint("err", f"error: no {wanted} preset was generated — see "
                           "the log above (the XML may lack that IEQ curve)")
             return 1
 
@@ -498,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
         # that the others are reachable — read as two of them being silently
         # dropped, with no way to try Warm if Balanced sounds wrong.
         if len(presets) == 1:
-            cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
+            console.cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
                            "filter-chain conf")
             # Why this one (round 7): the profile pick explains itself, so
             # an unexplained Balanced default read as arbitrary next to it.
@@ -507,26 +495,26 @@ def main(argv: list[str] | None = None) -> int:
             # Windows engages no voicing at all, so the stronger claim was
             # wrong for them.
             if args.variant == "balanced":
-                cprint("dim", "      (Balanced is Dolby's default voicing)")
+                console.cprint("dim", "      (Balanced is Dolby's default voicing)")
         else:
-            cprint("head", f"[2/3] Converting {len(presets)} presets to "
+            console.cprint("head", f"[2/3] Converting {len(presets)} presets to "
                            "PipeWire filter-chain confs")
             for preset in presets:
-                cprint("dim", f"      {preset.stem}")
+                console.cprint("dim", f"      {preset.stem}")
             # Each is a separate output you choose in sound settings, not a
             # stage in one chain — the distinction the smart-filter default
             # hides, and the reason this mode needs --target-sink ''.
-            cprint("dim", "      Each becomes its own output; pick one in "
+            console.cprint("dim", "      Each becomes its own output; pick one in "
                           "your sound settings. They don't stack.")
             if args.target_object is None:
-                cprint("dim", f"      (each plays into {pin_target} — pinned "
+                console.cprint("dim", f"      (each plays into {pin_target} — pinned "
                               "so choosing one doesn't route the others "
                               "through it)")
         if args.variant != "all" and not args.all_profiles:
             others = [v for v in VARIANT_STEMS if v != args.variant]
             # Prose gets the capitalized names; the Pass sentence keeps
             # the lowercase flag values (round 10).
-            cprint("dim", "      The other voicings are not converted: "
+            console.cprint("dim", "      The other voicings are not converted: "
                           + ", ".join(o.capitalize() for o in others) + ".")
             # Says what --variant all gets the user ("a sink each" named an
             # internal object; what they see is another output to switch to
@@ -536,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
             # "another voicing" ties the --variant flag to the word every
             # explanation above uses (round 10: a reader would guess
             # --voicing next week).
-            cprint("dim", f"      Pass {alts} to convert another voicing, or "
+            console.cprint("dim", f"      Pass {alts} to convert another voicing, or "
                           "--variant all --target-sink '' to get all three as "
                           "outputs you can switch between in your sound "
                           "settings.")
@@ -580,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         # "installed", not "written": staging really does write the presets
         # (to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
         # appear above), and claiming nothing was written contradicted them.
-        cprint("head", "[3/3] Dry run — nothing was installed; re-run without "
+        console.cprint("head", "[3/3] Dry run — nothing was installed; re-run without "
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:

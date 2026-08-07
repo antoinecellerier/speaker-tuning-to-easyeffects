@@ -48,8 +48,8 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def silence_console(monkeypatch):
-    """Drop a script's rich console, so `cprint()` takes its plain-`print`
-    path for the rest of the test.
+    """Drop the rich console, so `cprint()` takes its plain-`print` path
+    for the rest of the test.
 
     Every user-facing line goes through `cprint`, which hands the text to a
     module-global `_CONSOLE` whenever rich is installed. What `capsys` then
@@ -60,13 +60,13 @@ def silence_console(monkeypatch):
     assertions are written against — the point is capture fidelity, not
     quiet output.
 
-    The module is named at the call site rather than baked in here: this
-    file stays ignorant of which scripts exist, a test that reads two
-    scripts' output can silence both, and the call says whose output is
-    being asserted on.
+    The module is named at the call site rather than baked in here, so this
+    file stays ignorant of the layout around it. Today there is one console
+    to name — `lib.console`, which both scripts print through — and passing
+    it is also the reminder that silencing it silences the pair.
 
         def test_x(silence_console, capsys):
-            silence_console(dolby_to_easyeffects)
+            silence_console(console)
 
     Deliberately not autouse — a few tests are *about* `_CONSOLE` (that the
     fallback prints at all, that `--no-color` clears the global) and set it

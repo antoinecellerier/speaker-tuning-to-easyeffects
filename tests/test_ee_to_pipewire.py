@@ -1261,7 +1261,7 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
 
 
 # ---------------------------------------------------------------------------
-# Colored output (rich, optional) — mirrors dolby_to_easyeffects.py
+# Colored output (rich, optional) — lib/console.py, shared with the generator
 # ---------------------------------------------------------------------------
 
 def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
@@ -1278,9 +1278,9 @@ def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
     fixture: the None state is this test's subject, and the fixture's whole
     premise is the behaviour asserted here.
     """
-    import ee_to_pipewire
-    monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", None)
-    ee_to_pipewire.cprint("err", "diagnostic-xyz")
+    from lib import console
+    monkeypatch.setattr(console, "_CONSOLE", None)
+    console.cprint("err", "diagnostic-xyz")
     captured = capsys.readouterr()
     assert "diagnostic-xyz" in captured.out
     assert captured.err == ""
@@ -1291,8 +1291,8 @@ def test_main_no_color_disables_console(generated, tmp_path, monkeypatch):
     auto-restores it at teardown, so `_disable_color()`'s global mutation
     doesn't leak into other tests.
     """
-    import ee_to_pipewire
-    monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", object())
+    from lib import console
+    monkeypatch.setattr(console, "_CONSOLE", object())
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1306,7 +1306,7 @@ def test_main_no_color_disables_console(generated, tmp_path, monkeypatch):
         "--no-color",
     ])
     assert rc == 0
-    assert ee_to_pipewire._CONSOLE is None
+    assert console._CONSOLE is None
 
 
 # ---------------------------------------------------------------------------

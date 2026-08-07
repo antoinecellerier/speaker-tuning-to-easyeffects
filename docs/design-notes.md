@@ -2911,8 +2911,7 @@ member arrives. Line ranges are where the code sat when this was written.
 
 ```
 lib/
-├── console.py       cprint / warn / colour / width / _load_dsp        (gen 56–180)
-├── version.py  ee_paths.py  doctor.py  paths.py                   (already moved)
+├── console.py  version.py  ee_paths.py  doctor.py  paths.py       (already moved)
 ├── data/            machine-written tables, out of hand-edited code
 │   ├── kernel_releases.py       _KERNEL_SERIES_RELEASES
 │   └── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
@@ -2943,6 +2942,16 @@ lib/
 
 Each entry point keeps its argparse builders, `main()`, and the orchestration
 that reads as the program — roughly 800 lines for the generator.
+
+Two things the table above once assigned to `console.py` stayed behind when it
+moved. `_load_dsp` binds `np` and `wavfile` into the *generator's* globals,
+which is where every `np.` in that file looks them up, so relocating it would
+break those lookups and hand a module the converter imports at startup the
+numpy dependency `test_converter_startup_pulls_in_no_dsp` exists to keep out.
+And `console.py` is the one module in `lib/` allowed to import `rich`: the
+optional presentation dependency is contained there rather than spread across
+whatever else gets extracted, which is why it is absent from
+`tests/test_layout.py`'s `STDLIB_ONLY` list while still bound by the DSP rule.
 
 ### What it does to the test suite
 
