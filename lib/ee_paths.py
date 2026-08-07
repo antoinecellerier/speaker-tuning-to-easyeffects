@@ -1,6 +1,6 @@
 """Where EasyEffects keeps its presets and impulse responses.
 
-Stdlib-only on purpose, for the same reason as ``_version.py``:
+Stdlib-only on purpose, for the same reason as ``version.py``:
 ``ee_to_pipewire.py`` has to resolve the same paths the generator writes to,
 and importing the generator to ask would pull numpy/scipy into a converter
 that never does any DSP.

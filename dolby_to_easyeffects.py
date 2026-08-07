@@ -41,9 +41,8 @@ from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
-import _doctor
-import _ee_paths
-from _version import get_version
+from lib import doctor, ee_paths
+from lib.version import get_version
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
 # script behaves exactly as before — same contract as rich below.
@@ -153,13 +152,13 @@ def _disable_color() -> None:
 # own --irs-dir default and must not import this module to do it (numpy/scipy
 # in a converter that does no DSP). Kept under the private names the rest of
 # this file already uses.
-_FLATPAK_APP_ID = _ee_paths.FLATPAK_APP_ID
-_FLATPAK_BASE = _ee_paths.FLATPAK_BASE
-_NATIVE_BASE = _ee_paths.NATIVE_BASE
-_prefer_flatpak = _ee_paths.prefer_flatpak
+_FLATPAK_APP_ID = ee_paths.FLATPAK_APP_ID
+_FLATPAK_BASE = ee_paths.FLATPAK_BASE
+_NATIVE_BASE = ee_paths.NATIVE_BASE
+_prefer_flatpak = ee_paths.prefer_flatpak
 
 _USE_FLATPAK = _prefer_flatpak()
-_EASYEFFECTS_BASE = _ee_paths.easyeffects_base()
+_EASYEFFECTS_BASE = ee_paths.easyeffects_base()
 
 DEFAULT_OUTPUT_DIR = _EASYEFFECTS_BASE / "output"
 DEFAULT_IRS_DIR = _EASYEFFECTS_BASE / "irs"
@@ -1905,13 +1904,13 @@ def report_speaker_info():
 # without touching the system; the _probe_/_gather_ wrappers do the I/O.
 
 # The report vocabulary is shared with ee_to_pipewire.py's PipeWire-side
-# doctor (see _doctor.py) so the two read as one tool. Bound to the names this
+# doctor (see lib/doctor.py) so the two read as one tool. Bound to the names this
 # file already uses; the printers below bind our console and wrap width.
-DOCTOR_PASS = _doctor.DOCTOR_PASS
-DOCTOR_WARN = _doctor.DOCTOR_WARN
-DOCTOR_FAIL = _doctor.DOCTOR_FAIL
-DOCTOR_UNKNOWN = _doctor.DOCTOR_UNKNOWN
-CheckResult = _doctor.CheckResult
+DOCTOR_PASS = doctor.DOCTOR_PASS
+DOCTOR_WARN = doctor.DOCTOR_WARN
+DOCTOR_FAIL = doctor.DOCTOR_FAIL
+DOCTOR_UNKNOWN = doctor.DOCTOR_UNKNOWN
+CheckResult = doctor.CheckResult
 
 # EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
 # match the speaker-correction convolver regardless of its index. Keep the
@@ -2292,7 +2291,7 @@ def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
         steps=tuple(("cta", amixer_enable_cmd(g)) for g in off))
 
 
-_doctor_summary = _doctor.summarize
+_doctor_summary = doctor.summarize
 
 
 def _flatpak_version_text(info_output: str) -> str:
@@ -2495,7 +2494,7 @@ def emit_check(check: CheckResult) -> None:
     PipeWire doctor and not this one — the same duplication the steps
     themselves exist to end.
     """
-    _doctor.emit_check(check, cprint, _wrap_width())
+    doctor.emit_check(check, cprint, _wrap_width())
 
 
 def print_doctor_summary(checks: list[CheckResult]) -> None:

@@ -2380,7 +2380,7 @@ def test_prefer_flatpak(tmp_path, monkeypatch, flatpak_run, native_run,
     """Which install the defaults point at, over the four states a machine can
     be in. Writing presets to the tree EasyEffects doesn't read is one of the
     'preset generated, nothing changed' reports --doctor exists to catch."""
-    import _ee_paths
+    from lib import ee_paths
     flatpak, native = tmp_path / "flatpak", tmp_path / "native"
     if flatpak_run:
         flatpak.mkdir()
@@ -2388,15 +2388,15 @@ def test_prefer_flatpak(tmp_path, monkeypatch, flatpak_run, native_run,
         native.mkdir()
     if installed:
         (tmp_path / ".local/share/flatpak/app"
-         / _ee_paths.FLATPAK_APP_ID).mkdir(parents=True)
-    monkeypatch.setattr(_ee_paths, "FLATPAK_BASE", flatpak)
-    monkeypatch.setattr(_ee_paths, "NATIVE_BASE", native)
+         / ee_paths.FLATPAK_APP_ID).mkdir(parents=True)
+    monkeypatch.setattr(ee_paths, "FLATPAK_BASE", flatpak)
+    monkeypatch.setattr(ee_paths, "NATIVE_BASE", native)
     # The never-opened probe walks $HOME; patch the module's own Path binding
     # rather than pathlib's, so nothing outside this module sees a fake home.
-    monkeypatch.setattr(_ee_paths, "Path",
+    monkeypatch.setattr(ee_paths, "Path",
                         type("HomedPath", (type(tmp_path),),
                              {"home": staticmethod(lambda: tmp_path)}))
-    assert _ee_paths.prefer_flatpak() is expected
+    assert ee_paths.prefer_flatpak() is expected
 
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,

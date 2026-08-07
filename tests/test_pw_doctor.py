@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 import ee_to_pipewire as e
-from _doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
+from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
 
 SPEAKER = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
 
@@ -396,7 +396,7 @@ def test_emit_check_wraps_prose_and_leaves_steps_alone(capsys):
     """The printer rule both doctors depend on: a check's prose reflows to the
     terminal, its commands don't. A command folded across two lines is not
     runnable, which is why checks used to point elsewhere for the fix."""
-    from _doctor import CheckResult, emit_check
+    from lib.doctor import CheckResult, emit_check
 
     command = "amixer -c sofhdadsp cset \"iface=CARD,name='Speaker Force Firmware Load'\" on"
     emit_check(CheckResult(DOCTOR_WARN, "Gate", "word " * 40,
@@ -413,7 +413,7 @@ def test_emit_check_wraps_prose_and_leaves_steps_alone(capsys):
 
 
 def test_emit_check_without_steps_is_unchanged(capsys):
-    from _doctor import CheckResult, emit_check
+    from lib.doctor import CheckResult, emit_check
 
     emit_check(CheckResult(DOCTOR_PASS, "Presets", "all load."),
                lambda _style, text: print(text), width=80)

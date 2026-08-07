@@ -27,7 +27,7 @@ from pathlib import Path
 # see its _load_dsp.)
 import dolby_to_easyeffects
 import ee_to_pipewire
-from _version import get_version
+from lib.version import get_version
 from dolby_to_easyeffects import _HelpHintParser
 from ee_to_pipewire import (
     DEFAULT_NODE_NAME,

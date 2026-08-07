@@ -36,16 +36,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-import _doctor
-from _doctor import (
+from lib import doctor
+from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
     CheckResult,
 )
-from _ee_paths import easyeffects_base
-from _version import get_version
+from lib.ee_paths import easyeffects_base
+from lib.version import get_version
 
 # Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
 # setup). The console targets stderr so it never pollutes the --dry-run conf
@@ -1745,9 +1745,9 @@ def _report_pw_doctor() -> int:
     cprint("head", "=== PipeWire filter-chain doctor ===")
     print()
     for c in checks:
-        _doctor.emit_check(c, cprint)
+        doctor.emit_check(c, cprint)
     print()
-    _doctor.print_summary(checks, cprint)
+    doctor.print_summary(checks, cprint)
     print()
 
     # Raw probed facts, always shown: a verdict can be wrong or UNKNOWN and
@@ -1772,7 +1772,7 @@ def _report_pw_doctor() -> int:
         print(f"  {line}")
     print()
 
-    _doctor.print_verdict(checks, cprint)
+    doctor.print_verdict(checks, cprint)
     print()
 
     # Removing a conf and restarting is the answer to most of the above, and

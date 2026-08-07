@@ -6,7 +6,7 @@ report different things but must read as one tool — same status boxes, same
 counts, same verdict wording — so the vocabulary lives here rather than in
 either of them.
 
-Stdlib-only, like `_version.py` and `_ee_paths.py`: `ee_to_pipewire.py` must
+Stdlib-only, like `version.py` and `ee_paths.py`: `ee_to_pipewire.py` must
 not pull the generator's numpy/scipy into a report that is mostly about
 PipeWire. Each printer takes the caller's own ``cprint``, because the two
 scripts hold separate consoles (the converter's targets stderr so it never
