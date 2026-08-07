@@ -4,15 +4,15 @@
 script.
 
 The split of ``dolby_to_easyeffects.py`` and ``ee_to_pipewire.py`` into
-``lib/`` runs across ~10 commits, under one rule (``docs/design-notes.md``,
+``lib/`` ran across 17 move commits, under one rule (``docs/design-notes.md``,
 "Splitting the single-file scripts"): **a move commit moves only.** No
 reformatting, no renamed functions, no behaviour change riding along. That is
 not tidiness — the root scripts stay put, so code leaving them is an
 *extraction*, not a rename, and the only thing that can still trace it home is
 ``git blame -C -C`` / ``git log -C -C``. Copy detection needs the moved lines
 *unchanged*: a re-wrapped argument list or a renamed local silently costs the
-history of every line it touches. Eyeballing a diff does not scale over ten of
-these, so this checks it.
+history of every line it touches. Eyeballing a diff does not scale over that
+many, so this checks it. It stays useful for any later extraction.
 
 The check is a subset test: every added target line must appear verbatim among
 the removed source lines. Three kinds of added line are exempt, because a

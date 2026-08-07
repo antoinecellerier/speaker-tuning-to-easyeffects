@@ -7,10 +7,10 @@ any module computes, and both invisible to every other test in the suite.
 and `lib/doctor.py` each say in their own docstring that they import nothing
 but the stdlib, because `ee_to_pipewire.py` imports all three at startup and
 must not pull numpy/scipy into a converter that does no DSP. Until now that was
-a promise in prose. As more of `dolby_to_easyeffects.py` moves into `lib/`, the
-tempting shortcut is to reach for numpy in a module one of these already
-imports — this fails the moment that happens, at the cheap end of the pipeline
-rather than in a user's startup time.
+a promise in prose. As `lib/` grows, the tempting shortcut is to reach for
+numpy in a module one of these already imports — this fails the moment that
+happens, at the cheap end of the pipeline rather than in a user's startup
+time.
 
 `STDLIB_ONLY` is a list of modules that promised it, not a rule over `lib/`.
 `lib/console.py` is deliberately absent: it owns the optional rich import, so

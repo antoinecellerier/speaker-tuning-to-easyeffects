@@ -46,8 +46,9 @@ from lib.preset.plugins import (
 # is a virtualization/surround-render depth control that is dormant without
 # a multichannel/object bed, not a stereo-width knob — so the faithful
 # stereo-playback behaviour is to not widen. See docs/design-notes.md,
-# unvalidated-scaling entry 2. (ee_to_pipewire.py keeps `emit_stereo_tools`
-# as a translator for any preset that still carries a stereo_tools block.)
+# unvalidated-scaling entry 2. (The converter keeps `emit_stereo_tools`, in
+# lib/pipewire/plugins.py, as a translator for any preset that still carries
+# a stereo_tools block.)
 
 
 def make_preset(kernel_name: str, peq_filters: list[dict],

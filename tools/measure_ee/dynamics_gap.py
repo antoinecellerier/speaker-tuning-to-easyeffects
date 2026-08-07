@@ -31,7 +31,6 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-import dolby_to_easyeffects as d  # noqa: E402
 from lib.dax import parse  # noqa: E402
 from lib.preset import fir  # noqa: E402
 from lib.preset import bands
@@ -168,7 +167,7 @@ def ee_chain_mag_db(tuning, freqs_probe):
     scale = tuning.ieq_amount / 100.0
     float_freqs = np.array(tuning.freqs, float)
     ieq_db = np.array(tuning.curves["ieq_balanced"]) / 16.0 * scale
-    ao_db_left = np.array(tuning.ao_left) / 16.0  # matches main() line 3421
+    ao_db_left = np.array(tuning.ao_left) / 16.0  # matches the generator's main()
     combined = ieq_db + ao_db_left
     fir_left, _ = fir.make_fir(float_freqs, combined, normalize=True)
     H = np.fft.rfft(fir_left, n=fir.FIR_LENGTH)

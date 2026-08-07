@@ -29,7 +29,7 @@ env var, and CLI flag named in CLAUDE.md must still resolve. Extract them and
 verify:
 - paths/files/dirs exist (`ls`, `test -e`);
 - `docs/*.md` links exist and the referenced sections still exist (`rg '^#'`);
-- function/symbol names exist in the scripts (`rg`);
+- function/symbol names exist in the scripts or `lib/` (`rg`);
 - commit hashes resolve (`git cat-file -t <hash>`);
 - CLI flags appear in the argparse setup.
 

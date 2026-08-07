@@ -667,7 +667,7 @@ hearing the difference on a device — issue #29's reporter independently prefer
 The newer Lenovo IdeaPad / ThinkPad-X13s SoundWire packages introduced several DSP
 blocks that don't appear in the original Realtek/Intel cohort. The script does not
 implement any of them. Some are flagged at end of run via
-`collect_unmodeled_features` in `dolby_to_easyeffects.py`; the rest are silently
+`collect_unmodeled_features` in `lib/dax/parse.py`; the rest are silently
 dropped.
 
 The three bands below are the useful distinction. A stage with **parameters** in
@@ -818,7 +818,7 @@ Named once so a future schema sweep doesn't re-discover them as findings:
 | Bass-extraction LFE gain                           | `bass-extraction-lfe-gain`                                                   | Present in 1345, **enabled in 0**         | Defensive — bass-extraction itself is universally off.                                                  |
 | Channel-gain matrix attributes                     | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix          | Tied to the unmodeled virtualizer; would only matter once advanced-virt is implemented. **NB:** inside `<audio-optimizer-bands>`, simplified-schema XMLs reuse `gain_l`/`gain_r` as the L/R speaker-correction arrays — *those* are modeled (mapped to the `ch_00`/`ch_01` slots, issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)), unrelated to the downmix matrix here. |
 
-The `_UNMODELED_FEATURES` table in `dolby_to_easyeffects.py` carries the two
+The `_UNMODELED_FEATURES` table in `lib/dax/parse.py` carries the two
 rare-but-real cases in the previous table (DSO, advanced virtualizer) plus four watch-only
 fields (`peak-level`, `ieq-bands-set`, `regulator-overdrive`,
 `regulator-relaxation-amount`) that warn only when an XML deviates from the

@@ -5,8 +5,8 @@ Two weekly workflows rewrite the contents of this package unattended —
 ``.github/workflows/speaker-pin-quirks.yml``, each running a deterministic
 ``tools/update_*.py`` script that locates a dict literal by regex, splices a
 re-rendered body in, and opens a PR. That is a safe thing to do to a file
-whose whole content is the table, and an uncomfortable one to do inside an
-8,000-line script somebody is editing by hand the same week.
+whose whole content is the table, and an uncomfortable one to do inside a
+script somebody is editing by hand the same week.
 
 Each module here is data plus, at most, the record type its rows are written
 in: no probing, no policy, no decisions about what to tell the user. The

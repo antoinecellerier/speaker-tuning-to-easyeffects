@@ -87,9 +87,9 @@ if "_ARGCOMPLETE" not in os.environ:
     _load_dsp()
 
 
-# Raised all over this file and consumed by the closing block, so the record
-# type is shared rather than owned (see lib/report/findings.py). Kept under
-# the names the rest of this file already uses.
+# Annotated and printed here, raised across lib/dax/ and lib/report/, so the
+# record type is shared rather than owned (see lib/report/findings.py). Kept
+# under the names the rest of this file already uses.
 Finding = report_findings.Finding
 _print_finding_detail = report_findings._print_finding_detail
 

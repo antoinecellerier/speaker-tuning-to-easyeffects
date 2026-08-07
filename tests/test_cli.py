@@ -555,9 +555,9 @@ def test_skip_ee_check_gates_environment_warning(monkeypatch, tmp_path, capsys):
 
 def test_find_tuning_xml_raises_when_no_audio_hardware(monkeypatch, tmp_path):
     """No HDA codecs and no SoundWire devices → FileNotFoundError
-    at dolby_to_easyeffects.py:761-765. The earliest bailout in
-    find_tuning_xml; static message, but pinned so a future
-    refactor doesn't silently turn it into a different exception type.
+    in lib/dax/discover.py's find_tuning_xml. The earliest bailout
+    there; static message, but pinned so a future refactor doesn't
+    silently turn it into a different exception type.
     """
     monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
@@ -567,7 +567,7 @@ def test_find_tuning_xml_raises_when_no_audio_hardware(monkeypatch, tmp_path):
 
 def test_find_tuning_xml_raises_when_soundwire_without_pci(monkeypatch, tmp_path):
     """SoundWire devices detected but PCI subsystem ID is None →
-    RuntimeError at dolby_to_easyeffects.py:773-777. Without the PCI
+    RuntimeError in lib/dax/discover.py's find_tuning_xml. Without the PCI
     subsystem we can't build the SDW SUBSYS match key, so refusing to
     guess is the right behavior; pin the exception type and message.
     """
@@ -582,7 +582,7 @@ def test_find_tuning_xml_raises_when_soundwire_without_pci(monkeypatch, tmp_path
 
 def test_find_tuning_xml_raises_when_driver_store_missing(monkeypatch, tmp_path):
     """Hardware detected but _resolve_driver_store returns None →
-    FileNotFoundError at dolby_to_easyeffects.py:787-793. The message
+    FileNotFoundError in lib/dax/discover.py's find_tuning_xml. The message
     interpolates Path objects; pin that the formatter survives.
     """
     monkeypatch.setattr(
@@ -597,13 +597,13 @@ def test_find_tuning_xml_raises_when_driver_store_missing(monkeypatch, tmp_path)
 
 
 def test_find_tuning_xml_no_matching_xml_includes_hda_in_message(monkeypatch, tmp_path):
-    """Regression sentinel for PR #16. The `if not candidates:` branch at
-    dolby_to_easyeffects.py:835-843 unpacks hda_codecs via a generator
+    """Regression sentinel for PR #16. The `if not candidates:` branch in
+    lib/dax/discover.py's find_tuning_xml unpacks hda_codecs via a generator
     expression inside an f-string; an arity mismatch (which is what
     PR #16 fixed) crashes the diagnostic with ValueError instead of
     reaching the FileNotFoundError. This test asserts both the exception
     type and that the codec identifiers reach the user-visible message,
-    so reverting line 836 to the 2-tuple unpack fails here.
+    so reverting the hda_info line to the 2-tuple unpack fails here.
     """
     monkeypatch.setattr(
         codecs,
@@ -619,8 +619,8 @@ def test_find_tuning_xml_no_matching_xml_includes_hda_in_message(monkeypatch, tm
 
 
 def test_find_tuning_xml_no_matching_xml_includes_sdw_in_message(monkeypatch, tmp_path):
-    """Parallel regression sentinel for the sdw_info formatter at
-    dolby_to_easyeffects.py:837. If get_soundwire_ids ever grows a third
+    """Parallel regression sentinel for the sdw_info formatter in
+    lib/dax/discover.py. If get_soundwire_ids ever grows a third
     tuple field, this test catches the same arity-bug class on the SDW
     side before it ships.
     """
@@ -1023,9 +1023,9 @@ def test_best_guess_off_by_default_stays_strict(monkeypatch, tmp_path):
 
 
 def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
-    """No NTFS mounts and an empty CWD → FileNotFoundError at
-    dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic
-    text and the FileNotFoundError type.
+    """No NTFS mounts and an empty CWD → FileNotFoundError in
+    lib/dax/discover.py's autoprobe_dolby_source. Pins the "no candidates"
+    diagnostic text and the FileNotFoundError type.
     """
     monkeypatch.setattr(discover, "_ntfs_family_mountpoints", lambda: [])
     monkeypatch.setattr(
@@ -1040,7 +1040,8 @@ def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
 
 def test_autoprobe_raises_when_multiple_candidates_no_hardware_match(monkeypatch, tmp_path):
     """Two mount candidates, neither matching this machine's hardware →
-    FileNotFoundError at dolby_to_easyeffects.py:732-746. Exercises the
+    FileNotFoundError in lib/dax/discover.py's autoprobe_dolby_source.
+    Exercises the
     `.join(f"  - {p}" for p in candidates)` listing formatter on a
     non-trivial list, and pins that both candidate paths appear in the
     user-visible message.
