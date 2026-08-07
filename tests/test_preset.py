@@ -41,10 +41,8 @@ from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
-from dolby_to_easyeffects import (
-    _report_parsed_profile,
-    save_wav_stereo,
-)
+from lib.report.profile import _report_parsed_profile
+from dolby_to_easyeffects import save_wav_stereo
 from lib.preset.autoload import (
     BYPASS_PRESET_NAME,
     _atomic_write,
@@ -995,11 +993,9 @@ def test_audio_optimizer_curve_kept_when_enabled_or_absent(tmp_path):
 
 def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys):
     """Zeros in the printed curve would otherwise read as a flat tuning."""
-    import dolby_to_easyeffects as d
-
     tuning = parse.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
     capsys.readouterr()
-    d._report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
     assert "audio-optimizer-enable=0" in capsys.readouterr().out
 
 

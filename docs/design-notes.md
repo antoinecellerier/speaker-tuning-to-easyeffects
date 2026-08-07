@@ -3526,6 +3526,70 @@ table instead — the first is in the same module — but collapsing either insi
 a move commit is a behaviour change under a subject line promising there isn't
 one.
 
+### The per-profile report, and the first module `_load_dsp` binds
+
+543 lines — the whole of `_report_parsed_profile` — left the generator for
+`lib/report/profile.py`, taking it from 1,744 lines to 1,188. It was the
+largest symbol left in the file and had already been told it wasn't `main()`:
+its own docstring said it was "split out of `main()` so the orchestration there
+stays legible".
+
+Membership came out unusually clean. `symtable` over the block says it reaches
+ten names it does not define, and every one is an import — `np`, `console`,
+`parse`, `fir`, `plugins`, `report_findings`, `messages`,
+`_print_finding_detail`, plus the two channel arrays a lambda closes over.
+**No private helper travelled with it**, because it has none: `register` and
+`_peq_spec` are nested inside the body, and everything else it calls is
+already under `lib/`. One call site stays, in `main()`, and re-points for free
+the way root-side call sites always do.
+
+**This is the first extracted module the generator may not import at the top of
+the file.** It reaches numpy directly (the audio-optimizer summary),
+`lib/preset/fir.py` for the sample rate the compressor crossovers print
+against, and `lib/preset/plugins.py` for the decoders whose answers it reports
+— so it is bound inside `_load_dsp()` beside `fir` and `build`, on
+`lib/preset/plugins.py`'s precedent from slice 5 of wave 1. Importing it at the
+top would put numpy and scipy — ~0.4 s of a ~0.5 s startup — on every TAB
+press, which
+`tests/test_completions.py::test_completion_path_skips_the_dsp_import` traps.
+Verified rather than assumed: `_ARGCOMPLETE=1` and an `import
+dolby_to_easyeffects` still leave numpy and scipy out of a 223-module
+`sys.modules`, and `--help` still costs 0.62–0.68 s against 0.63–0.67 s
+before.
+
+Two consequences for `_load_dsp` itself. `lib.preset.plugins` loses its last
+reader in the generator — the report was it — so the binding comes out with
+the move, and `build` alone carries the chain (`build` → `plugins` → `fir` →
+numpy). And the module is aliased **`report_profile`** on
+`report_findings`/`report_speaker`'s precedent: `main()` binds `profile_type`,
+`profile_label` and `profile_findings` within a few lines of the one call it
+serves. `lib/report/profile.py` cannot join `tests/test_layout.py`'s
+`STDLIB_ONLY` for two reasons now rather than one — it prints *and* it reaches
+numpy — and the comment covering the whole of `lib/report` already says the
+first.
+
+**The patch inventory is empty, and that is the finding.** Not one
+`monkeypatch.setattr` in the suite moves: the full inventory across `tests/`
+names 45 distinct targets and none of them is a symbol this slice touches. What
+retargets is three import sites — `tests/test_preset.py`'s top-level import,
+one local `import dolby_to_easyeffects as d` that existed only for this call
+(deleted, the module-level name serves), and two calls in `tests/test_cli.py`,
+now through a `report_profile` alias matching the generator's.
+
+An import retarget has the same silent failure as a stale patch, so it was
+checked in both directions with the equivalent instruments:
+
+- `raise AssertionError("SABOTAGE")` as the first statement of the moved
+  function fails **34 tests** across the two files — so the retargeted sites
+  reach real, moved code.
+- Leaving the sabotage in place and putting a *working* `_report_parsed_profile`
+  back on the root script as a stale binding changes nothing: the same 34 still
+  fail. Nothing reads the generator's name.
+- Pointing the two retargeted imports at a `SimpleNamespace` instead fails
+  **28** — the six-test difference is the tests that reach the report through
+  `main()` rather than through the import, which is the expected shape and not
+  a gap.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

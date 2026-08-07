@@ -29,6 +29,10 @@ from lib.data import speaker_pin_quirks
 from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
 from lib.report import doctor_run
+# Aliased like the generator's own import, and for the same reason: the
+# per-profile report's own vocabulary (profile_type, profile_label) is all
+# over these tests.
+from lib.report import profile as report_profile
 # Aliased like the generator's own import, and for the same reason: one
 # letter apart from lib.hardware.speakers above.
 from lib.report import speaker as report_speaker
@@ -1675,11 +1679,11 @@ def test_switching_a_stage_off_changes_what_the_run_says(name, silence_console,
     """
     silence_console(console)
     tuning = _fully_stocked_tuning()
-    dolby_to_easyeffects._report_parsed_profile(
+    report_profile._report_parsed_profile(
         tuning, [0.0] * 20, [0.0] * 20, 0.1, set(), is_soundwire=True)
     shipped = " ".join(capsys.readouterr().out.split())
 
-    dolby_to_easyeffects._report_parsed_profile(
+    report_profile._report_parsed_profile(
         tuning, [0.0] * 20, [0.0] * 20, 0.1, {name}, is_soundwire=True)
     dropped = " ".join(capsys.readouterr().out.split())
 
