@@ -27,7 +27,6 @@ from pathlib import Path
 import dolby_to_easyeffects
 import ee_to_pipewire
 from lib import console, version
-from dolby_to_easyeffects import _HelpHintParser
 from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
@@ -52,7 +51,7 @@ def _compose_parser(argv=None):
     if console._MISSING_COLOR_DEPS:
         epilog = ("Tip: install " + " and ".join(console._MISSING_COLOR_DEPS)
                   + " for colored output (see README for distro packages).")
-    parser = _HelpHintParser(
+    parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to an active PipeWire "
                     "filter-chain sink — no EasyEffects files installed "
                     "(see docs/ee-to-pipewire.md).",

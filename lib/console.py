@@ -15,10 +15,17 @@ list. The rule it does keep is the expensive one — nothing here reaches the
 DSP stack, so ``ee_to_pipewire.py`` still starts without paying for
 numpy/scipy. And rich stays optional: it is absent on a plain install, so
 every helper below degrades to a plain ``print`` rather than failing.
+
+``_HelpHintParser`` is here for the same reason as the rest: an argparse
+error is output too, and it is the one message two of the three entry points
+print from a class rather than a function. It lived on the generator and the
+wrapper imported it from there — the last import that crossed between two
+root scripts.
 """
 
 import argparse
 import shutil
+import sys
 import textwrap
 
 
@@ -66,6 +73,22 @@ if _CONSOLE is None:
     _MISSING_COLOR_DEPS.append("rich")
 if _HelpFormatter is argparse.HelpFormatter:
     _MISSING_COLOR_DEPS.append("rich-argparse")
+
+
+class _HelpHintParser(argparse.ArgumentParser):
+    """ArgumentParser that appends a --help pointer to usage errors, so a
+    bad/unknown flag gets the same 'Run with --help' nudge that runtime
+    errors get from the top-level handler. Mirrors argparse's default
+    error(): usage synopsis to stderr, then 'prog: error: message', exit 2.
+    """
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(
+            2,
+            f"{self.prog}: error: {message}\n"
+            "Run with --help to see usage and all options.\n",
+        )
 
 
 def cprint(style: str, text: str = "") -> None:

@@ -123,22 +123,6 @@ if console._HelpFormatter is not argparse.HelpFormatter:
     ]
 
 
-class _HelpHintParser(argparse.ArgumentParser):
-    """ArgumentParser that appends a --help pointer to usage errors, so a
-    bad/unknown flag gets the same 'Run with --help' nudge that runtime
-    errors get from the top-level handler. Mirrors argparse's default
-    error(): usage synopsis to stderr, then 'prog: error: message', exit 2.
-    """
-
-    def error(self, message):
-        self.print_usage(sys.stderr)
-        self.exit(
-            2,
-            f"{self.prog}: error: {message}\n"
-            "Run with --help to see usage and all options.\n",
-        )
-
-
 def _make_adder(container, only):
     """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
     selected by ``only`` (keyed by primary name: first option string, or the
@@ -412,7 +396,7 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
             f"Tip: install {' and '.join(console._MISSING_COLOR_DEPS)} for colored output "
             "(see README for distro packages)."
         )
-    parser = _HelpHintParser(
+    parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
         epilog=epilog,
         formatter_class=formatter_class,
