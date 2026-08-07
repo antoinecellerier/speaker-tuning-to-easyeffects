@@ -46,8 +46,10 @@ LIN_AMP_FLOOR = 1e-30  # numerical floor for log10 in lin_to_db
 LSP_PEQ_BANDS = 16     # para_equalizer_x16_lr — bump if URI changes
 LSP_MBC_BANDS = 8      # mb_compressor_stereo
 
-# All enum tables are extracted directly from the LSP plugin source under
-# localresearch/measure_dax/lsp-plugins-1.2.27/modules/.
+# All enum tables are extracted directly from the LSP plugin source
+# (lsp-plugins 1.2.27, modules/), read from a local checkout of it. The
+# per-table comments below cite the file and line the values came from, so a
+# version bump is re-checked against the same places.
 
 # para_equalizer.cpp:70 — filter_types[]
 EE_FTYPE_TO_LSP = {

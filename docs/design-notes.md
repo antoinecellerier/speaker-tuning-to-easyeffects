@@ -2873,16 +2873,21 @@ mitigate.
   lines it never removed, which is impurity by that tool's definition and by
   design.
 
-  **A seed only helps a path on the commit that creates it.** Code moved into a
-  module that already exists gets the flat-extraction outcome, because there is
-  no new path to pair. `a851428` moved 350 lines into the existing
-  `lib/report/findings.py` alongside six seeded modules: the seeded six trace at
-  91–99%, those 350 lines at 0%. Seeding the existing module instead would mean
-  overwriting it with the root script for one commit, which recovers the 350 and
-  spends the 105 lines already sitting there at 91% — a trade, not a fix. So
-  prefer to land a module's contents in one slice; when a later slice has to
-  extend one, expect that part to trace like a flat extraction and don't go
-  looking for a knob.
+  **Extending a module that already exists needs a seed too — from its own
+  earlier seed blob.** Moving code into an existing path pairs with nothing, so
+  it lands at 0%: the slice-5 commit put 350 lines into `lib/report/findings.py`
+  beside six freshly seeded modules, and those 350 traced at 0% while the six
+  traced at 91–99%. The fix is not to seed from the *current* root script —
+  that would recover the 350 and spend the lines already in the file, since the
+  root script no longer contains them. Seed from the blob **that path held at
+  its own first seed**: a full copy of the root script as it stood *before* any
+  of it was extracted, so it contains both the code already in the module and
+  the code about to arrive. Re-seeding `findings.py` from its slice-3 blob took
+  it from 0% to 348/350 with the existing lines untouched at 99%.
+
+  The general form: a seed's job is to give the destination path a parent
+  holding every line the commit is about to put there. Reach back to whichever
+  blob satisfies that, which for a second helping is not the newest one.
 
   Worth knowing before hand-building a seed: the loop that writes the copies
   runs under zsh, which does **not** word-split an unquoted `$paths`. Getting
