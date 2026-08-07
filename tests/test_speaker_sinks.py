@@ -20,10 +20,10 @@ import subprocess
 
 import pytest
 
-import dolby_to_easyeffects as d
 from lib.pipewire import install as pw
 from lib import console
 from lib.data import speaker_pin_quirks
+from lib.doctor import DOCTOR_WARN
 from lib.hardware import amps, codecs, speakers
 # Aliased: several tests bind a local named `sinks` for a synthetic sink
 # list, which would shadow the module.
@@ -1277,7 +1277,7 @@ def test_speaker_pin_doctor_check():
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
     check = report_speaker.speaker_pin_status(info)
-    assert check is not None and check.status == d.DOCTOR_WARN
+    assert check is not None and check.status == DOCTOR_WARN
     assert report_speaker.speaker_pin_status(_info([_codec_dump(ssid=ISSUE_53_SSID)])) is None
 
 

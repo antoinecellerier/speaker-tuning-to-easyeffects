@@ -3368,6 +3368,121 @@ subject line promising there isn't one.
 - `_pin_phrase(missing)` is computed in `warn_hidden_speaker_pin` and again in
   the `_hidden_pin_finding` it calls two lines later with the same argument.
 
+### The `--doctor` I/O, and the patch dividend being spent
+
+372 lines — `parse_ee_version` through `warn_ee_environment`, plus
+`easyeffects_is_running` from further down the file — left the generator for
+`lib/report/doctor_run.py`, taking it from 2,116 lines to 1,744. This is the
+half slice 5 deliberately stranded: the `*_status` verdicts went to
+`report/environment.py` then, and the `_probe_`/`_gather_`/`_print_` wrappers
+that do the I/O stayed because each read something still in the generator. Both
+blockers are gone — the install paths resolve through `lib/ee_paths.py`
+(slice ①) and `_gather_speaker_info` / `_print_speaker_info` /
+`speaker_pin_status` are in `lib/report/speaker.py` (slice ③) — so nothing here
+needed a call re-pointed inside a moved body.
+
+Membership was derived from the call graph rather than the section boundary,
+which matters because the block is **not contiguous**: `list_endpoints`,
+`sanitize_profile_type` and `get_profile_types` sit between
+`warn_ee_environment` and `easyeffects_is_running` and are XML inspection, not
+diagnostics. `easyeffects_is_running` had to travel regardless of where it sat
+— `_probe_ee_version`'s `native()` calls it to tell "installed but silent" from
+"absent" (issue #46), so leaving it behind would have meant re-pointing a moved
+line. Its third caller, in `main()`'s autoload block, re-points for free the way
+every root-side call site does. `symtable` over the result says the module
+reaches seventeen names it does not define, and every one is an import: `Path`,
+`dataclass`, `json`, `re`, `shutil`, `subprocess`; `console`, `ee_paths`,
+`version`, `autoload`, `environment`, `report_findings`, `report_speaker`; and
+`CheckResult`, `DOCTOR_PASS`, `DOCTOR_WARN`, `DOCTOR_FAIL`.
+
+**Why a new module and not more of `environment.py`.** That would close a
+loop. `speaker.py` imports `environment.py` (`upgrade_prospect` reads
+`parse_kernel_series`, `_print_speaker_info` reads `_kernel_series_age`), and
+the doctor assembles *both* — `_gather_doctor_report` calls
+`_gather_speaker_info` and `speaker_pin_status`, `_print_doctor_report` calls
+`_print_speaker_info`. So it sits strictly above them, and putting it back in
+`environment.py` would make environment → speaker → environment. The direction
+actually created is one-way: `doctor_run` → {`speaker`, `environment`,
+`findings`, `autoload`}, and nothing under `lib/` imports `doctor_run` at all.
+The converter is untouched by it, so `test_converter_startup_pulls_in_no_dsp`
+never sees the new edge.
+
+**`report_doctor` came too**, on `lib/pipewire/checks.py`'s precedent: the
+converter calls `checks.report_pw_doctor()` straight from `main()`, and this is
+the same seam one tool over. It makes `report_doctor` and `warn_ee_environment`
+the first functions under `lib/` to take an argparse namespace. That is a real
+deviation from "each entry point keeps its argparse builders and `main()`", and
+the tiebreak is that both are `--doctor`'s own top level rather than the
+program's: what `main()` keeps is the decision to run them.
+
+**The report vocabulary went with its last reader.** `DOCTOR_PASS` /
+`DOCTOR_WARN` / `DOCTOR_FAIL` / `DOCTOR_UNKNOWN` / `CheckResult` were bound onto
+the generator as attributes of `lib/doctor.py`, and after this move not one of
+the five has a reader left in that file — `DOCTOR_UNKNOWN` already had none, and
+was reachable only because a test read it through the generator. So the five
+lines are deleted rather than moved, the module takes the four it uses as bare
+names on `environment.py`'s precedent, and the reads in `tests/test_preset.py`
+and `tests/test_speaker_sinks.py` retarget to `lib.doctor`, which is where they
+were defined all along. The move
+also orphans `import shutil`, `import subprocess`, `dataclass` and the
+`lib.doctor` module import; those come out of the generator's import block with
+it.
+
+**This is the slice that spends slice 5's dividend**, and the whole of it.
+Thirteen `monkeypatch.setattr` calls retarget, in two shapes:
+
+- `_probe_ee_version` (`tests/test_preset.py`) and `warn_ee_environment`
+  (`tests/test_cli.py`) — one call each, ordinary function patches now naming
+  `lib.report.doctor_run`.
+- the **module objects** `subprocess` (×7) and `shutil` (×4), all in
+  `tests/test_preset.py` and all spelled `monkeypatch.setattr(d.subprocess,
+  "run", …)`. These read the module *through* the generator's binding, so they
+  survive being pointed anywhere the same module object is reachable — but the
+  generator no longer imports either, so left alone they would have raised
+  `AttributeError` rather than passing quietly. They now name `doctor_run`.
+
+A green suite proves none of that. Each was checked in both directions. For the
+two function patches: `raise AssertionError("SABOTAGE")` as the first statement
+of the production function, and the patching test must still pass — then the
+same patch aimed at a throwaway `SimpleNamespace` must fail with the sabotage
+reaching real code. Both did. The module patches need the equivalent of a
+poisoned attribute, since there is no "production function" to break: replacing
+the module's own `subprocess` / `shutil` bindings with shims whose `run` /
+`which` raise on call leaves all seven tests green (every one patched the object
+production reads through), and re-aiming the patches at a throwaway fails
+exactly the tests that patch that name — all seven for `subprocess`, and for
+`shutil` the four that patch it while the other three stay green.
+
+`lib/report/doctor_run.py` cannot join `tests/test_layout.py`'s `STDLIB_ONLY`
+for the reason the whole package can't: it prints, so it reaches `lib/console.py`
+and the optional `rich` that list's `FORBIDDEN` also covers. The comment
+covering all of `lib/report` already said so and now names it among the four.
+
+Two things were **noticed and left**, per the rule that collapsing duplication
+inside a move commit is a behaviour change under a subject line promising there
+isn't one:
+
+- `_gather_doctor_report` and `warn_ee_environment` open with the same four
+  lines — probe, unpack `probe.version` / `found` / `is_flatpak` into locals,
+  hand them to `environment.ee_version_status` — and then ask the
+  install-location question twice more, once through
+  `environment.install_status` and once as a bare `ee_is_flatpak !=
+  ee_paths.USE_FLATPAK`. Two surfaces on one probe, which is the same shape
+  `e3a7ee4` unified on the *message* side and did not on the probe side.
+  `report_doctor`'s `custom_dirs` predicate and `warn_ee_environment`'s
+  default-dirs guard are that third copy in opposite polarity.
+- The unpacking in both binds a local named `version`, which shadows the
+  `lib/version.py` module the file imports. It is harmless today because
+  neither function calls `version.get_version()` and `_print_doctor_report`
+  (which does) has no such local — but it is the exact hazard the generator
+  aliases `hardware_sinks`, `report_findings` and `report_speaker` to avoid,
+  and it moved verbatim because a move commit may not rename what it carries.
+
+Unrelated to the move but found while checking what it orphaned: the generator
+still imports `configparser`, `contextlib`, `math`, `Callable`, `field`,
+`kernel_releases` and `bands` with no reader for any of them, most of them
+stranded by earlier slices. Deadwood for the tidy-up commit, not this one.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

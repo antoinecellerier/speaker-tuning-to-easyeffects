@@ -5,9 +5,11 @@ it lands in, and this is where each of those conditions gets its verdict: one
 `*_status` function per check, taking plain inputs and returning a
 `CheckResult`, so every one of them is unit-testable without touching the
 system. The probing and assembly that feeds them — `_probe_ee_version`,
-`_gather_doctor_report`, `_print_doctor_report` — stay in
-`dolby_to_easyeffects.py` for now, because they read the EasyEffects install
-paths and the speaker-info dump that have not moved out of it yet.
+`_gather_doctor_report`, `_print_doctor_report` — are in
+`lib/report/doctor_run.py`, which imports this module. The edge only goes that
+way: this one reaches `lib/hardware/speakers.py` for a type and never the
+report, so `doctor_run.py` can sit above both halves and fold in
+`lib/report/speaker.py` as well.
 
 Why the checks are the half worth extracting: they are almost entirely *copy*.
 Each carries the sentence a user acts on, and several are the single source

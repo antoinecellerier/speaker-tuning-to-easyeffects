@@ -28,6 +28,7 @@ from lib import console, version
 from lib.data import speaker_pin_quirks
 from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
+from lib.report import doctor_run
 # Aliased like the generator's own import, and for the same reason: one
 # letter apart from lib.hardware.speakers above.
 from lib.report import speaker as report_speaker
@@ -529,7 +530,7 @@ def test_skip_ee_check_gates_environment_warning(monkeypatch, tmp_path, capsys):
     """
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     calls = []
-    monkeypatch.setattr(dolby_to_easyeffects, "warn_ee_environment",
+    monkeypatch.setattr(doctor_run, "warn_ee_environment",
                         lambda args: calls.append(args))
     base = [str(xml),
             "--output-dir", str(tmp_path / "out"),

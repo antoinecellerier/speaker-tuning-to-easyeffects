@@ -65,10 +65,10 @@ STDLIB_ONLY = (
     "lib.preset.bands",
     "lib.preset.autoload",
     # No lib.report module is listed, and none can be: the package exists to
-    # print. speaker.py dumps the hardware report, findings/messages/
-    # environment render the copy the user acts on — so every one of them
-    # reaches lib.console and the optional rich that FORBIDDEN also covers.
-    # Absent for that reason, not by oversight.
+    # print. doctor_run.py prints the --doctor report, speaker.py the hardware
+    # dump, findings/messages/environment the copy the user acts on — so every
+    # one of them reaches lib.console and the optional rich that FORBIDDEN also
+    # covers. Absent for that reason, not by oversight.
     # The converter's translation half: an EE plugin block turned into LV2
     # node dicts, and those nodes rendered as SPA-JSON. Its siblings
     # lib.pipewire.install and lib.pipewire.checks print, so they reach

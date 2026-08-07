@@ -30,17 +30,19 @@ import pytest
 
 from lib import console, ee_paths
 from lib.dax import parse
-from lib.hardware import speakers
-from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
-from dolby_to_easyeffects import (
+from lib.doctor import (
     CheckResult,
     DOCTOR_FAIL,
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
-    _print_doctor_report,
+)
+from lib.hardware import speakers
+from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
+from lib.report import doctor_run
+from lib.report.doctor_run import _print_doctor_report, parse_ee_version
+from dolby_to_easyeffects import (
     _report_parsed_profile,
-    parse_ee_version,
     save_wav_stereo,
 )
 from lib.preset.autoload import (
@@ -1688,14 +1690,12 @@ def test_doctor_report_unknown_not_summarised_as_clean(silence_console,
 def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
     """Graceful degradation: no EE binary anywhere → (None, found=False), no
     exception — and nothing claims EE is installed."""
-    import dolby_to_easyeffects as d
-
     def boom(*a, **k):
         raise FileNotFoundError("no such binary")
 
-    monkeypatch.setattr(d.subprocess, "run", boom)
-    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
-    probe = d._probe_ee_version()
+    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
     assert probe.silent is None
 
@@ -1704,8 +1704,6 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
     """#22 review: a found-but-unparseable install (e.g. a stale/shim native
     binary that exits 0 with no version) must NOT mask a healthy EE on the other
     install — keep probing for a parseable version."""
-    import dolby_to_easyeffects as d
-
     class R:
         def __init__(self, rc, out):
             self.returncode, self.stdout, self.stderr = rc, out, ""
@@ -1717,21 +1715,19 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
             return R(0, "ID: x\nVersion: 8.2.1\nInstalled: 458.6 MB\n")
         return R(1, "")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    probe = d._probe_ee_version()
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    probe = doctor_run._probe_ee_version()
     assert probe.version == (8, 2, 1) and probe.found is True
     assert probe.is_flatpak is True and probe.source == "flatpak info"
 
 
 def test_probe_ee_version_degrades_on_timeout(monkeypatch):
-    import dolby_to_easyeffects as d
-
     def slow(*a, **k):
-        raise d.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
+        raise doctor_run.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
 
-    monkeypatch.setattr(d.subprocess, "run", slow)
-    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
-    probe = d._probe_ee_version()
+    monkeypatch.setattr(doctor_run.subprocess, "run", slow)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
 
 
@@ -1744,17 +1740,17 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     the shared builders are what both sides actually emit."""
     from types import SimpleNamespace
 
-    import dolby_to_easyeffects as d
     silence_console(console)
     flat = lambda s: " ".join(s.split())       # noqa: E731 — undo line wrapping
 
     # EasyEffects 7: doctor detail and the end-of-run banner
     assert flat(environment.ee_v7_message("7.1.5")) in flat(
         environment.ee_version_status((7, 1, 5), found=True).detail)
-    monkeypatch.setattr(d, "_probe_ee_version",
-                        lambda: d.EEProbe((7, 1, 5), True, "test", False))
-    d.warn_ee_environment(SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
-                                          irs_dir=ee_paths.DEFAULT_IRS_DIR))
+    monkeypatch.setattr(doctor_run, "_probe_ee_version",
+                        lambda: doctor_run.EEProbe((7, 1, 5), True, "test", False))
+    doctor_run.warn_ee_environment(
+        SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
+                        irs_dir=ee_paths.DEFAULT_IRS_DIR))
     assert flat(environment.ee_v7_message("7.1.5")) in flat(capsys.readouterr().out)
 
     # Old kernel: doctor detail and the end-of-run hint
@@ -1768,8 +1764,6 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
     """Issue #46: EE 8's Qt binary needs a display to answer --version, so from
     a headless shell it exits non-zero. An installed EE must not be reported as
     missing — the probe records *why* it stayed silent instead."""
-    import dolby_to_easyeffects as d
-
     class R:
         def __init__(self, rc, out="", err=""):
             self.returncode, self.stdout, self.stderr = rc, out, err
@@ -1779,16 +1773,16 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
             return R(1, "", "qt.qpa.plugin: could not connect to display\n")
         return R(1, "", "error: com.github.wwmm.easyeffects not installed\n")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    monkeypatch.setattr(d.shutil, "which", lambda name: "/usr/bin/easyeffects"
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda name: "/usr/bin/easyeffects"
                         if name == "easyeffects" else None)
-    probe = d._probe_ee_version()
+    probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.version is None
     assert "could not connect to display" in probe.silent
 
     # …and it surfaces as UNKNOWN with an accurate message, not "not found".
     status = environment.ee_version_status(probe.version, probe.found, probe.silent)
-    assert status.status == d.DOCTOR_UNKNOWN
+    assert status.status == DOCTOR_UNKNOWN
     assert "installed" in status.detail and "not found" not in status.detail
 
 
@@ -1796,39 +1790,33 @@ def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
     """`flatpak info` exits non-zero exactly when the app isn't installed, so
     that failure means absence — it must not be reported as "installed but
     unreachable"."""
-    import dolby_to_easyeffects as d
-
     class R:
         def __init__(self, rc, out="", err=""):
             self.returncode, self.stdout, self.stderr = rc, out, err
 
-    monkeypatch.setattr(d.subprocess, "run",
+    monkeypatch.setattr(doctor_run.subprocess, "run",
                         lambda cmd, **k: R(1, "", "not installed\n"))
-    monkeypatch.setattr(d.shutil, "which", lambda _name: None)
-    probe = d._probe_ee_version()
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.silent is None
     assert environment.ee_version_status(probe.version, probe.found,
-                               probe.silent).status == d.DOCTOR_WARN
+                               probe.silent).status == DOCTOR_WARN
 
 
 def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
-    import dolby_to_easyeffects as d
-
     def boom(*a, **k):
         raise FileNotFoundError("no pgrep")
 
-    monkeypatch.setattr(d.subprocess, "run", boom)
-    assert d.easyeffects_is_running() is False
+    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+    assert doctor_run.easyeffects_is_running() is False
 
 
 def test_easyeffects_is_running_degrades_on_permission_error(monkeypatch):
     """TRAP: a sandboxed/SELinux host where pgrep raises PermissionError (an
     OSError that is NOT FileNotFoundError/SubprocessError) must not crash the
     doctor's fact-gathering."""
-    import dolby_to_easyeffects as d
-
     def denied(*a, **k):
         raise PermissionError("operation not permitted")
 
-    monkeypatch.setattr(d.subprocess, "run", denied)
-    assert d.easyeffects_is_running() is False
+    monkeypatch.setattr(doctor_run.subprocess, "run", denied)
+    assert doctor_run.easyeffects_is_running() is False
