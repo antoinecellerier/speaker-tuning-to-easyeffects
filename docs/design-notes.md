@@ -2807,8 +2807,9 @@ after.
 
 ## Splitting the single-file scripts
 
-`dolby_to_easyeffects.py` is 8,100 lines and `ee_to_pipewire.py` 2,200. Both
-have outgrown one file. The `lib/` package (see
+Both entry points have outgrown one file — `wc -l` said 8,107 and 2,220 the day
+this was written, and the whole point of the exercise is that those numbers go
+down, so re-run it rather than quote it. The `lib/` package (see
 [reference.md](reference.md) "Repository layout") is the destination; this
 section records the target shape and, more importantly, the git discipline
 that decides whether the result is still readable a year later.
@@ -2838,8 +2839,29 @@ mitigate.
   behaviour change alongside it. Rename detection needs ~50% similarity;
   copy detection (`-C`) needs the moved lines to be *unchanged*. Tidy-ups go
   in the commit after.
-- **One commit per extracted module.** A commit that empties three sections at
-  once gives `-C` three haystacks to match against instead of one.
+- **One commit per extracted module, and only one.** A commit that empties
+  three sections at once gives `-C` three haystacks to match against instead of
+  one. The other half of that rule is not to split a single move across two
+  commits either: copy-then-delete looks like it makes the copy
+  obvious, but one commit that removes the lines from the root script and adds
+  them under `lib/` is *precisely* the shape `git blame -C` is looking for. The
+  separate copy commit buys no detection git wasn't going to do anyway, and
+  costs a commit.
+- **Name both ends in the subject** — "Move the console into `lib/console.py`",
+  not "Tidy up the console". `git log --diff-filter=A -- lib/console.py` lands
+  on the commit that created the file, so that commit's subject is what tells
+  the next reader where the contents came from. It matters most away from the
+  command line: GitHub's web blame implements no `-C` at all, so in a browser
+  the subject *is* the trail.
+- **Never rebase, squash or reformat across a move commit.** Squashing a move
+  into its neighbour merges the two haystacks back together and a reformat
+  rewrites the very lines `-C` matches on. Either one spends the provenance the
+  commit was shaped to keep, and neither is recoverable after the fact.
+- **The incantations, for whoever comes looking later.**
+  `git log --diff-filter=A -- <path>` finds the commit that added the file —
+  the extraction (`16c4723` for `lib/doctor.py`, `63449ef` for `lib/paths.py`).
+  `git log -C -C --find-copies-harder -- <path>` follows the content back past
+  it, and `git blame -C -C -C <path>` attributes the lines themselves.
 - **Verify on the real commit before pushing:**
   `git show --stat -M -C HEAD` should print `R1xx` for whole-file moves;
   `git log --follow lib/<module>.py` should reach past the move; and
@@ -2849,11 +2871,38 @@ mitigate.
   `Path(__file__).resolve().parent` still works (git walks up to find the
   checkout), but `ee_to_pipewire.py` builds
   `SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"` assuming the repo
-  root. The first such path to move into `lib/` should introduce one shared
-  `REPO_ROOT`, not a second `parent.parent`.
+  root. That shared anchor now exists — `lib/paths.py`'s `REPO_ROOT`
+  (`63449ef`), which the converter's `validate_conf.py` lookup already resolves
+  through. Route the next one through it rather than adding a `parent.parent`.
 - **`lib/__init__.py` stays empty of code.** A convenience re-export there
   would drag the package in behind any single import and hand every future
   module a ready-made cycle (`tests/test_layout.py` enforces this).
+
+The first of those rules is now mechanised. `tools/check_move_purity.py`
+(`1e414de`) reads a commit's diff and asserts a subset relation: every line the
+commit adds under `lib/` must appear verbatim among the lines it removed from
+the root scripts. Three kinds of added line are exempt, because a freshly
+extracted module cannot avoid them — its module docstring and its top-level
+import block, both located with `ast` rather than guessed at from where prose
+seems to end, and blank lines, which carry no provenance. Everything else (a
+new comment, an `__all__`, a re-indented body) is reported with file, line and
+text, and a violation that differs from a removed line by whitespace alone says
+so — invisible in a diff, still fatal to `-C`. The reverse direction, source
+lines that never reappear under the target, is deletion rather than motion: it
+is printed and never fails the run. It checks `HEAD`, a named commit,
+`--staged` (the gate to run before `git commit`) or `--worktree`, and exits **0
+pure, 1 impure, 2 could not check** — where an untracked file under `lib/` is a
+2 rather than a pass, since a module that appears in no diff is one the tool
+never read.
+
+Its one non-obvious choice is worth recording, because the instinct is the
+opposite: it asks git for the diff with rename detection **off**
+(`--no-renames`). With detection on git is helpful in exactly the wrong way —
+it recognises the move and collapses it to the handful of lines that differ, so
+`_doctor.py => lib/doctor.py` in `16c4723` shows up as a single changed line.
+The checker would then pronounce a 115-line move pure having inspected one line
+of it. Purity is a claim about the whole file, so the tool has to be shown the
+whole file.
 
 ### Target shape
 
@@ -2863,7 +2912,7 @@ member arrives. Line ranges are where the code sat when this was written.
 ```
 lib/
 ├── console.py       cprint / warn / colour / width / _load_dsp        (gen 56–180)
-├── version.py  ee_paths.py  doctor.py                             (already moved)
+├── version.py  ee_paths.py  doctor.py  paths.py                   (already moved)
 ├── data/            machine-written tables, out of hand-edited code
 │   ├── kernel_releases.py       _KERNEL_SERIES_RELEASES
 │   └── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
@@ -2949,13 +2998,56 @@ Two cases that look like they need the rule and don't:
 - **The 30 `_CONSOLE` patches** — the largest single group — survive as-is.
   `cprint` reads the global at call time, so patching it on whichever module
   owns the console works from any caller. Only the module named in the patch
-  changes. They are also the obvious candidate for one `conftest.py` fixture,
-  which would collapse 30 near-identical lines into one.
+  changes. They were also the obvious candidate for one `conftest.py` fixture,
+  which the prep phase below took: `silence_console`, called with the module
+  whose output the test asserts on.
 - **The 19 `setattr(d.subprocess, …)` / `setattr(d.shutil, …)` patches** reach
   the *stdlib module object* through the generator's namespace, so they are
   already global in effect and stay correct wherever the calling code ends up.
   They need retargeting to a module that still imports `subprocess`, nothing
   more.
+
+The rule is enforced rather than remembered:
+`tests/test_layout.py::test_no_test_patches_a_re_exported_name` (`4772ffe`)
+reads the root scripts for names they only re-export out of `lib/`, reads
+`tests/` for `monkeypatch.setattr` calls aimed at a root module, and fails on
+the intersection — naming the module to patch instead. Static is the only way
+worth doing it: the failure it guards has no symptom, because a patch that
+reaches nothing leaves a green test that quietly ran the real code.
+
+On arrival it found exactly one violation, and it is the rule in miniature.
+`tests/test_cli.py` patched `dolby_to_easyeffects.get_version`, a name the
+generator had lifted out of `lib/version.py`. Harmless the day it was written,
+since the only caller sat in the same module as the re-export — and latent,
+because `report_speaker_info()` is on its way into `lib/report/`, after which
+the patch would rebind the root script's copy while the moved caller read the
+real function, and the assertion about a version-stamped header would pass with
+the real version in it. `c6f90db` fixed it at the source rather than at the
+patch site: all three root scripts now `from lib import version` and call
+`version.get_version()`, so there is one binding and one thing to patch.
+
+### A tool keyed on a fixed path list goes quiet when code moves
+
+This one predates the refactor and outlives it. `tools/extract_claims.py`
+builds the inventory of user-facing strings that the **/copy-audit** skill
+reviews, and it harvested them from a hardcoded table of the three root
+filenames. When `doctor.py` moved into `lib/` in `16c4723`, its three verdict
+lines went with it and dropped straight out of that inventory. Nothing failed:
+no test covers the tool, no error was printed, and the next copy audit would
+simply have reviewed less than it believed it was reviewing — the same shape as
+the monkeypatch hazard above, a check that stops checking without stopping.
+`23c9ba8` taught it to discover `lib/**/*.py` and key rows by import path
+(`lib.doctor-002`), so the inventory now grows with the package rather than
+with someone's memory.
+
+The lesson generalises well past that tool. Every consumer keyed on a fixed
+list of source paths — an audit's file table, a workflow's `git add`, a
+`.claude/rules` `paths:` glob, a test's `CONVERTER` constant — narrows the
+moment code moves out from under it, and the ones that narrow *loudly* are the
+lucky half. So the per-slice checklist is not only "does it import" and "does
+the golden digest hold": grep the whole repo, `.github/` and `.claude/`
+included, for the name of the file being emptied, and read every hit that isn't
+prose.
 
 ### What the split unlocks for CLAUDE.md
 
@@ -3005,11 +3097,36 @@ today without waiting for anything.
 
 ### Order to do it in
 
-Each slice is one commit of pure code motion, and each carries its measured test
-cost. A rules demotion lands *after* the slice that creates its scope target,
-one per slice, so a rule never points at a path that doesn't exist yet.
+A prep phase came first, before any code moved (`5c16e4b..7c3687c`). The
+`cli-help` and `user-messages` rule globs widened to `lib/**/*.py`, so they keep
+firing on the argparse and Finding copy as it moves. `lib/paths.py`'s
+`REPO_ROOT` gave the first `__file__`-relative path to move one place to resolve
+through. `tools/extract_claims.py` learned to walk `lib/` (above).
+`tests/test_layout.py` gained the two guards a split needs and a single module
+never did — the re-export trap, and `test_converter_startup_pulls_in_no_dsp`,
+which asks the stdlib-only contract from the converter's end rather than off a
+hand-kept list — plus `test_subpackage_init_is_import_free`, whose subject list
+is discovered rather than written down, so it is in force on the commit that
+creates `lib/hardware/` instead of a later one that remembers it. And
+`tools/check_move_purity.py` arrived to check the move rule itself. Each is
+something the moves are then measured against, which is worth more before them
+than after. In the same phase the inline `_CONSOLE` patches — the generator's
+30 and the converter's seven — collapsed into one `silence_console` fixture in
+`tests/conftest.py` (`7c3687c`, 35 call sites), each call naming the module
+whose output that test asserts on; the two tests that are *about* the console
+still patch it themselves. The console slice then has one patch shape to update
+rather than 35 lines to find.
 
-1. **`lib/data/`** — the highest value per line moved, and it isn't about size:
+Then each slice is one commit of pure code motion, and each carries its measured
+test cost. A rules demotion lands *after* the slice that creates its scope
+target, one per slice, so a rule never points at a path that doesn't exist yet.
+
+1. **`lib/console.py`** — `dolby_to_pipewire.py` already reaches into *both*
+   scripts for `cprint` / `_disable_color`; one shared console ends that.
+   *Test cost: the `_CONSOLE` patches now all run through `silence_console`,
+   so what the slice retargets is one patch shape* rather than 35 hand-written
+   lines.
+2. **`lib/data/`** — the highest value per line moved, and it isn't about size:
    two weekly workflows currently rewrite tables inside a hand-edited file.
    Touches `tools/update_kernel_releases.py`,
    `tools/update_speaker_pin_quirks.py` and both workflows' `git add` /
@@ -3017,9 +3134,23 @@ one per slice, so a rule never points at a path that doesn't exist yet.
    on a file path through `parse_table` / `render_table` / `apply_update`, and
    their tests assert against a self-contained `FIXTURE` string, so only the
    `DEFAULT_SCRIPT` / `CONVERTER` constants move.
-2. **`lib/console.py`** — `dolby_to_pipewire.py` already reaches into *both*
-   scripts for `cprint` / `_disable_color`; one shared console ends that.
-   *Test cost: 30 patch targets renamed*, then collapsible into one fixture.
+
+   It went second, behind the console, and the reason is worth keeping: what
+   separates two cheap slices is how fast a mistake is *proven*. A console
+   mistake fails `pytest` in seconds. Half a `lib/data/` mistake does too —
+   `tests/test_kernel_releases.py` and `tests/test_speaker_pin_quirks.py` parse
+   the table out of the real file, so a stale path constant fails at once — but
+   the other half lives in `.github/workflows/kernel-release-table.yml` and
+   `speaker-pin-quirks.yml`, which name the generator by hand (`git add
+   dolby_to_easyeffects.py`, `git checkout -- dolby_to_easyeffects.py`) and
+   which nothing under `tests/` reads. Move the tables without editing those
+   lines and the `git add` becomes a whitelist pointing at an unmodified file:
+   it stages nothing, and the run dies a step later on `git commit` refusing an
+   empty commit — a week after the mistake, in a message about git rather than
+   about the move, on a schedule nobody is watching. Both workflows want an
+   `if git diff --cached --quiet; then … exit 1; fi` before the commit, so the
+   failure names the file it expected to have changed. Cheap-to-falsify slices
+   first.
 3. **`lib/preset/fir.py`** and **`lib/dax/parse.py`** — the pieces
    `tools/measure_dax/analyze.py` imports today, so the measurement harness
    stops pulling in an 8,000-line module to call `make_fir`. *Test cost: import
@@ -3035,9 +3166,11 @@ Every step is guarded by `tests/test_golden_preset.py`: a pure move cannot
 change an emitted parameter, so a moved digest means the move wasn't pure. The
 stronger check, cheap enough to repeat per slice, is running the generator from
 a `git worktree add --detach <scratch> HEAD~1` and `cmp`-ing the `.irs`, the
-preset JSON (ignoring the `_generator` stamp) and the `--dry-run` conf against
-the same run at the parent commit — that is what confirmed `26d5c58` was a pure
-move on real input rather than only on the synthetic golden fixture.
+preset JSON (ignoring the `_generator` stamp) and the conf `ee_to_pipewire.py
+--output` writes (ignoring its `# version:` stamp) against the same run at the
+parent commit — that is what confirmed `26d5c58` was a pure move on real input
+rather than only on the synthetic golden fixture. The conf used to come off
+`--dry-run`'s stdout; `2c3fb30` removed that, and `--output` is the route now.
 
 ## Rejected approaches
 

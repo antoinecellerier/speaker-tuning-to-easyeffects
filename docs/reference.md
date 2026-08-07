@@ -40,13 +40,20 @@ script's own directory, `tests/conftest.py`, the `tools/measure_*`
 harnesses), so `import lib.version` resolves with no path juggling at any of
 them.
 
-Today `lib/` holds the three modules both scripts share — `version.py`,
-`ee_paths.py`, `doctor.py`. All three are **stdlib-only by contract**
-(`tests/test_layout.py`): `ee_to_pipewire.py` imports them at startup and must
-not pull numpy/scipy into a converter that does no DSP. The rest of `lib/` is
-filled in as the two large scripts are split; the target shape and the rules
-that keep `git blame` working through it are in
-[design-notes.md](design-notes.md) "Splitting the single-file scripts".
+What `lib/` contains grows with every extraction, so the contract on it is a
+rule rather than an inventory: **whatever `ee_to_pipewire.py` reaches at
+startup is stdlib-only.** The converter does no DSP and must not pay for
+numpy/scipy to translate a preset, so a shared module that needs the DSP stack
+either imports it inside the function that wants it or lives somewhere the
+converter never touches.
+`tests/test_layout.py::test_converter_startup_pulls_in_no_dsp` enforces exactly
+that, and from the converter's end: it imports `ee_to_pipewire.py` in a
+subprocess and fails if numpy or scipy turned up in `sys.modules`, however deep
+the import chain that pulled them in — so the check keeps holding as `lib/`
+fills up, with no list to remember to extend. The rest of `lib/` is filled in
+as the two large scripts are split; the target shape and the rules that keep
+`git blame` working through it are in [design-notes.md](design-notes.md)
+"Splitting the single-file scripts".
 
 ## Units & conventions
 
