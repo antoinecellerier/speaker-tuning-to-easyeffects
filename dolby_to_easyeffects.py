@@ -24,26 +24,20 @@ Output chain:
 from __future__ import annotations
 
 import argparse
-import configparser
-import contextlib
-import json
-import math
 import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
-from dataclasses import field, replace
+from dataclasses import replace
 from pathlib import Path
 
 from lib import console, ee_paths, version
-from lib.data import kernel_releases
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: main() binds a local named `sinks` for the resolver's result, which
 # would shadow the module for every later line that reads through it.
 from lib.hardware import sinks as hardware_sinks
-from lib.preset import autoload, bands
+from lib.preset import autoload
 # Aliased: main() binds a local named `findings`, which would shadow the
 # module for the one line that resets _TAG_CONVENTION_SHOWN through it.
 from lib.report import findings as report_findings
@@ -76,9 +70,9 @@ def _load_dsp() -> None:
     DSP-bound code moved out — the emit loop and the per-profile report — and
     between them they pull in lib.preset.{fir,build,plugins}, which is why
     those are no longer named here. What this file imports at the top instead
-    — bands, autoload, findings, messages, speaker, doctor_run, environment —
-    is stdlib-only. `np` stays because main() converts the parsed curves to dB
-    before handing them on.
+    — autoload, findings, messages, speaker, doctor_run, environment, and
+    dax.{discover,parse} — is stdlib-only. `np` stays because main() converts
+    the parsed curves to dB before handing them on.
     """
     global np, emit, report_profile
     import numpy as np
