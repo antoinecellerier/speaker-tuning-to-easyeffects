@@ -1,8 +1,8 @@
 name: Speaker-pin quirk table
 
-# Weekly rebuild of _SPEAKER_PIN_QUIRKS in dolby_to_easyeffects.py — the list
-# of machines whose woofer pin the BIOS hides, which drives the issue #53
-# warning. When upstream adds, drops or promotes one, this opens a PR.
+# Weekly rebuild of _SPEAKER_PIN_QUIRKS in lib/data/speaker_pin_quirks.py —
+# the list of machines whose woofer pin the BIOS hides, which drives the issue
+# #53 warning. When upstream adds, drops or promotes one, this opens a PR.
 #
 # Why automate it: the table's job is to say "upstream has a fix for *your*
 # machine that your kernel isn't applying". A stale copy gets that wrong in
@@ -83,7 +83,7 @@ jobs:
           # closed on purpose, which must not be re-opened every week.
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "$BRANCH already exists — nothing to propose." >> "$GITHUB_STEP_SUMMARY"
-            git checkout -- dolby_to_easyeffects.py
+            git checkout -- lib/data/speaker_pin_quirks.py
             echo "proceed=0" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=1" >> "$GITHUB_OUTPUT"
@@ -115,12 +115,24 @@ jobs:
           title="Refresh the speaker-pin quirk table ($COUNT machine(s))"
 
           git checkout -b "$BRANCH"
-          git add dolby_to_easyeffects.py
+          git add lib/data/speaker_pin_quirks.py
+          # That path is a whitelist, and it fails badly rather than silently:
+          # if the table moves again, the updater edits a file this step never
+          # stages, so `git commit` exits 1 a week later saying only "no
+          # changes added to commit". This says which path to fix instead.
+          if git diff --cached --quiet; then
+            echo "nothing staged — tools/update_speaker_pin_quirks.py edited" \
+                 "a file this step does not 'git add'. The table has moved:" \
+                 "point the 'git add' path above, and the 'git checkout --'" \
+                 "path in the dedupe step, at wherever _SPEAKER_PIN_QUIRKS" \
+                 "lives now." >&2
+            exit 1
+          fi
           git commit -m "$title"
           git push -u origin "$BRANCH"
 
           gh pr create --title "$title" --body "$(printf '%s\n' \
-            "Rebuilds \`_SPEAKER_PIN_QUIRKS\` in \`dolby_to_easyeffects.py\` from upstream's Realtek quirk table, which drives the issue #53 hidden-woofer warning (end-of-run hint, \`--doctor\`)." \
+            "Rebuilds \`_SPEAKER_PIN_QUIRKS\` in \`lib/data/speaker_pin_quirks.py\` from upstream's Realtek quirk table, which drives the issue #53 hidden-woofer warning (end-of-run hint, \`--doctor\`)." \
             "" \
             "$changed" \
             "" \

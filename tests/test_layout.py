@@ -46,7 +46,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # module that hard-imports it would break that contract too.
 FORBIDDEN = ("numpy", "scipy", "rich", "rich_argparse")
 
-STDLIB_ONLY = ("lib.version", "lib.ee_paths", "lib.doctor", "lib.paths")
+STDLIB_ONLY = (
+    "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
+    "lib.data.kernel_releases",
+    "lib.data.speaker_pin_quirks",
+)
 
 
 @pytest.mark.parametrize("module", STDLIB_ONLY)

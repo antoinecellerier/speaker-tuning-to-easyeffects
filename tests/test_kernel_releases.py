@@ -27,12 +27,12 @@ from tools.update_kernel_releases import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-CONVERTER = ROOT / "dolby_to_easyeffects.py"
+TABLE_MODULE = ROOT / "lib" / "data" / "kernel_releases.py"
 SCRIPT = ROOT / "tools" / "update_kernel_releases.py"
 
 TODAY = date(2026, 8, 20)
 
-# A stand-in module: the same literal shape as the converter's, short enough
+# A stand-in module: the same literal shape as the shipped one, short enough
 # to assert against verbatim. Nine entries → three full lines, so appending
 # starts a fourth.
 FIXTURE = '''"""Stand-in."""
@@ -50,16 +50,16 @@ OTHER = 1
 # --- the live table ---------------------------------------------------------
 
 def test_render_reproduces_the_live_table_byte_for_byte():
-    """The guard against reformatting: whatever the converter ships now must
+    """The guard against reformatting: whatever lib/data ships now must
     come back out of render_table unchanged, or --write would rewrite the
     whole block instead of appending one entry."""
-    src = CONVERTER.read_text()
+    src = TABLE_MODULE.read_text()
     (start, end), entries = parse_table(src)
     assert render_table(entries) == src[start:end]
 
 
 def test_parse_table_reads_the_live_entries():
-    _, entries = parse_table(CONVERTER.read_text())
+    _, entries = parse_table(TABLE_MODULE.read_text())
     assert entries[(6, 12)] == "2024-11"   # the #33 reporter's series
     assert len(entries) > 25               # grows over time; never shrinks
 
@@ -196,7 +196,7 @@ def test_apply_update_is_a_no_op_without_additions():
 # --- CLI --------------------------------------------------------------------
 
 def _run(tmp_path, *args):
-    target = tmp_path / "converter.py"
+    target = tmp_path / "kernel_releases.py"
     target.write_text(FIXTURE)
     tags = tmp_path / "tags.txt"
     tags.write_text(TAGS)
@@ -221,7 +221,7 @@ def test_cli_writes_with_the_flag(tmp_path):
 
 
 def test_cli_exits_nonzero_and_leaves_the_file_alone_on_a_bad_batch(tmp_path):
-    target = tmp_path / "converter.py"
+    target = tmp_path / "kernel_releases.py"
     target.write_text(FIXTURE)
     tags = tmp_path / "tags.txt"
     tags.write_text("".join(f"v7.{n} 2026-0{n}-01\n"

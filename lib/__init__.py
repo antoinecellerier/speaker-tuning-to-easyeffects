@@ -3,8 +3,8 @@
 The root of the repo holds only what a user types: ``dolby_to_easyeffects.py``,
 ``ee_to_pipewire.py``, ``dolby_to_pipewire.py``. Those paths are load-bearing
 far outside the code — the README, the issue template, the argcomplete
-registration line, two weekly workflows that rewrite tables inside the
-generator — so they stay put, and everything they lean on lives here instead.
+registration line, the ``_generator`` stamp every emitted preset carries — so
+they stay put, and everything they lean on lives here instead.
 
 This package sits at the repo root rather than under ``src/`` because nothing
 here is ever installed. The repo root is already on ``sys.path`` everywhere

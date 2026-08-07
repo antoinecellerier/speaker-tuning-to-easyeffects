@@ -25,6 +25,7 @@ import pytest
 
 import dolby_to_easyeffects
 from lib import console, version
+from lib.data import speaker_pin_quirks
 from dolby_to_easyeffects import (
     DISABLEABLE_FILTERS,
     ENABLEABLE_FILTERS,
@@ -1201,8 +1202,8 @@ def _every_finding():
     # two wordings) and deliberately carries no ask, so it has nothing for
     # these checks to bite on. tests/test_speaker_sinks.py covers both.
     found.append(dolby_to_easyeffects._hidden_pin_finding(
-        dolby_to_easyeffects.PinQuirk("alc287-yoga9-bass-spk-pin",
-                                      pins="0x17", since="", codec_only=True),
+        speaker_pin_quirks.PinQuirk("alc287-yoga9-bass-spk-pin",
+                                    pins="0x17", since="", codec_only=True),
         ["0x17"]))
     # Reached through a SpeakerInfo rather than a factory: this finding's
     # gate is the whole point of it, so building the state that raises it

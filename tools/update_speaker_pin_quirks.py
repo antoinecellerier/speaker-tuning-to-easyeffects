@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Regenerate ``_SPEAKER_PIN_QUIRKS`` from the upstream kernel quirk table.
 
-That table (in ``dolby_to_easyeffects.py``) drives the issue #53 warning: a
-laptop whose BIOS reports its woofer pin as unconnected exposes one speaker
-pin instead of two, so the preset drives half the speakers and nothing in the
-DAX XML can tell. The kernel fixes this per machine, keyed by subsystem id —
-so the only way to know a *given* machine should have two pins is to carry
-upstream's list.
+That table (in ``lib/data/speaker_pin_quirks.py``) drives the issue #53
+warning: a laptop whose BIOS reports its woofer pin as unconnected exposes one
+speaker pin instead of two, so the preset drives half the speakers and nothing
+in the DAX XML can tell. The kernel fixes this per machine, keyed by subsystem
+id — so the only way to know a *given* machine should have two pins is to
+carry upstream's list.
 
 Unlike the kernel-release table, this one is rebuilt wholesale each run:
 entries disappear upstream (renamed fixups, merged SKUs) and a stale entry
@@ -35,7 +35,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from update_kernel_releases import MIRROR, fetch_tag_lines, upstream_series
 
-DEFAULT_SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_easyeffects.py"
+DEFAULT_SCRIPT = (Path(__file__).resolve().parent.parent
+                  / "lib" / "data" / "speaker_pin_quirks.py")
 
 # Which fixups count is *derived*, not listed: any whose whole effect is to
 # declare one or two pins as internal speakers (default config 0x9017xxxx).
@@ -211,7 +212,7 @@ def release_tags(tag_lines: str) -> list[str]:
             for major, minor in sorted(series, reverse=True)[:_RELEASE_WINDOW]]
 
 
-# --- the table in dolby_to_easyeffects.py -----------------------------------
+# --- the table in lib/data/speaker_pin_quirks.py ----------------------------
 
 _TABLE_RE = re.compile(r"^_SPEAKER_PIN_QUIRKS = \{\n(.*?)\n\}$", re.M | re.S)
 # Rendered with keyword arguments: three bare booleans per row are unreadable
@@ -300,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write", action="store_true",
                         help="apply the rebuilt table (default: report only)")
     parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT,
-                        help="file holding the table (default: the converter)")
+                        help="file holding the table (default: the shipped "
+                             "lib/data/speaker_pin_quirks.py)")
     parser.add_argument("--offline-master", type=Path, metavar="FILE",
                         help="read mainline quirk source from FILE instead of "
                              "fetching (for tests and reruns)")

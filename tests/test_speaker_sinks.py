@@ -23,6 +23,7 @@ import pytest
 import dolby_to_easyeffects as d
 import ee_to_pipewire as pw
 from lib import console
+from lib.data import speaker_pin_quirks
 
 
 # --- Synthetic sinks (in the _enumerate_audio_sinks() dict shape) -----------
@@ -1293,7 +1294,8 @@ def test_hda_model_module_finds_whichever_driver_exposes_it(tmp_path):
 # that doesn't carry the fix at all.
 
 def _quirk(since, model="alc287-yoga9-bass-spk-pin"):
-    return d.PinQuirk(model, pins="0x17", since=since, codec_only=True)
+    return speaker_pin_quirks.PinQuirk(model, pins="0x17", since=since,
+                                       codec_only=True)
 
 
 def test_upgrade_prospect_not_in_any_release():
@@ -1512,7 +1514,7 @@ def test_doctor_and_the_end_of_run_block_print_one_procedure(capsys):
 def test_pin_fix_names_the_module_that_owns_the_codec():
     """Legacy HDA takes `model=`; the SOF parameter is scanned from /sys/module
     and covered by test_modprobe_line_names_the_driver_that_owns_the_codec."""
-    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
     legacy = [t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], False, 90)]
     assert any("options snd_hda_intel model=alc287-yoga9-bass-spk-pin" in t
                for t in legacy)
@@ -1521,7 +1523,7 @@ def test_pin_fix_names_the_module_that_owns_the_codec():
 def test_pin_fix_wraps_prose_but_never_a_command():
     """A command folded by textwrap doesn't run; the terminal soft-wrapping a
     long one is fine. So width may only reflow the prose."""
-    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
     narrow = d.speaker_pin_fix_steps(quirk, ["0x17"], True, 40)
     commands = [t for style, t in narrow if style == "cta"]
     assert any(len(t) > 40 for t in commands)          # left intact
@@ -1559,7 +1561,7 @@ def test_ordinary_machine_keeps_the_plain_spare_pin_note(capsys):
 def test_verification_step_points_at_the_surface_the_reader_is_on():
     """A --doctor reader has the hardware section on screen already; telling
     them to re-run with --speaker-info reads as a third command to type."""
-    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
     run = " ".join(t for _, t in d.speaker_pin_fix_steps(quirk, ["0x17"], True, 90))
     doctor = " ".join(t for _, t in d.speaker_pin_fix_steps(
         quirk, ["0x17"], True, 90, speaker_info_below=True))
@@ -1580,20 +1582,22 @@ def test_fix_says_the_quirk_name_is_not_a_model_name():
     """`alc287-yoga9-bass-spk-pin` on a Yoga 7 reads like someone else's fix
     in a line the reader is about to run with sudo — upstream's own entry for
     this codec id is named "Lenovo Yoga 7 16IAP7"."""
-    quirk = d._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
     prose = " ".join(t for s, t in d.speaker_pin_fix_steps(
         quirk, ["0x17"], True, 90) if s != "cta")
     assert "not your model" in prose and "hardware id" in prose
 
 
 def test_pin_fix_is_empty_without_a_forcible_name():
-    nameless = d.PinQuirk("", pins="0x17", since="6.10", codec_only=True)
+    nameless = speaker_pin_quirks.PinQuirk("", pins="0x17", since="6.10",
+                                           codec_only=True)
     assert d.speaker_pin_fix_steps(nameless, ["0x17"], True, 90) == ()
 
 
 def test_no_ask_when_the_run_printed_no_procedure():
     """user-messages.md: a finding the user cannot act on carries no ask."""
-    nameless = d.PinQuirk("", pins="0x17", since="6.10", codec_only=True)
+    nameless = speaker_pin_quirks.PinQuirk("", pins="0x17", since="6.10",
+                                           codec_only=True)
     assert d._hidden_pin_finding(nameless, ["0x17"]).ask == ""
     forcible = nameless._replace(model="alc287-yoga9-bass-spk-pin")
     assert d._hidden_pin_finding(forcible, ["0x17"]).ask

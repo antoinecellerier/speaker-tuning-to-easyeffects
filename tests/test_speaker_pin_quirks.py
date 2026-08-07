@@ -39,7 +39,7 @@ HELPER_STUBS = "".join(
     if helper != "alc287_fixup_yoga9_14iap7_bass_spk_pin")
 
 ROOT = Path(__file__).resolve().parent.parent
-CONVERTER = ROOT / "dolby_to_easyeffects.py"
+TABLE_MODULE = ROOT / "lib" / "data" / "speaker_pin_quirks.py"
 
 
 # Excerpted from sound/hda/codecs/realtek/alc269.c. The fixup *definitions*
@@ -223,18 +223,18 @@ def test_release_tags_needs_at_least_one_release():
         release_tags("v7.2-rc1 2026-07-01\n")
 
 
-# --- the table in the shipped converter -------------------------------------
+# --- the shipped table ------------------------------------------------------
 
 def test_render_reproduces_the_live_table_byte_for_byte():
     """A refreshed entry must be a one-line diff, never a whole-block
     reformat — otherwise a real change hides inside the noise."""
-    src = CONVERTER.read_text()
+    src = TABLE_MODULE.read_text()
     (start, end), entries = parse_table(src)
     assert render_table(entries) == src[start:end]
 
 
 def test_live_table_spans_several_vendors():
-    _, entries = parse_table(CONVERTER.read_text())
+    _, entries = parse_table(TABLE_MODULE.read_text())
     assert MIN_ENTRIES <= len(entries) <= MAX_ENTRIES
     # Lenovo, HP, Dell, ASUS, Acer and others all ship machines with a pin
     # their firmware hides.
@@ -244,7 +244,7 @@ def test_live_table_spans_several_vendors():
 def test_parse_table_refuses_a_partial_parse():
     """The guard that fired for real when the literal's shape changed: refusing
     beats diffing against a table we only half understood."""
-    src = CONVERTER.read_text().replace(
+    src = TABLE_MODULE.read_text().replace(
         'pins="0x17", since="', 'pins="0x17", released="', 1)
     with pytest.raises(ValueError, match="refusing to edit"):
         parse_table(src)
@@ -263,7 +263,7 @@ def test_build_entries_refuses_an_implausible_parse():
 
 
 def test_apply_update_touches_only_the_table():
-    src = CONVERTER.read_text()
+    src = TABLE_MODULE.read_text()
     _, entries = parse_table(src)
     entries[(0x17AA, 0x9999)] = ("alc287-yoga9-bass-spk-pin", "0x17", "7.2", True)
     updated = apply_update(src, entries)
@@ -275,7 +275,7 @@ def test_apply_update_touches_only_the_table():
 
 
 def test_apply_update_round_trips_an_empty_since():
-    src = CONVERTER.read_text()
+    src = TABLE_MODULE.read_text()
     _, entries = parse_table(src)
     entries[(0x17AA, 0x9998)] = ("", "0x14 0x17", "", False)
     assert parse_table(apply_update(src, entries))[1] == entries
@@ -290,9 +290,10 @@ def _run(args, cwd):
 
 
 def _offline(tmp_path, master_src=QUIRK_SOURCE):
-    """A converter copy plus offline sources, and the argv to drive them."""
-    script = tmp_path / "converter.py"
-    script.write_text(CONVERTER.read_text())
+    """A copy of the shipped table plus offline sources, and the argv to
+    drive them."""
+    script = tmp_path / "speaker_pin_quirks.py"
+    script.write_text(TABLE_MODULE.read_text())
     (tmp_path / "master.c").write_text(master_src)
     (tmp_path / "release.c").write_text(QUIRK_SOURCE)
     return script, ["--script", str(script),

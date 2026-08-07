@@ -1,7 +1,7 @@
 name: Kernel release-date table
 
-# Weekly top-up of _KERNEL_SERIES_RELEASES in dolby_to_easyeffects.py — the
-# release-month table behind the issue #33 old-kernel hint. When mainline
+# Weekly top-up of _KERNEL_SERIES_RELEASES in lib/data/kernel_releases.py —
+# the release-month table behind the issue #33 old-kernel hint. When mainline
 # tags a new series, this opens a one-line PR adding it.
 #
 # Why automate it at all: a series above the table's max is deliberately
@@ -88,7 +88,7 @@ jobs:
           # closed on purpose, which must not be re-opened every Tuesday.
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "$BRANCH already exists — nothing to propose." >> "$GITHUB_STEP_SUMMARY"
-            git checkout -- dolby_to_easyeffects.py
+            git checkout -- lib/data/kernel_releases.py
             echo "proceed=0" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=1" >> "$GITHUB_OUTPUT"
@@ -122,12 +122,24 @@ jobs:
           title="Add kernel $series to the kernel-age table"
 
           git checkout -b "$BRANCH"
-          git add dolby_to_easyeffects.py
+          git add lib/data/kernel_releases.py
+          # That path is a whitelist, and it fails badly rather than silently:
+          # if the table moves again, the updater edits a file this step never
+          # stages, so `git commit` exits 1 a week later saying only "no
+          # changes added to commit". This says which path to fix instead.
+          if git diff --cached --quiet; then
+            echo "nothing staged — tools/update_kernel_releases.py edited a" \
+                 "file this step does not 'git add'. The table has moved:" \
+                 "point the 'git add' path above, and the 'git checkout --'" \
+                 "path in the dedupe step, at wherever" \
+                 "_KERNEL_SERIES_RELEASES lives now." >&2
+            exit 1
+          fi
           git commit -m "$title"
           git push -u origin "$BRANCH"
 
           gh pr create --title "$title" --body "$(printf '%s\n' \
-            "Appends to \`_KERNEL_SERIES_RELEASES\` in \`dolby_to_easyeffects.py\`, which drives the issue #33 old-kernel hint (end-of-run banner, \`--doctor\`, \`--speaker-info\`)." \
+            "Appends to \`_KERNEL_SERIES_RELEASES\` in \`lib/data/kernel_releases.py\`, which drives the issue #33 old-kernel hint (end-of-run banner, \`--doctor\`, \`--speaker-info\`)." \
             "" \
             "$added" \
             "" \

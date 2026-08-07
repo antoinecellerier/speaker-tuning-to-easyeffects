@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Append newly-released kernel series to ``_KERNEL_SERIES_RELEASES``.
 
-That table (in ``dolby_to_easyeffects.py``) drives the issue #33 old-kernel
+That table (in ``lib/data/kernel_releases.py``) drives the issue #33 old-kernel
 hint. A series above its max is deliberately treated as recent, so a table
 that stops being updated doesn't fail — it goes *silently* dead: every kernel
 released after the last entry becomes permanently exempt from the 18-month
@@ -29,7 +29,8 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-DEFAULT_SCRIPT = Path(__file__).resolve().parent.parent / "dolby_to_easyeffects.py"
+DEFAULT_SCRIPT = (Path(__file__).resolve().parent.parent
+                  / "lib" / "data" / "kernel_releases.py")
 
 # git.kernel.org ignores --filter, so a tag sweep there means a full ~5 GB
 # clone; the googlesource mirror honors partial clones (~5 MB for all ~940
@@ -46,7 +47,7 @@ MAX_NEW_SERIES = 4
 Series = tuple[int, int]
 
 
-# --- the table in dolby_to_easyeffects.py -----------------------------------
+# --- the table in lib/data/kernel_releases.py -------------------------------
 
 _TABLE_RE = re.compile(r"^_KERNEL_SERIES_RELEASES = \{\n(.*?)\n\}$", re.M | re.S)
 _ENTRY_RE = re.compile(r'\((\d+),\s*(\d+)\):\s*"(\d{4}-\d{2})"')
@@ -180,7 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write", action="store_true",
                         help="apply the additions (default: report only)")
     parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT,
-                        help="file holding the table (default: the converter)")
+                        help="file holding the table (default: the shipped "
+                             "lib/data/kernel_releases.py)")
     parser.add_argument("--offline-tags", type=Path, metavar="FILE",
                         help="read '<tag> <date>' lines from FILE instead of "
                              "fetching (for tests and reruns)")

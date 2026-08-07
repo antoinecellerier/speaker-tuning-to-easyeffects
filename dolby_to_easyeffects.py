@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lib import console, doctor, ee_paths, version
+from lib.data import kernel_releases
+from lib.data import speaker_pin_quirks
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
 # script behaves exactly as before — same contract as rich in lib/console.py.
@@ -265,7 +267,7 @@ class UnconfiguredPin:
     genuinely unused pin and a speaker pin the BIOS wrongly calls unconnected
     look *identical* here (issue #53 — pin 0x17's dark woofers vs. pins
     0x1b/0x1e on the development machine, which are simply spare). Only a
-    quirk-table match (see ``_SPEAKER_PIN_QUIRKS``) can tell the two apart.
+    quirk-table match (``lib/data/speaker_pin_quirks.py``) tells them apart.
 
     Its value is that the pins are otherwise invisible: the speaker scan below
     keeps only ``[Fixed] Speaker at Int`` pins, so every report we have ever
@@ -874,25 +876,6 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
 # genuinely spare one (the development machine has two, 0x1b and 0x1e), so only
 # a machine-specific match can tell a hidden woofer from an unused pin.
 
-class PinQuirk(NamedTuple):
-    """One machine's upstream speaker-pin fixup, as generated into the table."""
-    model: str        # hda_model= string that forces the fixup, or "" when the
-                      # kernel gives it no name and only an upgrade can deliver
-                      # it. We never substitute a *related* fixup's name: on the
-                      # Yoga 9 14IMH9 that would set the pin and skip the
-                      # amplifier setup its chain also does — a half-fix
-                      # presented as a fix.
-    pins: str         # space-separated pin nodes the fixup declares as internal
-                      # speakers, e.g. "0x14 0x17". Any of them missing is the
-                      # warning's trigger — see find_hidden_speaker_pin.
-    since: str        # oldest released series carrying the quirk, e.g. "7.2";
-                      # "" = mainline only, which makes "upgrade" a dead end.
-                      # Compared against the running kernel, so a user already
-                      # past it is not told to go get what they have.
-    codec_only: bool  # HDA_CODEC_QUIRK: matched against the codec's subsystem
-                      # id only, never the PCI one
-
-
 _MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
 
 
@@ -944,7 +927,8 @@ def _ssid_key(ssid: str) -> tuple[int, int] | None:
     return int(ssid[:4], 16), int(ssid[4:], 16)
 
 
-def find_hidden_speaker_pin(info: SpeakerInfo) -> tuple[PinQuirk, str] | None:
+def find_hidden_speaker_pin(
+        info: SpeakerInfo) -> tuple[speaker_pin_quirks.PinQuirk, str] | None:
     """The pin fixup this machine should be getting but isn't, else None.
 
     Mirrors ``snd_hda_pick_fixup`` (``sound/hda/common/auto_parser.c``) so we
@@ -994,14 +978,15 @@ def find_hidden_speaker_pin(info: SpeakerInfo) -> tuple[PinQuirk, str] | None:
 
     for codec_ssid, nodes in sorted(configured.items()):
         key = _ssid_key(codec_ssid)
-        quirk = _SPEAKER_PIN_QUIRKS.get(key) if key else None
+        quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(key) if key else None
         if quirk is None and nodes and not uses_sof and info.pci_subsystem:
             # The PCI id belongs to the machine, not to any one codec, so it
             # may only stand in for a codec that already owns speaker pins —
             # otherwise it lends the analog machine's identity to whichever
             # other codec happens to have a spare output pin.
             pci_key = _ssid_key("".join(info.pci_subsystem))
-            candidate = _SPEAKER_PIN_QUIRKS.get(pci_key) if pci_key else None
+            candidate = (speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(pci_key)
+                         if pci_key else None)
             if candidate and not candidate.codec_only:
                 quirk = candidate
         if not quirk:
@@ -1019,7 +1004,8 @@ def find_hidden_speaker_pin(info: SpeakerInfo) -> tuple[PinQuirk, str] | None:
     return None
 
 
-def upgrade_prospect(quirk: PinQuirk, release: str | None = None) -> str:
+def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
+                     release: str | None = None) -> str:
     """Whether upgrading the kernel would fix this, in the user's terms.
 
     Three genuinely different situations, and telling the wrong one wastes a
@@ -1064,7 +1050,8 @@ def _pin_phrase(missing: list[str]) -> str:
     return "pins " + " and ".join(missing)
 
 
-def speaker_pin_fix_steps(quirk: PinQuirk, missing: list[str], uses_sof: bool,
+def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
+                          missing: list[str], uses_sof: bool,
                           width: int,
                           speaker_info_below: bool = False,
                           ) -> tuple[tuple[str, str], ...]:
@@ -1130,7 +1117,7 @@ def speaker_pin_fix_steps(quirk: PinQuirk, missing: list[str], uses_sof: bool,
 
 
 def warn_hidden_speaker_pin(
-        found: tuple[PinQuirk, str, list[str]] | None,
+        found: tuple[speaker_pin_quirks.PinQuirk, str, list[str]] | None,
         info: SpeakerInfo) -> Finding | None:
     """Warn — with a copy-paste fix and its undo — that the kernel is leaving
     one of this machine's speakers unconfigured.
@@ -1175,7 +1162,8 @@ def warn_hidden_speaker_pin(
     return _hidden_pin_finding(quirk, missing)
 
 
-def _hidden_pin_finding(quirk: PinQuirk, missing: list[str]) -> Finding:
+def _hidden_pin_finding(quirk: speaker_pin_quirks.PinQuirk,
+                        missing: list[str]) -> Finding:
     """Whether forcing the missing pin actually restored the bass.
 
     Carries an ask only when the run printed a procedure to ask about. Where
@@ -1234,79 +1222,6 @@ def unlisted_speaker_pin_finding(info: SpeakerInfo) -> Finding | None:
                "land in Linux, which is outside this project.",
         ask="Does your device have more speakers than the single pair Linux "
             "found? (issue #53)")
-
-
-# One row per machine upstream has had to fix, keyed by subsystem id:
-#
-#     (subvendor, subdevice): PinQuirk(model, pins, since, codec_only)
-#      └ 0x17AA = Lenovo      └ what `hda_model=` has to be set to, or "" when
-#                               only a kernel upgrade can deliver this fixup
-#
-# and the three qualifiers, all of which change what the user is told (see
-# PinQuirk above for the full meaning): `pins` — the speaker pins this fixup
-# declares, any of them missing being what triggers the warning; `since` — the
-# kernel series to upgrade to, or "" when no release has it yet; `codec_only`
-# — upstream keys it to the codec's subsystem id, never the PCI one.
-#
-# Generated by tools/update_speaker_pin_quirks.py from upstream's Realtek quirk
-# table (weekly, via .github/workflows/speaker-pin-quirks.yml). Rebuilt whole
-# each run — a renamed or dropped fixup must not linger here telling users to
-# force a quirk their kernel no longer has. Do not hand-edit.
-_SPEAKER_PIN_QUIRKS = {
-    (0x1025, 0x1177): PinQuirk("", pins="0x17 0x1b", since="6.12", codec_only=False),
-    (0x1025, 0x1178): PinQuirk("", pins="0x17 0x1b", since="6.12", codec_only=False),
-    (0x1025, 0x1246): PinQuirk("predator-spk", pins="0x21", since="6.10", codec_only=False),
-    (0x1028, 0x05DA): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
-    (0x1028, 0x0615): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
-    (0x1028, 0x0616): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
-    (0x1028, 0x069A): PinQuirk("alc290-subwoofer", pins="0x17", since="6.10", codec_only=False),
-    (0x1028, 0x0706): PinQuirk("dell-inspiron-7559", pins="0x1b", since="6.10", codec_only=False),
-    (0x1028, 0x0798): PinQuirk("dell-inspiron-7559", pins="0x1b", since="6.10", codec_only=False),
-    (0x1028, 0x0B37): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x1028, 0x0B71): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x1028, 0x0C28): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x8519): PinQuirk("alc285-hp-spectre-x360", pins="0x14", since="6.10", codec_only=False),
-    (0x103C, 0x863E): PinQuirk("alc285-hp-spectre-x360-df1", pins="0x14 0x17", since="6.15", codec_only=False),
-    (0x103C, 0x86E7): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x86E8): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x8811): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x8812): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x89DA): PinQuirk("", pins="0x14 0x17", since="6.18", codec_only=False),
-    (0x103C, 0x8C15): PinQuirk("", pins="0x14 0x17", since="6.10", codec_only=False),
-    (0x103C, 0x8C16): PinQuirk("", pins="0x14 0x17", since="6.12", codec_only=False),
-    (0x103C, 0x8CDD): PinQuirk("", pins="0x14 0x17", since="6.15", codec_only=False),
-    (0x103C, 0x8CDE): PinQuirk("", pins="0x14 0x17", since="6.15", codec_only=False),
-    (0x1043, 0x1652): PinQuirk("", pins="0x17 0x1e", since="6.18", codec_only=False),
-    (0x1043, 0x1CAF): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
-    (0x1043, 0x3A20): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
-    (0x1043, 0x3A30): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
-    (0x1043, 0x3A40): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
-    (0x1043, 0x3A50): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
-    (0x1043, 0x3A60): PinQuirk("", pins="0x14", since="6.10", codec_only=False),
-    (0x17AA, 0x3801): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x3869): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x386A): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=True),
-    (0x17AA, 0x3882): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x3891): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x38B1): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=True),
-    (0x17AA, 0x38CF): PinQuirk("", pins="0x17", since="7.0", codec_only=True),
-    (0x17AA, 0x38D2): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x38D7): PinQuirk("", pins="0x17", since="6.10", codec_only=False),
-    (0x17AA, 0x390D): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.15", codec_only=False),
-    (0x17AA, 0x3911): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=False),
-    (0x17AA, 0x3912): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="", codec_only=False),
-    (0x17AA, 0x391A): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=False),
-    (0x17AA, 0x391C): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="6.18", codec_only=True),
-    (0x17AA, 0x391D): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.0", codec_only=True),
-    (0x17AA, 0x394C): PinQuirk("alc287-yoga9-bass-spk-pin", pins="0x17", since="7.1", codec_only=True),
-    (0x1E39, 0xCA14): PinQuirk("", pins="0x1b", since="6.19", codec_only=False),
-    (0x2782, 0x0228): PinQuirk("", pins="0x14 0x1b", since="6.12", codec_only=False),
-    (0x2782, 0x1701): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
-    (0x2782, 0x1705): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
-    (0x2782, 0x4900): PinQuirk("", pins="0x1b", since="6.13", codec_only=False),
-    (0x2782, 0xA212): PinQuirk("", pins="0x1b", since="", codec_only=False),
-    (0xC011, 0x1D05): PinQuirk("", pins="0x1b", since="", codec_only=False),
-}
 
 
 # --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
@@ -1919,30 +1834,6 @@ def ee_version_status(version: tuple[int, int, int] | None,
     return CheckResult(DOCTOR_PASS, "EasyEffects version", f"{vstr} (compatible).")
 
 
-# Upstream release month per kernel series (issue #33: a preset can be perfect
-# while an *old kernel* mis-configures the speaker path — that report was fixed
-# by a 6.12→7.0 kernel upgrade, not a preset change). Month precision is enough for
-# an age hint. Dates are historical facts, so an aging copy of this tool still
-# ages old kernels correctly; a series newer than the table is assumed recent.
-# Each value is that series' `vX.Y` tag date on Linus' tree; new ones are
-# appended by tools/update_kernel_releases.py, which the weekly
-# .github/workflows/kernel-release-table.yml runs to open a PR per release.
-# Edits below the newest entry are never machine-rewritten, so a hand
-# correction sticks.
-_KERNEL_SERIES_RELEASES = {
-    (5, 10): "2020-12", (5, 11): "2021-02", (5, 12): "2021-04",
-    (5, 13): "2021-06", (5, 14): "2021-08", (5, 15): "2021-10",
-    (5, 16): "2022-01", (5, 17): "2022-03", (5, 18): "2022-05",
-    (5, 19): "2022-07", (6, 0): "2022-10", (6, 1): "2022-12",
-    (6, 2): "2023-02", (6, 3): "2023-04", (6, 4): "2023-06",
-    (6, 5): "2023-08", (6, 6): "2023-10", (6, 7): "2024-01",
-    (6, 8): "2024-03", (6, 9): "2024-05", (6, 10): "2024-07",
-    (6, 11): "2024-09", (6, 12): "2024-11", (6, 13): "2025-01",
-    (6, 14): "2025-03", (6, 15): "2025-05", (6, 16): "2025-07",
-    (6, 17): "2025-09", (6, 18): "2025-11", (6, 19): "2026-02",
-    (7, 0): "2026-04", (7, 1): "2026-06",
-}
-
 # A stable distro's kernel is at most ~9 months old on the distro's release day
 # (Debian 13 shipped 6.12 at 9 months; Ubuntu LTS GA kernels at ~1 month), so
 # 18 months keeps every fresh install quiet for 9+ months and never flags
@@ -1962,7 +1853,7 @@ def parse_kernel_series(release: str) -> tuple[int, int] | None:
 def _kernel_series_age(series: tuple[int, int],
                        today: date) -> tuple[str, int] | None:
     """(release "YYYY-MM", age in whole months) for an in-table series."""
-    released = _KERNEL_SERIES_RELEASES.get(series)
+    released = kernel_releases._KERNEL_SERIES_RELEASES.get(series)
     if not released:
         return None
     y, mo = (int(x) for x in released.split("-"))
@@ -1980,12 +1871,12 @@ def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
         return CheckResult(DOCTOR_UNKNOWN, label,
             f"couldn't parse a kernel version from {release!r}.")
     sstr = f"{series[0]}.{series[1]}"
-    if series > max(_KERNEL_SERIES_RELEASES):
+    if series > max(kernel_releases._KERNEL_SERIES_RELEASES):
         return CheckResult(DOCTOR_PASS, label,
             f"{sstr} — newer than any series this tool knows about.")
     aged = _kernel_series_age(series, today)
     if aged is None:
-        if series < min(_KERNEL_SERIES_RELEASES):
+        if series < min(kernel_releases._KERNEL_SERIES_RELEASES):
             return CheckResult(DOCTOR_WARN, label,
                 f"{sstr} is very old (pre-2021). Laptop speaker support "
                 "lands kernel-side; strongly consider a newer kernel.")
