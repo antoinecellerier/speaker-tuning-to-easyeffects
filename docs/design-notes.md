@@ -2842,53 +2842,107 @@ mitigate.
 - **One commit per extracted module** — for readability, not for `git blame`.
   The blame argument was tested and does not hold: extracting `lib/preset/fir.py`
   alone, in its own commit, recovers exactly the same 5 lines of 96 that it does
-  when it shares `41b75f5` with two other modules. Commit granularity is not the
+  when it shares `d498e4d` with two other modules. Commit granularity is not the
   lever. Keep the rule anyway, because a reviewer reading one module's move is
-  better served than one reading three. The other half *is* worth keeping on its
-  own merits: don't split a single move across two commits. Copy-then-delete
-  looks like it makes the copy obvious, but one commit that removes the lines
-  and adds them under `lib/` is the shape `-C` is looking for, and the separate
-  copy commit buys nothing.
+  better served than one reading three. What *is* a lever is the next rule —
+  splitting each slice into a seed and a trim, which this bullet used to reject
+  on the theory that "one commit that removes the lines and adds them under
+  `lib/` is the shape `-C` is looking for, and the separate copy commit buys
+  nothing". Measured, it buys nearly all of it.
+- **Fan out, then trim** — two commits per slice, and the mechanic the rest of
+  this section leans on. The **seed** adds every path the slice creates, each
+  holding a byte-identical copy of the root script it comes from, and touches
+  nothing else. The **trim** cuts each copy down to its real contents, strips
+  those lines out of the root script, and carries the slice's test, tool and doc
+  edits. What this buys is a **copy edge**: git pairs a new path against an old
+  one by similarity, and a flat extraction hands that pass a hard problem —
+  ~800 added lines against an 8,000-line file that shrank in the same commit —
+  which it solves winner-takes-all and unpredictably (the table below). An
+  exact-content pairing is decided by blob hash instead and cannot fail. Storage
+  is not a consideration: the four paths seeded in `330d351` are one 7,904-line
+  blob under four names.
+
+  The seed is deliberately *not* `git rm`-then-copy. Deleting the root script
+  first scores marginally better — 100% of moved lines traced against 97% — but
+  leaves a commit with no entry point, so a `git bisect` landing there has no
+  script to run and no suite to run it with. The healthy-tree variant keeps
+  every commit runnable: nothing imports the copies, and each seed commit's
+  pass count is exactly its parent's.
+
+  `tools/check_move_purity.py` belongs on the **trim** commit. The seed adds
+  lines it never removed, which is impurity by that tool's definition and by
+  design.
 - **Name both ends in the subject** — "Move the console into `lib/console.py`",
-  not "Tidy up the console". `git log --diff-filter=A -- lib/console.py` lands
-  on the commit that created the file, so that commit's subject is what tells
-  the next reader where the contents came from. It matters most away from the
-  command line: GitHub's web blame implements no `-C` at all, so in a browser
-  the subject *is* the trail.
+  not "Tidy up the console". It matters most away from the command line:
+  GitHub's web blame implements no `-C` at all, so in a browser the subject *is*
+  the trail. One consequence of the seed/trim pair: `git log --diff-filter=A --
+  lib/console.py` now lands on the **seed**, not the move, so the seed's subject
+  has to name the destination and its body the source — and the move, which
+  names both ends, is its immediate child.
 - **Never rebase, squash or reformat across a move commit.** Squashing a move
   into its neighbour merges the two haystacks back together and a reformat
   rewrites the very lines `-C` matches on. Either one spends the provenance the
-  commit was shaped to keep, and neither is recoverable after the fact.
-- **The incantations, measured rather than assumed.** Two of the three obvious
-  ones do not work, so they are written down here with their results:
+  commit was shaped to keep, and neither is recoverable after the fact. The
+  narrow exception is the retrofit that introduced the rule above — inserting a
+  seed ahead of a trim whose tree is unchanged, on unpushed commits, gated on
+  `git diff <pre-rewrite tip> <new tip>` printing nothing.
+- **The incantations, measured rather than assumed.** Four already-landed slices
+  were re-shaped as seed/trim pairs and every row re-measured on the same paths
+  either side, so the difference is attributable to commit shape and nothing
+  else:
 
-  | command | reaches past an extraction? |
-  |---|---|
-  | `git log --follow -- lib/preset/fir.py` | **no** — stops at the move |
-  | `git log -C -C --find-copies-harder -- <path>` | **no** — stops at the move |
-  | `git blame -C -C -C <path>` | partly, and unpredictably: 77 lines of 119 for `lib/console.py`, 5 of 96 for `lib/preset/fir.py` |
-  | `git log -S '<a line of the moved code>' --all` | **yes** — lands on the move *and* the commit that first wrote the line |
-  | `git log -- dolby_to_easyeffects.py` | yes — every pre-move commit is still there, just not linked to the new path |
+  | command | flat extraction | seeded as a copy |
+  |---|---|---|
+  | `git log --follow -- lib/preset/fir.py` | **no** — stops at the move | **yes** — 267 commits, with a caveat below |
+  | `git log -C -C --find-copies-harder -- <path>` | **no** — stops at the move | no — stops at the seed |
+  | `git blame -C -C -C lib/preset/fir.py` | 5 lines of 96 | 47 of 96 |
+  | `git blame -C -C -C lib/dax/parse.py` | 10 of 783 | 675 of 783 |
+  | `git blame -C -C -C lib/hardware/sinks.py` | 0 of 306 | 214 of 306 |
+  | `git blame -C -C -C lib/console.py` | 77 of 119 | 85 of 119 |
+  | `git log -S '<a line of the moved code>' --all` | **yes** — lands on the move *and* the commit that first wrote the line | yes |
+  | `git log -- dolby_to_easyeffects.py` | yes — every pre-move commit is still there, just not linked to the new path | yes |
 
-  So the reliable route from a line in `lib/` back to its origin is the
-  **pickaxe**: `git log -S` on the line itself, not path-following. `--follow`
-  is the one people reach for and the one that silently gives a one-commit
-  answer that looks authoritative.
+  Whole-file counts flatter the flat column and punish the seeded one, because
+  blanks, the new module docstring and the new import block can never trace.
+  Counting only lines that provably moved — verbatim in the parent's root
+  script, >20 non-space characters — the ten modules go from **791 of 1,618
+  traced to 1,562: 49% → 97%**.
 
-  Why blame varies is worth knowing: `lib/console.py`'s body had been rewritten
-  two commits earlier, so its trace is shallow, while `make_fir` dates from
-  `9eb5871`, the initial commit — blame has to carry the lines back through
-  every intervening rewrite of an 8,000-line file, and mostly loses them.
-  **Depth of history, not commit shape, is what decides it**, which is why no
-  amount of commit hygiene buys the FIR code a better answer.
+  `--follow` needs its caveat. It reaches past the seed because the copy is
+  whole-file, so what it walks into is `dolby_to_easyeffects.py`'s entire
+  267-commit log — it now answers "where did this file come from", not "who
+  wrote this function". `git log -C` still stops, because `-C` annotates a diff
+  and only `--follow` walks a path across a rename or copy. So the **pickaxe**
+  (`git log -S` on the line itself) stays the precise route from a line in
+  `lib/` to its origin; `--follow` went from misleading to merely coarse.
+
+  What the seed actually fixes is variance, not a uniform deficit. Flat
+  extraction is not always bad: `lib/hardware/speakers.py` traced 712 of 759
+  lines unaided, because its commit removed 1,380 lines from the generator and
+  the similarity pass found the block. `lib/dax/parse.py` and
+  `lib/hardware/sinks.py`, the same shape in the same kind of commit, scored 10
+  and 0 — and there is no threshold to tune, `-C1` changes nothing. Depth of
+  history is a second factor (`make_fir` dates from `9eb5871`, the initial
+  commit, so blame carries it through every intervening rewrite of an
+  8,000-line file), which is why `fir.py` recovers 47 of 96 rather than all of
+  them. Four modules gain nothing: on moved lines `lib/data/*` and
+  `lib/hardware/codecs.py` were already at 99–100% and stay there, and
+  `lib/hardware/amps.py` gives back one moved line (six by whole-file count,
+  169 → 163) where the copy edge outbids a pairing that already worked.
+  Slices 5 and 6 use the seeded shape regardless — a recipe that is
+  right 97% of the time on every file beats one that is right 99% or 0%
+  depending on the file, and only says which afterwards.
 - **What this means for the subject line.** It is not a nicety, it is the
   primary trail — the only one that works from a browser, and the one that
   works from the command line without knowing a line of the moved code in
-  advance. `git log --diff-filter=A -- <path>` lands on the extraction commit;
-  its subject has to say where the contents came from.
-- **Verify on the real commit before pushing:** `tools/check_move_purity.py`
-  for the motion itself, and `git blame -C -C -C lib/<new>.py` to see how much
-  provenance survived — expecting *some* loss on old code rather than none.
+  advance. `git log --diff-filter=A -- <path>` lands on the seed and the
+  extraction is its child, so the pair has to read as one operation without a
+  diff open.
+- **Verify on the real commit before pushing:** `tools/check_move_purity.py` on
+  the trim commit for the motion itself, and `git blame -C -C -C lib/<new>.py`
+  to see how much provenance survived. With the seed in place that is most of
+  the moved lines, so a low count now means the copy edge did not take — not
+  that the code is old.
 - **Re-anchor `__file__`-relative paths when they move.** `lib/version.py`'s
   `Path(__file__).resolve().parent` still works (git walks up to find the
   checkout), but `ee_to_pipewire.py` builds
