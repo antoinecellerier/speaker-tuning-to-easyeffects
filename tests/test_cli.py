@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 import dolby_to_easyeffects
+from lib import version
 from dolby_to_easyeffects import (
     DISABLEABLE_FILTERS,
     ENABLEABLE_FILTERS,
@@ -1132,7 +1133,7 @@ def test_speaker_info_output_is_version_stamped(monkeypatch, capsys):
     """`--speaker-info` prefixes a version line: users paste that block into
     the issue form, so the maintainer can tell which build was tested."""
     monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
-    monkeypatch.setattr(dolby_to_easyeffects, "get_version", lambda: "vTEST-42")
+    monkeypatch.setattr(version, "get_version", lambda: "vTEST-42")
     monkeypatch.setattr(dolby_to_easyeffects, "_gather_speaker_info", lambda: None)
     monkeypatch.setattr(dolby_to_easyeffects, "_print_speaker_info", lambda info: None)
 

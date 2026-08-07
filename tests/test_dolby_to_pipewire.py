@@ -24,6 +24,7 @@ import pytest
 import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
+from lib import version
 from dolby_to_pipewire import main as wrapper_main
 from tests.conftest import write_synthetic_tuning_xml
 
@@ -137,7 +138,7 @@ def recorders(monkeypatch):
     # Warm the git-describe version cache before the recorder hooks in:
     # whichever test runs first in a fresh worker would otherwise record
     # the one-time version lookup and fail the no-subprocess assertions.
-    dolby_to_easyeffects.get_version()
+    version.get_version()
     calls = SimpleNamespace(step1=[], step2=[], commands=[])
 
     def fake_run_cli(argv, closing=None, troubleshooting=None, resolved=None,

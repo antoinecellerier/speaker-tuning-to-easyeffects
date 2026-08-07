@@ -188,17 +188,10 @@ ROOT_MODULES = ("dolby_to_easyeffects", "ee_to_pipewire", "dolby_to_pipewire")
 
 # Genuine violations that predate the guard. Deliberately tiny: an entry here
 # is a latent bug someone has to fix, not a blessed exception to the rule.
-KNOWN_STALE_BINDING_PATCHES = {
-    # tests/test_cli.py stamps a known version into --speaker-info output by
-    # patching dolby_to_easyeffects.get_version. That works *today* only
-    # because every get_version() call site is still inside
-    # dolby_to_easyeffects.py itself, reading the same binding the patch
-    # replaces. It becomes a silent no-op — the test asserting a version
-    # string it no longer controls — the moment report_speaker_info() moves
-    # into lib/. Repoint it at lib.version.get_version with that move, and
-    # drop this entry.
-    ("dolby_to_easyeffects", "get_version"),
-}
+# Empty, and worth keeping that way — the one violation this guard found on
+# arrival (tests/test_cli.py patching a re-exported get_version) was fixed by
+# importing the module instead, which is the whole rule in one commit.
+KNOWN_STALE_BINDING_PATCHES: set[tuple[str, str]] = set()
 
 
 def _module_level(tree):

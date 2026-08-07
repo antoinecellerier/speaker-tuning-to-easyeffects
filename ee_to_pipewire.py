@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from lib import doctor
+from lib import doctor, version
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -46,7 +46,6 @@ from lib.doctor import (
 )
 from lib.ee_paths import easyeffects_base
 from lib.paths import REPO_ROOT
-from lib.version import get_version
 
 # Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
 # setup). The console targets stderr so it never pollutes the --dry-run conf
@@ -1089,7 +1088,7 @@ def format_conf(stages: list[Stage], links: list[dict],
     body = (
         f"{CONF_HEADER_MARK} — see\n"
         "# https://github.com/antoinecellerier/speaker-tuning-to-easyeffects\n"
-        f"# version: {get_version()}\n"
+        f"# version: {version.get_version()}\n"
         "#\n"
         "# IRS file paths are absolute. By default the converter copies\n"
         "# the .irs next to this conf, so the chain is self-contained;\n"
@@ -1667,7 +1666,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # and, because it shares a node name with the real one, let "Chains
     # loaded" pass for a file that had loaded for nobody.
     confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
-    running = get_version()
+    running = version.get_version()
 
     checks = [c for c in (
         check_stacked_chains(chains, confs),
@@ -1922,7 +1921,7 @@ def add_general_args(container, *, only=None):
     add(
         "--version",
         action="version",
-        version=f"%(prog)s {get_version()}",
+        version=f"%(prog)s {version.get_version()}",
         help="show version and exit",
     )
     return added

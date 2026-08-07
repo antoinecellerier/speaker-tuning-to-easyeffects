@@ -27,7 +27,7 @@ from pathlib import Path
 # see its _load_dsp.)
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib.version import get_version
+from lib import version
 from dolby_to_easyeffects import _HelpHintParser
 from ee_to_pipewire import (
     DEFAULT_NODE_NAME,
@@ -148,7 +148,7 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {get_version()}",
+        version=f"%(prog)s {version.get_version()}",
         help="show version and exit",
     )
     return parser, step1_actions, step2_actions

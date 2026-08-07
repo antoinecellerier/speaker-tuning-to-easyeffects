@@ -41,8 +41,7 @@ from datetime import date
 from pathlib import Path
 from typing import NamedTuple
 
-from lib import doctor, ee_paths
-from lib.version import get_version
+from lib import doctor, ee_paths, version
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
 # script behaves exactly as before — same contract as rich below.
@@ -1886,7 +1885,7 @@ def report_speaker_info():
     """Report detected audio hardware and speaker layout."""
     # Version-stamp the block: users paste this verbatim into the device-report
     # issue form, so the maintainer can see which build was tested.
-    cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
+    cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
     print()
     info = _gather_speaker_info()
     _print_speaker_info(info)
@@ -2531,7 +2530,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
     """Print a compact, paste-safe diagnostic report."""
     emit = emit_check
 
-    cprint("head", f"speaker-tuning-to-easyeffects {get_version()}")
+    cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
     cprint("head", "=== EasyEffects doctor ===")
     print()
     # Per-preset checks collapse to one line when they all pass (a machine can
@@ -2559,7 +2558,7 @@ def _print_doctor_report(report: DoctorReport) -> None:
     # when a heuristic verdict is UNKNOWN or wrong.
     f = report.facts
     cprint("head", "=== Environment (paste this into your issue) ===")
-    print(f"  Tool:         speaker-tuning-to-easyeffects {get_version()}")
+    print(f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}")
     print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
           f"running: {'yes' if f.get('ee_running') else 'no'}")
     print(f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})")
@@ -3659,7 +3658,7 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
         return path, "would-write"
     output_dir.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(path, json.dumps({
-        "_generator": f"dolby_to_easyeffects.py {get_version()}",
+        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
         "output": {"blocklist": [], "plugins_order": []},
     }, indent=4) + "\n")
     return path, "written"
@@ -6395,7 +6394,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     disabled = disabled or set()
     emitted = set()
     preset = {
-        "_generator": f"dolby_to_easyeffects.py {get_version()}",
+        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
         "output": {
             "blocklist": [],
             "convolver#0": make_convolver(kernel_name),
@@ -7557,7 +7556,7 @@ def add_general_args(container, *, only=None):
     add(
         "--version",
         action="version",
-        version=f"%(prog)s {get_version()}",
+        version=f"%(prog)s {version.get_version()}",
         help="show version and exit",
     )
     return added
