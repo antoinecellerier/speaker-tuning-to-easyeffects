@@ -45,6 +45,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.ee_paths import easyeffects_base
+from lib.paths import REPO_ROOT
 from lib.version import get_version
 
 # Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
@@ -133,8 +134,7 @@ def _disable_color() -> None:
     global _CONSOLE
     _CONSOLE = None
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-VALIDATE_CONF_SCRIPT = SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"
+VALIDATE_CONF_SCRIPT = REPO_ROOT / "tools" / "measure_pw" / "validate_conf.py"
 
 
 # ---------------------------------------------------------------------------
