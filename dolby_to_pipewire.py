@@ -186,13 +186,6 @@ def _run_generator(child_argv: list[str], closing=None,
         return e.code if isinstance(e.code, int) else 2
 
 
-def _safe_node_name(stem: str) -> str:
-    """Mirror ee_to_pipewire's default node naming (sanitised preset stem)
-    so the wrapper can predict conf filenames and PW node names."""
-    derived = conf._sanitize_name(stem).strip("_")
-    return derived if derived else conf.DEFAULT_NODE_NAME
-
-
 def main(argv: list[str] | None = None) -> int:
     parser, step1_actions, step2_actions = _compose_parser(argv)
     # The parser is composed from both converters' argument builders, so its
@@ -387,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.no_color:
             step2_common.append("--no-color")
         for preset in presets:
-            node_name = _safe_node_name(preset.stem)
+            node_name = conf._safe_node_name(preset.stem)
             child_argv = [str(preset)] + step2_common
             if args.output_dir is not None:
                 # Absolute, or the conf embeds a relative IRS path that
@@ -453,3 +446,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

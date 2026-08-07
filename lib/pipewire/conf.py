@@ -69,6 +69,13 @@ def _sanitize_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
 
 
+def _safe_node_name(stem: str) -> str:
+    """Mirror ee_to_pipewire's default node naming (sanitised preset stem)
+    so the wrapper can predict conf filenames and PW node names."""
+    derived = _sanitize_name(stem).strip("_")
+    return derived if derived else DEFAULT_NODE_NAME
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
