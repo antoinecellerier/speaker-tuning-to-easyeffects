@@ -100,6 +100,10 @@ sessions shipped bugs that only showed on real content.
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
+- **Keep commit messages short.** Subject ≤72 chars; a body only where the
+  *why* isn't evident from the diff, and then the reason — not the
+  investigation behind it. A commit body is read once; rationale and rejected
+  alternatives go in `docs/`, where they stay findable.
 - **A meaningful user-facing functional change, a newly reported/tested
   device, or an in-depth research conclusion ships → add a `CHANGELOG.md`
   entry** under `## Unreleased`; other plain docs edits don't. What counts and
