@@ -30,10 +30,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dolby_to_easyeffects import (
-    get_profile_types,
-    save_wav_stereo,
-)
+from dolby_to_easyeffects import get_profile_types
+from lib.preset.emit import save_wav_stereo
 from lib.dax.discover import (
     DOLBY_FILENAME_RE,
     _NON_DAX3_FILENAME_SUFFIXES,

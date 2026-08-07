@@ -2,6 +2,7 @@
 paths:
   - "lib/preset/bands.py"
   - "lib/preset/build.py"
+  - "lib/preset/emit.py"
   - "lib/preset/plugins.py"
   - "lib/pipewire/plugins.py"
   - "lib/report/environment.py"
@@ -22,7 +23,8 @@ nothing fails, and the only symptom is that the audio is untreated.
   sides have to agree on the exact label strings, character for character.
 - **Impulse-response files need the `.irs` extension.** EasyEffects filters
   the convolver's file picker on it and ignores anything else, whatever the
-  contents are. The file itself is a stereo WAV.
+  contents are. The file itself is a stereo WAV. `lib/preset/emit.py` is
+  where that name is built and the WAV written, which is why it is in scope.
 - **The EE 8.x convolver wants `"kernel-name"` — the filename stem, no
   directory, no extension** — not the deprecated `"kernel-path"` EE 7 used.
   A preset carrying `kernel-path` loads with no kernel and no complaint;

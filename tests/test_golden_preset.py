@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pytest
 
-from dolby_to_easyeffects import save_wav_stereo
 from lib.preset.build import make_preset
+from lib.preset.emit import save_wav_stereo
 from lib.dax.parse import DB_FIXED_POINT_SCALE, parse_xml
 from lib.preset.fir import make_fir
 from tests.conftest import (

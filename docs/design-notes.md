@@ -3590,6 +3590,83 @@ checked in both directions with the equivalent instruments:
   `main()` rather than through the import, which is the expected shape and not
   a gap.
 
+### Preset emission, and a blocker that had quietly expired
+
+199 lines — `_emit_ieq_presets`, the `FIR_VERIFY_OK_DB` gate it grades against,
+and `save_wav_stereo` — left the generator for `lib/preset/emit.py`, taking it
+from 1,188 lines to 985. `symtable` says the three reach nine names between
+them and every one is an import: `json`, `np`, `wavfile`, `console`, `parse`,
+`fir`, `build`, `autoload`, `messages`. `save_wav_stereo` and the gate travel
+because `_emit_ieq_presets` calls and reads them; nothing else does.
+
+**`save_wav_stereo`'s recorded blocker had expired without anyone noticing.**
+The comment over it said it stayed behind `lib/preset/fir.py` "because binding
+`wavfile` in a module that isn't this one means writing a second deferred
+import, which is new code rather than motion". That was true when `fir.py`
+moved and is not true now: `fir.py` imports numpy at module scope, so a module
+the generator only reaches through `_load_dsp()` may import scipy the same way
+— in the **top-level import block, which `check_move_purity.py` exempts**. The
+deferral it was avoiding was never needed; what was needed was a destination
+that is itself deferred. Worth generalising: a blocker recorded in a comment
+is a fact about the code *at that commit*, and the slice that removes it will
+not be the one that wrote it down.
+
+`_load_dsp` is now the whole point of the pattern rather than a place numpy
+lands. Three of its five globals go — `wavfile`, `fir` and `build` all lose
+their last generator reader with these lines — and what is left is `np` (which
+`main()` still needs to convert the parsed curves to dB) plus the two modules
+this wave created. Every module in `lib/` that reaches the DSP stack is now
+behind one of those two, and the generator's own import block is stdlib-only
+below `lib/`.
+
+The one edit that is **not** motion is disclosed here because nothing in the
+tooling would have caught it: `main()`'s call to `_emit_ieq_presets` grew five
+characters, so its visually-aligned continuation lines were re-indented to
+match. Root-side call sites re-point for free and `check_move_purity.py` only
+reads lines added under `lib/`, so this passed as pure; it is a whitespace
+change to nine lines that stay in the generator, and it changes no provenance
+that `-C` would have followed.
+
+`lib/preset/emit.py` is the **only edge from `lib/preset/` into
+`lib/report/`** — `messages.VOICING_CURVES`, per the slice above — and it is
+one-way: nothing under `lib/report/` imports it. It also cannot join
+`STDLIB_ONLY` for the strongest reason in the list, being the one module that
+imports scipy at module scope.
+
+Five test import sites retarget, one per file: `test_preset`,
+`test_golden_preset`, `test_ee_to_pipewire`, `corpus/test_corpus` and
+`corpus/test_ee_to_pipewire_corpus`. No `monkeypatch.setattr` target moves —
+the same finding as the slice before, and now the second slice in a row where
+the patch inventory is empty and the exposure is entirely in imports. Checked
+in both directions: sabotaging both moved functions fails 3,066 tests and
+errors 78 more; leaving the sabotage in place and putting a *working*
+`save_wav_stereo` back on the root script changes those numbers by nothing, so
+no test reads the generator's name; and aiming the five imports at a throwaway
+fails all five files (the fifth only under `--run-slow`, where its 3,056 tests
+stop being skipped — a default-run green there is no evidence, per
+`.claude/rules/testing.md`).
+
+Two consumers keyed on paths were checked and one moved. `.claude/rules/`'s
+`user-messages.md` and `cli-help.md` both already glob `lib/**/*.py`, so the
+copy contract and the argparse↔README mirror followed the code without an
+edit. `ee-preset-format.md` did not: its `.irs`-extension trap is about the
+filename this module builds, and the module that builds it has only just
+arrived at a path a rule can be scoped to. It joins the list, which is the
+"what the split unlocks" argument arriving one rule early.
+
+Two bookkeeping items landed on this trim that belonged on the one before it:
+`tests/test_layout.py`'s `STDLIB_ONLY` comments, which enumerated the
+`lib.preset` and `lib.report` modules and so went stale as each new one
+arrived. Both now name every sibling and say which of the two disqualifying
+dependencies each has, verified by importing each module in a subprocess
+rather than by reading.
+
+Nothing was collapsed. The duplication left alone here is
+`FIR_VERIFY_OK_DB`'s prose: the constant's own comment and the comment inside
+the loop both explain the same threshold in the same terms ("far above the
+minimum-phase design's normal residual (~0.05 dB)"), now nine lines apart in
+one module instead of split across two parts of an 8,000-line file. Task #26.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

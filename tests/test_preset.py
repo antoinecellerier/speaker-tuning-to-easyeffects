@@ -41,8 +41,8 @@ from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
+from lib.preset.emit import save_wav_stereo
 from lib.report.profile import _report_parsed_profile
-from dolby_to_easyeffects import save_wav_stereo
 from lib.preset.autoload import (
     BYPASS_PRESET_NAME,
     _atomic_write,

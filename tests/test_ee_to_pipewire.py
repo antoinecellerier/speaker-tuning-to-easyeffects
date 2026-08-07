@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from dolby_to_easyeffects import save_wav_stereo
 from lib.preset.build import make_preset
+from lib.preset.emit import save_wav_stereo
 from lib.report.messages import (
     DISABLEABLE_FILTERS,
     ENABLEABLE_FILTERS,
