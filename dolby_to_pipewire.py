@@ -28,7 +28,7 @@ import dolby_to_easyeffects
 import ee_to_pipewire
 from lib import console, version
 from dolby_to_easyeffects import _HelpHintParser
-from ee_to_pipewire import DEFAULT_NODE_NAME, _sanitize_name
+from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
 
@@ -98,7 +98,7 @@ def _compose_parser(argv=None):
         type=Path,
         default=None,
         help=f"directory for the generated .conf and .irs copy (default: "
-             f"{ee_to_pipewire.DEFAULT_OUTPUT_DIR}); filenames derive from "
+             f"{checks.DEFAULT_OUTPUT_DIR}); filenames derive from "
              f"the preset name (e.g. Dolby_Balanced.conf)",
     )
     step2_actions += ee_to_pipewire.add_output_args(group, only={"--force"})
@@ -193,8 +193,8 @@ def _run_generator(child_argv: list[str], closing=None,
 def _safe_node_name(stem: str) -> str:
     """Mirror ee_to_pipewire's default node naming (sanitised preset stem)
     so the wrapper can predict conf filenames and PW node names."""
-    derived = _sanitize_name(stem).strip("_")
-    return derived if derived else DEFAULT_NODE_NAME
+    derived = conf._sanitize_name(stem).strip("_")
+    return derived if derived else conf.DEFAULT_NODE_NAME
 
 
 PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
@@ -404,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
     # first" describes a directory this script will never write to. The
     # hardware sections a reader does need come along with the PipeWire report.
     if args.doctor:
-        return ee_to_pipewire.report_pw_doctor()
+        return checks.report_pw_doctor()
 
     # The rest are straight pass-throughs: no tempdir, no conversion.
     if args.list or args.speaker_info:
@@ -423,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     # can't keep them apart should fail before it writes.
     pin_target = args.target_object
     if multi and pin_target is None:
-        pin_target, detect_warnings = ee_to_pipewire._autodetect_speaker_sink()
+        pin_target, detect_warnings = install._autodetect_speaker_sink()
         for w in detect_warnings:
             console.cprint("warn", f"[routing] {w}")
         if pin_target is None:
@@ -551,7 +551,7 @@ def main(argv: list[str] | None = None) -> int:
                 child_argv += ["--output", str(out_dir / f"{node_name}.conf")]
             out_dir = (args.output_dir.expanduser().resolve()
                        if args.output_dir is not None
-                       else ee_to_pipewire.DEFAULT_OUTPUT_DIR.expanduser())
+                       else checks.DEFAULT_OUTPUT_DIR.expanduser())
             written.append(out_dir / f"{node_name}.conf")
             # The .irs the converter copies beside the conf is part of the
             # install too — an undo that only removes the conf strands one

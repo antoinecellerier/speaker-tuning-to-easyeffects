@@ -31,7 +31,7 @@ from dolby_to_easyeffects import save_wav_stereo
 from lib.preset.build import make_preset
 from lib.dax.parse import parse_xml
 from lib.preset.fir import make_fir
-from ee_to_pipewire import (
+from lib.pipewire.conf import (
     build_chain,
     emit_links,
     format_conf,

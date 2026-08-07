@@ -17,6 +17,17 @@ the main script — is in
 this file is the current architecture the script actually ships and
 the load-bearing decisions behind it.
 
+**Where the code lives.** `ee_to_pipewire.py` itself is the CLI: the
+argparse builders it shares with the wrapper, the completers, and the
+`main()` that orders the run. Everything under it is `lib/pipewire/`, four
+layers each importing only the one below — `plugins.py` (one EE plugin block
+→ its LV2 node, plus the `EE_*` enum tables), `conf.py` (`build_chain`,
+`emit_links`, `format_conf` and the SPA-JSON writer), `install.py` (where
+the conf and `.irs` go, the smart-filter target sink, the `lv2info`
+self-check, the closing messages) and `checks.py` (`--doctor`, and the
+stacked-chain warning that shares its machinery). The split rules are in
+[design-notes.md](design-notes.md) "Splitting the single-file scripts".
+
 ## One-command wrapper (`dolby_to_pipewire.py`)
 
 [`dolby_to_pipewire.py`](../dolby_to_pipewire.py) chains generation and
@@ -185,7 +196,7 @@ data, so states this developer machine can't reach are unit-tested in
 | EE plugin key | Translated as | Notes |
 |---|---|---|
 | `convolver#0` | `type=builtin label=convolver` × 2 | PW's builtin convolver is mono, so EE's stereo convolver expands to one node per channel. `gain` config field carries `output-gain`. |
-| `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE** (default 0 = active), not enable — see `emit_peq` in `ee_to_pipewire.py`. EE writes filter type / mode / slope as enum **strings** (`"Bell"`, `"Hi-pass"`, `"RLC (BT)"`, `"x1"` etc.); LSP expects integers — translated via `EE_FTYPE_TO_LSP` / `EE_FMODE_TO_LSP` / `EE_FSLOPE_TO_LSP`. Same pattern recurs for MBC global mode (`EE_MBC_GLOBAL_MODE`), MBC envelope boost (`EE_MBC_ENVB`), MBC sidechain mode (`EE_MBC_SCMODE`), and limiter mode (`EE_LIMITER_MODE`). |
+| `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE** (default 0 = active), not enable — see `emit_peq` in `lib/pipewire/plugins.py`. EE writes filter type / mode / slope as enum **strings** (`"Bell"`, `"Hi-pass"`, `"RLC (BT)"`, `"x1"` etc.); LSP expects integers — translated via `EE_FTYPE_TO_LSP` / `EE_FMODE_TO_LSP` / `EE_FSLOPE_TO_LSP`. Same pattern recurs for MBC global mode (`EE_MBC_GLOBAL_MODE`), MBC envelope boost (`EE_MBC_ENVB`), MBC sidechain mode (`EE_MBC_SCMODE`), and limiter mode (`EE_LIMITER_MODE`). |
 | `equalizer#1` (dialog) | Same plugin as PEQ | Disambiguated by position in `plugins_order`, not by shape. `_assert_positional` fails loud if reordered. |
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. Per-control mapping in the table below. |
 | `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost` (typically +6 dB) on `input-gain` (the default slot since issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23); `--volmax-slot output-gain` moves it) when present; if the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead — readers walking the gain stages must check both. |

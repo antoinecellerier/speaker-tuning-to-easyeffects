@@ -19,38 +19,21 @@ A few things about this repo that aren't obvious from the code.
 - **XML-only derivability.** Every parameter emitted (FIR coefficients,
   biquad freq/Q/gain, compressor thresholds, regulator gains…) must trace
   to a parsed DAX3 XML field — no per-device hand-tuned offsets, which
-  invert the value prop. The XML→param mappings are *hypotheses about the
-  schema*, not revealed truth: DAX captures are the only signal that can
-  falsify them, but the bar to change a default mapping is high (≥1
-  second-device capture confirming it generalises across all bands).
-  Empirical tuning, if ever wanted, ships opt-in so the XML-only path stays
-  default. Current validated/unvalidated status: `docs/reference.md`; full
-  evidence + the empirical-shortcut and unvalidated-scaling lists:
-  `docs/design-notes.md`.
+  invert the value prop. The mappings are *hypotheses*, and the bar to
+  change a default one is high: `.claude/rules/xml-derivability.md`.
+  Current validated/unvalidated status: `docs/reference.md`.
 - **Zero added latency** over the PipeWire quantum is a hard constraint
-  (video lip-sync, interactive use). FIR stays **minimum-phase** — the
-  cepstral processing in `make_fir` is load-bearing; a naive inverse-FFT on
-  a target magnitude gives a linear-phase filter with audible pre-ringing
-  and large group delay. The lever is peak position, not IR length; surface
-  the trade-off before longer FIRs, look-ahead, or phase-flat designs.
+  (video lip-sync, interactive use), so the FIR stays **minimum-phase** and
+  nothing in the chain takes look-ahead. Why that is load-bearing, and what
+  the levers are: `.claude/rules/dsp-fir.md`.
 
 ## Testing
 
 - `pytest tests/` — fast (DSP math, output schema, the trap-regression
   suite that locks in every shipped bug, `--disable`/argparse). The traps
   live in `tests/test_preset.py`.
-- `tests/test_golden_preset.py` pins every emitted preset parameter by
-  digest, on synthetic input. A moved digest means the output changed — if
-  you meant it, re-record with `ATMOS_UPDATE_GOLDEN=1` and commit the
-  baseline diff in the same commit as its cause.
-- Corpus tier (`tests/corpus/`) runs the full pipeline against real DAX3
-  XMLs it auto-discovers (NTFS mounts + CWD); `ATMOS_CORPUS_DIR` overrides;
-  it skips cleanly when no corpus is reachable. The heavy walks — every
-  endpoint×profile×curve, and ee_to_pipewire's `lv2info` conf validation —
-  are marked `slow` and **skipped unless `--run-slow`** (or
-  `ATMOS_RUN_SLOW=1`). The default walk visits one combination per XML;
-  `tests/test_ee_to_pipewire.py`'s structural invariants still run fast.
-  Every run is `-n auto` via `pyproject.toml`; `-n 0` forces serial.
+- **The golden digest and the corpus tier** both fail quietly — a digest
+  re-recorded green, a corpus walk that skipped: `.claude/rules/testing.md`.
 - Changing math (FIR, coefficient decoding, gain staging, unit
   conversions, filter design)? Add or extend a unit test — a check worth
   re-running belongs in `tests/`, not an ad-hoc script. For preset/structure
@@ -116,9 +99,8 @@ sessions shipped bugs that only showed on real content.
   starting issue triage and before drafting any reply — the draft-for-review
   flow, assertion/citation rules, and triage asks live there; don't post
   without it.
-- **Comparison plots:** verify every curve is actually visible — set
-  z-order, plot reference curves last with dashes / a distinct colour, and
-  check both axis extremes. Hidden-curve bugs cause repeated re-render cycles.
+- **Comparison plots:** verify every curve is actually visible — a hidden
+  curve reads as agreement. How: `.claude/rules/plots.md`.
 - **Co-locate definitions with use** — a constant or helper sits by its user,
   grouped by meaning, not piled at module top (module-wide values excepted).
 - **Repo root = command surface** — only the three entry-point scripts; every
@@ -132,10 +114,8 @@ sessions shipped bugs that only showed on real content.
 
 - `filter_coefficients` (`tuning-vlldp` base64 blob) is VLLDP-internal
   analysis filters, NOT an audio EQ — see `docs/reference.md`.
-- EE preset format quirks: enum parameters are string labels, not integer
-  indices (commit `91423b8`); impulse-response files need the `.irs`
-  extension; EE 8.x convolver wants `"kernel-name"` (filename stem), not the
-  deprecated `"kernel-path"`.
+- EE preset format traps (enum labels, `.irs`, `kernel-name`) — all three
+  load silently and do nothing: `.claude/rules/ee-preset-format.md`.
 
 ## ee_to_pipewire.py — companion converter
 

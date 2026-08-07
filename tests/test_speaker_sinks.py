@@ -21,7 +21,7 @@ import subprocess
 import pytest
 
 import dolby_to_easyeffects as d
-import ee_to_pipewire as pw
+from lib.pipewire import install as pw
 from lib import console
 from lib.data import speaker_pin_quirks
 from lib.hardware import amps, codecs, speakers
@@ -438,7 +438,7 @@ def test_resolve_none_returns_empty(monkeypatch):
     assert hw_sinks._resolve_autoload_sinks([], dry_run=True) == []
 
 
-# --- ee_to_pipewire._autodetect_speaker_sink --------------------------------
+# --- lib.pipewire.install._autodetect_speaker_sink --------------------------
 
 def test_ee_autodetect_strict_single(monkeypatch):
     _patch_sinks(monkeypatch, [STRICT_SPEAKER, HDMI_SINK])

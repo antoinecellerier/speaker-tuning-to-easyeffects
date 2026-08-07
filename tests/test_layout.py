@@ -59,6 +59,12 @@ STDLIB_ONLY = (
     # for that reason, not by oversight.
     "lib.preset.bands",
     "lib.preset.autoload",
+    # The converter's translation half: an EE plugin block turned into LV2
+    # node dicts, and those nodes rendered as SPA-JSON. Its siblings
+    # lib.pipewire.install and lib.pipewire.checks print, so they reach
+    # lib.console and are absent here for that reason, not by oversight.
+    "lib.pipewire.plugins",
+    "lib.pipewire.conf",
 )
 
 

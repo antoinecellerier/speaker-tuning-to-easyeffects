@@ -24,6 +24,8 @@ import pytest
 import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
+from lib.pipewire import conf as pw_conf
+from lib.pipewire import install
 from lib import version
 from dolby_to_pipewire import main as wrapper_main
 from tests.conftest import write_synthetic_tuning_xml
@@ -184,7 +186,7 @@ def recorders(monkeypatch):
     monkeypatch.setattr(ee_to_pipewire, "main", fake_ee_main)
     # The multi-sink modes resolve a playback pin through this, which reaches
     # the real pw-dump. Stub it so these stay hermetic.
-    monkeypatch.setattr(ee_to_pipewire, "_autodetect_speaker_sink",
+    monkeypatch.setattr(install, "_autodetect_speaker_sink",
                         lambda: ("alsa_output.stub_Speaker__sink", []))
     monkeypatch.setattr(dolby_to_pipewire.subprocess, "run",
                         fake_subprocess_run)
@@ -281,7 +283,7 @@ def test_user_target_object_is_not_doubled(recorders):
 
 
 def test_undetectable_speaker_sink_fails_before_writing(recorders, monkeypatch):
-    monkeypatch.setattr(ee_to_pipewire, "_autodetect_speaker_sink",
+    monkeypatch.setattr(install, "_autodetect_speaker_sink",
                         lambda: (None, ["two candidates"]))
     assert wrapper_main(["--variant", "all", "--target-sink", "",
                          "--no-activate"]) == 1
@@ -482,8 +484,8 @@ def test_e2e_dry_run_writes_nothing_outside_staging(tmp_path):
     assert result.returncode == 0, result.stderr
     assert not out.exists()
     assert list(home.iterdir()) == []
-    assert ee_to_pipewire.CONF_HEADER_MARK not in result.stdout
-    assert ee_to_pipewire.CONF_HEADER_MARK not in result.stderr
+    assert pw_conf.CONF_HEADER_MARK not in result.stdout
+    assert pw_conf.CONF_HEADER_MARK not in result.stderr
     # All three scripts print through a console on stdout, so a run is one
     # redirectable stream: everything the user reads is on stdout and stderr
     # carries nothing.

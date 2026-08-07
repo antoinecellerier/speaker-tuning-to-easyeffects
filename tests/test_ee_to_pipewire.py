@@ -31,10 +31,17 @@ from lib.report.messages import (
     ENABLEABLE_FILTERS,
 )
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
-from ee_to_pipewire import (
+from lib.pipewire.conf import (
+    CONF_HEADER_MARK,
+    build_chain,
+    emit_links,
+    format_conf,
+    _assert_positional,
+    _sanitize_name,
+)
+from lib.pipewire.plugins import (
     CALF_BE_URI,
     CALF_ST_URI,
-    CONF_HEADER_MARK,
     EE_EQMODE_TO_LSP,
     EE_FMODE_TO_LSP,
     EE_FSLOPE_TO_LSP,
@@ -49,24 +56,19 @@ from ee_to_pipewire import (
     LSP_AUTOGAIN_URI,
     LSP_LIM_URI,
     LSP_MBC_URI,
-    build_chain,
     db_to_lin,
     emit_autogain,
     emit_bass_enhancer,
     emit_convolver,
     emit_limiter,
-    emit_links,
     emit_mb_compressor,
     emit_peq,
     emit_stereo_tools,
-    format_conf,
     lin_to_db,
-    main as ee2pw_main,
-    _assert_positional,
     _emit_peq_node,
     _resolve_irs,
-    _sanitize_name,
 )
+from ee_to_pipewire import main as ee2pw_main
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
     synthetic_mb_comp,
@@ -1209,10 +1211,10 @@ def test_main_surfaces_validate_warnings_on_pass(generated, tmp_path,
     swallowed on the rc==0 path, hiding a missing runtime dependency behind
     a "conf written" success (the chain then silently fails to load).
     """
-    import ee_to_pipewire
+    from lib.pipewire import install
     warn = ("WARN: mb_compressor: no lv2info schema available for "
             "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo; skipping")
-    monkeypatch.setattr(ee_to_pipewire, "_validate_conf",
+    monkeypatch.setattr(install, "_validate_conf",
                         lambda conf: (0, warn + "\n"))
 
     preset, irs_path = generated
@@ -1236,9 +1238,9 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
     converter can't verify the plugin set is present — so it must remind the
     user to install LSP / Calf, or the chain silently won't load in PipeWire.
     """
-    import ee_to_pipewire
+    from lib.pipewire import install
     monkeypatch.setattr(
-        ee_to_pipewire, "_validate_conf",
+        install, "_validate_conf",
         lambda conf: (-1, "lv2info or spa-json-dump not in PATH "
                           "(install lilv-utils and pipewire)"))
 
@@ -2081,7 +2083,7 @@ def test_enum_labels_covered_by_tables():
                 if table is not None:
                     assert value in table, (
                         f"[{sid}] {key} {pname} = {value!r} is missing "
-                        "from its EE_* table in ee_to_pipewire.py")
+                        "from its EE_* table in lib/pipewire/plugins.py")
                     if table is EE_FTYPE_TO_LSP:
                         # 0 is Off — an emitted filter type must never be.
                         assert table[value] != 0, \
@@ -2382,8 +2384,8 @@ def test_irs_default_matches_the_generator():
     copies of that logic drift: this one was hardcoded to the native path and
     sent Flatpak users looking in a directory that never had the file."""
     import dolby_to_easyeffects as d
-    import ee_to_pipewire as e
-    assert e.DEFAULT_IRS_DIR == d.DEFAULT_IRS_DIR
+    from lib.pipewire import install
+    assert install.DEFAULT_IRS_DIR == d.DEFAULT_IRS_DIR
 
 
 @pytest.mark.parametrize("flatpak_run,native_run,installed,expected", [
@@ -2423,7 +2425,7 @@ def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
     """--doctor reads installed confs with spa-json-dump rather than a
     hand-rolled parser, so what it reports is what PipeWire will read. This
     pins the round trip: emit a conf, then parse it back."""
-    import ee_to_pipewire as e
+    from lib.pipewire import checks
     sink = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
     preset, irs_path = generated
     chain = build_chain(preset, irs_path.parent, must_exist=False)
@@ -2431,7 +2433,7 @@ def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
                        "Dolby_Balanced", "Dolby-Balanced", target_sink=sink)
     (tmp_path / "Dolby_Balanced.conf").write_text(conf)
 
-    (parsed,) = e.installed_confs(tmp_path)
+    (parsed,) = checks.installed_confs(tmp_path)
     assert parsed.readable
     assert parsed.node_name == "effect_input.Dolby_Balanced"
     assert parsed.smart is True

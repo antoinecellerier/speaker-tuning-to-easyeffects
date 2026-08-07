@@ -3088,6 +3088,67 @@ side that stayed. What did change is which module the tests *import* the moved
 names from, which no `test_no_test_patches_a_re_exported_name` failure can
 hide behind.
 
+Slice 6 landed `lib/pipewire/` and emptied the converter — 2,133 lines down to
+483, of which the argparse builders, the completers and `main()` are all that
+is left. The four modules came out as planned and stack strictly:
+`plugins.py` (an EE plugin block → its LV2 node, plus the `EE_*` label tables)
+← `conf.py` (`build_chain`, `emit_links`, `format_conf`, the SPA-JSON writer)
+← `install.py` and `checks.py`, neither of which the other imports. Four
+deviations, each forced by something:
+
+**`DEFAULT_OUTPUT_DIR` went to `checks.py`, not `install.py`.** It is the one
+constant `tests/test_pw_doctor.py` patches — three sites, to point the doctor
+at a `tmp_path` — and the bodies that read it are `check_conf_directory`,
+`gather_pw_doctor` and `report_pw_doctor`, all of them moved lines that may
+not be re-pointed. Had it lived in `install.py`, `checks.py` would have held
+its own `from … import DEFAULT_OUTPUT_DIR` binding and the patch would have
+needed to name `checks` anyway — two bindings for one constant, which is the
+stale-binding hazard in miniature. Four of its six readers are in `checks.py`;
+the two in the root script (the `--output` help text and `main`) re-point for
+free, as every root-side call site does.
+
+**`warn_if_stacked` went to `checks.py` too**, despite firing at write time
+rather than at `--doctor` time. It reads `installed_confs`, and it is
+`check_stacked_chains` asked of the confs on disk instead of the live graph;
+its four tests already live in `test_pw_doctor.py`. The alternative — leaving
+it beside the other end-of-run messages — would have made `install.py` import
+`installed_confs` from `checks.py` while `checks.py` imported
+`DEFAULT_OUTPUT_DIR` back from `install.py`. That cycle is the reason, not the
+tidiness: with `warn_if_stacked` moved, the four layers have no way to form
+one.
+
+**`PluginHandler` and `EE_KEY_DISPATCH` stayed with the emitters** while
+`build_chain` went to `conf.py`. Both readings are defensible — the table is
+"the driver" by the old section banner and "the translation index" by content
+— and the tiebreak is arithmetic: `conf.py` importing one name
+(`EE_KEY_DISPATCH`) beats `plugins.py` importing eight emitter names back.
+
+**The converter imports its own `conf` module as `pw_conf`.** `main()` binds a
+local named `conf` for the rendered text, three lines before it writes it out.
+Second alias of the split after `hardware_sinks`, and the same comment shape
+above it.
+
+Two smaller things worth having recorded. `lib/pipewire/*` may not import
+`lib/preset/*` — `plugins.py` and `build.py` there reach numpy through
+`fir.py`, and `test_converter_startup_pulls_in_no_dsp` asks the question from
+the converter's end, so the failure would be immediate but the reason
+non-obvious. And `lib/pipewire/plugins.py` carries a comment naming a
+`localresearch/` path (the LSP source tree the enum tables were read out of),
+moved verbatim because a move commit cannot also fix it; it wants the tidy-up
+commit after.
+
+Unlike slice 5, this one *does* move patch targets — that dividend was
+specific to `--doctor`'s pure/IO seam. Twenty-one `monkeypatch.setattr` calls
+aimed at the converter across three test files reduce to six distinct names,
+all retargeted: `_pw_dump`, `_wireplumber_version`, `_plugin_presence`,
+`DEFAULT_OUTPUT_DIR`, `_UNSCANNED_CONF_DIR` and `report_pw_doctor` to
+`lib.pipewire.checks`, `_validate_conf` and `_autodetect_speaker_sink` to
+`lib.pipewire.install`, with `main` alone staying on the root module. A green
+suite does not prove a retargeted patch still bites — a patch that reaches
+nothing leaves a passing test that quietly ran the real code — so each was
+checked by breaking the production function and confirming the test stayed
+green.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because
@@ -3238,6 +3299,52 @@ would not be loaded at the moment it is wanted.
 Projected: **137 → ~108 loaded lines**, with headroom for the next real rule.
 About 3 lines (the comparison-plots bullet → `tools/**/*.py`) are demotable
 today without waiting for anything.
+
+**Done after slice 6: 140 → 121 loaded lines**, across five new rule files —
+`dsp-fir.md` (`lib/preset/fir.py`), `testing.md` (`tests/**`,
+`pyproject.toml`), `xml-derivability.md` (`lib/dax/**`, `lib/preset/**`),
+`ee-preset-format.md` (the four modules that write or read an EE preset key,
+which now includes `lib/pipewire/plugins.py` — the two sides have to agree on
+the enum label strings character for character) and `plots.md`
+(`tools/**/*.py`). The 108 was optimistic because it costed the demotions at
+zero: every one of them leaves a one-line trigger, and five triggers is five
+lines that the projection had spent. 121 against a ~120 target is the honest
+number, and the remaining slack is in the triggers rather than in prose.
+
+Two of the table's rows needed correcting against the code before they could
+be scoped. **`filter_coefficients` does not appear in `lib/dax/parse.py`** —
+it appears in no source file at all, only in the docs, because the whole point
+is that it is never parsed. Scoping a rule to the file where the mistake
+*would* be made is still right, so it went into `xml-derivability.md` under
+"What is not a source of parameters" rather than becoming a rule of its own
+for two lines. And the **EE-format row's scope was too narrow**: `build.py`
+and `bands.py` write the keys, but `lib/pipewire/plugins.py` reads them back
+and `lib/report/environment.py` has the `--doctor` check for the
+`kernel-path`/`kernel-name` trap, and all four have to agree.
+
+Three more counter-examples, to go with the `ee_to_pipewire.py` one above:
+
+- **"Co-locate definitions with use"** is an edit constraint, but its glob
+  would be `lib/**/*.py` plus all three root scripts — every source file in
+  the repo. A rule that fires on every edit is a rule in CLAUDE.md with an
+  extra hop in front of it.
+- **"Docs are layered"** looks like `docs.md`'s business, and `docs.md` even
+  defers to CLAUDE.md for it. It stays because it is a map for *reading*, not
+  for editing: you consult it to decide which of four docs to open, and no
+  `paths:` glob fires on a read.
+- **The comparison-plots rule keeps its trigger for a specific reason** — the
+  scripts where hidden-curve bugs actually happen are ad-hoc ones under
+  `localresearch/`, which is gitignored and may not be named in a committed
+  file, so no glob can cover them. `tools/**/*.py` catches the committed half;
+  the CLAUDE.md line catches the rest.
+
+The `ee_to_pipewire.py — companion converter` section survives slice 6 intact,
+which is worth noting because the split was supposed to be what unlocked it.
+"It pins a WirePlumber 0.5+ smart filter … keep both defaults on" *is* an edit
+constraint, and `lib/pipewire/install.py` is now a precise scope for it — but
+it is one clause of a seven-line section whose other six are the triage
+context the counter-example above is about. Extracting the clause costs a
+sixth rule file and saves nothing.
 
 ### Order to do it in
 
