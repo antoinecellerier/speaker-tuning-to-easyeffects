@@ -46,6 +46,42 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_slow)
 
 
+@pytest.fixture
+def silence_console(monkeypatch):
+    """Drop a script's rich console, so `cprint()` takes its plain-`print`
+    path for the rest of the test.
+
+    Every user-facing line goes through `cprint`, which hands the text to a
+    module-global `_CONSOLE` whenever rich is installed. What `capsys` then
+    sees is styled and console-width-dependent, so an `assert "..." in out`
+    on a phrase passes or fails depending on the machine the suite ran on
+    and on whether an optional dependency happens to be present. With
+    `_CONSOLE` set to None the string arrives verbatim, which is what these
+    assertions are written against — the point is capture fidelity, not
+    quiet output.
+
+    The module is named at the call site rather than baked in here: this
+    file stays ignorant of which scripts exist, a test that reads two
+    scripts' output can silence both, and the call says whose output is
+    being asserted on.
+
+        def test_x(silence_console, capsys):
+            silence_console(dolby_to_easyeffects)
+
+    Deliberately not autouse — a few tests are *about* `_CONSOLE` (that the
+    fallback prints at all, that `--no-color` clears the global) and set it
+    themselves. `monkeypatch.setattr` raises on a missing attribute, which
+    is the wanted behaviour: if the console is renamed or moves out of the
+    script, every caller fails loudly instead of silently asserting on the
+    styled text it meant to avoid.
+    """
+    def silence(*modules):
+        for module in modules:
+            monkeypatch.setattr(module, "_CONSOLE", None)
+
+    return silence
+
+
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own
 # `band_20_freq` element; this is a typical log-spaced set in the same
 # range, used purely as a non-proprietary stand-in.

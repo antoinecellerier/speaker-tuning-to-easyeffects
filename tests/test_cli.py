@@ -124,8 +124,8 @@ def test_disable_autogain_drops_leveler():
     assert "autogain-active" not in emitted
 
 
-def test_disable_autogain_menu_row_needs_the_active_marker(monkeypatch,
-                                                          capsys):
+def test_disable_autogain_menu_row_needs_the_active_marker(silence_console,
+                                                           capsys):
     """The --disable menu offers autogain only where it actually runs.
 
     The bare "autogain" marker means "present but bypassed" and feeds the
@@ -133,7 +133,7 @@ def test_disable_autogain_menu_row_needs_the_active_marker(monkeypatch,
     stage that is already off — so the row keys off "autogain-active".
     """
     import dolby_to_easyeffects
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
 
     dolby_to_easyeffects.print_troubleshooting(
         [], {"autogain-active": {"default"}})
@@ -146,12 +146,12 @@ def test_disable_autogain_menu_row_needs_the_active_marker(monkeypatch,
     assert "--enable autogain" in out
 
 
-def test_same_name_in_disable_and_enable_errors(tmp_path, monkeypatch,
+def test_same_name_in_disable_and_enable_errors(tmp_path, silence_console,
                                                 capsys):
     """A name in both directions is a contradiction — silently picking a
     winner would leave the user believing whichever flag they meant, so the
     run must stop before building anything."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     with pytest.raises(SystemExit) as exc:
         dolby_to_easyeffects.main([
@@ -162,12 +162,12 @@ def test_same_name_in_disable_and_enable_errors(tmp_path, monkeypatch,
             in capsys.readouterr().err)
 
 
-def test_disable_menu_never_offers_to_revert_an_enable_flag(monkeypatch,
+def test_disable_menu_never_offers_to_revert_an_enable_flag(silence_console,
                                                             capsys):
     """A stage the user switched on with --enable gets no --disable row: the
     undo for a flag you typed is removing it, and offering the opposite flag
     would steer the next command straight into the both-directions error."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     dolby_to_easyeffects.print_troubleshooting(
         [], {"autogain-active": {"default"}, "mbc": {"default"}},
         enabled_by_flag=frozenset({"autogain"}))
@@ -1129,10 +1129,11 @@ def test_device_report_form_is_valid():
     assert {"device", "speaker-info"} <= required
 
 
-def test_speaker_info_output_is_version_stamped(monkeypatch, capsys):
+def test_speaker_info_output_is_version_stamped(monkeypatch, silence_console,
+                                                capsys):
     """`--speaker-info` prefixes a version line: users paste that block into
     the issue form, so the maintainer can tell which build was tested."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     monkeypatch.setattr(version, "get_version", lambda: "vTEST-42")
     monkeypatch.setattr(dolby_to_easyeffects, "_gather_speaker_info", lambda: None)
     monkeypatch.setattr(dolby_to_easyeffects, "_print_speaker_info", lambda info: None)
@@ -1334,15 +1335,15 @@ def test_skip_closing_still_hands_back_the_findings(tmp_path):
     assert isinstance(collected, list)
 
 
-def test_troubleshooting_menu_renders_every_emitted_filter(monkeypatch,
-                                                          capsys):
+def test_troubleshooting_menu_renders_every_emitted_filter(silence_console,
+                                                           capsys):
     """The closing troubleshooting block must actually render.
 
     Nothing covered this path, so deleting a helper it called left the block
     raising NameError mid-print — after the presets were already written —
     and the whole suite stayed green. It is the most-seen block in the output.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     findings = [dolby_to_easyeffects._loudness_untamed_finding()]
     by_profile = {name: {"default"} for name in
                   ("volmax", "mbc", "regulator", "dialog")}
@@ -1367,21 +1368,21 @@ def test_troubleshooting_menu_renders_every_emitted_filter(monkeypatch,
     assert "reload the preset in EasyEffects" in out
 
 
-def test_regulator_stays_on_the_menu_without_the_inert_hint(monkeypatch,
+def test_regulator_stays_on_the_menu_without_the_inert_hint(silence_console,
                                                             capsys):
     """The suppression is specific to the contradiction, not a blanket drop —
     a run that never claimed the regulator was inert still offers it."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     by_profile = {"regulator": {"default"}, "mbc": {"default"}}
     dolby_to_easyeffects.print_troubleshooting([], by_profile)
     assert "--disable regulator" in capsys.readouterr().out
 
 
-def test_apply_hint_skips_easyeffects_for_a_wrapper(monkeypatch, capsys):
+def test_apply_hint_skips_easyeffects_for_a_wrapper(silence_console, capsys):
     """The line telling you how to apply a fix must not end in an action the
     reader can't perform. dolby_to_pipewire.py users chose that path to avoid
     EasyEffects, and its staged presets are deleted anyway."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     by_profile = {"mbc": {"default"}}
 
     # Collapsed: the advice wraps to the terminal, so these phrases would
@@ -1399,12 +1400,12 @@ def test_apply_hint_skips_easyeffects_for_a_wrapper(monkeypatch, capsys):
     assert "--disable mbc" in out
 
 
-def test_every_shown_tag_is_quotable(monkeypatch, capsys):
+def test_every_shown_tag_is_quotable(silence_console, capsys):
     """A hint tag is often the only finding that actually fired for the
     device. Listing only ask-tags under "quote the tag in brackets" sent
     reporters to quote the speculative one and never mention the real
     finding."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     hint = dolby_to_easyeffects._loudness_untamed_finding()
     ask = dolby_to_easyeffects._experimental_finding("type-3 high-shelf",
                                                      ["high-shelf"])
@@ -1427,12 +1428,12 @@ def test_every_shown_tag_is_quotable(monkeypatch, capsys):
 
 
 def test_autogain_entry_warns_when_it_enables_an_unreproduced_stage(
-        monkeypatch, capsys):
+        silence_console, capsys):
     """The run warns that a leveler sub-stage "only matters if you rebuild
     with --enable autogain", then offers exactly that flag in the menu. The
     two have to meet, or the menu quietly recommends the thing the warning
     was about."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     by_profile = {"autogain": {"default"}}
     gap = dolby_to_easyeffects._leveler_gap_finding(
         ["volume-leveler-compressor"], autogain_on=False)
@@ -1444,12 +1445,12 @@ def test_autogain_entry_warns_when_it_enables_an_unreproduced_stage(
     assert "leveler-gap" not in capsys.readouterr().out
 
 
-def test_xml_path_prints_for_every_ask(monkeypatch, capsys):
+def test_xml_path_prints_for_every_ask(silence_console, capsys):
     """Any report benefits from the tuning source, so every ask-carrying run
     names the file — the tool found it, the user never went looking for it.
     (The old gate matched an ask's wording, which a reword could silently
     switch off; round 6 retired it.)"""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     wants = dolby_to_easyeffects.Finding(
         slug="peak-level", kind="ask", detail="x",
         ask="Send us the XML and we can confirm it.")
@@ -1468,11 +1469,11 @@ def test_xml_path_prints_for_every_ask(monkeypatch, capsys):
     assert "/tmp/DEV_X.xml" not in capsys.readouterr().out
 
 
-def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
+def test_dropped_stages_reach_the_closing_block(silence_console, capsys):
     """A stage we drop has no ask — nobody can act on it — but it printed
     hundreds of lines earlier and never again, so the closing block read as
     the whole story while a piece of the tuning was missing from it."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     import xml.etree.ElementTree as ET
 
     dropped = dolby_to_easyeffects.collect_unmodeled_features(ET.fromstring("""
@@ -1494,11 +1495,11 @@ def test_dropped_stages_reach_the_closing_block(monkeypatch, capsys):
                    for line in capsys.readouterr().out.splitlines())
 
 
-def test_flag_menu_lead_is_dry_run_aware(monkeypatch, capsys):
+def test_flag_menu_lead_is_dry_run_aware(silence_console, capsys):
     """Under --dry-run "the same command you ran" rebuilds nothing, and the
     reload instruction pointed at a preset the very next block says was
     never written."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     by_profile = {"mbc": {"default"}}
 
     dolby_to_easyeffects.print_troubleshooting([], by_profile, dry_run=True)
@@ -1511,13 +1512,13 @@ def test_flag_menu_lead_is_dry_run_aware(monkeypatch, capsys):
 
 
 def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
-                                                            monkeypatch,
+                                                            silence_console,
                                                             capsys):
     """The tables were the bulk of the output and buried the findings even
     when marked skippable; the verdict line is what a default reader needs.
     -v restores the full tables (and reports are asked to include a -v
     log)."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
 
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
@@ -1538,11 +1539,12 @@ def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
 
 
 def test_tag_convention_prints_once_with_the_first_finding(monkeypatch,
+                                                           silence_console,
                                                            capsys):
     """The first bracketed token a reader meets looked like an error code —
     the convention was only explained in the closing block. One orientation
     line rides the first finding; repeating it per finding would be a nag."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     monkeypatch.setattr(dolby_to_easyeffects, "_TAG_CONVENTION_SHOWN", False)
     finding = dolby_to_easyeffects._loudness_untamed_finding()
     dolby_to_easyeffects._print_finding_detail(finding)
@@ -1640,7 +1642,7 @@ def _fully_stocked_tuning():
 
 
 @pytest.mark.parametrize("name", sorted(_SECTION_OWNING_FILTERS))
-def test_switching_a_stage_off_changes_what_the_run_says(name, monkeypatch,
+def test_switching_a_stage_off_changes_what_the_run_says(name, silence_console,
                                                          capsys):
     """A stage the reader switched off must not keep describing itself.
 
@@ -1656,7 +1658,7 @@ def test_switching_a_stage_off_changes_what_the_run_says(name, monkeypatch,
     printing the stage as if it shipped is not — and a diff survives any
     rewording of the sections themselves.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     tuning = _fully_stocked_tuning()
     dolby_to_easyeffects._report_parsed_profile(
         tuning, [0.0] * 20, [0.0] * 20, 0.1, set(), is_soundwire=True)
@@ -1671,7 +1673,7 @@ def test_switching_a_stage_off_changes_what_the_run_says(name, monkeypatch,
         f"describes a stage the preset does not contain:\n{shipped}")
 
 
-def test_an_ask_never_names_a_flag_the_same_run_withholds(monkeypatch,
+def test_an_ask_never_names_a_flag_the_same_run_withholds(silence_console,
                                                           capsys):
     """A two-step ask must not send the reader to a flag the run's own menu
     doesn't offer.
@@ -1682,7 +1684,7 @@ def test_an_ask_never_names_a_flag_the_same_run_withholds(monkeypatch,
     band the same screen recommended a flag it declined to list, and the
     re-run answered "--enable coupled-bands had no effect".
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     findings = [dolby_to_easyeffects._loudness_untamed_finding(
         coupled_bands_possible=False)]
     by_profile = {name: {"default"} for name in
@@ -1702,11 +1704,11 @@ def test_an_ask_never_names_a_flag_the_same_run_withholds(monkeypatch,
             f"it:\nask text: {asks}\nmenu: {menu}")
 
 
-def test_clean_run_closing_block_is_just_the_ask(monkeypatch, capsys):
+def test_clean_run_closing_block_is_just_the_ask(silence_console, capsys):
     """The common case by a wide margin. A rule and a "Help the project"
     heading over a bare report-back line would be noise on every clean run,
     which is how a block earns being skipped."""
-    monkeypatch.setattr(dolby_to_easyeffects, "_CONSOLE", None)
+    silence_console(dolby_to_easyeffects)
     dolby_to_easyeffects.print_project_asks([])
     out = capsys.readouterr().out.strip().splitlines()
     # Two or three lines depending on how wide the sentence wraps; what

@@ -1267,6 +1267,10 @@ def test_cprint_falls_back_to_plain_when_color_disabled(monkeypatch, capsys):
     """With the console disabled (rich absent or --no-color), cprint must
     still emit the text plainly on stderr — color is decoration, never a
     gate on the message getting through.
+
+    Patches `_CONSOLE` by hand rather than taking the `silence_console`
+    fixture: the None state is this test's subject, and the fixture's whole
+    premise is the behaviour asserted here.
     """
     import ee_to_pipewire
     monkeypatch.setattr(ee_to_pipewire, "_CONSOLE", None)

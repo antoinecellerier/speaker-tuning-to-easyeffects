@@ -594,8 +594,8 @@ def _gate(on):
     )
 
 
-def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
-    monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
+def test_warn_firmware_gate_off_prints_fix(silence_console, capsys):
+    silence_console(d)
     finding = d.warn_speaker_firmware_gate([_gate(on=False)])
     out = capsys.readouterr().out
     # iface= must be spelled out — bare name= means iface=MIXER to amixer and
@@ -620,8 +620,9 @@ def test_warn_firmware_gate_off_prints_fix(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("gates", [[], [_gate(on=True)]])
-def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
-    monkeypatch.setattr(d, "_CONSOLE", None)
+def test_warn_firmware_gate_silent_when_not_off(silence_console, capsys,
+                                                gates):
+    silence_console(d)
     assert d.warn_speaker_firmware_gate(gates) is None
     assert capsys.readouterr().out == ""
 
@@ -632,8 +633,8 @@ def test_warn_firmware_gate_silent_when_not_off(monkeypatch, capsys, gates):
 # the silent case uses a far-future series (assumed recent by design), never a
 # real recent one that would age past the cutoff and rot the test.
 
-def test_warn_old_kernel_prints_hint(monkeypatch, capsys):
-    monkeypatch.setattr(d, "_CONSOLE", None)  # plain print → no rich wrapping
+def test_warn_old_kernel_prints_hint(silence_console, capsys):
+    silence_console(d)
     d.warn_old_kernel("6.12.74+deb13+1-amd64")
     out = capsys.readouterr().out
     assert "6.12" in out
@@ -647,9 +648,9 @@ def test_warn_old_kernel_prints_hint(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("release", ["99.0.0-future", "not-a-kernel"])
-def test_warn_old_kernel_silent_when_recent_or_unparseable(monkeypatch, capsys,
-                                                           release):
-    monkeypatch.setattr(d, "_CONSOLE", None)
+def test_warn_old_kernel_silent_when_recent_or_unparseable(silence_console,
+                                                           capsys, release):
+    silence_console(d)
     d.warn_old_kernel(release)
     assert capsys.readouterr().out == ""
 

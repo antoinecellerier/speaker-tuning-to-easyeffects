@@ -255,7 +255,8 @@ def test_installed_confs_ignores_foreign_files(tmp_path):
 
 # --- The report as a whole --------------------------------------------------
 
-def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, capsys):
+def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
+                                       capsys):
     """End to end over the state that prompted this: two chains on one sink.
     The verdict must not come out clean, and the report has to say how to
     clear it — deleting a file is the whole remedy, and the one step a reader
@@ -267,7 +268,7 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(e, "_plugin_presence", lambda: [])
     monkeypatch.setattr(e, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(e, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
-    monkeypatch.setattr(e, "_CONSOLE", None)
+    silence_console(e)
 
     assert e.report_pw_doctor() == 0
     out = capsys.readouterr().out
@@ -278,13 +279,14 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, capsys):
     assert "paste this into your issue" in out
 
 
-def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch, capsys):
+def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
+                                         silence_console, capsys):
     monkeypatch.setattr(e, "_pw_dump", lambda: None)
     monkeypatch.setattr(e, "_wireplumber_version", lambda: None)
     monkeypatch.setattr(e, "_plugin_presence", lambda: [])
     monkeypatch.setattr(e, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(e, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
-    monkeypatch.setattr(e, "_CONSOLE", None)
+    silence_console(e)
 
     assert e.report_pw_doctor() == 0
     out = capsys.readouterr().out
@@ -349,11 +351,12 @@ context.modules = [
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
-def test_second_variant_warns_that_it_stacks(tmp_path, monkeypatch, capsys):
+def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
+                                             capsys):
     """Trying another voicing is the obvious next step and the run's own copy
     suggests it — but --force only guards one output path, so the second conf
     lands beside the first and WirePlumber runs both in series."""
-    monkeypatch.setattr(e, "_CONSOLE", None)
+    silence_console(e)
     first, second = tmp_path / "Dolby_Balanced.conf", tmp_path / "Dolby_Warm.conf"
     _write_conf(first)
     _write_conf(second, node="Dolby_Warm")
@@ -366,8 +369,9 @@ def test_second_variant_warns_that_it_stacks(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
-def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(e, "_CONSOLE", None)
+def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
+                                                  capsys):
+    silence_console(e)
     only = tmp_path / "Dolby_Balanced.conf"
     _write_conf(only)
     e.warn_if_stacked(only, SPEAKER)
@@ -383,8 +387,9 @@ def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, monkeypatch, capsys)
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
-def test_chains_on_different_sinks_do_not_warn(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(e, "_CONSOLE", None)
+def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,
+                                               capsys):
+    silence_console(e)
     _write_conf(tmp_path / "Dolby_Balanced.conf", target="alsa_output.hdmi")
     second = tmp_path / "Dolby_Warm.conf"
     _write_conf(second, node="Dolby_Warm")
