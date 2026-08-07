@@ -543,20 +543,48 @@ def test_detect_firmware_gates_demo_env(monkeypatch, value, expected_on):
     assert len(gates) == 1 and gates[0].on is expected_on
 
 
-def test_demo_speaker_pin_reaches_the_warning(monkeypatch):
+@pytest.mark.parametrize("hda,soundwire", [
+    ([], []),                                             # CI: no sound card
+    ([], [("025D", "1318")]),                             # a SoundWire laptop
+    ([("10EC0287", "17AA22E6", "Realtek ALC287")], []),   # an HDA laptop
+])
+def test_demo_speaker_pin_reaches_the_warning(monkeypatch, hda, soundwire):
     """DEMO_SPEAKER_PIN stands in for an affected machine, the way
     DEMO_FIRMWARE_GATE stands in for a TI amp. Without it this message is
     unreachable on any machine but the handful upstream has fixed, so no
-    preview or review round ever reads it."""
+    preview or review round ever reads it.
+
+    Parametrised by the *host's* hardware, which the demo must not depend on:
+    injecting it inside the HDA branch made it a no-op wherever the real
+    machine wasn't HDA — a SoundWire laptop, or CI, which has no /proc/asound
+    to make bus_type "hda" at all. That version passed here and failed on CI.
+    """
+    monkeypatch.setattr(d, "get_hda_codec_ids", lambda: hda)
+    monkeypatch.setattr(d, "get_soundwire_ids", lambda: soundwire)
     monkeypatch.setenv("DEMO_SPEAKER_PIN", "17aa386a")   # case-insensitive
     info = d._gather_speaker_pins()
     found = d.find_hidden_speaker_pin(info)
     assert found and found[2] == ["0x17"]
     assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
 
+    # Unset, nothing is fabricated: the host's own codec list stands. Compared
+    # against the stub rather than against the demo tuple, so the check can't
+    # come out true by accident on a host that has no codecs to begin with.
     monkeypatch.delenv("DEMO_SPEAKER_PIN")
-    assert d._gather_speaker_pins().hda_codecs != [
-        ("10EC0287", "17AA386A", "Realtek ALC287")], "real hardware, not demo"
+    assert d._gather_speaker_pins().hda_codecs == hda
+
+
+def test_demo_speaker_pin_reaches_the_speaker_report(monkeypatch):
+    """--speaker-info and --doctor gather through the other function, whose
+    bus-type branch skipped the demo in exactly the same way."""
+    monkeypatch.setattr(d, "get_hda_codec_ids", lambda: [])       # as on CI
+    monkeypatch.setattr(d, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(d, "detect_speaker_firmware_gates", list)  # no amixer
+    monkeypatch.setattr(d, "_gather_amp_evidence", lambda info: None)
+    monkeypatch.setenv("DEMO_SPEAKER_PIN", "17AA386A")
+    info = d._gather_speaker_info()
+    assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
+    assert d.find_hidden_speaker_pin(info)
 
 
 def _gate(on):

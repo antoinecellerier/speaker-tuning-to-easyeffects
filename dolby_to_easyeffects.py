@@ -718,7 +718,7 @@ def read_pin_config_overrides(codec_path: Path,
     return resolved
 
 
-def _demo_hidden_speaker_pin(info: SpeakerInfo, ssid: str) -> None:
+def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     """Stand in for a machine whose firmware hides a woofer pin.
 
     Same demo/preview convention as ``DEMO_FIRMWARE_GATE``, and needed for the
@@ -727,8 +727,19 @@ def _demo_hidden_speaker_pin(info: SpeakerInfo, ssid: str) -> None:
     triggers it and the copy would go unread by every review round.
     ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
     0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
+
+    It substitutes the whole machine, not just its pins, which is why it sets
+    the codec list and clears the SoundWire one: callers pick the detection
+    branch off ``bus_type``, so a demo that filled in pins alone did nothing
+    on any host that wasn't itself HDA — a SoundWire laptop, or CI, where
+    there is no codec to make ``bus_type`` "hda" at all. Returns True when a
+    demo was injected (skip real detection then).
     """
+    ssid = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
+    if not ssid:
+        return False
     info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
+    info.soundwire_devices = []
     info.speakers.append(SpeakerPin(node="0x14",
                                     control_name="Speaker Playback Switch",
                                     role="tweeter", channels=2, codec=ssid))
@@ -736,15 +747,13 @@ def _demo_hidden_speaker_pin(info: SpeakerInfo, ssid: str) -> None:
                          ("0x1b", "IN OUT EAPD Detect"), ("0x1e", "OUT")):
         info.unconfigured_pins.append(UnconfiguredPin(
             node=node, codec=ssid, pincap=pincap, pin_default="0x411111f0"))
+    return True
 
 
 def _detect_hda_speakers(info: SpeakerInfo,
                          proc_asound=Path("/proc/asound"),
                          sysfs_class_sound=Path("/sys/class/sound")):
     """Detect internal speakers from HDA codec pin configurations."""
-    demo = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
-    if demo:
-        return _demo_hidden_speaker_pin(info, demo)
     for codec_path in sorted(proc_asound.glob("card*/codec*")):
         try:
             text = codec_path.read_text()
@@ -1615,8 +1624,11 @@ def _gather_speaker_pins() -> SpeakerInfo:
     info.hda_codecs = get_hda_codec_ids()
     info.soundwire_devices = get_soundwire_ids()   # decides bus_type
     info.pci_subsystem = get_pci_audio_subsystem()
-    if info.bus_type == "hda":
-        _detect_hda_speakers(info)
+    # Asked first, not folded into the condition below: injecting the demo is
+    # what makes bus_type read "hda", so testing bus_type first would skip it.
+    if not _maybe_demo_hidden_speaker_pin(info):
+        if info.bus_type == "hda":
+            _detect_hda_speakers(info)
     return info
 
 
@@ -1656,11 +1668,12 @@ def _gather_speaker_info() -> SpeakerInfo:
                     fields[k.strip()] = v.strip()
             info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
 
-    # Speaker detection — branch by bus type
-    if info.bus_type == "soundwire":
-        _detect_soundwire_speakers(info)
-    elif info.bus_type == "hda":
-        _detect_hda_speakers(info)
+    # Speaker detection — branch by bus type, unless a demo machine stands in
+    if not _maybe_demo_hidden_speaker_pin(info):
+        if info.bus_type == "soundwire":
+            _detect_soundwire_speakers(info)
+        elif info.bus_type == "hda":
+            _detect_hda_speakers(info)
 
     # Bus-agnostic: a TI smart-amp firmware gate sits on the SOF/HDA card
     # regardless of how the speakers themselves are wired.
