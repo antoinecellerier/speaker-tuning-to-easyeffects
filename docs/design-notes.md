@@ -2895,23 +2895,149 @@ lib/
 Each entry point keeps its argparse builders, `main()`, and the orchestration
 that reads as the program — roughly 800 lines for the generator.
 
+### What it does to the test suite
+
+Less than the 12,269 lines of tests suggest. Measured before starting, because
+the answer changes the order:
+
+| Kind of change | Lines | Files |
+|---|---|---|
+| Nothing at all | ~630 | `test_layout`, `test_version`, `test_readme_cli_sync`, `test_changelog_section`, `test_corpus_audit`, `test_stimuli`, `test_validate_conf` |
+| One path constant | ~590 | `test_kernel_releases`, `test_speaker_pin_quirks` |
+| Patch targets renamed, assertions untouched | ~2,510 | `test_cli` (1,717), `test_dolby_to_pipewire`, `test_completions` |
+| Import lines only | ~1,950 | `test_biquads`, `test_fir_math`, `test_decoders`, `test_golden_preset`, `tests/corpus/*` |
+| Real churn | ~6,280 | `test_speaker_sinks`, `test_preset`, `test_pw_doctor`, `test_ee_to_pipewire` |
+
+`test_cli.py` is the one to notice: 1,717 lines, the largest single block of
+generator tests, and **zero** `d.<attr>` accesses — it drives the generator as a
+*subprocess* through `SCRIPT = ROOT / "dolby_to_easyeffects.py"`. Its 57
+`monkeypatch.setattr` calls each name the module explicitly, so a split renames
+57 patch targets and touches not one assertion. That is the dividend of keeping
+the entry points at root: every test that exercises the CLI the way a user does
+is immune to how the code behind it is arranged.
+
+The other end is `test_speaker_sinks.py` — 1,609 lines, 50 distinct `d.<attr>`
+accesses (`find_hidden_speaker_pin` ×23, `SpeakerInfo` ×20, `_amp_status_lines`
+×12), every one of which follows its symbol into `lib/hardware/`. Do that slice
+after the pattern is proven elsewhere.
+
+`tests/` stays **flat**. A test file splits only when its subject does, named
+for the module it covers (`test_fir_math.py` already is). Mirroring `lib/` into
+subdirectories would add a second axis of churn on top of the source moves and
+buy nothing the filename doesn't already give.
+
+### The monkeypatch hazard, and the import rule that prevents it
+
+86 `monkeypatch.setattr` calls target the generator module — unambiguous while
+there is one module. After a split it stops being: if
+`lib/hardware/speakers.py` does `from lib.hardware.codecs import
+get_soundwire_ids`, it holds *its own* reference, and patching
+`lib.hardware.codecs.get_soundwire_ids` does not reach it. Eleven call sites
+patch that exact symbol, eleven more patch `get_hda_codec_ids`, eight
+`_resolve_driver_store`.
+
+> **Across `lib/` package boundaries, import the module, not the name.**
+> `from lib.hardware import codecs` … `codecs.get_soundwire_ids()`, never
+> `from lib.hardware.codecs import get_soundwire_ids`.
+
+One patch point — the defining module — however many callers. Inside a single
+module, `from X import name` stays fine; the rule is about crossing package
+boundaries, where the test has to guess which binding it is holding.
+
+Two cases that look like they need the rule and don't:
+
+- **The 30 `_CONSOLE` patches** — the largest single group — survive as-is.
+  `cprint` reads the global at call time, so patching it on whichever module
+  owns the console works from any caller. Only the module named in the patch
+  changes. They are also the obvious candidate for one `conftest.py` fixture,
+  which would collapse 30 near-identical lines into one.
+- **The 19 `setattr(d.subprocess, …)` / `setattr(d.shutil, …)` patches** reach
+  the *stdlib module object* through the generator's namespace, so they are
+  already global in effect and stay correct wherever the calling code ends up.
+  They need retargeting to a module that still imports `subprocess`, nothing
+  more.
+
+### What the split unlocks for CLAUDE.md
+
+CLAUDE.md sits at 137 loaded lines against the ~120 its own house rules target,
+and the usual fix — move rationale into `docs/` — is already applied. The
+remaining lever is path-scoped `.claude/rules/*.md`, and granular files are what
+makes scoping mean anything: a rule scoped to an 8,100-line file fires on
+essentially every edit, which is indistinguishable from being global.
+
+The principle that decides what is eligible:
+
+> **Demote what constrains an edit. Keep what gates an action.**
+
+A rule loads when a file matching its `paths:` glob is in play. That is exactly
+right for "when you touch this, obey that", and useless for anything that must
+fire *before* an action — pushing, running the measurement tooling, starting
+issue triage, deciding a change needs a CHANGELOG entry, creating a new file.
+Roughly half of "Repo etiquette" is action-gating and stays put however granular
+the source gets.
+
+Eligible once the split lands, ~29 lines:
+
+| CLAUDE.md | Lines | Scoped to |
+|---|---|---|
+| Zero added latency / minimum-phase FIR | 6 | `lib/preset/fir.py` |
+| Golden-digest + corpus-tier mechanics | 12 | `tests/**`, `pyproject.toml` |
+| EE preset format quirks | 4 | `lib/preset/build.py`, `lib/preset/bands.py` |
+| XML-only derivability, the evidence-bar detail | ~5 | `lib/dax/**`, `lib/preset/**` |
+| `filter_coefficients` is not an audio EQ | 2 | `lib/dax/parse.py` |
+
+The FIR entry shows why the split is the unlock rather than a nicety. Scoped to
+`dolby_to_easyeffects.py` it fires on every edit to the file, so it belongs in
+CLAUDE.md today. Scoped to a ~70-line `lib/preset/fir.py` it fires exactly when
+someone is about to lengthen an IR — which is the only moment it matters. Each
+demotion keeps a one-line trigger in CLAUDE.md and moves only the rationale into
+the rule, the same division `changelog.md` and `user-messages.md` already use.
+
+One counter-example, recorded so it isn't re-proposed: the `ee_to_pipewire.py —
+companion converter` section looks eligible but isn't. "Stereo only; 4-channel
+upmix isn't translated" is a *triage* fact — needed when reading an issue about
+surround sound, not when editing the converter — and a rule scoped to the file
+would not be loaded at the moment it is wanted.
+
+Projected: **137 → ~108 loaded lines**, with headroom for the next real rule.
+About 3 lines (the comparison-plots bullet → `tools/**/*.py`) are demotable
+today without waiting for anything.
+
 ### Order to do it in
+
+Each slice is one commit of pure code motion, and each carries its measured test
+cost. A rules demotion lands *after* the slice that creates its scope target,
+one per slice, so a rule never points at a path that doesn't exist yet.
 
 1. **`lib/data/`** — the highest value per line moved, and it isn't about size:
    two weekly workflows currently rewrite tables inside a hand-edited file.
    Touches `tools/update_kernel_releases.py`,
-   `tools/update_speaker_pin_quirks.py`, both workflows' `git add` /
-   `git checkout --` lines, and their two tests.
+   `tools/update_speaker_pin_quirks.py` and both workflows' `git add` /
+   `git checkout --` lines. *Test cost: near zero* — both updaters already work
+   on a file path through `parse_table` / `render_table` / `apply_update`, and
+   their tests assert against a self-contained `FIXTURE` string, so only the
+   `DEFAULT_SCRIPT` / `CONVERTER` constants move.
 2. **`lib/console.py`** — `dolby_to_pipewire.py` already reaches into *both*
    scripts for `cprint` / `_disable_color`; one shared console ends that.
+   *Test cost: 30 patch targets renamed*, then collapsible into one fixture.
 3. **`lib/preset/fir.py`** and **`lib/dax/parse.py`** — the pieces
    `tools/measure_dax/analyze.py` imports today, so the measurement harness
-   stops pulling in an 8,000-line module to call `make_fir`.
-4. **`lib/pipewire/`** — the converter, once the pattern is proven on the
-   generator.
+   stops pulling in an 8,000-line module to call `make_fir`. *Test cost: import
+   lines in four files.* Decide where `SAMPLE_RATE` / `FIR_LENGTH` and
+   `DB_FIXED_POINT_SCALE` land — four test files import them, and "co-locate
+   with use" and "one obvious home" pull in different directions here.
+4. **`lib/hardware/`** — the expensive one (`test_speaker_sinks.py`); worth
+   doing only once the import rule above has been exercised on slices 1–3.
+5. **`lib/report/`**, the **`lib/preset/`** remainder, then **`lib/pipewire/`** —
+   the converter last, once the pattern is proven on the generator.
 
 Every step is guarded by `tests/test_golden_preset.py`: a pure move cannot
-change an emitted parameter, so a moved digest means the move wasn't pure.
+change an emitted parameter, so a moved digest means the move wasn't pure. The
+stronger check, cheap enough to repeat per slice, is running the generator from
+a `git worktree add --detach <scratch> HEAD~1` and `cmp`-ing the `.irs`, the
+preset JSON (ignoring the `_generator` stamp) and the `--dry-run` conf against
+the same run at the parent commit — that is what confirmed `26d5c58` was a pure
+move on real input rather than only on the synthetic golden fixture.
 
 ## Rejected approaches
 
