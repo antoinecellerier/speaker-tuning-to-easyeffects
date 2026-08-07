@@ -26,12 +26,14 @@ import pytest
 import dolby_to_easyeffects
 from lib import console, version
 from lib.data import speaker_pin_quirks
-from lib.dax import parse
+from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
 # Aliased like the generator's own import: this file binds `findings` as a
 # local in six tests, and the module has to stay reachable from all of them.
 from lib.report import findings as report_findings
-from dolby_to_easyeffects import (
+# Bare names for what these tests *call*; the module above for what they
+# patch. Nothing here patches these three, so the second binding is safe.
+from lib.dax.discover import (
     DOLBY_FILENAME_RE,
     autoprobe_dolby_source,
     find_tuning_xml,
@@ -581,7 +583,7 @@ def test_find_tuning_xml_raises_when_driver_store_missing(monkeypatch, tmp_path)
         lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
     )
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
-    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: None)
+    monkeypatch.setattr(discover, "_resolve_driver_store", lambda _p: None)
     with pytest.raises(FileNotFoundError, match="DriverStore not found"):
         find_tuning_xml(tmp_path)
 
@@ -601,7 +603,7 @@ def test_find_tuning_xml_no_matching_xml_includes_hda_in_message(monkeypatch, tm
         lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
     )
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
-    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
+    monkeypatch.setattr(discover, "_resolve_driver_store", lambda _p: tmp_path)
     with pytest.raises(
         FileNotFoundError, match=r"vendor=10EC0287 subsys=17AA22E6"
     ):
@@ -621,7 +623,7 @@ def test_find_tuning_xml_no_matching_xml_includes_sdw_in_message(monkeypatch, tm
     monkeypatch.setattr(
         codecs, "get_pci_audio_subsystem", lambda: ("17AA", "2339")
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
+    monkeypatch.setattr(discover, "_resolve_driver_store", lambda _p: tmp_path)
     with pytest.raises(FileNotFoundError, match=r"man=025D part=1318"):
         find_tuning_xml(tmp_path)
 
@@ -655,7 +657,7 @@ def _patch_single_hda_match(monkeypatch, driver_store):
     )
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+        discover, "_resolve_driver_store", lambda _p: driver_store
     )
 
 
@@ -702,7 +704,7 @@ def _patch_mac_pci_match(monkeypatch, driver_store, pci_subsys):
         codecs, "get_pci_audio_subsystem", lambda: pci_subsys
     )
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+        discover, "_resolve_driver_store", lambda _p: driver_store
     )
 
 
@@ -745,7 +747,7 @@ def _patch_soundwire_match(monkeypatch, driver_store, sdw_devices, pci_subsys):
         codecs, "get_pci_audio_subsystem", lambda: pci_subsys
     )
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+        discover, "_resolve_driver_store", lambda _p: driver_store
     )
 
 
@@ -814,7 +816,7 @@ def _patch_idea_pad_pro5(monkeypatch, driver_store):
     )
     monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
+        discover, "_resolve_driver_store", lambda _p: driver_store
     )
 
 
@@ -1017,9 +1019,9 @@ def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     dolby_to_easyeffects.py:711-727. Pins the "no candidates" diagnostic
     text and the FileNotFoundError type.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "_ntfs_family_mountpoints", lambda: [])
+    monkeypatch.setattr(discover, "_ntfs_family_mountpoints", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_walk_for_dolby_xml_dirs", lambda _root: []
+        discover, "_walk_for_dolby_xml_dirs", lambda _root: []
     )
     monkeypatch.chdir(tmp_path)
     with pytest.raises(
@@ -1040,12 +1042,12 @@ def test_autoprobe_raises_when_multiple_candidates_no_hardware_match(monkeypatch
     (mount_a / "dax3_ext_foo.inf_001").mkdir(parents=True)
     (mount_b / "dax3_ext_bar.inf_002").mkdir(parents=True)
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        discover,
         "_ntfs_family_mountpoints",
         lambda: [mount_a, mount_b],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda p: p)
-    monkeypatch.setattr(dolby_to_easyeffects, "_detect_expected_subsys_ids", set)
+    monkeypatch.setattr(discover, "_resolve_driver_store", lambda p: p)
+    monkeypatch.setattr(discover, "_detect_expected_subsys_ids", set)
     with pytest.raises(FileNotFoundError, match=r"none of which match") as excinfo:
         autoprobe_dolby_source()
     msg = str(excinfo.value)

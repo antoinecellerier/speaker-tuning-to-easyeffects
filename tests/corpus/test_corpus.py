@@ -31,14 +31,16 @@ import numpy as np
 import pytest
 
 from dolby_to_easyeffects import (
+    get_profile_types,
+    save_wav_stereo,
+)
+from lib.dax.discover import (
     DOLBY_FILENAME_RE,
     _NON_DAX3_FILENAME_SUFFIXES,
     _ntfs_family_mountpoints,
     _resolve_driver_store,
     _walk_for_dolby_xml_dirs,
-    get_profile_types,
     is_soundwire_xml,
-    save_wav_stereo,
 )
 from lib.preset.build import make_preset
 from lib.dax.parse import DB_FIXED_POINT_SCALE, ParsedTuning, parse_xml

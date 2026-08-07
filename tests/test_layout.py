@@ -53,6 +53,11 @@ STDLIB_ONLY = (
     "lib.hardware.codecs",
     "lib.hardware.amps",
     "lib.hardware.speakers",
+    # Neither lib.dax module is listed. Both are stdlib-only in the sense the
+    # converter's startup cares about — no numpy, no scipy — but both print
+    # (discover announces what it matched, parse reports dropped features), so
+    # both reach lib.console and the optional rich import it owns, which
+    # FORBIDDEN also covers. Absent for that reason, not by oversight.
     # The two halves of preset construction that need no DSP: the closed-form
     # band arithmetic, and the writers. Their siblings lib.preset.plugins and
     # lib.preset.build reach numpy through lib.preset.fir and are absent here

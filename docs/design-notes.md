@@ -3198,6 +3198,54 @@ never `git blame`'s; it was proving the resolved paths didn't move, which is a
 `git worktree add --detach <scratch> HEAD` copy printing every constant either
 side.
 
+### DAX source discovery, and a list that could not take the module
+
+583 lines — `DOLBY_FILENAME_RE` through `find_tuning_xml`, the whole answer to
+"where are the tunings and which one is this laptop's" — left the generator for
+`lib/dax/discover.py`, beside the `parse.py` that takes over once a path is
+picked. The cleanest large extraction of the wave: `symtable` over the block
+says it reaches exactly six names it does not define — `ET`, `Path`, `os`, `re`,
+plus `console` and `codecs`, both already under `lib/` — so nothing had to be
+dragged along and no moved body needed a call re-pointed. The four call sites
+that stay (`main`'s two `find_tuning_xml`, its `autoprobe_dolby_source`, and
+the `is_soundwire_xml` that decides the bus) re-point for free, as root-side
+call sites always do.
+
+The module is stdlib-only in the sense the converter's startup cares about — no
+numpy, no scipy — and still **cannot** join `tests/test_layout.py`'s
+`STDLIB_ONLY`. That list's `FORBIDDEN` covers `rich` as well, and every one of
+these functions announces what it matched, so the module imports `lib/console.py`
+and the optional dependency it owns. Checked rather than assumed: adding it
+fails with `pulls in rich,rich_argparse`. It is the third module to land in that
+position after `lib/pipewire/install.py` and `checks.py`, and the second in
+`lib/dax/`, so the tuple now carries the reason in a comment instead of leaving
+the absence to be re-discovered. The rule that *does* bind it is the one with no
+list — `test_converter_startup_pulls_in_no_dsp` — and it is green.
+
+Twelve `monkeypatch.setattr` calls in `tests/test_cli.py` moved to the new
+module: `_resolve_driver_store` ×8, `_ntfs_family_mountpoints` ×2,
+`_walk_for_dolby_xml_dirs` and `_detect_expected_subsys_ids` ×1 each. Each was
+sabotage-checked — break the production function, confirm the test that patches
+it still passes — because a retargeted patch that reaches nothing leaves a green
+test that quietly ran the real code.
+
+Four duplications were **noticed and deliberately left**, since collapsing one
+inside a move commit is a behaviour change under a subject line promising there
+isn't one. Three are inside `discover.py`: the `dax3_ext_*.inf_*`-wrapper scan
+written twice (`_candidate_has_matching_xml` as a `… or [driver_store]`,
+`find_tuning_xml` as an `if not xml_dirs:`), the PCI-subsystem byte order
+`f"{device}{vendor}".upper()` derived twice, and the DAX3-eligible-file
+predicate spelled four times. That last one is the reason for the rule rather
+than an example of it: three sites test the suffix exclusion *and*
+`DOLBY_FILENAME_RE`, while `find_tuning_xml` globs `*.[xX][mM][lL]` and applies
+only the suffix half — so an XML with no `SUBSYS_` token still reaches
+`scanned_files` there, and with it the security-key content fallback, while the
+three probe sites never see it at all. "Collapse the duplication" would silently
+narrow what the generator can match. The fourth is across the boundary:
+`tests/corpus/test_corpus.py`'s `_discover_corpus` re-implements
+`autoprobe_dolby_source`'s mount-then-CWD walk, which its own docstring already
+admits.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because
