@@ -24,6 +24,10 @@ import dolby_to_easyeffects as d
 import ee_to_pipewire as pw
 from lib import console
 from lib.data import speaker_pin_quirks
+from lib.hardware import amps, codecs, speakers
+# Aliased: several tests bind a local named `sinks` for a synthetic sink
+# list, which would shadow the module.
+from lib.hardware import sinks as hw_sinks
 
 
 # --- Synthetic sinks (in the _enumerate_audio_sinks() dict shape) -----------
@@ -107,14 +111,14 @@ USB_DAC_ANALOG = {
 
 
 def _patch_sinks(monkeypatch, sinks):
-    """Make both modules' detection see `sinks` (single pw-dump boundary)."""
-    monkeypatch.setattr(d, "_enumerate_audio_sinks", lambda: list(sinks))
+    """Make both converters' detection see `sinks` (single pw-dump boundary)."""
+    monkeypatch.setattr(hw_sinks, "_enumerate_audio_sinks", lambda: list(sinks))
 
 
 def _set_tty(monkeypatch, *, stdin=True, stdout=True):
     """Force stdin/stdout isatty() — a prompt requires both to be TTYs."""
-    monkeypatch.setattr(d.sys.stdin, "isatty", lambda: stdin)
-    monkeypatch.setattr(d.sys.stdout, "isatty", lambda: stdout)
+    monkeypatch.setattr(hw_sinks.sys.stdin, "isatty", lambda: stdin)
+    monkeypatch.setattr(hw_sinks.sys.stdout, "isatty", lambda: stdout)
 
 
 # --- Classification ---------------------------------------------------------
@@ -130,13 +134,13 @@ def _set_tty(monkeypatch, *, stdin=True, stdout=True):
     (USB_HEADSET, "excluded"),
 ])
 def test_classify_sink(sink, expected):
-    assert d._classify_sink(sink) == expected
+    assert hw_sinks._classify_sink(sink) == expected
 
 
 def test_classify_excludes_virtual_sink():
     """Non-alsa_output nodes (virtual / our own chain) are never relaxed."""
     virtual = {"name": "effect_input.dolby", "icon_name": "", "bus": "", "api": ""}
-    assert d._classify_sink(virtual) == "excluded"
+    assert hw_sinks._classify_sink(virtual) == "excluded"
 
 
 # --- select_speaker_sinks tiers ---------------------------------------------
@@ -144,7 +148,7 @@ def test_classify_excludes_virtual_sink():
 def test_strict_match_wins(monkeypatch):
     """A correctly-tagged speaker takes the strict tier even alongside analog."""
     _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, STRICT_SPEAKER])
-    sel = d.select_speaker_sinks()
+    sel = hw_sinks.select_speaker_sinks()
     assert sel["tier"] == "strict"
     assert [s["name"] for s in sel["selected"]] == [STRICT_SPEAKER["name"]]
     # selected carries the full enumerated dict (autoload reads name/desc/profile).
@@ -154,7 +158,7 @@ def test_strict_match_wins(monkeypatch):
 def test_relaxed_single_ideapad(monkeypatch):
     """No strict tag → the lone internal analog sink is the relaxed pick."""
     _patch_sinks(monkeypatch, [HDMI_SINK, IDEAPAD_ANALOG, BLUEZ_SINK])
-    sel = d.select_speaker_sinks()
+    sel = hw_sinks.select_speaker_sinks()
     assert sel["tier"] == "relaxed"
     assert [s["name"] for s in sel["selected"]] == [IDEAPAD_ANALOG["name"]]
 
@@ -162,7 +166,7 @@ def test_relaxed_single_ideapad(monkeypatch):
 def test_exclusions_yield_none(monkeypatch):
     """HDMI / iec958 / headset / bluez only → no candidate at all."""
     _patch_sinks(monkeypatch, [HDMI_SINK, IEC958_SINK, USB_HEADSET, BLUEZ_SINK])
-    sel = d.select_speaker_sinks()
+    sel = hw_sinks.select_speaker_sinks()
     assert sel["tier"] == "none"
     assert sel["selected"] == []
     # all_sinks is preserved for diagnostics.
@@ -172,7 +176,7 @@ def test_exclusions_yield_none(monkeypatch):
 def test_relaxed_ambiguous_sorted_pci_first(monkeypatch):
     """Two internal analog sinks → relaxed tier, pci preferred over usb."""
     _patch_sinks(monkeypatch, [USB_DAC_ANALOG, IDEAPAD_ANALOG])
-    sel = d.select_speaker_sinks()
+    sel = hw_sinks.select_speaker_sinks()
     assert sel["tier"] == "relaxed"
     names = [s["name"] for s in sel["selected"]]
     assert names == [IDEAPAD_ANALOG["name"], USB_DAC_ANALOG["name"]]
@@ -180,7 +184,7 @@ def test_relaxed_ambiguous_sorted_pci_first(monkeypatch):
 
 def test_empty_yields_none(monkeypatch):
     _patch_sinks(monkeypatch, [])
-    sel = d.select_speaker_sinks()
+    sel = hw_sinks.select_speaker_sinks()
     assert sel["tier"] == "none"
     assert sel["all_sinks"] == []
 
@@ -207,8 +211,8 @@ def test_enumerate_parses_pwdump(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    sinks = d._enumerate_audio_sinks()
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    sinks = hw_sinks._enumerate_audio_sinks()
     assert len(sinks) == 1
     # No Device object in the dump, so the route can't be resolved → "".
     assert sinks[0] == {**IDEAPAD_ANALOG, "route": ""}
@@ -242,8 +246,8 @@ def test_enumerate_resolves_route_for_analog_stereo(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    sinks = d._enumerate_audio_sinks()
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    sinks = hw_sinks._enumerate_audio_sinks()
     assert len(sinks) == 1
     assert sinks[0]["profile"] == "Analog Stereo"
     assert sinks[0]["route"] == "Speaker"
@@ -272,8 +276,8 @@ def test_enumerate_route_matches_profile_on_ucm_hifi(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    sinks = d._enumerate_audio_sinks()
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    sinks = hw_sinks._enumerate_audio_sinks()
     assert sinks[0]["profile"] == "Speaker"
     assert sinks[0]["route"] == "Speaker"
 
@@ -304,8 +308,8 @@ def test_enumerate_route_empty_when_unresolved(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    sinks = d._enumerate_audio_sinks()
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    sinks = hw_sinks._enumerate_audio_sinks()
     assert sinks[0]["profile"] == "Analog Stereo"
     assert sinks[0]["route"] == ""
 
@@ -317,23 +321,23 @@ def test_enumerate_route_empty_when_unresolved(monkeypatch):
 def test_enumerate_subprocess_errors_return_empty(monkeypatch, exc):
     def fake_run(*a, **k):
         raise exc
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    assert d._enumerate_audio_sinks() == []
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    assert hw_sinks._enumerate_audio_sinks() == []
 
 
 def test_enumerate_bad_json_returns_empty(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout="not json", stderr="")
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    assert d._enumerate_audio_sinks() == []
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    assert hw_sinks._enumerate_audio_sinks() == []
 
 
 def test_enumerate_non_list_json_returns_empty(monkeypatch):
     """Valid JSON that isn't an array (e.g. an error object) must not crash."""
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout='{"error": "oops"}', stderr="")
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    assert d._enumerate_audio_sinks() == []
+    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    assert hw_sinks._enumerate_audio_sinks() == []
 
 
 # --- _prompt_pick_sink guards -----------------------------------------------
@@ -343,7 +347,7 @@ def test_prompt_pick_skips_when_stdin_not_tty(monkeypatch):
     # input() must never be called when stdin isn't a TTY.
     monkeypatch.setattr(builtins, "input",
                         lambda *a: pytest.fail("prompted on non-TTY stdin"))
-    assert d._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
+    assert hw_sinks._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
 
 
 def test_prompt_pick_skips_when_stdout_piped(monkeypatch):
@@ -352,7 +356,7 @@ def test_prompt_pick_skips_when_stdout_piped(monkeypatch):
     _set_tty(monkeypatch, stdin=True, stdout=False)
     monkeypatch.setattr(builtins, "input",
                         lambda *a: pytest.fail("prompted with stdout piped"))
-    assert d._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
+    assert hw_sinks._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
 
 
 @pytest.mark.parametrize("answer,expected_idx", [("1", 0), ("2", 1)])
@@ -360,14 +364,14 @@ def test_prompt_pick_valid(monkeypatch, answer, expected_idx):
     _set_tty(monkeypatch)
     monkeypatch.setattr(builtins, "input", lambda *a: answer)
     cands = [IDEAPAD_ANALOG, USB_DAC_ANALOG]
-    assert d._prompt_pick_sink(cands) is cands[expected_idx]
+    assert hw_sinks._prompt_pick_sink(cands) is cands[expected_idx]
 
 
 @pytest.mark.parametrize("answer", ["", "abc", "0", "3", "-1"])
 def test_prompt_pick_invalid_or_empty_skips(monkeypatch, answer):
     _set_tty(monkeypatch)
     monkeypatch.setattr(builtins, "input", lambda *a: answer)
-    assert d._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
+    assert hw_sinks._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
 
 
 def test_prompt_pick_eof_skips(monkeypatch):
@@ -375,7 +379,7 @@ def test_prompt_pick_eof_skips(monkeypatch):
     def raise_eof(*a):
         raise EOFError
     monkeypatch.setattr(builtins, "input", raise_eof)
-    assert d._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
+    assert hw_sinks._prompt_pick_sink([IDEAPAD_ANALOG, USB_DAC_ANALOG]) is None
 
 
 # --- _resolve_autoload_sinks ------------------------------------------------
@@ -383,16 +387,16 @@ def test_prompt_pick_eof_skips(monkeypatch):
 def test_resolve_override_short_circuits_detection(monkeypatch):
     """--autoload-sink resolves via pw-dump lookup, never via select_*()."""
     _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, HDMI_SINK])
-    monkeypatch.setattr(d, "select_speaker_sinks",
+    monkeypatch.setattr(hw_sinks, "select_speaker_sinks",
                         lambda: pytest.fail("detection consulted despite override"))
-    out = d._resolve_autoload_sinks([IDEAPAD_ANALOG["name"]], dry_run=True)
+    out = hw_sinks._resolve_autoload_sinks([IDEAPAD_ANALOG["name"]], dry_run=True)
     assert [s["name"] for s in out] == [IDEAPAD_ANALOG["name"]]
     assert out[0]["profile"] == "Analog Stereo"  # recovered from pw-dump
 
 
 def test_resolve_override_unknown_name_empty_profile(monkeypatch):
     _patch_sinks(monkeypatch, [])  # name not present in pw-dump
-    out = d._resolve_autoload_sinks(["alsa_output.made.up"], dry_run=True)
+    out = hw_sinks._resolve_autoload_sinks(["alsa_output.made.up"], dry_run=True)
     assert len(out) == 1
     assert out[0]["name"] == "alsa_output.made.up"
     assert out[0]["profile"] == ""
@@ -401,13 +405,13 @@ def test_resolve_override_unknown_name_empty_profile(monkeypatch):
 
 def test_resolve_strict(monkeypatch):
     _patch_sinks(monkeypatch, [STRICT_SPEAKER, HDMI_SINK])
-    out = d._resolve_autoload_sinks([], dry_run=True)
+    out = hw_sinks._resolve_autoload_sinks([], dry_run=True)
     assert [s["name"] for s in out] == [STRICT_SPEAKER["name"]]
 
 
 def test_resolve_relaxed_single_auto_applies(monkeypatch):
     _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, HDMI_SINK])
-    out = d._resolve_autoload_sinks([], dry_run=True)
+    out = hw_sinks._resolve_autoload_sinks([], dry_run=True)
     assert [s["name"] for s in out] == [IDEAPAD_ANALOG["name"]]
 
 
@@ -415,7 +419,7 @@ def test_resolve_relaxed_ambiguous_dry_run_never_prompts(monkeypatch):
     _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, USB_DAC_ANALOG])
     monkeypatch.setattr(builtins, "input",
                         lambda *a: pytest.fail("prompted under --dry-run"))
-    out = d._resolve_autoload_sinks([], dry_run=True)
+    out = hw_sinks._resolve_autoload_sinks([], dry_run=True)
     assert out == []  # ambiguous + can't prompt → skip
 
 
@@ -423,14 +427,14 @@ def test_resolve_relaxed_ambiguous_tty_uses_pick(monkeypatch):
     _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, USB_DAC_ANALOG])
     _set_tty(monkeypatch)
     monkeypatch.setattr(builtins, "input", lambda *a: "2")
-    out = d._resolve_autoload_sinks([], dry_run=False)
+    out = hw_sinks._resolve_autoload_sinks([], dry_run=False)
     # selected is sorted (pci first), so index 2 is the USB DAC.
     assert [s["name"] for s in out] == [USB_DAC_ANALOG["name"]]
 
 
 def test_resolve_none_returns_empty(monkeypatch):
     _patch_sinks(monkeypatch, [HDMI_SINK, BLUEZ_SINK])
-    assert d._resolve_autoload_sinks([], dry_run=True) == []
+    assert hw_sinks._resolve_autoload_sinks([], dry_run=True) == []
 
 
 # --- ee_to_pipewire._autodetect_speaker_sink --------------------------------
@@ -496,7 +500,7 @@ numid=4,iface=MIXER,name='Headphone Playback Switch'
 
 
 def test_parse_firmware_gate_among_other_controls():
-    assert d.parse_firmware_gate_controls(SAMPLE_AMIXER_CONTENTS) == [
+    assert speakers.parse_firmware_gate_controls(SAMPLE_AMIXER_CONTENTS) == [
         ("3", "CARD", "Speaker Force Firmware Load", False)
     ]
 
@@ -512,7 +516,7 @@ def test_parse_firmware_gate_value(value, expected_on):
         "  ; type=BOOLEAN,access=rw------,values=1\n"
         f"  : values={value}\n"
     )
-    assert d.parse_firmware_gate_controls(text) == [
+    assert speakers.parse_firmware_gate_controls(text) == [
         ("3", "MIXER", "Speaker Force Firmware Load", expected_on)
     ]
 
@@ -524,15 +528,15 @@ def test_parse_firmware_gate_value(value, expected_on):
     "numid=5,iface=MIXER,name='Master Playback Volume'\n  : values=50\n",
 ])
 def test_parse_firmware_gate_absent_or_malformed(text):
-    assert d.parse_firmware_gate_controls(text) == []
+    assert speakers.parse_firmware_gate_controls(text) == []
 
 
 def test_detect_firmware_gates_no_amixer(monkeypatch):
     """A missing `amixer` binary must yield [] rather than raising."""
     def fake_run(*a, **k):
         raise FileNotFoundError("amixer")
-    monkeypatch.setattr(d.subprocess, "run", fake_run)
-    assert d.detect_speaker_firmware_gates() == []
+    monkeypatch.setattr(speakers.subprocess, "run", fake_run)
+    assert speakers.detect_speaker_firmware_gates() == []
 
 
 @pytest.mark.parametrize("value,expected_on", [
@@ -541,7 +545,7 @@ def test_detect_firmware_gates_no_amixer(monkeypatch):
 def test_detect_firmware_gates_demo_env(monkeypatch, value, expected_on):
     """DEMO_FIRMWARE_GATE injects a synthetic gate (state = the value)."""
     monkeypatch.setenv("DEMO_FIRMWARE_GATE", value)
-    gates = d.detect_speaker_firmware_gates()
+    gates = speakers.detect_speaker_firmware_gates()
     assert len(gates) == 1 and gates[0].on is expected_on
 
 
@@ -561,11 +565,11 @@ def test_demo_speaker_pin_reaches_the_warning(monkeypatch, hda, soundwire):
     machine wasn't HDA — a SoundWire laptop, or CI, which has no /proc/asound
     to make bus_type "hda" at all. That version passed here and failed on CI.
     """
-    monkeypatch.setattr(d, "get_hda_codec_ids", lambda: hda)
-    monkeypatch.setattr(d, "get_soundwire_ids", lambda: soundwire)
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: hda)
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: soundwire)
     monkeypatch.setenv("DEMO_SPEAKER_PIN", "17aa386a")   # case-insensitive
     info = d._gather_speaker_pins()
-    found = d.find_hidden_speaker_pin(info)
+    found = speakers.find_hidden_speaker_pin(info)
     assert found and found[2] == ["0x17"]
     assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
 
@@ -579,18 +583,18 @@ def test_demo_speaker_pin_reaches_the_warning(monkeypatch, hda, soundwire):
 def test_demo_speaker_pin_reaches_the_speaker_report(monkeypatch):
     """--speaker-info and --doctor gather through the other function, whose
     bus-type branch skipped the demo in exactly the same way."""
-    monkeypatch.setattr(d, "get_hda_codec_ids", lambda: [])       # as on CI
-    monkeypatch.setattr(d, "get_soundwire_ids", lambda: [])
-    monkeypatch.setattr(d, "detect_speaker_firmware_gates", list)  # no amixer
-    monkeypatch.setattr(d, "_gather_amp_evidence", lambda info: None)
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])       # as on CI
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", list)  # no amixer
+    monkeypatch.setattr(amps, "_gather_amp_evidence", lambda info: None)
     monkeypatch.setenv("DEMO_SPEAKER_PIN", "17AA386A")
     info = d._gather_speaker_info()
     assert [p.node for p in info.unconfigured_pins] == ["0x17", "0x1b", "0x1e"]
-    assert d.find_hidden_speaker_pin(info)
+    assert speakers.find_hidden_speaker_pin(info)
 
 
 def _gate(on):
-    return d.FirmwareGate(
+    return speakers.FirmwareGate(
         card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",
         name="Speaker Force Firmware Load", on=on,
     )
@@ -664,23 +668,23 @@ def test_warn_old_kernel_silent_when_recent_or_unparseable(silence_console,
 # channel count; each SoundWire slave is one amp, default 1.
 
 def test_layout_summary_soundwire_amps_not_doubled():
-    info = d.SpeakerInfo()
-    info.speakers = [d.SpeakerPin(f"sdw:{i}", "cs35l56", "amplifier", channels=1)
+    info = speakers.SpeakerInfo()
+    info.speakers = [speakers.SpeakerPin(f"sdw:{i}", "cs35l56", "amplifier", channels=1)
                      for i in range(6)]
     assert info.layout_summary == "6 speakers → multi-way: 6x amplifier"
 
 
 def test_layout_summary_hda_stereo_pin_unchanged():
-    info = d.SpeakerInfo()
-    info.speakers = [d.SpeakerPin("0x17", "Speaker", "tweeter", channels=2)]
+    info = speakers.SpeakerInfo()
+    info.speakers = [speakers.SpeakerPin("0x17", "Speaker", "tweeter", channels=2)]
     assert info.layout_summary == "2 speakers → full-range stereo"
 
 
 def test_layout_summary_multiway_sums_channels_by_role():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.speakers = [
-        d.SpeakerPin("0x17", "Speaker", "tweeter", channels=2),
-        d.SpeakerPin("0x1d", "Bass Speaker", "woofer", channels=2),
+        speakers.SpeakerPin("0x17", "Speaker", "tweeter", channels=2),
+        speakers.SpeakerPin("0x1d", "Bass Speaker", "woofer", channels=2),
     ]
     assert info.layout_summary == "4 speakers → multi-way: 2x tweeter + 2x woofer"
 
@@ -690,14 +694,14 @@ def test_amp_channels_from_sysfs(tmp_path):
     sink = dev / "dp1_sink"
     sink.mkdir(parents=True)
     (sink / "max_ch").write_text("1\n")
-    assert d._amp_channels_from_sysfs(dev) == 1
-    assert d._amp_channels_from_sysfs(tmp_path / "missing") is None  # no DisCo props
+    assert speakers._amp_channels_from_sysfs(dev) == 1
+    assert speakers._amp_channels_from_sysfs(tmp_path / "missing") is None  # no DisCo props
 
 
 def test_read_sysfs_int_tolerates_bad_bytes(tmp_path):
     p = tmp_path / "max_ch"
     p.write_bytes(b"\xff\xfe")  # non-UTF-8 sysfs blob → None, not a traceback
-    assert d._read_sysfs_int(p) is None
+    assert speakers._read_sysfs_int(p) is None
 
 
 # --- Smart-amp firmware/log evidence: bus-agnostic, driver-keyed (issue #27) -
@@ -710,7 +714,7 @@ def test_read_sysfs_int_tolerates_bad_bytes(tmp_path):
     ("rt1318", False, "rt13"),            # Realtek SoundWire — no separate fw blob
 ])
 def test_amp_firmware_profile_known(driver, has_globs, kw):
-    globs, keywords = d._amp_firmware_profile(driver)
+    globs, keywords = amps._amp_firmware_profile(driver)
     assert bool(globs) is has_globs
     assert kw in keywords
 
@@ -722,18 +726,18 @@ def test_amp_firmware_profile_known(driver, has_globs, kw):
 ])
 def test_amp_firmware_profile_unknown(driver):
     # 'max98' must not be a bare substring match (it would catch these).
-    assert d._amp_firmware_profile(driver) is None
+    assert amps._amp_firmware_profile(driver) is None
 
 
 def test_amp_families_failure_markers():
     # Markers are co-located per family; every blob-loading family carries a
     # source-verified tell, and Maxim deliberately carries none (its missing DSM
     # param is silent/non-fatal — we must not invent a marker for it).
-    markers = {fam[0][0]: fam[3] for fam in d._AMP_FAMILIES}
+    markers = {fam[0][0]: fam[3] for fam in amps._AMP_FAMILIES}
     assert markers["cs35l"] and markers["tas2"] and markers["rt13"]
     assert markers["max98373"] == ""
     # The compiled union must be exactly the non-empty family markers, OR-joined.
-    assert d._AMP_LOG_ERROR_RE.pattern == "|".join(
+    assert amps._AMP_LOG_ERROR_RE.pattern == "|".join(
         m for m in markers.values() if m)
 
 
@@ -767,36 +771,36 @@ def test_amp_families_failure_markers():
     ("some unrelated kernel message", False),
 ])
 def test_amp_log_is_error(line, is_error):
-    assert d._amp_log_is_error(line) is is_error
+    assert amps._amp_log_is_error(line) is is_error
 
 
 def test_scan_amp_log_filters_and_flags_errors():
     log = ("kernel: cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw\n"
            "kernel: random unrelated line\n"
            "kernel: cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2\n")
-    assert d.scan_amp_log(log, ["cs35l", "cirrus"]) == [
+    assert amps.scan_amp_log(log, ["cs35l", "cirrus"]) == [
         (False, "kernel: cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw"),
         (True, "kernel: cs35l56 sdw:0:1: Firmware boot timed out(3): HALO_STATE=0x2"),
     ]
-    assert d.scan_amp_log(log, []) == []
+    assert amps.scan_amp_log(log, []) == []
 
 
 def test_list_firmware_files(tmp_path):
     (tmp_path / "cirrus").mkdir()
     (tmp_path / "cirrus" / "cs35l56-b0-dsp1-misc-aabb-amp1.bin").write_text("x")
     (tmp_path / "cirrus" / "other.bin").write_text("x")
-    found = d._list_firmware_files(["cirrus/cs35l*"], roots=[tmp_path])
+    found = amps._list_firmware_files(["cirrus/cs35l*"], roots=[tmp_path])
     assert found == ["cirrus/cs35l56-b0-dsp1-misc-aabb-amp1.bin"]
 
 
 # --- Merged "Speaker amplifier status" section: terse, expand on problems ----
 
 def _astat(node, driver="cs35l56", bound=True, channels=1):
-    return d.AmpStatus(node=node, driver=driver, bound=bound, channels=channels)
+    return speakers.AmpStatus(node=node, driver=driver, bound=bound, channels=channels)
 
 
 def test_amp_status_lines_healthy_is_terse():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat(f"sdw:{i}") for i in range(6)]
     info.amp_firmware = ["cirrus/cs35l56-amp1.bin"]
     info.amp_log = [(False, "DSP1: cirrus/cs35l56.wmfw")]
@@ -806,7 +810,7 @@ def test_amp_status_lines_healthy_is_terse():
 
 
 def test_amp_status_lines_unbound_is_neutral():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0", bound=False, channels=0), _astat("sdw:1")]
     lines = d._amp_status_lines(info)
     assert any("no driver bound" in l and "sdw:0" in l for l in lines)
@@ -814,9 +818,9 @@ def test_amp_status_lines_unbound_is_neutral():
 
 
 def test_amp_status_lines_includes_firmware_gate_off():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
-    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
+    info.firmware_gates = [speakers.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=False)]
     lines = d._amp_status_lines(info)
     assert any("Force Firmware Load" in l and "OFF" in l for l in lines)
@@ -825,12 +829,12 @@ def test_amp_status_lines_includes_firmware_gate_off():
     # reader with a diagnosis and no command.
     fix = [l for l in lines if "amixer" in l]
     assert fix and "iface=CARD" in fix[0] and fix[0].rstrip().endswith(" on")
-    assert fix[0].strip() == f"turn it on:  {d.amixer_enable_cmd(info.firmware_gates[0])}"
+    assert fix[0].strip() == f"turn it on:  {speakers.amixer_enable_cmd(info.firmware_gates[0])}"
 
 
 def test_amp_status_lines_gate_on_offers_no_fix():
-    info = d.SpeakerInfo()
-    info.firmware_gates = [d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
+    info = speakers.SpeakerInfo()
+    info.firmware_gates = [speakers.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                                           "Speaker Force Firmware Load", on=True)]
     lines = d._amp_status_lines(info)
     assert not any("amixer" in l for l in lines)
@@ -838,7 +842,7 @@ def test_amp_status_lines_gate_on_offers_no_fix():
 
 
 def test_amp_status_lines_flags_log_error_and_missing_firmware():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_firmware = []
     info.amp_firmware_missing = True
@@ -853,7 +857,7 @@ def test_amp_status_lines_flags_log_error_and_missing_firmware():
 
 def test_amp_status_lines_log_error_truncation_is_surfaced():
     # >3 errors: show 3 and say how many were dropped (never a silent cap).
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log = [(True, f"cs35l56 sdw:0:{i}: FIRMWARE_MISSING") for i in range(6)]
     lines = d._amp_status_lines(info)
@@ -862,7 +866,7 @@ def test_amp_status_lines_log_error_truncation_is_surfaced():
 
 
 def test_amp_status_lines_no_ok_verdict_when_log_clean():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56.wmfw")]
     lines = d._amp_status_lines(info)
@@ -877,7 +881,7 @@ def test_amp_status_lines_no_ok_verdict_when_log_clean():
 
 def test_amp_status_lines_grep_hint_uses_scanned_keywords():
     # The printed self-check command must match what the report actually scanned.
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0", driver="max98373")]
     info.amp_log_grep = "max98"
     info.amp_log = [(False, "max98373 ...: some line")]
@@ -889,7 +893,7 @@ def test_amp_status_lines_grep_hint_uses_scanned_keywords():
 def test_amp_status_lines_missing_firmware_clean_log_still_points_at_log():
     # Regression: firmware missing + readable-but-empty log must not dangle the
     # "see the kernel log" reference with nothing below it.
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_firmware_missing = True
     info.amp_log = []  # readable, but no amp lines this boot
@@ -898,14 +902,14 @@ def test_amp_status_lines_missing_firmware_clean_log_still_points_at_log():
 
 
 def test_amp_status_lines_log_inaccessible():
-    info = d.SpeakerInfo()
+    info = speakers.SpeakerInfo()
     info.amp_status = [_astat("sdw:0")]
     info.amp_log_available = False
     assert any("not accessible" in l for l in d._amp_status_lines(info))
 
 
 def test_amp_status_lines_empty():
-    assert d._amp_status_lines(d.SpeakerInfo()) == ["  (no smart amplifier detected)"]
+    assert d._amp_status_lines(speakers.SpeakerInfo()) == ["  (no smart amplifier detected)"]
 
 
 @pytest.mark.parametrize("mode,check", [
@@ -916,8 +920,8 @@ def test_amp_status_lines_empty():
 ])
 def test_demo_amp_status_env(monkeypatch, mode, check):
     monkeypatch.setenv("ATMOS_DEMO_AMP_STATUS", mode)
-    info = d.SpeakerInfo()
-    assert d._maybe_demo_amp_status(info) is True
+    info = speakers.SpeakerInfo()
+    assert speakers._maybe_demo_amp_status(info) is True
     assert check(d._amp_status_lines(info))
 
 
@@ -925,8 +929,8 @@ def test_demo_amp_status_env(monkeypatch, mode, check):
 def test_demo_amp_status_unknown_value_is_no_demo(monkeypatch, value):
     # An unset or typo'd value must NOT silently fake a healthy report.
     monkeypatch.setenv("ATMOS_DEMO_AMP_STATUS", value)
-    info = d.SpeakerInfo()
-    assert d._maybe_demo_amp_status(info) is False
+    info = speakers.SpeakerInfo()
+    assert speakers._maybe_demo_amp_status(info) is False
     assert info.amp_status == []
 
 
@@ -1008,34 +1012,34 @@ Node 0x05 [Pin Complex] wcaps 0x400781: Digital
 
 
 def test_parse_codec_pins_two_speakers():
-    ssid, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_TWO_PINS)
+    ssid, pins, unconfigured = speakers.parse_hda_codec_pins(CODEC_TWO_PINS)
     assert ssid == "17AA22E6"
-    assert [(s.node, s.role, s.channels) for s in speakers] == [
+    assert [(s.node, s.role, s.channels) for s in pins] == [
         ("0x14", "tweeter", 2), ("0x17", "woofer", 2)]
-    assert all(s.codec == "17AA22E6" for s in speakers)
+    assert all(s.codec == "17AA22E6" for s in pins)
 
 
 def test_parse_codec_pins_hidden_woofer():
     """With 0x17 marked unconnected the woofer stops being a speaker pin and
     becomes indistinguishable from the spare ones."""
-    _, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_ONE_PIN)
-    assert [s.node for s in speakers] == ["0x14"]
+    _, pins, unconfigured = speakers.parse_hda_codec_pins(CODEC_ONE_PIN)
+    assert [s.node for s in pins] == ["0x14"]
     assert "0x17" in [p.node for p in unconfigured]
 
 
 def test_parse_codec_pins_reports_spare_output_pins():
     """0x1b and 0x1e are output-capable with no default config; 0x18 is an
     input pin and 0x21 is a configured jack, so neither may be listed."""
-    _, _, unconfigured = d.parse_hda_codec_pins(CODEC_TWO_PINS)
+    _, _, unconfigured = speakers.parse_hda_codec_pins(CODEC_TWO_PINS)
     assert [p.node for p in unconfigured] == ["0x1b", "0x1e"]
     assert all(p.pin_default == "0x411111f0" for p in unconfigured)
     assert all(p.codec == "17AA22E6" for p in unconfigured)
 
 
 def test_parse_codec_pins_hdmi_has_no_speakers():
-    ssid, speakers, unconfigured = d.parse_hda_codec_pins(CODEC_HDMI)
+    ssid, pins, unconfigured = speakers.parse_hda_codec_pins(CODEC_HDMI)
     assert ssid == "80860101"
-    assert speakers == [] and unconfigured == []
+    assert pins == [] and unconfigured == []
 
 
 @pytest.mark.parametrize("cfg,speaker,unconnected", [
@@ -1051,18 +1055,18 @@ def test_pin_config_fields_decode_as_the_kernel_renders_them(
     """The classifier reads the raw 32-bit config now, because an override
     arrives as a number with no rendered line to match against. Each value
     here is one a real dump carries, paired with how /proc renders it."""
-    assert d._pin_is_internal_speaker(cfg) is speaker
-    assert d._pin_is_unconnected(cfg) is unconnected
+    assert speakers._pin_is_internal_speaker(cfg) is speaker
+    assert speakers._pin_is_unconnected(cfg) is unconnected
 
 
 def test_parse_pin_config_overrides():
-    assert d.parse_pin_config_overrides(
+    assert speakers.parse_pin_config_overrides(
         "0x17 0x90170121\n0x1b 0x411111f0\n") == {
             "0x17": 0x90170121, "0x1b": 0x411111f0}
     # An empty file is what a codec with no override reports, and the header
     # -less format means a malformed line can only be skipped.
-    assert d.parse_pin_config_overrides("") == {}
-    assert d.parse_pin_config_overrides("garbage\n0xzz 0x1\n") == {}
+    assert speakers.parse_pin_config_overrides("") == {}
+    assert speakers.parse_pin_config_overrides("garbage\n0xzz 0x1\n") == {}
 
 
 def test_read_pin_config_overrides_lines_up_proc_and_sysfs(tmp_path):
@@ -1076,24 +1080,24 @@ def test_read_pin_config_overrides_lines_up_proc_and_sysfs(tmp_path):
     (sysfs / "hwC0D0").mkdir(parents=True)
     (sysfs / "hwC0D0/driver_pin_configs").write_text("0x17 0x90170121\n")
 
-    assert d.read_pin_config_overrides(codec_path, sysfs) == {
-        "0x17": d.PinOverride(0x90170121, "kernel fixup")}
+    assert speakers.read_pin_config_overrides(codec_path, sysfs) == {
+        "0x17": speakers.PinOverride(0x90170121, "kernel fixup")}
     # user_pin_configs is the only one of the two gated behind
     # CONFIG_SND_HDA_RECONFIG, and it outranks the driver's where both exist.
     (sysfs / "hwC0D0/user_pin_configs").write_text("0x17 0x90170110\n")
-    assert d.read_pin_config_overrides(codec_path, sysfs) == {
-        "0x17": d.PinOverride(0x90170110, "manual pincfg")}
+    assert speakers.read_pin_config_overrides(codec_path, sysfs) == {
+        "0x17": speakers.PinOverride(0x90170110, "manual pincfg")}
     # A codec with neither file reads as a machine with nothing overridden.
-    assert d.read_pin_config_overrides(proc / "codec#1", sysfs) == {}
+    assert speakers.read_pin_config_overrides(proc / "codec#1", sysfs) == {}
 
 
 def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
           pci=None, overrides=None):
     """A SpeakerInfo as _gather_speaker_info would build it from *codec_dumps*."""
-    info = d.SpeakerInfo(sound_cards=list(cards), pci_subsystem=pci)
+    info = speakers.SpeakerInfo(sound_cards=list(cards), pci_subsystem=pci)
     for dump in codec_dumps:
-        ssid, speakers, unconfigured = d.parse_hda_codec_pins(dump, overrides)
-        info.speakers.extend(speakers)
+        ssid, pins, unconfigured = speakers.parse_hda_codec_pins(dump, overrides)
+        info.speakers.extend(pins)
         info.unconfigured_pins.extend(unconfigured)
         info.hda_codecs.append(("10EC0287", ssid, "Realtek ALC287"))
     return info
@@ -1109,13 +1113,13 @@ ISSUE_53_SSID = "0x17aa386a"
 CODEC_FIXUP_APPLIED = _codec_dump(ssid=ISSUE_53_SSID,
                                   bass_pin_default="0x411111f0",
                                   bass_control=True)
-FIXUP_OVERRIDE = {"0x17": d.PinOverride(0x90170121, "kernel fixup")}
+FIXUP_OVERRIDE = {"0x17": speakers.PinOverride(0x90170121, "kernel fixup")}
 
 
 def test_override_reveals_the_pin_proc_still_calls_unconnected():
-    _, speakers, unconfigured = d.parse_hda_codec_pins(
+    _, pins, unconfigured = speakers.parse_hda_codec_pins(
         CODEC_FIXUP_APPLIED, FIXUP_OVERRIDE)
-    assert [(s.node, s.role, s.override) for s in speakers] == [
+    assert [(s.node, s.role, s.override) for s in pins] == [
         ("0x14", "tweeter", ""), ("0x17", "woofer", "kernel fixup")]
     assert "0x17" not in [p.node for p in unconfigured]
 
@@ -1125,8 +1129,8 @@ def test_warning_clears_once_the_fixup_is_applied():
     the modprobe fix was told to apply it again, on every run, forever — and
     step 2 of that procedure asked them to confirm something that could never
     happen."""
-    assert d.find_hidden_speaker_pin(_info([CODEC_FIXUP_APPLIED])) is not None
-    assert d.find_hidden_speaker_pin(
+    assert speakers.find_hidden_speaker_pin(_info([CODEC_FIXUP_APPLIED])) is not None
+    assert speakers.find_hidden_speaker_pin(
         _info([CODEC_FIXUP_APPLIED], overrides=FIXUP_OVERRIDE)) is None
 
 
@@ -1140,8 +1144,8 @@ def test_detect_hda_speakers_reads_the_override(tmp_path):
     (sysfs / "hwC0D0").mkdir(parents=True)
     (sysfs / "hwC0D0/driver_pin_configs").write_text("0x17 0x90170121\n")
 
-    info = d.SpeakerInfo()
-    d._detect_hda_speakers(info, tmp_path / "proc/asound", sysfs)
+    info = speakers.SpeakerInfo()
+    speakers._detect_hda_speakers(info, tmp_path / "proc/asound", sysfs)
     assert [(s.node, s.override) for s in info.speakers] == [
         ("0x14", ""), ("0x17", "kernel fixup")]
     assert [p.node for p in info.unconfigured_pins] == ["0x1b", "0x1e"]
@@ -1161,7 +1165,7 @@ def test_speaker_info_tags_an_overridden_pin(capsys):
 def test_hidden_pin_detected_on_listed_machine():
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    found = d.find_hidden_speaker_pin(info)
+    found = speakers.find_hidden_speaker_pin(info)
     assert found is not None
     quirk, codec_ssid, missing = found
     assert codec_ssid == "17AA386A"
@@ -1175,7 +1179,7 @@ def test_no_warning_when_both_pins_present():
     """The same listed machine, once the quirk is applied, must go silent —
     otherwise the warning would never stop firing after the user fixed it."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID)])
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_no_warning_for_unlisted_machine():
@@ -1184,7 +1188,7 @@ def test_no_warning_for_unlisted_machine():
     #50, all "Stereo speakers, 2W x2" per the manufacturer)."""
     info = _info([_codec_dump(ssid="0x17aa38dc",
                               bass_pin_default="0x411111f0")])
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_hdmi_codec_ssid_never_matches():
@@ -1192,7 +1196,7 @@ def test_hdmi_codec_ssid_never_matches():
     counted per codec, and an HDMI codec has none to be short of."""
     hdmi = CODEC_HDMI.replace("0x80860101", ISSUE_53_SSID)
     info = _info([_codec_dump(ssid="0x17aa38dc"), hdmi])
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_pci_keyed_quirk_matches_off_sof():
@@ -1201,7 +1205,7 @@ def test_pci_keyed_quirk_matches_off_sof():
     info = _info([_codec_dump(ssid="0x17aa9999",
                               bass_pin_default="0x411111f0")],
                  pci=("17AA", "3801"))
-    assert d.find_hidden_speaker_pin(info) is not None
+    assert speakers.find_hidden_speaker_pin(info) is not None
 
 
 def test_pci_keyed_quirk_ignored_on_sof():
@@ -1212,7 +1216,7 @@ def test_pci_keyed_quirk_ignored_on_sof():
                               bass_pin_default="0x411111f0")],
                  cards=("0 [sofhdadsp ]: sof-hda-dsp - sof-hda-dsp",),
                  pci=("17AA", "3801"))
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_codec_keyed_quirk_never_matches_pci_id():
@@ -1221,14 +1225,14 @@ def test_codec_keyed_quirk_never_matches_pci_id():
     info = _info([_codec_dump(ssid="0x17aa9999",
                               bass_pin_default="0x411111f0")],
                  pci=("17AA", "386A"))
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_soundwire_machine_is_never_checked():
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
     info.soundwire_devices = [("01FA", "3556")]  # flips bus_type to soundwire
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
@@ -1238,7 +1242,7 @@ def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
     info = _info([_codec_dump(ssid="0x17aa38cf",
                               bass_pin_default="0x411111f0")])
     assert d.warn_hidden_speaker_pin(
-        d.find_hidden_speaker_pin(info), info) is not None
+        speakers.find_hidden_speaker_pin(info), info) is not None
     out = capsys.readouterr().out
     assert "sudo tee" not in out and "hda_model" not in out
     assert "can't be forced by hand" in out
@@ -1247,7 +1251,7 @@ def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
 def test_hidden_pin_warning_copy(capsys):
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    finding = d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    finding = d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     out = capsys.readouterr().out
     assert finding is not None and finding.kind == "hint"
     # The fix, its verification, and its undo must all be present: a modprobe
@@ -1261,7 +1265,7 @@ def test_hidden_pin_warning_copy(capsys):
 
 
 def test_hidden_pin_warning_silent_without_match(capsys):
-    assert d.warn_hidden_speaker_pin(None, d.SpeakerInfo()) is None
+    assert d.warn_hidden_speaker_pin(None, speakers.SpeakerInfo()) is None
     assert capsys.readouterr().out == ""
 
 
@@ -1276,7 +1280,7 @@ def test_speaker_pin_doctor_check():
 def test_hda_model_module_falls_back_to_legacy(tmp_path):
     """No hda_model parameter anywhere (legacy snd-hda-intel, or nothing
     loaded) must still yield a usable module/parameter pair."""
-    assert d.hda_model_module(True, tmp_path) == ("snd_hda_intel", "model")
+    assert speakers.hda_model_module(True, tmp_path) == ("snd_hda_intel", "model")
 
 
 def test_hda_model_module_finds_whichever_driver_exposes_it(tmp_path):
@@ -1285,7 +1289,7 @@ def test_hda_model_module_finds_whichever_driver_exposes_it(tmp_path):
     params = tmp_path / "snd_sof_intel_hda_generic" / "parameters"
     params.mkdir(parents=True)
     (params / "hda_model").write_text("\n")
-    assert d.hda_model_module(True, tmp_path) == (
+    assert speakers.hda_model_module(True, tmp_path) == (
         "snd_sof_intel_hda_generic", "hda_model")
 
 
@@ -1333,7 +1337,7 @@ def test_fires_when_the_declared_pin_is_missing_but_another_speaker_exists():
     even though it has a speaker pin — so "has speakers" can't be the test."""
     info = _info([_codec_dump(ssid="0x17aa390d",
                               bass_pin_default="0x411111f0")])
-    assert d.find_hidden_speaker_pin(info) is not None
+    assert speakers.find_hidden_speaker_pin(info) is not None
 
 
 def test_fires_when_the_codec_has_no_speaker_pins_at_all():
@@ -1345,7 +1349,7 @@ def test_fires_when_the_codec_has_no_speaker_pins_at_all():
                         "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
     info = _info([dump])
     assert info.speakers == []
-    found = d.find_hidden_speaker_pin(info)
+    found = speakers.find_hidden_speaker_pin(info)
     assert found is not None and found[0].pins == "0x14"
     assert found[2] == ["0x14"]
 
@@ -1354,7 +1358,7 @@ def test_silent_once_every_declared_pin_is_present():
     """The regression the pin-counting predicate would have shipped: a fixup
     declaring one pin, on a machine that now has it, must stop warning."""
     info = _info([_codec_dump(ssid="0x17aa390d")])
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 # The negative signal (issue #53): the table only knows machines upstream has
@@ -1405,7 +1409,7 @@ def test_other_codecs_cannot_borrow_the_machine_pci_id():
         "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
     # 1028:0B37 is PCI-keyed and declares 0x14 0x17.
     info = _info([analog, hdmi], pci=("1028", "0B37"))
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_declared_pins_must_exist_on_the_matching_codec():
@@ -1413,7 +1417,7 @@ def test_declared_pins_must_exist_on_the_matching_codec():
     is about, whatever id matched."""
     hdmi = CODEC_HDMI.replace("0x80860101", "0x10280B37")
     info = _info([hdmi])
-    assert d.find_hidden_speaker_pin(info) is None
+    assert speakers.find_hidden_speaker_pin(info) is None
 
 
 def test_microsoft_usb_device_does_not_read_as_a_sof_machine():
@@ -1422,11 +1426,11 @@ def test_microsoft_usb_device_does_not_read_as_a_sof_machine():
     same machine reported differently depending on what was plugged in."""
     cards = ("0 [PCH            ]: HDA-Intel - HDA Intel PCH",
              "1 [Studio         ]: USB-Audio - Microsoft LifeCam Studio")
-    assert d._card_uses_sof(list(cards)) is False
+    assert speakers._card_uses_sof(list(cards)) is False
     info = _info([_codec_dump(ssid="0x17aa9999",
                               bass_pin_default="0x411111f0")],
                  cards=cards, pci=("17AA", "3801"))
-    assert d.find_hidden_speaker_pin(info) is not None
+    assert speakers.find_hidden_speaker_pin(info) is not None
 
 
 @pytest.mark.parametrize("line,expected", [
@@ -1437,7 +1441,7 @@ def test_microsoft_usb_device_does_not_read_as_a_sof_machine():
     ("0 [Generic        ]: HDA-Intel - HD-Audio Generic", False),
 ])
 def test_card_uses_sof_reads_the_driver_field(line, expected):
-    assert d._card_uses_sof([line]) is expected
+    assert speakers._card_uses_sof([line]) is expected
 
 
 def test_modprobe_line_names_the_driver_that_owns_the_codec(tmp_path):
@@ -1446,8 +1450,8 @@ def test_modprobe_line_names_the_driver_that_owns_the_codec(tmp_path):
     params = tmp_path / "snd_sof_intel_hda_generic" / "parameters"
     params.mkdir(parents=True)
     (params / "hda_model").write_text("\n")
-    assert d.hda_model_module(False, tmp_path) == ("snd_hda_intel", "model")
-    assert d.hda_model_module(True, tmp_path) == (
+    assert speakers.hda_model_module(False, tmp_path) == ("snd_hda_intel", "model")
+    assert speakers.hda_model_module(True, tmp_path) == (
         "snd_sof_intel_hda_generic", "hda_model")
 
 
@@ -1456,7 +1460,7 @@ def test_warning_names_only_the_missing_pin(capsys):
     would send the reader after a pin that works."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     out = capsys.readouterr().out
     assert "pin 0x17" in out and "0x14" not in out
 
@@ -1468,7 +1472,7 @@ def test_copy_never_asserts_a_pin_count_it_cannot_know(capsys):
     dump = dump.replace("Pin Default 0x90170110: [Fixed] Speaker at Int N/A",
                         "Pin Default 0x411111f0: [N/A] Speaker at Ext Rear")
     info = _info([dump])
-    found = d.find_hidden_speaker_pin(info)
+    found = speakers.find_hidden_speaker_pin(info)
     d.warn_hidden_speaker_pin(found, info)
     out = capsys.readouterr().out
     check = d.speaker_pin_status(info)
@@ -1502,7 +1506,7 @@ def test_doctor_and_the_end_of_run_block_print_one_procedure(capsys):
     builder now, so a command edited on one side can't go stale on the other."""
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    d.warn_hidden_speaker_pin(d.find_hidden_speaker_pin(info), info)
+    d.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
     printed = capsys.readouterr().out
     commands = [t for style, t in d.speaker_pin_status(info).steps
                 if style == "cta"]
@@ -1609,7 +1613,7 @@ def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
     def boom(*a, **k):
         raise AssertionError("default run must not gather amp evidence")
 
-    monkeypatch.setattr(d, "_gather_amp_evidence", boom)
-    monkeypatch.setattr(d, "detect_speaker_firmware_gates", boom)
+    monkeypatch.setattr(amps, "_gather_amp_evidence", boom)
+    monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", boom)
     info = d._gather_speaker_pins()
-    assert isinstance(info, d.SpeakerInfo)
+    assert isinstance(info, speakers.SpeakerInfo)

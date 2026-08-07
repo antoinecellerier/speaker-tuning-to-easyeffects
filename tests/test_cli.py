@@ -27,6 +27,7 @@ import dolby_to_easyeffects
 from lib import console, version
 from lib.data import speaker_pin_quirks
 from lib.dax import parse
+from lib.hardware import codecs, speakers
 # Aliased like the generator's own import: this file binds `findings` as a
 # local in six tests, and the module has to stay reachable from all of them.
 from lib.report import findings as report_findings
@@ -545,8 +546,8 @@ def test_find_tuning_xml_raises_when_no_audio_hardware(monkeypatch, tmp_path):
     find_tuning_xml; static message, but pinned so a future
     refactor doesn't silently turn it into a different exception type.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     with pytest.raises(FileNotFoundError, match="No HDA codecs or SoundWire"):
         find_tuning_xml(tmp_path)
 
@@ -557,11 +558,11 @@ def test_find_tuning_xml_raises_when_soundwire_without_pci(monkeypatch, tmp_path
     subsystem we can't build the SDW SUBSYS match key, so refusing to
     guess is the right behavior; pin the exception type and message.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "get_soundwire_ids", lambda: [("025D", "1318")]
+        codecs, "get_soundwire_ids", lambda: [("025D", "1318")]
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: None)
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
     with pytest.raises(RuntimeError, match="PCI subsystem"):
         find_tuning_xml(tmp_path)
 
@@ -572,11 +573,11 @@ def test_find_tuning_xml_raises_when_driver_store_missing(monkeypatch, tmp_path)
     interpolates Path objects; pin that the formatter survives.
     """
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: None)
     with pytest.raises(FileNotFoundError, match="DriverStore not found"):
         find_tuning_xml(tmp_path)
@@ -592,11 +593,11 @@ def test_find_tuning_xml_no_matching_xml_includes_hda_in_message(monkeypatch, tm
     so reverting line 836 to the 2-tuple unpack fails here.
     """
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
     with pytest.raises(
         FileNotFoundError, match=r"vendor=10EC0287 subsys=17AA22E6"
@@ -610,12 +611,12 @@ def test_find_tuning_xml_no_matching_xml_includes_sdw_in_message(monkeypatch, tm
     tuple field, this test catches the same arity-bug class on the SDW
     side before it ships.
     """
-    monkeypatch.setattr(dolby_to_easyeffects, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "get_soundwire_ids", lambda: [("025D", "1318")]
+        codecs, "get_soundwire_ids", lambda: [("025D", "1318")]
     )
     monkeypatch.setattr(
-        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: ("17AA", "2339")
+        codecs, "get_pci_audio_subsystem", lambda: ("17AA", "2339")
     )
     monkeypatch.setattr(dolby_to_easyeffects, "_resolve_driver_store", lambda _p: tmp_path)
     with pytest.raises(FileNotFoundError, match=r"man=025D part=1318"):
@@ -645,11 +646,11 @@ def _patch_single_hda_match(monkeypatch, driver_store):
     """Wire find_tuning_xml so a single HDA codec drives candidate matching
     against XMLs in driver_store."""
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("10EC0287", "17AA22E6", "Realtek ALC287")],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(
         dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
     )
@@ -689,13 +690,13 @@ _MAC_XML_NAME = "PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_72708086.xml"
 
 def _patch_mac_pci_match(monkeypatch, driver_store, pci_subsys):
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("8086FFFF", "DEADBEEF", "Dummy non-matching codec")],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(
-        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: pci_subsys
+        codecs, "get_pci_audio_subsystem", lambda: pci_subsys
     )
     monkeypatch.setattr(
         dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
@@ -732,13 +733,13 @@ _GB6_XML_NAME = "SOUNDWIRE_SDCAFUNCTION_10_MAN_01FA_FUNC_3556_SUBSYS_CA0A144D.xm
 
 def _patch_soundwire_match(monkeypatch, driver_store, sdw_devices, pci_subsys):
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("80862822", "80860101", "Intel HDMI")],  # HDMI only, no match
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: sdw_devices)
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: sdw_devices)
     monkeypatch.setattr(
-        dolby_to_easyeffects, "get_pci_audio_subsystem", lambda: pci_subsys
+        codecs, "get_pci_audio_subsystem", lambda: pci_subsys
     )
     monkeypatch.setattr(
         dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
@@ -804,11 +805,11 @@ def test_find_tuning_xml_soundwire_func_disambiguates_same_subsys(monkeypatch, t
 
 def _patch_idea_pad_pro5(monkeypatch, driver_store):
     monkeypatch.setattr(
-        dolby_to_easyeffects,
+        codecs,
         "get_hda_codec_ids",
         lambda: [("10EC0287", "17AA38C5", "Realtek ALC287")],
     )
-    monkeypatch.setattr(dolby_to_easyeffects, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
     monkeypatch.setattr(
         dolby_to_easyeffects, "_resolve_driver_store", lambda _p: driver_store
     )
@@ -868,7 +869,7 @@ def test_get_pci_audio_subsystem_prefers_analog_over_hdmi(tmp_path):
     controller's subsystem must win despite sorting second."""
     _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
     _make_sound_card(tmp_path, "card1", ["Realtek ALC287"], ("17aa", "3881"))
-    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+    assert codecs.get_pci_audio_subsystem(
         **_fake_pci_probe_roots(tmp_path)
     ) == ("17AA", "3881")
 
@@ -877,7 +878,7 @@ def test_get_pci_audio_subsystem_hdmi_only_still_returns(tmp_path):
     """A machine with only a GPU HDMI card keeps the old behaviour — better a
     GPU subsystem than none."""
     _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
-    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+    assert codecs.get_pci_audio_subsystem(
         **_fake_pci_probe_roots(tmp_path)
     ) == ("17AA", "3823")
 
@@ -888,14 +889,14 @@ def test_get_pci_audio_subsystem_rank_order(tmp_path):
     _make_sound_card(tmp_path, "card0", ["ATI R6xx HDMI"], ("17aa", "3823"))
     _make_sound_card(tmp_path, "card1", [], ("1912", "0014"))
     _make_sound_card(tmp_path, "card2", ["Realtek ALC287"], ("17aa", "3881"))
-    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+    assert codecs.get_pci_audio_subsystem(
         **_fake_pci_probe_roots(tmp_path)
     ) == ("17AA", "3881")
     import shutil
 
     shutil.rmtree(tmp_path / "sys" / "card2")
     shutil.rmtree(tmp_path / "proc" / "card2")
-    assert dolby_to_easyeffects.get_pci_audio_subsystem(
+    assert codecs.get_pci_audio_subsystem(
         **_fake_pci_probe_roots(tmp_path)
     ) == ("1912", "0014")
 
@@ -1212,12 +1213,12 @@ def _every_finding():
     # Reached through a SpeakerInfo rather than a factory: this finding's
     # gate is the whole point of it, so building the state that raises it
     # keeps the fixture honest about when the ask actually appears.
-    info = dolby_to_easyeffects.SpeakerInfo(
+    info = speakers.SpeakerInfo(
         hda_codecs=[("10EC0287", "17AA9999", "Realtek ALC287")],
-        speakers=[dolby_to_easyeffects.SpeakerPin(
+        speakers=[speakers.SpeakerPin(
             node="0x14", control_name="Speaker Playback Switch",
             role="tweeter", channels=2, codec="17AA9999")],
-        unconfigured_pins=[dolby_to_easyeffects.UnconfiguredPin(
+        unconfigured_pins=[speakers.UnconfiguredPin(
             node="0x17", codec="17AA9999", pincap="OUT",
             pin_default="0x411111f0")])
     found.append(dolby_to_easyeffects.unlisted_speaker_pin_finding(info))

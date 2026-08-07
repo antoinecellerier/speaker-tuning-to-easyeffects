@@ -30,6 +30,7 @@ import pytest
 
 from lib import console
 from lib.dax import parse
+from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from dolby_to_easyeffects import (
     DOCTOR_FAIL,
@@ -1619,7 +1620,7 @@ def test_doctor_summary_counts():
 
 def _gate(on):
     import dolby_to_easyeffects as d
-    return d.FirmwareGate("0", "sofhdadsp", "3", "CARD",
+    return speakers.FirmwareGate("0", "sofhdadsp", "3", "CARD",
                           "Speaker Force Firmware Load", on=on)
 
 
@@ -1641,7 +1642,7 @@ def test_firmware_gate_check_carries_the_command_that_switches_it_on():
 
     off, on = _gate(False), _gate(True)
     check = firmware_gate_status([off, on])
-    assert check.steps == (("cta", d.amixer_enable_cmd(off)),)
+    assert check.steps == (("cta", speakers.amixer_enable_cmd(off)),)
     assert "section below" not in check.detail
     assert firmware_gate_status([on]).steps == ()
 

@@ -22,6 +22,7 @@ import pytest
 import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
+from lib.hardware import sinks
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = (
@@ -219,7 +220,7 @@ def test_sink_completer_degrades_when_pipewire_is_absent(monkeypatch):
     def boom():
         raise RuntimeError("pw-dump exploded")
 
-    monkeypatch.setattr(dolby_to_easyeffects, "_enumerate_audio_sinks", boom)
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", boom)
     assert dolby_to_easyeffects._complete_sink_names("") == []
 
 
@@ -228,7 +229,7 @@ def test_sink_completer_degrades_when_pipewire_is_absent(monkeypatch):
                     reason="no PipeWire tooling present")
 def test_sink_completer_filters_by_prefix(monkeypatch):
     monkeypatch.setattr(
-        dolby_to_easyeffects, "_enumerate_audio_sinks",
+        sinks, "_enumerate_audio_sinks",
         lambda: [{"name": "alsa_output.speaker"}, {"name": "bluez_output.x"}],
     )
     assert dolby_to_easyeffects._complete_sink_names("alsa") == [

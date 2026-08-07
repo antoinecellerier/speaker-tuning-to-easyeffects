@@ -1029,7 +1029,7 @@ def format_conf(stages: list[Stage], links: list[dict],
 def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     """Return (chosen_sink_name, warnings) for the smart-filter target.
 
-    Uses ``dolby_to_easyeffects.select_speaker_sinks()`` (same probe as the
+    Uses ``lib.hardware.sinks.select_speaker_sinks()`` (same probe as the
     EasyEffects autoload pathway): ``pw-dump`` filtered to ``Audio/Sink``
     nodes, preferring those tagged ``device.icon_name == audio-speakers`` (the
     "strict" tier, which excludes HDMI / Bluetooth / headsets). When nothing is
@@ -1041,15 +1041,15 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     pass ``--target-sink``.
     """
     try:
-        from dolby_to_easyeffects import select_speaker_sinks, _sink_diag_line
+        from lib.hardware import sinks
     except Exception as e:  # pragma: no cover — defensive
         return None, [f"could not import speaker probe: {e}"]
 
     # Terse, description-less form of the shared diagnostic (console warnings).
     def _diag(sink: dict) -> str:
-        return _sink_diag_line(sink, with_description=False)
+        return sinks._sink_diag_line(sink, with_description=False)
 
-    sel = select_speaker_sinks()
+    sel = sinks.select_speaker_sinks()
     tier, selected, all_sinks = sel["tier"], sel["selected"], sel["all_sinks"]
 
     if tier == "strict":
@@ -1253,7 +1253,7 @@ def _pw_dump() -> list | None:
     """Every PipeWire object, or None when the daemon can't be reached.
 
     The doctor's single ``pw-dump`` boundary — tests monkeypatch it to feed
-    synthetic graphs. Deliberately not dolby_to_easyeffects._enumerate_audio_sinks:
+    synthetic graphs. Deliberately not lib.hardware.sinks._enumerate_audio_sinks:
     that reduces to Audio/Sink nodes with a fixed field set, and these checks
     need filter.smart*, node.link-group and target.object on every node.
     """
@@ -1894,8 +1894,8 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
     """Tab-completion for --target-sink / --target-object: PipeWire node.name
     values, from the same pw-dump boundary _autodetect_speaker_sink() uses."""
     try:
-        from dolby_to_easyeffects import _enumerate_audio_sinks
-        names = [s.get("name", "") for s in _enumerate_audio_sinks()]
+        from lib.hardware import sinks
+        names = [s.get("name", "") for s in sinks._enumerate_audio_sinks()]
     except Exception:  # a wedged or absent PipeWire must never break TAB
         return []
     return [n for n in names if n.startswith(prefix)]
