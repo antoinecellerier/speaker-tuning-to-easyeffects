@@ -9,7 +9,7 @@ audible pre-ringing, so the cepstral path here must be preserved.
 import numpy as np
 import pytest
 
-from dolby_to_easyeffects import (
+from lib.preset.fir import (
     FIR_LENGTH,
     SAMPLE_RATE,
     interpolate_curve_db,

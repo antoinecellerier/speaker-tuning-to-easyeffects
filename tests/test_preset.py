@@ -29,14 +29,14 @@ import numpy as np
 import pytest
 
 from lib import console
+from lib.dax import parse
+from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from dolby_to_easyeffects import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
     BYPASS_PRESET_NAME,
-    FIR_LENGTH,
-    SAMPLE_RATE,
     CheckResult,
     DoctorReport,
     _atomic_write,
@@ -56,7 +56,6 @@ from dolby_to_easyeffects import (
     make_autogain,
     make_bass_enhancer,
     make_dialog_enhancer,
-    make_fir,
     make_limiter,
     make_multiband_compressor,
     make_peq_eq,
@@ -930,12 +929,12 @@ def test_parse_xml_reads_declared_default_profile(tmp_path):
     import dolby_to_easyeffects as d
 
     declared = write_synthetic_tuning_xml(tmp_path / "a.xml", default_profile="music")
-    tuning = d.parse_xml(declared)
+    tuning = parse.parse_xml(declared)
     assert tuning.default_profile == "music"
     assert tuning.profile_used == "dynamic"
 
     plain = write_synthetic_tuning_xml(tmp_path / "b.xml")
-    assert d.parse_xml(plain).default_profile is None
+    assert parse.parse_xml(plain).default_profile is None
 
 
 # --- LOCK-IN: audio-optimizer-enable=0 must suppress the correction curve ---
@@ -963,7 +962,7 @@ def test_audio_optimizer_curve_dropped_when_the_xml_disables_it(tmp_path):
     the IEQ voicing is a separate stage."""
     import dolby_to_easyeffects as d
 
-    off = d.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
+    off = parse.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
     assert off.ao_enabled is False
     assert off.ao_left == [0] * 20
     assert off.ao_right == [0] * 20
@@ -977,7 +976,7 @@ def test_audio_optimizer_curve_kept_when_enabled_or_absent(tmp_path):
     import dolby_to_easyeffects as d
 
     for name, value in (("on.xml", 1), ("absent.xml", None)):
-        tuning = d.parse_xml(_xml_with_ao_enable(tmp_path, name, value))
+        tuning = parse.parse_xml(_xml_with_ao_enable(tmp_path, name, value))
         assert tuning.ao_enabled is True, name
         assert any(v != 0 for v in tuning.ao_left), name
         assert any(v != 0 for v in tuning.ao_right), name
@@ -987,7 +986,7 @@ def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys
     """Zeros in the printed curve would otherwise read as a flat tuning."""
     import dolby_to_easyeffects as d
 
-    tuning = d.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
+    tuning = parse.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
     capsys.readouterr()
     d._report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
     assert "audio-optimizer-enable=0" in capsys.readouterr().out
@@ -1008,10 +1007,10 @@ def test_leveler_substages_parsed_only_when_switched_on(tmp_path):
         '<ieq-enable value="1"/>\n'
         '        <volume-leveler-compressor-enable value="1"/>\n'
         '        <volume-leveler-drc-enable value="0"/>'))
-    assert d.parse_xml(path).leveler_substages == ["volume-leveler-compressor"]
+    assert parse.parse_xml(path).leveler_substages == ["volume-leveler-compressor"]
 
     plain = write_synthetic_tuning_xml(tmp_path / "plain.xml")
-    assert d.parse_xml(plain).leveler_substages == []
+    assert parse.parse_xml(plain).leveler_substages == []
 
 
 @pytest.mark.parametrize("autogain_on,expect", [
@@ -1057,7 +1056,7 @@ def test_findings_never_carry_a_url(capsys):
 
     import dolby_to_easyeffects as d
 
-    found = d.collect_unmodeled_features(ET.fromstring("""
+    found = parse.collect_unmodeled_features(ET.fromstring("""
         <profile type="dynamic">
           <tuning-cp>
             <peak-level value="-3"/>

@@ -25,14 +25,12 @@ from pathlib import Path
 import pytest
 
 from dolby_to_easyeffects import (
-    SAMPLE_RATE,
-    FIR_LENGTH,
     DISABLEABLE_FILTERS,
     ENABLEABLE_FILTERS,
-    make_fir,
     make_preset,
     save_wav_stereo,
 )
+from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from ee_to_pipewire import (
     CALF_BE_URI,
     CALF_ST_URI,

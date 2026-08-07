@@ -44,8 +44,9 @@ from scipy.signal import correlate, fftconvolve, group_delay
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dolby_to_easyeffects import (  # noqa: E402
-    parse_xml, make_fir, interpolate_curve_db, SAMPLE_RATE,
+from lib.dax.parse import parse_xml  # noqa: E402
+from lib.preset.fir import (  # noqa: E402
+    make_fir, interpolate_curve_db, SAMPLE_RATE,
 )
 from _wavio import read as wav_read  # noqa: E402
 

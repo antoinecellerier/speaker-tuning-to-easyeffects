@@ -28,11 +28,11 @@ from pathlib import Path
 import pytest
 
 from dolby_to_easyeffects import (
-    make_fir,
     make_preset,
-    parse_xml,
     save_wav_stereo,
 )
+from lib.dax.parse import parse_xml
+from lib.preset.fir import make_fir
 from ee_to_pipewire import (
     build_chain,
     emit_links,

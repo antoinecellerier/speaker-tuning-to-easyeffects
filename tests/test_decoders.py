@@ -21,6 +21,9 @@ import dolby_to_easyeffects
 from dolby_to_easyeffects import (
     decode_mbc_time_constant,
     make_multiband_compressor,
+)
+from lib.dax import parse
+from lib.dax.parse import (
     parse_xml,
     resolve_channel_or_direct,
     collect_unmodeled_features,
@@ -270,36 +273,36 @@ class TestIntAttr:
     """
 
     def test_missing_element_returns_default(self):
-        assert dolby_to_easyeffects._int_attr(None, default=7) == 7
+        assert parse._int_attr(None, default=7) == 7
 
     def test_missing_element_defaults_to_none(self):
-        assert dolby_to_easyeffects._int_attr(None) is None
+        assert parse._int_attr(None) is None
 
     def test_absent_attribute_returns_default(self):
         el = ET.fromstring("<foo/>")
-        assert dolby_to_easyeffects._int_attr(el, default=-5) == -5
+        assert parse._int_attr(el, default=-5) == -5
 
     def test_empty_attribute_returns_default(self):
         el = ET.fromstring('<foo value=""/>')
-        assert dolby_to_easyeffects._int_attr(el, default=3) == 3
+        assert parse._int_attr(el, default=3) == 3
 
     def test_normal_value_parsed(self):
         el = ET.fromstring('<foo value="42"/>')
-        assert dolby_to_easyeffects._int_attr(el, default=0) == 42
+        assert parse._int_attr(el, default=0) == 42
 
     def test_negative_value_parsed(self):
         # The raw 1/16-dB integers the schema uses are frequently negative.
         el = ET.fromstring('<foo value="-320"/>')
-        assert dolby_to_easyeffects._int_attr(el) == -320
+        assert parse._int_attr(el) == -320
 
     def test_garbage_value_raises_valueerror(self):
         el = ET.fromstring('<foo value="not-an-int"/>')
         with pytest.raises(ValueError):
-            dolby_to_easyeffects._int_attr(el)
+            parse._int_attr(el)
 
     def test_custom_attribute_name(self):
         el = ET.fromstring('<foo count="9"/>')
-        assert dolby_to_easyeffects._int_attr(el, default=0, name="count") == 9
+        assert parse._int_attr(el, default=0, name="count") == 9
 
 
 class TestParseXmlGuards:

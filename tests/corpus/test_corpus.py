@@ -31,22 +31,18 @@ import numpy as np
 import pytest
 
 from dolby_to_easyeffects import (
-    DB_FIXED_POINT_SCALE,
     DOLBY_FILENAME_RE,
-    FIR_LENGTH,
-    SAMPLE_RATE,
-    ParsedTuning,
     _NON_DAX3_FILENAME_SUFFIXES,
     _ntfs_family_mountpoints,
     _resolve_driver_store,
     _walk_for_dolby_xml_dirs,
     get_profile_types,
     is_soundwire_xml,
-    make_fir,
     make_preset,
-    parse_xml,
     save_wav_stereo,
 )
+from lib.dax.parse import DB_FIXED_POINT_SCALE, ParsedTuning, parse_xml
+from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from tests.conftest import is_minimum_phase, read_irs_file
 
 

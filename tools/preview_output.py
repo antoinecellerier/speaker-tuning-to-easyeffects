@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import dolby_to_easyeffects as d                                # noqa: E402
+from lib.dax import parse                                       # noqa: E402
 from corpus_audit import discover_roots, find_xmls              # noqa: E402
 
 
@@ -56,14 +57,14 @@ def _predicates():
     def unlimited(t):
         if not has_regulator(t) or inert(t):
             return False
-        left = [x / d.DB_FIXED_POINT_SCALE for x in t.ao_left]
-        right = [x / d.DB_FIXED_POINT_SCALE for x in t.ao_right]
+        left = [x / parse.DB_FIXED_POINT_SCALE for x in t.ao_left]
+        right = [x / parse.DB_FIXED_POINT_SCALE for x in t.ao_right]
         if not left:
             return False
         peak = max(range(len(left)), key=lambda i: max(left[i], right[i]))
         th = t.regulator["threshold_high"]
         return (max(left[peak], right[peak])
-                >= t.geq_max_range / d.DB_FIXED_POINT_SCALE
+                >= t.geq_max_range / parse.DB_FIXED_POINT_SCALE
                 and peak < len(th) and th[peak] >= 0)
 
     return {
@@ -98,7 +99,7 @@ def _scan(xmls, wanted, per_pattern):
         try:
             # parse_xml reports as it goes; this pass only wants the verdict.
             with contextlib.redirect_stdout(io.StringIO()):
-                tuning = d.parse_xml(Path(path))
+                tuning = parse.parse_xml(Path(path))
         except Exception:
             continue
         for slug in wanted:

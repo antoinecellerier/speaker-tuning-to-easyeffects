@@ -32,6 +32,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 import dolby_to_easyeffects as d  # noqa: E402
+from lib.dax import parse  # noqa: E402
+from lib.preset import fir  # noqa: E402
 
 SR = 48000
 # Defaults point into the untracked localresearch tree, where the capture
@@ -166,10 +168,10 @@ def ee_chain_mag_db(tuning, freqs_probe):
     ieq_db = np.array(tuning.curves["ieq_balanced"]) / 16.0 * scale
     ao_db_left = np.array(tuning.ao_left) / 16.0  # matches main() line 3421
     combined = ieq_db + ao_db_left
-    fir_left, _ = d.make_fir(float_freqs, combined, normalize=True)
-    H = np.fft.rfft(fir_left, n=d.FIR_LENGTH)
-    fft_f = np.fft.rfftfreq(d.FIR_LENGTH, d=1.0 / SR)
-    fir_mag = 20 * np.log10(np.abs(H) + d.LOG_MAG_FLOOR)
+    fir_left, _ = fir.make_fir(float_freqs, combined, normalize=True)
+    H = np.fft.rfft(fir_left, n=fir.FIR_LENGTH)
+    fft_f = np.fft.rfftfreq(fir.FIR_LENGTH, d=1.0 / SR)
+    fir_mag = 20 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
     # PEQ (left channel) — read the builder output so the -peak_boost
     # output-gain is included exactly as emitted.
     peq = d.make_peq_eq([pf for pf in tuning.peq_filters if pf["speaker"] == 0])
@@ -247,7 +249,7 @@ def predicted_mbc_gr(input_dbfs, thr=-6.4375, ratio=1.6685, knee_db=6.0):
 
 def analyse():
     headline()
-    tuning = d.parse_xml(XML, profile_type="dynamic")
+    tuning = parse.parse_xml(XML, profile_type="dynamic")
 
     # ---- decoded chain numbers ----
     decoded = d.decode_mbc_bands(tuning.mb_comp)

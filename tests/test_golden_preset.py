@@ -31,12 +31,11 @@ from pathlib import Path
 import pytest
 
 from dolby_to_easyeffects import (
-    DB_FIXED_POINT_SCALE,
-    make_fir,
     make_preset,
-    parse_xml,
     save_wav_stereo,
 )
+from lib.dax.parse import DB_FIXED_POINT_SCALE, parse_xml
+from lib.preset.fir import make_fir
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
     is_minimum_phase,

@@ -26,6 +26,10 @@ import pytest
 import dolby_to_easyeffects
 from lib import console, version
 from lib.data import speaker_pin_quirks
+from lib.dax import parse
+# Aliased like the generator's own import: this file binds `findings` as a
+# local in six tests, and the module has to stay reachable from all of them.
+from lib.report import findings as report_findings
 from dolby_to_easyeffects import (
     DISABLEABLE_FILTERS,
     ENABLEABLE_FILTERS,
@@ -1190,7 +1194,7 @@ def _every_finding():
           </tuning-cp>
         </profile>
     """)
-    found = list(dolby_to_easyeffects.collect_unmodeled_features(profile))
+    found = list(parse.collect_unmodeled_features(profile))
     # Only the escalated strength here: the bypassed one shares this slug by
     # design (same site, two wordings) and carries no ask, so it has nothing
     # for these checks to bite on. tests/test_preset.py covers both.
@@ -1477,7 +1481,7 @@ def test_dropped_stages_reach_the_closing_block(silence_console, capsys):
     silence_console(console)
     import xml.etree.ElementTree as ET
 
-    dropped = dolby_to_easyeffects.collect_unmodeled_features(ET.fromstring("""
+    dropped = parse.collect_unmodeled_features(ET.fromstring("""
         <profile type="dynamic"><tuning-cp>
           <dynamic_speaker_optimization_enable value="1"/>
         </tuning-cp></profile>"""))
@@ -1546,7 +1550,7 @@ def test_tag_convention_prints_once_with_the_first_finding(monkeypatch,
     the convention was only explained in the closing block. One orientation
     line rides the first finding; repeating it per finding would be a nag."""
     silence_console(console)
-    monkeypatch.setattr(dolby_to_easyeffects, "_TAG_CONVENTION_SHOWN", False)
+    monkeypatch.setattr(report_findings, "_TAG_CONVENTION_SHOWN", False)
     finding = dolby_to_easyeffects._loudness_untamed_finding()
     dolby_to_easyeffects._print_finding_detail(finding)
     dolby_to_easyeffects._print_finding_detail(finding)
