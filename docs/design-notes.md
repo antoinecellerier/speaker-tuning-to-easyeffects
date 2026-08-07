@@ -3483,6 +3483,49 @@ still imports `configparser`, `contextlib`, `math`, `Callable`, `field`,
 `kernel_releases` and `bands` with no reader for any of them, most of them
 stranded by earlier slices. Deadwood for the tidy-up commit, not this one.
 
+### The voicing table, and a table that serves two packages
+
+Nine lines — `VOICING_CURVES`, the Balanced/Detailed/Warm → `ieq_*` curve-key
+map — left the generator for `lib/report/messages.py`. It goes on its own and
+first because its two readers end up in *different packages*: the per-profile
+report derives its "this profile's three voicings" sentence from it, and the
+emit loop keys the presets it builds off it, and those two are headed for
+`lib/report/profile.py` and `lib/preset/emit.py` respectively. Whichever of the
+two had kept it, the other would have had to import it — and both reach numpy,
+so a shared nine-line table would have been reason enough to drag scipy across
+a package boundary.
+
+That is the same argument slice 5 of wave 1 made for the `--disable`/`--enable`
+menus, one step further out. It is *not* the same constraint: those tables are
+read on the completion path, where `_load_dsp` has deliberately not run, so
+their home had to be stdlib-only. Both of `VOICING_CURVES`'s readers are
+DSP-bound, and neither is on the completion path. What picks `messages.py` here
+is the content — the table is copy as much as it is data, and `print_what_now`
+twenty lines below already spells two of the three voicing names in the hint it
+derives from what was built.
+
+Like the install paths in the first slice of this wave, and for the same
+reason, it is deliberately **not** a seed/trim pair: nine lines sit well under
+the threshold where a copy edge earns its own commit. Unlike them it *is* pure
+motion — `check_move_purity.py` reports 9 moved, 0 unmoved — because the block
+crosses verbatim, comment included. The only edit either side is at the two
+call sites, which are still in the root script at this point and therefore
+re-point for free; they arrive at `lib/` already reading
+`messages.VOICING_CURVES`, so the two bodies that carry them are unchanged by
+their own moves.
+
+The patch inventory is **empty** — no test names `VOICING_CURVES` — which is
+worth recording rather than passing over, since the sabotage check that follows
+every other slice has nothing to bite on here.
+
+Two duplications were **noticed and left**. `print_what_now` tests
+`n.endswith("-Detailed")` and `n.endswith("-Warm")` as string literals, and
+`dolby_to_pipewire.py`'s `VARIANT_STEMS` spells all three a third time to map
+`--variant warm` onto a preset stem. Both are now in a position to read the
+table instead — the first is in the same module — but collapsing either inside
+a move commit is a behaviour change under a subject line promising there isn't
+one.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because

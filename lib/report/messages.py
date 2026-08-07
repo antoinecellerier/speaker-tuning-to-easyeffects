@@ -15,6 +15,14 @@ where numpy has deliberately not been imported yet. Keeping them beside
 `lib/preset/plugins.py`'s builders would drag the DSP stack onto every TAB
 press.
 
+`VOICING_CURVES` is here on the same argument one step further out. It is the
+Balanced/Detailed/Warm table, and its two readers — the per-profile report and
+the emit loop — end up in different packages, neither of which may import the
+other (both reach numpy, and a shared table is no reason to drag scipy across
+a package boundary). It is copy as much as it is data: `print_what_now` right
+below already names two of the three voicings in the hint it derives from what
+was built.
+
 `Finding`'s asks print through `lib/report/findings.py`; this module renders
 the menus around them. `_print_ask` comes in as a bare name rather than
 through its module because `print_troubleshooting` interleaves the run's own
@@ -127,6 +135,17 @@ EXPERIMENTAL_MARKERS = {
     "coupled-bands-active": "the coupled-bands limiter (isolated_band)",
     "level-restore-active": "the level the impulse response was normalised by, "
                             "handed back as a static gain",
+}
+
+
+# The three IEQ voicings a run can build, in build order — single source
+# for the emit loop and every line of copy that names them. A voicing whose
+# curve the XML lacks is skipped, so copy derives its list from this ∩ the
+# parsed curves rather than promising all three (round 7).
+VOICING_CURVES = {
+    "Balanced": "ieq_balanced",
+    "Detailed": "ieq_detailed",
+    "Warm": "ieq_warm",
 }
 
 

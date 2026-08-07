@@ -235,7 +235,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
     # The list is derived, not hardcoded (round 7, user catch): the emit
     # loop skips any voicing whose ieq_* curve the XML lacks, so the
     # summary must not promise three when fewer will build.
-    voicings = [label for label, key in VOICING_CURVES.items()
+    voicings = [label for label, key in messages.VOICING_CURVES.items()
                 if key in tuning.curves]
     if voicings:
         n_voc = ("three" if len(voicings) == 3
@@ -743,17 +743,6 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
 FIR_VERIFY_OK_DB = 0.5
 
 
-# The three IEQ voicings a run can build, in build order — single source
-# for the emit loop and every line of copy that names them. A voicing whose
-# curve the XML lacks is skipped, so copy derives its list from this ∩ the
-# parsed curves rather than promising all three (round 7).
-VOICING_CURVES = {
-    "Balanced": "ieq_balanced",
-    "Detailed": "ieq_detailed",
-    "Warm": "ieq_warm",
-}
-
-
 def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
                       scale, is_soundwire, disabled, args, profile_label,
                       all_preset_names, filters_by_profile,
@@ -772,7 +761,7 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     volmax_boost = tuning.volmax_boost
 
     ieq_presets = {f"{name_base}-{label}": key
-                   for label, key in VOICING_CURVES.items()}
+                   for label, key in messages.VOICING_CURVES.items()}
 
     # One hidden-tables hint per profile, at the spot the first table would
     # have occupied — three identical lines read as a nag.
