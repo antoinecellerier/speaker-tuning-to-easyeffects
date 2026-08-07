@@ -3,6 +3,7 @@ paths:
   - "dolby_to_easyeffects.py"
   - "ee_to_pipewire.py"
   - "dolby_to_pipewire.py"
+  - "lib/**/*.py"
 ---
 
 # End-of-run messages: two halves, one ask
