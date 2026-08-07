@@ -39,11 +39,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import NamedTuple
 
 from lib import console, doctor, ee_paths, version
 from lib.data import kernel_releases
 from lib.data import speaker_pin_quirks
+from lib.dax import parse
+from lib.hardware import amps, codecs, speakers
+# Aliased: main() binds a local named `sinks` for the resolver's result, which
+# would shadow the module for every later line that reads through it.
+from lib.hardware import sinks as hardware_sinks
+# Aliased: main() binds a local named `findings`, which would shadow the
+# module for the one line that resets _TAG_CONVENTION_SHOWN through it.
+from lib.report import findings as report_findings
 
 # Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
 # script behaves exactly as before — same contract as rich in lib/console.py.
@@ -62,10 +69,15 @@ def _load_dsp() -> None:
     skips them and complete_and_load() imports them once it knows this is a
     real run. The `from __future__ import annotations` above is what makes
     that legal: `np.ndarray` in a signature is a string, not a lookup.
+
+    lib.preset.fir is bound here for the same reason and not at the top of
+    this file: it imports numpy itself, so importing it eagerly would undo
+    the deferral this function exists for.
     """
-    global np, wavfile
+    global np, wavfile, fir
     import numpy as np
     from scipy.io import wavfile
+    from lib.preset import fir
 
 
 if "_ARGCOMPLETE" not in os.environ:
@@ -96,685 +108,8 @@ DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if _USE_FLATPAK else _NATIVE_RC
 
 BYPASS_PRESET_NAME = "Nothing"
 
-SAMPLE_RATE = 48000
-FIR_LENGTH = 4096  # ~85ms, plenty for EQ
 
-
-def parse_csv_ints(s: str) -> list[int]:
-    return [int(x) for x in s.split(",")]
-
-
-def get_hda_codec_ids():
-    """Read HDA codec names and subsystem IDs from /proc/asound.
-
-    Returns a list of (vendor_id, subsystem_id, codec_name) tuples, e.g.
-    [("10EC0287", "17AA22E6", "Realtek ALC287")].
-    """
-    results = []
-    for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
-        try:
-            text = codec_path.read_text()
-        except OSError:
-            continue
-        codec_name = ""
-        vendor_id = None
-        subsys_id = None
-        for line in text.splitlines():
-            if line.startswith("Codec:"):
-                codec_name = line.split(":", 1)[1].strip()
-            elif line.startswith("Vendor Id:"):
-                vendor_id = line.split("0x", 1)[-1].strip().upper()
-            elif line.startswith("Subsystem Id:"):
-                subsys_id = line.split("0x", 1)[-1].strip().upper()
-        if vendor_id and subsys_id:
-            results.append((vendor_id, subsys_id, codec_name))
-    return results
-
-
-def get_soundwire_ids():
-    """Read SoundWire device IDs from /sys/bus/soundwire/devices.
-
-    Returns a list of (manufacturer_id, part_id) tuples as uppercase hex
-    strings, e.g. [("025D", "1318")].
-    """
-    results = []
-    sdw_path = Path("/sys/bus/soundwire/devices")
-    if not sdw_path.is_dir():
-        return results
-    for dev_dir in sorted(sdw_path.iterdir()):
-        # SoundWire slave devices look like "sdw:L:N:MMMM:PPPP:VV"
-        match = re.match(
-            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+", dev_dir.name
-        )
-        if match:
-            man_id = match.group(1).upper()
-            part_id = match.group(2).upper()
-            results.append((man_id, part_id))
-    return results
-
-
-def _walk_to_pci_subsys(start: Path):
-    """Walk up sysfs from `start` to find the nearest PCI subsystem IDs."""
-    current = start.resolve()
-    while current != Path("/"):
-        subsys_vendor_path = current / "subsystem_vendor"
-        subsys_device_path = current / "subsystem_device"
-        if subsys_vendor_path.exists() and subsys_device_path.exists():
-            try:
-                vendor = subsys_vendor_path.read_text().strip()
-                device = subsys_device_path.read_text().strip()
-            except OSError:
-                pass
-            else:
-                vendor = vendor.replace("0x", "").upper()
-                device = device.replace("0x", "").upper()
-                if vendor and device:
-                    return (vendor, device)
-        current = current.parent
-    return None
-
-
-def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
-    """Rank a sound card for the PCI-subsystem probe: 0 = has a non-HDMI HDA
-    codec (the analog controller quirks and Dolby SKU ids key on), 1 = no HDA
-    codec info (e.g. USB), 2 = HDMI/DP codecs only (a GPU audio function whose
-    PCI subsystem is the GPU's, not the machine SKU's)."""
-    names = []
-    for codec_path in sorted((proc_asound / card_name).glob("codec*")):
-        try:
-            text = codec_path.read_text()
-        except OSError:
-            continue
-        for line in text.splitlines():
-            if line.startswith("Codec:"):
-                names.append(line.split(":", 1)[1].strip())
-    if not names:
-        return 1
-    if all("HDMI" in n.upper() for n in names):
-        return 2
-    return 0
-
-
-def get_pci_audio_subsystem(
-    sound_class=Path("/sys/class/sound"),
-    proc_asound=Path("/proc/asound"),
-    sdw_bus=Path("/sys/bus/soundwire/devices"),
-):
-    """Get the PCI subsystem ID of the audio controller.
-
-    Returns (subsys_vendor, subsys_device) as uppercase 4-char hex strings,
-    e.g. ("17AA", "2339"), or None if not found.
-
-    Prefers the PCI ancestor of a SoundWire device when present so we pick
-    the controller that actually hosts the speaker amplifiers, rather than
-    whichever /sys/class/sound card sorts first (which may be HDMI audio
-    on a discrete GPU). Falls back to walking up from sound cards for
-    traditional HDA systems — ranked so the analog codec's controller wins
-    over a GPU HDMI function: on AMD dual-controller laptops card0 is the
-    GPU audio function with its own PCI subsystem id (issue #33: 17AA:3823
-    reported where the analog controller — the id kernel quirks and Dolby
-    PCI-keyed filenames use — was a different device).
-    """
-    if sdw_bus.is_dir():
-        for dev_dir in sorted(sdw_bus.iterdir()):
-            result = _walk_to_pci_subsys(dev_dir)
-            if result:
-                return result
-
-    if not sound_class.is_dir():
-        return None
-    cards = [c for c in sorted(sound_class.glob("card*")) if (c / "device").exists()]
-    cards.sort(key=lambda c: _card_pci_preference(c.name, proc_asound))
-    for card_dir in cards:
-        result = _walk_to_pci_subsys(card_dir / "device")
-        if result:
-            return result
-    return None
-
-
-@dataclass
-class SpeakerPin:
-    """A single internal speaker output (HDA pin or SoundWire amplifier)."""
-    node: str            # HDA node ID or SoundWire device name
-    control_name: str    # ALSA control name or driver name
-    role: str            # "woofer" or "tweeter"
-    channels: int = 1    # audio channels this output carries. An HDA codec pin
-                         # can drive a stereo (L+R) speaker = 2; SoundWire instead
-                         # enumerates one slave device per amp chip, so each is a
-                         # single addressable amp → probe it, default 1 (NOT 2 —
-                         # that HDA-style default is what double-counted #27).
-    codec: str = ""      # subsystem id of the codec exposing this pin, e.g.
-                         # "17AA22E6". Empty on SoundWire. Pins must be counted
-                         # per codec, not per machine: a report carries the HDMI
-                         # codecs (0x00AA0100, 0x80860101) alongside the analog
-                         # one, and only the analog codec's SSID keys a quirk.
-    override: str = ""   # set when the kernel is driving this pin against the
-                         # firmware's description of it — the label says which
-                         # layer did so. Printed, because it is the *only*
-                         # visible sign that a pin fixup took (issue #53): the
-                         # firmware's own value stays in place underneath.
-
-
-@dataclass
-class UnconfiguredPin:
-    """An HDA pin the codec can drive but the kernel left unconfigured.
-
-    A pin complex that is output-capable (``Pincap`` lists ``OUT``) while the
-    default config the driver acts on reports no physical connection — the
-    firmware's own, unless a fixup overrode it, in which case the pin is a
-    speaker and belongs above.
-    Printed as raw evidence under "HDA internal speakers", never warned on: a
-    genuinely unused pin and a speaker pin the BIOS wrongly calls unconnected
-    look *identical* here (issue #53 — pin 0x17's dark woofers vs. pins
-    0x1b/0x1e on the development machine, which are simply spare). Only a
-    quirk-table match (``lib/data/speaker_pin_quirks.py``) tells them apart.
-
-    Its value is that the pins are otherwise invisible: the speaker scan below
-    keeps only ``[Fixed] Speaker at Int`` pins, so every report we have ever
-    collected silently omits the one line that would show a missing woofer.
-    """
-    node: str            # HDA node ID, e.g. "0x17"
-    codec: str           # subsystem id of the codec exposing it, e.g. "17AA22E6"
-    pincap: str          # raw Pincap flags, e.g. "IN OUT EAPD Detect"
-    pin_default: str     # raw default-config hex, e.g. "0x411111f0"
-
-
-@dataclass
-class FirmwareGate:
-    """A smart-amp firmware-load ALSA control that gates the speakers.
-
-    On some laptops whose woofers run through a TI TAS2563/2781 smart
-    amplifier, the firmware does not auto-load and the amp stays muted until
-    an ALSA control ("Speaker Force Firmware Load") is switched on (issue
-    #17). This is a kernel/ALSA-side gate — nothing in the DAX XML hints at
-    it — so the preset can be perfect while the bass speakers are silent.
-    On other devices the firmware auto-loads fine and flipping the gate is
-    an audible no-op (#39, ROG Xbox Ally X) — the warning stays because the
-    toggle is cheap and harmless, but it says so.
-    """
-    card_index: str      # ALSA card index, e.g. "0"
-    card_id: str         # ALSA card short id, e.g. "sofhdadsp" (stable across boots)
-    numid: str           # control numid, e.g. "3"
-    iface: str           # control iface, e.g. "CARD" (modern tas2781) or "MIXER"
-    name: str            # control name, e.g. "Speaker Force Firmware Load"
-    on: bool             # current state
-
-
-def amixer_enable_cmd(gate: FirmwareGate) -> str:
-    """The one-line command that switches a gate on, shared by every place
-    that offers the fix (the end-of-run warning, --speaker-info, --doctor) so
-    the three can't drift.
-
-    iface= is load-bearing: these are iface=CARD controls on modern kernels,
-    and a bare name= means iface=MIXER to amixer → "Cannot find the given
-    element" (issue #39). Double-quoting the identifier lets the inner 'name'
-    quotes reach amixer's parser — that form also survives control names
-    containing commas.
-    """
-    return (f"amixer -c {gate.card_id} cset "
-            f"\"iface={gate.iface},name='{gate.name}'\" on")
-
-
-@dataclass
-class AmpStatus:
-    """Bind status of one SoundWire amplifier, for the merged amp-status report.
-
-    SoundWire-specific: an amp enumerated on the bus but with no driver bound is
-    the one clear-cut signal we surface (and even then neutrally — it could be a
-    non-amp slave or a still-binding device). Channel count is probed from
-    sysfs. Firmware presence and kernel-log lines are gathered separately and
-    shown as raw evidence for a human to read — no sysfs/debugfs exposes amp
-    audio-state (cs35l56 kernel doc), so we never render a health *verdict*.
-    """
-    node: str            # SoundWire device name (or mixer-control name on fallback)
-    driver: str          # bound driver name, or "" when unbound
-    bound: bool          # driver symlink present
-    channels: int        # probed audio channels (0 = unknown)
-
-
-@dataclass
-class SpeakerInfo:
-    """Collected audio hardware information for --speaker-info."""
-    product: str = ""
-    family: str = ""
-    kernel: str = ""
-    distro: str = ""
-    sound_cards: list[str] = field(default_factory=list)
-    hda_codecs: list[tuple[str, str, str]] = field(default_factory=list)
-    soundwire_devices: list[tuple[str, str]] = field(default_factory=list)
-    pci_subsystem: tuple[str, str] | None = None
-    pcm_devices: list[tuple[str, str]] = field(default_factory=list)
-    # SoundWire-specific
-    sdw_codecs: list[str] = field(default_factory=list)
-    sdw_amplifiers: list[str] = field(default_factory=list)
-    # Speaker pins (HDA or SoundWire)
-    speakers: list[SpeakerPin] = field(default_factory=list)
-    # Output-capable HDA pins the kernel left unconfigured (evidence only)
-    unconfigured_pins: list[UnconfiguredPin] = field(default_factory=list)
-    # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
-    firmware_gates: list[FirmwareGate] = field(default_factory=list)
-    # Merged amp-status evidence (see "=== Speaker amplifier status ===")
-    amp_status: list[AmpStatus] = field(default_factory=list)
-    amp_firmware: list[str] = field(default_factory=list)     # firmware files present
-    amp_firmware_missing: bool = False  # a loaded driver needs a blob and none was found
-    amp_log: list[tuple[bool, str]] = field(default_factory=list)  # (is_error, log line)
-    amp_log_available: bool = True   # False when the kernel log was unreadable
-    amp_log_grep: str = ""           # grep -iE alternation for the self-check hint
-
-    @property
-    def bus_type(self) -> str:
-        if self.soundwire_devices:
-            return "soundwire"
-        if self.hda_codecs:
-            return "hda"
-        return "unknown"
-
-    @property
-    def layout_summary(self) -> str:
-        if not self.speakers:
-            return "Could not determine speaker layout"
-        total = sum(s.channels for s in self.speakers)
-        by_role: dict[str, int] = {}
-        for s in self.speakers:
-            by_role[s.role] = by_role.get(s.role, 0) + s.channels
-        if len(self.speakers) == 1 and self.speakers[0].channels == 2:
-            return f"{total} speakers → full-range stereo"
-        parts = " + ".join(f"{n}x {role}" for role, n in by_role.items())
-        return f"{total} speakers → multi-way: {parts}"
-
-
-def _read_sysfs_int(path: Path) -> int | None:
-    """Largest integer in a sysfs attribute (handles single values and lists)."""
-    try:
-        nums = [int(n) for n in re.findall(r"\d+", path.read_text())]
-    except (OSError, ValueError):  # ValueError covers non-UTF-8 sysfs bytes
-        return None
-    return max(nums) if nums else None
-
-
-def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
-    """Best-effort audio-channel count of a SoundWire amp from its sink ports.
-
-    Reads ``<dev>/dpN_sink/max_ch`` — the path/attr are confirmed against the
-    kernel ABI ``sysfs-bus-soundwire-slave``. Caveat: ``max_ch`` is the DisCo
-    *maximum supported* channel count (a capability ceiling), not the provisioned
-    count — there is no static sysfs attribute for the latter. For a dedicated
-    mono amp the sink port should declare ``max_ch=1``, but a mono part that
-    advertised a 2-channel-capable port would over-count; unverified without a
-    real capture, which is why the layout line is an *estimate* and the caller
-    falls back to 1 (one enumerated slave = one amp) when this returns None.
-    """
-    chans = []
-    for sink in sorted(dev_dir.glob("dp*_sink")):
-        c = _read_sysfs_int(sink / "max_ch")
-        if c:
-            chans.append(c)
-    return max(chans) if chans else None
-
-
-def _detect_soundwire_speakers(info: SpeakerInfo):
-    """Detect speaker amplifiers on the SoundWire bus, with per-amp bind status.
-
-    SoundWire enumerates one slave device per amp chip, so each amp counts once;
-    its channel count is *probed* from the sink data-port DisCo props, else 1 —
-    never the old stereo default that double-counted six mono cs35l56 as twelve
-    (issue #27). Records per-amp bind status into ``info.amp_status`` (an
-    enumerated-but-unbound device is surfaced neutrally — it may be a non-amp
-    slave or one still binding).
-    """
-    sdw_path = Path("/sys/bus/soundwire/devices")
-    if not sdw_path.is_dir():
-        return
-
-    amp_patterns = _AMP_DRIVER_TOKENS  # single source of amp-family identity
-
-    for dev_dir in sorted(sdw_path.iterdir()):
-        match = re.match(
-            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+",
-            dev_dir.name,
-        )
-        if not match:
-            continue
-        driver_link = dev_dir / "driver"
-        bound = driver_link.is_symlink()
-        driver_name = driver_link.resolve().name if bound else ""
-        lower_driver = driver_name.lower()
-
-        if any(p in lower_driver for p in amp_patterns):
-            # One slave = one mono amp; probe channels from sysfs, default 1.
-            channels = _amp_channels_from_sysfs(dev_dir) or 1
-            info.sdw_amplifiers.append(f"{dev_dir.name} (driver: {driver_name})")
-            info.speakers.append(SpeakerPin(
-                node=dev_dir.name,
-                control_name=driver_name,
-                role="amplifier",
-                channels=channels,
-            ))
-            info.amp_status.append(AmpStatus(
-                node=dev_dir.name, driver=driver_name, bound=True, channels=channels,
-            ))
-        elif not bound:
-            # Enumerated SoundWire slave with no driver bound — surfaced
-            # neutrally (could be a non-amp peripheral or one still binding).
-            info.amp_status.append(AmpStatus(
-                node=dev_dir.name, driver="", bound=False, channels=0,
-            ))
-        else:
-            info.sdw_codecs.append(f"{dev_dir.name} (driver: {driver_name})")
-
-    if info.speakers:
-        return
-
-    # Fallback: check ALSA mixer for amp controls when sysfs gives nothing
-    try:
-        result = subprocess.run(
-            ["amixer", "-c0", "scontrols"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            m = re.search(r"'(rt\d+[^']*|max98[^']*|cs35[^']*)\s+DAC'", line, re.I)
-            if m:
-                name = m.group(1)
-                info.sdw_amplifiers.append(f"{name} (from ALSA mixer)")
-                info.speakers.append(SpeakerPin(
-                    node="mixer", control_name=name, role="amplifier", channels=1,
-                ))
-                info.amp_status.append(AmpStatus(
-                    node=name, driver=name, bound=True, channels=1,
-                ))
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-
-class PinOverride(NamedTuple):
-    """A pin default config the kernel uses in place of the firmware's."""
-    cfg: int
-    source: str          # what put it there, in the user's terms
-
-
-# Where those overrides live, lowest priority first — the order
-# ``snd_hda_codec_get_pincfg`` resolves them in (user beats driver beats the
-# firmware's own value), so merging in this order reproduces what the driver
-# acts on. Both files exist on every HDA codec; only ``user_pin_configs`` is
-# gated behind CONFIG_SND_HDA_RECONFIG, hence the tolerant read.
-_PIN_CFG_OVERRIDE_FILES = (
-    ("driver_pin_configs", "kernel fixup"),   # a quirk the driver applied
-    ("user_pin_configs", "manual pincfg"),    # hand-written via sysfs
-)
-
-
-def parse_pin_config_overrides(text: str) -> dict[str, int]:
-    """``"0x17 0x90170121\\n"`` → ``{"0x17": 0x90170121}``.
-
-    One ``nid cfg`` pair per line, as ``pin_configs_show`` writes them.
-    """
-    overrides = {}
-    for line in text.splitlines():
-        parts = line.split()
-        if len(parts) == 2:
-            try:
-                overrides[f"0x{int(parts[0], 16):02x}"] = int(parts[1], 16)
-            except ValueError:
-                continue
-    return overrides
-
-
-# Fields of the 32-bit pin default config. Named for what the HDA spec calls
-# them, and each value confirmed against how the kernel renders real dumps:
-# 0x90170110 prints as "[Fixed] Speaker at Int", 0x411111f0 as "[N/A] Speaker
-# at Ext Rear", 0x03211020 as "[Jack] HP Out at Ext Left" — so connectivity
-# 2 is Fixed, 1 is none, device 1 is Speaker, and location base 1 is internal.
-_PIN_CONN_NONE = 1        # firmware says nothing is wired to this pin
-_PIN_CONN_FIXED = 2       # a device is soldered to it
-_PIN_DEVICE_SPEAKER = 1
-_PIN_LOCATION_INTERNAL = 1
-
-
-def _pin_is_internal_speaker(cfg: int) -> bool:
-    return ((cfg >> 30) & 0x3 == _PIN_CONN_FIXED
-            and (cfg >> 20) & 0xf == _PIN_DEVICE_SPEAKER
-            and (cfg >> 28) & 0x3 == _PIN_LOCATION_INTERNAL)
-
-
-def _pin_is_unconnected(cfg: int) -> bool:
-    return (cfg >> 30) & 0x3 == _PIN_CONN_NONE
-
-
-def parse_hda_codec_pins(
-        codec_text: str,
-        overrides: dict[str, PinOverride] | None = None,
-) -> tuple[str, list[SpeakerPin], list[UnconfiguredPin]]:
-    """Split one ``/proc/asound/card*/codec#*`` dump into its speaker pins and
-    its output-capable-but-unconfigured pins, plus the codec's subsystem id.
-
-    Pure text parsing so it can be unit-tested without hardware — same shape as
-    ``parse_firmware_gate_controls()``.
-
-    The two lists come from one pass because they partition the same pin
-    complexes by their *effective* default config: a fixed internal speaker is
-    a wired one, "no physical connection" is the lie a missing pin quirk tells
-    (issue #53).
-
-    Effective, not printed: ``/proc`` renders the config the **hardware**
-    holds (``AC_VERB_GET_CONFIG_DEFAULT``, ``sound/hda/common/proc.c``), and a
-    kernel pin fixup never writes that register — it stores an override in
-    ``codec->driver_pins`` that only the driver-side lookup consults. Reading
-    the printed line alone therefore shows the firmware's lie *even on a
-    machine where the fix is live*, so a user who applied it would be told
-    forever that they hadn't. ``overrides`` carries what the driver actually
-    uses, and it wins here for the same reason it wins there.
-    """
-    ssid_match = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
-                           flags=re.MULTILINE)
-    codec_ssid = ssid_match.group(1).upper() if ssid_match else ""
-
-    speakers: list[SpeakerPin] = []
-    unconfigured: list[UnconfiguredPin] = []
-    nodes = re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", codec_text, flags=re.MULTILINE)
-    for block in nodes:
-        if "[Pin Complex]" not in block:
-            continue
-        node_match = re.match(r"Node (0x[0-9a-fA-F]+)", block)
-        if not node_match:
-            continue
-        node = node_match.group(1)
-
-        default = re.search(r"Pin Default (0x[0-9a-fA-F]+):", block)
-        if not default:
-            continue
-        override = (overrides or {}).get(node)
-        cfg = override.cfg if override else int(default.group(1), 16)
-
-        if _pin_is_internal_speaker(cfg):
-            ctrl_match = re.search(r'Control: name="([^"]+)"', block)
-            ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
-            lower = ctrl_name.lower()
-            role = "woofer" if ("bass" in lower or "woofer" in lower) else "tweeter"
-            speakers.append(SpeakerPin(
-                node=node,
-                control_name=ctrl_name,
-                role=role,
-                channels=2 if "Stereo" in block.split("\n", 1)[0] else 1,
-                codec=codec_ssid,
-                override=override.source if override else "",
-            ))
-            continue
-
-        # Unconfigured: output-capable, but nothing the kernel uses reports a
-        # connection. "OUT" is matched as a whole flag rather than a substring
-        # so a future flag containing those letters can't smuggle a pin in.
-        pincap = re.search(r"Pincap 0x[0-9a-fA-F]+: (.*)", block)
-        if pincap and _pin_is_unconnected(cfg) and "OUT" in pincap.group(1).split():
-            unconfigured.append(UnconfiguredPin(
-                node=node,
-                codec=codec_ssid,
-                pincap=pincap.group(1).strip(),
-                pin_default=f"0x{cfg:08x}",
-            ))
-    return codec_ssid, speakers, unconfigured
-
-
-def read_pin_config_overrides(codec_path: Path,
-                              sysfs_class_sound=Path("/sys/class/sound"),
-                              ) -> dict[str, PinOverride]:
-    """The pin configs the driver uses in place of the firmware's, for one codec.
-
-    ``/proc/asound/card0/codec#0`` → ``/sys/class/sound/hwC0D0``: the card
-    index and the codec address are what name both, so the two views can be
-    lined up without parsing either. Missing files mean no override — a
-    machine whose kernel applies nothing reads exactly like one with an empty
-    list.
-    """
-    card = re.search(r"card(\d+)", codec_path.parent.name)
-    addr = re.search(r"(\d+)$", codec_path.name)
-    if not (card and addr):
-        return {}
-    codec_dir = sysfs_class_sound / f"hwC{card.group(1)}D{addr.group(1)}"
-    resolved: dict[str, PinOverride] = {}
-    for filename, source in _PIN_CFG_OVERRIDE_FILES:
-        try:
-            text = (codec_dir / filename).read_text()
-        except OSError:
-            continue
-        resolved.update({node: PinOverride(cfg, source)
-                         for node, cfg in parse_pin_config_overrides(text).items()})
-    return resolved
-
-
-def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
-    """Stand in for a machine whose firmware hides a woofer pin.
-
-    Same demo/preview convention as ``DEMO_FIRMWARE_GATE``, and needed for the
-    same reason: this warning is keyed to the *machine*, not to anything in a
-    tuning XML, so `tools/preview_output.py` can never find a corpus file that
-    triggers it and the copy would go unread by every review round.
-    ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
-    0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
-
-    It substitutes the whole machine, not just its pins, which is why it sets
-    the codec list and clears the SoundWire one: callers pick the detection
-    branch off ``bus_type``, so a demo that filled in pins alone did nothing
-    on any host that wasn't itself HDA — a SoundWire laptop, or CI, where
-    there is no codec to make ``bus_type`` "hda" at all. Returns True when a
-    demo was injected (skip real detection then).
-    """
-    ssid = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
-    if not ssid:
-        return False
-    info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
-    info.soundwire_devices = []
-    info.speakers.append(SpeakerPin(node="0x14",
-                                    control_name="Speaker Playback Switch",
-                                    role="tweeter", channels=2, codec=ssid))
-    for node, pincap in (("0x17", "OUT HP Detect"),
-                         ("0x1b", "IN OUT EAPD Detect"), ("0x1e", "OUT")):
-        info.unconfigured_pins.append(UnconfiguredPin(
-            node=node, codec=ssid, pincap=pincap, pin_default="0x411111f0"))
-    return True
-
-
-def _detect_hda_speakers(info: SpeakerInfo,
-                         proc_asound=Path("/proc/asound"),
-                         sysfs_class_sound=Path("/sys/class/sound")):
-    """Detect internal speakers from HDA codec pin configurations."""
-    for codec_path in sorted(proc_asound.glob("card*/codec*")):
-        try:
-            text = codec_path.read_text()
-        except OSError:
-            continue
-        _, speakers, unconfigured = parse_hda_codec_pins(
-            text, read_pin_config_overrides(codec_path, sysfs_class_sound))
-        info.speakers.extend(speakers)
-        info.unconfigured_pins.extend(unconfigured)
-
-
-# A smart-amp firmware-load gate is an ALSA control (not a DAX field) that
-# must be on before TI TAS2563/2781 amplifiers will drive the woofers.
-# Matched by name: "Speaker Force Firmware Load" is the one Lenovo laptops
-# expose (issue #17); the pattern is loosened to the "...Force Firmware Load"
-# family so sibling controls match too. Extend here if more turn up.
-_FIRMWARE_GATE_NAME_RE = re.compile(r"force firmware load", re.I)
-_AMIXER_CONTROL_HEAD_RE = re.compile(r"numid=(\d+),iface=(\w+),.*?name='([^']*)'")
-
-
-def parse_firmware_gate_controls(
-        amixer_contents: str) -> list[tuple[str, str, str, bool]]:
-    """Extract firmware-load gate controls from ``amixer -c N contents`` text.
-
-    Each control prints as a block:
-
-        numid=3,iface=CARD,name='Speaker Force Firmware Load'
-          ; type=BOOLEAN,access=rw------,values=1
-          : values=off
-
-    The iface must be captured, not assumed: modern tas2781 kernels expose
-    these as iface=CARD, and ``amixer cset name=…`` without an iface assumes
-    MIXER and fails with "Cannot find the given element" (issue #39, ROG
-    Xbox Ally X) — the fix command has to spell the iface out.
-
-    Returns ``(numid, iface, name, on)`` per name-matched control. Pure text
-    parsing so it can be unit-tested without hardware.
-    """
-    gates: list[tuple[str, str, str, bool]] = []
-    for block in re.split(r"(?=^numid=)", amixer_contents, flags=re.MULTILINE):
-        head = _AMIXER_CONTROL_HEAD_RE.match(block)
-        if not head:
-            continue
-        numid, iface, name = head.group(1), head.group(2), head.group(3)
-        if not _FIRMWARE_GATE_NAME_RE.search(name):
-            continue
-        val = re.search(r":\s*values=(\w+)", block)
-        on = val is not None and val.group(1).lower() in ("on", "1", "true")
-        gates.append((numid, iface, name, on))
-    return gates
-
-
-def detect_speaker_firmware_gates() -> list[FirmwareGate]:
-    """Scan ALSA cards for smart-amp firmware-load gate controls.
-
-    Reads each card's raw control list via ``amixer -c <N> contents`` (the
-    same tool the SoundWire fallback already shells out to) and returns a
-    FirmwareGate per matching control. Empty when amixer is absent or no
-    gate exists.
-    """
-    # Demo/preview hook (same ATMOS_* convention as the test corpus env vars):
-    # inject a synthetic gate so the issue-#17 warning can be previewed on a
-    # machine without a TI smart amp. The value is the gate *state*:
-    # DEMO_FIRMWARE_GATE=off (or 0) shows the muted case a user would see
-    # (the warning fires); =on (or 1) shows the already-enabled, silent case.
-    demo = os.environ.get("DEMO_FIRMWARE_GATE")
-    if demo:
-        on = demo.strip().lower() in ("on", "1", "true")
-        return [FirmwareGate(card_index="0", card_id="sofhdadsp", numid="3",
-                             iface="CARD",
-                             name="Speaker Force Firmware Load", on=on)]
-
-    gates: list[FirmwareGate] = []
-    for card_dir in sorted(Path("/proc/asound").glob("card*")):
-        m = re.match(r"card(\d+)$", card_dir.name)
-        if not m:
-            continue  # skips the /proc/asound/cards file and oddly-named dirs
-        idx = m.group(1)
-        id_file = card_dir / "id"
-        card_id = id_file.read_text().strip() if id_file.is_file() else idx
-        try:
-            result = subprocess.run(
-                ["amixer", "-c", idx, "contents"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except FileNotFoundError:
-            return gates  # amixer not installed — nothing more to scan
-        except subprocess.TimeoutExpired:
-            continue
-        for numid, iface, name, on in parse_firmware_gate_controls(result.stdout):
-            gates.append(FirmwareGate(
-                card_index=idx, card_id=card_id, numid=numid, iface=iface,
-                name=name, on=on,
-            ))
-    return gates
-
-
-def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
+def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | None:
     """Warn — with copy-paste fixes — about any firmware-load gate that's off,
     and return the ask for whether toggling it worked.
 
@@ -803,7 +138,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     # state that alsa-restore.service replays at boot (the standard ALSA path).
     console.cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
     for g in off:
-        console.cprint("cta", f"     {amixer_enable_cmd(g)}")
+        console.cprint("cta", f"     {speakers.amixer_enable_cmd(g)}")
     print()
     # The card name is this machine's own (read from /proc/asound/cardN/id),
     # so the command is right as printed — but a card that renumbers between
@@ -862,146 +197,7 @@ def warn_speaker_firmware_gate(gates: list[FirmwareGate]) -> Finding | None:
     return _firmware_gate_finding()
 
 
-# --- A woofer pin the BIOS hides (issue #53) --------------------------------
-#
-# Some laptops report the pin complex driving their woofers as unconnected, so
-# the kernel configures only the tweeter pin and the preset drives half the
-# speaker set. The DAX XML cannot see this — its internal_speaker endpoints
-# describe *channels* (always "2"), never drivers, on 2- and 4-driver machines
-# alike — so the only signal is that upstream Linux carries a per-machine fixup
-# for this exact subsystem id while the running kernel isn't applying it.
-#
-# Detection is table-driven rather than inferred from the pins themselves: an
-# output-capable pin with no default configuration is indistinguishable from a
-# genuinely spare one (the development machine has two, 0x1b and 0x1e), so only
-# a machine-specific match can tell a hidden woofer from an unused pin.
-
 _MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
-
-
-# A /proc/asound/cards entry: " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp".
-# The driver field is what identifies the stack; matching "sof" anywhere in the
-# line instead catches the *shortname*, and "microsoft" contains "sof" — a
-# plugged-in Microsoft webcam or headset would otherwise read as a SOF machine.
-_CARD_DRIVER_RE = re.compile(r"^\s*\d+\s*\[[^\]]*\]:\s*(\S+)")
-
-
-def _card_uses_sof(sound_cards: list[str]) -> bool:
-    """Whether any sound card is driven by the SOF stack.
-
-    Load-bearing twice over: SOF zeroes the PCI subsystem id the HDA layer
-    sees (so PCI-keyed quirks can't match), and it owns the ``hda_model``
-    parameter that forces one.
-    """
-    for line in sound_cards:
-        m = _CARD_DRIVER_RE.match(line)
-        if m and m.group(1).lower().startswith("sof"):
-            return True
-    return False
-
-
-def hda_model_module(uses_sof: bool,
-                     module_root=Path("/sys/module")) -> tuple[str, str]:
-    """``(module, parameter)`` that force an HDA fixup on this system.
-
-    Which driver owns the codec decides this, not which module merely exposes
-    a parameter: on an Intel machine the SOF modules are routinely loaded
-    beside ``snd_hda_intel`` (both are present on the development machine), so
-    picking the first ``hda_model`` found writes the option to a module that
-    isn't driving anything — the user reboots and nothing changes.
-
-    The SOF parameter itself is still found by scanning, because it moved:
-    ``snd_sof_intel_hda_generic`` today, ``snd_sof_intel_hda_common`` before
-    the generic split.
-    """
-    if uses_sof:
-        for params in sorted(module_root.glob("*/parameters/hda_model")):
-            return params.parent.parent.name, "hda_model"
-    return "snd_hda_intel", "model"
-
-
-def _ssid_key(ssid: str) -> tuple[int, int] | None:
-    """``("17AA22E6")`` → ``(0x17AA, 0x22E6)``; None if not an 8-hex-digit id."""
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", ssid or ""):
-        return None
-    return int(ssid[:4], 16), int(ssid[4:], 16)
-
-
-def find_hidden_speaker_pin(
-        info: SpeakerInfo) -> tuple[speaker_pin_quirks.PinQuirk, str] | None:
-    """The pin fixup this machine should be getting but isn't, else None.
-
-    Mirrors ``snd_hda_pick_fixup`` (``sound/hda/common/auto_parser.c``) so we
-    only claim a match the kernel could actually make:
-
-    * every entry can match the *codec's* subsystem id — either because it is
-      an ``HDA_CODEC_QUIRK`` or via the codec-SSID fallback the lookup ends on;
-    * a PCI-keyed entry can also match the PCI subsystem id, but not on SOF,
-      where the id the kernel sees is zeroed. Our own PCI id is read from
-      sysfs and is *not* zeroed, so trusting it there would claim a match the
-      kernel never makes.
-
-    Fires when a pin the fixup declares as an internal speaker is not one, on
-    the codec the entry matches. Targeting the *named node* rather than
-    counting pins is what makes this safe across the whole fixup family: some
-    of these declare a machine's only speaker pin (``ALC289_FIXUP_DELL_SPK1``),
-    where "fewer than two pins" would keep firing after the user fixed it,
-    forever. Node-targeting also ignores the ALSA control name, which varies
-    ("Bass Speaker" on one machine, "Speaker Front" on another) while the
-    fixup's effect does not.
-
-    Pins are matched per codec, and the fixup's pins must be *findable* on the
-    codec that matched — already configured, or sitting there unconfigured.
-    That last test is what keeps a machine's other codecs out of it: an HDMI
-    codec has no pin 0x14/0x17 to be short of, so a machine-wide PCI id can't
-    make it look like the analog one.
-
-    Returns ``(quirk, codec subsystem id, pins actually missing)``. The missing
-    list is what the messages name — reporting every pin the fixup declares
-    would tell a user their working pin is broken too.
-    """
-    if info.bus_type != "hda":
-        return None
-    uses_sof = _card_uses_sof(info.sound_cards)
-
-    # Seed from the *unconfigured* output pins too, not just the speakers: some
-    # of these fixups declare a machine's only speaker pin (HP Spectre x360,
-    # ASUS ROG), and before the fix such a codec has no speaker pins at all.
-    # Keying on speakers alone would skip exactly the machines that need this.
-    configured: dict[str, set[str]] = {}
-    spare: dict[str, set[str]] = {}
-    for pin in info.unconfigured_pins:
-        spare.setdefault(pin.codec, set()).add(pin.node.lower())
-        configured.setdefault(pin.codec, set())
-    for pin in info.speakers:
-        configured.setdefault(pin.codec, set()).add(pin.node.lower())
-
-    for codec_ssid, nodes in sorted(configured.items()):
-        key = _ssid_key(codec_ssid)
-        quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(key) if key else None
-        if quirk is None and nodes and not uses_sof and info.pci_subsystem:
-            # The PCI id belongs to the machine, not to any one codec, so it
-            # may only stand in for a codec that already owns speaker pins —
-            # otherwise it lends the analog machine's identity to whichever
-            # other codec happens to have a spare output pin.
-            pci_key = _ssid_key("".join(info.pci_subsystem))
-            candidate = (speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(pci_key)
-                         if pci_key else None)
-            if candidate and not candidate.codec_only:
-                quirk = candidate
-        if not quirk:
-            continue
-        declared = [n.lower() for n in quirk.pins.split()]
-        # Every declared pin has to exist on this codec, as a speaker already
-        # or as an unconfigured output pin. A declared pin that is neither is
-        # some other codec's business.
-        if not all(n in nodes or n in spare.get(codec_ssid, set())
-                   for n in declared):
-            continue
-        missing = [n for n in declared if n not in nodes]
-        if missing:
-            return quirk, codec_ssid, missing
-    return None
 
 
 def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
@@ -1074,7 +270,7 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
     """
     if not quirk.model:
         return ()
-    module, param = hda_model_module(uses_sof)
+    module, param = speakers.hda_model_module(uses_sof)
 
     def prose(text: str, indent: str = "", hang: str = "") -> list[tuple[str, str]]:
         return [("dim", line) for line in textwrap.wrap(
@@ -1118,7 +314,7 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
 
 def warn_hidden_speaker_pin(
         found: tuple[speaker_pin_quirks.PinQuirk, str, list[str]] | None,
-        info: SpeakerInfo) -> Finding | None:
+        info: speakers.SpeakerInfo) -> Finding | None:
     """Warn — with a copy-paste fix and its undo — that the kernel is leaving
     one of this machine's speakers unconfigured.
 
@@ -1149,7 +345,7 @@ def warn_hidden_speaker_pin(
     print()
     console._cprint_wrapped("dim", upgrade_prospect(quirk))
     steps = speaker_pin_fix_steps(quirk, missing,
-                                  _card_uses_sof(info.sound_cards),
+                                  speakers._card_uses_sof(info.sound_cards),
                                   console._wrap_width())
     if steps:
         print()
@@ -1186,7 +382,7 @@ def _hidden_pin_finding(quirk: speaker_pin_quirks.PinQuirk,
             "(issue #53)")
 
 
-def unlisted_speaker_pin_finding(info: SpeakerInfo) -> Finding | None:
+def unlisted_speaker_pin_finding(info: speakers.SpeakerInfo) -> Finding | None:
     """Ask for the *negative* signal: one speaker pin, spare output pins, and
     no upstream fixup for this machine.
 
@@ -1204,7 +400,7 @@ def unlisted_speaker_pin_finding(info: SpeakerInfo) -> Finding | None:
     """
     if info.bus_type != "hda" or not info.unconfigured_pins:
         return None
-    if len(info.speakers) != 1 or find_hidden_speaker_pin(info):
+    if len(info.speakers) != 1 or speakers.find_hidden_speaker_pin(info):
         return None
     spare = ", ".join(p.node for p in info.unconfigured_pins)
     # Names the pins rather than pointing at a table: the only place this
@@ -1222,203 +418,6 @@ def unlisted_speaker_pin_finding(info: SpeakerInfo) -> Finding | None:
                "land in Linux, which is outside this project.",
         ask="Does your device have more speakers than the single pair Linux "
             "found? (issue #53)")
-
-
-# --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
-#
-# Whether the speaker amps are actually live is a smart-amp question, not a
-# SoundWire one: HDA-attached Cirrus (cs35l41) and TI (TAS2781) amps load DSP
-# firmware too, and a cs35l56 with no firmware still plays — but as a quiet
-# "mono mix" with no voicing/protection (cs35l56 kernel doc). No sysfs/debugfs
-# exposes amp audio-state, so the authoritative signal is the kernel log. We
-# gather *evidence* (an enumerated-but-unbound amp is the one hard verdict;
-# firmware files + log markers are shown for a human) keyed by driver, so the
-# engine is generic and adding a device is one registry row.
-
-# One row per smart-amp family: (driver/module name tokens, firmware globs,
-# kernel-log keywords, kernel-log failure markers). Empty globs = the family
-# ships no DSP blob. Tokens are matched as substrings of a driver/module name
-# and double as the SoundWire amp-detection patterns, so adding a device is
-# genuinely one row. The max98 tokens are the specific *smart*-amp parts, not a
-# bare "max98" — that would also catch the max98090 jack codec and the dumb
-# max98357/360 I2S amps (same reason "rt13" is narrow enough to skip rt711).
-#
-# The failure markers are firmware/tuning/DSP-bring-up error strings verified
-# verbatim against the mainline driver source (file:line cited per family) — NOT
-# the kernel doc, whose ".bin file required but not found" is prose the driver
-# never prints. They classify which collected log lines are failures; "" = no
-# honest tell. Absence of a marker is never a pass: a real cs35l56 report (#27)
-# printed FIRMWARE_MISSING / "Calibration disabled…" / "Can't read tuning IDs"
-# while our first marker set (boot/init timeouts only) reported "no errors",
-# which is exactly why the no-error line tells the reader to eyeball the log.
-_AMP_FAMILIES = (
-    # Cirrus cs35l41 (HDA) / cs35l56 / cs35l57 (SoundWire). Markers:
-    # cs35l56-shared.c "FIRMWARE_MISSING" (l.1388), "Can't read tuning IDs"
-    # (l.1424), "Firmware boot timed out" (l.455); cs35l56.c "init_completion
-    # timed out" (l.866/1373); cs-amp-lib.c "Calibration disabled due to missing
-    # firmware controls" (l.140/172, shared lib — also fires for cs35l41).
-    (("cs35l",), ("cirrus/cs35l*",), ("cs35l", "cirrus"),
-     r"firmware_missing|can't read tuning ids"
-     r"|calibration disabled due to missing firmware controls"
-     r"|firmware boot timed out|init_completion timed out"),
-    # TI smart amps (issue #17 family). Markers from tas2781-fmwlib.c /
-    # tas2781-i2c.c: "FW download failed", "Failed to read firmware",
-    # "Request firmware … failed", "Firmware is NULL", "Bin file error".
-    (("tas2",), ("TAS2*", "ti/tas2*", "tas2*"), ("tas2",),
-     r"fw download failed|failed to read firmware|request firmware .* failed"
-     r"|firmware is null|bin file error"),
-    # Realtek SoundWire amps — only rt1320 loads a firmware patch (rt1316/rt1318
-    # are register-only). Markers from rt1320-sdw.c: "Failed to load … firmware",
-    # "FW file doesn't match to device", "Can't find proper FW file name".
-    (("rt13", "rt_amp"), (), ("rt13",),
-     r"failed to load .* firmware|fw file doesn't match to device"
-     r"|can't find proper fw file name"),
-    # Maxim DSM smart amps — no honest firmware-missing tell: only max98390 loads
-    # a DSM calibration param, and a missing file falls through silently
-    # (max98390.c err path), so we collect its log lines but flag nothing.
-    (("max98373", "max98390", "max98363", "max98396", "max98512"),
-     (), ("max98",), ""),
-)
-
-_AMP_DRIVER_TOKENS = tuple(tok for fam in _AMP_FAMILIES for tok in fam[0])
-
-
-def _amp_firmware_profile(driver: str) -> tuple[list[str], list[str]] | None:
-    """(firmware globs under /lib/firmware, kernel-log keywords) for a driver.
-
-    Looks the driver up in ``_AMP_FAMILIES`` — the single source of amp-family
-    identity. None ⇒ not a recognised smart amp.
-    """
-    d = driver.lower()
-    for tokens, globs, keywords, _markers in _AMP_FAMILIES:
-        if any(t in d for t in tokens):
-            return (list(globs), list(keywords))
-    return None
-
-
-def _loaded_amp_drivers() -> list[str]:
-    """Loaded kernel modules that look like smart-amp drivers (any bus)."""
-    moddir = Path("/sys/module")
-    if not moddir.is_dir():
-        return []
-    return sorted(m.name for m in moddir.iterdir()
-                  if any(t in m.name.lower() for t in _AMP_DRIVER_TOKENS))
-
-
-def _list_firmware_files(globs: list[str], roots=None) -> list[str]:
-    """Existing firmware files matching globs under /lib/firmware (+ updates/)."""
-    if roots is None:
-        roots = (Path("/lib/firmware"), Path("/lib/firmware/updates"))
-    found = set()
-    for root in roots:
-        for g in globs:
-            for p in root.glob(g):
-                if p.is_file():
-                    found.add(str(p.relative_to(root)))
-    return sorted(found)
-
-
-def _read_kernel_log() -> str | None:
-    """Current-boot kernel log via journalctl then dmesg; None if none readable.
-
-    ``journalctl -o cat`` emits the message text only — no hostname or wall-clock
-    timestamp — so the lines stay safe to paste into a device-report issue (same
-    privacy posture as get_distro_pretty_name; dmesg carries no hostname either).
-    ``errors="replace"`` keeps a stray non-UTF-8 byte from aborting the report,
-    and the timeout is kept short since this runs on the default --doctor path.
-    """
-    for cmd in (["journalctl", "-k", "-b", "-o", "cat", "--no-pager"], ["dmesg"]):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               errors="replace", timeout=4)
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout
-    return None
-
-
-# Union of every family's source-verified failure markers (co-located in
-# _AMP_FAMILIES above). We do NOT try to classify "healthy": no log line
-# reliably proves firmware loaded (`patched=N` is nuanced; success strings are
-# vendor-specific), so a green verdict would mislead — and the marker list is
-# deliberately not exhaustive, so the no-error path tells the reader to read the
-# lines themselves. Every matched line is shown verbatim as evidence.
-_AMP_LOG_ERROR_RE = re.compile(
-    "|".join(markers for *_, markers in _AMP_FAMILIES if markers), re.I,
-)
-
-
-def _amp_log_is_error(line: str) -> bool:
-    """True when a kernel-log line is an unambiguous amp firmware/init error."""
-    return bool(_AMP_LOG_ERROR_RE.search(line))
-
-
-def scan_amp_log(log_text: str, keywords: list[str]) -> list[tuple[bool, str]]:
-    """(is_error, line) for kernel-log lines mentioning any amp keyword."""
-    if not keywords:
-        return []
-    kw = re.compile("|".join(re.escape(k) for k in keywords), re.I)
-    return [(_amp_log_is_error(line), line.strip())
-            for line in log_text.splitlines() if kw.search(line)]
-
-
-def _gather_amp_evidence(info: SpeakerInfo) -> None:
-    """Populate driver-keyed firmware-presence and kernel-log evidence."""
-    # Driver tokens from both loaded modules and bound SoundWire amps.
-    drivers = _loaded_amp_drivers() + [a.driver for a in info.amp_status if a.driver]
-    profiles = [p for p in (_amp_firmware_profile(d) for d in drivers) if p]
-    if not profiles:
-        return
-    globs = sorted({g for pr in profiles for g in pr[0]})
-    keywords = sorted({k for pr in profiles for k in pr[1]})
-    # Self-check hint derived from the keywords we actually scan, so the printed
-    # `grep` command can't contradict what the report found.
-    info.amp_log_grep = "|".join(keywords)
-    if globs:
-        info.amp_firmware = _list_firmware_files(globs)
-        # A blob-needing driver is loaded but none was found. Decided once here
-        # (not at render) so the flag can't diverge from what we searched for.
-        info.amp_firmware_missing = not info.amp_firmware
-    log = _read_kernel_log()
-    if log is None:
-        info.amp_log_available = False
-    else:
-        info.amp_log = scan_amp_log(log, keywords)
-
-
-def _maybe_demo_amp_status(info: SpeakerInfo) -> bool:
-    """Inject synthetic amp status so the section can be previewed without hardware.
-
-    ``ATMOS_DEMO_AMP_STATUS`` = ``ok`` (healthy 6× cs35l56) / ``unbound`` (one
-    amp with no driver) / ``fail`` (bound but firmware missing + log error).
-    Returns True when a demo was injected (skip real gathering then).
-    """
-    mode = (os.environ.get("ATMOS_DEMO_AMP_STATUS") or "").strip().lower()
-    nodes = [f"sdw:0:1:01fa:3557:01:{i}" for i in range(6)]
-    if mode == "unbound":
-        info.amp_status = [AmpStatus(nodes[0], "", False, 0)]
-        info.amp_status += [AmpStatus(n, "cs35l56", True, 1) for n in nodes[1:]]
-        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
-        info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-…wmfw")]
-    elif mode == "fail":
-        info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
-        # Real #27 shape: generic cirrus blobs are present, but the *machine*
-        # firmware is absent, so the driver logs FIRMWARE_MISSING even though
-        # file-presence looks fine — the log marker, not the count, is the tell.
-        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
-        info.amp_log = [
-            (True, "cs35l56 sdw:0:1:01fa:3557:01:0: FIRMWARE_MISSING"),
-            (True, "cs35l56 sdw:0:1:01fa:3557:01:0: Calibration disabled "
-                   "due to missing firmware controls"),
-        ]
-    elif mode == "ok":
-        info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
-        info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
-        info.amp_log = [(False, "cs35l56 sdw:0:1: DSP1: cirrus/cs35l56-…wmfw")]
-    else:
-        return False  # unset or unknown value → no demo (never fake a healthy report)
-    return True
 
 
 def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
@@ -1440,7 +439,7 @@ def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
     return ""
 
 
-def _gather_speaker_pins() -> SpeakerInfo:
+def _gather_speaker_pins() -> speakers.SpeakerInfo:
     """Just enough of a SpeakerInfo to answer find_hidden_speaker_pin.
 
     A few /proc reads and one sysfs walk. Kept apart from
@@ -1452,27 +451,27 @@ def _gather_speaker_pins() -> SpeakerInfo:
     """
     import platform
 
-    info = SpeakerInfo(kernel=platform.release())
+    info = speakers.SpeakerInfo(kernel=platform.release())
     cards_path = Path("/proc/asound/cards")
     if cards_path.exists():
         info.sound_cards = [l.strip() for l
                             in cards_path.read_text().strip().splitlines()]
-    info.hda_codecs = get_hda_codec_ids()
-    info.soundwire_devices = get_soundwire_ids()   # decides bus_type
-    info.pci_subsystem = get_pci_audio_subsystem()
+    info.hda_codecs = codecs.get_hda_codec_ids()
+    info.soundwire_devices = codecs.get_soundwire_ids()   # decides bus_type
+    info.pci_subsystem = codecs.get_pci_audio_subsystem()
     # Asked first, not folded into the condition below: injecting the demo is
     # what makes bus_type read "hda", so testing bus_type first would skip it.
-    if not _maybe_demo_hidden_speaker_pin(info):
+    if not speakers._maybe_demo_hidden_speaker_pin(info):
         if info.bus_type == "hda":
-            _detect_hda_speakers(info)
+            speakers._detect_hda_speakers(info)
     return info
 
 
-def _gather_speaker_info() -> SpeakerInfo:
+def _gather_speaker_info() -> speakers.SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
     import platform
 
-    info = SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
+    info = speakers.SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
 
     # System identity
     for attr, path in [("product", "/sys/class/dmi/id/product_name"),
@@ -1487,9 +486,9 @@ def _gather_speaker_info() -> SpeakerInfo:
         info.sound_cards = [l.strip() for l in cards_path.read_text().strip().splitlines()]
 
     # Bus-agnostic detection
-    info.hda_codecs = get_hda_codec_ids()
-    info.soundwire_devices = get_soundwire_ids()
-    info.pci_subsystem = get_pci_audio_subsystem()
+    info.hda_codecs = codecs.get_hda_codec_ids()
+    info.soundwire_devices = codecs.get_soundwire_ids()
+    info.pci_subsystem = codecs.get_pci_audio_subsystem()
 
     # PCM playback devices
     for card_dir in sorted(Path("/proc/asound").glob("card*")):
@@ -1505,25 +504,25 @@ def _gather_speaker_info() -> SpeakerInfo:
             info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
 
     # Speaker detection — branch by bus type, unless a demo machine stands in
-    if not _maybe_demo_hidden_speaker_pin(info):
+    if not speakers._maybe_demo_hidden_speaker_pin(info):
         if info.bus_type == "soundwire":
-            _detect_soundwire_speakers(info)
+            speakers._detect_soundwire_speakers(info)
         elif info.bus_type == "hda":
-            _detect_hda_speakers(info)
+            speakers._detect_hda_speakers(info)
 
     # Bus-agnostic: a TI smart-amp firmware gate sits on the SOF/HDA card
     # regardless of how the speakers themselves are wired.
-    info.firmware_gates = detect_speaker_firmware_gates()
+    info.firmware_gates = speakers.detect_speaker_firmware_gates()
 
     # Merged amp-status evidence (firmware presence + kernel-log markers),
     # unless a demo override is requested for previewing the section.
-    if not _maybe_demo_amp_status(info):
-        _gather_amp_evidence(info)
+    if not speakers._maybe_demo_amp_status(info):
+        amps._gather_amp_evidence(info)
 
     return info
 
 
-def _amp_status_lines(info: SpeakerInfo) -> list[str]:
+def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
     """Build the compact "Speaker amplifier status" body — raw evidence, no verdict.
 
     Terse by default (a one-line bound-amp summary) and shows actual kernel-log
@@ -1561,7 +560,7 @@ def _amp_status_lines(info: SpeakerInfo) -> list[str]:
             # Both --speaker-info and --doctor end in this section, so it is
             # the only place either of them can hand over the fix. Its own
             # line, unwrapped, because it has to survive a copy-paste.
-            lines.append(f"      turn it on:  {amixer_enable_cmd(g)}")
+            lines.append(f"      turn it on:  {speakers.amixer_enable_cmd(g)}")
 
     # Driver-keyed firmware presence (only when a smart-amp driver is loaded).
     if info.amp_firmware:
@@ -1604,7 +603,7 @@ def _amp_status_lines(info: SpeakerInfo) -> list[str]:
     return lines or ["  (no smart amplifier detected)"]
 
 
-def _print_speaker_info(info: SpeakerInfo):
+def _print_speaker_info(info: speakers.SpeakerInfo):
     """Print the collected speaker info report."""
     sections = []
 
@@ -1672,7 +671,7 @@ def _print_speaker_info(info: SpeakerInfo):
             # upstream ships a fix for, where the quirk table names the pin.
             # Marking it is what keeps this section from talking a reader out
             # of a fix the same report just handed them.
-            found = find_hidden_speaker_pin(info)
+            found = speakers.find_hidden_speaker_pin(info)
             flagged = set(found[2]) if found else set()
             speaker_lines.append("  Output-capable pins left unconfigured:")
             speaker_lines += [
@@ -1709,7 +708,7 @@ def _print_speaker_info(info: SpeakerInfo):
     # with a pin fix missing it states the very number the warning above says
     # is wrong — read as a bottom line, that talks the reader out of the fix.
     layout = f"  {info.layout_summary}"
-    if info.bus_type == "hda" and find_hidden_speaker_pin(info):
+    if info.bus_type == "hda" and speakers.find_hidden_speaker_pin(info):
         layout += " (what Linux drives — the flagged pin above would add more)"
     sections.append(("Speaker layout estimate", [layout]))
 
@@ -1759,7 +758,7 @@ _CONVOLVER_KEY_RE = re.compile(r"^convolver#\d+$")
 class DoctorReport:
     checks: list[CheckResult] = field(default_factory=list)
     facts: dict = field(default_factory=dict)   # raw probed values, always shown
-    speaker_info: "SpeakerInfo | None" = None
+    speaker_info: "speakers.SpeakerInfo | None" = None
 
 
 def _tilde(path) -> str:
@@ -2036,7 +1035,7 @@ def autostart_status(rc_data: dict) -> CheckResult:
         + " (" + "; ".join(why) + ").")
 
 
-def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
+def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
     """Verdict line for a speaker pin the firmware hides, or None when this
     machine isn't one upstream has had to fix (nearly all of them — a PASS for
     a quirk that was never needed is noise).
@@ -2051,7 +1050,7 @@ def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
     and ``upgrade_prospect`` has already said why, so the check promises no
     command it won't print.
     """
-    found = find_hidden_speaker_pin(info)
+    found = speakers.find_hidden_speaker_pin(info)
     if not found:
         return None
     quirk, codec_ssid, missing = found
@@ -2065,12 +1064,12 @@ def speaker_pin_status(info: SpeakerInfo) -> CheckResult | None:
         # Same width the printer will wrap the detail to, less its indent, so
         # the prose here lines up with the prose above it.
         steps=speaker_pin_fix_steps(quirk, missing,
-                                    _card_uses_sof(info.sound_cards),
+                                    speakers._card_uses_sof(info.sound_cards),
                                     console._wrap_width() - 9,
                                     speaker_info_below=True))
 
 
-def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
+def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | None:
     """Verdict line for the smart-amp firmware gates, or None when the machine
     exposes no such control (most don't — there is nothing to report either
     way, and a PASS for an absent control is noise).
@@ -2101,7 +1100,7 @@ def firmware_gate_status(gates: list[FirmwareGate]) -> CheckResult | None:
         f"{names} is off, so the amplifier runs untuned ahead of the preset "
         "and your speakers may be silent, thin or crackly whatever the preset "
         "does. Switch it on:",
-        steps=tuple(("cta", amixer_enable_cmd(g)) for g in off))
+        steps=tuple(("cta", speakers.amixer_enable_cmd(g)) for g in off))
 
 
 _doctor_summary = doctor.summarize
@@ -2606,9 +1605,9 @@ def _detect_expected_subsys_ids() -> set[str]:
     return an empty set if no hardware is detected.
     """
     ids: set[str] = set()
-    for _vendor, subsys, _name in get_hda_codec_ids():
+    for _vendor, subsys, _name in codecs.get_hda_codec_ids():
         ids.add(subsys.upper())
-    pci_subsys = get_pci_audio_subsystem()
+    pci_subsys = codecs.get_pci_audio_subsystem()
     if pci_subsys:
         vendor, device = pci_subsys
         ids.add(f"{device}{vendor}".upper())
@@ -2826,9 +1825,9 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     lists them so the user can pass one as the positional XML path argument
     rather than waiting on a code fix.
     """
-    hda_codecs = get_hda_codec_ids()
-    sdw_devices = get_soundwire_ids()
-    pci_subsys = get_pci_audio_subsystem()
+    hda_codecs = codecs.get_hda_codec_ids()
+    sdw_devices = codecs.get_soundwire_ids()
+    pci_subsys = codecs.get_pci_audio_subsystem()
 
     if not hda_codecs and not sdw_devices:
         raise FileNotFoundError(
@@ -3109,285 +2108,6 @@ def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> li
     return [p.get("type") for p in ep.findall("profile") if p.get("type") != "off"]
 
 
-# Speaker-sink detection for autoload / smart-filter targeting.
-#
-# NOTE: this is the device-detection (structural) path, not the audio-math
-# path, so the "every emitted parameter must trace to an XML field" invariant
-# (CLAUDE.md) does NOT apply here — runtime PipeWire node selection has no XML
-# provenance. The heuristics below are pragmatic and always overridable by the
-# user (--autoload-sink here, --target-sink in ee_to_pipewire.py).
-
-# device.icon_name values that mark an output we never treat as the internal
-# speaker, even under the relaxed tier.
-_NON_SPEAKER_ICONS = {"audio-headphones", "audio-headset"}
-
-
-def _enumerate_audio_sinks() -> list[dict]:
-    """Return every PipeWire Audio/Sink node with the props we classify on.
-
-    This is the single ``pw-dump`` boundary; tests monkeypatch it to feed
-    synthetic sink lists. Each dict carries 'name', 'description', 'profile',
-    and 'route' (the fields EasyEffects autoload needs) plus 'icon_name', 'bus',
-    and 'api' (used to tell internal speakers from HDMI / Bluetooth / headsets
-    and to explain the choice in diagnostics).
-
-    'profile' is the card *profile* description (e.g. "Analog Stereo"); 'route'
-    is the active output *route* description (e.g. "Speaker"). EasyEffects keys
-    its autoload files on the route description — the node's
-    ``device_route_description``, taken from the SPA_PARAM_Route ``description``
-    — not the profile. On UCM "HiFi" cards the two happen to coincide
-    ("Speaker"), but on a classic ``analog-stereo`` card the profile is
-    "Analog Stereo" while the active output route is still "Speaker", so an
-    autoload entry filed under the profile never matches and the fallback wins
-    (issue #18). 'route' is "" when the active output route can't be resolved
-    (virtual sinks, or an older pw-dump that omits Device params); the autoload
-    caller skips such sinks rather than fall back to the profile, since guessing
-    a filename EE won't match just silently recreates the #18 failure.
-    """
-    try:
-        result = subprocess.run(
-            ["pw-dump"], capture_output=True, text=True, timeout=5
-        )
-        data = json.loads(result.stdout)
-    except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
-        return []
-    if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
-        return []
-
-    # Map PipeWire Device id -> {card-profile-device index -> output route
-    # description}. A sink node carries 'device.id' (its Device object) and
-    # 'card.profile.device' (the route's device index within that card), so we
-    # can resolve the active output route description EasyEffects matches on.
-    routes_by_device: dict = {}
-    for obj in data:
-        if not str(obj.get("type", "")).endswith("Device"):
-            continue
-        dev_id = obj.get("id")
-        if dev_id is None:
-            continue
-        params = obj.get("info", {}).get("params", {})
-        out_routes = {}
-        for route in params.get("Route", []) or []:
-            if route.get("direction") != "Output":
-                continue
-            dev_idx = route.get("device")
-            desc = route.get("description")
-            if dev_idx is not None and desc:
-                out_routes[dev_idx] = desc
-        if out_routes:
-            routes_by_device[dev_id] = out_routes
-
-    sinks = []
-    for obj in data:
-        props = obj.get("info", {}).get("props", {})
-        if props.get("media.class") != "Audio/Sink":
-            continue
-        route = routes_by_device.get(props.get("device.id"), {}).get(
-            props.get("card.profile.device"))
-        sinks.append({
-            "name": props.get("node.name", ""),
-            "description": props.get("node.description", ""),
-            "profile": props.get("device.profile.description", ""),
-            "route": route or "",
-            "icon_name": props.get("device.icon_name", ""),
-            "bus": props.get("device.bus", ""),
-            "api": props.get("device.api", ""),
-        })
-    return sinks
-
-
-def _classify_sink(sink: dict) -> str:
-    """Classify a sink as 'strict', 'relaxed', or 'excluded'.
-
-    'strict'   — tagged as an internal speaker (device.icon_name ==
-                 'audio-speakers'); the only tier used when tagging is correct.
-    'relaxed'  — an internal *analog* output that isn't tagged as a speaker but
-                 also isn't obviously HDMI / Bluetooth / a headset. Fallback for
-                 laptops whose UCM2 profile omits the speaker icon (issue #18:
-                 the generic HDA HiFi-analog.conf sets no DeviceIcon, so
-                 WirePlumber assigns the generic 'audio-card-analog' icon).
-    'excluded' — everything else: HDMI/DisplayPort/SPDIF, Bluetooth, headsets,
-                 and virtual / loopback / combine sinks.
-    """
-    if sink.get("icon_name") == "audio-speakers":
-        return "strict"
-
-    name_l = sink.get("name", "").lower()
-    icon_l = sink.get("icon_name", "").lower()
-    profile_l = sink.get("profile", "").lower()
-
-    # Must be a real ALSA output sink (excludes virtual/loopback/combine sinks
-    # and our own effect_input.* chain node).
-    if not name_l.startswith("alsa_output"):
-        return "excluded"
-    # Not Bluetooth.
-    if sink.get("api") == "bluez5" or "bluez" in name_l:
-        return "excluded"
-    # Not HDMI / DisplayPort / SPDIF (digital passthrough). Match on node.name
-    # and icon, and also on the profile description ("Digital Stereo (HDMI)",
-    # "... (IEC958)", DisplayPort/SPDIF variants) so a digital output whose
-    # node.name lacks the usual hdmi/iec958 token is still excluded.
-    _DIGITAL = ("hdmi", "iec958", "spdif", "s/pdif", "displayport")
-    if ("hdmi" in name_l or "iec958" in name_l or "hdmi" in icon_l
-            or any(m in profile_l for m in _DIGITAL)):
-        return "excluded"
-    # Not headphones / a headset.
-    if sink.get("icon_name") in _NON_SPEAKER_ICONS:
-        return "excluded"
-    if "headphone" in name_l or "headset" in name_l:
-        return "excluded"
-    return "relaxed"
-
-
-def _relaxed_sort_key(sink: dict) -> tuple:
-    """Preference order for relaxed candidates (lower sorts first).
-
-    Tie-break only — never excludes. Prefer internal buses (pci/soundwire) over
-    usb/unknown, then the exact issue-#18 symptom (audio-card-analog).
-    """
-    bus_rank = 0 if sink.get("bus") in ("pci", "soundwire") else 1
-    icon_rank = 0 if sink.get("icon_name") == "audio-card-analog" else 1
-    return (bus_rank, icon_rank, sink.get("name", ""))
-
-
-def select_speaker_sinks() -> dict:
-    """Select internal-speaker sink(s) from PipeWire, with tier reporting.
-
-    Returns a dict {'tier', 'selected', 'all_sinks'}:
-      - tier 'strict':  one or more sinks tagged device.icon_name=audio-speakers.
-      - tier 'relaxed': no strict match, but internal analog sink(s) found
-                        (sorted by preference). The caller decides whether to
-                        auto-apply (a unique candidate) or prompt (ambiguous).
-      - tier 'none':    no candidate at all.
-    'selected' and 'all_sinks' both hold full enumerated dicts (name,
-    description, profile, icon_name, bus, api) so callers can both write
-    autoload entries and render diagnostics. ('all_sinks' is everything seen.)
-    """
-    all_sinks = _enumerate_audio_sinks()
-    # Single classification pass — keeps the strict/relaxed/excluded partition
-    # total and mutually exclusive (no double classify, no drift between arms).
-    by_tier: dict[str, list[dict]] = {"strict": [], "relaxed": [], "excluded": []}
-    for s in all_sinks:
-        by_tier[_classify_sink(s)].append(s)
-    if by_tier["strict"]:
-        return {"tier": "strict", "selected": by_tier["strict"], "all_sinks": all_sinks}
-    if by_tier["relaxed"]:
-        relaxed = sorted(by_tier["relaxed"], key=_relaxed_sort_key)
-        return {"tier": "relaxed", "selected": relaxed, "all_sinks": all_sinks}
-    return {"tier": "none", "selected": [], "all_sinks": all_sinks}
-
-
-def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
-    """One-line diagnostic: the sink's node.name (what --autoload-sink/
-    --target-sink take) plus icon/bus detail, and optionally a human
-    description, to identify the device. Shared by both converters so their
-    candidate/diagnostic lines stay in lockstep."""
-    desc = sink.get("description") or ""
-    desc_part = f'  "{desc}"' if (with_description and desc) else ""
-    return (f"node.name={sink.get('name', '?')}{desc_part}  "
-            f"(icon={sink.get('icon_name') or '?'}, bus={sink.get('bus') or '?'})")
-
-
-def _print_sink_candidates(sinks: list[dict]) -> None:
-    """Print a numbered candidate list (shared by the picker and skip paths)."""
-    for i, s in enumerate(sinks, 1):
-        console.cprint("dim", f"  [{i}] {_sink_diag_line(s)}")
-
-
-def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
-    """Prompt for a 1-based choice among already-listed `candidates`, or None.
-
-    The caller is expected to have printed the numbered candidate list. Only
-    prompts when both stdin AND stdout are TTYs — piping stdout (e.g.
-    ``--autoload | tee log``) would otherwise block on a prompt the user can't
-    see — and treats EOF / interrupt / empty / invalid input as a skip, so
-    non-interactive runs (pipes, CI, pytest) never block.
-    """
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return None
-    try:
-        raw = input(f"Select speaker sink [1-{len(candidates)}], "
-                    "or Enter to skip: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-    if not raw:
-        return None
-    try:
-        idx = int(raw)
-    except ValueError:
-        console.cprint("warn", f"  Not a number: {raw!r} — skipping autoload.")
-        return None
-    if not (1 <= idx <= len(candidates)):
-        console.cprint("warn", f"  Out of range: {idx} — skipping autoload.")
-        return None
-    return candidates[idx - 1]
-
-
-def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[dict]:
-    """Resolve which sink(s) to write autoload entries for.
-
-    Honors the --autoload-sink override first; otherwise runs tiered speaker
-    detection (strict audio-speakers tag → relaxed internal-analog fallback)
-    and prints diagnostics explaining the choice. Returns a list of sink dicts
-    (with name/description/profile keys) to write, or [] to skip autoload (with
-    the reason already printed to the user).
-    """
-    # Explicit override: bypass detection entirely.
-    if override_names:
-        by_name = {s["name"]: s for s in _enumerate_audio_sinks()}
-        resolved = []
-        for name in override_names:
-            sink = by_name.get(name)
-            if sink is None:
-                console.cprint("warn", f"  --autoload-sink {name!r}: not currently in "
-                               "pw-dump, so its output route is unknown.")
-                sink = {"name": name, "description": name, "profile": "", "route": ""}
-            resolved.append(sink)
-        return resolved
-
-    sel = select_speaker_sinks()
-    tier = sel["tier"]
-
-    if tier == "strict":
-        return sel["selected"]
-
-    if tier == "relaxed":
-        candidates = sel["selected"]
-        console.cprint("warn", "\nNo sink is tagged as an internal speaker "
-                       "(device.icon_name=audio-speakers).")
-        if len(candidates) == 1:
-            sink = candidates[0]
-            console.cprint("warn", "  Falling back to the only internal analog output found:")
-            console.cprint("dim", f"    {_sink_diag_line(sink)}")
-            console.cprint("dim", "  If this is wrong, re-run with --autoload-sink <node.name>.")
-            return [sink]
-        # Ambiguous: list, then prompt on a TTY (never under --dry-run).
-        console.cprint("warn", f"  Found {len(candidates)} internal analog sinks:")
-        _print_sink_candidates(candidates)
-        chosen = None if dry_run else _prompt_pick_sink(candidates)
-        if chosen is not None:
-            return [chosen]
-        console.cprint("dim", "  Re-run with --autoload-sink <node.name> (repeatable) to choose.")
-        return []
-
-    # tier == "none"
-    all_sinks = sel["all_sinks"]
-    if not all_sinks:
-        console.cprint("warn", "\nWarning: no Audio/Sink nodes found via pw-dump; "
-                       "cannot configure autoload.")
-        console.cprint("dim", "  Is PipeWire running? Run this from your logged-in "
-                      "desktop session.")
-    else:
-        console.cprint("warn", "\nWarning: no internal-speaker sink found (none tagged "
-                       "device.icon_name=audio-speakers, and no internal analog "
-                       "output).")
-        console.cprint("head", "  Audio/Sink nodes seen:")
-        _print_sink_candidates(all_sinks)
-        console.cprint("dim", "  Re-run with --autoload-sink <node.name> to bind autoload manually.")
-    return []
-
-
 @contextlib.contextmanager
 def _atomic_write(path: Path):
     """Yield a same-directory temp path, then os.replace it into place when the
@@ -3577,667 +2297,12 @@ def easyeffects_is_running() -> bool:
         return False
 
 
-def resolve_xml_value(element, constants):
-    """Resolve a value from either a value= attribute or a preset= reference.
-
-    SoundWire XMLs (e.g. Lunar Lake) use preset references like
-    <ch_00 preset="array_20_zero" /> instead of inline value="..." attributes.
-    The preset name refers to a named element under <constant> whose target=
-    attribute holds the actual CSV data.
-    """
-    if element is None:
-        return ""
-    val = element.get("value")
-    if val is not None and val != "":
-        return val
-    preset_name = element.get("preset")
-    if preset_name and constants is not None:
-        ref = constants.find(preset_name)
-        if ref is not None:
-            return ref.get("target", "")
-    return ""
-
-
-def resolve_channel_or_direct(element, constants):
-    """Resolve a CSV array that may live directly on ``element`` or on a
-    per-channel ``<ch_00>..<ch_07>`` sub-element.
-
-    Older/flat DAX3 regulator tunings put the array directly on
-    ``threshold_high``/``threshold_low`` via ``value=``/``preset=``. The newer
-    SoundWire schema (e.g. ``SUBSYS_37A317AA``) nests it per channel instead::
-
-        <threshold_high>
-          <ch_00 value="-282,-294,..." />
-          <ch_01 value="-282,-294,..." />
-          <ch_02 preset="array_20_zero" /> ...
-        </threshold_high>
-
-    Returns the direct value when present, otherwise the ``ch_00`` channel
-    (resolved through the same ``value=``/``preset=`` mechanism as the audio
-    optimizer's ch_00/ch_01), otherwise "". ``ch_00`` is the stereo-limiter
-    reference; callers warn if ``ch_01`` diverges.
-    """
-    direct = resolve_xml_value(element, constants)
-    if direct:
-        return direct
-    if element is None:
-        return ""
-    ch0 = element.find("ch_00")
-    if ch0 is not None:
-        return resolve_xml_value(ch0, constants)
-    return ""
-
-
-def _int_attr(element, default=None, name="value"):
-    """Read an integer ``name=`` attribute, degrading to ``default``.
-
-    Returns ``default`` when ``element`` is None or the attribute is absent
-    or empty. Centralises the ``int(el.get("value"))`` idiom, which
-    otherwise raises ``TypeError`` on a present element with a missing or
-    blank ``value=`` — a plausible hand-edited or schema-variant shape that
-    the CLI top-level did not catch. A present, non-empty but non-integer
-    value still raises ``ValueError`` (surfaced cleanly by the CLI handler).
-    """
-    if element is None:
-        return default
-    raw = element.get(name)
-    if raw is None or raw == "":
-        return default
-    return int(raw)
-
-
-@dataclass(frozen=True)
-class Finding:
-    """One thing a run noticed, printed in two halves with different readers.
-
-    ``detail`` is the technical why. It prints inline, at the detection site,
-    next to the values it explains — the only place it has context. Keeping it
-    out of the closing block is what keeps that block scannable when several
-    things fire at once.
-
-    ``ask`` is what the user reads at the end: ONE short sentence in their
-    terms, either the fix to try or the question we want answered. It is
-    optional, and leaving it empty is the normal case for anything the user
-    cannot act on — a "nothing for you to do" line, in a block whose whole
-    purpose is to prompt action, only teaches people to skip the block. Those
-    findings still print their detail inline, so they still reach us in a
-    pasted report.
-
-    ``kind`` picks the section the ask lands in: "hint" fixes the user's own
-    audio, "ask" is something the project needs from them.
-
-    ``slug`` ties the two halves together — it leads the inline line and
-    trails the end-block one, so either greps to the other — and is the
-    de-duplication key. Keying on rendered text (what main() did before)
-    silently missed repeats whose text embeds a per-profile value, so
-    --all-profiles could print one finding several times with different
-    numbers in it.
-    """
-    slug: str
-    detail: str
-    ask: str = ""
-    kind: str = "hint"
-    # Short label for "which profiles this applies to", when it isn't all of
-    # them. Empty means "applies throughout", which is every single-profile
-    # run. Without it, a finding raised only in `movie` reads under
-    # --all-profiles as though it applied to the preset about to be autoloaded.
-    # Pre-rendered rather than a list: only main() knows how many profiles the
-    # run covered, which is what decides between naming them and counting them.
-    scope: str = ""
-
-
-# One-time [tag] orientation, printed with a run's first finding: the first
-# bracketed token a reader meets otherwise looks like an error code, and the
-# explanation only arrived in the closing block (round 2). Reset per main()
-# call so wrapper-driven and repeated in-process runs behave like fresh ones.
-_TAG_CONVENTION_SHOWN = False
-
-
-def _print_finding_detail(finding: Finding) -> None:
-    """Print a finding's technical half where the condition was detected.
-
-    Prints on every detection — the position is the point, and it is what a
-    reader scrolls back to from the closing block. The slug leads here (a
-    left edge is what makes it findable when scanning back through a couple
-    of hundred lines of tables) and trails there. The ask half is
-    de-duplicated by slug and printed once at the end, so --all-profiles
-    doesn't repeat it for each of nine profiles.
-    """
-    global _TAG_CONVENTION_SHOWN
-    if not _TAG_CONVENTION_SHOWN:
-        _TAG_CONVENTION_SHOWN = True
-        console._cprint_wrapped("dim", "  (bracketed [tags] like the one below are "
-                               "handles — quote one if you report, so we "
-                               "know which line you mean)", indent="   ")
-    if finding.kind == "hint":
-        console._cprint_wrapped("warn", f"  ⚠ [{finding.slug}] {finding.detail}",
-                        indent="    ")
-    else:
-        console._cprint_wrapped("dim", f"  [{finding.slug}] {finding.detail}",
-                        indent="    ")
-
-
-@dataclass
-class ParsedTuning:
-    """Everything parse_xml extracts from one DAX3 endpoint/profile.
-
-    Field order matches the legacy 12-tuple this replaced. Values are a mix of
-    raw schema ints (freqs, curves, ao_left/ao_right, ieq_amount) and
-    already-dB-scaled fields (vol_leveler, surround, volmax_boost); main() and
-    the converters apply the remaining /16 and /100 scalings (see M-COUP in
-    docs for the layering).
-    """
-    freqs: list[int]
-    curves: dict[str, list[int]]
-    ieq_amount: int
-    ao_left: list[int]
-    ao_right: list[int]
-    peq_filters: list[dict]
-    vol_leveler: dict | None
-    dialog_enhancer: dict | None
-    surround: dict | None
-    mb_comp: dict | None
-    regulator: dict | None
-    volmax_boost: float
-    # Which profile this tuning came from, and which one the XML says the
-    # device ships on (<setting><default_profile>, absent on most files).
-    # We build the endpoint's first profile; when Dolby names a different one,
-    # the run says so rather than silently diverging from Windows (issue #46).
-    profile_used: str | None = None
-    default_profile: str | None = None
-    # <setting><geq_maximum_range>, raw 1/16 dB: the widest per-band gain this
-    # XML expresses (192 = 12 dB). Only the older files state it; the rest are
-    # assumed to share the same range, which no corpus file contradicts.
-    geq_max_range: int = 192
-    # False when <audio-optimizer-enable> is 0. ao_left/ao_right are already
-    # zeroed in that case; this records *why* they are flat, so the profile
-    # report can say so instead of showing an unexplained zero curve.
-    ao_enabled: bool = True
-    # False when <ieq-enable> is 0, which is roughly 45% of dynamic-profile
-    # corpus rows. ieq_amount then holds our assumed 10, not a value the
-    # tuning stated, and Dolby engages no voicing at all — so the report has
-    # to say whose number it is printing.
-    ieq_enabled: bool = True
-    # Enabled-but-unreproducible stages, surfaced together at end of run
-    # rather than printed here where they'd be buried (see
-    # collect_unmodeled_features / _unmodeled_summary).
-    findings: list[Finding] = field(default_factory=list)
-    leveler_substages: list[str] = field(default_factory=list)
-
-
-# DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
-# (gains, thresholds, targets, slope/timbre); divide by this to get dB.
-DB_FIXED_POINT_SCALE = 16.0
-
-
-def parse_xml(path: Path, endpoint_type="internal_speaker",
-              operating_mode="normal", profile_type=None,
-              announce_profile=False) -> ParsedTuning:
-    """Parse a DAX3 tuning XML into a ``ParsedTuning`` (see that dataclass for
-    the fields and their units). Raises ``ValueError`` with an actionable
-    message for unsupported schema variants or missing required elements.
-
-    ``announce_profile`` prints the resolved "Profile: …" banner line as soon
-    as the profile is selected — before the finding details this function
-    also prints — so main's run header can carry the actual profile name.
-    The pre-parse banner can only name the request, and "Profile: first in
-    the file" with the real name arriving lines later read as broken output
-    (two review rounds)."""
-    tree = ET.parse(path)
-    root = tree.getroot()
-    constant = root.find("constant")
-
-    if constant is None:
-        # Dolby Fusion (microphone AEC / noise-suppression) XMLs share the
-        # ``DEV_*_SUBSYS_*`` filename shape but carry a completely different
-        # schema — no ``<constant>``, no ``<endpoint>``. They ship under
-        # ``fusion_ext_*`` or ``ext_*_*/fusion/`` with ``_dmic.xml`` /
-        # ``_amic.xml`` suffixes. The probe filters them by suffix; this
-        # guard catches the case where the user passes one explicitly.
-        raise ValueError(
-            f"{path.name}: no <constant> element at XML root. This looks "
-            "like a Dolby Fusion (microphone AEC) tuning, not a DAX3 "
-            "playback tuning. Pick an XML without a '_dmic' / '_amic' "
-            "suffix — those live alongside the DAX3 tunings in the same "
-            "driver package but are for mic processing only."
-        )
-
-    band_20_freq = constant.find("band_20_freq")
-    if band_20_freq is None:
-        raise ValueError(
-            f"{path.name}: <constant> has no <band_20_freq> child — cannot "
-            "read the 20-band frequency grid. This XML uses a DAX3 schema "
-            "variant this script does not support."
-        )
-    freqs = parse_csv_ints(band_20_freq.get("fs_48000"))
-
-    curves = {}
-    for el in constant:
-        if el.tag.startswith("ieq_"):
-            curves[el.tag] = parse_csv_ints(el.get("target"))
-
-    endpoint = root.find(
-        f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
-    )
-    if endpoint is None:
-        available = sorted({
-            f"{ep.get('type')}/{ep.get('operating_mode')}"
-            for ep in root.findall(".//endpoint")
-        })
-        available_str = ", ".join(available) if available else "(none)"
-        raise ValueError(
-            f"Endpoint type='{endpoint_type}' operating_mode='{operating_mode}' "
-            f"not found. Available endpoint/mode pairs: {available_str}. "
-            f"Pass --endpoint TYPE --mode MODE to pick one."
-        )
-
-    # Select the profile for vlldp settings (AO, PEQ, MB compressor)
-    if profile_type:
-        profile = endpoint.find(f"profile[@type='{profile_type}']")
-        if profile is None:
-            available = [p.get("type") for p in endpoint.findall("profile")]
-            raise ValueError(
-                f"Profile '{profile_type}' not found. "
-                f"Available: {', '.join(available)}"
-            )
-    else:
-        profile = endpoint.find("profile")
-        if profile is None:
-            raise ValueError(
-                f"{path.name}: endpoint type='{endpoint_type}' "
-                f"operating_mode='{operating_mode}' has no <profile> "
-                "elements to default to. Pass --profile TYPE, or use "
-                "--list to see this XML's endpoints and profiles."
-            )
-
-    # <setting><default_profile> names the profile the device ships on under
-    # Windows. It's rare (23 of 2802 corpus XMLs, re-counted 2026-08-04, and
-    # every one of them names `music`) and we don't act on it — we
-    # still build the first profile — but a run that silently diverges from
-    # Dolby's own default is worth one line of output (issue #46). Read here
-    # so the banner below can also say where the pick stands.
-    declared_default = root.find("setting/default_profile")
-    declared_name = (declared_default.get("value")
-                     if declared_default is not None else None)
-
-    # Excludes the `off` profile, matching get_profile_types: it is the
-    # disabled state, not a mode anyone selects, and --all-profiles doesn't
-    # build it. Counting it made the banner say "9 sound modes" on a device
-    # where "--all-profiles builds every mode" then built 8.
-    n_profiles = len([p for p in endpoint.findall("profile")
-                      if p.get("type") != "off"])
-
-    if announce_profile:
-        name = profile.get("type")
-        if profile_type:
-            console.cprint("head", f"Profile: {profile_type}")
-        else:
-            # "this speaker's first-listed", one anchor phrase everywhere:
-            # the banner, the profile-mismatch detail, and the parse error
-            # (three variants read as three facts, round 3; "the file's
-            # first" is loose — profiles are per-endpoint, which matters on
-            # multi-output XMLs). "Sound modes" + the count answer the
-            # round-4 question all three reviewers had — is "first" a
-            # sensible pick or an arbitrary one — and give profiles a plain
-            # name distinct from the three voicings two lines down.
-            shown = name if name else "(unnamed)"
-            if n_profiles == 1:
-                console.cprint("head", f"Profile: {shown} (this speaker's only "
-                               "sound mode)")
-            else:
-                console.cprint("head", f"Profile: {shown} (the first-listed of "
-                               f"this speaker's {n_profiles} sound modes — "
-                               "--list names them; --profile picks)")
-                # Round 5, all three reviewers: understanding HOW the pick
-                # was made didn't answer whether it's the right one. Say
-                # where it stands against the Windows default — a match is
-                # a confidence line, an undeclared default is honest doubt.
-                # "Default", never "the mode Windows uses": default_profile
-                # is the shipping default, and the mode actually active on
-                # the user's Windows install may differ (they can switch in
-                # the Dolby app). The mismatch case says nothing here:
-                # [profile-mismatch] owns it, with the ask.
-                if name and declared_name == name:
-                    console.cprint("dim", "  (also the Windows default for this "
-                                  "device)")
-                elif not declared_name:
-                    # A dim aside, not a finding (user decision, round 6):
-                    # first-listed-as-default has held on every device
-                    # checked so far, so a tagged note or a fix-menu row
-                    # over-promoted a non-issue. The Done block repeats
-                    # the assumption once, beside --all-profiles.
-                    # The where-to-check pointer (rounds 4-9, every
-                    # reviewer; user approved round 9): the app shows the
-                    # ACTIVE profile — never claim it shows "the default".
-                    console.cprint("dim", "  (we assume it's also the Windows "
-                                  "default — your file doesn't say)")
-                    console.cprint("dim", "  (the Dolby app on Windows shows the "
-                                  "profile you used — --profile matches "
-                                  "it)")
-
-    # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
-    ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
-    ieq_enabled = True
-    cp = profile.find("tuning-cp")
-    if cp is not None:
-        enable = cp.find("ieq-enable")
-        ieq_enabled = enable is None or enable.get("value") == "1"
-        if enable is not None and enable.get("value") == "1":
-            ieq_amount = _int_attr(cp.find("ieq-amount"), default=ieq_amount)
-
-    vlldp = profile.find("tuning-vlldp")
-    if vlldp is None:
-        name = profile.get("type")
-        label = (f"profile '{name}'" if name
-                 else "this speaker's first-listed profile")
-        raise ValueError(
-            f"{path.name}: {label} has "
-            "no <tuning-vlldp> — no audio-optimizer, PEQ, or MBC data to read. "
-            "This XML uses a DAX3 schema variant this script does not support."
-        )
-
-    ao_bands = vlldp.find("audio-optimizer-bands")
-    if ao_bands is None:
-        raise ValueError(
-            f"{path.name}: tuning-vlldp has no <audio-optimizer-bands>. "
-            "This XML uses a DAX3 schema variant this script does not support."
-        )
-    # Per-channel audio-optimizer correction. Full-schema DAX3 names the
-    # channels <ch_00>..<ch_07>; simplified-schema XMLs (older Lenovo drivers,
-    # xml_version ~3.2.x — e.g. ThinkPad X1 Carbon Gen 8, see issue #22) store
-    # the same 20-band, 1/16-dB arrays under a <gain_l>/<gain_r>/<gain_c>/…
-    # surround layout instead. Both resolve through the identical value=/preset=
-    # mechanism, so for a 2-channel speaker gain_l→left, gain_r→right. The
-    # simplified variant also omits the MBC and speaker-PEQ blocks; those are
-    # handled by the enable-gates below (absent element → block skipped).
-    left_band = ao_bands.find("ch_00")
-    right_band = ao_bands.find("ch_01")
-    simplified_ao = left_band is None or right_band is None
-    if simplified_ao:
-        left_band = ao_bands.find("gain_l")
-        right_band = ao_bands.find("gain_r")
-    if left_band is None or right_band is None:
-        found_tags = sorted({c.tag for c in ao_bands})
-        raise ValueError(
-            f"{path.name}: audio-optimizer-bands has neither ch_00/ch_01 nor "
-            f"gain_l/gain_r — found {found_tags or '[]'} instead. This XML uses "
-            "a DAX3 schema variant this script does not support. Pick another "
-            "endpoint/profile, or open an issue if you need this variant "
-            "supported."
-        )
-    ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
-    ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
-
-    # Dolby can ship a correction curve and still declare the optimizer off —
-    # 773 content-unique internal_speaker/normal rows do, and 18 of those, in
-    # 17 XMLs, carry a *non-zero* curve, so applying it regardless emits a
-    # correction the tuning says not to apply. Almost all are the `off`
-    # profile, but `music` is affected too and it is a profile users select.
-    # The deepest affected band is 13.7 dB (`off`; median 12.0), 7.0 dB on
-    # `music`. Same absent-means-enabled convention as speaker-peq-enable
-    # below. The IEQ voicing is a separate stage and stays untouched.
-    # Figures re-derived 2026-08-04 against the 3056-XML corpus through
-    # resolve_xml_value — a plain grep misses the preset= indirection, and
-    # tuning-cp has an audio-optimizer-enable of its own we never read
-    # (cross-device-findings.md §8, "Curves shipped with the optimizer
-    # switched off", carries the method and the raw-corpus cut).
-    ao_enable = vlldp.find("audio-optimizer-enable")
-    ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
-    if not ao_enabled:
-        ao_left = [0] * len(ao_left)
-        ao_right = [0] * len(ao_right)
-
-    if simplified_ao:
-        # Informational, not a warning: round-4 reviewers read the yellow
-        # filename-led schema line as "my laptop is missing something".
-        # Plain color, plain words, reassurance first; "simplified-schema
-        # DAX3" stays as the grep handle triage and the docs use.
-        # Not "speaker-EQ stages" (round 6): the Audio-optimizer section
-        # two lines down prints cuts/boosts that read as exactly that, so
-        # the absent optional stages get non-EQ words and the line says
-        # outright that the correction itself is converted.
-        #
-        # Printed after the audio-optimizer gate rather than before it: the
-        # two conditions are independent, and on a profile that is both
-        # simplified AND declares the optimizer off, "the speaker correction
-        # below is all there and converted" contradicted the flat-curve
-        # explanation printed a few lines later.
-        converted = ("the speaker correction below is all there and converted"
-                     if ao_enabled else
-                     "the speaker correction it carries is read in full")
-        console._cprint_wrapped("", "  Your tuning uses Dolby's simpler format — "
-                            f"normal for this device, nothing is missing: "
-                            f"{converted}; this format just never carries "
-                            "Dolby's optional multi-band compressor or "
-                            "extra filter stages (simplified-schema DAX3).",
-                        indent="  ")
-
-    peq_filters = []
-    peq_enable = vlldp.find("speaker-peq-enable")
-    if peq_enable is None or peq_enable.get("value") != "0":
-        for f in vlldp.findall(".//speaker-peq-filters/filter"):
-            if f.get("enabled") == "0":
-                continue
-            try:
-                ftype = int(f.get("type"))
-            except (TypeError, ValueError):
-                console.warn(f"PEQ filter has missing/garbage type {f.get('type')!r}, skipping")
-                continue
-            if ftype not in (1, 3, 4, 6, 7, 8, 9):
-                console.warn(f"unknown PEQ filter type {ftype}, skipping")
-                continue
-            try:
-                peq_filters.append({
-                    "speaker": int(f.get("speaker")),
-                    "type": ftype,
-                    "f0": float(f.get("f0")),
-                    "gain": float(f.get("gain", "0")),
-                    "q": float(f.get("q", "0.707")),
-                    "s": float(f.get("s", "1.0")),
-                    "order": int(f.get("order", "0")),
-                })
-            except (TypeError, ValueError):
-                console.warn("PEQ filter has missing/garbage f0/speaker/order, skipping")
-                continue
-
-    # Volume leveler settings (from tuning-cp of the selected profile)
-    vol_leveler = None
-    if cp is not None:
-        vl_enable = cp.find("volume-leveler-enable")
-        if vl_enable is not None:
-            vl_amount = cp.find("volume-leveler-amount")
-            vl_in = cp.find("volume-leveler-in-target")
-            vl_out = cp.find("volume-leveler-out-target")
-            VOL_LEVELER_TARGET_DEFAULT = -320  # -320/16 = -20.0 dBFS in/out target when absent
-            vol_leveler = {
-                "enable": _int_attr(vl_enable, default=0),
-                "amount": _int_attr(vl_amount, default=0),
-                "in_target": _int_attr(vl_in, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
-                "out_target": _int_attr(vl_out, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
-            }
-    # Sub-stages Dolby pairs with its leveler that we cannot reproduce. Unlike
-    # every other mapping, these carry *no* parameters — the schema has only an
-    # on/off bit, no threshold, ratio, attack or release anywhere in either
-    # tuning block — so there is nothing to derive a stage from, and inventing
-    # one is exactly the per-device hand-tuning the XML-only rule forbids. They
-    # are recorded so the end-of-run summary can ask affected users for the
-    # capture that could settle what they do.
-    leveler_substages = [
-        name for name, tag in (
-            ("volume-leveler-compressor", "volume-leveler-compressor-enable"),
-            ("volume-leveler-drc", "volume-leveler-drc-enable"),
-        )
-        if cp is not None and _int_attr(cp.find(tag), default=0) == 1
-    ]
-
-    # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
-    # maximum gain above the volume leveler's out-target. Parsed outside
-    # the MBC block because the regulator is the preferred injection point
-    # and MBC may be disabled on some profiles.
-    volmax_boost = 0.0
-    if cp is not None:
-        volmax = cp.find("volmax-boost")
-        if volmax is not None:
-            volmax_boost = _int_attr(volmax, default=0) / DB_FIXED_POINT_SCALE
-
-    # Dialog enhancer settings (from tuning-cp)
-    dialog_enhancer = None
-    if cp is not None:
-        de_enable = cp.find("dialog-enhancer-enable")
-        if de_enable is not None and de_enable.get("value") == "1":
-            dialog_enhancer = {
-                # dialog-enhancer-amount: assume 5 when the field is absent
-                "amount": _int_attr(cp.find("dialog-enhancer-amount"), default=5),
-            }
-
-    # Surround virtualizer settings (from tuning-cp)
-    surround = None
-    if cp is not None:
-        sr_enable = cp.find("surround-decoder-enable")
-        if sr_enable is not None and sr_enable.get("value") == "1":
-            surround = {
-                "boost": _int_attr(cp.find("surround-boost"), default=0) / DB_FIXED_POINT_SCALE,
-            }
-
-    # Multi-band compressor settings (from tuning-vlldp)
-    mb_comp = None
-    mbc_enable = vlldp.find("mb-compressor-enable")
-    if mbc_enable is not None and mbc_enable.get("value") == "1":
-        mbc_tuning = vlldp.find("mb-compressor-tuning")
-        if mbc_tuning is not None:
-            band_groups = []
-            for i in range(4):
-                bg = mbc_tuning.find(f"band_group_{i}")
-                if bg is not None:
-                    group = parse_csv_ints(bg.get("value"))
-                    if len(group) != 6:
-                        raise ValueError(
-                            f"{path.name}: band_group_{i} has {len(group)} "
-                            "values, expected 6 (xover, threshold, ratio, "
-                            "attack, release, makeup)."
-                        )
-                    band_groups.append(group)
-            # group_count is present on every corpus XML; default to the
-            # number of band groups actually found if a variant omits it.
-            group_count = _int_attr(mbc_tuning.find("group_count"),
-                                    default=len(band_groups))
-            target_power = vlldp.find("mb-compressor-target-power-level")
-            # Also grab regulator stress for additional context (same
-            # regulator-stress-amount element the regulator block re-reads
-            # below for its own `stress`; named distinctly to keep the two
-            # consumers' intent clear).
-            mbc_reg_stress_el = vlldp.find("regulator-stress-amount")
-            mb_comp = {
-                "group_count": group_count,
-                "band_groups": band_groups,
-                "target_power": _int_attr(target_power, default=-80) / DB_FIXED_POINT_SCALE,   # -80/16 = -5.0 dB
-                "reg_stress": parse_csv_ints(mbc_reg_stress_el.get("value")) if mbc_reg_stress_el is not None else [],
-            }
-
-    # Regulator settings (per-band limiter from tuning-vlldp)
-    regulator = None
-    reg_dist = vlldp.find("regulator-speaker-dist-enable")
-    if reg_dist is not None and reg_dist.get("value") == "1":
-        reg_tuning = vlldp.find("regulator-tuning")
-        if reg_tuning is not None:
-            th_el = reg_tuning.find("threshold_high")
-            tl_el = reg_tuning.find("threshold_low")
-            # The newer SoundWire schema nests per-channel <ch_00>..<ch_07>
-            # arrays under threshold_high/low; resolve_channel_or_direct reads
-            # ch_00. make_regulator is a single stereo limiter that consumes
-            # only threshold_high, so ch_00 is the reference. Warn (rather than
-            # silently picking one) when ch_01 diverges so a future genuinely
-            # L/R-asymmetric device surfaces — ch_00==ch_01 on the only device
-            # with this schema today. (per-band-min would protect both channels
-            # but can over-limit the one that didn't need it — left XML-only for
-            # a later call once such a device exists.)
-            th_val = resolve_channel_or_direct(th_el, constant)
-            tl_val = resolve_channel_or_direct(tl_el, constant)
-            for _el, _name in ((th_el, "threshold_high"), (tl_el, "threshold_low")):
-                _c0 = _el.find("ch_00") if _el is not None else None
-                _c1 = _el.find("ch_01") if _el is not None else None
-                if (_c0 is not None and _c1 is not None
-                        and resolve_xml_value(_c0, constant) != resolve_xml_value(_c1, constant)):
-                    console.cprint("warn", f"  {path.name}: regulator {_name} ch_00 ≠ ch_01 "
-                                   "(L/R asymmetric); using ch_00 for the stereo limiter.")
-            if not th_val:
-                console.cprint("warn", f"  {path.name}: regulator enabled but threshold_high "
-                               "has no value/preset/ch_00 — no per-band limiting applied.")
-            th = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(th_val)] if th_val else [0.0] * len(freqs)
-            tl = [x / DB_FIXED_POINT_SCALE for x in parse_csv_ints(tl_val)] if tl_val else [-12.0] * len(freqs)
-            # make_regulator walks `th` and indexes `freqs` at positions
-            # derived from it; a length mismatch would IndexError deep in the
-            # zone loop. Fail loud here instead.
-            if len(th) != len(freqs):
-                raise ValueError(
-                    f"{path.name}: regulator threshold_high has {len(th)} "
-                    f"values but the band grid has {len(freqs)} — the "
-                    "regulator zone mapping requires one threshold per band."
-                )
-            reg_stress_el = vlldp.find("regulator-stress-amount")
-            stress = parse_csv_ints(reg_stress_el.get("value")) if reg_stress_el is not None else [0] * 8
-            reg_slope = vlldp.find("regulator-distortion-slope")
-            slope = _int_attr(reg_slope, default=16) / DB_FIXED_POINT_SCALE   # 16/16 = 1.0
-            reg_timbre = vlldp.find("regulator-timbre-preservation")
-            timbre = _int_attr(reg_timbre, default=12) / DB_FIXED_POINT_SCALE   # 12/16 = 0.75
-            # `regulator-overdrive` and `regulator-relaxation-amount` are read
-            # for visibility (debug print + watch warn) but not yet mapped to
-            # any LSP plugin parameter — the corpus shows them as constants
-            # (overdrive=0, relaxation=96 in 1/16-dB units) so we have no
-            # signal to disambiguate the right mapping.
-            reg_overdrive = vlldp.find("regulator-overdrive")
-            overdrive = _int_attr(reg_overdrive, default=0)
-            reg_relax = vlldp.find("regulator-relaxation-amount")
-            relaxation = _int_attr(reg_relax, default=96)
-            # `isolated_band` (0/1 per band) feeds the experimental
-            # `--enable coupled-bands` mapping (design-notes Finding 10 /
-            # unvalidated-scaling entry 11 (f)): a second-device capture
-            # showed DAX applying band dynamics on bands whose
-            # threshold_high is 0 dBFS but which the XML marks
-            # non-isolated. The default path ignores this field entirely.
-            iso_el = reg_tuning.find("isolated_band")
-            iso_val = resolve_channel_or_direct(iso_el, constant)
-            isolated = parse_csv_ints(iso_val) if iso_val else None
-            if isolated is not None and len(isolated) != len(freqs):
-                console.cprint("warn", f"  {path.name}: regulator isolated_band has "
-                               f"{len(isolated)} values for {len(freqs)} "
-                               "bands — ignoring it.")
-                isolated = None
-            regulator = {
-                "threshold_high": th,
-                "threshold_low": tl,
-                "stress": [x / DB_FIXED_POINT_SCALE for x in stress],
-                "distortion_slope": slope,
-                "timbre_preservation": timbre,
-                "overdrive": overdrive,
-                "relaxation": relaxation,
-                "isolated_band": isolated,
-            }
-
-    # declared_default (<setting><default_profile>) was read above, before
-    # the profile banner.
-
-    # Report each unmodeled block where it was found, and carry the findings
-    # out so main() can render their asks once at the end. Both halves matter:
-    # printed only here they are buried under the per-band tables, and printed
-    # only at the end they lose the context that makes them legible.
-    findings = collect_unmodeled_features(profile)
-    for finding in findings:
-        _print_finding_detail(finding)
-
-    return ParsedTuning(
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
-        vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost,
-        profile_used=profile.get("type"),
-        default_profile=(declared_default.get("value")
-                         if declared_default is not None else None),
-        geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
-                                default=192),
-        ao_enabled=ao_enabled,
-        ieq_enabled=ieq_enabled,
-        findings=findings,
-        leveler_substages=leveler_substages,
-    )
+# Raised all over this file and consumed by the closing block, so the record
+# type is shared rather than owned (see lib/report/findings.py). Kept under
+# the names the rest of this file already uses, like the ee_paths and doctor
+# re-exports above.
+Finding = report_findings.Finding
+_print_finding_detail = report_findings._print_finding_detail
 
 
 # The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml).
@@ -4251,156 +2316,6 @@ _REPORT_FORM_URL = (
     "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
     "/issues/new?template=device-report.yml"
 )
-
-
-# Newer-pipeline DSP blocks observed in the corpus that the script does not
-# model. Flag them when they're enabled so users can correlate with audible
-# gaps. The list intentionally omits features that are universally present
-# (e.g. `output-mode-partial-{surround,height}-virtualizer-enable`, MI
-# steering) — those are documented in CLAUDE.md / docs/ and flagging them
-# every run would be noise. Only rare, enabled-only feature blocks belong here.
-#
-# `active` takes the matched element and returns True if the feature is live
-# in this profile; `detail`/`ask` take the same element and return the two
-# halves of the Finding. A row's `ask` sits right here, next to the predicate
-# that raises it, so adding a field states its own urgency and its own handle
-# — there is no central table to keep in sync.
-@dataclass(frozen=True)
-class _UnmodeledFeature:
-    xpath: str
-    slug: str
-    active: Callable[[ET.Element], bool]
-    detail: Callable[[ET.Element], str]
-    # Empty for the two blocks below that the user genuinely cannot act on:
-    # they are dropped whatever anyone does, so they report inline and stay
-    # out of the closing ask.
-    ask: Callable[[ET.Element], str] | None = None
-
-
-_UNMODELED_FEATURES = [
-    _UnmodeledFeature(
-        ".//dynamic_speaker_optimization_enable", "speaker-optimizer",
-        lambda el: el.get("value") == "1",
-        # Naming a dropped "bass limiting" stage and stopping there reads as
-        # "nothing is protecting your woofers now", and a reader who fears
-        # for their speakers has no way to check — so the line still
-        # reassures, but only with something true. "Nothing here plays
-        # louder than your laptop normally would" was not: the same run can
-        # add a volmax boost and, on SoundWire, +12 dB of bass harmonics
-        # into the band this dropped stage was protecting. Program level is
-        # raised; what is actually capped is the peak.
-        lambda el: "Your tuning has an extra bass-protection stage (Dynamic "
-                   "Speaker Optimization) that this converter doesn't "
-                   "reproduce. Nothing here clips, but the preset does add "
-                   "loudness of its own, so very loud bass may sound less "
-                   "controlled than on Windows."),
-    _UnmodeledFeature(
-        ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
-        lambda el: True,  # presence implies the newer virtualizer pipeline
-        # What you'd notice, not the internal name: "silently dropped" read
-        # as ominous (and false — this line is the announcement), and
-        # reviewers took it for the same thing as the "Surround virtualizer"
-        # section printed later. Each message now carries its own identity;
-        # no cross-reference, since either can appear without the other.
-        # "Nothing more" bounded a cost nobody has measured: this stage is
-        # on one corpus device, has never been captured, and the one
-        # measurement we do have of Dolby virtualization on 2-channel
-        # content found no widening at all — so "narrower" isn't even the
-        # direction the evidence points. The reassurance stays, but as the
-        # true one: dropping it doesn't disturb anything else.
-        lambda el: "Your tuning switches on Dolby's newer speaker-widening "
-                   "effect (advanced speaker virtualizer), which this "
-                   "converter doesn't rebuild — so the stereo image may "
-                   "differ from Windows. Nothing else in the preset changes "
-                   "because of it."),
-    # Watching-only fields below: the corpus shows these as effectively
-    # constants and the script doesn't act on them. An XML that breaks the
-    # assumption is exactly the data that would move the mapping, so these
-    # carry an ask — and it asks for the XML, which is what settles them.
-    _UnmodeledFeature(
-        ".//peak-level", "peak-level",
-        lambda el: (el.get("value") or "0") != "0",
-        # Device terms, not schema terms: "corpus rows" and "the standard
-        # 1/16-dB convention" read as leaked internal notes to all three
-        # round-4 reviewers. The raw value stays verbatim (triage greps
-        # for it); the /16 math stays, uncited.
-        # Reassurance before caveat (round 7): opening on "unverified"
-        # made the tool sound shaky when the behaviour described is the
-        # safe default. Two sentences (round 9): one packing what/why/risk
-        # took two reads to untangle.
-        lambda el: (
-            f"peak-level={el.get('value')} (raw value; about "
-            f"{int(el.get('value', '0')) / 16:+.2f} dB) — a setting almost "
-            "no device we've tested uses. We skip it safely: the presets "
-            "are built as if it were 0, which is what every other device "
-            "gets. Applying our unverified reading of it could audibly "
-            "cost volume, so we don't."),
-        # Says where it stands. "a value we've never seen" alone left the
-        # reader unable to tell whether their presets were wrong, so the
-        # choice was between ignoring it and not installing at all.
-        # Three rewrites of history here: "confirm it" dangled its
-        # antecedent; "check it's safe" implied a hazard; "should sound
-        # right — we'll double-check" read as taking the reassurance back
-        # (round 2). The reason to ask (a rare ignored setting) now leads,
-        # so the confirmation has an object and the status stands alone.
-        # "your tuning XML", the sibling asks' vocabulary — "the XML" cold
-        # was a jump for a round-4 reviewer ("is that the file I copied?").
-        # Keep the token "XML": the attach-path print in print_project_asks
-        # gates on it.
-        lambda el: ("Your tuning has a rare setting we ignore; the presets "
-                    "should sound right — attach your tuning XML and we'll "
-                    "confirm.")),
-    _UnmodeledFeature(
-        ".//ieq-bands-set", "ieq-preset",
-        lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
-        lambda el: (
-            f"ieq-bands-set preset={el.get('preset')!r} — this XML names a "
-            "non-balanced curve as the profile default, but every device in "
-            "our corpus uses 'ieq_balanced'. We still emit the usual "
-            "Balanced/Detailed/Warm presets."),
-        lambda el: ("Your tuning defaults to a non-balanced voicing — which "
-                    "of the three presets sounds closest?")),
-    _UnmodeledFeature(
-        ".//regulator-overdrive", "regulator-overdrive",
-        lambda el: (el.get("value") or "0") != "0",
-        lambda el: (
-            f"regulator-overdrive={el.get('value')} — this is 0 on every "
-            "device we've seen. The script does not currently map it (the "
-            "schema interpretation is unverified for non-zero values)."),
-        lambda el: (f"regulator-overdrive={el.get('value')} is a value we've "
-                    "never seen — send us your tuning XML and we can map it.")),
-    _UnmodeledFeature(
-        ".//regulator-relaxation-amount", "regulator-relaxation",
-        lambda el: (el.get("value") or "96") != "96",
-        lambda el: (
-            f"regulator-relaxation-amount={el.get('value')} — this is 96 on "
-            "every device we've seen. The script does not currently map it "
-            "(the schema interpretation is unverified for other values)."),
-        lambda el: (f"relaxation-amount={el.get('value')} is a value we've "
-                    "never seen — send us your tuning XML and we can map it.")),
-]
-
-
-def collect_unmodeled_features(profile: ET.Element) -> list[Finding]:
-    """Return one Finding per unmodeled-but-enabled DSP block in ``profile``.
-
-    Returned rather than printed: printed here they land in the middle of a
-    couple of hundred lines of per-band tables where nobody sees them, and
-    staying print-free keeps this callable straight from a test. main()
-    gathers them across profiles, keyed by slug, and renders one block at the
-    end (see ``_unmodeled_summary``).
-    """
-    found = []
-    for feat in _UNMODELED_FEATURES:
-        el = profile.find(feat.xpath)
-        if el is not None and feat.active(el):
-            found.append(Finding(
-                slug=feat.slug,
-                detail=feat.detail(el),
-                ask=feat.ask(el) if feat.ask is not None else "",
-                kind="ask",
-            ))
-    return found
 
 
 # --- Finding factories -----------------------------------------------------
@@ -4829,67 +2744,10 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
 
 
 # --- FIR generation ---
-
-def interpolate_curve_db(band_freqs: np.ndarray, band_gains_db: np.ndarray,
-                         fft_freqs: np.ndarray) -> np.ndarray:
-    """Interpolate a gain curve (in dB) to FFT frequency bins.
-
-    Uses log-frequency interpolation with linear dB values.
-    Extrapolates flat beyond the band edges.
-    """
-    log_bands = np.log(np.maximum(band_freqs, 1.0))
-    log_fft = np.log(np.maximum(fft_freqs, 1.0))
-    return np.interp(log_fft, log_bands, band_gains_db,
-                     left=band_gains_db[0], right=band_gains_db[-1])
-
-
-# Floor added to a linear magnitude before 20*log10 so a true zero maps to a
-# large finite negative dB instead of -inf (keeps FIR peak/verification finite).
-LOG_MAG_FLOOR = 1e-12
-
-
-def make_fir(band_freqs: np.ndarray, gains_db: np.ndarray,
-             normalize: bool = True) -> tuple[np.ndarray, float]:
-    """Generate a minimum-phase FIR filter from a target dB curve.
-
-    Uses homomorphic processing: the minimum-phase impulse response
-    is constructed from the log-magnitude spectrum via the cepstrum.
-    """
-    n = FIR_LENGTH
-    fft_freqs = np.fft.rfftfreq(n, d=1.0 / SAMPLE_RATE)
-
-    # Interpolate target curve to FFT bins
-    gains_at_bins = interpolate_curve_db(
-        np.array(band_freqs, dtype=float),
-        np.array(gains_db, dtype=float),
-        fft_freqs
-    )
-
-    # Log magnitude (natural log for cepstral processing)
-    log_mag = gains_at_bins * (np.log(10.0) / 20.0)  # dB to ln(linear)
-
-    # Minimum-phase via cepstrum:
-    # 1. IFFT of log-magnitude gives the real cepstrum
-    # 2. Causal windowing (double positive-time, zero negative-time)
-    # 3. FFT back gives log(H_min) = log|H| + j*phase_min
-    # 4. exp() gives H_min, IFFT gives impulse response
-    cepstrum = np.fft.irfft(log_mag, n=n)
-    # Causal window: keep n=0, double n=1..N/2-1, zero n=N/2..N-1
-    cepstrum[1:n // 2] *= 2.0
-    cepstrum[n // 2 + 1:] = 0.0
-    # Reconstruct minimum-phase spectrum
-    log_H_min = np.fft.rfft(cepstrum, n=n)
-    H_min = np.exp(log_H_min)
-    fir = np.fft.irfft(H_min, n=n)
-
-    peak_mag = np.max(np.abs(H_min))
-    peak_db = 20.0 * np.log10(peak_mag + LOG_MAG_FLOOR)
-
-    if normalize:
-        if peak_mag > 0:
-            fir /= peak_mag
-
-    return fir, peak_db
+#
+# make_fir and friends are in lib/preset/fir.py. This one stayed: it writes
+# through _atomic_write, which four other callers here share and which has no
+# home in lib/ yet, and a move commit may not re-point a body it carries.
 
 
 def save_wav_stereo(path: Path, fir_left: np.ndarray,
@@ -4897,7 +2755,7 @@ def save_wav_stereo(path: Path, fir_left: np.ndarray,
     """Save stereo impulse response as 32-bit float WAV."""
     stereo = np.column_stack([fir_left, fir_right]).astype(np.float32)
     with _atomic_write(path) as tmp:
-        wavfile.write(str(tmp), SAMPLE_RATE, stereo)
+        wavfile.write(str(tmp), fir.SAMPLE_RATE, stereo)
 
 
 # --- EasyEffects preset builders ---
@@ -5168,7 +3026,7 @@ def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
 
     amount = dialog_enhancer["amount"]
 
-    gain = round(amount / DB_FIXED_POINT_SCALE * 6.0, 2)
+    gain = round(amount / parse.DB_FIXED_POINT_SCALE * 6.0, 2)
     if gain <= 0:
         return None
 
@@ -5246,7 +3104,7 @@ def decode_mbc_time_constant(coeff: int, block_size: int = MBC_BLOCK_SIZE) -> fl
     in Q15 fixed-point format, operating per block (not per sample).
     coeff/32768 = (1 - alpha), where alpha = 1 - exp(-1/(tau * blocks_per_sec)).
     """
-    blocks_per_sec = SAMPLE_RATE / block_size
+    blocks_per_sec = fir.SAMPLE_RATE / block_size
     one_minus_alpha = coeff / Q15_SCALE
     if one_minus_alpha <= 0.0 or one_minus_alpha >= 1.0:
         return 100.0  # fallback
@@ -5332,14 +3190,14 @@ def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
     decoded = []
     for bg in band_groups[:n_bands]:
         xover_idx, thresh_raw, gain_raw, attack_raw, release_raw, makeup_raw = bg
-        threshold = thresh_raw / DB_FIXED_POINT_SCALE
+        threshold = thresh_raw / parse.DB_FIXED_POINT_SCALE
         # gain_coeff → ratio: 32767 = 1:1 (bypass), lower = more compression
         gain_frac = gain_raw / Q15_SCALE
         # out-of-range gain → clamp to practical max (builder warns)
         ratio = 1.0 / gain_frac if gain_frac > 0.01 else 100.0
         attack_ms = decode_mbc_time_constant(attack_raw)
         release_ms = decode_mbc_time_constant(release_raw)
-        makeup = makeup_raw / DB_FIXED_POINT_SCALE
+        makeup = makeup_raw / parse.DB_FIXED_POINT_SCALE
         decoded.append({
             "xover_idx": xover_idx,
             "threshold": threshold,
@@ -6580,7 +4438,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         # dB first: "amount=5" has no knowable scale (it's a raw schema
         # value), so the derived boost leads and the raw stays as the
         # report handle.
-        gain = dialog_enhancer["amount"] / DB_FIXED_POINT_SCALE * 6.0
+        gain = dialog_enhancer["amount"] / parse.DB_FIXED_POINT_SCALE * 6.0
         raw = f"amount {dialog_enhancer['amount']} of 16 in your tuning"
         if "dialog" in disabled:
             # Same shape as the volmax line: a stage the flag dropped says
@@ -6711,7 +4569,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                 # range. Printed as a frequency: "Nyquist" was the one word
                 # in an otherwise numeric table a reviewer had never seen.
                 xover_hz = ("full-band" if n_bands_print == 1
-                            else f"{SAMPLE_RATE // 2} Hz (top of range)")
+                            else f"{fir.SAMPLE_RATE // 2} Hz (top of range)")
             elif 0 <= xover_idx < len(freqs):
                 xover_hz = f"{freqs[xover_idx]} Hz"
             else:
@@ -6883,7 +4741,7 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                         key=lambda i: max(ao_db_left[i], ao_db_right[i]))
         peak_db = max(ao_db_left[peak_band], ao_db_right[peak_band])
         thresholds = regulator["threshold_high"]
-        at_rail = peak_db >= tuning.geq_max_range / DB_FIXED_POINT_SCALE
+        at_rail = peak_db >= tuning.geq_max_range / parse.DB_FIXED_POINT_SCALE
         restored = "level-restore" in (enabled or set())
         if ((at_rail or restored)
                 and peak_band < len(thresholds)
@@ -6947,16 +4805,16 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             continue
 
         gains_raw = curves[curve_key]
-        ieq_db = np.array(gains_raw) / DB_FIXED_POINT_SCALE * scale
+        ieq_db = np.array(gains_raw) / parse.DB_FIXED_POINT_SCALE * scale
 
         # Combined target: IEQ + audio-optimizer (summed in dB)
         combined_left = ieq_db + ao_db_left
         combined_right = ieq_db + ao_db_right
 
         # Generate FIR impulse responses
-        fir_left, peak_left_db = make_fir(float_freqs, combined_left,
+        fir_left, peak_left_db = fir.make_fir(float_freqs, combined_left,
                                           normalize=True)
-        fir_right, peak_right_db = make_fir(float_freqs, combined_right,
+        fir_right, peak_right_db = fir.make_fir(float_freqs, combined_right,
                                             normalize=True)
 
         # --enable level-restore: hand the chain back the level normalisation
@@ -7034,9 +4892,9 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
 
         # Verify FIR frequency response — the math runs either way; -v only
         # decides whether the per-frequency rows print.
-        H = np.fft.rfft(fir_left, n=FIR_LENGTH)
-        fft_freqs = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
-        mag_db = 20.0 * np.log10(np.abs(H) + LOG_MAG_FLOOR)
+        H = np.fft.rfft(fir_left, n=fir.FIR_LENGTH)
+        fft_freqs = np.fft.rfftfreq(fir.FIR_LENGTH, d=1.0 / fir.SAMPLE_RATE)
+        mag_db = 20.0 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
         if args.verbose:
             console.cprint("dim", "\n  FIR verification (left, normalized to "
                           "peak=0):")
@@ -7394,7 +5252,7 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
     currently sends people to `pw-dump | grep node.name` for.
     """
     try:
-        names = [s.get("name", "") for s in _enumerate_audio_sinks()]
+        names = [s.get("name", "") for s in hardware_sinks._enumerate_audio_sinks()]
     except Exception:  # a wedged or absent PipeWire must never break TAB
         return []
     return [n for n in names if n.startswith(prefix)]
@@ -7478,8 +5336,7 @@ def main(argv: list[str] | None = None,
     complete_and_load(parser)
     args = parser.parse_args(argv)
     args.staged = staged
-    global _TAG_CONVENTION_SHOWN
-    _TAG_CONVENTION_SHOWN = False
+    report_findings._TAG_CONVENTION_SHOWN = False
     if args.no_color:
         console._disable_color()
     disabled = set(args.disable)
@@ -7599,7 +5456,7 @@ def main(argv: list[str] | None = None,
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
         console.cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
                        "presets are for)")
-        tuning = parse_xml(
+        tuning = parse.parse_xml(
             xml_path,
             endpoint_type=args.endpoint,
             operating_mode=args.mode,
@@ -7617,8 +5474,8 @@ def main(argv: list[str] | None = None,
         scale = tuning.ieq_amount / 100.0
 
         # Audio-optimizer curves in dB
-        ao_db_left = np.array(tuning.ao_left) / DB_FIXED_POINT_SCALE
-        ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE
+        ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
+        ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
         float_freqs = np.array(tuning.freqs, dtype=float)
 
         profile_findings = _report_parsed_profile(
@@ -7644,7 +5501,7 @@ def main(argv: list[str] | None = None,
     # Autoload configuration
     if args.autoload and all_preset_names:
         autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
-        sinks = _resolve_autoload_sinks(args.autoload_sink, args.dry_run)
+        sinks = hardware_sinks._resolve_autoload_sinks(args.autoload_sink, args.dry_run)
         if sinks:
             console.cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
             verb = "Would write" if args.dry_run else "Wrote"
@@ -7747,7 +5604,7 @@ def main(argv: list[str] | None = None,
     # irrelevant for headphone/other endpoints.
     if args.endpoint == "internal_speaker":
         gate_finding = warn_speaker_firmware_gate(
-            detect_speaker_firmware_gates())
+            speakers.detect_speaker_firmware_gates())
         if gate_finding is not None:
             findings.setdefault(gate_finding.slug, gate_finding)
         # A hidden woofer pin leaves half the speakers unconfigured, so the
@@ -7755,7 +5612,7 @@ def main(argv: list[str] | None = None,
         # is a handful of /proc reads; only reached on the speaker endpoint.
         speaker_info = _gather_speaker_pins()
         pin_finding = warn_hidden_speaker_pin(
-            find_hidden_speaker_pin(speaker_info), speaker_info)
+            speakers.find_hidden_speaker_pin(speaker_info), speaker_info)
         if pin_finding is not None:
             findings.setdefault(pin_finding.slug, pin_finding)
         # The negative signal: no fixup exists for this machine, so we can't
