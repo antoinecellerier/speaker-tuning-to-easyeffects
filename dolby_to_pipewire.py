@@ -131,12 +131,11 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--dry-run",
         action="store_true",
-        help="stage and convert without touching the system: pipe or "
-             "redirect stdout to capture each generated conf (on a terminal "
-             "the conf is held back and a hint printed instead; the "
-             "generator's report goes to stderr either way), writes nothing "
-             "outside the temporary staging directory, and does not restart "
-             "PipeWire",
+        help="stage and convert without touching the system: report where "
+             "each conf would be written, write nothing outside the "
+             "temporary staging directory, and don't restart PipeWire. To "
+             "get the confs themselves without installing them, replace "
+             "this flag with --output-dir DIR --no-activate",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
@@ -186,18 +185,6 @@ def rebuild_argv(actions, args) -> list[str]:
         else:
             options += [opt, str(value)]
     return positionals + options
-
-
-def _generator_stdout(dry_run: bool):
-    """Where the generator's stdout goes for the duration.
-
-    It prints to stdout while this wrapper prints to stderr, and under
-    --dry-run our stdout contract is "the conf(s), nothing else" — so
-    everything the generator emits, including the closing block we print on
-    its behalf at the end, moves to stderr with the phase banners.
-    """
-    return (contextlib.redirect_stdout(sys.stderr) if dry_run
-            else contextlib.nullcontext())
 
 
 def _run_generator(child_argv: list[str], closing=None,
@@ -490,13 +477,12 @@ def main(argv: list[str] | None = None) -> int:
         # likely). argv[0] keeps the path the reader used.
         cprint("dim", "      (your command: "
                       + shlex.join([sys.executable, *sys.argv]) + ")")
-        with _generator_stdout(args.dry_run):
-            rc = _run_generator(step1_common
-                                + ["--output-dir", tmp, "--irs-dir", tmp],
-                                closing=closing,
-                                troubleshooting=troubleshooting,
-                                resolved=resolved,
-                                staged=True)
+        rc = _run_generator(step1_common
+                            + ["--output-dir", tmp, "--irs-dir", tmp],
+                            closing=closing,
+                            troubleshooting=troubleshooting,
+                            resolved=resolved,
+                            staged=True)
         if rc != 0:
             return rc
 

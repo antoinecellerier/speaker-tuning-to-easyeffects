@@ -9,8 +9,7 @@ either of them.
 Stdlib-only, like `version.py` and `ee_paths.py`: `ee_to_pipewire.py` must
 not pull the generator's numpy/scipy into a report that is mostly about
 PipeWire. Each printer takes the caller's own ``cprint``, because the two
-scripts hold separate consoles (the converter's targets stderr so it never
-pollutes a conf on stdout).
+scripts hold separate consoles (the converter's targets stderr).
 """
 
 from __future__ import annotations

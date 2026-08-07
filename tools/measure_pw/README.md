@@ -17,15 +17,18 @@ schema-identical and feed the same analysis tools.
 Comparative audio testing has a long warm-up (set up null sink,
 restart EE, run capture battery, deconvolve sweeps, plot diffs) and
 the failure modes are noisy — a misrouted PW link or a sub-sample
-group-delay change can mask the real bug. So validate the conf
-*before* spending five minutes on a battery:
+group-delay change can mask the real bug. So the conf gets validated
+*before* anyone spends five minutes on a battery: `ee_to_pipewire.py`
+pipes its output through this check on every run and refuses to write
+a conf that fails — keep that default on, don't pass `--no-validate`.
+Run the checker by hand only against a conf already on disk: one
+edited by hand, or generated earlier with `--no-validate`.
 
 ```sh
-python3 ee_to_pipewire.py <preset.json> --dry-run \
-  | python3 tools/measure_pw/validate_conf.py -
+python3 tools/measure_pw/validate_conf.py <some.conf>
 ```
 
-That shells out to `lv2info` for every LV2 URI in the conf, parses
+It shells out to `lv2info` for every LV2 URI in the conf, parses
 each port's `Symbol`/`Min`/`Max`/`Default`/`Properties`, and
 validates the conf's `control = { ... }` block against it. Catches:
 
@@ -68,11 +71,11 @@ mkdir -p localresearch/measure_ee/stimuli && cd localresearch/measure_ee/stimuli
 python3 ../../../tools/measure_dax/make_stimulus.py
 cd -
 
-# 1. cheap deterministic check first — catches schema mistakes in
-#    seconds without restarting any audio infrastructure
-python3 ee_to_pipewire.py \
-    ~/.local/share/easyeffects/output/Dolby-Balanced.json --dry-run \
-  | python3 tools/measure_pw/validate_conf.py -
+# 1. the cheap deterministic check needs no step of its own: step 3
+#    generates the conf with ee_to_pipewire.py, which validates its own
+#    output and refuses to write a conf that fails. To re-check a conf
+#    already on disk (hand-edited, or written with --no-validate):
+#      python3 tools/measure_pw/validate_conf.py <some.conf>
 
 # 2. set up the EE-side route (loads ee_capture null sink, redirects
 #    EE output to it, restarts EE — this mutes your speakers temporarily)

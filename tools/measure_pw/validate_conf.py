@@ -19,8 +19,11 @@ on a capture battery.
 Usage:
 
   python3 tools/measure_pw/validate_conf.py path/to/file.conf
-  python3 ee_to_pipewire.py preset.json --dry-run \\
-    | python3 tools/measure_pw/validate_conf.py -
+  ... | python3 tools/measure_pw/validate_conf.py -    # conf on stdin
+
+ee_to_pipewire.py runs the stdin form itself on every conf it
+generates (unless --no-validate), so reach for this by hand only to
+re-check a conf already on disk.
 
 Exit 0 = clean. Exit 1 = at least one error. Exit 2 = setup error.
 

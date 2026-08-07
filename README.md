@@ -333,7 +333,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **General**
 - `--verbose` (alias `-v`) — print the generator's full frequency tables; same as `dolby_to_easyeffects.py`
-- `--dry-run` — redirect or pipe stdout to capture the generated conf(s); on a terminal they are held back and a hint printed instead. Nothing is written outside the staging directory and PipeWire is not restarted
+- `--dry-run` — report where each conf would be written without installing it; nothing is written outside the staging directory and PipeWire is not restarted (to keep the confs, use `--output-dir DIR --no-activate` instead)
 - `--no-validate` — skip the `lv2info` schema self-check
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
@@ -362,7 +362,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **General**
 - `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
-- `--dry-run` — send the generated conf to stdout instead of writing it (held back on a terminal, so redirect or pipe to capture it)
+- `--dry-run` — report where the conf and impulse response would be written without writing them (to keep the conf, use `--output` instead)
 - `--skip-next-steps` — replace the post-write next-steps checklist with a one-line activation pointer; for callers that handle activation themselves (`dolby_to_pipewire.py` passes it automatically)
 - `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)
 - `--version` — print the version and exit

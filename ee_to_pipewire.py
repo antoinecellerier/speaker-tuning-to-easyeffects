@@ -48,9 +48,8 @@ from lib.ee_paths import easyeffects_base
 from lib.paths import REPO_ROOT
 
 # Colored terminal output (optional rich; mirrors dolby_to_easyeffects.py's
-# setup). The console targets stderr so it never pollutes the --dry-run conf
-# on stdout, and resolves the current sys.stderr lazily so capsys can capture
-# it in tests.
+# setup). The console targets stderr, and resolves the current sys.stderr
+# lazily so capsys can capture it in tests.
 # Which stream the no-rich path writes to, as a flag rather than a stream
 # object: sys.stderr has to stay resolved at call time so capsys can capture
 # it. Swapped alongside the console by _report_on_stdout.
@@ -84,10 +83,10 @@ except ImportError:
 def _report_on_stdout():
     """Put everything this block prints on stdout, for the duration.
 
-    The console targets stderr so a --dry-run conf on stdout stays clean, but
-    a diagnostic report is meant to be redirected to a file or pasted into an
-    issue — on stderr, `--doctor > report.txt` would write an empty file. No
-    conf is emitted in that mode, so the two streams swap while it runs.
+    The console targets stderr, but a diagnostic report is meant to be
+    redirected to a file or pasted into an issue — on stderr,
+    `--doctor > report.txt` would write an empty file. So the two streams
+    swap while it runs.
     """
     global _CONSOLE, _PLAIN_TO_STDOUT
     previous, previous_plain = _CONSOLE, _PLAIN_TO_STDOUT
@@ -1191,8 +1190,7 @@ def _validate_conf(conf_text: str) -> tuple[int, str]:
 def _print_results(conf_path: Path, irs_path: Path | None,
                    *, dry_run: bool) -> None:
     """Report where the conf (and copied IRS) landed — or, under --dry-run,
-    where they *would* land. Always to stderr, so the dry-run conf on stdout
-    stays clean."""
+    where they *would* land."""
     # "impulse response (.irs)", not the bare acronym: it is never expanded
     # anywhere else a user reads (round 5).
     if dry_run:
@@ -1901,8 +1899,11 @@ def add_general_args(container, *, only=None):
     add(
         "--dry-run",
         action="store_true",
-        help="print the generated conf to stdout instead of writing it; "
-             "missing IRS files become warnings rather than errors",
+        help="report where the conf and impulse response would be written "
+             "without writing them; missing IRS files become warnings "
+             "rather than errors. To get the conf itself without "
+             "installing it, run without this flag and point --output at a "
+             "path of your own",
     )
     add(
         "--skip-next-steps",
@@ -2159,21 +2160,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                 cprint("warn", f"[validate] {line}")
 
     if args.dry_run:
-        # Only dump the conf when stdout is going somewhere — a pipe, a file,
-        # a pager. On a terminal it is a few hundred lines of JSON between the
-        # troubleshooting menu and the end of the run, which buries everything
-        # either side of it; the paths below say what would have been written,
-        # which is what a human running --dry-run is actually asking.
-        if sys.stdout.isatty():
-            # A paste-able instruction, not a flag fragment: "e.g. --dry-run
-            # > preview.conf" made a reviewer guess what goes in front, and
-            # they expected the whole log to land in the file — it won't,
-            # these messages are on stderr and only the conf is on stdout.
-            cprint("dim", "(conf not shown — add ' > preview.conf' to your "
-                          "command to save it; only the conf lands in the "
-                          "file, these messages stay on screen)")
-        else:
-            sys.stdout.write(conf)
+        # The conf itself is not shown: on a terminal it is a few hundred
+        # lines of JSON between the troubleshooting menu and the end of the
+        # run, which buries everything either side of it. Someone who wants
+        # the text has --output, which writes it wherever they point it
+        # without installing anything into the PipeWire drop-in directory.
         would_conf = (args.output.expanduser() if args.output is not None
                       else (DEFAULT_OUTPUT_DIR
                             / f"{safe_node_name}.conf").expanduser())

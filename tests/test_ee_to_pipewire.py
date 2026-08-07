@@ -36,6 +36,7 @@ from dolby_to_easyeffects import (
 from ee_to_pipewire import (
     CALF_BE_URI,
     CALF_ST_URI,
+    CONF_HEADER_MARK,
     EE_EQMODE_TO_LSP,
     EE_FMODE_TO_LSP,
     EE_FSLOPE_TO_LSP,
@@ -1418,34 +1419,42 @@ def test_main_no_copy_irs_keeps_source_path(generated, tmp_path):
 
 def test_main_dry_run_retargets_without_copying(generated, tmp_path,
                                                  capsys):
-    """Dry-run still rewrites the convolver path so the printed conf
-    matches what a real run would produce, but no file is created.
+    """Dry-run still rewrites the convolver path, so what it reports is
+    exactly what the same command minus --dry-run writes — but it creates
+    nothing itself.
     """
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
     preset_path.write_text(json.dumps(preset))
     out_path = tmp_path / "out" / "TestChain.conf"
-    rc = ee2pw_main([
+    argv = [
         str(preset_path),
         "--irs-dir", str(irs_path.parent),
         "--node-name", "TestChain",
         "--output", str(out_path),
         "--no-validate",
-        "--dry-run",
-    ])
-    assert rc == 0
+    ]
+    assert ee2pw_main(argv + ["--dry-run"]) == 0
     assert not out_path.exists()
     target_irs = out_path.parent / "TestChain.irs"
     assert not target_irs.exists()
-    captured = capsys.readouterr()
-    # The printed conf shows where the IRS *would* land, not the EE path.
-    assert str(target_irs) in captured.out
-    assert str(irs_path) not in captured.out
+    # The retarget ran: the announced .irs destination is the one beside the
+    # conf, not the EE-side source.
+    err = capsys.readouterr().err
+    assert f"Would copy impulse response (.irs): {target_irs}" in err
+    # ...and the real run puts the IRS exactly where the dry run said, with
+    # the conf pointing at that copy rather than the EE path.
+    assert ee2pw_main(argv) == 0
+    assert target_irs.is_file()
+    conf_text = out_path.read_text()
+    assert str(target_irs) in conf_text
+    assert str(irs_path) not in conf_text
 
 
 def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
-    """--dry-run announces where the conf (and IRS copy) *would* land, on
-    stderr — so the conf piped to stdout stays clean."""
+    """--dry-run announces where the conf (and IRS copy) *would* land, and
+    that report is all it emits — the conf body itself is no longer dumped
+    to a stream, so --output is the only way to obtain it."""
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
     preset_path.write_text(json.dumps(preset))
@@ -1464,7 +1473,9 @@ def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
     assert f"Would write conf: {out_path}" in captured.err
     assert "Would copy impulse response (.irs):" in captured.err
     assert str(target_irs) in captured.err
-    assert "Would write conf" not in captured.out  # never leaks into the conf
+    for stream in (captured.out, captured.err):
+        assert CONF_HEADER_MARK not in stream
+        assert "filter.graph" not in stream
 
 
 def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,

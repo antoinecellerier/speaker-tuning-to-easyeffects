@@ -194,6 +194,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- `--dry-run` no longer prints the generated conf to stdout — it reports where
+  the conf and impulse response would be written, and nothing else. To get a
+  conf without installing it, pass `ee_to_pipewire.py --output PATH` (or
+  `dolby_to_pipewire.py --output-dir DIR --no-activate`).
 - `--doctor` now prints the fix commands it used to point at: the speaker-pin
   `hda_model=` procedure, which asked you to re-run without `--doctor`, and the
   smart-amp firmware-gate `amixer` line, which sent you to a section further
