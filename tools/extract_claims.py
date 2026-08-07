@@ -31,6 +31,35 @@ SCRIPTS = {
 }
 PROSE = {"R": "README.md", "I": ".github/ISSUE_TEMPLATE/device-report.yml"}
 
+
+def lib_modules() -> dict[str, str]:
+    """`lib/` modules, keyed by import path — ``lib.report.messages``.
+
+    The entry points get one letter each because there are exactly three of
+    them and the ids get quoted back by hand. `lib/` is open-ended: it gains a
+    module per extraction, so a letter table would run out, and a sequence
+    numbered by glob order would renumber every later module the day one lands
+    alphabetically ahead of it. Deriving the prefix from the module's own path
+    makes it depend on nothing else — discovering a module cannot move
+    another's id — and keeps the two `plugins.py` the target layout wants
+    (`lib.preset.plugins`, `lib.pipewire.plugins`) apart, which a bare stem
+    would not.
+
+    It names the *module*, not the script that imports it. A helper used by
+    the generator and by the converter emits one string, and the reviewer
+    reading it needs to see one id: two ids would read as two sentences to fix
+    independently, which is how a shared line gets fixed on one side only.
+    """
+    found: dict[str, str] = {}
+    for path in sorted((REPO / "lib").rglob("*.py")):
+        rel = path.relative_to(REPO)
+        parts = rel.with_suffix("").parts
+        if parts[-1] == "__init__":  # lib/report/__init__.py -> lib.report
+            parts = parts[:-1]
+        found[".".join(parts)] = rel.as_posix()
+    return found
+
+
 # Calls whose string arguments reach the terminal. `print` is included because
 # a handful of sites bypass the console helpers.
 EMITTERS = {"cprint", "warn", "print", "_cprint_wrapped", "_print_flag_hint",
@@ -183,6 +212,15 @@ _NUMERIC = re.compile(
     r"\d|\b(every|always|never|rare|typical|usually|only|most|all devices"
     r"|any device|no device)\b", re.I)
 
+
+# A `lib/` string goes to *both* source reviewers: the module is imported by
+# whichever entry points want it, and nothing in the string says which. Two
+# reviewers reading one shared line is the cheap failure; a line no reviewer
+# owns is the one this file exists to prevent.
+def _shared(row: dict) -> bool:
+    return row["file"].startswith("lib/")
+
+
 SLICES = {
     "slice_numbers.md": (
         "changed strings carrying a number or a universal quantifier "
@@ -191,11 +229,11 @@ SLICES = {
     "slice_generator.md": (
         "every changed string in the generator — check against its code, "
         "and against the validated-mappings list",
-        lambda r: r["prefix"] == "E"),
+        lambda r: r["prefix"] == "E" or _shared(r)),
     "slice_wrapper_docs.md": (
         "wrapper, converter, README and issue template — check against "
         "their code and against a real system",
-        lambda r: r["prefix"] in "WCRI"),
+        lambda r: r["prefix"] in "WCRI" or _shared(r)),
     "slice_changelog.md": (
         "changed CHANGELOG (Unreleased) lines — check against what ships",
         lambda r: r["prefix"] == "L"),
@@ -223,7 +261,7 @@ def main() -> int:
         return 2
 
     rows: list[dict] = []
-    for prefix, rel in SCRIPTS.items():
+    for prefix, rel in (SCRIPTS | lib_modules()).items():
         harvest_script(prefix, rel, rows, args.since)
     for prefix, rel in PROSE.items():
         harvest_prose(prefix, rel, rows, args.since)
@@ -253,7 +291,9 @@ def main() -> int:
         "against the run it prints in.",
         "",
         "Prefixes: E generator · W wrapper · C converter · R README · "
-        "I issue template · L CHANGELOG (Unreleased only).",
+        "I issue template · L CHANGELOG (Unreleased only) · `lib.*` a "
+        "shared module, named by its import path and owned by no one "
+        "script.",
         "",
     ]
     (args.out_dir / "claims.md").write_text(
