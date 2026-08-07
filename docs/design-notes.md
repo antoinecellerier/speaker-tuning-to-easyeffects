@@ -3667,6 +3667,125 @@ the loop both explain the same threshold in the same terms ("far above the
 minimum-phase design's normal residual (~0.05 dB)"), now nine lines apart in
 one module instead of split across two parts of an 8,000-line file. Task #26.
 
+### The sweep-up, and the seed that would have cost more than it bought
+
+The last slice of the wave is four small moves and one cleanup, and none of
+them is the interesting part. The generator ends at 924 lines from 8,108, the
+wrapper at 449 from 610, the converter untouched at 484.
+
+- **`list_endpoints`, `sanitize_profile_type`, `get_profile_types`** (39 lines)
+  → `lib/dax/parse.py`. These are the reason the `--doctor` block was not
+  contiguous: they sat between `warn_ee_environment` and
+  `easyeffects_is_running` and inspect the XML rather than the environment.
+  `parse.py` already excluded the `off` profile *citing* `get_profile_types`,
+  so the rule and its citation now share a file. One import (`re`) added, four
+  root-side call sites and one test import re-pointed for free.
+- **`_HelpHintParser`** (14 lines) → `lib/console.py`, beside the
+  `_HelpFormatter` it is the argparse-side sibling of.
+- **The activation block** (149 lines) → `lib/pipewire/install.py`.
+- **`_safe_node_name`** (5 lines) → `lib/pipewire/conf.py`, beside the
+  `_sanitize_name` and `DEFAULT_NODE_NAME` it predicts the output of.
+- **Eight unread imports** off the generator, in a commit of their own:
+  `configparser`, `contextlib`, `json`, `math`, `Callable`, `field`,
+  `kernel_releases`, `bands` — the seven the `--doctor` slice recorded, plus
+  `json`, whose last reader left with `_emit_ieq_presets` one slice later.
+  `replace` on the `dataclasses` line still has a caller and stays;
+  `from __future__ import annotations` is a compiler directive, not an import,
+  and stays in all three root scripts. Confirmed by `ast` at the commit, not by
+  grep: `bands` has 22 textual hits in the file and every one is prose.
+
+**A seed can cost more than it buys, and this is the shape where it does.** The
+rule above says extending an existing module needs a seed from the blob that
+path held at *its own* first seed. That rule assumes one source script.
+`lib/pipewire/install.py` held 180 lines extracted from `ee_to_pipewire.py`
+and was about to receive 149 from `dolby_to_pipewire.py`, and **no blob
+contains both**. Both shapes were built and measured on the same paths:
+
+| shape | of the 149 moved lines | of the 191 lines above them |
+|---|---|---|
+| flat extraction | **149** | 180 (the 11 are this commit's docstring and `import time`) |
+| seed = copy of `dolby_to_pipewire.py`, then trim | 149 | **18** |
+
+The seed recovers nothing the flat commit did not already have, and spends 162
+traced lines to do it — because the seed *replaces* the file, so install.py's
+own earlier content exists nowhere in the trim's parent tree for `-C -C -C` to
+find. So this one shipped flat, and the general form of the rule wants the extra
+clause: **a seed pays only when a single blob holds every line the commit is
+about to put at that path.** For a second helping from a different root script
+there is no such blob, and the flat commit is not the fallback but the better
+answer.
+
+Why flat did so well here at all is the same variance the table further up
+measured: this commit removed 149 lines from a 609-line file and added them to
+a 180-line one, which is a similarity problem `-C -C` solves, unlike ~800 lines
+against a shrinking 8,000-line file. The other three moves were measured the
+same way and needed no seed either — 38 of 39 lines traced into `parse.py`
+(the exception is `    ep = root.find(`, four tokens long) and all 14 lines of
+the class into `console.py`. `_safe_node_name` traces 3 of 5, which is the two
+impure lines below and not a provenance problem.
+
+**The import direction, re-checked against the tree rather than the note.**
+`checks.py` → `install.py` was avoided in slice 6 to prevent a cycle, and slice
+3 has since put a module-scope `from lib.report import speaker as gen` on
+`checks.py`. Neither matters here: the activation block reaches five names it
+does not define — `Path`, `console`, `shutil`, `subprocess`, `time`, every one
+an import — and none of them is in `checks.py`. The package still layers
+`plugins ← conf ← {install, checks}` with no edge between the top two, and a
+graph walk over all of `lib/` reports no cycle anywhere. `lib/pipewire/` still
+imports nothing from `lib/preset/`, and this slice adds no edge in either
+direction between `lib/preset/` and `lib/report/`.
+
+**The numpy claim was wrong, and the measurement says so.** The reason given
+for moving `_HelpHintParser` was that `from dolby_to_easyeffects import
+_HelpHintParser` dragged the generator's numpy into the wrapper. It does not:
+two lines above it, `import dolby_to_easyeffects` does — unconditionally, since
+the generator calls `_load_dsp()` at module scope on any non-completion run —
+and the wrapper cannot drop that import, which is how it reaches `run_cli`,
+`ensure_dsp` and the shared argument builders. A wrapper import measures 666
+modules with numpy and scipy present either side of the commit, and 666 again
+with the `from`-import deleted and nothing else changed. What the move is
+actually worth is that it was the last import crossing between two root
+scripts. On the completion path all three scripts stay DSP-free: 222 / 214 /
+231 modules, numpy and scipy absent from each. The generator's 223 became 222
+for one reason — `lib.preset.bands` was the only *module* among the eight dead
+imports; the other seven are stdlib and still arrive transitively.
+
+**One disclosed impurity, in the smallest move of the five.**
+`_safe_node_name`'s body read `conf._sanitize_name(...)` and
+`conf.DEFAULT_NODE_NAME`, and inside `conf.py` those prefixes cannot stand, so
+two of its five lines are rewritten and `check_move_purity.py` reports them.
+There is no exempt shape to reach for — the alternative is a module importing
+itself — and the rule is to leave the code where it reads best and disclose,
+as slices 1 and 7 did. The other three moves are pure.
+
+The patch inventory is **six**, all in `tests/test_dolby_to_pipewire.py` and
+all of the module-object kind: `install.subprocess` ×4, `install.shutil` and
+`install.time` ×1, previously reaching those modules through the wrapper's
+bindings. The wrapper no longer imports any of the three — they left with the
+block — so left alone they would have raised `AttributeError` rather than
+passing quietly, the same shape the `--doctor` slice hit. Checked in both
+directions with a shim scoped to the three calls the moved code makes
+(`subprocess.run` on `pw-cli`/`systemctl`, `shutil.which("pw-cli")`,
+`time.sleep`), so `_validate_conf`'s use of the same two modules is untouched:
+poisoned, all 41 tests stay green; re-aimed at a throwaway with the poison
+still in, exactly 6 fail on the sabotage. The re-pointed calls were checked the
+same way — sabotaging the three moved print/activate functions fails 24 tests,
+and putting working copies back on the wrapper under their old names changes
+that by nothing, so no caller reads a root binding. Sabotaging
+`_safe_node_name` fails 27, with the same stale-binding result.
+
+Two duplications **noticed and left**. `PIPEWIRE_RESTART_CMD` collapses a
+string now written out three more times — `ee_to_pipewire.py`'s "To activate:"
+line, `lib/pipewire/checks.py`'s doctor remedy, and
+`lib/pipewire/install.py`'s own `_print_next_steps` step 1, which after this
+move sits 24 lines above the constant that would replace it. Collapsing it is a
+behaviour change under a subject line promising there isn't one, and the four
+sites do not phrase it identically, so it is task #26 rather than a follow-up
+commit here. The second is smaller: `_print_manual_activation` and
+`_print_next_steps` now spell the same "nothing usually means the LSP or Calf
+LV2 plugins are missing" sentence in one file, deliberately differing only in
+the tail about what happens once the line appears.
+
 ### What it does to the test suite
 
 Less than the 12,269 lines of tests suggest. Measured before starting, because
