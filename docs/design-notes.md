@@ -2872,6 +2872,24 @@ mitigate.
   `tools/check_move_purity.py` belongs on the **trim** commit. The seed adds
   lines it never removed, which is impurity by that tool's definition and by
   design.
+
+  **A seed only helps a path on the commit that creates it.** Code moved into a
+  module that already exists gets the flat-extraction outcome, because there is
+  no new path to pair. `a851428` moved 350 lines into the existing
+  `lib/report/findings.py` alongside six seeded modules: the seeded six trace at
+  91–99%, those 350 lines at 0%. Seeding the existing module instead would mean
+  overwriting it with the root script for one commit, which recovers the 350 and
+  spends the 105 lines already sitting there at 91% — a trade, not a fix. So
+  prefer to land a module's contents in one slice; when a later slice has to
+  extend one, expect that part to trace like a flat extraction and don't go
+  looking for a knob.
+
+  Worth knowing before hand-building a seed: the loop that writes the copies
+  runs under zsh, which does **not** word-split an unquoted `$paths`. Getting
+  that wrong produces one file whose name is every path joined by spaces, a
+  seed that pairs with nothing, and a trim commit that quietly deletes the
+  evidence — the tree ends up correct and the provenance silently does not.
+  Check the seed with `git ls-tree -r --name-only <seed> -- lib/`.
 - **Name both ends in the subject** — "Move the console into `lib/console.py`",
   not "Tidy up the console". It matters most away from the command line:
   GitHub's web blame implements no `-C` at all, so in a browser the subject *is*
