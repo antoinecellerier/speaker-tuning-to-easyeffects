@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dolby_to_easyeffects
 from lib import console, ee_paths
 from lib.dax import parse
 from lib.doctor import (
@@ -1275,6 +1276,28 @@ def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
     # exceeds full scale, so the on-disk convention still holds.
     assert max(on_l, on_r) == pytest.approx(1.0, rel=1e-4)
     assert min(on_l, on_r) < 0.99
+
+
+# --- LOCK-IN: a run that bails out leaves the EasyEffects tree alone ---
+
+def test_no_profiles_found_creates_no_directories(tmp_path, capsys):
+    """`--all-profiles` on an endpoint the XML doesn't carry prints "No
+    profiles found" and returns without generating anything — so it must
+    not have planted the output and .irs directories on the way past. They
+    were created above that return, which left two empty directories in the
+    user's EasyEffects tree after a run that wrote nothing.
+    """
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    # The fixture carries one endpoint, internal_speaker/normal.
+    out = tmp_path / "out"
+    irs = tmp_path / "irs"
+    dolby_to_easyeffects.main(
+        [str(xml), "--all-profiles", "--endpoint", "headphone",
+         "--output-dir", str(out), "--irs-dir", str(irs)])
+    # Confirms it is *this* early return that was taken, not another.
+    assert "No profiles found" in capsys.readouterr().out
+    assert not out.exists()
+    assert not irs.exists()
 
 
 # --- LOCK-IN: autoload artifacts (device binding + fallback preset/rc) ---

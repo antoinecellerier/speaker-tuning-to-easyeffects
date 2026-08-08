@@ -480,9 +480,6 @@ def main(argv: list[str] | None = None,
 
     if args.dry_run:
         console.cprint("head", "Dry run: no files will be written to disk.")
-    else:
-        args.output_dir.mkdir(parents=True, exist_ok=True)
-        args.irs_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine which profiles to process
     if args.all_profiles:
@@ -493,24 +490,6 @@ def main(argv: list[str] | None = None,
         console.cprint("head", f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
     else:
         profile_types = [args.profile]  # None means "first profile"
-
-    all_preset_names = []
-    # filter name → set of profile labels that emitted it. Lets the
-    # end-of-run --disable hint say *which* profiles each suggestion
-    # actually touches, so a user autoloading one preset isn't misled
-    # into thinking a filter applies to them when it only runs in other
-    # profiles.
-    filters_by_profile: dict[str, set[str]] = {}
-    # Findings raised across every profile built this run, in first-seen order
-    # and de-duplicated by slug: --all-profiles would otherwise repeat the same
-    # one nine times. The key is the slug rather than the rendered text because
-    # several findings embed a per-profile value (peak-level=-3), which made
-    # text-keyed de-duplication miss them.
-    findings: dict[str, Finding] = {}
-    # slug → profiles that raised it, so the closing block can say when one
-    # applies to some profiles and not the preset the user will autoload.
-    raised_in: dict[str, list[str]] = {}
-    leveler_substages: dict[str, None] = {}
 
     # The DSP stack, imported here and not at the top of the file: numpy is
     # ~0.35 s of a ~0.5 s start-up, and every path that returns above reaches
@@ -533,6 +512,33 @@ def main(argv: list[str] | None = None,
     # profile_label and profile_findings are all bound within a few lines of
     # the one call this module serves.
     from lib.report import profile as report_profile
+
+    # Created here rather than beside the dry-run banner above: below every
+    # early return, and below the import that a machine without numpy dies
+    # on, so a run that produces nothing leaves nothing behind in the user's
+    # EasyEffects tree either. The banner itself stays up there, ahead of the
+    # first line the run prints.
+    if not args.dry_run:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        args.irs_dir.mkdir(parents=True, exist_ok=True)
+
+    all_preset_names = []
+    # filter name → set of profile labels that emitted it. Lets the
+    # end-of-run --disable hint say *which* profiles each suggestion
+    # actually touches, so a user autoloading one preset isn't misled
+    # into thinking a filter applies to them when it only runs in other
+    # profiles.
+    filters_by_profile: dict[str, set[str]] = {}
+    # Findings raised across every profile built this run, in first-seen order
+    # and de-duplicated by slug: --all-profiles would otherwise repeat the same
+    # one nine times. The key is the slug rather than the rendered text because
+    # several findings embed a per-profile value (peak-level=-3), which made
+    # text-keyed de-duplication miss them.
+    findings: dict[str, Finding] = {}
+    # slug → profiles that raised it, so the closing block can say when one
+    # applies to some profiles and not the preset the user will autoload.
+    raised_in: dict[str, list[str]] = {}
+    leveler_substages: dict[str, None] = {}
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
