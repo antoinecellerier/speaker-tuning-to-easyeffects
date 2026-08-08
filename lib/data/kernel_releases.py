@@ -8,7 +8,7 @@ literal's formatting is a contract, not a style choice — see
 ships here byte-for-byte.
 
 Only the dates live here. What counts as *old* (``_KERNEL_OLD_MONTHS``) and
-what the user is told about it stay in ``dolby_to_easyeffects.py``, where a
+what the user is told about it stay in ``lib/report/environment.py``, where a
 weekly rewrite of this file cannot reach them.
 
 Stdlib-only, and in fact import-free.

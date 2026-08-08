@@ -38,12 +38,12 @@ python3 tools/measure_pw/validate_conf.py <some.conf>
 > resulting `Report` itself. The old layering violation, a top-level
 > user-runnable script depending on something outside `lib/`, is gone.
 >
-> One site still runs this script and **fails silently** doing it:
-> `tests/corpus/test_ee_to_pipewire_corpus.py`, whose `is_file()` guard turns a
-> missing script into "don't check" so the XML passes green.
-> `tests/test_layout.py::test_the_validator_cli_still_finds_its_runtime_core`
-> is the loud guard on the other side — it checks that this file's `sys.path`
-> bootstrap still resolves `lib`, so the CLI keeps working standalone.
+> One site still runs this script: `tests/corpus/test_ee_to_pipewire_corpus.py`,
+> once, on a single rendered conf — with no `is_file()` guard on it, so a
+> wrapper that moved away fails loudly instead of turning into "don't check".
+> `tests/test_layout.py` guards the rest: that this file's `sys.path` bootstrap
+> still resolves `lib` so the CLI keeps working standalone, and that a
+> dependency it cannot run exits 2 (setup error) rather than 1 (bad conf).
 > `tests/test_validate_conf.py` imports the library directly. Wider context:
 > [`tools/README.md`](../README.md).
 

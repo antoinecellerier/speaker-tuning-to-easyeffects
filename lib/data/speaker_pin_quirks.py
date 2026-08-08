@@ -13,7 +13,7 @@ rows *are* ``PinQuirk`` calls: a machine rewrite of this file rewrites the
 constructor call too, so the record and its rows have to move together.
 
 Only the table lives here. Which pin counts as missing, and what the user is
-told to do about it, stay in ``dolby_to_easyeffects.py``
+told to do about it, stay in ``lib/hardware/speakers.py``
 (``find_hidden_speaker_pin`` and friends), out of reach of the weekly rewrite.
 
 Stdlib-only.

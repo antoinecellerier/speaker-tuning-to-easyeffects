@@ -88,17 +88,22 @@ place where a top-level user-runnable script depended on something outside
 `lib/` — is gone rather than narrowed, and the script is now a standalone tool
 like everything else here.
 
-One site still runs it, and it fails silently: the `is_file()` guard in
-`tests/corpus/test_ee_to_pipewire_corpus.py` turns a missing script into
-"don't check", and the XML then passes green with no conf ever validated.
+One site still runs it: `tests/corpus/test_ee_to_pipewire_corpus.py`, once, on
+a single rendered conf. It carries no `is_file()` guard on the script, and that
+is the point — a wrapper that moved away has to fail that test loudly rather
+than turn into "don't check", which is how an XML would pass green with no conf
+ever validated.
 
-`tests/test_layout.py::test_the_validator_cli_still_finds_its_runtime_core` is
-the loud guard, and it watches the opposite direction: that this script's own
+`tests/test_layout.py` holds the two guards on the ways this file breaks by
+itself. `test_the_validator_cli_still_finds_its_runtime_core` watches its
 `sys.path` bootstrap — the repo root, counted from
-`Path(__file__).resolve().parents[2]` — still resolves `lib`, so the CLI keeps
-starting from outside the checkout. Move either file and that import breaks,
-while `tests/test_validate_conf.py` goes on importing `lib.pipewire.validate`
+`Path(__file__).resolve().parents[2]` — so the CLI keeps starting from outside
+the checkout. Move either file and that import breaks, while
+`tests/test_validate_conf.py` goes on importing `lib.pipewire.validate`
 directly and holds no path at all.
+`test_the_validator_cli_separates_setup_failure_from_a_bad_conf` watches the
+exit codes: a dependency it cannot run has to exit 2, never the 1 that means
+the conf itself is bad.
 
 ## Why this directory is flat
 

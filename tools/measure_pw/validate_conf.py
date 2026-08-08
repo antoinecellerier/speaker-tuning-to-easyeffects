@@ -21,9 +21,14 @@ Usage:
   python3 tools/measure_pw/validate_conf.py path/to/file.conf
   ... | python3 tools/measure_pw/validate_conf.py -    # conf on stdin
 
-ee_to_pipewire.py runs the stdin form itself on every conf it
-generates (unless --no-validate), so reach for this by hand only to
-re-check a conf already on disk.
+ee_to_pipewire.py makes the same check on every conf it generates
+(unless --no-validate), but in process via lib/pipewire/validate.py
+rather than by shelling out here — so reach for this by hand to
+re-check a conf already on disk. Two differences worth knowing if you
+are comparing the two: this has no overall time budget, where the
+library caps the whole check at 30 s and reports the URIs it cut off;
+and a check that could not run at all exits 2 here, where the library
+hands its caller an UNCHECKED report.
 
 Exit 0 = clean. Exit 1 = at least one error. Exit 2 = setup error.
 
