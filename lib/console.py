@@ -31,6 +31,9 @@ handed, it imports nothing itself. ``add_color_and_version_args`` is the third
 of that cluster and the only one about this module's own subject: ``--no-color``
 is the switch every helper above obeys, and it was declared three times, once
 per entry point, beside a ``--version`` that had drifted along with it.
+``help_style`` is its other end — the flag has to be honoured a second time,
+before argparse renders ``--help``, and answering that means reading both
+private names above, which is a poor thing to make three callers do.
 """
 
 import argparse
@@ -141,6 +144,31 @@ def add_color_and_version_args(add) -> None:
         version=f"%(prog)s {version.get_version()}",
         help="show version and exit",
     )
+
+
+def help_style(argv: list[str] | None = None):
+    """The two argparse knobs colour costs: ``(formatter_class, epilog)``.
+
+    ``--no-color`` has to be honoured before argparse renders ``--help``,
+    which is before there is a parsed namespace to read it from — hence the
+    argv pre-scan. The epilog is the other half: it is the one thing that
+    renders differently when a colour dependency is missing, naming the ones
+    that are (``tests/test_optional_deps.py`` asserts the rich-absent help is
+    the rich-present help plus exactly this line).
+
+    Returns the two values rather than a built parser. All three entry points
+    want the same formatter and the same epilog, but each instantiates a
+    different parser class, and taking that class as a parameter would hide
+    the one difference between them behind the thing they share.
+    """
+    _argv = sys.argv[1:] if argv is None else argv
+    formatter_class = (argparse.HelpFormatter
+                       if "--no-color" in _argv else _HelpFormatter)
+    epilog = None
+    if _MISSING_COLOR_DEPS:
+        epilog = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+                  + " for colored output (see README for distro packages).")
+    return formatter_class, epilog
 
 
 def cprint(style: str, text: str = "") -> None:

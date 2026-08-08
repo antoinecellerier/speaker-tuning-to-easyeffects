@@ -324,16 +324,7 @@ def add_general_args(container, *, only=None):
 
 
 def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
-    # --no-color must be honored before argparse prints --help; pre-scan
-    # argv so the formatter falls back to plain when requested.
-    _argv = sys.argv[1:] if argv is None else argv
-    formatter_class = argparse.HelpFormatter if "--no-color" in _argv else console._HelpFormatter
-    epilog = None
-    if console._MISSING_COLOR_DEPS:
-        epilog = (
-            f"Tip: install {' and '.join(console._MISSING_COLOR_DEPS)} for colored output "
-            "(see README for distro packages)."
-        )
+    formatter_class, epilog = console.help_style(argv)
     parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to EasyEffects output presets.",
         epilog=epilog,

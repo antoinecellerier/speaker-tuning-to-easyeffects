@@ -189,15 +189,7 @@ def add_general_args(container, *, only=None):
 
 
 def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
-    # --no-color must be honored before argparse renders --help, so pre-scan
-    # argv to pick the help formatter (color itself is disabled after parsing).
-    _argv = sys.argv[1:] if argv is None else argv
-    formatter_class = (argparse.HelpFormatter
-                       if "--no-color" in _argv else console._HelpFormatter)
-    epilog = None
-    if console._MISSING_COLOR_DEPS:
-        epilog = ("Tip: install " + " and ".join(console._MISSING_COLOR_DEPS)
-                  + " for colored output (see README for distro packages).")
+    formatter_class, epilog = console.help_style(argv)
     parser = argparse.ArgumentParser(
         description="Convert an EasyEffects output preset to a PipeWire "
                     "filter-chain .conf (see docs/ee-to-pipewire.md).",

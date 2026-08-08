@@ -47,13 +47,7 @@ def _compose_parser(argv=None):
     """Build the wrapper parser from the two converters' shared argument
     builders. Returns (parser, step1_actions, step2_actions) — the action
     lists drive rebuild_argv() so forwarding can't drift from the CLI."""
-    _argv = sys.argv[1:] if argv is None else argv
-    formatter_class = (argparse.HelpFormatter
-                       if "--no-color" in _argv else console._HelpFormatter)
-    epilog = None
-    if console._MISSING_COLOR_DEPS:
-        epilog = ("Tip: install " + " and ".join(console._MISSING_COLOR_DEPS)
-                  + " for colored output (see README for distro packages).")
+    formatter_class, epilog = console.help_style(argv)
     parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to an active PipeWire "
                     "filter-chain sink — no EasyEffects files installed "
