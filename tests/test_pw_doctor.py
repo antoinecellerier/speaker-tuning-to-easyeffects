@@ -336,6 +336,34 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     assert checks.check_conf_directory().status == DOCTOR_WARN
 
 
+def test_wireplumber_is_probed_once_per_run(tmp_path, monkeypatch):
+    """"Probe everything once, then judge" — `wireplumber --version` is a
+    subprocess, and the check and the facts dict are two readers of one answer,
+    not two spawns. None is an answer too: a version the binary won't give is
+    not a reason to ask it again."""
+    def _run(answer):
+        calls = []
+        monkeypatch.setattr(checks, "_wireplumber_version",
+                            lambda: (calls.append(answer), answer)[1])
+        monkeypatch.setattr(checks, "_pw_dump", lambda: [])
+        monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+        monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+        results, _confs, _chains, facts = checks.gather_pw_doctor()
+        wireplumber = [c for c in results if c.label == "WirePlumber"]
+        return calls, wireplumber, facts
+
+    calls, wireplumber, facts = _run((0, 4))
+    assert len(calls) == 1
+    # ...and that one answer reaches both consumers, unchanged.
+    assert facts["wireplumber"] == (0, 4)
+    assert [c.status for c in wireplumber] == [DOCTOR_FAIL]
+
+    calls, wireplumber, facts = _run(None)
+    assert len(calls) == 1
+    assert facts["wireplumber"] is None
+    assert [c.status for c in wireplumber] == [DOCTOR_UNKNOWN]
+
+
 # --- Warning at the moment it happens ---------------------------------------
 
 def _write_conf(path: Path, target=SPEAKER, node="Dolby_Balanced"):

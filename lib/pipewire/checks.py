@@ -460,6 +460,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # loaded" pass for a file that had loaded for nobody.
     confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
     running = version.get_version()
+    wireplumber = _wireplumber_version()
 
     checks = [c for c in (
         check_stacked_chains(chains, confs),
@@ -468,7 +469,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
         check_conf_directory(),
-        check_wireplumber(_wireplumber_version()),
+        check_wireplumber(wireplumber),
         check_easyeffects_conflict(sinks, chains, dump),
         check_conf_versions(confs, running),
     ) if c is not None]
@@ -489,7 +490,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         "confs": confs,
         "chains": chains,
         "sinks": sorted(sinks),
-        "wireplumber": _wireplumber_version(),
+        "wireplumber": wireplumber,
         "version": running,
     }
     return checks, confs, chains, facts
