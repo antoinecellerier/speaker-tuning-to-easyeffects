@@ -180,6 +180,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   EasyEffects tree, and a missing NumPy or SciPy now says which one to install
   instead of printing a traceback — the output directories are created only
   once every check that can stop the run has passed.
+- `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer print a Python
+  traceback when a run fails. All three commands now end a failed run the same
+  way the generator already did: one line saying what went wrong, and what to
+  do next.
 - Running the script from a session with no display (ssh, tmux) no longer
   claims EasyEffects isn't installed. `easyeffects --version` needs a
   display to answer, and any failure to answer was read as "not found";

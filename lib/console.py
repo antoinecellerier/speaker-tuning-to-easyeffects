@@ -42,14 +42,24 @@ sites is structural, and the helper's own docstring below explains it.
 ``help_style`` is its other end — the flag has to be honoured a second time,
 before argparse renders ``--help``, and answering that means reading both
 private names above, which is a poor thing to make three callers do.
+
+``run_guarded`` is the last of the cluster and the reason ``doctor`` is
+imported below. It is how a *failed* run looks, and it was the generator's
+alone: the two PipeWire entry points ended in a bare ``sys.exit(main())`` and
+let a converter failure traceback at the user. It sits beside
+``_HelpHintParser`` because the two are one message seen from either side of
+argparse — the argv was wrong (stderr, exit 2), or something the run reached
+raised (stdout, exit 1) — and a reader deciding how a failure should read has
+both in front of them.
 """
 
 import argparse
 import shutil
 import sys
 import textwrap
+import xml.etree.ElementTree as ET
 
-from lib import version
+from lib import doctor, version
 
 
 # Prose wraps to the terminal, within bounds. Below the floor, a hanging
@@ -112,6 +122,54 @@ class _HelpHintParser(argparse.ArgumentParser):
             f"{self.prog}: error: {message}\n"
             "Run with --help to see usage and all options.\n",
         )
+
+
+# What a user can cause, as against what only we can. Everything listed is an
+# environment condition or an input the run was handed — a missing file, an
+# unreadable directory, an XML or preset whose shape we reject — and for those
+# a traceback tells the reader nothing they can act on.
+#
+# OSError rather than FileNotFoundError, which is the only one of its family
+# the generator used to name: every one of these scripts writes files into
+# directories it does not own (~/.local/share/easyeffects, ~/.config/pipewire),
+# so a read-only mount, a root-owned leftover or a full disk is as ordinary a
+# failure as a missing XML, and Python never uses OSError for a logic bug.
+#
+# TypeError is deliberately absent, though the converter has two raise sites
+# for it (lib/pipewire/conf.py's _fmt_num / _fmt_value). Those cannot fire on
+# any preset a user could write: _fmt_value already handles every JSON type,
+# so reaching its raise means a non-JSON Python object came from our own code,
+# and the traceback is the only thing that says so. Same argument, and the
+# same line, as ModuleNotFoundError-not-ImportError in the generator's DSP
+# import. A bare `Exception` fails it harder still: it would turn every bug
+# in either converter into a friendly sentence with nowhere to report from.
+_HANDLED = (OSError, RuntimeError, ValueError, ET.ParseError)
+
+
+def run_guarded(run) -> int:
+    """Run ``run()``, rendering a failure the user can act on as one line.
+
+    The one place all three entry points render a failure, so a run of any of
+    them fails the same way. ``run`` is a no-argument callable — each script's
+    ``main()``, with its own arguments already bound — and its return value is
+    the process exit code, ``None`` counting as success for the generator's
+    ``main()``, which returns nothing.
+
+    Returns rather than re-raises, which is what keeps a failure from being
+    rendered twice: dolby_to_pipewire.py calls the generator's ``run_cli`` in
+    process, so an XML that cannot be read is printed by the guard inside that
+    call and reaches the wrapper's own as a return code, not an exception.
+    """
+    try:
+        rc = run()
+    except _HANDLED as e:
+        # tilde over the whole message, not over a path we interpolated: the
+        # discovery errors name several paths mid-sentence, and an OSError
+        # names one inside repr quotes. This is where all of them print.
+        cprint("err", f"Error: {doctor.tilde(e)}")
+        cprint("cta", "Run with --help to see usage and all options.")
+        return 1
+    return 0 if rc is None else rc
 
 
 def _make_adder(container, only):

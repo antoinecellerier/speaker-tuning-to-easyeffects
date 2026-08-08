@@ -8,10 +8,12 @@ either of them.
 
 Stdlib-only, like `version.py` and `ee_paths.py`: `ee_to_pipewire.py` must
 not pull the generator's numpy/scipy into a report that is mostly about
-PipeWire. Each printer takes the caller's own ``cprint``, because the two
-scripts hold separate consoles — identically built, both on stdout, but
-neither reachable from here without importing a script this module must stay
-below.
+PipeWire. Each printer takes the caller's own ``cprint``, which dates from
+when the two scripts held a console each and neither was reachable from here.
+There is one console now, in `lib/console.py`, and it is still not reachable
+from here — but for a harder reason: it imports this module, for ``tilde``,
+to render the failure all three entry points end on. So the arrow points one
+way only, and an ``import console`` added below would close a cycle.
 """
 
 from __future__ import annotations

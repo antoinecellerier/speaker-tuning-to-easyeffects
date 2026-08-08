@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 
@@ -888,18 +887,15 @@ def run_cli(argv: list[str] | None = None,
             resolved: dict | None = None,
             staged: bool = False) -> int:
     """main() with the top-level error handling the __main__ block used to
-    inline, as a return code — the seam dolby_to_pipewire.py calls in-process."""
-    try:
-        main(argv, closing=closing, troubleshooting=troubleshooting,
-             resolved=resolved, staged=staged)
-    except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
-        # tilde over the whole message, not over a path we interpolated: the
-        # discovery errors name several paths mid-sentence, and an OSError
-        # names one inside repr quotes. This is where all of them print.
-        console.cprint("err", f"Error: {doctor.tilde(e)}")
-        console.cprint("cta", "Run with --help to see usage and all options.")
-        return 1
-    return 0
+    inline, as a return code — the seam dolby_to_pipewire.py calls in-process.
+
+    The handling itself is console.run_guarded, shared with the other two
+    entry points. Guarded here rather than under ``__main__`` because this is
+    the seam: the wrapper calls it directly, and a failure rendered by any
+    other name would reach it as an exception instead of a return code."""
+    return console.run_guarded(
+        lambda: main(argv, closing=closing, troubleshooting=troubleshooting,
+                     resolved=resolved, staged=staged))
 
 
 if __name__ == "__main__":

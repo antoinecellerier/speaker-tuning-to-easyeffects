@@ -464,5 +464,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     return 0
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    """main() under the shared failure rendering — the generator's run_cli by
+    the same name and for the same reason.
+
+    Not what dolby_to_pipewire.py calls: it drives ``main(wrapped=True)``
+    directly, so a conversion failure travels up as an exception and is
+    rendered once, by the wrapper's own guard, rather than here and again
+    there."""
+    return console.run_guarded(lambda: main(argv))
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())

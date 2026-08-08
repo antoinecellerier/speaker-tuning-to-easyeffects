@@ -437,6 +437,17 @@ def main(argv: list[str] | None = None) -> int:
     return rc
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    """main() under the shared failure rendering, as in both converters.
+
+    The outermost guard of the three: step 1's failures are already rendered
+    inside dolby_to_easyeffects.run_cli and arrive here as a return code, so
+    what this one catches is the wrapper's own work and step 2's — an
+    ee_to_pipewire.main() called with ``wrapped=True``, which has no guard of
+    its own precisely so that its failures land here, once."""
+    return console.run_guarded(lambda: main(argv))
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())
 

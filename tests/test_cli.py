@@ -900,6 +900,89 @@ def test_nonexistent_xml_path_fails_cleanly(tmp_path):
     assert "error" in combined.lower() or "no such" in combined.lower()
 
 
+# --- One failure rendering, three entry points -----------------------------
+# A failed run ends the same way whichever script was typed: one
+# `Error: <message>` line, then one next step. That used to be the
+# generator's alone — the two PipeWire entry points ended in a bare
+# `sys.exit(main())` and let a converter failure traceback at the user — so
+# these ask all three, and ask for *one* of each line: the wrapper runs the
+# generator in-process, and a second guard wrapped around a rendering the
+# first already printed would say everything twice.
+
+# The next step a failure ends on when its raiser names none. Spelled out
+# rather than read off the module, so a reworded constant fails here and gets
+# looked at, instead of the test rewording itself in step.
+DEFAULT_NEXT_STEP = "Run with --help to see usage and all options."
+
+
+def _handled_failure_argv(script, tmp_path):
+    """An argv that fails `script` through one of the handled exceptions.
+
+    None of the three pays for the DSP stack to get there: the generator and
+    the wrapper die on an unreadable XML above main()'s numpy import, and the
+    converter on a preset whose JSON parses but carries no `output` object.
+    `--no-activate` on the wrapper is belt-and-braces — it fails in step 1,
+    well before there is anything to activate — because a test that restarts
+    PipeWire is a test nobody can run on their own machine.
+    """
+    if script.name == "ee_to_pipewire.py":
+        preset = tmp_path / "no-output-object.json"
+        preset.write_text(json.dumps({"input": {}}))
+        return [str(preset), "--dry-run"]
+    missing = tmp_path / "definitely-does-not-exist.xml"
+    argv = [str(missing)]
+    if script.name == "dolby_to_pipewire.py":
+        argv.append("--no-activate")
+    return argv
+
+
+@pytest.mark.parametrize("script", ENTRY_POINTS, ids=lambda p: p.name)
+def test_a_handled_failure_prints_one_error_line(script, tmp_path):
+    result = subprocess.run(
+        [sys.executable, str(script),
+         *_handled_failure_argv(script, tmp_path), "--no-color"],
+        capture_output=True, text=True, timeout=120,
+    )
+    output = result.stdout + result.stderr
+    assert "Traceback" not in output, (
+        f"{script.name} tracebacked at the user instead of rendering the "
+        f"failure:\n{output}"
+    )
+    assert result.returncode == 1, (
+        f"{script.name} exited {result.returncode}, not 1:\n{output}"
+    )
+    lines = output.splitlines()
+    assert len([ln for ln in lines if ln.startswith("Error: ")]) == 1, output
+    assert len([ln for ln in lines if ln == DEFAULT_NEXT_STEP]) == 1, output
+
+
+@pytest.mark.parametrize("module_name", ["dolby_to_easyeffects",
+                                         "ee_to_pipewire",
+                                         "dolby_to_pipewire"])
+def test_run_cli_guards_its_own_main(module_name, monkeypatch, capsys,
+                                     silence_console):
+    """Each entry point's `run_cli` is the guard around *its* `main()`.
+
+    The subprocess trap above reaches only two of the three guards: the
+    wrapper's own sits behind a completed generation, and every failure a
+    plain argv can hand it is one the generator's guard has already rendered.
+    So the failure is injected here — what is under test is the wiring and the
+    exit code, not the raise site.
+    """
+    import importlib
+    module = importlib.import_module(module_name)
+    silence_console(console)
+
+    def boom(*args, **kwargs):
+        raise ValueError("the shape of a failure")
+
+    monkeypatch.setattr(module, "main", boom)
+    assert module.run_cli([]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "Error: the shape of a failure", DEFAULT_NEXT_STEP,
+    ]
+
+
 def test_skip_ee_check_gates_environment_warning(monkeypatch, tmp_path, capsys):
     """`--skip-ee-check` must suppress the end-of-run warn_ee_environment
     probe (and only that) — dolby_to_pipewire.py relies on it to keep the
