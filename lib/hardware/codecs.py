@@ -54,9 +54,13 @@ def get_hda_codec_ids():
 # Both names are shared rather than re-spelled at each reader. ``iterdir`` the
 # bus, keep what the regex matches: that is how ``get_soundwire_ids`` below
 # opens, and how ``lib.hardware.speakers._detect_soundwire_speakers``'s
-# amplifier probe opens; ``get_pci_audio_subsystem``'s ``sdw_bus`` default
-# takes the path on its own. Only the entry point is shared — the loop bodies
-# read different things and are deliberately kept apart.
+# amplifier probe opens; ``get_pci_audio_subsystem`` takes the path on its own,
+# reading it in the body rather than as a parameter default — a default is
+# evaluated once when the ``def`` runs, so it would hold this object for the
+# life of the process and no ``monkeypatch.setattr`` on this module could reach
+# it (``tests/test_layout.py`` guards exactly that). Only the entry point is
+# shared — the loop bodies read different things and are deliberately kept
+# apart.
 SDW_BUS = Path("/sys/bus/soundwire/devices")
 SDW_SLAVE_RE = re.compile(r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+")
 
@@ -124,7 +128,7 @@ def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
 def get_pci_audio_subsystem(
     sound_class=Path("/sys/class/sound"),
     proc_asound=Path("/proc/asound"),
-    sdw_bus=SDW_BUS,
+    sdw_bus=None,
 ):
     """Get the PCI subsystem ID of the audio controller.
 
@@ -140,7 +144,13 @@ def get_pci_audio_subsystem(
     GPU audio function with its own PCI subsystem id (issue #33: 17AA:3823
     reported where the analog controller — the id kernel quirks and Dolby
     PCI-keyed filenames use — was a different device).
+
+    ``sdw_bus=None`` means the module's own ``SDW_BUS``, read in the body
+    rather than defaulted in the signature — the same way ``get_soundwire_ids``
+    above reads it. A caller overriding the root still passes it outright.
     """
+    if sdw_bus is None:
+        sdw_bus = SDW_BUS
     if sdw_bus.is_dir():
         for dev_dir in sorted(sdw_bus.iterdir()):
             result = _walk_to_pci_subsys(dev_dir)

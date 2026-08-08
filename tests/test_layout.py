@@ -29,11 +29,14 @@ not run at all.
 the module (`from lib.hardware import codecs`, then `codecs.get_soundwire_ids()`)
 so that a `monkeypatch.setattr` on the defining module reaches it. A module that
 instead re-exports the bare name hands the test suite a target that patches only
-one of the two bindings, and the two guards below say which one from each side:
+one of the two bindings, and the guards below say which one from each side:
 `test_no_test_patches_a_re_exported_name` catches a patch aimed at the copy, and
 `test_no_test_patches_a_name_another_module_copied` a patch aimed at the
-definition while a copy exists elsewhere. Both failures are silent — the test
-passes, having exercised the unpatched path.
+definition while a copy exists elsewhere. A third shape holds a copy without
+importing or assigning anything — a parameter default, bound once when the
+`def` runs — and `test_no_parameter_default_freezes_a_patched_name` reads that
+one. All three failures are silent: the test passes, having exercised the
+unpatched path.
 
 **A path named outside the code still has to resolve.** `tools/` is named from
 CLAUDE.md, the rules, the skills, the workflows, the docs, `lib/`, the suite
@@ -339,8 +342,15 @@ def _module_level(tree):
 
     Descends into `if`/`try`/`with` (guarded and version-gated imports are
     still module attributes) but never into a `def` or `class`: a name bound
-    inside a function body is a local, so it can't be a monkeypatch target and
-    isn't part of this contract.
+    inside a function *body* is a local, so it can't be a monkeypatch target
+    and isn't part of this contract.
+
+    A `def`'s parameter defaults are the exception that rule doesn't cover.
+    They are not the body — Python evaluates them once, when the `def` itself
+    runs, so each one is an import-time binding holding whatever the name
+    meant at that moment. `test_no_parameter_default_freezes_a_patched_name`
+    reads them off the signature instead, deliberately: callers of this
+    function want statements to walk, and a default is an expression.
     """
     stack = list(tree.body)
     while stack:
@@ -600,6 +610,119 @@ def test_no_test_patches_a_name_another_module_copied():
         "a third module copied the patched name out at import time, so the "
         "patch reaches every caller except that one:\n  "
         + "\n  ".join(violations)
+    )
+
+
+def _frozen_parameter_defaults(module_path, dotted):
+    """(line, defining module, attribute) per parameter default bound at import.
+
+    `def f(sdw_bus=SDW_BUS)` evaluates `SDW_BUS` once, when the `def` runs, and
+    the signature keeps that object for the life of the process. That is the
+    same stale copy `from lib.x import SDW_BUS` makes, wearing a shape neither
+    guard above looks at: both read imports and assignments, and this is
+    neither.
+
+    Two spellings qualify. A bare name can only refer to something this module
+    already bound, so its definer is the module itself; `def f(bus=codecs.
+    SDW_BUS)` freezes another module's attribute identically, and is resolved
+    through this module's own `lib.` import aliases so the pair reported is the
+    one a test would patch. Every import-time binding counts as a source — an
+    assignment, a `def`, a class, an imported name — because a monkeypatch can
+    aim at any of them.
+    """
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+
+    own = set()          # names bound here at import time
+    lib_modules = {}     # local name -> the lib module it refers to
+    for node in _module_level(tree):
+        if isinstance(node, ast.Assign):
+            own.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            own.add(node.target.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            own.add(node.name)
+        elif isinstance(node, ast.Import):
+            own.update((a.asname or a.name).split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            own.update(a.asname or a.name for a in node.names)
+            module = node.module or ""
+            if module == "lib" or module.startswith("lib."):
+                for alias in node.names:
+                    origin = f"{module}.{alias.name}"
+                    if _names_lib_module(origin):
+                        lib_modules[alias.asname or alias.name] = origin
+
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        args = node.args
+        for default in [*args.defaults, *(d for d in args.kw_defaults if d)]:
+            if isinstance(default, ast.Name):
+                if default.id in own:
+                    found.append((default.lineno, dotted, default.id))
+            elif isinstance(default, ast.Attribute):
+                root, _, attr = (_dotted(default) or "").partition(".")
+                if root in lib_modules and attr and "." not in attr:
+                    found.append((default.lineno, lib_modules[root], attr))
+    return found
+
+
+def test_no_parameter_default_freezes_a_patched_name():
+    """The third place a patched name goes stale, and the quietest.
+
+    Both guards above read what a module *imports* or *assigns*. A parameter
+    default is neither, and it is bound just as early:
+
+        # lib/hardware/codecs.py
+        def get_pci_audio_subsystem(..., sdw_bus=SDW_BUS):
+
+    `SDW_BUS` is looked up once, while the `def` executes at import. From then
+    on the signature holds that Path, and
+
+        monkeypatch.setattr(codecs, "SDW_BUS", fake_bus)
+
+    rebinds the module attribute the function no longer consults. Callers who
+    pass the argument are unaffected, which is what makes this quiet: the seam
+    looks tested, because the tests that use it all pass the root explicitly.
+    The default is the one path nothing covers, and it is the production one.
+
+    Fired on collision, not on shape. A blanket "no default may name a
+    module-level constant" rule would reach three sites, two of which nobody
+    patches (`lib/dax/discover.py`'s `_CWD_PROBE_MAX_DEPTH` and
+    `lib/preset/plugins.py`'s `MBC_BLOCK_SIZE`) and where a `None` sentinel
+    would replace a self-documenting signature with one that tells a reader
+    nothing. Reading the suite's patch targets too costs one more pass and
+    leaves those two alone for as long as they stay untested, which is exactly
+    as long as they stay harmless.
+
+    If this fires, the fix is at the definition, not the patch site: take the
+    default to `None` and read the name in the body, so every call resolves it
+    when it runs.
+    """
+    frozen = []
+    for module in ALL_MODULES:
+        path = _module_file(module)
+        for line, target, attr in _frozen_parameter_defaults(path, module):
+            frozen.append((f"{path.relative_to(ROOT)}:{line}", target, attr))
+
+    patched = set()
+    for test_file in sorted((ROOT / "tests").rglob("*.py")):
+        patched.update((module, attr)
+                       for _line, module, attr in _module_patches(test_file))
+
+    violations = [
+        f"{where}: a parameter default freezes {target}.{attr} at import "
+        f"time, and tests/ patches that name — the patch rebinds the module "
+        f"attribute, which this default stopped consulting the moment the "
+        f"def ran. Default to None and read {attr} in the body"
+        for where, target, attr in sorted(frozen)
+        if (target, attr) in patched
+    ]
+
+    assert not violations, (
+        "a parameter default holds the patched object, so the default path — "
+        "the one production takes — runs unpatched:\n  " + "\n  ".join(violations)
     )
 
 
