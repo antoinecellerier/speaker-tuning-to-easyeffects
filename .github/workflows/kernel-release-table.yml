@@ -9,9 +9,9 @@ name: Kernel release-date table
 # permanently exempting every kernel released after the last entry from the
 # 18-month warning. Nothing would ever surface that.
 #
-# The edit is mechanical, so it's a deterministic script (tools/update_kernel_
-# releases.py, stdlib only) rather than a Claude run: no API key, byte-exact
-# output, and its parse/render logic is unit-tested offline in
+# The edit is mechanical, so it's a deterministic stdlib-only script
+# (tools/update_kernel_releases.py) rather than a Claude run: no API key,
+# byte-exact output, and its parse/render logic is unit-tested offline in
 # tests/test_kernel_releases.py. The script fails closed — an implausible
 # batch, an out-of-order or future date, or a table it can't fully parse
 # aborts the run instead of writing a plausible-looking wrong table.
