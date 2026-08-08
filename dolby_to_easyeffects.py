@@ -506,12 +506,32 @@ def main(argv: list[str] | None = None,
     # repetition: profile_types is never empty by here (the empty case
     # returned above) and always holds at least one entry, so the loop body
     # runs on exactly the paths that reach this line.
-    import numpy as np
-    from lib.preset import emit
-    # Aliased on report_findings/report_speaker's precedent: profile_type,
-    # profile_label and profile_findings are all bound within a few lines of
-    # the one call this module serves.
-    from lib.report import profile as report_profile
+    try:
+        import numpy as np
+        from lib.preset import emit
+        # Aliased on report_findings/report_speaker's precedent: profile_type,
+        # profile_label and profile_findings are all bound within a few lines
+        # of the one call this module serves.
+        from lib.report import profile as report_profile
+    except ModuleNotFoundError as exc:
+        # Someone who cloned the repo and skipped the install step lands here,
+        # and on the default single-profile path nothing has been printed yet:
+        # this is the whole screen, so it has to say what to install on its own.
+        #
+        # ModuleNotFoundError, not ImportError: a numpy that is installed but
+        # fails to load is a different problem, and its traceback is the only
+        # thing that says so. exc.name, not the word "numpy": emit pulls scipy
+        # too, and telling someone to install numpy when scipy is the missing
+        # one sends them round in a circle.
+        #
+        # Raised rather than printed here, per the convention the auto-detection
+        # failure above documents — the top-level handler in run_cli() renders
+        # it as a clean error and returns 1.
+        raise RuntimeError(
+            f"{exc.name} is not installed, and generating a preset needs it. "
+            "requirements.txt lists what to install, and the README's Install "
+            "section has the command for your distro."
+        ) from exc
 
     # Created here rather than beside the dry-run banner above: below every
     # early return, and below the import that a machine without numpy dies

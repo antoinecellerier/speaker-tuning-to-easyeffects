@@ -148,6 +148,90 @@ def test_runs_with_argcomplete_absent(script, tmp_path):
     assert "usage:" in result.stdout
 
 
+# --- numpy / scipy, which are NOT optional ---------------------------------
+
+def _absent(tmp_path, module: str) -> str:
+    """A PYTHONPATH entry under which `module` is genuinely absent.
+
+    Not a shadow `<module>.py` that raises, the way the traps above hide rich
+    and argcomplete: those two are guarded by `except ImportError`, so a module
+    that exists and raises is close enough. Here it is not. The generator
+    catches `ModuleNotFoundError` specifically — a numpy that is installed but
+    fails to load has to keep its own traceback — and reads `exc.name` to say
+    which module to install, and a hand-raised `ImportError` carries neither.
+    Absence is a `find_spec` that raises, which is what the import system does
+    when nothing on the path provides the name; `sitecustomize` installs the
+    finder before the script under test gets a chance to import anything.
+    """
+    blocker = tmp_path / f"no-{module}"
+    blocker.mkdir()
+    (blocker / "sitecustomize.py").write_text(
+        "import sys\n"
+        "class _Absent:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        f"        if name == {module!r} or name.startswith({module + '.'!r}):\n"
+        "            raise ModuleNotFoundError(\n"
+        "                f\"No module named {name!r}\", name=name)\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, _Absent())\n"
+    )
+    # Prepended: the suite may be running from a venv whose PYTHONPATH the
+    # child still needs to find the repo's own imports.
+    return os.pathsep.join(
+        p for p in (str(blocker), os.environ.get("PYTHONPATH")) if p)
+
+
+@pytest.mark.parametrize("module", ["numpy", "scipy"])
+def test_a_missing_dsp_dependency_names_itself(module, tmp_path):
+    """Clone the repo, skip the install step, run it on an XML: the only thing
+    on the screen must be one line saying what to install.
+
+    Both modules are covered because the message names `exc.name` rather than
+    the word "numpy", and only scipy proves that: it is imported not here but
+    by `lib/preset/emit.py`, so a message hardcoding "numpy" would send a user
+    whose numpy is fine off to reinstall it.
+
+    Nothing has been printed by the time this fires — the import sits above the
+    emit loop, and the default single-profile path prints no banner of its own —
+    so a traceback here is the entire output the user gets. Hence the assertion
+    that there is none, and that the exit status still says the run failed.
+    """
+    from tests.conftest import write_synthetic_tuning_xml
+
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out_dir = tmp_path / "presets"
+    irs_dir = tmp_path / "irs"
+    result = subprocess.run(
+        [sys.executable, str(REPO / "dolby_to_easyeffects.py"), "--no-color",
+         str(xml), "--output-dir", str(out_dir), "--irs-dir", str(irs_dir)],
+        capture_output=True, text=True, timeout=120, cwd=REPO,
+        env={**os.environ, "PYTHONPATH": _absent(tmp_path, module)},
+    )
+    output = result.stdout + result.stderr
+
+    assert "Traceback" not in output, (
+        f"with {module} absent the generator printed a traceback instead of "
+        f"an install hint:\n{output}"
+    )
+    assert result.returncode == 1, (
+        f"a run that could not start must exit 1, got {result.returncode}:\n"
+        f"{output}"
+    )
+    assert f"{module} is not installed" in output, (
+        f"the error must name the module that is actually missing ({module}), "
+        f"since it is the one the user has to install:\n{output}"
+    )
+    assert "requirements.txt" in output, (
+        f"the error must point at the install step:\n{output}"
+    )
+    # The other half of the same bug (previous commit): a run that produces
+    # nothing leaves nothing behind either, and this is the earliest failure
+    # that can reach the mkdir.
+    assert not out_dir.exists() and not irs_dir.exists(), (
+        "a run that never started created its output directories anyway"
+    )
+
+
 # The shell hook reads only the head of the file looking for the marker, so
 # placement is load-bearing, not cosmetic.
 # https://github.com/kislyuk/argcomplete — "the shell will look for the string

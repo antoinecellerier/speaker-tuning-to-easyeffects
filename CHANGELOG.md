@@ -176,6 +176,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   a smart-amp firmware gate that mutes the speakers never reached it. Any
   warning now suppresses the all-clear, and `--doctor` / `--speaker-info`
   print the one-line `amixer` command that switches the gate on.
+- A run that can't succeed no longer leaves directories behind in your
+  EasyEffects tree, and a missing NumPy or SciPy now says which one to install
+  instead of printing a traceback — the output directories are created only
+  once every check that can stop the run has passed.
 - Running the script from a session with no display (ssh, tmux) no longer
   claims EasyEffects isn't installed. `easyeffects --version` needs a
   display to answer, and any failure to answer was read as "not found";
