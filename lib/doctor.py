@@ -77,7 +77,14 @@ def dollar_user(path) -> str:
     s = str(path)
     try:
         user = getpass.getuser()
-    except OSError:         # no login in the environment and no passwd entry
+    except (OSError, KeyError):  # no login in the environment, no passwd entry
+        # `KeyError` as well as `OSError`, because `getuser` only funnels every
+        # failure into the latter from Python 3.13 on; before that the
+        # `pwd.getpwuid` miss comes out as it is, and Ubuntu 24.04 ships 3.12.
+        # Not a corner worth getting wrong: `tilde` calls this on nearly every
+        # path either script prints, `console.run_guarded`'s error line
+        # included, so this raising turns a run's one readable failure message
+        # into a traceback.
         return s
     if not user:
         return s

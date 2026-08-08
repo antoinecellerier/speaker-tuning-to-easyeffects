@@ -557,12 +557,23 @@ def test_dollar_user_masks_only_this_login_under_a_mount(text, expected,
     assert doctor.dollar_user(text) == expected
 
 
-def test_dollar_user_survives_a_run_with_no_resolvable_login(monkeypatch):
-    """`getpass.getuser()` raises OSError when neither the environment nor the
-    passwd file names one (a container, a stripped service unit). Rendering a
-    path must not be where that surfaces."""
+@pytest.mark.parametrize("exc", [
+    OSError("No username set in the environment"),   # Python 3.13+
+    KeyError("getpwuid(): uid not found: 1000"),     # 3.12 and earlier
+])
+def test_dollar_user_survives_a_run_with_no_resolvable_login(exc, monkeypatch):
+    """`getpass.getuser()` fails when neither the environment nor the passwd
+    file names a login (a container, a stripped service unit). Rendering a path
+    must not be where that surfaces.
+
+    Both exception types, because `getuser` only funnels every failure into
+    `OSError` from 3.13 on — its own `versionchanged` note — and before that
+    the `pwd.getpwuid` miss escapes as `KeyError`. The suite runs on whichever
+    the machine ships, so a guard written against one version is untested
+    against the other; Ubuntu 24.04, which this tool targets, is on 3.12.
+    """
     def _no_login():
-        raise OSError("No username set in the environment")
+        raise exc
 
     monkeypatch.setattr(doctor.getpass, "getuser", _no_login)
     assert doctor.dollar_user("/run/media/ann/D/t.xml") == "/run/media/ann/D/t.xml"
