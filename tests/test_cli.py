@@ -463,9 +463,16 @@ def test_help_exits_cleanly():
 
 
 # Anything a user pastes into a public issue — the `--help` listing, and the
-# log of the run they are reporting — must spell $HOME as `~`. Every path
-# printed goes through doctor.tilde, the same renderer both --doctor reports
-# use, and the README writes them as ~/… too.
+# log of the run they are reporting — must carry no username: $HOME spelled
+# `~`, and a mount's login component `$USER`. Every path printed goes through
+# doctor.tilde, the same renderer both --doctor reports use, and the README
+# writes them as ~/… too.
+#
+# A login name for these to run as. Distinctive enough that finding it in the
+# output can only mean a path leaked it — and not the developer's own, which
+# must never end up in a test artifact or a failure message.
+ISOLATED_LOGIN = "quibbler"
+
 ENTRY_POINTS = (
     SCRIPT,
     SCRIPT.parent / "ee_to_pipewire.py",
@@ -490,9 +497,63 @@ ENTRY_POINTS = (
     ("/mnt/backup/home/ann/x", "/mnt/backup/home/ann/x"),
 ])
 def test_tilde_collapses_home_only_at_path_boundaries(text, expected, monkeypatch):
-    """The renderer both surfaces below depend on."""
+    """The renderer both surfaces below depend on.
+
+    The login is pinned along with $HOME because tilde applies the mount rule
+    too: left to the developer's own name, a case like /mnt/backup/… would
+    depend on who is running the suite.
+    """
     monkeypatch.setenv("HOME", "/home/ann")
+    monkeypatch.setenv("LOGNAME", "ann")
     assert doctor.tilde(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    # The two layouts udisks2 mounts a removable Windows disk under, and the
+    # DriverStore wrapper inside one: the volume label and the dax3_ext_*
+    # directory are how a reporter re-types the path and how triage tells
+    # which extraction layout they used, so both come through verbatim.
+    ("/run/media/ann/My Disk/Windows/System32",
+     "/run/media/$USER/My Disk/Windows/System32"),
+    ("/media/ann/WINDOWS/dax3_ext_rtk.inf_amd64_9f1/DEV_0287_SUBSYS_17AA22E6.xml",
+     "/media/$USER/WINDOWS/dax3_ext_rtk.inf_amd64_9f1/DEV_0287_SUBSYS_17AA22E6.xml"),
+    ("/mnt/ann/win", "/mnt/$USER/win"),
+    ("/run/media/ann", "/run/media/$USER"),
+    # Mid-sentence and inside repr quotes: how the error printers get one.
+    ("Error: [Errno 2] No such file or directory: '/media/ann/D/t.xml'",
+     "Error: [Errno 2] No such file or directory: '/media/$USER/D/t.xml'"),
+    # Only *this* login. A shared mount, and a volume label that happens to
+    # read like a name, must both survive — replacing whatever follows
+    # /run/media would destroy the label and misreport the shared mount.
+    ("/run/media/bob/Windows", "/run/media/bob/Windows"),
+    ("/media/Ann/x", "/media/Ann/x"),
+    # The same component boundaries tilde keeps, either side of the match.
+    ("/media/annie/x", "/media/annie/x"),
+    ("/media/ann.bak/x", "/media/ann.bak/x"),
+    ("/multimedia/ann/x", "/multimedia/ann/x"),
+    # Not a mount root: /home is tilde's to collapse, and firing on any
+    # component that merely equals the login would rewrite paths that carry
+    # no login at all.
+    ("/home/ann/x", "/home/ann/x"),
+    ("/usr/share/ann/x", "/usr/share/ann/x"),
+])
+def test_dollar_user_masks_only_this_login_under_a_mount(text, expected,
+                                                        monkeypatch):
+    """The half of the promise tilde can't keep: a mount path carries the
+    login name without living anywhere under $HOME."""
+    monkeypatch.setenv("LOGNAME", "ann")
+    assert doctor.dollar_user(text) == expected
+
+
+def test_dollar_user_survives_a_run_with_no_resolvable_login(monkeypatch):
+    """`getpass.getuser()` raises OSError when neither the environment nor the
+    passwd file names one (a container, a stripped service unit). Rendering a
+    path must not be where that surfaces."""
+    def _no_login():
+        raise OSError("No username set in the environment")
+
+    monkeypatch.setattr(doctor.getpass, "getuser", _no_login)
+    assert doctor.dollar_user("/run/media/ann/D/t.xml") == "/run/media/ann/D/t.xml"
 
 
 # Three printed lines keep the absolute path on purpose, and are dropped
@@ -508,8 +569,9 @@ ABSOLUTE_ON_PURPOSE = (
 )
 
 
-def _assert_home_absent(output: str, home: str, what: str) -> None:
-    """Fail if `home` survives anywhere in `output`.
+def _assert_names_absent(output: str, what: str, *,
+                         home: str, login: str | None = None) -> None:
+    """Fail if `home`, or the login name, survives anywhere in `output`.
 
     Whitespace is stripped from both sides before the search: argparse hands
     help text to textwrap with break_long_words left on, and `_cprint_wrapped`
@@ -519,29 +581,45 @@ def _assert_home_absent(output: str, home: str, what: str) -> None:
     """
     kept = "\n".join(line for line in output.splitlines()
                      if not any(p.search(line) for p in ABSOLUTE_ON_PURPOSE))
-    assert re.sub(r"\s+", "", home) not in re.sub(r"\s+", "", kept), (
+    flat = re.sub(r"\s+", "", kept)
+    assert re.sub(r"\s+", "", home) not in flat, (
         f"{what} prints the home directory {home}. Render it with "
         "doctor.tilde() at the print — never by rebinding the variable, which "
         "is often also a write target — so it reads as ~/…: this text gets "
         "pasted into public issue reports."
     )
+    if login is not None:
+        assert login not in flat, (
+            f"{what} prints the login name {login!r}. A mount path carries it "
+            "without living under $HOME — /run/media/<login>/<label>/… is what "
+            "a Windows-partition run reports — so render it with doctor.tilde() "
+            "at the print and it reads as $USER: this text gets pasted into "
+            "public issue reports."
+        )
 
 
 @pytest.mark.parametrize("script", ENTRY_POINTS, ids=lambda p: p.name)
 def test_help_never_prints_the_home_directory(script):
-    """No `--help` default carries the user's username; `~` stands in."""
+    """No `--help` default carries the user's username; `~` stands in.
+
+    Home only: no default is a mount path, and the login name this one runs
+    as is the developer's, which is too likely to be an ordinary substring of
+    the help text to assert on.
+    """
     result = subprocess.run(
         [sys.executable, str(script), "--no-color", "--help"],
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    _assert_home_absent(result.stdout, str(Path.home()), f"{script.name} --help")
+    _assert_names_absent(result.stdout, f"{script.name} --help",
+                         home=str(Path.home()))
 
 
 # --- and the same promise for what a *run* prints (the text people paste) ---
 
 def _run_isolated(script, *args, home, extra_path=None):
-    """Run an entry point with $HOME pointed at an empty directory.
+    """Run an entry point with $HOME, and the login name, set to values the
+    test controls.
 
     `Path.home()` re-reads $HOME on every call, so every default the run
     computes — the EasyEffects preset/irs tree, its rc file, the PipeWire
@@ -551,8 +629,16 @@ def _run_isolated(script, *args, home, extra_path=None):
     where the leak was. It also means the invariant is "whatever $HOME is, it
     is never printed in full", so the developer's own username cannot end up
     in a failure message.
+
+    `getpass.getuser()` reads LOGNAME/USER/LNAME/USERNAME before it falls back
+    to the passwd file, so setting all four fixes what the run believes it is
+    running as — the same trick, and the reason the mount rule reads the login
+    from there rather than from `Path.home().name`, which these runs have just
+    pointed at a temporary directory.
     """
-    env = {**os.environ, "HOME": str(home)}
+    env = {**os.environ, "HOME": str(home),
+           **{v: ISOLATED_LOGIN
+              for v in ("LOGNAME", "USER", "LNAME", "USERNAME")}}
     if extra_path is not None:
         env["PATH"] = os.pathsep.join([str(extra_path), env.get("PATH", "")])
     return subprocess.run(
@@ -593,6 +679,52 @@ def _fake_pw_dump(tmp_path):
     shim.write_text(f"#!/bin/sh\nexec cat {dump}\n")
     shim.chmod(0o755)
     return bindir
+
+
+def _shows(*markers):
+    """Declare the substituted forms a case's output must contain.
+
+    Without one, a case whose run died early — or that never touched the kind
+    of path it was written for — passes while asserting nothing. `~/` is the
+    default because it is what every case below the mount ones prints.
+    """
+    def mark(fn):
+        fn.must_show = markers
+        return fn
+    return mark
+
+
+def _fake_mount(tmp_path):
+    """A stand-in for the `/run/media/<login>/<label>` a Windows partition is
+    mounted at, with the DriverStore wrapper inside it.
+
+    Under a temporary root rather than the real one, which is only possible
+    because the renderer anchors on the `/media` segment instead of the start
+    of the string — a test cannot mount anything, and must not need a second
+    real account to show that the login component is the part that goes.
+    """
+    store = (tmp_path / "run" / "media" / ISOLATED_LOGIN / "WinData"
+             / "dax3_ext_rtk.inf_amd64_9f1")
+    store.mkdir(parents=True)
+    return store
+
+
+@_shows("/media/$USER/WinData/dax3_ext_rtk.inf_amd64_9f1/")
+def _case_list_xml_on_a_mount(tmp_path, home):
+    """`--list` names the XML it read, and on the run this rule exists for
+    that path is the mount's. The marker is the whole tail: the volume label
+    and the wrapper directory have to survive the substitution."""
+    xml = write_synthetic_tuning_xml(
+        _fake_mount(tmp_path) / "DEV_SYNTH_SUBSYS_TEST.xml")
+    return _run_isolated(SCRIPT, "--list", str(xml), home=home)
+
+
+@_shows("/media/$USER/WinData/")
+def _case_error_missing_xml_on_a_mount(tmp_path, home):
+    """The same path mid-sentence and inside repr quotes — an unplugged or
+    unmounted disk is how most of these reach the error printer."""
+    return _run_isolated(SCRIPT, str(_fake_mount(tmp_path) / "gone.xml"),
+                         home=home)
 
 
 def _case_generate(tmp_path, home):
@@ -648,28 +780,57 @@ RUNTIME_CASES = (
     _case_install_pipewire_conf,
     _case_error_missing_xml,
     _case_error_missing_preset,
+    _case_list_xml_on_a_mount,
+    _case_error_missing_xml_on_a_mount,
 )
 
 
 @pytest.mark.parametrize("case", RUNTIME_CASES,
                          ids=lambda c: c.__name__[len("_case_"):])
-def test_a_run_never_prints_the_home_directory(case, tmp_path):
+def test_a_run_never_prints_the_users_name(case, tmp_path):
     """What a run prints is what lands in an issue report — `--help` was only
-    the surface nobody pastes.
+    the surface nobody pastes. Whatever this user is called, and wherever
+    their home is, a run names neither.
 
-    Each case also has to print at least one `~/`: without that a case whose
-    run died early, or one that never touched a home path, would pass while
-    asserting nothing.
+    Each case also has to print the substituted form it was written for (see
+    `_shows`): without that a case whose run died early, or one that never
+    touched the kind of path it covers, would pass while asserting nothing.
     """
     home = tmp_path / "home"
     home.mkdir()
     result = case(tmp_path, home)
     output = result.stdout + result.stderr
-    _assert_home_absent(output, str(home), case.__name__)
-    assert "~/" in output, (
-        f"{case.__name__} printed no ~/… path at all, so it cannot show "
-        f"whether $HOME is collapsed (rc {result.returncode}):\n{output}"
-    )
+    _assert_names_absent(output, case.__name__,
+                         home=str(home), login=ISOLATED_LOGIN)
+    for marker in getattr(case, "must_show", ("~/",)):
+        assert marker in output, (
+            f"{case.__name__} printed no {marker}… path at all, so it cannot "
+            f"show whether the name is substituted (rc {result.returncode})"
+            f":\n{output}"
+        )
+
+
+# The three lines naming which tuning XML was picked are the one printed mount
+# path no case above reaches: the match keys on /proc/asound, so a subprocess
+# would print them only on hardware that happens to fit the fixture. Driven in
+# process instead, against a DriverStore under a stand-in mount.
+@pytest.mark.parametrize("n_candidates", [1, 2])
+def test_discovery_reports_the_matched_xml_without_the_login(
+        n_candidates, monkeypatch, tmp_path, capsys):
+    """Both branches: the lone "Matched tuning XML" line, and the ranked
+    listing a multi-candidate store prints (its `→` row and its plain rows).
+    """
+    monkeypatch.setenv("LOGNAME", ISOLATED_LOGIN)
+    store = tmp_path / "run" / "media" / ISOLATED_LOGIN / "WinData"
+    store.mkdir(parents=True)
+    _patch_single_hda_match(monkeypatch, store)
+    for i in range(n_candidates):
+        _write_hda_candidate(store, str(i + 1))
+
+    assert find_tuning_xml(store).parent == store
+    out = capsys.readouterr().out
+    assert "/media/$USER/WinData/" in out, out
+    assert ISOLATED_LOGIN not in out, out
 
 
 def test_doctor_runs_without_xml_and_exits_zero(tmp_path):

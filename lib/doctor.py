@@ -16,13 +16,14 @@ below.
 
 from __future__ import annotations
 
+import getpass
 import re
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
-           "tilde",
+           "tilde", "dollar_user",
            "CheckResult", "summarize", "emit_check",
            "print_summary",
            "print_verdict"]
@@ -33,8 +34,60 @@ _STYLE = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
           DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
 
 
+# Where a desktop mounts a removable disk: udisks2 uses ``/run/media/<login>/
+# <label>`` (Fedora, Arch) or ``/media/<login>/<label>`` (Debian, Ubuntu), one
+# directory per login. ``/run/media`` needs no entry of its own — the pattern
+# anchors on the ``/media`` segment, not on the start of the string, which is
+# also what lets a test stand a temporary directory in for the real root.
+# ``/mnt`` carries no per-login convention, but a hand-mounted ``/mnt/<login>``
+# costs nothing to cover once the substitution is gated on the name matching.
+_MOUNT_PARENTS = ("media", "mnt")
+
+
+def dollar_user(path) -> str:
+    """Render a mount path's login component as ``$USER`` — paste-safe.
+
+    The other half of what ``tilde`` promises, and unreachable from it:
+    ``/run/media/ann/Windows`` carries the login name without living under
+    ``$HOME``. That is the path a Windows-partition user's run prints — the
+    mount it was auto-detected on, the tuning XML matched inside it — and the
+    run log is what gets pasted into a public issue.
+
+    **Only a component that equals this login is replaced.** Substituting
+    whatever follows ``/run/media`` instead would mangle a shared mount and
+    destroy a volume label that happens to read like a name. The label and any
+    ``dax3_ext_*`` wrapper directory survive verbatim on purpose: they are how
+    a reporter re-types the path, and how triage tells which extraction layout
+    they used.
+
+    ``$USER`` rather than a ``<user>`` placeholder for the reason ``~`` beats
+    spelling ``$HOME`` out — a shell expands it back, so the printed path stays
+    re-typable, and because the substitution only ever stands in for the string
+    it replaced, expanding it cannot produce a different path. It is also why
+    the single-quoted copy-paste lines keep the absolute path: a shell expands
+    neither ``~`` nor ``$USER`` inside single quotes.
+
+    The login comes from ``getpass.getuser()``, which reads ``LOGNAME``/
+    ``USER``/``LNAME``/``USERNAME`` before the passwd file — deliberately not
+    from ``Path.home()``, whose last component is a different string on any run
+    with ``$HOME`` pointed elsewhere, and identical on none that matters.
+    """
+    s = str(path)
+    try:
+        user = getpass.getuser()
+    except OSError:         # no login in the environment and no passwd entry
+        return s
+    if not user:
+        return s
+    parents = "|".join(_MOUNT_PARENTS)
+    # The leading "/" is the left boundary: it keeps /multimedia/ann out. The
+    # right one is tilde's, so /media/annie and /media/ann.bak stay whole.
+    return re.sub(rf"(/(?:{parents}))/{re.escape(user)}(?![\w.~-])",
+                  r"\1/$USER", s)
+
+
 def tilde(path) -> str:
-    """Render a path with $HOME collapsed to ~ — paste-safe (no username).
+    """Render a path with no username in it — $HOME as ~, a mount as $USER.
 
     Part of the shared vocabulary for the same reason the status boxes are:
     both reports are written to be pasted into an issue, and a home path is
@@ -43,6 +96,12 @@ def tilde(path) -> str:
     renderer for all of them — the separator is the literal "/" rather than
     ``os.sep``, since the only platform either script describes is the one
     PipeWire and EasyEffects run on.
+
+    Two rules, kept apart because they rest on different arguments, and
+    applied together here because they are one promise at the print: a caller
+    that renders a path must make both, and the site list is the same one.
+    ``$HOME`` first, so that a home *inside* a mount collapses as a home
+    rather than being split across the two.
 
     Takes a whole path *or* a message with one inside it: the two scripts'
     top-level error printers hand it a caught exception, whose path arrives
@@ -58,9 +117,9 @@ def tilde(path) -> str:
     """
     s = str(path)
     home = str(Path.home())
-    if home in ("", "/"):   # a root-owned or homeless run: nothing to collapse
-        return s
-    return re.sub(rf"(?<![\w./~-]){re.escape(home)}(?![\w.~-])", "~", s)
+    if home not in ("", "/"):   # else a root-owned or homeless run: no $HOME
+        s = re.sub(rf"(?<![\w./~-]){re.escape(home)}(?![\w.~-])", "~", s)
+    return dollar_user(s)
 
 
 @dataclass
