@@ -32,7 +32,7 @@ from pathlib import Path
 
 from lib import console, doctor, ee_paths
 from lib.hardware import sinks
-from lib.pipewire import checks, install
+from lib.pipewire import checks, install, validate
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
@@ -164,8 +164,9 @@ def add_general_args(container, *, only=None):
         "--no-validate",
         action="store_true",
         help="skip the schema self-check against lv2info port metadata. "
-             "By default, after generating the conf, ee_to_pipewire shells "
-             "out to tools/measure_pw/validate_conf.py to catch unknown "
+             "By default, after generating the conf, ee_to_pipewire reads "
+             "the port metadata of every LV2 plugin the conf names and "
+             "checks the conf's control values against it, catching unknown "
              "port symbols and out-of-range values; pass this flag to "
              "skip it (e.g. on systems without lv2info installed).",
     )
@@ -250,6 +251,14 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
         completer = completers.get(action.dest)
         if completer is not None:
             action.completer = completer
+
+
+# What to do after a schema self-check that raised rather than reporting, in
+# place of the generic --help pointer: no flag list fixes an LV2 plugin that
+# will not answer. Validation runs before the conf is written, on every path
+# including --dry-run, so the first half is true wherever it is raised from.
+_VALIDATE_NEXT_STEP = ("The conf was not written — re-run with --no-validate "
+                       "to skip the schema self-check.")
 
 
 def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
@@ -387,9 +396,13 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("warn", f"[warn] {w}")
 
     if not args.no_validate:
-        rc, output = install._validate_conf(conf)
-        if rc == -1:
-            console.cprint("dim", f"[validate] skipped: {output.strip()}")
+        try:
+            report = validate.run(conf)
+        except Exception as e:
+            e.next_step = _VALIDATE_NEXT_STEP
+            raise
+        if report.status == validate.NO_TOOLING:
+            console.cprint("dim", f"[validate] skipped: {report.reason}")
             # Without lv2info the plugin set can't be checked, so a missing
             # runtime dependency would otherwise pass unnoticed — remind the
             # user what the chain needs.
@@ -399,23 +412,29 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                            "plus Calf (calf-plugins) if it includes "
                            "bass_enhancer / stereo_tools. Otherwise the chain "
                            "won't load.")
-        elif rc == 2:
-            # Setup error inside validate_conf.py — degraded gracefully.
-            console.cprint("dim", f"[validate] skipped (setup): {output.strip()}")
-        elif rc != 0:
-            if output.strip():
-                console.cprint("err", output.rstrip())
-            console.cprint("err", "error: schema validation failed; conf not written")
-            return 1
-        elif output.strip():
-            # Validation passed, but validate_conf still emits warnings — most
-            # importantly "no lv2info schema available for <uri>" when a
-            # referenced LSP/Calf plugin isn't installed, so its ports
-            # couldn't be checked. Surface them; otherwise the conf writes
-            # "successfully" while the chain silently fails to load for a
-            # missing runtime dependency.
-            for line in output.strip().splitlines():
-                console.cprint("warn", f"[validate] {line}")
+        elif report.status == validate.UNCHECKED:
+            # The check could not run at all — degraded gracefully, and the
+            # conf is still written.
+            console.cprint("dim", f"[validate] skipped (setup): {report.reason}")
+        else:
+            # Warnings print on a pass too — most importantly "no lv2info
+            # schema available for <uri>" when a referenced LSP/Calf plugin
+            # isn't installed, so its ports couldn't be checked. Surface them;
+            # otherwise the conf writes "successfully" while the chain
+            # silently fails to load for a missing runtime dependency.
+            #
+            # They print before the errors and in their own style, and say
+            # which they are: a run that fails renders both, and a warning
+            # that arrives in the failure's colour with no word to correct it
+            # reads as one of the reasons the conf was refused.
+            for w in report.warnings:
+                console.cprint("warn", f"[validate] warning: {w}")
+            if report.status == validate.ERRORS:
+                for err in report.errors:
+                    console.cprint("err", f"[validate] error: {err}")
+                console.cprint("err", "error: schema validation failed; conf "
+                               "not written")
+                return 1
 
     if args.dry_run:
         # The conf itself is not shown: on a terminal it is a few hundred

@@ -876,9 +876,9 @@ def test_the_validator_cli_still_finds_its_runtime_core(tmp_path):
     holds this path in code: its `is_file()` guard turns a missing script into
     "don't check", and the XML then passes green with no conf ever validated.
 
-    `ee_to_pipewire.py` used to hold it too, and no longer does —
-    `lib/pipewire/install.py` calls `lib.pipewire.validate` in process, so no
-    path under `tools/` reaches a user-runnable script any more. What is left
+    `ee_to_pipewire.py` used to hold it too, and no longer does — it calls
+    `lib.pipewire.validate.run` in process, so no path under `tools/` reaches
+    a user-runnable script any more. What is left
     here is the command-line front end, whose own way of breaking is specific
     and silent to everything else: it inserts the repo root on `sys.path`,
     counted from `Path(__file__).resolve().parents[2]`, before importing that

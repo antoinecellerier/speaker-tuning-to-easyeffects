@@ -9,6 +9,8 @@ bug that once produced ~30 dB extra bass (an active PEQ band silently muted).
 
 from __future__ import annotations
 
+import pytest
+
 from lib.pipewire import validate
 
 LSP_PEQ_URI = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"
@@ -45,3 +47,36 @@ def test_check_peq_mute_flags_both_channels_independently():
 def test_check_peq_mute_skips_bands_missing_keys():
     # A band with no ft/xm pair present is simply not checked.
     assert validate._check_peq_mute(_peq_node({"g_in": 1.0})) == []
+
+
+def test_run_maps_only_a_tool_failure_to_unchecked(monkeypatch):
+    """`UNCHECKED` is a skip, not a verdict, so nothing generic may reach it.
+
+    `ee_to_pipewire.py` prints that status dim and writes the conf anyway, and
+    `tests/corpus/test_ee_to_pipewire_corpus.py` turns the same outcome into
+    `pytest.skip` — so a bug inside `parse_conf` that landed here would skip
+    every XML in the corpus and leave the run green. A tool that failed maps
+    to it; a `KeyError` in our own walk of the parsed conf does not.
+
+    Both CLIs are faked as present because the missing-tooling gate runs
+    first, and this is about what happens past it.
+    """
+    monkeypatch.setattr(validate.shutil, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}")
+
+    def raising(exc):
+        def parse_conf(text):
+            raise exc
+        return parse_conf
+
+    monkeypatch.setattr(validate, "parse_conf",
+                        raising(RuntimeError("spa-json-dump failed: boom")))
+    report = validate.run("")
+    assert report.status == validate.UNCHECKED
+    assert "spa-json-dump failed" in report.reason
+    assert report.errors == () and report.warnings == ()
+
+    monkeypatch.setattr(validate, "parse_conf",
+                        raising(KeyError("filter.graph")))
+    with pytest.raises(KeyError):
+        validate.run("")

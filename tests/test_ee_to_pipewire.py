@@ -1205,17 +1205,18 @@ def test_main_no_validate_skips_check(generated, tmp_path, capsys):
 
 def test_main_surfaces_validate_warnings_on_pass(generated, tmp_path,
                                                  monkeypatch, capsys):
-    """Trap: a passing self-check (rc==0) that still carries warnings — e.g.
-    a referenced LSP/Calf plugin isn't installed, so validate_conf couldn't
-    check its ports — must surface those warnings. They were previously
-    swallowed on the rc==0 path, hiding a missing runtime dependency behind
-    a "conf written" success (the chain then silently fails to load).
+    """Trap: a clean self-check that still carries warnings — e.g. a
+    referenced LSP/Calf plugin isn't installed, so its ports couldn't be
+    checked — must surface those warnings. They were previously swallowed on
+    the passing path, hiding a missing runtime dependency behind a "conf
+    written" success (the chain then silently fails to load).
     """
-    from lib.pipewire import install
-    warn = ("WARN: mb_compressor: no lv2info schema available for "
+    from lib.pipewire import validate
+    warn = ("mb_compressor: no lv2info schema available for "
             "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo; skipping")
-    monkeypatch.setattr(install, "_validate_conf",
-                        lambda conf: (0, warn + "\n"))
+    monkeypatch.setattr(validate, "run",
+                        lambda conf: validate.Report(validate.CLEAN,
+                                                     warnings=(warn,)))
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1238,11 +1239,13 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
     converter can't verify the plugin set is present — so it must remind the
     user to install LSP / Calf, or the chain silently won't load in PipeWire.
     """
-    from lib.pipewire import install
+    from lib.pipewire import validate
     monkeypatch.setattr(
-        install, "_validate_conf",
-        lambda conf: (-1, "lv2info or spa-json-dump not in PATH "
-                          "(install lilv-utils and pipewire)"))
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.NO_TOOLING,
+            reason="lv2info or spa-json-dump not in PATH "
+                   "(install lilv-utils and pipewire)"))
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1262,22 +1265,25 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
 
 def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
                                                         monkeypatch, capsys):
-    """A self-check that reports real errors (rc==1) must abort the run and
-    leave *nothing* on disk.
+    """A self-check that reports real errors must abort the run and leave
+    *nothing* on disk.
 
-    The other three `_validate_conf` return codes are soft — -1 and 2 are
-    setup skips, 0 is a pass — so this is the only one whose contract is that
-    the conf never gets written. Asserting the exit status and the message
-    would pass even if the file had been written and the run then changed its
-    mind; the assertion that carries the contract is that `--output` names a
-    path which does not exist afterwards. A half-written or fully-written conf
-    that failed schema validation is the bad outcome: it loads into PipeWire.
+    The other three `validate.run` outcomes are soft — NO_TOOLING and
+    UNCHECKED are skips, CLEAN is a pass — so ERRORS is the only one whose
+    contract is that the conf never gets written. Asserting the exit status
+    and the message would pass even if the file had been written and the run
+    then changed its mind; the assertion that carries the contract is that
+    `--output` names a path which does not exist afterwards. A half-written or
+    fully-written conf that failed schema validation is the bad outcome: it
+    loads into PipeWire.
     """
-    from lib.pipewire import install
+    from lib.pipewire import validate
     monkeypatch.setattr(
-        install, "_validate_conf",
-        lambda conf: (1, "FAIL: peq: unknown port symbol 'ftl_99' for "
-                         "para_equalizer_x16_lr\n1 error(s)"))
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.ERRORS,
+            errors=("peq: unknown port symbol 'ftl_99' for "
+                    "para_equalizer_x16_lr",)))
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1298,6 +1304,52 @@ def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
         "a conf that failed schema validation was written anyway — the "
         "message says it wasn't, and PipeWire would load it"
     )
+
+
+def test_main_tells_a_warning_from_an_error_in_a_failing_run(generated,
+                                                             tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    """A failing run renders both lists, and they must not read alike.
+
+    The failing arm used to print one text blob in the error style, so a
+    warning inside it arrived in red with nothing to say it wasn't one of the
+    reasons the conf was refused. Colour alone doesn't settle it either: rich
+    is optional and `--no-color` is supported, so the word has to be in the
+    text.
+    """
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.ERRORS,
+            errors=("peq: unknown port symbol 'ftl_99' for "
+                    "para_equalizer_x16_lr",),
+            warnings=("mb_compressor: no lv2info schema available for "
+                      "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo; "
+                      "skipping",)))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(tmp_path / "out" / "TestChain.conf"),
+        "--no-color",
+    ])
+    assert rc == 1
+    lines = capsys.readouterr().out.splitlines()
+    warned = [ln for ln in lines if "no lv2info schema available" in ln]
+    failed = [ln for ln in lines if "unknown port symbol" in ln]
+    assert len(warned) == 1 and len(failed) == 1, lines
+    assert warned[0].startswith("[validate] warning: "), warned[0]
+    assert failed[0].startswith("[validate] error: "), failed[0]
+    # Warnings first: the one about an unreadable schema explains the errors
+    # that follow, and the order is the same on the passing path.
+    assert lines.index(warned[0]) < lines.index(failed[0])
 
 
 # ---------------------------------------------------------------------------

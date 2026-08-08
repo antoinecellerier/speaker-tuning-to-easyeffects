@@ -15,10 +15,12 @@ catches schema-level mistakes before anyone spends ten minutes on a capture
 battery, and `ee_to_pipewire.py` runs it on every conf it generates.
 
 This module is the runtime core only: parsing and validation, no argument
-parsing, no exit codes, no stdout. It raises `RuntimeError` when a tool it
-needs fails, and never calls `sys.exit`. The command-line front end lives in
-`tools/measure_pw/validate_conf.py`, which owns the CLI prose and the 0/1/2
-exit-code contract.
+parsing, no exit codes, no stdout. `run` hands back a `Report` its caller
+renders; nothing here prints, because in process anything it printed would
+land raw in the middle of a run's own output. It raises `RuntimeError` when a
+tool it needs fails, and never calls `sys.exit`. The command-line front end
+lives in `tools/measure_pw/validate_conf.py`, which owns the CLI prose and the
+0/1/2 exit-code contract.
 
 Needs `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`) and
 `spa-json-dump` (ships with PipeWire) on PATH. Both are tiny, sub-millisecond
@@ -28,7 +30,9 @@ CLIs, and no PipeWire daemon is required.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 
 
@@ -264,3 +268,95 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
             errors.extend(_check_peq_mute(node))
 
     return errors, warnings
+
+
+# ---------------------------------------------------------------------------
+# The whole check, as one call
+# ---------------------------------------------------------------------------
+
+# What a run can end as. Four states, named rather than numbered: they were a
+# subprocess's exit codes when the check was one, and -1/0/1/2 at a call site
+# said nothing about which of them must stop a conf being written.
+NO_TOOLING = "no-tooling"   # neither CLI is installed, so nothing was checked
+UNCHECKED = "unchecked"     # the check could not run — a skip, not a verdict
+CLEAN = "clean"             # every control value matched its port
+ERRORS = "errors"           # at least one did not; the conf must not be used
+
+
+@dataclass
+class Report:
+    """One run's outcome, for the caller to render — the shape of
+    ``lib.doctor.CheckResult``, and for the same reason: a module that cannot
+    import ``lib.console`` can still say everything it found.
+
+    ``errors`` and ``warnings`` are separate lists rather than one stream of
+    tagged lines, so the caller can style them apart. They arrive already
+    worded as sentences about the conf, with no prefix of their own: a
+    ``WARN:``/``FAIL:`` tag is a thing one *program* writes for another to
+    read, and there is no second program here.
+
+    ``reason`` carries the one-line why for ``NO_TOOLING`` and ``UNCHECKED``,
+    where there is nothing to list. It is empty otherwise.
+    """
+    status: str
+    errors: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    reason: str = ""
+
+
+# The budget for the whole check, not for each `lv2info` inside it. It used to
+# come free: the check ran in a subprocess with a 30 s timeout around all of
+# it. In process only the per-exec timeouts above are left, and those multiply
+# by the number of distinct plugin URIs in the conf — six of them at ten
+# seconds each is a minute of a user staring at nothing. The deadline is read
+# between execs rather than threaded into them, so the worst case is this
+# budget plus one hung `lv2info`, and a URI the budget cuts off is reported
+# like any other schema we could not read.
+_BUDGET_S = 30
+
+
+def run(conf_text: str) -> Report:
+    """Schema-check `conf_text` against `lv2info`'s port metadata.
+
+    **`UNCHECKED` is a skip, not a verdict**, and that is why nothing generic
+    maps to it: a caller prints it dim and goes on to write the conf, and the
+    corpus tier turns it into `pytest.skip`, so a bug reaching this arm would
+    approve every XML in the corpus with the run still green. It is reserved
+    for the failures that genuinely mean *could not run* — `spa-json-dump`
+    missing, failing, or handing back something that is not JSON. A single URI
+    whose `lv2info` fails or times out is narrower than that: it degrades to a
+    warning and that plugin's ports go unchecked. Anything else propagates.
+    """
+    if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
+        return Report(NO_TOOLING,
+                      reason="lv2info or spa-json-dump not in PATH "
+                             "(install lilv-utils and pipewire)")
+
+    deadline = time.monotonic() + _BUDGET_S
+    try:
+        nodes = parse_conf(conf_text)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+        return Report(UNCHECKED, reason=str(e))
+    if not nodes:
+        return Report(UNCHECKED, reason="no filter nodes found in conf")
+
+    # Ordered ahead of the schema warnings below, because they explain them: a
+    # URI `lv2info` would not answer for is why that plugin's ports went
+    # unchecked, and the two lines are about the same plugin.
+    tool_warnings: list[str] = []
+    schemas: dict[str, dict[str, Port]] = {}
+    for uri in {n["plugin"] for n in nodes
+                if n["type"] == "lv2" and n.get("plugin")}:
+        if time.monotonic() >= deadline:
+            tool_warnings.append(f"lv2info {uri!r} skipped: the {_BUDGET_S}s "
+                                 "validation budget ran out")
+            continue
+        try:
+            schemas[uri] = lv2info_schema(uri)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            tool_warnings.append(str(e))
+
+    errors, warnings = validate(nodes, schemas)
+    return Report(ERRORS if errors else CLEAN,
+                  errors=tuple(errors),
+                  warnings=tuple(tool_warnings + warnings))
