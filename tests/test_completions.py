@@ -23,7 +23,6 @@ which could never have run here at all. Neither file has such a gate.
 
 from __future__ import annotations
 
-import argparse
 import os
 import subprocess
 import sys
