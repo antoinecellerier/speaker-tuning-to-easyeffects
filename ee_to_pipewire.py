@@ -30,7 +30,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, ee_paths
+from lib import console, doctor, ee_paths
 from lib.hardware import sinks
 from lib.pipewire import checks, install
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -88,7 +88,9 @@ def default_conf_path(node_name: str) -> Path:
     passing the literal ``<node-name>`` as the stem: the placeholder survives
     ``expanduser()`` untouched (it only ever rewrites a leading ``~``), so the
     sentence a user reads is rendered by the code it describes instead of
-    restating it, and cannot drift from it.
+    restating it, and cannot drift from it. The help collapses $HOME back to
+    ``~`` on the way out — that is the help's business, not this function's,
+    which owes its other two readers a real ``Path``.
     """
     return (checks.DEFAULT_OUTPUT_DIR / f"{node_name}.conf").expanduser()
 
@@ -100,7 +102,8 @@ def add_output_args(container, *, only=None):
         "--output",
         type=Path,
         default=None,
-        help=f"output .conf path (default: {default_conf_path('<node-name>')})",
+        help="output .conf path "
+             f"(default: {doctor.tilde(default_conf_path('<node-name>'))})",
     )
     add(
         "--node-name",
@@ -137,7 +140,7 @@ def add_impulse_response_args(container, *, only=None):
         type=Path,
         default=ee_paths.DEFAULT_IRS_DIR,
         help=f"directory containing the .irs file referenced by the "
-             f"preset's convolver (default: {ee_paths.DEFAULT_IRS_DIR})",
+             f"preset's convolver (default: {doctor.tilde(ee_paths.DEFAULT_IRS_DIR)})",
     )
     add(
         "--no-copy-irs",

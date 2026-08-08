@@ -24,7 +24,7 @@ from pathlib import Path
 # --help, a tab completion and an argparse error cost nothing here either.
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib import console
+from lib import console, doctor
 from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
@@ -94,7 +94,7 @@ def _compose_parser(argv=None):
         type=Path,
         default=None,
         help=f"directory for the generated .conf and .irs copy (default: "
-             f"{checks.DEFAULT_OUTPUT_DIR}); filenames derive from "
+             f"{doctor.tilde(checks.DEFAULT_OUTPUT_DIR)}); filenames derive from "
              f"the preset name (e.g. Dolby_Balanced.conf)",
     )
     step2_actions += ee_to_pipewire.add_output_args(group, only={"--force"})

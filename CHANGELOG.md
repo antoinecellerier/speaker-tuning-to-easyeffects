@@ -191,6 +191,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   installed-plugin defaults staying put), and warns on preset content it
   can't translate instead of dropping it silently. Re-run
   `ee_to_pipewire.py` to regenerate (`docs/ee-to-pipewire.md`).
+- `--help` no longer prints your home directory in full: the default paths
+  render as `~/…`, the way `--doctor` and the README already write them. The
+  listing carries no username, so it can be pasted into a public issue report
+  as-is.
 
 ### Changed
 

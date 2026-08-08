@@ -30,7 +30,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 
-from lib import console, ee_paths
+from lib import console, doctor, ee_paths
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: main() binds a local named `sinks` for the resolver's result, which
@@ -189,7 +189,8 @@ def add_autoload_args(container, *, only=None):
         "--autoload-dir",
         type=Path,
         default=ee_paths.DEFAULT_AUTOLOAD_DIR,
-        help=f"EasyEffects autoload directory (default: {ee_paths.DEFAULT_AUTOLOAD_DIR})",
+        help="EasyEffects autoload directory "
+             f"(default: {doctor.tilde(ee_paths.DEFAULT_AUTOLOAD_DIR)})",
     )
     add(
         "--autoload-sink",
@@ -228,13 +229,15 @@ def add_output_args(container, *, only=None):
         "--output-dir",
         type=Path,
         default=ee_paths.DEFAULT_OUTPUT_DIR,
-        help=f"EasyEffects output preset directory (default: {ee_paths.DEFAULT_OUTPUT_DIR})",
+        help="EasyEffects output preset directory "
+             f"(default: {doctor.tilde(ee_paths.DEFAULT_OUTPUT_DIR)})",
     )
     add(
         "--irs-dir",
         type=Path,
         default=ee_paths.DEFAULT_IRS_DIR,
-        help=f"EasyEffects impulse response directory (default: {ee_paths.DEFAULT_IRS_DIR})",
+        help="EasyEffects impulse response directory "
+             f"(default: {doctor.tilde(ee_paths.DEFAULT_IRS_DIR)})",
     )
     return added
 

@@ -460,6 +460,38 @@ def test_help_exits_cleanly():
     assert "Convert Dolby DAX3" in result.stdout
 
 
+# `--help` is the listing people paste into a public issue, so no default in
+# it may spell $HOME out — every one goes through doctor.tilde, the same
+# renderer both --doctor reports use, and the README writes them as ~/… too.
+ENTRY_POINTS = (
+    SCRIPT,
+    SCRIPT.parent / "ee_to_pipewire.py",
+    SCRIPT.parent / "dolby_to_pipewire.py",
+)
+
+
+@pytest.mark.parametrize("script", ENTRY_POINTS, ids=lambda p: p.name)
+def test_help_never_prints_the_home_directory(script):
+    """No `--help` default carries the user's username; `~` stands in.
+
+    Whitespace is stripped from both sides before the search: argparse hands
+    help text to textwrap with break_long_words left on, so a narrow terminal
+    can split a long default mid-path — and a substring search on the raw
+    output would then pass on text that still carries the username.
+    """
+    result = subprocess.run(
+        [sys.executable, str(script), "--no-color", "--help"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    home = str(Path.home())
+    assert re.sub(r"\s+", "", home) not in re.sub(r"\s+", "", result.stdout), (
+        f"{script.name} --help prints the home directory {home}. Wrap the "
+        "default in doctor.tilde() so it renders as ~/… — this text gets "
+        "pasted into public issue reports."
+    )
+
+
 def test_doctor_runs_without_xml_and_exits_zero(tmp_path):
     """`--doctor` is an entry-point mode: it must run with no XML, degrade
     gracefully when the output/irs dirs are empty, and exit 0."""
