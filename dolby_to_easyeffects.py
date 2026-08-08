@@ -479,6 +479,47 @@ def _configure_autoload(args, all_preset_names) -> None:
                            "EasyEffects' preferences so this autoloads on every login.")
 
 
+def _speaker_environment_findings(endpoint: str) -> list[Finding]:
+    """Probe the speaker environment — smart-amp firmware gate, hidden woofer
+    pin, unlisted pin count, kernel age — printing what each finds where it
+    finds it, and return the findings raised, in that order.
+
+    Returns them rather than merging into main()'s dict so the caller's merge
+    stays pure bookkeeping: setdefault prints nothing, so the inline output
+    below keeps exactly the order it is written in.
+
+    Empty off the internal-speaker endpoint, so main() calls it
+    unconditionally and the guard lives with the work.
+    """
+    found: list[Finding] = []
+    # Some laptops gate their woofers behind a smart-amp firmware-load ALSA
+    # control (issue #17). Only relevant when tuning the internal speakers —
+    # irrelevant for headphone/other endpoints.
+    if endpoint == "internal_speaker":
+        gate_finding = report_speaker.warn_speaker_firmware_gate(
+            speakers.detect_speaker_firmware_gates())
+        if gate_finding is not None:
+            found.append(gate_finding)
+        # A hidden woofer pin leaves half the speakers unconfigured, so the
+        # preset shapes the tweeters alone (issue #53). Gathering speaker info
+        # is a handful of /proc reads; only reached on the speaker endpoint.
+        speaker_info = report_speaker._gather_speaker_pins()
+        pin_finding = report_speaker.warn_hidden_speaker_pin(
+            speakers.find_hidden_speaker_pin(speaker_info), speaker_info)
+        if pin_finding is not None:
+            found.append(pin_finding)
+        # The negative signal: no fixup exists for this machine, so we can't
+        # tell a hidden woofer from a plain stereo pair. Only its owner can.
+        count_finding = report_speaker.unlisted_speaker_pin_finding(speaker_info)
+        if count_finding is not None:
+            _print_finding_detail(count_finding)
+            found.append(count_finding)
+        # An old kernel can mis-configure the speaker path below any preset
+        # (issue #33) — hint at it, softly, when the series is old.
+        environment.warn_old_kernel()
+    return found
+
+
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
          troubleshooting: dict | None = None,
@@ -751,32 +792,8 @@ def main(argv: list[str] | None = None,
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there
     # is no point offering filter tweaks above them.
-    #
-    # Some laptops gate their woofers behind a smart-amp firmware-load ALSA
-    # control (issue #17). Only relevant when tuning the internal speakers —
-    # irrelevant for headphone/other endpoints.
-    if args.endpoint == "internal_speaker":
-        gate_finding = report_speaker.warn_speaker_firmware_gate(
-            speakers.detect_speaker_firmware_gates())
-        if gate_finding is not None:
-            findings.setdefault(gate_finding.slug, gate_finding)
-        # A hidden woofer pin leaves half the speakers unconfigured, so the
-        # preset shapes the tweeters alone (issue #53). Gathering speaker info
-        # is a handful of /proc reads; only reached on the speaker endpoint.
-        speaker_info = report_speaker._gather_speaker_pins()
-        pin_finding = report_speaker.warn_hidden_speaker_pin(
-            speakers.find_hidden_speaker_pin(speaker_info), speaker_info)
-        if pin_finding is not None:
-            findings.setdefault(pin_finding.slug, pin_finding)
-        # The negative signal: no fixup exists for this machine, so we can't
-        # tell a hidden woofer from a plain stereo pair. Only its owner can.
-        count_finding = report_speaker.unlisted_speaker_pin_finding(speaker_info)
-        if count_finding is not None:
-            _print_finding_detail(count_finding)
-            findings.setdefault(count_finding.slug, count_finding)
-        # An old kernel can mis-configure the speaker path below any preset
-        # (issue #33) — hint at it, softly, when the series is old.
-        environment.warn_old_kernel()
+    for finding in _speaker_environment_findings(args.endpoint):
+        findings.setdefault(finding.slug, finding)
 
     # Proactively flag an EasyEffects install that can't use what we just wrote
     # — the failure mode #22 surfaced (a correct preset silently inaudible
