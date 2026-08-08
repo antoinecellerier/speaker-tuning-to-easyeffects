@@ -1,7 +1,7 @@
 """The rules the `lib/` split has to keep, enforced rather than asserted.
 
-Two contracts live here, both about the *shape* of the split rather than what
-any module computes, and both invisible to every other test in the suite.
+Three contracts live here, all about the *shape* of the tree rather than what
+any module computes, and all invisible to every other test in the suite.
 
 **Stdlib-only, at the converter's expense.** `lib/version.py`, `lib/ee_paths.py`
 and `lib/doctor.py` each say in their own docstring that they import nothing
@@ -32,13 +32,27 @@ that instead re-exports the bare name hands the test suite a target that patches
 only the root script's own copy — see
 `test_no_test_patches_a_re_exported_name` for why that failure is silent.
 
+**A path named outside the code still has to resolve.** `tools/` is named from
+CLAUDE.md, the rules, the skills, the workflows, the docs, `lib/`, the suite
+and the tools themselves — none of which any import graph reaches, so a moved
+or renamed tool leaves every one of those hits pointing at nothing and no test
+notices. `docs/design-notes.md` ("A tool keyed on a fixed path list goes quiet
+when code moves") is the recorded cost: `16c4723` moved `doctor.py` into
+`lib/`, and because `tools/extract_claims.py` harvested from a hardcoded table
+of filenames, that module's three verdict lines dropped out of the copy-audit
+inventory. Nothing errored — the next audit would simply have reviewed less
+than it believed it was reviewing. The checklist that came out of it is to grep
+the whole repo, `.github/` and `.claude/` included, for the name of any file
+being moved; the sweep at the bottom of this file is that grep, run for you.
+
 The import checks each run in a subprocess: `sys.modules` is process-wide, and
 under `-n auto` some other test in the same worker has almost certainly
-imported numpy already. The binding checks are static AST reads, so they cost
-nothing and cover files no test happens to import.
+imported numpy already. The binding and reference checks are static reads, so
+they cost nothing and cover files no test happens to import.
 """
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -461,4 +475,98 @@ def test_no_test_patches_a_re_exported_name():
     assert not violations, (
         "monkeypatch target is a re-exported binding, so the patch reaches "
         "only the root script's own copy:\n  " + "\n  ".join(violations)
+    )
+
+
+# --------------------------------------------------------------------------
+# tools/ has no import graph, so its paths are only as good as this sweep.
+# --------------------------------------------------------------------------
+
+# Read whole. `.claude/` is deliberately narrowed to the two committed
+# subtrees — agent worktrees live under `.claude/worktrees/` and are a second
+# copy of the repo, so rglob'ing all of `.claude/` would sweep stale clones.
+REFERENCE_TREES = (".claude/rules", ".claude/skills", ".github", "docs",
+                   "lib", "tests", "tools")
+
+# Plus the loose files at the root, which are as full of these paths as any
+# directory: the rules a reader is handed, the flag list, the release history.
+REFERENCE_FILES = ("CLAUDE.md", "README.md", "CHANGELOG.md", "pyproject.toml",
+                   "dolby_to_easyeffects.py", "ee_to_pipewire.py",
+                   "dolby_to_pipewire.py")
+
+# Nothing in these is text, and `docs/` carries screenshots.
+BINARY_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".irs", ".wav",
+                   ".npy", ".npz", ".zip"}
+
+# Greedy over what a path may contain, then anchored on a character a path can
+# plausibly end with, so trailing prose punctuation ("in `tools/measure_ee/`,")
+# is left behind. A bare `tools/` matches nothing and is not worth checking.
+TOOLS_REFERENCE = re.compile(r"tools/[A-Za-z0-9_./*-]*[A-Za-z0-9_*]")
+
+
+def _reference_sources():
+    """Every committed text file that might name a `tools/` path."""
+    for name in REFERENCE_FILES:
+        yield ROOT / name
+    for tree in REFERENCE_TREES:
+        for path in sorted((ROOT / tree).rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if path.suffix.lower() in BINARY_SUFFIXES:
+                continue
+            yield path
+
+
+def _tools_references():
+    """(file, line number, reference) for each `tools/…` path named in the tree.
+
+    Lines holding a URL are skipped whole. Upstream projects have a `tools/`
+    directory too, and the one such mention here — `thesofproject/sof`'s
+    `tune/eq/` path, cited in `docs/alternative-pipelines.md` — is a link, so
+    the URL test separates it from ours without a per-path exception list. It
+    costs nothing today: that link is the only line in the sweep holding both
+    a scheme and a `tools/` path. (Writing that upstream path out in full
+    here, unlinked, is what this docstring did on its first draft — and this
+    test failed on it, which is the check working.)
+    """
+    for path in _reference_sources():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if "://" in line:
+                continue
+            for match in TOOLS_REFERENCE.finditer(line):
+                yield path, number, match.group(0)
+
+
+def test_every_referenced_tools_path_exists():
+    """A `tools/` path someone wrote down still points at a file.
+
+    Nothing else can catch this. These references sit in prose, in YAML
+    comments, in `paths:` frontmatter and in `sys.path` neighbours — no
+    importer resolves them, so a renamed or moved tool leaves a doc that lies,
+    a rule that scopes to nothing, and a workflow step that only fails the
+    week it next runs. The one in `.claude/rules/docs.md`'s frontmatter is the
+    sharpest: a `paths:` glob that matches no file doesn't error, it just
+    stops loading the rule it was written to load.
+
+    Globs are resolved as globs (`tools/**/*.py` in a `paths:` list has to
+    match *something*, which is the same question one directory up), literal
+    paths as literal paths.
+
+    If this fires on a path you deliberately moved, fix the reference — that
+    is the whole point of it firing. Sweeping a new directory is a one-line
+    edit to REFERENCE_TREES above.
+    """
+    broken = [
+        f"{path.relative_to(ROOT)}:{number}: {reference}"
+        for path, number, reference in _tools_references()
+        if not (list(ROOT.glob(reference)) if "*" in reference
+                else (ROOT / reference).exists())
+    ]
+    assert not broken, (
+        "these name a tools/ path that does not exist — the file moved, was "
+        "renamed, or the reference was mistyped:\n  " + "\n  ".join(broken)
     )
