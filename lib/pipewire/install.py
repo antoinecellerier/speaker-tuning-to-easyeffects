@@ -23,6 +23,13 @@ the other they share, owns printing). Not stdlib-only —
 ``lib.console`` owns the optional rich dependency — but nothing here reaches
 the DSP stack.
 
+``lib.pipewire.validate`` is the self-check's runtime core, imported as a
+module and called in process. Its cost is the ``spa-json-dump`` and
+``lv2info`` execs it makes, which a second Python interpreter wrapped around
+them did nothing to reduce; the command-line front end under ``tools/`` is now
+only that, a front end. It reaches neither the DSP stack nor ``lib.console``,
+so nothing about the import shows up in the converter's startup.
+
 The block from ``QUIT_EE_HINT`` down is the same seam for
 ``dolby_to_pipewire.py``: restart, poll ``pw-cli`` until the nodes appear,
 say what is still to be picked, and say how to undo the whole thing. It has
@@ -36,17 +43,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 from lib import console, doctor
 from lib.hardware import sinks
-from lib.paths import REPO_ROOT
+from lib.pipewire import validate
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
-
-
-VALIDATE_CONF_SCRIPT = REPO_ROOT / "tools" / "measure_pw" / "validate_conf.py"
 
 
 def _retarget_convolver_irs(stages: list["Stage"],
@@ -124,26 +127,83 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     ]
 
 
-def _validate_conf(conf_text: str) -> tuple[int, str]:
-    """Run validate_conf.py against `conf_text`.
+# The budget for the whole self-check, not for each `lv2info` inside it. It
+# used to come free: the check ran in a subprocess with a 30 s timeout around
+# all of it. In process only `lib.pipewire.validate`'s per-exec timeouts are
+# left, and those multiply by the number of distinct plugin URIs in the conf —
+# six of them at ten seconds each is a minute of a user staring at nothing. The
+# deadline is read between execs rather than threaded into them, so the worst
+# case is this budget plus one hung `lv2info`, and a URI the budget cuts off is
+# reported like any other schema we could not read.
+_VALIDATE_BUDGET_S = 30
 
-    Returns (returncode, combined_output). Returncode -1 signals a setup
-    skip (script absent, or `lv2info`/`spa-json-dump` missing); the
-    caller treats that as a soft warning, not a hard failure. The
-    `validate_conf.py` script's own contract: 0 = clean, 1 = errors,
-    2 = setup error.
+# What to do after a failure this function lets through, in place of the
+# generic --help pointer: no flag list fixes an LV2 plugin that will not
+# answer. Validation runs before the conf is written, on every path including
+# --dry-run, so the first half is true wherever this is raised from.
+_VALIDATE_NEXT_STEP = ("The conf was not written — re-run with --no-validate "
+                       "to skip the schema self-check.")
+
+
+def _validate_conf(conf_text: str) -> tuple[int, str]:
+    """Schema-check `conf_text` against `lv2info`'s port metadata, in process.
+
+    Returns (returncode, combined_output) in the protocol `ee_to_pipewire.py`
+    renders: **-1** a setup skip, one of the two CLIs this needs not being
+    installed; **0** clean; **1** at least one error, and the caller must not
+    write the conf; **2** the check could not run. The text is what the
+    command-line front end (`tools/measure_pw/validate_conf.py`) prints in its
+    `-q` mode, which is what this used to shell out to — same prefixes, same
+    order, same trailing count line — so the caller's rendering of it is
+    unchanged by the move.
+
+    **2 is a skip, not a verdict**, and that is why nothing generic maps to
+    it: the caller prints it dim and goes on to write the conf, and the corpus
+    tier turns it into `pytest.skip`, so a bug reaching this arm would approve
+    every XML in the corpus with the run still green. It is reserved for the
+    failures that genuinely mean *could not run* — `spa-json-dump` missing,
+    failing, or handing back something that is not JSON. A single URI whose
+    `lv2info` fails or times out is narrower than that: it degrades to a
+    warning and that plugin's ports go unchecked, which is what the subprocess
+    did already, minus the timeout it crashed on. Anything else propagates to
+    `console.run_guarded`, carrying `_VALIDATE_NEXT_STEP`.
     """
-    if not VALIDATE_CONF_SCRIPT.is_file():
-        return -1, ("validate_conf.py not found at "
-                    f"{doctor.tilde(VALIDATE_CONF_SCRIPT)}")
     if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
         return -1, ("lv2info or spa-json-dump not in PATH "
                     "(install lilv-utils and pipewire)")
-    rc = subprocess.run(
-        [sys.executable, str(VALIDATE_CONF_SCRIPT), "-", "-q"],
-        input=conf_text, capture_output=True, text=True, timeout=30,
-    )
-    return rc.returncode, (rc.stderr or "") + (rc.stdout or "")
+
+    deadline = time.monotonic() + _VALIDATE_BUDGET_S
+    try:
+        nodes = validate.parse_conf(conf_text)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+        return 2, f"error: {e}\n"
+    if not nodes:
+        return 2, "error: no filter nodes found in conf\n"
+
+    lines: list[str] = []
+    schemas: dict[str, dict[str, validate.Port]] = {}
+    try:
+        for uri in {n["plugin"] for n in nodes
+                    if n["type"] == "lv2" and n.get("plugin")}:
+            if time.monotonic() >= deadline:
+                lines.append(f"warning: lv2info {uri!r} skipped: the "
+                             f"{_VALIDATE_BUDGET_S}s validation budget "
+                             "ran out")
+                continue
+            try:
+                schemas[uri] = validate.lv2info_schema(uri)
+            except (RuntimeError, subprocess.TimeoutExpired) as e:
+                lines.append(f"warning: {e}")
+        errors, warnings = validate.validate(nodes, schemas)
+    except Exception as e:
+        e.next_step = _VALIDATE_NEXT_STEP
+        raise
+
+    lines += [f"WARN: {w}" for w in warnings]
+    lines += [f"FAIL: {e}" for e in errors]
+    if errors:
+        lines.append(f"{len(errors)} error(s)")
+    return (1 if errors else 0), "".join(f"{line}\n" for line in lines)
 
 
 def _print_results(conf_path: Path, irs_path: Path | None,

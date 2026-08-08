@@ -103,6 +103,14 @@ STDLIB_ONLY = (
     # lib.console and are absent here for that reason, not by oversight.
     "lib.pipewire.plugins",
     "lib.pipewire.conf",
+    # The schema self-check the converter runs over that output — listed for
+    # the other half of FORBIDDEN rather than for startup cost, which
+    # test_converter_startup_pulls_in_no_dsp already covers transitively and
+    # better. Its contract is to return errors rather than print them, and
+    # nothing else in the suite would notice a console.cprint (and with it
+    # rich) growing into it. Its own shell-outs, lv2info and spa-json-dump,
+    # are execs rather than imports and cost this nothing.
+    "lib.pipewire.validate",
 )
 
 
@@ -732,53 +740,42 @@ def test_measure_readme_lists_every_script(directory):
     )
 
 
-def test_the_converter_can_find_its_validator():
-    """`ee_to_pipewire.py` shells out to a path in `tools/`, and degrades
-    quietly when it isn't there.
+def test_the_validator_cli_still_finds_its_runtime_core(tmp_path):
+    """`tools/measure_pw/validate_conf.py` still starts, from outside the repo.
 
-    `lib/pipewire/install.py` assembles `VALIDATE_CONF_SCRIPT` from path
-    components (`REPO_ROOT / "tools" / "measure_pw" / …`), so the string
-    `tools/measure_pw/validate_conf.py` appears nowhere in that file and the
-    sweep above is blind to it. Two files hold the path in code, and this is
-    the only one the sweep cannot reach:
-    `tests/corpus/test_ee_to_pipewire_corpus.py` assembles it the same way but
-    writes it out in its module docstring, which the sweep does see.
-    (`tests/test_validate_conf.py` was a third, loading it by
-    `spec_from_file_location` and failing loudly at collection; it imports
-    `lib.pipewire.validate` directly now, so it notices nothing.)
+    What it checks is worth guarding: that every LV2 port symbol and control
+    value in a generated conf is real and in range, and that no band carries
+    the xm/MUTE inversion that once silently muted an active PEQ band. Both
+    are inaudible as bug reports — a mistyped symbol makes PipeWire refuse the
+    whole chain, a muted band merely sounds like a worse tuning — which is why
+    the check is on by default, and why it matters that everything reaching it
+    degrades *quietly*. `tests/corpus/test_ee_to_pipewire_corpus.py` still
+    holds this path in code: its `is_file()` guard turns a missing script into
+    "don't check", and the XML then passes green with no conf ever validated.
 
-    It is also the one worth checking most, because it is the only one that
-    runs on a user's machine. `_validate_conf` returns -1 when the file is
-    missing, its caller treats -1 as a soft warning, and `ee_to_pipewire.py`
-    goes on writing confs — having silently stopped checking that every LV2
-    port symbol and control value in them is real. Validation is on by default
-    precisely because the check is cheap and what it catches is inaudible as a
-    bug report: a mistyped port symbol, or the xm/MUTE inversion that once
-    silently muted an active PEQ band. The corpus tier degrades the same way,
-    from the other side — its `if ... VALIDATE_CONF_SCRIPT.is_file()` guard
-    makes a missing script mean "don't check", and the XML passes green
-    without a conf ever being validated.
+    `ee_to_pipewire.py` used to hold it too, and no longer does —
+    `lib/pipewire/install.py` calls `lib.pipewire.validate` in process, so no
+    path under `tools/` reaches a user-runnable script any more. What is left
+    here is the command-line front end, whose own way of breaking is specific
+    and silent to everything else: it inserts the repo root on `sys.path`,
+    counted from `Path(__file__).resolve().parents[2]`, before importing that
+    module. Move either file and the import fails — while
+    `tests/test_validate_conf.py` goes on importing `lib.pipewire.validate`
+    directly and the reference sweep above goes on finding a file that exists.
 
-    So moving this file is not a `tools/` reorganisation, it is a change to
-    the converter — which is also why it is scheduled to move. A top-level
-    user-runnable script may depend only on `lib/`, and this is the one place
-    in the tree where that does not hold. The runtime core is already
-    `lib/pipewire/validate.py` and what remains here is a thin CLI wrapper,
-    but `install.py` still reaches it by shelling out to this path, so the
-    dependency stands until that call goes in-process. This assert is not a
-    claim that the path is permanent. It is the guard for exactly that move:
-    whatever
-    `VALIDATE_CONF_SCRIPT` ends up pointing at has to be a file that exists,
-    and if the move re-points some of the sites above and not this one, the
-    suite says so at collection instead of a user's conf silently going
-    unvalidated.
+    `--help` is the whole test. It reaches the module-scope import and the
+    argument parser, needs neither `lv2info` nor `spa-json-dump`, and costs
+    about 30 ms. It runs from a directory outside the checkout because
+    `python path/to/script.py` puts only the script's own directory on
+    `sys.path` — so the bootstrap is the only thing that can make `lib`
+    importable, which is exactly the claim being tested.
     """
-    from lib.pipewire import install
-
-    assert install.VALIDATE_CONF_SCRIPT.is_file(), (
-        f"ee_to_pipewire.py shells out to {install.VALIDATE_CONF_SCRIPT}, "
-        "which does not exist — conf validation is silently a no-op. Either "
-        "put the script back or re-point VALIDATE_CONF_SCRIPT in "
-        "lib/pipewire/install.py (and the copy in "
-        "tests/corpus/test_ee_to_pipewire_corpus.py) at where it went."
+    wrapper = ROOT / "tools" / "measure_pw" / "validate_conf.py"
+    result = subprocess.run([sys.executable, str(wrapper), "--help"],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"{wrapper.relative_to(ROOT)} does not start: it exited "
+        f"{result.returncode}. Anything shelling out to it — the corpus tier "
+        "today — silently stops checking confs instead of failing.\n"
+        f"{result.stderr.strip()}"
     )
