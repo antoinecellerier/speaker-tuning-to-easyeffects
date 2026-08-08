@@ -462,12 +462,14 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
     0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
 
-    It substitutes the whole machine, not just its pins, which is why it sets
-    the codec list and clears the SoundWire one: callers pick the detection
-    branch off ``bus_type``, so a demo that filled in pins alone did nothing
-    on any host that wasn't itself HDA — a SoundWire laptop, or CI, where
-    there is no codec to make ``bus_type`` "hda" at all. Returns True when a
-    demo was injected (skip real detection then).
+    It substitutes the machine's *audio* identity — pins, codec list, and an
+    emptied SoundWire one — and nothing else: kernel, product and distro stay
+    the host's, so anything keyed to those still describes the real machine.
+    The codec list and the SoundWire one are part of it because callers pick
+    the detection branch off ``bus_type``, so a demo that filled in pins alone
+    did nothing on any host that wasn't itself HDA — a SoundWire laptop, or
+    CI, where there is no codec to make ``bus_type`` "hda" at all. Returns
+    True when a demo was injected (skip real detection then).
     """
     ssid = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
     if not ssid:

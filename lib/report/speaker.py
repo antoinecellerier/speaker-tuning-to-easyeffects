@@ -136,7 +136,7 @@ _MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
 
 
 def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
-                     release: str | None = None) -> str:
+                     release: str) -> str:
     """Whether upgrading the kernel would fix this, in the user's terms.
 
     Three genuinely different situations, and telling the wrong one wastes a
@@ -145,10 +145,13 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
     reaching them and something else on the machine is stopping it — so
     "upgrade" would be advice to go and get what they already have.
 
-    Shared by the end-of-run block and --doctor so the two can't drift.
+    Shared by the end-of-run block and --doctor so the two can't drift — which
+    is why *release* is required and not defaulted to the running kernel. An
+    optional one let each caller pick its own source and they picked
+    differently: --doctor passed the kernel its report is about, the end-of-run
+    block silently read the host's. Required, that is a TypeError at the call
+    site rather than two answers for one machine.
     """
-    import platform
-
     # Where the reader is left depends on whether a hand-forcible name exists:
     # with one, each branch hands off to the procedure that follows; without,
     # the branch has to be a complete answer on its own.
@@ -158,7 +161,7 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
     if not quirk.since:
         return ("The fix is merged upstream but is not in any released kernel "
                 "yet, so upgrading won't help today." + tail)
-    running = environment.parse_kernel_series(release or platform.release())
+    running = environment.parse_kernel_series(release)
     fixed_in = environment.parse_kernel_series(quirk.since)
     if running and fixed_in and running >= fixed_in:
         return (f"Linux {quirk.since} carries this fix and you are on "
@@ -278,7 +281,7 @@ def warn_hidden_speaker_pin(
         "drives — often the woofers — gets no signal"
         + (", and the preset shapes the rest alone." if others else "."))
     print()
-    console._cprint_wrapped("dim", upgrade_prospect(quirk))
+    console._cprint_wrapped("dim", upgrade_prospect(quirk, info.kernel))
     steps = speaker_pin_fix_steps(quirk, missing,
                                   speakers._card_uses_sof(info.sound_cards),
                                   console._wrap_width())
