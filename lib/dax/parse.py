@@ -564,8 +564,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                                     default=len(band_groups))
             target_power = vlldp.find("mb-compressor-target-power-level")
             # Also grab regulator stress for additional context (same
-            # regulator-stress-amount element the regulator block re-reads
-            # below for its own `stress`; named distinctly to keep the two
+            # regulator-stress-amount element `_parse_regulator` re-reads
+            # for its own `stress`; named distinctly to keep the two
             # consumers' intent clear).
             mbc_reg_stress_el = vlldp.find("regulator-stress-amount")
             mb_comp = {
@@ -575,7 +575,41 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "reg_stress": parse_csv_ints(mbc_reg_stress_el.get("value")) if mbc_reg_stress_el is not None else [],
             }
 
-    # Regulator settings (per-band limiter from tuning-vlldp)
+    regulator = _parse_regulator(vlldp, constant, freqs, path)
+
+    # declared_default (<setting><default_profile>) was read above, before
+    # the profile banner.
+
+    # Report each unmodeled block where it was found, and carry the findings
+    # out so main() can render their asks once at the end. Both halves matter:
+    # printed only here they are buried under the per-band tables, and printed
+    # only at the end they lose the context that makes them legible.
+    findings = collect_unmodeled_features(profile)
+    for finding in findings:
+        _print_finding_detail(finding)
+
+    return ParsedTuning(
+        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
+        vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost,
+        profile_used=profile.get("type"),
+        default_profile=(declared_default.get("value")
+                         if declared_default is not None else None),
+        geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
+                                default=192),
+        ao_enabled=ao_enabled,
+        ieq_enabled=ieq_enabled,
+        findings=findings,
+        leveler_substages=leveler_substages,
+    )
+
+
+def _parse_regulator(vlldp, constant, freqs, path):
+    """Regulator settings (per-band limiter from tuning-vlldp).
+
+    Returns the regulator dict, or None when the tuning has no
+    ``regulator-speaker-dist-enable=1`` / ``regulator-tuning`` pair —
+    the shape `ParsedTuning.regulator` and `make_regulator` expect.
+    """
     regulator = None
     reg_dist = vlldp.find("regulator-speaker-dist-enable")
     if reg_dist is not None and reg_dist.get("value") == "1":
@@ -654,31 +688,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "relaxation": relaxation,
                 "isolated_band": isolated,
             }
-
-    # declared_default (<setting><default_profile>) was read above, before
-    # the profile banner.
-
-    # Report each unmodeled block where it was found, and carry the findings
-    # out so main() can render their asks once at the end. Both halves matter:
-    # printed only here they are buried under the per-band tables, and printed
-    # only at the end they lose the context that makes them legible.
-    findings = collect_unmodeled_features(profile)
-    for finding in findings:
-        _print_finding_detail(finding)
-
-    return ParsedTuning(
-        freqs, curves, ieq_amount, ao_left, ao_right, peq_filters,
-        vol_leveler, dialog_enhancer, surround, mb_comp, regulator, volmax_boost,
-        profile_used=profile.get("type"),
-        default_profile=(declared_default.get("value")
-                         if declared_default is not None else None),
-        geq_max_range=_int_attr(root.find("setting/geq_maximum_range"),
-                                default=192),
-        ao_enabled=ao_enabled,
-        ieq_enabled=ieq_enabled,
-        findings=findings,
-        leveler_substages=leveler_substages,
-    )
+    return regulator
 
 
 # Newer-pipeline DSP blocks observed in the corpus that the script does not
