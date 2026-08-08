@@ -150,15 +150,29 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
     return ports
 
 
+class Lv2infoUnavailable(RuntimeError):
+    """`lv2info` never got to answer: a timeout, a binary that went away
+    between the PATH check and the fork, a fork that couldn't allocate.
+
+    Split from the plain `RuntimeError` a non-zero exit raises because the two
+    differ in exactly one way that matters — whether the answer can be cached.
+    A non-zero exit *is* an answer about the plugin (not installed, TTL won't
+    parse) and cannot change during the run. These describe the run itself and
+    say nothing about the plugin, so a caller holding a long-lived memo has to
+    ask again next time. What a caller *does* with either is the same: warn,
+    and leave that plugin's ports unchecked.
+    """
+
+
 def lv2info_schema(uri: str) -> dict[str, Port]:
     """The port metadata `lv2info` reports for one plugin URI.
 
-    Every way the exec itself can fail — a non-zero exit, a timeout, a binary
-    that went away between the PATH check and the fork, a fork that couldn't
-    allocate — arrives as one `RuntimeError` naming the URI, because the
-    caller's response to all of them is the same: warn, and leave this
-    plugin's ports unchecked. Only the exec is wrapped. A failure to parse
-    what `lv2info` did print is our bug, and still propagates.
+    Every way the exec itself can fail arrives as one `RuntimeError` naming the
+    URI, because the caller's response to all of them is the same: warn, and
+    leave this plugin's ports unchecked. The ones that never reached a verdict
+    arrive as the `Lv2infoUnavailable` subclass, for the caller that memoizes.
+    Only the exec is wrapped. A failure to parse what `lv2info` did print is
+    our bug, and still propagates.
     """
     try:
         rc = subprocess.run(
@@ -166,7 +180,7 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
         )
     except (OSError, subprocess.SubprocessError) as e:
         # subprocess.TimeoutExpired is a SubprocessError, so it lands here.
-        raise RuntimeError(f"lv2info {uri!r} failed: {e}") from e
+        raise Lv2infoUnavailable(f"lv2info {uri!r} failed: {e}") from e
     if rc.returncode != 0:
         raise RuntimeError(
             f"lv2info {uri!r} failed: {rc.stderr.strip() or rc.stdout.strip()}"
@@ -402,11 +416,13 @@ def run(conf_text: str, *,
     dependency injection `validate(nodes, schemas)` already uses one layer up.
     Omit it and the call is exactly as it was: a fresh dict, no shared state.
 
-    Each entry is `(schema_or_None, note)`, not a bare schema: a URI whose
-    `lv2info` failed must not be re-exec'd per conf, but the warning that says
-    its ports went unchecked has to be re-emitted for every conf it affects.
+    Each entry is `(schema_or_None, note)`, not a bare schema: a URI `lv2info`
+    answered *about* — a non-zero exit, so the plugin is missing or its TTL
+    won't parse — must not be re-exec'd per conf, but the warning that says its
+    ports went unchecked has to be re-emitted for every conf it affects.
     Storing the miss without its note would report the failure once and then
-    silently stop mentioning it.
+    silently stop mentioning it. Only answers are memoized: an exec that never
+    reached one leaves no entry, so the next conf asks again.
 
     **`UNCHECKED` is a skip, not a verdict**, and that is why nothing generic
     maps to it: a caller prints it dim and goes on to write the conf, and the
@@ -450,11 +466,23 @@ def run(conf_text: str, *,
                 continue
             try:
                 memo[uri] = (lv2info_schema(uri), "")
+            except Lv2infoUnavailable as e:
+                # Not memoized, for the same reason as the budget above: an
+                # exec that never reached a verdict is a property of this run.
+                # Caching it would leave the URI unchecked for every later conf
+                # in the process — one `lv2info` timing out under a loaded
+                # `-n auto` corpus walk would disable the schema check for the
+                # rest of the walk, with every conf still reporting CLEAN.
+                tool_warnings.append(str(e))
+                continue
             except RuntimeError as e:
-                # Narrow on purpose: `lv2info_schema` funnels every exec
-                # failure into this one type, so anything else escaping it is a
-                # bug in the parse and must not be quietly downgraded to
-                # "unchecked".
+                # A non-zero exit, which is `lv2info` answering rather than
+                # failing to be asked: the plugin isn't installed, or its TTL
+                # won't parse. That can't change mid-run, so it is memoized and
+                # the note re-emitted on every hit below. Narrow on purpose:
+                # `lv2info_schema` funnels every exec failure into these two
+                # types, so anything else escaping it is a bug in the parse and
+                # must not be quietly downgraded to "unchecked".
                 memo[uri] = (None, str(e))
         schema, note = memo[uri]
         if note:

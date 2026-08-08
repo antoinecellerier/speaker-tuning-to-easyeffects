@@ -118,17 +118,23 @@ def test_validate_warns_once_per_node_about_unreadable_bounds():
     assert "g_out" not in warnings[0]
 
 
+def _one_peq_conf(monkeypatch):
+    """Point `run` at a single-node conf, past the missing-tooling gate.
+
+    Both CLIs are faked present because that gate returns `NO_TOOLING` before
+    any of this, and these tests are about what happens after it.
+    """
+    monkeypatch.setattr(validate.shutil, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}")
+    monkeypatch.setattr(validate, "parse_conf", lambda text: [
+        {"type": "lv2", "name": "peq", "plugin": LSP_PEQ_URI, "control": {}}])
+
+
 def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):
     """One plugin `lv2info` won't answer for is not a reason to fail a conf
     the others validated fine. Every exec failure — a vanished binary, a
     timeout, a fork that couldn't allocate — arrives as one `RuntimeError`
     naming the URI, which `run` turns into a warning.
-
-    A memoized failure keeps warning. The corpus tier hands `run` one session
-    dict across thousands of confs, so a URI that failed must not be re-exec'd
-    per conf — but every conf it affects went unchecked, so every one of them
-    has to say so. Storing the miss without its note is invisible to a green
-    run: the tier would report the failure once and pass the rest.
     """
     for exc in (FileNotFoundError(2, "No such file or directory", "lv2info"),
                 subprocess.TimeoutExpired(cmd="lv2info", timeout=10),
@@ -136,33 +142,72 @@ def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):
         def boom(*a, _exc=exc, **k):
             raise _exc
         monkeypatch.setattr(validate.subprocess, "run", boom)
-        with pytest.raises(RuntimeError, match="lv2info 'urn:x' failed"):
+        with pytest.raises(validate.Lv2infoUnavailable,
+                           match="lv2info 'urn:x' failed"):
             validate.lv2info_schema("urn:x")
 
     # The last exec stub above is still installed, so `run` meets a plugin it
-    # can get no schema for. Both CLIs are faked present because the
-    # missing-tooling gate runs first, and this is about what happens past it.
-    monkeypatch.setattr(validate.shutil, "which",
-                        lambda name, *a, **k: f"/usr/bin/{name}")
-    monkeypatch.setattr(validate, "parse_conf", lambda text: [
-        {"type": "lv2", "name": "peq", "plugin": LSP_PEQ_URI, "control": {}}])
+    # can get no schema for.
+    _one_peq_conf(monkeypatch)
     report = validate.run("")
     assert report.status == validate.CLEAN
     assert any("lv2info" in w and LSP_PEQ_URI in w for w in report.warnings)
 
+
+def test_an_exec_that_never_answered_is_not_memoized(monkeypatch):
+    """A timeout is a property of the run, not of the plugin.
+
+    The corpus tier hands `run` one session dict across thousands of confs. If
+    a failed exec were stored, one `lv2info` timing out under a loaded `-n
+    auto` walk would leave that URI unchecked for every conf after it — and
+    unchecked reads as `CLEAN`, because `status` keys off `errors` and a
+    plugin with no schema produces none. So the next conf has to ask again.
+    """
     execs = 0
 
-    def counting_boom(*a, **k):
+    def counting_timeout(*a, **k):
         nonlocal execs
         execs += 1
-        raise FileNotFoundError(2, "No such file or directory", "lv2info")
+        raise subprocess.TimeoutExpired(cmd="lv2info", timeout=10)
 
-    monkeypatch.setattr(validate.subprocess, "run", counting_boom)
+    monkeypatch.setattr(validate.subprocess, "run", counting_timeout)
+    _one_peq_conf(monkeypatch)
+    memo: dict = {}
+    for i in range(3):
+        report = validate.run("", schemas=memo)
+        assert any("lv2info" in w and LSP_PEQ_URI in w
+                   for w in report.warnings), (
+            f"conf {i + 1}: the failure stopped being reported: "
+            f"{report.warnings}")
+    assert execs == 3, (
+        f"lv2info was exec'd {execs} times across 3 confs: a transient "
+        f"failure was cached and the URI is now unchecked for the run")
+
+
+def test_a_nonzero_exit_is_memoized_and_keeps_warning(monkeypatch):
+    """`lv2info` exiting non-zero is an answer *about the plugin* — not
+    installed, or a TTL that won't parse — and it cannot change mid-run, so it
+    is memoized: the corpus tier must not pay one exec per conf for it.
+
+    But every conf it affects went unchecked, so every one of them has to say
+    so. Storing the miss without its note is invisible to a green run: the tier
+    would report the failure once and pass the rest.
+    """
+    execs = 0
+
+    def counting_not_found(*a, **k):
+        nonlocal execs
+        execs += 1
+        return subprocess.CompletedProcess(
+            a[0], 255, stdout="", stderr="Plugin not found.")
+
+    monkeypatch.setattr(validate.subprocess, "run", counting_not_found)
+    _one_peq_conf(monkeypatch)
     memo: dict = {}
     for i in range(3):
         report = validate.run("", schemas=memo)
         assert report.status == validate.CLEAN
-        assert any("lv2info" in w and LSP_PEQ_URI in w
+        assert any("Plugin not found" in w and LSP_PEQ_URI in w
                    for w in report.warnings), (
             f"conf {i + 1}: the memoized failure stopped being reported: "
             f"{report.warnings}")

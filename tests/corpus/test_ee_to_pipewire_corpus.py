@@ -206,6 +206,17 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path, lv2_schemas):
         f"{' — ' + report.reason if report.reason else ''}\n"
         + "\n".join(report.errors)
     )
+    # Every warning `run` can raise means part of this conf went unchecked — a
+    # plugin whose schema it couldn't read, a bound it couldn't parse, a URI the
+    # budget cut off. `status` cannot carry that: no schema means no errors
+    # means CLEAN, so a walk that checked nothing at all passes this tier on
+    # status alone. Asserted per XML because the memo is shared session-wide:
+    # the first conf to go unchecked has to fail here, while it is still one
+    # XML and not the 2,997 after it.
+    assert not report.warnings, (
+        f"{xml_path.name}: conf validation went partly unchecked\n"
+        + "\n".join(report.warnings)
+    )
 
 
 def test_the_validator_cli_still_validates_a_real_conf(tmp_path):
