@@ -161,21 +161,38 @@ def _ntfs_family_mountpoints() -> list[Path]:
 _CWD_PROBE_MAX_DEPTH = 10
 
 
+def _pci_subsys_token(pci_subsys: tuple[str, str] | None) -> str | None:
+    """Render ``codecs.get_pci_audio_subsystem()``'s pair as a filename token.
+
+    Dolby's PCI-keyed filenames — SoundWire on newer Intel platforms, and
+    Apple Boot Camp tunings on Intel Macs (issue #21) — encode the subsystem
+    **device-first**, the reverse of the ``(vendor, device)`` order the pair
+    arrives in: PCI subsystem 17AA:2339 -> ``SUBSYS_233917AA``, or Apple
+    106B:1880 -> ``SUBSYS_1880106B``. (HDA codec filenames instead carry the
+    codec's own subsystem, vendor-first — a different token, not this one.)
+
+    Returns ``None`` when no PCI subsystem was detected.
+    """
+    if not pci_subsys:
+        return None
+    vendor, device = pci_subsys
+    return f"{device}{vendor}".upper()
+
+
 def _detect_expected_subsys_ids() -> set[str]:
     """Return SUBSYS values (8 hex chars, uppercase) that would match this
     machine's audio hardware in a Dolby XML filename.
 
     Combines HDA codec subsystem IDs from ``/proc/asound`` with the PCI
-    audio subsystem ID (``{device}{vendor}`` for SoundWire naming). May
+    audio subsystem token used by SoundWire and Apple filenames. May
     return an empty set if no hardware is detected.
     """
     ids: set[str] = set()
     for _vendor, subsys, _name in codecs.get_hda_codec_ids():
         ids.add(subsys.upper())
-    pci_subsys = codecs.get_pci_audio_subsystem()
-    if pci_subsys:
-        vendor, device = pci_subsys
-        ids.add(f"{device}{vendor}".upper())
+    pci_token = _pci_subsys_token(codecs.get_pci_audio_subsystem())
+    if pci_token:
+        ids.add(pci_token)
     return ids
 
 
@@ -412,20 +429,16 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     hda_subsys_ids = {s.upper() for _, s, _name in hda_codecs}
     hda_dev_subsys = {(v.upper()[-4:], s.upper()) for v, s, _name in hda_codecs}
 
-    # PCI subsystem match token. Dolby PCI-keyed filenames — SoundWire on newer
-    # Intel platforms, and Apple Boot Camp tunings on Intel Macs (issue #21) —
-    # encode it as {pci_subsys_device}{pci_subsys_vendor}, e.g. PCI subsystem
-    # 17AA:2339 -> SUBSYS_233917AA, or Apple 106B:1880 -> SUBSYS_1880106B. (HDA
-    # codec filenames instead use the codec's own subsystem, vendor-first.)
+    # PCI subsystem match token — the key Dolby's SoundWire and Apple Boot Camp
+    # filenames are named by; ``_pci_subsys_token`` holds the byte order.
+    # Every SoundWire tier below keys on it, so on a SoundWire machine a
+    # missing PCI subsystem is fatal rather than a silent no-match.
     if sdw_devices and pci_subsys is None:
         raise RuntimeError(
             "SoundWire devices detected but could not determine PCI subsystem ID. "
             "Cannot safely select a tuning XML."
         )
-    pci_subsys_id = None
-    if pci_subsys:
-        vendor, device = pci_subsys
-        pci_subsys_id = f"{device}{vendor}".upper()
+    pci_subsys_id = _pci_subsys_token(pci_subsys)
 
     # SoundWire match tokens. The strong key is (manufacturer, part) — Dolby's
     # filename FUNC token usually equals the Linux SoundWire part id (all 29
