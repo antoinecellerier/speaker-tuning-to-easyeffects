@@ -16,7 +16,7 @@ stack into function-local imports inside `main()` — numpy is ~0.35 s of a
 completion, which argcomplete re-runs the whole script for on every TAB press)
 reaches none of it. It reaches this module only through those imports, so none
 of those paths costs any numpy
-(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
+(`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 The alternative was worse: importing this module at the top of the generator
 breaks that trap outright.
 

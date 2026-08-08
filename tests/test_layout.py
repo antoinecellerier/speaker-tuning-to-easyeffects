@@ -18,6 +18,12 @@ holding it to the stdlib would mean no coloured output anywhere. What binds
 *every* module, listed or not, is the DSP half — `numpy`/`scipy` cost 0.4 s
 where rich costs milliseconds — and that is checked from the converter's end
 by `test_converter_startup_pulls_in_no_dsp`, which needs no list.
+`test_the_dsp_import_is_deferred_past_every_early_return` beside it asks the
+same question of the *generator*, where numpy is deferred rather than banned.
+It reads as a completion trap and grew up in `tests/test_completions.py`, but
+it needs no argcomplete, and that file's module-scope `importorskip` skips the
+whole file — so on the plain install where a hoisted import hurts most, it did
+not run at all.
 
 **Import the module, not the name.** Across a `lib/` boundary a caller binds
 the module (`from lib.hardware import codecs`, then `codecs.get_soundwire_ids()`)
@@ -38,6 +44,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from tests.conftest import write_synthetic_tuning_xml
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -111,12 +119,11 @@ def test_converter_startup_pulls_in_no_dsp():
     reaches at import time, transitively and however deep, none of it may be
     the DSP stack — so it keeps working as lib/ grows without being edited.
 
-    Distinct from `tests/test_completions.py`'s
-    `test_the_dsp_import_is_deferred_past_every_early_return`, which covers the
-    *generator*: that one guards a deferral, where numpy is merely postponed to
-    the function-local imports in `main()` and a real conversion still pays for
-    it. Here there is nothing to defer to — the converter never wants numpy at
-    all, on any path.
+    Distinct from `test_the_dsp_import_is_deferred_past_every_early_return`
+    below, which covers the *generator*: that one guards a deferral, where
+    numpy is merely postponed to the function-local imports in `main()` and a
+    real conversion still pays for it. Here there is nothing to defer to — the
+    converter never wants numpy at all, on any path.
     """
     probe = (
         "import sys\n"
@@ -133,6 +140,53 @@ def test_converter_startup_pulls_in_no_dsp():
         "level — import it lazily inside the function that needs it, or move "
         "that function to a module the converter doesn't touch."
     )
+
+
+def test_the_dsp_import_is_deferred_past_every_early_return(tmp_path):
+    """NumPy/SciPy are ~0.35 s of the generator's ~0.5 s startup, and the
+    generator imports them inside main(), just above the emit loop. So a path
+    that returns before that loop — --version here, with --list, --doctor,
+    --speaker-info and an argparse error alongside it — must cost nothing,
+    while a real conversion still gets them.
+
+    Both halves are load-bearing: an import hoisted back to module scope fails
+    the first, one deferred past its own use fails the second. A regression on
+    the first half is invisible except as a sluggish `--version`, hence a trap
+    on sys.modules rather than on wall-clock.
+
+    The conversion passes both output directories — --output-dir without
+    --irs-dir writes the .irs into the live EasyEffects tree.
+    """
+    probe = (
+        "import sys; sys.path.insert(0, %r)\n"
+        "import dolby_to_easyeffects as d\n"
+        "try:\n"
+        "    d.main(sys.argv[1:])\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "print('numpy' in sys.modules, 'scipy' in sys.modules)\n" % str(ROOT)
+    )
+
+    def dsp_loaded(*argv: str) -> str:
+        result = subprocess.run(
+            [sys.executable, "-c", probe, *argv],
+            capture_output=True, text=True, timeout=120, cwd=ROOT,
+        )
+        assert result.returncode == 0, result.stderr
+        # main() prints the run's own output first; the probe's verdict is the
+        # last line.
+        return result.stdout.strip().splitlines()[-1]
+
+    assert dsp_loaded("--version") == "False False", (
+        "the DSP stack reached a path that returns before the emit loop — "
+        "something imports numpy at module scope again"
+    )
+
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    assert dsp_loaded(str(xml),
+                      "--output-dir", str(tmp_path / "presets"),
+                      "--irs-dir", str(tmp_path / "irs")) == "True True"
+    assert list((tmp_path / "irs").glob("*.irs")), "no conversion happened"
 
 
 # Sub-packages, discovered rather than listed, so the check is already in

@@ -21,7 +21,7 @@ it, like `lib/report/profile.py` and for the same reason: numpy and scipy are
 ~0.35 s of a ~0.5 s startup, so everything that returns before the emit loop —
 including a tab completion, which argcomplete re-runs the whole script for on
 every TAB press — must not reach them
-(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
+(`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
 `VOICING_CURVES` comes from `lib/report/messages.py` — the Balanced/Detailed/
 Warm table is copy as much as it is data, and its other reader

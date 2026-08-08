@@ -15,19 +15,27 @@ import of the whole module, so on a machine without argcomplete it collapses
 to a single skip and *every* test in it goes uncollected — including the ones
 defined above the gate. An absence trap that only runs where the dependency is
 present asserts nothing, which is the failure mode these traps exist to
-prevent, so the two that need no argcomplete of their own live here. This file
-has no module-scope gate, and nothing added here may grow one.
+prevent, so the two absence traps below, which need no argcomplete of their
+own, live here. The sink-completer pair beside them is here for the second
+half of that reason alone: a completer is a plain function nobody needs
+argcomplete installed to call, so over there those two were skipped as
+collateral rather than by design. This file has no module-scope gate, and
+nothing added here may grow one.
 """
 
 from __future__ import annotations
 
 import difflib
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+import dolby_to_easyeffects
+from lib.hardware import sinks
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = (
@@ -146,6 +154,30 @@ def test_runs_with_argcomplete_absent(script, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
+
+
+def test_sink_completer_degrades_when_pipewire_is_absent(monkeypatch):
+    """A wedged or missing PipeWire must yield no suggestions, never an
+    exception — an exception inside a completer breaks the user's TAB key."""
+    def boom():
+        raise RuntimeError("pw-dump exploded")
+
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", boom)
+    assert dolby_to_easyeffects._complete_sink_names("") == []
+
+
+@pytest.mark.skipif(shutil.which("pactl") is None and
+                    shutil.which("pw-dump") is None,
+                    reason="no PipeWire tooling present")
+def test_sink_completer_filters_by_prefix(monkeypatch):
+    monkeypatch.setattr(
+        sinks, "_enumerate_audio_sinks",
+        lambda: [{"name": "alsa_output.speaker"}, {"name": "bluez_output.x"}],
+    )
+    assert dolby_to_easyeffects._complete_sink_names("alsa") == [
+        "alsa_output.speaker"
+    ]
+    assert len(dolby_to_easyeffects._complete_sink_names("")) == 2
 
 
 # --- numpy / scipy, which are NOT optional ---------------------------------

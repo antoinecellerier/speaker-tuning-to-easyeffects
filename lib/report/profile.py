@@ -22,7 +22,7 @@ generator's ~0.5 s startup, so anything reaching them has to stay off the
 import path and out of every early return — `--version`, `--list`, `--doctor`,
 `--speaker-info`, an argparse error, and a tab completion, which argcomplete
 re-runs the whole script for on every TAB press
-(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
+(`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
 `findings` keeps the generator's alias (`report_findings`) and
 `_print_finding_detail` and `Finding` arrive as bare names, because the moved

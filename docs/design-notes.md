@@ -2963,7 +2963,7 @@ mitigate.
     converter's stdlib-only contract are both invisible in a diff. Hoisting an
     import to the top of a module can put numpy and scipy on every TAB press
     and on every run that stops short of a conversion, or on a converter run
-    that does no DSP; `tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`
+    that does no DSP; `tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`
     and `test_converter_startup_pulls_in_no_dsp` are the tests, and they have
     to be run rather than reasoned about.
   - **Anything that closes an import cycle.** Two edges that each look local

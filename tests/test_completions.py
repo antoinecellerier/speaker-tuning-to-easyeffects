@@ -4,24 +4,27 @@ Completions are derived from the live argparse parsers rather than generated
 into a checked-in file, so there is no third mirror of the flag list to drift
 (cf. .claude/rules/cli-help.md). What *can* break silently is the plumbing: a
 newly added option nobody classified completing nothing, the wrapper's two
-composed completer tables drifting apart, or the generator's deferred DSP
-import climbing back out of main() to module scope. Those are what these traps
-lock down.
+composed completer tables drifting apart, or numpy reaching the completion
+path, which argcomplete re-runs the whole script for on every TAB press.
+Those are what these traps lock down.
 
-Everything left here needs argcomplete *installed*: the tests below the gate
-drive its own protocol, and `_attach_completers` imports
-`argcomplete.completers`. The gate itself is at module scope, so it aborts the
-import of this whole file rather than skipping a section of it — the
-DSP-deferral trap above it is collateral, and a trap for argcomplete being
-*absent* could not run here at all. Those live in
-`tests/test_optional_deps.py`, which has no such gate.
+Everything left here needs argcomplete *installed*, and that is the entry
+condition rather than an observation: the tests below the gate drive its own
+protocol, and the completer-table tests above it call `_attach_completers`,
+which imports `argcomplete.completers`. The gate is at module scope, so it
+aborts the import of this whole file rather than skipping a section of it —
+sitting above it buys a test nothing. So a trap that needs no argcomplete does
+not belong here however well it reads beside these, and none is left: the
+generator's DSP-deferral trap is in `tests/test_layout.py` with the converter's
+half of the same contract, and the sink-completer pair in
+`tests/test_optional_deps.py` with the traps for argcomplete being *absent*,
+which could never have run here at all. Neither file has such a gate.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,9 +34,7 @@ import pytest
 import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
-from lib.hardware import sinks
 from lib.report import messages
-from tests.conftest import write_synthetic_tuning_xml
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = (
@@ -41,53 +42,6 @@ SCRIPTS = (
     REPO / "ee_to_pipewire.py",
     REPO / "dolby_to_pipewire.py",
 )
-
-
-def test_the_dsp_import_is_deferred_past_every_early_return(tmp_path):
-    """NumPy/SciPy are ~0.35 s of the generator's ~0.5 s startup, and the
-    generator imports them inside main(), just above the emit loop. So a path
-    that returns before that loop — --version here, with --list, --doctor,
-    --speaker-info and an argparse error alongside it — must cost nothing,
-    while a real conversion still gets them.
-
-    Both halves are load-bearing: an import hoisted back to module scope fails
-    the first, one deferred past its own use fails the second. A regression on
-    the first half is invisible except as a sluggish `--version`, hence a trap
-    on sys.modules rather than on wall-clock.
-
-    The conversion passes both output directories — --output-dir without
-    --irs-dir writes the .irs into the live EasyEffects tree.
-    """
-    probe = (
-        "import sys; sys.path.insert(0, %r)\n"
-        "import dolby_to_easyeffects as d\n"
-        "try:\n"
-        "    d.main(sys.argv[1:])\n"
-        "except SystemExit:\n"
-        "    pass\n"
-        "print('numpy' in sys.modules, 'scipy' in sys.modules)\n" % str(REPO)
-    )
-
-    def dsp_loaded(*argv: str) -> str:
-        result = subprocess.run(
-            [sys.executable, "-c", probe, *argv],
-            capture_output=True, text=True, timeout=120, cwd=REPO,
-        )
-        assert result.returncode == 0, result.stderr
-        # main() prints the run's own output first; the probe's verdict is the
-        # last line.
-        return result.stdout.strip().splitlines()[-1]
-
-    assert dsp_loaded("--version") == "False False", (
-        "the DSP stack reached a path that returns before the emit loop — "
-        "something imports numpy at module scope again"
-    )
-
-    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
-    assert dsp_loaded(str(xml),
-                      "--output-dir", str(tmp_path / "presets"),
-                      "--irs-dir", str(tmp_path / "irs")) == "True True"
-    assert list((tmp_path / "irs").glob("*.irs")), "no conversion happened"
 
 
 # --- completer coverage ---------------------------------------------------
@@ -188,8 +142,9 @@ def test_completion_survives_an_unimportable_dsp_stack(tmp_path):
     real protocol, so it could not run without argcomplete wherever in this
     file it sat. That is a fact about this test, not about the gate — the gate
     is at module scope and aborts the import of the whole file, so it skips
-    what sits above it too. See `tests/test_optional_deps.py` for the traps
-    that had to leave because of it.
+    what sits above it too. See `tests/test_layout.py` and
+    `tests/test_optional_deps.py` for the traps that had to leave because of
+    it.
     """
     blocker = tmp_path / "no-dsp"
     blocker.mkdir()
@@ -228,27 +183,3 @@ def test_prefix_narrows_the_flag_list():
     got = _complete(SCRIPTS[1], "ee_to_pipewire.py --no")
     assert "--no-validate" in got and "--no-color" in got
     assert all(c.startswith("--no") for c in got)
-
-
-def test_sink_completer_degrades_when_pipewire_is_absent(monkeypatch):
-    """A wedged or missing PipeWire must yield no suggestions, never an
-    exception — an exception inside a completer breaks the user's TAB key."""
-    def boom():
-        raise RuntimeError("pw-dump exploded")
-
-    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", boom)
-    assert dolby_to_easyeffects._complete_sink_names("") == []
-
-
-@pytest.mark.skipif(shutil.which("pactl") is None and
-                    shutil.which("pw-dump") is None,
-                    reason="no PipeWire tooling present")
-def test_sink_completer_filters_by_prefix(monkeypatch):
-    monkeypatch.setattr(
-        sinks, "_enumerate_audio_sinks",
-        lambda: [{"name": "alsa_output.speaker"}, {"name": "bluez_output.x"}],
-    )
-    assert dolby_to_easyeffects._complete_sink_names("alsa") == [
-        "alsa_output.speaker"
-    ]
-    assert len(dolby_to_easyeffects._complete_sink_names("")) == 2
