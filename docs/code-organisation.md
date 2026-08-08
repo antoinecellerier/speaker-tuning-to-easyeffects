@@ -313,10 +313,44 @@ thirds to three quarters of each, in the two things a split of this shape may
 not touch (`ast` over the root scripts at `62a43de`). The argparse block is the mirror
 `.claude/rules/cli-help.md` holds against the README and
 `tests/test_readme_cli_sync.py` traps group-by-group, so breaking it up buys
-nothing and puts the flag order at risk; `main()` is the orchestration itself,
-and every line taken out of it becomes a parameter passed back in. The wrapper
-is 262 of 453, and lower only because it borrows the other two scripts'
-argument builders instead of defining its own — its `main()` alone is 257.
+nothing and puts the flag order at risk; `main()` is the orchestration itself.
+The wrapper is 262 of 453, and lower only because it borrows the other two
+scripts' argument builders instead of defining its own — its `main()` alone is
+257.
+
+**The floor's two legs do not fare alike.** Figures below are `ast` over
+`dolby_to_easyeffects.py` at the commits named, re-derived rather than carried
+forward.
+
+*"A split of this shape may not touch it"* — **holds.** It is a claim about
+moving `main()` and the argparse block into `lib/`, and nothing in it
+constrains how many *functions* a root script has. Extracting a helper that
+stays in the same file is orthogonal to the floor and does not lower it.
+
+*"Every line taken out becomes a parameter passed back in"* — **false.** Two
+extractions out of `main()` measure the seam:
+
+- `_configure_autoload` (`c34979c`) took **77 lines** out for **two names in,
+  none out**: it reads `args` and `all_preset_names`, returns `None`, and not
+  one of the 13 names it binds (`sinks`, `route`, `bypass_status`, `_rc`, …) is
+  read below it.
+- `_speaker_environment_findings` (`d299cb1`) took **25 lines** for **one name
+  in, one out**. The block read a single attribute of `args` — hence the `str`
+  parameter — and touched `findings` only through `setdefault`, an output
+  channel that became the return value.
+
+102 lines for three parameters and one return. Seam width is set by how much
+state a block straddles, not by how long it is.
+
+**And a line-count threshold is a worse reason to cut than a seam is.** The
+plan behind those two commits predicted `main()` would land at 388 total / 188
+code lines and so drop out of a >150-line bucket — self-contradicting on its
+own numbers, since 188 > 150. Measured: `main()` was **488 total / 275 code**
+at `196178b^` (still so at `d29fe44`, the first extraction's parent) and is
+**388 / 204** at `556a396`, above 150 on either metric. Both commits are
+justified by their seams — each block self-contained, its guard moving with it
+— at the same width whatever bucket `main()` ended in. The ~100 lines that came
+out were the ones with clean seams, not the bulk of a ~490-line function.
 
 **The standing constraints on where a module may live.** These are what a
 future extraction has to respect, and each is checked rather than remembered:
