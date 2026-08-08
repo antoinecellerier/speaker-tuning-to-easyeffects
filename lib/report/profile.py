@@ -46,35 +46,8 @@ from lib.report import messages
 from lib.report.findings import Finding, _print_finding_detail
 
 
-def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
-                           volmax_slot="input-gain", enabled=None,
-                           is_soundwire=False, verbose=False):
-    """Print the human-readable per-profile diagnostics for a parsed tuning
-    (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
-    volmax), and return the findings raised while doing so.
-
-    Side-effect-free apart from stdout — split out of main() so the
-    orchestration there stays legible. Each finding prints its technical half
-    here, in place; main() collects the returned list and renders the one-line
-    asks at the end, where a user still has them on screen."""
+def _print_voicing(tuning):
     ieq_amount = tuning.ieq_amount
-    peq_filters = tuning.peq_filters
-    dialog_enhancer = tuning.dialog_enhancer
-    surround = tuning.surround
-    vol_leveler = tuning.vol_leveler
-    mb_comp = tuning.mb_comp
-    regulator = tuning.regulator
-    volmax_boost = tuning.volmax_boost
-    freqs = tuning.freqs
-
-    findings: list[Finding] = []
-
-    declared = tuning.default_profile
-    if declared and declared != tuning.profile_used:
-        findings.append(report_findings._profile_mismatch_finding(declared,
-                                                 tuning.profile_used))
-        _print_finding_detail(findings[-1])
-
     # One clause of meaning: this used to print bare ("ieq-amount: 10%
     # (scale: 0.10)") — no heading, nothing tying back to it, and a
     # reviewer couldn't tell whether it mattered.
@@ -126,6 +99,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                                    f"the {names} voicing would add nothing to "
                                    "the speaker correction"), indent="  ")
 
+
+def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
+    freqs = tuning.freqs
     # Audio-optimizer: one triage-grade line by default — deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
     # normal-verbosity report gets read for first. The raw twenty-number
@@ -172,6 +148,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         print(f"  Left:  {[f'{x:+.1f}' for x in ao_db_left]}")
         print(f"  Right: {[f'{x:+.1f}' for x in ao_db_right]}")
 
+
+def _print_peq(tuning, verbose):
+    peq_filters = tuning.peq_filters
     # The row types carry a what-you-hear clause where the name alone says
     # nothing to a non-engineer — the dialog/bass sections had one and this
     # section didn't, which read as "am I supposed to understand this?".
@@ -229,6 +208,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             # levelling one.
             print(f"  {spk}Bell @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — lifts or trims a narrow band")
 
+
+def _print_bass_enhancer(tuning, disabled, is_soundwire):
+    peq_filters = tuning.peq_filters
     if is_soundwire and "bass-enhancer" not in disabled:
         # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
         # in-driver Virtual Bass Enhancement, which has no XML parameters to
@@ -271,6 +253,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                             f"we've seen ships switched off{sep}",
                         indent="  ")
 
+
+def _print_dialog(tuning, disabled):
+    dialog_enhancer = tuning.dialog_enhancer
     if dialog_enhancer:
         # dB first: "amount=5" has no knowable scale (it's a raw schema
         # value), so the derived boost leads and the raw stays as the
@@ -290,6 +275,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             print(f"\nDialog enhancer: about +{gain:.1f} dB around 2.5 kHz, "
                   f"where speech sits ({raw})")
 
+
+def _print_surround(tuning):
+    surround = tuning.surround
     if surround:
         # No "virtualizer" in ANY form here — noun or verb: with the
         # [virtualizer] finding on the same screen, two features sharing
@@ -316,6 +304,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   "but we measured no difference it makes to ordinary "
                   "stereo playback")
 
+
+def _print_leveler(tuning, disabled, enabled, is_soundwire):
+    vol_leveler = tuning.vol_leveler
     if vol_leveler:
         # Says BOTH states — the tuning file's and this preset's — and
         # names the flag that flips it. The label leads with "Autogain"
@@ -362,6 +353,10 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   + ("  (this preset aims 6 dB lower, for headroom)"
                      if is_soundwire else ""))
 
+
+def _print_mbc(tuning, disabled, verbose):
+    mb_comp = tuning.mb_comp
+    freqs = tuning.freqs
     if mb_comp and "mbc" in disabled:
         # A dropped stage says so instead of describing itself, the shape
         # the volmax and leveler lines already use.
@@ -415,6 +410,9 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                   f"ratio={b['ratio']:.2f}:1, attack={b['attack_ms']:.2f} ms, "
                   f"release={b['release_ms']:.2f} ms, makeup={b['makeup']:+.1f} dB")
 
+
+def _print_regulator(tuning, disabled, verbose):
+    regulator = tuning.regulator
     if regulator and "regulator" in disabled:
         # Dropped stages say so rather than describing themselves; without
         # this the whole section — protective gloss, band counts and the
@@ -497,6 +495,10 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
             if iso is not None:
                 print(f"  isolated_band:       {iso}")
 
+
+def _print_volmax(tuning, disabled, volmax_slot, verbose):
+    volmax_boost = tuning.volmax_boost
+    regulator = tuning.regulator
     # Glossed like every other stage; the gain-slot detail is -v only.
     # Round-4 review (all three reviewers): the bare "(applied as
     # regulator input-gain)" was the one summary line with no plain
@@ -533,6 +535,16 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
         console._cprint_wrapped("", "Loudness boost (volmax-boost): "
                             f"{volmax_boost:+.1f} dB from your tuning "
                             f"{tail}", indent="  ")
+
+
+def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
+    """Raise the two loudness-boost findings, printing each detail in
+    place as the surrounding sections do, and return what was raised."""
+    volmax_boost = tuning.volmax_boost
+    regulator = tuning.regulator
+    freqs = tuning.freqs
+
+    findings: list[Finding] = []
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
     # disables it; if every band is like that, the regulator carries the
     # volmax boost but tames nothing — the issue-#23 "per-band compression
@@ -587,5 +599,39 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
                 peak_db, freqs[peak_band],
                 plugins._coupled_bands_eligible(regulator), restored))
             _print_finding_detail(findings[-1])
+    return findings
+
+
+def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
+                           volmax_slot="input-gain", enabled=None,
+                           is_soundwire=False, verbose=False):
+    """Print the human-readable per-profile diagnostics for a parsed tuning
+    (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
+    volmax), and return the findings raised while doing so.
+
+    Side-effect-free apart from stdout — split out of main() so the
+    orchestration there stays legible. Each finding prints its technical half
+    here, in place; main() collects the returned list and renders the one-line
+    asks at the end, where a user still has them on screen."""
+    findings: list[Finding] = []
+
+    declared = tuning.default_profile
+    if declared and declared != tuning.profile_used:
+        findings.append(report_findings._profile_mismatch_finding(declared,
+                                                 tuning.profile_used))
+        _print_finding_detail(findings[-1])
+
+    _print_voicing(tuning)
+    _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose)
+    _print_peq(tuning, verbose)
+    _print_bass_enhancer(tuning, disabled, is_soundwire)
+    _print_dialog(tuning, disabled)
+    _print_surround(tuning)
+    _print_leveler(tuning, disabled, enabled, is_soundwire)
+    _print_mbc(tuning, disabled, verbose)
+    _print_regulator(tuning, disabled, verbose)
+    _print_volmax(tuning, disabled, volmax_slot, verbose)
+    findings += _boost_findings(tuning, ao_db_left, ao_db_right,
+                                disabled, enabled)
     print()
     return findings
