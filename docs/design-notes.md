@@ -3186,7 +3186,7 @@ recorded in its own slice above. Nothing planned was dropped.
 Each entry point keeps its argparse builders, `main()`, and the orchestration
 that reads as the program. This section first put that at **roughly 800 lines
 for the generator**; it settled at **924**, and the difference is not overrun
-but a deliberate floor. `main()` is 425 lines and the six `add_*_args`
+but a deliberate floor. `main()` is 425 lines and the seven `add_*_args`
 builders plus `build_parser` are 264 — 689 of the 924, or 74%, in the two
 things a split of this shape may not touch. The argparse block is the mirror
 `.claude/rules/cli-help.md` holds against the README and
