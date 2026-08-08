@@ -71,7 +71,7 @@ STDLIB_ONLY = (
     # environment the copy the user acts on — so every one of them reaches
     # lib.console and the optional rich that FORBIDDEN also covers. Absent for
     # that reason, not by oversight; profile.py doubly so, since it reaches
-    # numpy as well and is bound in the generator's _load_dsp for it.
+    # numpy as well and the generator imports it inside main() for that.
     # The converter's translation half: an EE plugin block turned into LV2
     # node dicts, and those nodes rendered as SPA-JSON. Its siblings
     # lib.pipewire.install and lib.pipewire.checks print, so they reach
@@ -112,10 +112,11 @@ def test_converter_startup_pulls_in_no_dsp():
     the DSP stack — so it keeps working as lib/ grows without being edited.
 
     Distinct from `tests/test_completions.py`'s
-    `test_completion_path_skips_the_dsp_import`, which covers the *generator*
-    and only under `_ARGCOMPLETE=1`: that one guards a deferral
-    (`ensure_dsp()`) on a path where numpy is merely postponed. Here there is
-    nothing to defer to — the converter never wants numpy at all, on any path.
+    `test_the_dsp_import_is_deferred_past_every_early_return`, which covers the
+    *generator*: that one guards a deferral, where numpy is merely postponed to
+    the function-local imports in `main()` and a real conversion still pays for
+    it. Here there is nothing to defer to — the converter never wants numpy at
+    all, on any path.
     """
     probe = (
         "import sys\n"

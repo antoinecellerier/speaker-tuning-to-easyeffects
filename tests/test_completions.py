@@ -4,8 +4,9 @@ Completions are derived from the live argparse parsers rather than generated
 into a checked-in file, so there is no third mirror of the flag list to drift
 (cf. .claude/rules/cli-help.md). What *can* break silently is the plumbing:
 the magic marker slipping past the 1024-byte window the shell hook scans, the
-optional import turning into a hard one, or the deferred DSP import creeping
-back onto the completion path. Those are what these traps lock down.
+optional import turning into a hard one, or the generator's deferred DSP
+import climbing back out of main() to module scope. Those are what these traps
+lock down.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import dolby_to_pipewire
 import ee_to_pipewire
 from lib.hardware import sinks
 from lib.report import messages
+from tests.conftest import write_synthetic_tuning_xml
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = (
@@ -69,44 +71,51 @@ def test_runs_with_argcomplete_absent(script, tmp_path):
     assert "usage:" in result.stdout
 
 
-def test_completion_path_skips_the_dsp_import():
-    """NumPy/SciPy are ~0.4 s of the ~0.5 s startup and argcomplete re-runs the
-    script on *every* TAB, so the completion path must not import them. A
-    regression here is invisible except as sluggish completion — hence a trap
-    on sys.modules rather than on wall-clock."""
-    probe = (
-        "import sys; sys.path.insert(0, %r)\n"
-        "import dolby_to_easyeffects\n"
-        "print('numpy' in sys.modules, 'scipy' in sys.modules)\n" % str(REPO)
-    )
-    env = {**os.environ, "_ARGCOMPLETE": "1"}
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        capture_output=True, text=True, timeout=30, env=env, cwd=REPO,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False False", (
-        "the DSP stack leaked onto the completion path: " + result.stdout
-    )
+def test_the_dsp_import_is_deferred_past_every_early_return(tmp_path):
+    """NumPy/SciPy are ~0.35 s of the generator's ~0.5 s startup, and the
+    generator imports them inside main(), just above the emit loop. So a path
+    that returns before that loop — --version here, with --list, --doctor,
+    --speaker-info and an argparse error alongside it — must cost nothing,
+    while a real conversion still gets them.
 
+    Both halves are load-bearing: an import hoisted back to module scope fails
+    the first, one deferred past its own use fails the second. A regression on
+    the first half is invisible except as a sluggish `--version`, hence a trap
+    on sys.modules rather than on wall-clock.
 
-def test_dsp_loads_on_a_normal_run():
-    """The other half of the deferral: a real run still gets NumPy, whether or
-    not _ARGCOMPLETE happens to be set in the environment."""
+    The conversion passes both output directories — --output-dir without
+    --irs-dir writes the .irs into the live EasyEffects tree.
+    """
     probe = (
         "import sys; sys.path.insert(0, %r)\n"
         "import dolby_to_easyeffects as d\n"
-        "d.ensure_dsp()\n"
-        "print(d.np.array([1.0]).sum())\n" % str(REPO)
+        "try:\n"
+        "    d.main(sys.argv[1:])\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        "print('numpy' in sys.modules, 'scipy' in sys.modules)\n" % str(REPO)
     )
-    for env_extra in ({}, {"_ARGCOMPLETE": "1"}):
+
+    def dsp_loaded(*argv: str) -> str:
         result = subprocess.run(
-            [sys.executable, "-c", probe],
-            capture_output=True, text=True, timeout=30,
-            env={**os.environ, **env_extra}, cwd=REPO,
+            [sys.executable, "-c", probe, *argv],
+            capture_output=True, text=True, timeout=120, cwd=REPO,
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == "1.0"
+        # main() prints the run's own output first; the probe's verdict is the
+        # last line.
+        return result.stdout.strip().splitlines()[-1]
+
+    assert dsp_loaded("--version") == "False False", (
+        "the DSP stack reached a path that returns before the emit loop — "
+        "something imports numpy at module scope again"
+    )
+
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    assert dsp_loaded(str(xml),
+                      "--output-dir", str(tmp_path / "presets"),
+                      "--irs-dir", str(tmp_path / "irs")) == "True True"
+    assert list((tmp_path / "irs").glob("*.irs")), "no conversion happened"
 
 
 # --- completer coverage ---------------------------------------------------
@@ -166,13 +175,17 @@ argcomplete = pytest.importorskip(
 )
 
 
-def _complete(script: Path, comp_line: str) -> list[str]:
+def _complete(script: Path, comp_line: str,
+              env_extra: dict[str, str] | None = None) -> list[str]:
     """Ask a script for its completions the way a shell does.
 
     argcomplete signals a completion request through the environment and
     answers on file descriptor 8, so the `8>&1` redirection below is exactly
     what the shell hook performs. That exercises the real path — parser build,
     _attach_completers, autocomplete — with no pty and no flakiness.
+
+    ``env_extra`` is layered last, so a caller can bend the child's
+    environment (PYTHONPATH, say) without rebuilding the protocol variables.
     """
     env = {
         **os.environ,
@@ -182,6 +195,7 @@ def _complete(script: Path, comp_line: str) -> list[str]:
         "COMP_TYPE": "9",  # TAB
         "COMP_LINE": comp_line,
         "COMP_POINT": str(len(comp_line)),
+        **(env_extra or {}),
     }
     proc = subprocess.run(
         ["bash", "-c", 'exec "$1" "$2" 8>&1 1>/dev/null 2>/dev/null',
@@ -189,6 +203,34 @@ def _complete(script: Path, comp_line: str) -> list[str]:
         capture_output=True, text=True, env=env, cwd=REPO, timeout=30,
     )
     return [c for c in proc.stdout.split("\n") if c]
+
+
+def test_completion_survives_an_unimportable_dsp_stack(tmp_path):
+    """A TAB press must not cost the ~0.35 s numpy import — argcomplete re-runs
+    the whole script on *every* one of them. Asserted by making numpy and scipy
+    raise on import and requiring completion to work anyway, which is stronger
+    than a sys.modules probe: a probe passes on a path that would have imported
+    them had it gone one line further.
+
+    Below the argcomplete gate on purpose, not by oversight. That
+    `pytest.importorskip` is at module scope, so it aborts the import of this
+    whole file — the tests above it are no more collected without argcomplete
+    than the ones below. This trap has always been gated on it; the placement
+    costs no coverage and buys the real protocol.
+    """
+    blocker = tmp_path / "no-dsp"
+    blocker.mkdir()
+    for module in ("numpy", "scipy"):
+        (blocker / f"{module}.py").write_text(
+            f'raise ImportError("{module} blocked by '
+            'tests/test_completions.py")\n'
+        )
+    got = _complete(SCRIPTS[0], "dolby_to_easyeffects.py --disable ",
+                    env_extra={"PYTHONPATH": str(blocker)})
+    assert got == list(messages.DISABLEABLE_FILTERS), (
+        "completion broke with the DSP stack unimportable, so something on "
+        f"the completion path now imports numpy or scipy. Got: {got}"
+    )
 
 
 def test_disable_completes_exactly_the_disableable_filters():

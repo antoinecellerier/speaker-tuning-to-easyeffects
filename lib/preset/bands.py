@@ -9,8 +9,8 @@ a plugin block is in `plugins.py`, and what ships is decided in `build.py`.
 
 Stdlib-only, and the numbers are why: a shelf Q from its S, a slope label from
 a Dolby order and a per-channel gain sum are closed-form arithmetic. So this
-half of preset construction is importable before `_load_dsp` has run, unlike
-`plugins.py` and `build.py` behind it.
+half of preset construction is importable at the top of the generator, unlike
+`plugins.py` and `build.py` behind it, which numpy keeps deferred to `main()`.
 """
 
 from __future__ import annotations

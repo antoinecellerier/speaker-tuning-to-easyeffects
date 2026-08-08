@@ -24,7 +24,6 @@ Output chain:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -52,39 +51,6 @@ try:
     import argcomplete
 except ImportError:
     argcomplete = None
-
-
-def _load_dsp() -> None:
-    """Import the DSP stack into module globals.
-
-    NumPy and SciPy are ~0.4 s of this script's ~0.5 s startup, and
-    argcomplete re-runs the whole script on *every* TAB press, exiting inside
-    autocomplete() long before any DSP code is reached. So the completion path
-    skips them and complete_and_load() imports them once it knows this is a
-    real run. The `from __future__ import annotations` above is what makes
-    that legal: `np.ndarray` in a signature is a string, not a lookup.
-
-    Every lib module that reaches numpy is bound here for the same reason and
-    not at the top of this file: importing one of them eagerly would undo the
-    deferral this function exists for. These two are what is left once the
-    DSP-bound code moved out — the emit loop and the per-profile report — and
-    between them they pull in lib.preset.{fir,build,plugins}, which is why
-    those are no longer named here. What this file imports at the top instead
-    — autoload, findings, messages, speaker, doctor_run, environment, and
-    dax.{discover,parse} — is stdlib-only. `np` stays because main() converts
-    the parsed curves to dB before handing them on.
-    """
-    global np, emit, report_profile
-    import numpy as np
-    from lib.preset import emit
-    # Aliased on report_findings/report_speaker's precedent: main() binds
-    # profile_type, profile_label and profile_findings within a few lines of
-    # the one call this module serves.
-    from lib.report import profile as report_profile
-
-
-if "_ARGCOMPLETE" not in os.environ:
-    _load_dsp()
 
 
 # Annotated and printed here, raised across lib/dax/ and lib/report/, so the
@@ -456,26 +422,6 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
             action.completer = completer
 
 
-def ensure_dsp() -> None:
-    """Load the DSP stack if the completion-path deferral skipped it.
-
-    Reaching here means the run is real, not a tab completion — argcomplete
-    exits inside autocomplete(). Callers that hook completion themselves
-    (dolby_to_pipewire.py composes its own parser) must still call this.
-    """
-    if "np" not in globals():
-        _load_dsp()
-
-
-def complete_and_load(parser: argparse.ArgumentParser) -> None:
-    """Serve a shell tab-completion request, then finish start-up for a real
-    run. The single call the entry point needs."""
-    if argcomplete is not None:
-        _attach_completers(parser)
-        argcomplete.autocomplete(parser)
-    ensure_dsp()
-
-
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
          troubleshooting: dict | None = None,
@@ -495,7 +441,15 @@ def main(argv: list[str] | None = None,
     output dirs as a wrapper's throwaway staging area, so the per-file
     announcements say "Staged", not "Wrote"."""
     parser = build_parser(argv)
-    complete_and_load(parser)
+    # Serve a shell tab-completion request: on a TAB press argcomplete answers
+    # on fd 8 and exits inside autocomplete(), so nothing below here runs.
+    # Written out rather than kept behind a helper because the wrapper's own
+    # copy differs — it attaches both converters' completer tables to its
+    # composed parser — so one helper for the two call sites would need a
+    # parameter to say which.
+    if argcomplete is not None:
+        _attach_completers(parser)
+        argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
     args.staged = staged
     report_findings._TAG_CONVENTION_SHOWN = False
@@ -585,6 +539,28 @@ def main(argv: list[str] | None = None,
     # applies to some profiles and not the preset the user will autoload.
     raised_in: dict[str, list[str]] = {}
     leveler_substages: dict[str, None] = {}
+
+    # The DSP stack, imported here and not at the top of the file: numpy is
+    # ~0.35 s of a ~0.5 s start-up, and every path that returns above reaches
+    # none of it — --version, --list, --doctor, --speaker-info, an argparse
+    # error, and a tab completion (argcomplete re-runs the whole script on
+    # *every* TAB press, exiting inside autocomplete()). `emit` and `profile`
+    # are here for the same reason rather than at the top: between them they
+    # pull in lib.preset.{fir,build,plugins}, so importing either eagerly
+    # would undo the deferral. What this file does import at the top —
+    # autoload, findings, messages, speaker, doctor_run, environment, and
+    # dax.{discover,parse} — reaches no numpy.
+    #
+    # Before the loop rather than inside it, which is the same thing minus the
+    # repetition: profile_types is never empty by here (the empty case
+    # returned above) and always holds at least one entry, so the loop body
+    # runs on exactly the paths that reach this line.
+    import numpy as np
+    from lib.preset import emit
+    # Aliased on report_findings/report_speaker's precedent: profile_type,
+    # profile_label and profile_findings are all bound within a few lines of
+    # the one call this module serves.
+    from lib.report import profile as report_profile
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"

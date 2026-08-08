@@ -12,8 +12,8 @@ what Dolby meant by them (CLAUDE.md, "XML-only derivability").
 
 **This module reaches numpy transitively** — `lib.preset.fir`, for the sample
 rate the MBC time constants decode against — so `dolby_to_easyeffects.py`
-binds it in `_load_dsp` rather than at the top of the file, the same deferral
-`fir.py`'s own docstring explains.
+reaches it only through the function-local imports in `main()`, never at the
+top of the file: the same deferral `fir.py`'s own docstring explains.
 
 `make_band` is the one name imported bare rather than through its module:
 `make_dialog_enhancer` builds its speech bell with it, and a move commit may

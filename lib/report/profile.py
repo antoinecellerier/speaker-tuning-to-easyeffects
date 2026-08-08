@@ -16,11 +16,13 @@ It is a module of its own and not more of `lib/report/messages.py` because it
 reaches the DSP stack — numpy for the audio-optimizer summary,
 `lib/preset/fir.py` for the sample rate the compressor crossovers print
 against, `lib/preset/plugins.py` for the decoders whose answers it reports.
-That is also why `dolby_to_easyeffects.py` binds it inside `_load_dsp()`
-beside `fir`/`build` rather than at the top of the file: numpy and scipy are
-~0.4 s of the generator's ~0.5 s startup and argcomplete re-runs the whole
-script on every TAB press, so anything reaching them has to stay off the
-import path (`tests/test_completions.py::test_completion_path_skips_the_dsp_import`).
+That is also why `dolby_to_easyeffects.py` imports it inside `main()`, beside
+`emit`, rather than at the top of the file: numpy and scipy are ~0.35 s of the
+generator's ~0.5 s startup, so anything reaching them has to stay off the
+import path and out of every early return — `--version`, `--list`, `--doctor`,
+`--speaker-info`, an argparse error, and a tab completion, which argcomplete
+re-runs the whole script for on every TAB press
+(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
 `findings` keeps the generator's alias (`report_findings`) and
 `_print_finding_detail` and `Finding` arrive as bare names, because the moved

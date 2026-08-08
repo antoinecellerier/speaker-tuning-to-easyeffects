@@ -17,10 +17,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Step 1 runs in-process, so this pulls in the generator's NumPy/SciPy —
-# acceptable: every non-inspection run executes that DSP anyway. (A tab
-# completion is the exception, and the generator skips the DSP import there;
-# see its _load_dsp.)
+# Both steps run in-process, so a real conversion through this wrapper
+# executes the generator's DSP and pays for NumPy/SciPy exactly as running the
+# generator directly would. It pays for them no earlier, though: the generator
+# imports them inside its main(), past every early return, so --version,
+# --help, a tab completion and an argparse error cost nothing here either.
 import dolby_to_easyeffects
 import ee_to_pipewire
 from lib import console, version
@@ -195,7 +196,6 @@ def main(argv: list[str] | None = None) -> int:
         dolby_to_easyeffects._attach_completers(parser)
         ee_to_pipewire._attach_completers(parser)
         dolby_to_easyeffects.argcomplete.autocomplete(parser)
-    dolby_to_easyeffects.ensure_dsp()
     args = parser.parse_args(argv)
     if args.no_color:
         console._disable_color()

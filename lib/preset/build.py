@@ -12,7 +12,8 @@ static volmax boost (and `--enable level-restore`'s giveback) is injected
 into. Both are measured trade-offs rather than XML fields; the evidence is in
 `docs/design-notes.md`.
 
-Imports `plugins.py`, so it reaches numpy too and is bound in `_load_dsp`.
+Imports `plugins.py`, so it reaches numpy too and stays behind the generator's
+function-local imports for it.
 
 The stage builders come in as bare names rather than through their modules,
 against the house rule: `make_preset` is one long body of calls to them, and a

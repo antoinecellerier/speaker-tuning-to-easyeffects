@@ -10,14 +10,15 @@ in group delay. Change the peak position, not the design.
 
 **This module imports numpy at the top, and that is why the generator does
 not import it at the top.** `dolby_to_easyeffects.py` defers the whole DSP
-stack (`_load_dsp`) because argcomplete re-runs the script on every TAB press
-and numpy is ~0.4 s of a ~0.5 s start-up; it now binds this module in the
-same place, so a completion still costs no numpy
-(`tests/test_completions.py::test_completion_path_skips_the_dsp_import`).
-The alternatives were worse: importing this module eagerly breaks that test
-outright, and giving *this* module its own deferral would mean writing new
-`global`-binding code into a commit whose whole claim is that it only moved
-lines.
+stack into function-local imports inside `main()` — numpy is ~0.35 s of a
+~0.5 s start-up, and every path that returns before the emit loop (`--version`,
+`--list`, `--doctor`, `--speaker-info`, an argparse error, and a tab
+completion, which argcomplete re-runs the whole script for on every TAB press)
+reaches none of it. It reaches this module only through those imports, so none
+of those paths costs any numpy
+(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
+The alternative was worse: importing this module at the top of the generator
+breaks that trap outright.
 
 `SAMPLE_RATE` and `FIR_LENGTH` live here rather than in a constants module
 because `make_fir` reads both, and a constant sits with its user (CLAUDE.md,

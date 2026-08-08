@@ -3905,6 +3905,18 @@ scripts. On the completion path all three scripts stay DSP-free: 222 / 214 /
 for one reason — `lib.preset.bands` was the only *module* among the eight dead
 imports; the other seven are stdlib and still arrive transitively.
 
+> **Superseded by the deferral commit.** The paragraph above is correct for
+> the tree it was written against, and the "666 either side" measurement is
+> what made the numpy claim falsifiable — kept for that. What it rests on, the
+> module-scope `if "_ARGCOMPLETE" not in os.environ: _load_dsp()`, is gone:
+> the generator now imports numpy, `lib.preset.emit` and `lib.report.profile`
+> as three ordinary function-local imports just above `main()`'s emit loop, so
+> `import dolby_to_easyeffects` no longer imports numpy on *any* path. Same
+> probe, re-measured after that commit: a wrapper import is 232 modules (was
+> 666) and a generator import 223 (was 658), numpy and scipy absent from both.
+> The wrapper still pays for the DSP on a real conversion — it runs both steps
+> in-process — just no earlier than the generator itself does.
+
 **One disclosed impurity, in the smallest move of the five.**
 `_safe_node_name`'s body read `conf._sanitize_name(...)` and
 `conf.DEFAULT_NODE_NAME`, and inside `conf.py` those prefixes cannot stand, so

@@ -12,15 +12,16 @@ and the WAV writer.
 since expired — binding `wavfile` in another module meant a second deferred
 import, which is new code rather than motion. It has nothing to defer to now:
 `lib/preset/fir.py` imports numpy at module scope already, so a module the
-generator only reaches through `_load_dsp()` may import scipy the same way, in
+generator only reaches from inside `main()` may import scipy the same way, in
 the top-level block a move commit is allowed to write. It is still the only
 caller of `lib/preset/autoload.py`'s `_atomic_write` outside that module.
 
-Bound in `dolby_to_easyeffects.py`'s `_load_dsp()` rather than imported at the
-top of it, like `lib/report/profile.py` and for the same reason: numpy and
-scipy are ~0.4 s of a ~0.5 s startup and argcomplete re-runs the whole script
-on every TAB press
-(`tests/test_completions.py::test_completion_path_skips_the_dsp_import`).
+Imported inside `dolby_to_easyeffects.py`'s `main()` rather than at the top of
+it, like `lib/report/profile.py` and for the same reason: numpy and scipy are
+~0.35 s of a ~0.5 s startup, so everything that returns before the emit loop —
+including a tab completion, which argcomplete re-runs the whole script for on
+every TAB press — must not reach them
+(`tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
 `VOICING_CURVES` comes from `lib/report/messages.py` — the Balanced/Detailed/
 Warm table is copy as much as it is data, and its other reader

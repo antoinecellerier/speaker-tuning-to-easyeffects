@@ -246,6 +246,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   lineage — rule the kernel out first
   ([#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39);
   details in `docs/ee-to-pipewire.md`).
+- `--version`, `--help`, `--list`, `--doctor`, `--speaker-info` and a mistyped
+  flag now come back without the start-up pause on `dolby_to_easyeffects.py`
+  and `dolby_to_pipewire.py`: the DSP libraries that dominate start-up are
+  loaded only once a run reaches the conversion itself. Shell tab-completion
+  was already exempt and stays so.
 
 ## v2026.07 — 2026-07-21
 
