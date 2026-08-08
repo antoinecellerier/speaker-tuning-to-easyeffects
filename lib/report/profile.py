@@ -24,11 +24,11 @@ import path and out of every early return — `--version`, `--list`, `--doctor`,
 re-runs the whole script for on every TAB press
 (`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
-`findings` keeps the generator's alias (`report_findings`) and
-`_print_finding_detail` and `Finding` arrive as bare names, because the moved
-lines read through those spellings and a move commit may not re-point what it
-carries — the same terms `lib/report/messages.py` and `lib/report/speaker.py`
-already take them on. `VOICING_CURVES` comes from `messages` for the reason
+`findings` keeps the generator's alias (`report_findings`).
+`_print_finding_detail` and `Finding` arrive as bare names because neither
+holds state a patch would have to reach: a frozen record, and a printer that
+reads `_TAG_CONVENTION_SHOWN` out of its own module globals at call time.
+`VOICING_CURVES` comes from `messages` for the reason
 recorded there: its other readers are `lib/preset/emit.py`, in a package this
 one may not import, and `dolby_to_pipewire.py`'s `--variant` choices, in a
 root script.

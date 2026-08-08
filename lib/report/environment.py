@@ -21,12 +21,10 @@ counter and the check printer — comes from `lib/doctor.py`, shared with
 `ee_to_pipewire.py`'s PipeWire-side doctor so the two read as one tool. Not
 the `~`-collapsing path renderer, though: these functions take plain inputs,
 so the one verdict that names a path (`install_status`) is handed it already
-collapsed, as `base_display`. The constants are imported under bare names
-rather than through the module because that is how these lines read in
-`dolby_to_easyeffects.py`, and a move commit may not re-point what it carries;
-they are string constants and a record type, so there is nothing here a test
-would want to patch. `BYPASS_PRESET_NAME` arrives the same way, from
-`lib/preset/autoload.py` — the empty preset written there is
+collapsed, as `base_display`. The constants come in under bare names because
+string constants and a record type hold no state a patch would have to reach.
+`BYPASS_PRESET_NAME` arrives the same way, from `lib/preset/autoload.py` —
+the empty preset written there is
 one this doctor has to recognise, because having it selected is itself a
 "sounds like nothing" cause.
 """

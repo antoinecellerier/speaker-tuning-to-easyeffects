@@ -29,10 +29,8 @@ The EasyEffects-side counterpart of `lib/pipewire/checks.py`, whose
 calls `report_doctor` here. The two doctors share their report vocabulary —
 PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary counter, the check printer
 and the `~`-collapsing path renderer — through `lib/doctor.py`, so they read as
-one tool. The constants and `CheckResult` arrive under bare names rather than
-through the module because that is how these lines read in the generator and a
-move commit may not re-point what it carries; they are string constants and a
-record type, so there is nothing here a test would patch.
+one tool. The constants and `CheckResult` arrive under bare names because
+string constants and a record type hold no state a patch would have to reach.
 
 `findings` and `speaker` keep the aliases the generator gave them
 (`report_findings`, `report_speaker`) for the same reason: the moved lines

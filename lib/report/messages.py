@@ -29,10 +29,9 @@ insertion order is the order voicings are built in, so a reader that renders
 the list — `--variant`'s choices, and `--help` behind it — inherits it.
 
 `Finding`'s asks print through `lib/report/findings.py`; this module renders
-the menus around them. `_print_ask` comes in as a bare name rather than
-through its module because `print_troubleshooting` interleaves the run's own
-hints with the menu rows, and a move commit may not re-point a body it
-carries.
+the menus around them. `Finding` and `_print_ask` come in as bare names
+because neither holds state a patch would have to reach: a frozen record, and
+a printer that reaches the console through `lib.console` at call time.
 """
 
 from __future__ import annotations

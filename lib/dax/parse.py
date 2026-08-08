@@ -12,18 +12,10 @@ DSP blocks the corpus shows but this script does not model.
 preset builders read `DB_FIXED_POINT_SCALE` from here, and a numpy import
 behind that constant would be paid by everything downstream of it.
 
-Two names are imported *bare* from `lib.report.findings`, against the
-"import the module, not the name" rule the rest of `lib/` keeps
-(`docs/code-organisation.md`, "The monkeypatch hazard"). That is not a preference:
-this code arrived as a pure move, and qualifying the call sites it already
-had — `_print_finding_detail(finding)` at the end of `parse_xml`,
-`Finding(...)` inside `collect_unmodeled_features` — would have rewritten
-lines `git blame -C` needs unchanged. The hazard the rule exists for reaches
-neither name: `Finding` is a frozen dataclass no test patches, and
-`_print_finding_detail` reads `_TAG_CONVENTION_SHOWN` out of its *own*
-module globals at call time, so the one patch that does exist still lands
-wherever it is called from. Rewrite these two as module imports the next
-time those bodies change for another reason.
+`Finding` and `_print_finding_detail` come in as bare names because neither
+holds state a patch would have to reach (`docs/code-organisation.md`, "The
+monkeypatch hazard"): a frozen dataclass, and a printer that reads
+`_TAG_CONVENTION_SHOWN` out of its own module globals at call time.
 """
 
 from __future__ import annotations

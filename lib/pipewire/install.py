@@ -13,10 +13,10 @@ pathway (``lib.hardware.sinks``). Importing it is free: ``pw-dump`` is read
 inside ``_enumerate_audio_sinks``, so a converter run that never needs a sink
 never shells out, whether the import sits here or in the function.
 
-``_sanitize_name`` is imported bare from ``lib.pipewire.conf`` because
-``_print_next_steps`` calls it and arrived here as a move; see that module's
-docstring for why a carried body may not be re-pointed. ``PIPEWIRE_RESTART_CMD``
-rides the same import — it was defined here until ``checks.py`` and
+``_sanitize_name`` comes in bare from ``lib.pipewire.conf`` for
+``_print_next_steps`` — a regex over its argument, with no state a patch would
+have to reach. ``PIPEWIRE_RESTART_CMD`` rides the same import — it was defined
+here until ``checks.py`` and
 ``ee_to_pipewire.py`` had to spell it too, and ``conf`` is a module all three
 already import, and the one whose subject the command belongs to (``console``,
 the other they share, owns printing). Not stdlib-only —

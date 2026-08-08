@@ -12,13 +12,9 @@ PipeWire's dialect is not JSON: bare keys, ``=`` instead of ``:``, and no
 commas. Reading it back is the opposite — ``spa-json-dump`` does that, in
 ``checks.py``.
 
-``Stage``, ``ChainResult`` and ``EE_KEY_DISPATCH`` are imported under their
-bare names rather than through their module: ``build_chain``, ``emit_links``
-and ``format_conf`` arrived here as a move and a move commit may not re-point
-a line inside a body it carries (`docs/code-organisation.md`, "Splitting the
-single-file scripts"). Nothing patches them — two dataclasses and a table
-built at import time — so the stale-binding hazard the house rule guards
-against does not apply.
+``Stage``, ``ChainResult`` and ``EE_KEY_DISPATCH`` come in under their bare
+names because none of them holds state a patch would have to reach: two
+dataclasses and a table built at import time.
 
 Stdlib-only: ``lib.version`` is the only non-stdlib import, for the ``#
 version:`` stamp the conf header carries and ``--doctor`` reads back.

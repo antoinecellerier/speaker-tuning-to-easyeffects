@@ -26,10 +26,9 @@ and again in ``main``.
 The report vocabulary — PASS/WARN/FAIL/UNKNOWN, ``CheckResult``, the summary
 counter, the check printer and the ``~``-collapsing path renderer — comes from
 ``lib/doctor.py``, shared with the EasyEffects doctor so the two read as one
-tool. The constants and the plugin URIs are imported under bare names because
-that is how these lines read in ``ee_to_pipewire.py`` and a move may not
-re-point what it carries; they are string constants and a record type, so
-there is nothing here a test would patch. The functions stay module-qualified.
+tool. The constants and the plugin URIs come in under bare names because
+string constants and a record type hold no state a patch would have to reach.
+The functions stay module-qualified.
 
 This doctor ends on the same hardware dump the EasyEffects one prints, because
 hardware sits under the whole chain and the questions it answers are the same

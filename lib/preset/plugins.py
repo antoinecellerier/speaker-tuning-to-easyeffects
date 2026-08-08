@@ -15,10 +15,9 @@ rate the MBC time constants decode against — so `dolby_to_easyeffects.py`
 reaches it only through the function-local imports in `main()`, never at the
 top of the file: the same deferral `fir.py`'s own docstring explains.
 
-`make_band` is the one name imported bare rather than through its module:
-`make_dialog_enhancer` builds its speech bell with it, and a move commit may
-not re-point a body it carries. Nothing patches it — it is arithmetic over its
-arguments — so the hazard the house rule guards against does not apply.
+`make_band`, which `make_dialog_enhancer` builds its speech bell with, comes
+in as a bare name: it is arithmetic over its arguments, with no state a patch
+would have to reach.
 """
 
 from __future__ import annotations

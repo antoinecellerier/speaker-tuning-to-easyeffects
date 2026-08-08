@@ -15,11 +15,8 @@ into. Both are measured trade-offs rather than XML fields; the evidence is in
 Imports `plugins.py`, so it reaches numpy too and stays behind the generator's
 function-local imports for it.
 
-The stage builders come in as bare names rather than through their modules,
-against the house rule: `make_preset` is one long body of calls to them, and a
-move commit may not re-point a line it carries. It is safe here because none
-of them is a monkeypatch target — `tests/test_layout.py`'s re-export trap is
-what would catch it if that changed.
+The stage builders come in as bare names because they are arithmetic over
+their arguments, with no state a patch would have to reach.
 """
 
 from __future__ import annotations
