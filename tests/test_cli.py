@@ -983,6 +983,52 @@ def test_run_cli_guards_its_own_main(module_name, monkeypatch, capsys,
     ]
 
 
+def test_the_two_failure_paths_end_on_one_sentence():
+    """A bad flag and a raised failure point at --help in the same words.
+
+    They are two different paths — argparse writes to stderr and exits 2 —
+    but one string, so a reworded pointer cannot reach a user through one of
+    them and not the other.
+    """
+    assert console._HELP_HINT == DEFAULT_NEXT_STEP
+    result = _run_script("--disable", "nonexistent-filter")
+    assert result.returncode == 2
+    assert DEFAULT_NEXT_STEP in result.stderr
+
+
+def test_a_raiser_can_name_its_own_next_step(capsys, silence_console):
+    """The next step belongs to whoever wrote the message.
+
+    Exception class cannot stand in for it: FileNotFoundError is raised here
+    for auto-detection misses, a missing XML and a missing .irs, which want
+    three different things said next.
+    """
+    silence_console(console)
+    failure = ValueError("this device's tuning names no speakers")
+
+    assert console.run_guarded(lambda: (_ for _ in ()).throw(failure)) == 1
+    assert capsys.readouterr().out.splitlines()[-1] == DEFAULT_NEXT_STEP
+
+    failure.next_step = "Try --endpoint headphone."
+    assert console.run_guarded(lambda: (_ for _ in ()).throw(failure)) == 1
+    assert capsys.readouterr().out.splitlines()[-1] == "Try --endpoint headphone."
+
+
+def test_a_message_that_ends_on_its_own_instruction_gets_no_pointer(
+        capsys, silence_console):
+    """no_next_step prints nothing after the error, not an empty line — a
+    blank call-to-action line is the "nothing to do" entry that
+    .claude/rules/user-messages.md keeps out of the closing block."""
+    silence_console(console)
+    failure = console.no_next_step(RuntimeError("scipy is not installed. "
+                                                "Install it."))
+
+    assert console.run_guarded(lambda: (_ for _ in ()).throw(failure)) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "Error: scipy is not installed. Install it."
+    ]
+
+
 def test_skip_ee_check_gates_environment_warning(monkeypatch, tmp_path, capsys):
     """`--skip-ee-check` must suppress the end-of-run warn_ee_environment
     probe (and only that) — dolby_to_pipewire.py relies on it to keep the

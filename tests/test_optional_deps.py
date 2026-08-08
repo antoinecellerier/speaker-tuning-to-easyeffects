@@ -256,6 +256,13 @@ def test_a_missing_dsp_dependency_names_itself(module, tmp_path):
     assert "requirements.txt" in output, (
         f"the error must point at the install step:\n{output}"
     )
+    # And nothing after it. The line the guard adds by default sends a reader
+    # who has just been told what to install off to read a flag list, and no
+    # flag installs numpy — this is the site console.no_next_step exists for.
+    assert "--help" not in output, (
+        "the install instruction was followed by the generic --help pointer, "
+        f"which cannot fix a missing module:\n{output}"
+    )
     # The other half of the same bug (previous commit): a run that produces
     # nothing leaves nothing behind either, and this is the earliest failure
     # that can reach the mkdir.

@@ -353,6 +353,26 @@ class TestParseXmlGuards:
         with pytest.raises(ValueError, match="audio-optimizer-bands"):
             parse_xml(p)
 
+    def test_unknown_channel_layout_carries_its_own_next_step(self, tmp_path):
+        # <audio-optimizer-bands> present but named by neither layout the
+        # decoder reads. Alone among these guards its message ends on what to
+        # do about it, so it opts out of the generic "Run with --help" line
+        # the CLI's guard would otherwise print under it.
+        p = self._write(tmp_path, """
+            <root>
+              <constant><band_20_freq fs_48000="1,2,3,4,5"/></constant>
+              <endpoint type="internal_speaker" operating_mode="normal">
+                <profile type="default"><tuning-vlldp>
+                  <audio-optimizer-bands><gain_x value="0"/></audio-optimizer-bands>
+                </tuning-vlldp></profile>
+              </endpoint>
+            </root>
+        """)
+        with pytest.raises(ValueError, match="neither ch_00") as excinfo:
+            parse_xml(p)
+        assert excinfo.value.args[0].rstrip().endswith("supported.")
+        assert excinfo.value.next_step == ""
+
     def test_band_group_wrong_length_raises_valueerror(self, tmp_path):
         # MBC enabled with a band_group_0 carrying 5 ints instead of the
         # 6 the per-band decode unpacks (xover, threshold, ratio, attack,

@@ -49,8 +49,8 @@ alone: the two PipeWire entry points ended in a bare ``sys.exit(main())`` and
 let a converter failure traceback at the user. It sits beside
 ``_HelpHintParser`` because the two are one message seen from either side of
 argparse — the argv was wrong (stderr, exit 2), or something the run reached
-raised (stdout, exit 1) — and a reader deciding how a failure should read has
-both in front of them.
+raised (stdout, exit 1) — and they share ``_HELP_HINT``, the sentence both end
+on when nothing more specific is known.
 """
 
 import argparse
@@ -108,6 +108,16 @@ if _HelpFormatter is argparse.HelpFormatter:
     _MISSING_COLOR_DEPS.append("rich-argparse")
 
 
+# The sentence both failure paths end on: argparse's, when the argv itself is
+# wrong, and run_guarded's, for any raiser that names no next step of its own.
+# One spelling, not two that read alike. The paths genuinely differ — argv
+# parsing writes to stderr and exits 2, a raised failure prints to stdout and
+# exits 1 — but the claim is the same claim, and the parser below has always
+# promised in its docstring that the two nudges match. A promise like that
+# kept as a second copy of the string is what goes stale first.
+_HELP_HINT = "Run with --help to see usage and all options."
+
+
 class _HelpHintParser(argparse.ArgumentParser):
     """ArgumentParser that appends a --help pointer to usage errors, so a
     bad/unknown flag gets the same 'Run with --help' nudge that runtime
@@ -117,11 +127,7 @@ class _HelpHintParser(argparse.ArgumentParser):
 
     def error(self, message):
         self.print_usage(sys.stderr)
-        self.exit(
-            2,
-            f"{self.prog}: error: {message}\n"
-            "Run with --help to see usage and all options.\n",
-        )
+        self.exit(2, f"{self.prog}: error: {message}\n{_HELP_HINT}\n")
 
 
 # What a user can cause, as against what only we can. Everything listed is an
@@ -146,6 +152,26 @@ class _HelpHintParser(argparse.ArgumentParser):
 _HANDLED = (OSError, RuntimeError, ValueError, ET.ParseError)
 
 
+def no_next_step(exc):
+    """Mark ``exc`` as already ending on its own instruction, and return it.
+
+    For the failures whose message closes on the thing to do — install this
+    package, pick another profile. There the generic --help pointer is a
+    second and weaker call to action, and for a missing dependency it is a
+    wrong one: no flag installs numpy, so it sends a reader who has just been
+    told exactly what to type off to read a flag list instead. The
+    no-"nothing to do" rule in .claude/rules/user-messages.md is the same
+    argument one level up — an action-shaped line with no action in it
+    teaches people to stop reading the ones that have.
+
+    ``raise console.no_next_step(ValueError(msg))`` at the site, rather than a
+    flag threaded through the raise, because it is the message's own wording
+    that decides this and the wording is right there.
+    """
+    exc.next_step = ""
+    return exc
+
+
 def run_guarded(run) -> int:
     """Run ``run()``, rendering a failure the user can act on as one line.
 
@@ -159,6 +185,13 @@ def run_guarded(run) -> int:
     rendered twice: dolby_to_pipewire.py calls the generator's ``run_cli`` in
     process, so an XML that cannot be read is printed by the guard inside that
     call and reaches the wrapper's own as a return code, not an exception.
+
+    What follows the error line is the raiser's to choose, via a ``next_step``
+    attribute on the exception (``no_next_step`` above sets the empty one).
+    Exception *class* cannot make that choice for it — FileNotFoundError is
+    raised for three unrelated kinds of failure here and ValueError for two —
+    so the site that wrote the message is the only place that knows whether
+    --help is the right thing to say after it.
     """
     try:
         rc = run()
@@ -167,7 +200,9 @@ def run_guarded(run) -> int:
         # discovery errors name several paths mid-sentence, and an OSError
         # names one inside repr quotes. This is where all of them print.
         cprint("err", f"Error: {doctor.tilde(e)}")
-        cprint("cta", "Run with --help to see usage and all options.")
+        next_step = getattr(e, "next_step", _HELP_HINT)
+        if next_step:
+            cprint("cta", next_step)
         return 1
     return 0 if rc is None else rc
 

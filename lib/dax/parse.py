@@ -393,13 +393,19 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         right_band = ao_bands.find("gain_r")
     if left_band is None or right_band is None:
         found_tags = sorted({c.tag for c in ao_bands})
-        raise ValueError(
+        # no_next_step: the sentence already ends on both things to try, and
+        # the generic --help pointer under it would offer a flag list to
+        # someone who has just been told which two flags to reach for. The
+        # sibling schema guards above stop at "not supported" and name nothing
+        # to do, so they keep the default pointer rather than closing on
+        # silence.
+        raise console.no_next_step(ValueError(
             f"{path.name}: audio-optimizer-bands has neither ch_00/ch_01 nor "
             f"gain_l/gain_r — found {found_tags or '[]'} instead. This XML uses "
             "a DAX3 schema variant this script does not support. Pick another "
             "endpoint/profile, or open an issue if you need this variant "
             "supported."
-        )
+        ))
     ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 

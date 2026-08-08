@@ -529,12 +529,14 @@ def main(argv: list[str] | None = None,
         #
         # Raised rather than printed here, per the convention the auto-detection
         # failure above documents — the top-level handler in run_cli() renders
-        # it as a clean error and returns 1.
-        raise RuntimeError(
+        # it as a clean error and returns 1. no_next_step because the sentence
+        # already ends on the install step, and no flag this tool has installs
+        # numpy.
+        raise console.no_next_step(RuntimeError(
             f"{exc.name} is not installed, and generating a preset needs it. "
             "requirements.txt lists what to install, and the README's Install "
             "section has the command for your distro."
-        ) from exc
+        )) from exc
 
     # Created here rather than beside the dry-run banner above: below every
     # early return, and below the import that a machine without numpy dies
