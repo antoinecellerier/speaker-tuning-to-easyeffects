@@ -1,7 +1,7 @@
 numpy
 scipy
-rich
-rich-argparse
+rich  # optional: colored output (see README "Install"); monochrome without it
+rich-argparse  # optional: colored --help (same); plain --help without it
 argcomplete  # optional: shell tab-completion (see README "Shell tab-completion")
 pytest
 pytest-xdist  # pyproject's addopts passes -n auto, so the suite needs this

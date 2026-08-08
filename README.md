@@ -101,7 +101,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` also pulls in `pytest` so you can run the test suite (`pytest tests/`) from the same venv.
+`requirements.txt` also pulls in `pytest` and `pytest-xdist` so you can run the test suite (`pytest tests/`) from the same venv — `pyproject.toml` passes `-n auto`, so pytest won't start without xdist.
 
 ## Usage
 
