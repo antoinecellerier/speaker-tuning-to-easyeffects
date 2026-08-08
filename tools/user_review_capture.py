@@ -117,7 +117,7 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
     fake-home world assembled first (see FAKE_HOME above); ``stage`` names
     real XML files that must appear in FAKE_XML_DIR before cmd runs, and cmd
     should reference them by their FAKE_XML_DIR paths. The staging copies
-    are made under the repo (\_STAGE_REL) so the bind mount carries them in.
+    are made under the repo (``_STAGE_REL``) so the bind mount carries them in.
     """
     env = dict(os.environ, COLUMNS=str(width))
     shell_cmd = " ".join(shlex.quote(c) for c in cmd)
