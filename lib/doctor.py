@@ -16,6 +16,7 @@ below.
 
 from __future__ import annotations
 
+import re
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,13 +39,28 @@ def tilde(path) -> str:
     Part of the shared vocabulary for the same reason the status boxes are:
     both reports are written to be pasted into an issue, and a home path is
     the one line in them that carries something the reporter didn't mean to
-    send. The separator is the literal "/" rather than ``os.sep`` — the only
-    platform either doctor describes is the one PipeWire and EasyEffects run
-    on, and spelling it costs this module no import it doesn't already have.
+    send. Every run prints paths, not just the doctors, so this is the
+    renderer for all of them — the separator is the literal "/" rather than
+    ``os.sep``, since the only platform either script describes is the one
+    PipeWire and EasyEffects run on.
+
+    Takes a whole path *or* a message with one inside it: the two scripts'
+    top-level error printers hand it a caught exception, whose path arrives
+    mid-sentence and, for an OSError, inside repr quotes. Matching only at
+    the string's start would leave every one of those absolute.
+
+    The boundaries are what keep that from over-matching: ``/home/ann`` may
+    not fire inside ``/home/annie`` (right edge) or ``/mnt/bak/home/ann``
+    (left edge), so the characters either side must be ones a path component
+    cannot continue through. Apply it at the print, never to the variable —
+    a collapsed path that is also *written* somewhere (a convolver filename,
+    a file to create) is a path nothing else expands.
     """
     s = str(path)
     home = str(Path.home())
-    return "~" + s[len(home):] if s == home or s.startswith(home + "/") else s
+    if home in ("", "/"):   # a root-owned or homeless run: nothing to collapse
+        return s
+    return re.sub(rf"(?<![\w./~-]){re.escape(home)}(?![\w.~-])", "~", s)
 
 
 @dataclass

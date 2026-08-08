@@ -16,6 +16,8 @@ filesystem writes; they are exercised by the corpus tests
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
 import sys
@@ -24,7 +26,7 @@ from pathlib import Path
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, version
+from lib import console, doctor, version
 from lib.data import speaker_pin_quirks
 from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
@@ -460,35 +462,213 @@ def test_help_exits_cleanly():
     assert "Convert Dolby DAX3" in result.stdout
 
 
-# `--help` is the listing people paste into a public issue, so no default in
-# it may spell $HOME out — every one goes through doctor.tilde, the same
-# renderer both --doctor reports use, and the README writes them as ~/… too.
+# Anything a user pastes into a public issue — the `--help` listing, and the
+# log of the run they are reporting — must spell $HOME as `~`. Every path
+# printed goes through doctor.tilde, the same renderer both --doctor reports
+# use, and the README writes them as ~/… too.
 ENTRY_POINTS = (
     SCRIPT,
     SCRIPT.parent / "ee_to_pipewire.py",
     SCRIPT.parent / "dolby_to_pipewire.py",
 )
 
+@pytest.mark.parametrize("text,expected", [
+    ("/home/ann", "~"),
+    ("/home/ann/.local/share/easyeffects/output/Dolby-Balanced.json",
+     "~/.local/share/easyeffects/output/Dolby-Balanced.json"),
+    # A path inside a sentence, and inside repr quotes: what the two error
+    # printers hand it, since a caught exception has already been formatted.
+    ("Error: [Errno 2] No such file or directory: '/home/ann/t.xml'",
+     "Error: [Errno 2] No such file or directory: '~/t.xml'"),
+    ("not found at /home/ann/w/System32 and /home/ann/w does not",
+     "not found at ~/w/System32 and ~/w does not"),
+    # Boundaries: a longer name that merely starts with $HOME, and $HOME
+    # appearing as an inner component of an unrelated path. Collapsing either
+    # would rename a directory that exists.
+    ("/home/annie/x", "/home/annie/x"),
+    ("/home/ann.bak/x", "/home/ann.bak/x"),
+    ("/mnt/backup/home/ann/x", "/mnt/backup/home/ann/x"),
+])
+def test_tilde_collapses_home_only_at_path_boundaries(text, expected, monkeypatch):
+    """The renderer both surfaces below depend on."""
+    monkeypatch.setenv("HOME", "/home/ann")
+    assert doctor.tilde(text) == expected
+
+
+# Three printed lines keep the absolute path on purpose, and are dropped
+# before the search below. Each is a shell command to paste whose path is (or,
+# through shlex, may be) single-quoted — Dolby's own directory names contain
+# '$' — and POSIX expands ~ only *outside* quotes, so `rm '~/…conf'` would
+# name a file that does not exist and the undo would silently do nothing.
+# Extend this for another quoted copy-paste target only, never to quiet a leak.
+ABSOLUTE_ON_PURPOSE = (
+    re.compile(r"To undo: rm "),        # lib/pipewire/install.py
+    re.compile(r"\(your command: "),    # dolby_to_pipewire.py, shlex-quoted
+    re.compile(r"^\s*'[^']*'\s*$"),     # the attach-your-XML line, findings.py
+)
+
+
+def _assert_home_absent(output: str, home: str, what: str) -> None:
+    """Fail if `home` survives anywhere in `output`.
+
+    Whitespace is stripped from both sides before the search: argparse hands
+    help text to textwrap with break_long_words left on, and `_cprint_wrapped`
+    folds long prose the same way, so a narrow terminal can split a long path
+    mid-string — and a substring search on the raw output would then pass on
+    text that still carries the username.
+    """
+    kept = "\n".join(line for line in output.splitlines()
+                     if not any(p.search(line) for p in ABSOLUTE_ON_PURPOSE))
+    assert re.sub(r"\s+", "", home) not in re.sub(r"\s+", "", kept), (
+        f"{what} prints the home directory {home}. Render it with "
+        "doctor.tilde() at the print — never by rebinding the variable, which "
+        "is often also a write target — so it reads as ~/…: this text gets "
+        "pasted into public issue reports."
+    )
+
 
 @pytest.mark.parametrize("script", ENTRY_POINTS, ids=lambda p: p.name)
 def test_help_never_prints_the_home_directory(script):
-    """No `--help` default carries the user's username; `~` stands in.
-
-    Whitespace is stripped from both sides before the search: argparse hands
-    help text to textwrap with break_long_words left on, so a narrow terminal
-    can split a long default mid-path — and a substring search on the raw
-    output would then pass on text that still carries the username.
-    """
+    """No `--help` default carries the user's username; `~` stands in."""
     result = subprocess.run(
         [sys.executable, str(script), "--no-color", "--help"],
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    home = str(Path.home())
-    assert re.sub(r"\s+", "", home) not in re.sub(r"\s+", "", result.stdout), (
-        f"{script.name} --help prints the home directory {home}. Wrap the "
-        "default in doctor.tilde() so it renders as ~/… — this text gets "
-        "pasted into public issue reports."
+    _assert_home_absent(result.stdout, str(Path.home()), f"{script.name} --help")
+
+
+# --- and the same promise for what a *run* prints (the text people paste) ---
+
+def _run_isolated(script, *args, home, extra_path=None):
+    """Run an entry point with $HOME pointed at an empty directory.
+
+    `Path.home()` re-reads $HOME on every call, so every default the run
+    computes — the EasyEffects preset/irs tree, its rc file, the PipeWire
+    drop-in dir — lands under `home`. That is what lets these cases leave
+    --output-dir and --irs-dir off, which they must: a case that always passes
+    explicit directories never reaches the defaults, and the defaults are
+    where the leak was. It also means the invariant is "whatever $HOME is, it
+    is never printed in full", so the developer's own username cannot end up
+    in a failure message.
+    """
+    env = {**os.environ, "HOME": str(home)}
+    if extra_path is not None:
+        env["PATH"] = os.pathsep.join([str(extra_path), env.get("PATH", "")])
+    return subprocess.run(
+        [sys.executable, str(script), "--no-color", *args],
+        capture_output=True, text=True, timeout=300,
+        cwd=str(SCRIPT.parent), env=env,
+    )
+
+
+def _synthetic_xml(tmp_path):
+    """Outside `home` deliberately: the XML's own path is the one thing these
+    runs print that is *not* collapsed (it is the quoted attach line)."""
+    return write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+
+
+def _fake_pw_dump(tmp_path):
+    """A `pw-dump` on PATH reporting one tagged internal speaker with an
+    active output route, so --autoload resolves a sink and writes its file
+    instead of skipping — the write whose "Wrote …" line was reported."""
+    graph = [
+        {"id": 40, "type": "PipeWire:Interface:Device",
+         "info": {"params": {"Route": [{"direction": "Output", "device": 0,
+                                        "description": "Speaker"}]}}},
+        {"id": 50, "type": "PipeWire:Interface:Node",
+         "info": {"props": {
+             "media.class": "Audio/Sink",
+             "node.name": "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink",
+             "node.description": "Synthetic Speakers",
+             "device.icon_name": "audio-speakers",
+             "device.id": 40, "card.profile.device": 0,
+             "device.bus": "pci", "device.api": "alsa"}}},
+    ]
+    dump = tmp_path / "pw-dump.json"
+    dump.write_text(json.dumps(graph))
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    shim = bindir / "pw-dump"
+    shim.write_text(f"#!/bin/sh\nexec cat {dump}\n")
+    shim.chmod(0o755)
+    return bindir
+
+
+def _case_generate(tmp_path, home):
+    """Default dirs: the .irs/.json "Wrote" pair per preset, and the Done line."""
+    return _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), home=home)
+
+
+def _case_generate_autoload(tmp_path, home):
+    """…plus the autoload entry, the fallback preset, and the rc file."""
+    return _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), "--autoload",
+                         home=home, extra_path=_fake_pw_dump(tmp_path))
+
+
+def _case_generate_dry_run(tmp_path, home):
+    """The "Would write" wording is a second set of call sites."""
+    return _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), "--dry-run",
+                         home=home)
+
+
+def _case_convert_dry_run(tmp_path, home):
+    """ee_to_pipewire with no --output: the conf path is a computed default."""
+    gen = _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), home=home)
+    assert gen.returncode == 0, gen.stderr
+    preset = home / ".local/share/easyeffects/output/Dolby-Balanced.json"
+    return _run_isolated(SCRIPT.parent / "ee_to_pipewire.py", str(preset),
+                         "--dry-run", "--target-sink", "", home=home)
+
+
+def _case_install_pipewire_conf(tmp_path, home):
+    """A real (staged → installed) wrapper run: "Wrote conf", next steps, undo."""
+    return _run_isolated(SCRIPT.parent / "dolby_to_pipewire.py",
+                         str(_synthetic_xml(tmp_path)),
+                         "--target-sink", "", "--no-activate", home=home)
+
+
+def _case_error_missing_xml(tmp_path, home):
+    """The generator's one error printer, which renders a caught exception —
+    here an OSError, whose path arrives inside repr quotes."""
+    return _run_isolated(SCRIPT, str(home / "Dolby" / "missing.xml"), home=home)
+
+
+def _case_error_missing_preset(tmp_path, home):
+    """The converter's own not-found line."""
+    return _run_isolated(SCRIPT.parent / "ee_to_pipewire.py",
+                         str(home / "gone.json"), "--target-sink", "", home=home)
+
+
+RUNTIME_CASES = (
+    _case_generate,
+    _case_generate_autoload,
+    _case_generate_dry_run,
+    _case_convert_dry_run,
+    _case_install_pipewire_conf,
+    _case_error_missing_xml,
+    _case_error_missing_preset,
+)
+
+
+@pytest.mark.parametrize("case", RUNTIME_CASES,
+                         ids=lambda c: c.__name__[len("_case_"):])
+def test_a_run_never_prints_the_home_directory(case, tmp_path):
+    """What a run prints is what lands in an issue report — `--help` was only
+    the surface nobody pastes.
+
+    Each case also has to print at least one `~/`: without that a case whose
+    run died early, or one that never touched a home path, would pass while
+    asserting nothing.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    result = case(tmp_path, home)
+    output = result.stdout + result.stderr
+    _assert_home_absent(output, str(home), case.__name__)
+    assert "~/" in output, (
+        f"{case.__name__} printed no ~/… path at all, so it cannot show "
+        f"whether $HOME is collapsed (rc {result.returncode}):\n{output}"
     )
 
 

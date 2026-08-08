@@ -25,7 +25,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from lib import console
+from lib import console, doctor
 from lib.hardware import codecs
 
 
@@ -305,9 +305,10 @@ def autoprobe_dolby_source() -> Path:
 
     def _announce(winner: Path) -> None:
         if winner in mount_candidates:
-            console.cprint("ok", f"Auto-detected Windows mount: {winner}")
+            console.cprint("ok", f"Auto-detected Windows mount: {doctor.tilde(winner)}")
         else:
-            console.cprint("ok", f"Auto-detected extracted DriverStore: {winner}")
+            console.cprint("ok", "Auto-detected extracted DriverStore: "
+                           f"{doctor.tilde(winner)}")
 
     if len(candidates) == 1:
         _announce(candidates[0])
@@ -580,7 +581,8 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
         exact = [g for g in guesses if pci_subsys_id and g[2] == pci_subsys_id]
         if len(exact) == 1:
             path = exact[0][0]
-            console.cprint("ok", f"Matched tuning XML (by security-key PCI subsystem): {path}")
+            console.cprint("ok", "Matched tuning XML (by security-key PCI "
+                           f"subsystem): {doctor.tilde(path)}")
             return path
 
         if best_guess and len(guesses) == 1:
@@ -591,7 +593,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
                 f"(SUBSYS_{subsys}). Unverified: matched by manufacturer only, "
                 f"not by device id."
             )
-            console.cprint("ok", f"Matched tuning XML (best-guess): {path}")
+            console.cprint("ok", f"Matched tuning XML (best-guess): {doctor.tilde(path)}")
             return path
 
         lines = [f"No matching DAX3 tuning XML found in {driver_store}. {detected}"]

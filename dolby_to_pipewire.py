@@ -280,9 +280,11 @@ def main(argv: list[str] | None = None) -> int:
         # Not "no EasyEffects files are installed": the reader picked this
         # script to avoid EasyEffects, and opening the run by naming it made
         # a reviewer stop and re-check they'd run the right one.
-        console.cprint("head", f"[1/3] Generating tuning presets (staged in {tmp}; "
-                       "deleted when done — nothing is installed on your "
-                       "system in this step)")
+        # tilde for the same reason every other printed path takes it: $TMPDIR
+        # can sit under $HOME, and this line is read, not pasted.
+        console.cprint("head", "[1/3] Generating tuning presets (staged in "
+                       f"{doctor.tilde(tmp)}; deleted when done — nothing is "
+                       "installed on your system in this step)")
         # Echo the invocation (round 8): the closing's "add any of the
         # flags above to the same command you ran" had no referent unless
         # the reader saved their own command line. shlex keeps Dolby's

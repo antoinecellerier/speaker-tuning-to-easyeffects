@@ -195,10 +195,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   installed-plugin defaults staying put), and warns on preset content it
   can't translate instead of dropping it silently. Re-run
   `ee_to_pipewire.py` to regenerate (`docs/ee-to-pipewire.md`).
-- `--help` no longer prints your home directory in full: the default paths
-  render as `~/…`, the way `--doctor` and the README already write them. The
-  listing carries no username, so it can be pasted into a public issue report
-  as-is.
+- A run no longer prints your home directory in full: every path it reports —
+  presets written, autoload and PipeWire files, error messages — renders as
+  `~/…`, as `--help` and `--doctor` do, so the log pastes into a public issue
+  report as-is. The undo and re-run commands keep the absolute path, since a
+  shell does not expand `~` inside quotes.
 
 ### Changed
 

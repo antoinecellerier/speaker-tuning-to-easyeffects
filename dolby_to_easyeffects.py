@@ -452,7 +452,7 @@ def main(argv: list[str] | None = None,
         parser.error("specify either xml_file or --windows, not both")
     elif args.windows:
         xml_path = discover.find_tuning_xml(args.windows, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {xml_path}")
+        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
     elif args.xml_file:
         xml_path = args.xml_file
     else:
@@ -463,7 +463,7 @@ def main(argv: list[str] | None = None,
         # 2, framing it as a syntax error the user can't fix by reading usage.
         windows_root = discover.autoprobe_dolby_source()
         xml_path = discover.find_tuning_xml(windows_root, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {xml_path}")
+        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
 
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
@@ -474,7 +474,7 @@ def main(argv: list[str] | None = None,
     is_soundwire = discover.is_soundwire_xml(Path(xml_path).name)
 
     if args.list:
-        console.cprint("head", f"Endpoints and profiles in {xml_path}:")
+        console.cprint("head", f"Endpoints and profiles in {doctor.tilde(xml_path)}:")
         parse.list_endpoints(xml_path)
         return
 
@@ -669,7 +669,7 @@ def main(argv: list[str] | None = None,
                     autoload_preset,
                     dry_run=args.dry_run,
                 )
-                console.cprint("ok", f"  {verb} {path}")
+                console.cprint("ok", f"  {verb} {doctor.tilde(path)}")
                 print(f"  Device: {sink['description'] or sink['name']} ({route})")
 
         # Fallback preset: neutralize the Dolby chain on any non-speaker sink
@@ -682,22 +682,23 @@ def main(argv: list[str] | None = None,
                 args.output_dir, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
             if bypass_status == "kept":
-                console.cprint("ok", f"  Kept existing {bypass_path}")
+                console.cprint("ok", f"  Kept existing {doctor.tilde(bypass_path)}")
             elif bypass_status == "would-write":
-                console.cprint("ok", f"  Would write {bypass_path}")
+                console.cprint("ok", f"  Would write {doctor.tilde(bypass_path)}")
             else:
-                console.cprint("ok", f"  Wrote {bypass_path}")
+                console.cprint("ok", f"  Wrote {doctor.tilde(bypass_path)}")
 
             fallback_status, existing = autoload.set_autoload_fallback(
                 ee_paths.DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
             )
+            rc_shown = doctor.tilde(ee_paths.DEFAULT_EASYEFFECTS_RC)
             if fallback_status == "already-configured":
                 console.cprint("ok", f"  Fallback preset already configured "
-                              f"('{existing}') in {ee_paths.DEFAULT_EASYEFFECTS_RC} — leaving as-is")
+                              f"('{existing}') in {rc_shown} — leaving as-is")
             elif fallback_status == "would-patch":
-                console.cprint("ok", f"  Would enable fallback preset in {ee_paths.DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Would enable fallback preset in {rc_shown}")
             else:
-                console.cprint("ok", f"  Enabled fallback preset in {ee_paths.DEFAULT_EASYEFFECTS_RC}")
+                console.cprint("ok", f"  Enabled fallback preset in {rc_shown}")
                 if doctor_run.easyeffects_is_running():
                     console.cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
@@ -892,7 +893,10 @@ def run_cli(argv: list[str] | None = None,
         main(argv, closing=closing, troubleshooting=troubleshooting,
              resolved=resolved, staged=staged)
     except (FileNotFoundError, RuntimeError, ValueError, ET.ParseError) as e:
-        console.cprint("err", f"Error: {e}")
+        # tilde over the whole message, not over a path we interpolated: the
+        # discovery errors name several paths mid-sentence, and an OSError
+        # names one inside repr quotes. This is where all of them print.
+        console.cprint("err", f"Error: {doctor.tilde(e)}")
         console.cprint("cta", "Run with --help to see usage and all options.")
         return 1
     return 0

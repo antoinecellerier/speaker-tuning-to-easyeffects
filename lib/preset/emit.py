@@ -40,7 +40,7 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
-from lib import console
+from lib import console, doctor
 from lib.dax import parse
 from lib.preset import autoload, build, fir
 from lib.report import messages
@@ -162,8 +162,10 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
             style, verb = "dim", "Staged"
         else:
             style, verb = "ok", "Wrote"
-        console.cprint(style, f"{verb} {irs_path}")
-        console.cprint(style, f"{verb} {out_path}")
+        # Collapsed at the print only: both variables are write targets a few
+        # lines above, and ~ is not a path any of that would expand.
+        console.cprint(style, f"{verb} {doctor.tilde(irs_path)}")
+        console.cprint(style, f"{verb} {doctor.tilde(out_path)}")
         # The tables are behind -v: even marked skippable they were the
         # bulk of the output, burying the findings between them, and their
         # only reader is someone diagnosing a wrong-sounding preset — who

@@ -276,7 +276,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
 
     preset_path: Path = args.preset
     if not preset_path.is_file():
-        console.cprint("err", f"error: preset not found: {preset_path}")
+        console.cprint("err", f"error: preset not found: {doctor.tilde(preset_path)}")
         return 2
     try:
         preset = json.loads(preset_path.read_text())
@@ -314,7 +314,10 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         chain = pw_conf.build_chain(preset, args.irs_dir.expanduser(),
                                     must_exist=not args.dry_run)
     except FileNotFoundError as e:
-        console.cprint("err", f"error: {e}")
+        # The message names the .irs it looked for; the Path itself stays
+        # absolute inside the chain, where it becomes a convolver filename
+        # module-filter-chain reads without expanding ~.
+        console.cprint("err", f"error: {doctor.tilde(e)}")
         return 2
 
     if not chain.stages:
@@ -430,7 +433,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
 
     assert output_path is not None
     if output_path.exists() and not args.force:
-        console.cprint("err", f"error: {output_path} exists; pass --force to overwrite")
+        console.cprint("err", f"error: {doctor.tilde(output_path)} exists; pass "
+                      "--force to overwrite")
         return 1
 
     # IRS copy: skip when source and target are the same path (no-op),
@@ -438,8 +442,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     copied_irs: Path | None = None
     if src_irs is not None and src_irs.resolve() != target_irs.resolve():
         if target_irs.exists() and not args.force:
-            console.cprint("err", f"error: {target_irs} exists; pass --force to "
-                          "overwrite")
+            console.cprint("err", f"error: {doctor.tilde(target_irs)} exists; pass "
+                          "--force to overwrite")
             return 1
         target_irs.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_irs, target_irs)

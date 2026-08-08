@@ -40,7 +40,7 @@ import sys
 import time
 from pathlib import Path
 
-from lib import console
+from lib import console, doctor
 from lib.hardware import sinks
 from lib.paths import REPO_ROOT
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
@@ -134,7 +134,8 @@ def _validate_conf(conf_text: str) -> tuple[int, str]:
     2 = setup error.
     """
     if not VALIDATE_CONF_SCRIPT.is_file():
-        return -1, f"validate_conf.py not found at {VALIDATE_CONF_SCRIPT}"
+        return -1, ("validate_conf.py not found at "
+                    f"{doctor.tilde(VALIDATE_CONF_SCRIPT)}")
     if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
         return -1, ("lv2info or spa-json-dump not in PATH "
                     "(install lilv-utils and pipewire)")
@@ -151,14 +152,19 @@ def _print_results(conf_path: Path, irs_path: Path | None,
     where they *would* land."""
     # "impulse response (.irs)", not the bare acronym: it is never expanded
     # anywhere else a user reads (round 5).
+    #
+    # ~ here and absolute in _print_undo below: this line is read, that one is
+    # pasted into a shell inside quotes, which never expand ~.
     if dry_run:
-        console.cprint("ok", f"Would write conf: {conf_path}")
+        console.cprint("ok", f"Would write conf: {doctor.tilde(conf_path)}")
         if irs_path is not None:
-            console.cprint("ok", f"Would copy impulse response (.irs): {irs_path}")
+            console.cprint("ok", "Would copy impulse response (.irs): "
+                           f"{doctor.tilde(irs_path)}")
     else:
-        console.cprint("ok", f"Wrote conf: {conf_path}")
+        console.cprint("ok", f"Wrote conf: {doctor.tilde(conf_path)}")
         if irs_path is not None:
-            console.cprint("ok", f"Copied impulse response (.irs): {irs_path}")
+            console.cprint("ok", "Copied impulse response (.irs): "
+                           f"{doctor.tilde(irs_path)}")
 
 
 def _grep_expectation(tail: str = "") -> str:
@@ -227,6 +233,9 @@ def _print_undo(written: list[Path]) -> None:
     # Only files that exist: the .irs copy is skipped when the source
     # already sits at the target, and an rm over a missing file aborts the
     # pasted command halfway.
+    # Absolute, alone among the lines a run prints: the quoting below is what
+    # survives a Dolby-shaped path, and POSIX does not expand ~ inside quotes,
+    # so a collapsed path here would delete nothing and say it did.
     paths = [p for p in written if p.exists()]
     if not paths:
         return

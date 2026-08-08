@@ -37,7 +37,7 @@ carries.
 
 from __future__ import annotations
 
-from lib import console
+from lib import console, doctor
 from lib.report.findings import Finding, _print_ask
 
 
@@ -255,7 +255,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # directory by default. "wrote N presets to <dir>" named half of what
     # the run had just listed above.
     console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
-                 + (f", starting in {output_dir}:" if output_dir else ":"))
+                 + (f", starting in {doctor.tilde(output_dir)}:"
+                    if output_dir else ":"))
     # Name them all — naming only the first left the reader wondering what
     # the other two were — but on one comma-separated line (round 7): the
     # vertical list ate the last screen's budget. No blank after (round
