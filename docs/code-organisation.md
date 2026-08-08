@@ -466,54 +466,55 @@ the same silent failure and want the same instrument.
 
 ### The monkeypatch hazard, and the import rule that prevents it
 
-86 `monkeypatch.setattr` calls target the generator module — unambiguous while
-there is one module. After a split it stops being: if
+A `monkeypatch.setattr` rebinds one name in one namespace, so if
 `lib/hardware/speakers.py` does `from lib.hardware.codecs import
-get_soundwire_ids`, it holds *its own* reference, and patching
-`lib.hardware.codecs.get_soundwire_ids` does not reach it. Eleven call sites
-patch that exact symbol, eleven more patch `get_hda_codec_ids`, eight
-`_resolve_driver_store`.
+get_soundwire_ids` it holds *its own* reference and a patch on
+`lib.hardware.codecs.get_soundwire_ids` never reaches it: the test passes,
+having run the real probe against the developer's hardware. 87 setattr calls
+in `tests/` aim at a `lib/` module, so the exposure is real.
 
-> **Across `lib/` package boundaries, import the module, not the name.**
-> `from lib.hardware import codecs` … `codecs.get_soundwire_ids()`, never
-> `from lib.hardware.codecs import get_soundwire_ids`.
+> **Across `lib/`, import the module rather than the name for anything a test
+> may need to rebind.** `from lib.hardware import codecs` …
+> `codecs.get_soundwire_ids()`.
 
-One patch point — the defining module — however many callers. Inside a single
-module, `from X import name` stays fine; the rule is about crossing package
-boundaries, where the test has to guess which binding it is holding.
+The qualifier is the rule, and it turns on state rather than on package
+boundaries — a bare `from x import name` is a hazard exactly when `name` has
+something behind it to swap. Both sides, measured at `b0df496`:
 
-Two cases that look like they need the rule and don't:
+- **Has state, so module-qualified.** All 31 patch targets are values the
+  machine decides: 23 read a subprocess, a filesystem probe (`/proc`, `/sys`,
+  a mounted Windows partition) or the terminal, directly or through a callee
+  that does; 4 are paths under `Path.home()`, plus `lib.ee_paths`'s own `Path`,
+  patched so `home()` redirects; 2 are module flags a run mutates
+  (`lib.console._CONSOLE`, `lib.report.findings._TAG_CONVENTION_SHOWN`); 1 is
+  a printer stubbed to keep a nested dump out of an enclosing report.
+- **Has none, so a bare name is free.** `lib/` modules bare-import 46
+  `(module, name)` pairs across 17 import statements — 30 distinct names, 11
+  holder modules — every one fixed by the source: 13 constants (status
+  strings, LV2 URIs, the restart command, the emitter table), 4 record types,
+  11 builders that are arithmetic over their arguments, and 2 printers holding
+  no state of their own, reading the tag flag and the console through their
+  defining modules at call time.
 
-- **The 30 `_CONSOLE` patches** — the largest single group — survive as-is.
-  `cprint` reads the global at call time, so patching it on whichever module
-  owns the console works from any caller. Only the module named in the patch
-  changes. They were also the obvious candidate for one `conftest.py` fixture,
-  which the prep phase took: `silence_console`, called with the module
-  whose output the test asserts on.
-- **The 19 `setattr(d.subprocess, …)` / `setattr(d.shutil, …)` patches** reach
-  the *stdlib module object* through the generator's namespace, so they are
-  already global in effect and stay correct wherever the calling code ends up.
-  They need retargeting to a module that still imports `subprocess`, nothing
-  more.
+The two sets are **disjoint**: no name is both bare-imported and patched. What
+does not survive is the shorthand — *paths* and *printers* land on both sides.
+`lib.paths.REPO_ROOT` is bare-imported, being anchored at `__file__` rather
+than `Path.home()`, and qualifying it would buy nothing anyway:
+`VALIDATE_CONF_SCRIPT` derives from it once, at import. Read the property.
 
-The rule is enforced rather than remembered:
-`tests/test_layout.py::test_no_test_patches_a_re_exported_name` (`4772ffe`)
-reads the root scripts for names they only re-export out of `lib/`, reads
-`tests/` for `monkeypatch.setattr` calls aimed at a root module, and fails on
-the intersection — naming the module to patch instead. Static is the only way
-worth doing it: the failure it guards has no symptom, because a patch that
-reaches nothing leaves a green test that quietly ran the real code.
+Enforced rather than remembered. `tests/test_layout.py` reads every module we
+ship for names copied out of another, reads `tests/` for the setattr calls,
+and fails on the intersection from both directions — a patch aimed at the copy
+(`test_no_test_patches_a_re_exported_name`, `4772ffe`) and one aimed at the
+definition while a third module holds a copy
+(`test_no_test_patches_a_name_another_module_copied`). `556a396` widened both
+to all of `lib/`: green on arrival, allowlist empty. Its one catch was a
+`get_version` patch in `tests/test_cli.py`, which `c6f90db` fixed at source.
 
-On arrival it found exactly one violation, and it is the rule in miniature.
-`tests/test_cli.py` patched `dolby_to_easyeffects.get_version`, a name the
-generator had lifted out of `lib/version.py`. Harmless the day it was written,
-since the only caller sat in the same module as the re-export — and latent,
-because `report_speaker_info()` is on its way into `lib/report/`, after which
-the patch would rebind the root script's copy while the moved caller read the
-real function, and the assertion about a version-stamped header would pass with
-the real version in it. `c6f90db` fixed it at the source rather than at the
-patch site: all three root scripts now `from lib import version` and call
-`version.get_version()`, so there is one binding and one thing to patch.
+The hole is worth naming: the patch side is read from `tests/` only, so a bare
+name some *production* module rebinds at run time meets no guard. There is
+none today — the two mutable flags above are written through `global` in their
+own module — but the fence is around the suite, not around `lib/`.
 
 ### A tool keyed on a fixed path list goes quiet when code moves
 
