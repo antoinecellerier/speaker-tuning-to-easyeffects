@@ -57,6 +57,8 @@ When auditing whether EE is applying the current preset:
 | `teardown.sh` | Reverses the above; restores db rc from backup and unloads the null sink |
 | `smoke.py` | Bypass-preset smoke harness — gates every route attempt before running the full battery |
 | `capture_battery.py` | Runs the 5-stimulus battery through EE, writes `loopback_*.{wav,json}` analyzer-compatible |
+| `sweep_variants.sh` | Drives a variant matrix over the same route: one (build → capture) cycle per row of a tab-separated spec (label, build command, EE preset), with the null-sink setup, the smoke gate on the first variant only, and a teardown trap wrapped around the whole run. Harness, not experiment — what is being compared lives in the session's spec file, not in the script |
+| `summarise_variants.py` | Read-only (no capture): the sweep's other half. Runs `analyze.py` over each variant's captures, then tabulates the pink-noise residual per variant × profile × channel — against the XML target always (is the chain faithful to the XML?), against a DAX capture when `--dax-dir` is given (do we match Windows?) — normalized at 1 kHz over 200 Hz–18 kHz |
 | `autogain_dynamics.py` | Non-LTI autogain (volume leveler) protocol: silence wind-up / notification-burst check and speech-over-background overshoot sweep, with self-generated preset variants. The issue-#25 adoption gate — rerun it before changing any autogain default |
 | `compare_ee_vs_dax.py` | Overlays EE captures vs DAX3 captures (analyze.py outputs from both sides) — frequency domain |
 | `compare_ir_time_domain.py` | Overlays converter FIR / EE-captured / DAX-captured IRs in the time domain — envelope decay, cumulative-energy times, peak position. Answers "is my FIR's tail real signal or just below the noise floor?" |

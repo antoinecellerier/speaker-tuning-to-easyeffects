@@ -570,3 +570,46 @@ def test_every_referenced_tools_path_exists():
         "these name a tools/ path that does not exist — the file moved, was "
         "renamed, or the reference was mistyped:\n  " + "\n  ".join(broken)
     )
+
+
+# Discovered, not listed, so a new measure_* directory is covered by the
+# commit that creates it rather than by a later one that remembers to come
+# back here.
+MEASURE_DIRS = sorted(p for p in (ROOT / "tools").glob("measure_*")
+                      if p.is_dir())
+
+
+@pytest.mark.parametrize("directory", MEASURE_DIRS, ids=lambda p: p.name)
+def test_measure_readme_lists_every_script(directory):
+    """A measurement script nobody lists is a script nobody finds.
+
+    Each `measure_*/` directory is a *procedure* — set up a route, capture a
+    battery, compare the results — and its README is the only map of that
+    procedure. Nothing imports these scripts from outside their own directory,
+    no test runs them (they want a sound card), and their filenames alone do
+    not say which step they belong to. So a script that never makes it into
+    the README is invisible: the next person re-derives it, or more likely
+    re-implements it.
+
+    That is not hypothetical. `sweep_variants.sh` and `summarise_variants.py`
+    both landed in `60bed58` and neither reached `tools/measure_ee/README.md`;
+    they sat unlisted for three months, in the one directory whose README is
+    the most detailed of the four.
+
+    A bare mention is enough — `measure_dax/` names its three scripts in prose
+    and a usage block rather than a table, and that maps the procedure just as
+    well. What this rejects is a filename that appears nowhere at all.
+    """
+    readme = directory / "README.md"
+    assert readme.is_file(), (
+        f"{directory.relative_to(ROOT)} has no README.md — every measure_* "
+        "directory is a procedure, and the README is where it is written down"
+    )
+    text = readme.read_text(encoding="utf-8")
+    missing = sorted(p.name for p in directory.iterdir()
+                     if p.suffix in (".py", ".sh") and p.name not in text)
+    assert not missing, (
+        f"{readme.relative_to(ROOT)} never mentions {', '.join(missing)} — "
+        "add a row saying what the script does and where in the procedure it "
+        "runs, or delete the script"
+    )
