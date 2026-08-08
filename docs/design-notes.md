@@ -2959,10 +2959,11 @@ mitigate.
     below is about, and collapsing two definitions into one `from`-import is
     exactly how a `monkeypatch.setattr` that used to bite quietly stops —
     leaving a green test that ran the real code.
-  - **Import-order indirection.** `_load_dsp`'s deferral and the converter's
-    stdlib-only contract are both invisible in a diff. Hoisting an import to
-    the top of a module can put numpy and scipy on every TAB press, or on a
-    converter run that does no DSP; `tests/test_completions.py::test_completion_path_skips_the_dsp_import`
+  - **Import-order indirection.** The generator's deferred DSP import and the
+    converter's stdlib-only contract are both invisible in a diff. Hoisting an
+    import to the top of a module can put numpy and scipy on every TAB press
+    and on every run that stops short of a conversion, or on a converter run
+    that does no DSP; `tests/test_completions.py::test_the_dsp_import_is_deferred_past_every_early_return`
     and `test_converter_startup_pulls_in_no_dsp` are the tests, and they have
     to be run rather than reasoned about.
   - **Anything that closes an import cycle.** Two edges that each look local
@@ -3206,6 +3207,29 @@ And `console.py` is the one module in `lib/` allowed to import `rich`: the
 optional presentation dependency is contained there rather than spread across
 whatever else gets extracted, which is why it is absent from
 `tests/test_layout.py`'s `STDLIB_ONLY` list while still bound by the DSP rule.
+
+> **Superseded by the deferral commit (`ec3b1e1`).** Both paragraphs above —
+> and every `_load_dsp`, `ensure_dsp` and `complete_and_load` in the slices
+> below — name an apparatus that no longer exists: a module-scope
+> `if "_ARGCOMPLETE" not in os.environ: _load_dsp()` that pulled the DSP stack
+> into the generator's globals on any non-completion run. The generator now
+> imports numpy, `lib.preset.emit` and `lib.report.profile` as three ordinary
+> function-local imports just above `main()`'s emit loop, so the deferral
+> covers every path that returns before a conversion rather than the completion
+> path alone. What the slices decided is unchanged — which modules may not be
+> imported at the top of the generator, and why — with three details to read
+> past. The remainder counted above loses 43 lines (`_load_dsp` 27,
+> `ensure_dsp` 9, `complete_and_load` 7), leaving `_attach_completers` and the
+> two completers as its completion helpers. `np` is a local of `main()` now
+> rather than a global, and the last thing the function bound was `np`, `emit`
+> and `report_profile` — the emit slice below having taken `wavfile` — but
+> `console.py` is still the wrong home for the import, for the reason given.
+> And the trap named below is
+> `test_the_dsp_import_is_deferred_past_every_early_return` after the rename;
+> the `~0.4 s of a ~0.5 s startup` it protects is still what importing numpy
+> and scipy costs, but the generator's `--help` now measures 0.17–0.19 s where
+> the per-profile slice below recorded 0.62–0.68 s (the other two scripts land
+> at the same 0.17–0.18 s).
 
 Slice 5 landed the `report/` and `preset/` halves of that tree with two
 deviations from it, both forced rather than chosen.
@@ -3773,6 +3797,16 @@ their last generator reader with these lines — and what is left is `np` (which
 this wave created. Every module in `lib/` that reaches the DSP stack is now
 behind one of those two, and the generator's own import block is stdlib-only
 below `lib/`.
+
+> **Superseded by the deferral commit (`ec3b1e1`).** The pattern outlived the
+> function. What this paragraph leaves bound — `np`, plus `lib.preset.emit` and
+> `lib.report.profile` — is exactly what the generator imports today, as three
+> function-local imports at the top of `main()`'s emit loop; `_load_dsp` and
+> the module-scope guard that called it are gone, and with them the deferral's
+> restriction to the completion path. The closing claim is what lets that work
+> and it still holds: every `lib/` module reaching the DSP stack sits behind
+> one of those two imports, so a bare `import dolby_to_easyeffects` reaches 223
+> modules with numpy and scipy absent, on any path.
 
 The one edit that is **not** motion is disclosed here because nothing in the
 tooling would have caught it: `main()`'s call to `_emit_ieq_presets` grew five
