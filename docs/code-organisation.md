@@ -1,19 +1,17 @@
-How the two entry points were split into `lib/`, and the git discipline that
-kept `git blame` working through it. The audio and DSP research log is in
-[design-notes.md](design-notes.md).
+How the two entry points were split into `lib/`: the shape it landed in, the
+git discipline that kept `git blame` working through it, and what the slices
+taught. The audio and DSP research log is [design-notes.md](design-notes.md).
 
 ## Splitting the single-file scripts
 
-Both entry points have outgrown one file — `wc -l` said 8,107 and 2,220 the day
-this was written, and the whole point of the exercise is that those numbers go
-down, so re-run it rather than quote it. The `lib/` package (see
-[reference.md](reference.md) "Repository layout") is the destination; this
-section records the target shape and, more importantly, the git discipline
-that decides whether the result is still readable a year later.
+Both entry points outgrew one file. The `lib/` package (see
+[reference.md](reference.md) "Repository layout") is where the body went; this
+section records the shape it landed in and, more importantly, the git
+discipline that decides whether the result is still readable a year later.
 
 ### Why the entry points don't move
 
-The tempting version of this refactor moves the 8,100-line body wholesale into
+The tempting version of this refactor moves the generator's body wholesale into
 `lib/`, because a whole-file `git mv` is a rename git detects at 100% —
 `git log --follow` and GitHub's web blame both track it, and the bulk of the
 history survives the move intact. It was rejected: those three root paths are
@@ -40,8 +38,8 @@ mitigate.
   For **duplication** specifically the rule is a sequencing one, not a
   prohibition: **collapse it in a commit of its own, before or after the move,
   never during.** The reason is not an aversion to indirection — the collapsed
-  version is usually the better code, which is why every slice below that
-  deferred one said so. It is **name collision under motion**. While code is in
+  version is usually the better code, which is why every slice that deferred
+  one said so. It is **name collision under motion**. While code is in
   flight, "collapse the duplication" and "silently redirect where this program
   writes its files" are the same diff, under a subject line promising nothing
   changed.
@@ -54,17 +52,20 @@ mitigate.
   defined twice, now visible in one package" finds them and is right about the
   name and wrong about the value, and the commit that unifies them redirects
   every conf this repo writes while claiming to have moved some lines. One file
-  over, `DEFAULT_IRS_DIR` *was* the same path written twice and did collapse
-  (slice ① below) — the two cases are indistinguishable by name and separated
-  only by resolving both.
+  over, `DEFAULT_IRS_DIR` *was* the same path written twice and did collapse,
+  in a commit of its own — the two cases are indistinguishable by name and
+  separated only by resolving both.
 
   **The rule binds on a trim commit, and nothing enforces it afterwards.**
   `tools/check_move_purity.py` is a manual gate pointed at one commit: it is in
   no workflow, no test, no `.claude/rules/*.md` and not in `CLAUDE.md`, and it
   reads only lines *added under `lib/`*, so it certifies nothing about a file
-  that was already there (slice ③ is the worked case — an honest behaviour
-  change that passed as pure). Once a wave is over, the tidy-up it defers is an
-  ordinary refactor wanting ordinary review.
+  that was already there. The worked case: hoisting a `try`-guarded deferred
+  import into the top-level import block of a file already under `lib/` is an
+  honest behaviour change that passes as pure, because that block is an exempt
+  shape. **Exit 0 certifies the shape of a commit, not its innocence.** Once a
+  wave is over, the tidy-up it defers is an ordinary refactor wanting ordinary
+  review.
 
   Four shapes are not refactors at all, whatever the subject line calls them.
   Each wants a behaviour test rather than a label, because in each the diff
@@ -110,8 +111,8 @@ mitigate.
   ~800 added lines against an 8,000-line file that shrank in the same commit —
   which it solves winner-takes-all and unpredictably (the table below). An
   exact-content pairing is decided by blob hash instead and cannot fail. Storage
-  is not a consideration: the four paths seeded in `330d351` are one 7,904-line
-  blob under four names.
+  is not a consideration: the four paths seeded in `330d351` are one blob under
+  four names.
 
   The seed is deliberately *not* `git rm`-then-copy. Deleting the root script
   first scores marginally better — 100% of moved lines traced against 97% — but
@@ -126,19 +127,21 @@ mitigate.
 
   **Extending a module that already exists needs a seed too — from its own
   earlier seed blob.** Moving code into an existing path pairs with nothing, so
-  it lands at 0%: the slice-5 commit put 350 lines into `lib/report/findings.py`
-  beside six freshly seeded modules, and those 350 traced at 0% while the six
-  traced at 91–99%. The fix is not to seed from the *current* root script —
-  that would recover the 350 and spend the lines already in the file, since the
-  root script no longer contains them. Seed from the blob **that path held at
-  its own first seed**: a full copy of the root script as it stood *before* any
-  of it was extracted, so it contains both the code already in the module and
-  the code about to arrive. Re-seeding `findings.py` from its slice-3 blob took
-  it from 0% to 348/350 with the existing lines untouched at 99%.
+  it lands at 0%: one trim put 350 lines into `lib/report/findings.py` beside
+  six freshly seeded modules, and those 350 traced at 0% while the six traced
+  at 91–99%. The fix is not to seed from the *current* root script — that would
+  recover the 350 and spend the lines already in the file, since the root script
+  no longer contains them. Seed from the blob **that path held at its own first
+  seed**: a full copy of the root script as it stood *before* any of it was
+  extracted, so it contains both the code already in the module and the code
+  about to arrive. Re-seeding `findings.py` from its earlier blob took it from
+  0% to 348/350 with the existing lines untouched at 99%.
 
   The general form: a seed's job is to give the destination path a parent
   holding every line the commit is about to put there. Reach back to whichever
-  blob satisfies that, which for a second helping is not the newest one.
+  blob satisfies that, which for a second helping is not the newest one — and
+  see "a seed pays only when one blob holds the whole helping" below, for the
+  case where no such blob exists at all.
 
   Worth knowing before hand-building a seed: the loop that writes the copies
   runs under zsh, which does **not** word-split an unquoted `$paths`. Getting
@@ -163,7 +166,9 @@ mitigate.
 - **The incantations, measured rather than assumed.** Four already-landed slices
   were re-shaped as seed/trim pairs and every row re-measured on the same paths
   either side, so the difference is attributable to commit shape and nothing
-  else:
+  else. Every figure in this bullet was **measured once, at `6c848fb`, and is
+  not re-derived here** — read it as what the seed bought then, not as a claim
+  about the tree today:
 
   | command | flat extraction | seeded as a copy |
   |---|---|---|
@@ -201,11 +206,10 @@ mitigate.
   8,000-line file), which is why `fir.py` recovers 47 of 96 rather than all of
   them. Four modules gain nothing: on moved lines `lib/data/*` and
   `lib/hardware/codecs.py` were already at 99–100% and stay there, and
-  `lib/hardware/amps.py` gives back one moved line (six by whole-file count,
-  169 → 163) where the copy edge outbids a pairing that already worked.
-  Slices 5 and 6 use the seeded shape regardless — a recipe that is
-  right 97% of the time on every file beats one that is right 99% or 0%
-  depending on the file, and only says which afterwards.
+  `lib/hardware/amps.py` gives back one moved line where the copy edge outbids
+  a pairing that already worked. The remaining slices used the seeded shape
+  regardless — a recipe that is right 97% of the time on every file beats one
+  that is right 99% or 0% depending on the file, and only says which afterwards.
 - **What this means for the subject line.** It is not a nicety, it is the
   primary trail — the only one that works from a browser, and the one that
   works from the command line without knowing a line of the moved code in
@@ -257,963 +261,174 @@ whole file.
 ### The shape it landed in
 
 A module lands flat in `lib/` first; a subpackage is created when its third
-member arrives. Sizes are `wc -l` the day the wave closed, and the whole point
-of the exercise is that they move — re-run rather than quote them.
+member arrives. Sizes are deliberately absent — they move, and `wc -l` is the
+current answer.
 
 ```
-lib/                 29 modules, 6 subpackages, ~10,200 lines
-├── console.py (142)  doctor.py (116)  ee_paths.py (78)      shared plumbing,
-├── version.py (48)   paths.py (24)                          flat by design
+lib/                29 modules in 6 subpackages
+├── console.py  doctor.py  ee_paths.py   shared plumbing,
+├── version.py  paths.py                 flat by design
 ├── data/            machine-written tables, out of hand-edited code
-│   ├── kernel_releases.py (39)       _KERNEL_SERIES_RELEASES
-│   └── speaker_pin_quirks.py (114)   _SPEAKER_PIN_QUIRKS
+│   ├── kernel_releases.py       _KERNEL_SERIES_RELEASES
+│   └── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
 ├── hardware/        system probing — no DAX, no DSP
-│   ├── codecs.py (148)    HDA / SoundWire / PCI subsystem ids
-│   ├── speakers.py (759)  SpeakerInfo, pin config, firmware gates
-│   ├── amps.py (196)      smart-amp evidence
-│   └── sinks.py (306)     pw-dump enumeration + selection
+│   ├── codecs.py    HDA / SoundWire / PCI subsystem ids
+│   ├── speakers.py  SpeakerInfo, pin config, firmware gates
+│   ├── amps.py      smart-amp evidence
+│   └── sinks.py     pw-dump enumeration + selection
 ├── dax/             everything that reads Dolby XML
-│   ├── discover.py (613)  autoprobe, driver store, find_tuning_xml
-│   └── parse.py (825)     parse_xml, ParsedTuning, resolvers, and the
-│                          endpoint/profile inspection --list reads
+│   ├── discover.py  autoprobe, driver store, find_tuning_xml
+│   └── parse.py     parse_xml, ParsedTuning, resolvers, and the
+│                    endpoint/profile inspection --list reads
 ├── preset/          EasyEffects preset construction
-│   ├── fir.py (96)        interpolate_curve_db, make_fir, save_wav
-│   ├── bands.py (251)     make_band / shelf / hp / lp / peq
-│   ├── plugins.py (627)   dialog, autogain, MBC, regulator, bass, limiter
-│   ├── build.py (217)     make_preset
-│   ├── emit.py (241)      _emit_ieq_presets, save_wav_stereo
-│   └── autoload.py (200)  write_autoload, EE rc, bypass preset
+│   ├── fir.py       interpolate_curve_db, make_fir, save_wav
+│   ├── bands.py     make_band / shelf / hp / lp / peq
+│   ├── plugins.py   dialog, autogain, MBC, regulator, bass, limiter
+│   ├── build.py     make_preset
+│   ├── emit.py      _emit_ieq_presets, save_wav_stereo
+│   └── autoload.py  write_autoload, EE rc, bypass preset
 ├── report/          everything the user reads
-│   ├── findings.py (546)     Finding + factories + print_ask
-│   ├── messages.py (448)     print_what_now, print_troubleshooting,
-│   │                         VOICING_CURVES
-│   ├── environment.py (421)  --doctor verdicts, on doctor.py's vocabulary
-│   ├── speaker.py (697)      --speaker-info, the pin and firmware-gate copy
-│   ├── profile.py (588)      the per-profile report
-│   └── doctor_run.py (406)   --doctor's own I/O and top level
+│   ├── findings.py     Finding + factories + print_ask
+│   ├── messages.py     print_what_now, print_troubleshooting, VOICING_CURVES
+│   ├── environment.py  --doctor verdicts, on doctor.py's vocabulary
+│   ├── speaker.py      --speaker-info, the pin and firmware-gate copy
+│   ├── profile.py      the per-profile report
+│   └── doctor_run.py   --doctor's own I/O and top level
 └── pipewire/        ee_to_pipewire internals
-    ├── plugins.py (668)   EE plugin → LV2 translation
-    ├── conf.py (336)      filter-chain conf emission
-    ├── install.py (340)   install / pin / restart / activate
-    └── checks.py (611)    PW-side --doctor
+    ├── plugins.py   EE plugin → LV2 translation
+    ├── conf.py      filter-chain conf emission
+    ├── install.py   install / pin / restart / activate
+    └── checks.py    PW-side --doctor
 ```
 
 Three modules the original plan did not have arrived as the generator emptied:
-`preset/emit.py`, and `report/profile.py` and `report/doctor_run.py`, each
-recorded in its own slice above. Nothing planned was dropped.
+`preset/emit.py`, `report/profile.py` and `report/doctor_run.py`. Nothing
+planned was dropped.
 
 Each entry point keeps its argparse builders, `main()`, and the orchestration
-that reads as the program. This section first put that at **roughly 800 lines
-for the generator**; it settled at **924**, and the difference is not overrun
-but a deliberate floor. `main()` is 425 lines and the seven `add_*_args`
-builders plus `build_parser` are 264 — 689 of the 924, or 74%, in the two
-things a split of this shape may not touch. The argparse block is the mirror
+that reads as the program. What is left at root is therefore a **floor, not an
+overrun**: `main()` plus the seven `add_*_args` builders and `build_parser` are
+**626 of the generator's 931 lines, and 358 of the converter's 479** — two
+thirds to three quarters of each, in the two things a split of this shape may
+not touch (`ast` over the root scripts at `62a43de`). The argparse block is the mirror
 `.claude/rules/cli-help.md` holds against the README and
 `tests/test_readme_cli_sync.py` traps group-by-group, so breaking it up buys
 nothing and puts the flag order at risk; `main()` is the orchestration itself,
-and every line taken out of it becomes a parameter passed back in. The
-remainder is the module docstring and imports, `_load_dsp` (27), the
-completion helpers, and `run_cli`. The other two entry points sit at the same
-ratio without being aimed at it — 388 of 484 for the converter and 360 of 449
-for the wrapper are `main()` plus argparse, both 80%.
-
-Two things the table above once assigned to `console.py` stayed behind when it
-moved. `_load_dsp` binds `np` and `wavfile` into the *generator's* globals,
-which is where every `np.` in that file looks them up, so relocating it would
-break those lookups and hand a module the converter imports at startup the
-numpy dependency `test_converter_startup_pulls_in_no_dsp` exists to keep out.
-And `console.py` is the one module in `lib/` allowed to import `rich`: the
-optional presentation dependency is contained there rather than spread across
-whatever else gets extracted, which is why it is absent from
-`tests/test_layout.py`'s `STDLIB_ONLY` list while still bound by the DSP rule.
-
-> **Superseded by the deferral commit (`ec3b1e1`).** Both paragraphs above —
-> and every `_load_dsp`, `ensure_dsp` and `complete_and_load` in the slices
-> below — name an apparatus that no longer exists: a module-scope
-> `if "_ARGCOMPLETE" not in os.environ: _load_dsp()` that pulled the DSP stack
-> into the generator's globals on any non-completion run. The generator now
-> imports numpy, `lib.preset.emit` and `lib.report.profile` as three ordinary
-> function-local imports just above `main()`'s emit loop, so the deferral
-> covers every path that returns before a conversion rather than the completion
-> path alone. What the slices decided is unchanged — which modules may not be
-> imported at the top of the generator, and why — with three details to read
-> past. The remainder counted above loses 43 lines (`_load_dsp` 27,
-> `ensure_dsp` 9, `complete_and_load` 7), leaving `_attach_completers` and the
-> two completers as its completion helpers. `np` is a local of `main()` now
-> rather than a global, and the last thing the function bound was `np`, `emit`
-> and `report_profile` — the emit slice below having taken `wavfile` — but
-> `console.py` is still the wrong home for the import, for the reason given.
-> And the trap named below is
-> `test_the_dsp_import_is_deferred_past_every_early_return` after the rename;
-> the `~0.4 s of a ~0.5 s startup` it protects is still what importing numpy
-> and scipy costs, but the generator's `--help` now measures 0.17–0.19 s where
-> the per-profile slice below recorded 0.62–0.68 s (the other two scripts land
-> at the same 0.17–0.18 s).
-
-Slice 5 landed the `report/` and `preset/` halves of that tree with two
-deviations from it, both forced rather than chosen.
-
-**The `--disable`/`--enable`/experimental menus went to `report/messages.py`,
-not `preset/plugins.py`.** They are read twice: by `print_troubleshooting`,
-and by `add_filter_tweak_args` while argparse builds `choices` — which happens
-on the completion path, where `_load_dsp` has deliberately not run. And
-`plugins.py` reaches numpy (`decode_mbc_time_constant` wants `fir.SAMPLE_RATE`
-for the block rate), so a generator that imported it at the top to read a
-symptom string would put 0.4 s on every TAB press and fail
-`tests/test_completions.py::test_completion_path_skips_the_dsp_import`. The
-tables are copy anyway, in the same register as the block that prints them, so
-the home the constraint picked is the one the content wanted. `plugins.py` and
-`build.py` are consequently bound in `_load_dsp` beside `fir`; `bands.py` and
-`autoload.py` are stdlib-only and imported at the top like everything else.
-
-**`--doctor` split along its own comment line rather than at the section
-boundary.** The banner over that block already said it: *"the pure helpers
-below take plain inputs so they're unit-tested without touching the system;
-the `_probe_`/`_gather_` wrappers do the I/O."* The pure half — every
-`*_status` verdict and the shared message builders, which is where the copy
-is — is what moved to `report/environment.py`. The I/O half stayed, because
-each piece of it reads something that has not moved yet: `_probe_ee_version`
-and `warn_ee_environment` want the `_USE_FLATPAK` / `DEFAULT_*` install-path
-constants, `_gather_doctor_report` wants `_gather_speaker_info`,
-`_print_doctor_report` wants `_print_speaker_info`, and `speaker_pin_status`
-wants the pin-fix step builders — all of them generator residents that the
-hardware slice left behind. Carrying them anyway would have meant re-pointing
-calls inside a moved body, which is exactly what `-C` cannot follow. They come
-free once `_gather_speaker_info` / `_print_speaker_info` reach `lib/` and the
-EE install paths resolve through `lib/ee_paths.py`.
-
-The dividend of that second choice is measurable: the suite's
-`monkeypatch.setattr` inventory is **byte-identical before and after the
-slice**. Not one patch target moved, because every patched symbol
-(`_probe_ee_version`, `warn_ee_environment`, `_print_speaker_info`, and the
-`subprocess`/`shutil` module objects the probes reach through) is on the I/O
-side that stayed. What did change is which module the tests *import* the moved
-names from, which no `test_no_test_patches_a_re_exported_name` failure can
-hide behind.
-
-Slice 6 landed `lib/pipewire/` and emptied the converter — 2,133 lines down to
-483, of which the argparse builders, the completers and `main()` are all that
-is left. The four modules came out as planned and stack strictly:
-`plugins.py` (an EE plugin block → its LV2 node, plus the `EE_*` label tables)
-← `conf.py` (`build_chain`, `emit_links`, `format_conf`, the SPA-JSON writer)
-← `install.py` and `checks.py`, neither of which the other imports. Four
-deviations, each forced by something:
-
-**`DEFAULT_OUTPUT_DIR` went to `checks.py`, not `install.py`.** It is the one
-constant `tests/test_pw_doctor.py` patches — three sites, to point the doctor
-at a `tmp_path` — and the bodies that read it are `check_conf_directory`,
-`gather_pw_doctor` and `report_pw_doctor`, all of them moved lines that may
-not be re-pointed. Had it lived in `install.py`, `checks.py` would have held
-its own `from … import DEFAULT_OUTPUT_DIR` binding and the patch would have
-needed to name `checks` anyway — two bindings for one constant, which is the
-stale-binding hazard in miniature. Four of its six readers are in `checks.py`;
-the two in the root script (the `--output` help text and `main`) re-point for
-free, as every root-side call site does.
-
-**`warn_if_stacked` went to `checks.py` too**, despite firing at write time
-rather than at `--doctor` time. It reads `installed_confs`, and it is
-`check_stacked_chains` asked of the confs on disk instead of the live graph;
-its four tests already live in `test_pw_doctor.py`. The alternative — leaving
-it beside the other end-of-run messages — would have made `install.py` import
-`installed_confs` from `checks.py` while `checks.py` imported
-`DEFAULT_OUTPUT_DIR` back from `install.py`. That cycle is the reason, not the
-tidiness: with `warn_if_stacked` moved, the four layers have no way to form
-one.
-
-**`PluginHandler` and `EE_KEY_DISPATCH` stayed with the emitters** while
-`build_chain` went to `conf.py`. Both readings are defensible — the table is
-"the driver" by the old section banner and "the translation index" by content
-— and the tiebreak is arithmetic: `conf.py` importing one name
-(`EE_KEY_DISPATCH`) beats `plugins.py` importing eight emitter names back.
-
-**The converter imports its own `conf` module as `pw_conf`.** `main()` binds a
-local named `conf` for the rendered text, three lines before it writes it out.
-Second alias of the split after `hardware_sinks`, and the same comment shape
-above it.
-
-Two smaller things worth having recorded. `lib/pipewire/*` may not import
-`lib/preset/*` — `plugins.py` and `build.py` there reach numpy through
-`fir.py`, and `test_converter_startup_pulls_in_no_dsp` asks the question from
-the converter's end, so the failure would be immediate but the reason
-non-obvious. And `lib/pipewire/plugins.py` carries a comment naming a
-`localresearch/` path (the LSP source tree the enum tables were read out of),
-moved verbatim because a move commit cannot also fix it; it wants the tidy-up
-commit after.
-
-Unlike slice 5, this one *does* move patch targets — that dividend was
-specific to `--doctor`'s pure/IO seam. Twenty-one `monkeypatch.setattr` calls
-aimed at the converter across three test files reduce to six distinct names,
-all retargeted: `_pw_dump`, `_wireplumber_version`, `_plugin_presence`,
-`DEFAULT_OUTPUT_DIR`, `_UNSCANNED_CONF_DIR` and `report_pw_doctor` to
-`lib.pipewire.checks`, `_validate_conf` and `_autodetect_speaker_sink` to
-`lib.pipewire.install`, with `main` alone staying on the root module. A green
-suite does not prove a retargeted patch still bites — a patch that reaches
-nothing leaves a passing test that quietly ran the real code — so each was
-checked by breaking the production function and confirming the test stayed
-green.
-
-### The EasyEffects install paths, and the duplicate that was real
-
-The second wave opens with the smallest step there is: the `DEFAULT_OUTPUT_DIR`
-/ `DEFAULT_IRS_DIR` / `DEFAULT_AUTOLOAD_DIR` / `DEFAULT_EASYEFFECTS_RC` block
-left the generator for `lib/ee_paths.py`, where the base it derives from
-already lived. It goes first because it is what the slice-5 note said the
-stranded `--doctor` I/O half was waiting on, and because the readers that
-*can't* move — `add_autoload_args`, `add_output_args`, `_complete_preset_names`
-and `main` — re-point for free from a root script.
-
-Two constants named `DEFAULT_*_DIR` looked like the same duplication and were
-not:
-
-- `lib/pipewire/install.py`'s `DEFAULT_IRS_DIR` was a genuine second
-  definition — the same `easyeffects_base() / "irs"`, written twice — and is
-  gone. The converter's `--irs-dir` default now reads the generator's
-  attribute, which is what `tests/test_ee_to_pipewire.py`'s
-  `test_irs_default_matches_the_generator` had existed to police.
-- `lib/pipewire/checks.py`'s `DEFAULT_OUTPUT_DIR` shares a name with the
-  generator's and nothing else: it is `~/.config/pipewire/pipewire.conf.d`,
-  PipeWire's drop-in directory, against the EasyEffects preset directory under
-  `~/.local/share`. Collapsing the two would have redirected every conf this
-  repo writes. It stays exactly where slice 6 put it, patch target included.
-
-That test survives rather than being deleted, because the layer where drift is
-still possible moved up: the constants can no longer disagree, but a `--irs-dir`
-given a default of its own can. It now asks both parsers, and asserts
-**identity** with `lib.ee_paths.DEFAULT_IRS_DIR` rather than equality — on a
-native-install machine a hardcoded native path compares equal to the right
-answer while being wrong for exactly the Flatpak users the original bug hit.
-Checked by re-introducing both failure shapes (hardcoded, and re-derived
-through `easyeffects_base()`) and confirming it fails on each.
-
-This slice is deliberately **not** a seed/trim pair, and it is the counterexample
-worth having next to the rule above. Seventeen lines of constants sit under the
-threshold where a copy edge earns its commit — and the seed could not have
-recovered much of them anyway, because the move is not verbatim: the block's
-private aliases (`_EASYEFFECTS_BASE`, `_USE_FLATPAK`, `_FLATPAK_APP_ID`) become
-the module's own public names, so `check_move_purity.py` reports the derivations
-as changed rather than moved, correctly. The provenance that mattered here was
-never `git blame`'s; it was proving the resolved paths didn't move, which is a
-`git worktree add --detach <scratch> HEAD` copy printing every constant either
-side.
-
-### DAX source discovery, and a list that could not take the module
-
-583 lines — `DOLBY_FILENAME_RE` through `find_tuning_xml`, the whole answer to
-"where are the tunings and which one is this laptop's" — left the generator for
-`lib/dax/discover.py`, beside the `parse.py` that takes over once a path is
-picked. The cleanest large extraction of the wave: `symtable` over the block
-says it reaches exactly six names it does not define — `ET`, `Path`, `os`, `re`,
-plus `console` and `codecs`, both already under `lib/` — so nothing had to be
-dragged along and no moved body needed a call re-pointed. The four call sites
-that stay (`main`'s two `find_tuning_xml`, its `autoprobe_dolby_source`, and
-the `is_soundwire_xml` that decides the bus) re-point for free, as root-side
-call sites always do.
-
-The module is stdlib-only in the sense the converter's startup cares about — no
-numpy, no scipy — and still **cannot** join `tests/test_layout.py`'s
-`STDLIB_ONLY`. That list's `FORBIDDEN` covers `rich` as well, and every one of
-these functions announces what it matched, so the module imports `lib/console.py`
-and the optional dependency it owns. Checked rather than assumed: adding it
-fails with `pulls in rich,rich_argparse`. It is the third module to land in that
-position after `lib/pipewire/install.py` and `checks.py`, and the second in
-`lib/dax/`, so the tuple now carries the reason in a comment instead of leaving
-the absence to be re-discovered. The rule that *does* bind it is the one with no
-list — `test_converter_startup_pulls_in_no_dsp` — and it is green.
-
-Twelve `monkeypatch.setattr` calls in `tests/test_cli.py` moved to the new
-module: `_resolve_driver_store` ×8, `_ntfs_family_mountpoints` ×2,
-`_walk_for_dolby_xml_dirs` and `_detect_expected_subsys_ids` ×1 each. Each was
-sabotage-checked — break the production function, confirm the test that patches
-it still passes — because a retargeted patch that reaches nothing leaves a green
-test that quietly ran the real code.
-
-Four duplications were **noticed and deliberately left**, since collapsing one
-inside a move commit is a behaviour change under a subject line promising there
-isn't one. Three are inside `discover.py`: the `dax3_ext_*.inf_*`-wrapper scan
-written twice (`_candidate_has_matching_xml` as a `… or [driver_store]`,
-`find_tuning_xml` as an `if not xml_dirs:`), the PCI-subsystem byte order
-`f"{device}{vendor}".upper()` derived twice, and the DAX3-eligible-file
-predicate spelled four times. That last one is the reason for the rule rather
-than an example of it: three sites test the suffix exclusion *and*
-`DOLBY_FILENAME_RE`, while `find_tuning_xml` globs `*.[xX][mM][lL]` and applies
-only the suffix half — so an XML with no `SUBSYS_` token still reaches
-`scanned_files` there, and with it the security-key content fallback, while the
-three probe sites never see it at all. "Collapse the duplication" would silently
-narrow what the generator can match. The fourth is across the boundary:
-`tests/corpus/test_corpus.py`'s `_discover_corpus` re-implements
-`autoprobe_dolby_source`'s mount-then-CWD walk, which its own docstring already
-admits.
-
-> **Two of the four are closed, and the first was undercounted here.** The
-> wrapper scan is now one `_INF_WRAPPER_GLOB` constant plus an
-> `_is_inf_wrapper(name)` predicate for the one site that has a name rather
-> than a parent to glob (`8072bed`), and the byte order is `_pci_subsys_token()`
-> (`3704e79`), both in `discover.py`. Collapsing the first found **five**
-> spellings, not the two named above: `_resolve_driver_store`,
-> `_candidate_has_matching_xml`, `find_tuning_xml` and `autoprobe_dolby_source`
-> each globbed the pattern, and `autoprobe_dolby_source` also tested it a
-> second time as `cand.name.startswith("dax3_ext_") and ".inf_" in cand.name`
-> — decomposed, so a grep for the glob string does not find it. That is the
-> generalisable part: a noticed-and-left note records the copies the reader
-> happened to see, and the count is a lower bound rather than an inventory.
-> The other two stand. The DAX3-eligible-file predicate is still spelled four
-> times, deliberately and for the reason given; `_discover_corpus` still
-> re-implements the mount-then-CWD walk.
-
-### The speaker report, and where a `lib/` caller may be re-pointed
-
-649 lines — `warn_speaker_firmware_gate` through `report_speaker_info`, plus
-`speaker_pin_status` — left the generator for `lib/report/speaker.py`, taking
-it from 2,769 lines to 2,116. This is the *reporting* half of a split whose
-probing half became `lib/hardware/speakers.py` in wave 1: that module answers
-what is wired to what, and everything here decides what to say about the
-answer, across the three surfaces that must not drift — `--speaker-info`,
-`--doctor`, and the findings a normal run raises.
-
-`speaker_pin_status` came along even though it is a `--doctor` verdict and the
-slice-5 note above parked it with the I/O half. It is a verdict *about the
-speakers*, it reads `_pin_phrase` / `upgrade_prospect` /
-`speaker_pin_fix_steps`, and moving it now is what leaves the `--doctor` I/O
-that comes next with no pin edge at all.
-
-`symtable` over the block says it reaches fourteen names it does not define:
-`Path`, `date`, `textwrap`; `console`, `version`, `amps`, `codecs`, `speakers`,
-`speaker_pin_quirks`, `environment`, `report_findings`; and `Finding`,
-`CheckResult`, `DOCTOR_WARN`. Nothing had to be dragged along beyond
-`_MODPROBE_CONF` and `_pin_phrase`, both private to the block, and no moved
-body needed a call re-pointed. The last three arrive as bare names on
-`lib/report/environment.py`'s precedent — two dataclasses (`Finding` frozen,
-`CheckResult` not) and a string constant, nothing a test would patch — and
-`report_findings` keeps the generator's alias because the moved lines read
-through it. In the generator and
-in both test files the new module is imported as `report_speaker`: one letter
-from `lib.hardware.speakers`, which those files still use.
-
-**The cycle that had to be checked, and wasn't one.** `upgrade_prospect` reads
-`environment.parse_kernel_series` and `_print_speaker_info` reads
-`environment._kernel_series_age`, so `speaker.py` imports `environment.py`.
-Nothing goes back the other way: `environment.py` reaches
-`lib/hardware/speakers.py` for a type and never the report. The edge is
-one-directional and the `--doctor` I/O that assembles both sits above them —
-which is the whole reason it is going into a module of its own rather than
-back into `environment.py`.
-
-**A `lib/`-side call site can only be re-pointed in three places.** The one
-caller of this code outside the generator is `lib/pipewire/checks.py`, whose
-PipeWire `--doctor` ends on the same hardware dump. It reached it through a
-deferred, `try`-guarded `import dolby_to_easyeffects as gen` — deferred because
-that import cost the generator's NumPy/SciPy on a path that does no DSP.
-Retargeting it looks like a one-line edit and is not: `check_move_purity.py`
-exempts a module's docstring, its top-level import block and blank lines, so in
-a file already under `lib/` the *only* pure edits are a deletion, a top-level
-import, and docstring prose. A rewritten line inside a function body is a
-violation whether or not it is a moved line, and the tool cannot tell the two
-apart. So the import moved to the top of the file as
-`from lib.report import speaker as gen`, the `try` came out, and the two call
-lines were left untouched — including the alias, which now reads oddly and is
-kept for exactly that reason. The sentence the deleted comment carried moved
-into the docstring, where it is exempt. What it buys: the PipeWire doctor no
-longer pulls numpy and scipy to print a hardware dump, which was the reason the
-import was deferred in the first place.
-
-Read that the other way round, because it is the lesson with a future in it:
-hoisting the import is a **behaviour change** — the import now happens on every
-converter run rather than on `--doctor` alone, and a `try` that degraded to
-"(hardware report unavailable)" is gone in favour of letting an `ImportError`
-on a `lib` sibling be the bug it is — and it passed `check_move_purity.py` as
-*pure*, because the shape it changed into is an exempt one. The exemption for a
-top-level import block exists so a freshly extracted module can import what it
-needs; in an existing `lib/` module it will also launder an edit that has
-nothing to do with the move. So **exit 0 certifies the shape of a commit, not
-its innocence**, and it certifies nothing at all about files that were already
-under `lib/` before it ran. The change here is disclosed in the commit body and
-measured — converter startup 0.07–0.08 s before, 0.07–0.10 s after, numpy and
-scipy still absent from a converter run's 214 modules — but nothing in the
-tooling required that of it, and the honest alternative was the shape slice ①
-took: leave the edit where it reads best and let the checker report the
-impurity.
-
-`lib/report/speaker.py` is stdlib-only in the sense the converter's startup
-cares about and still cannot join `tests/test_layout.py`'s `STDLIB_ONLY`: it
-prints, so it reaches `lib/console.py` and the optional `rich` that list's
-`FORBIDDEN` also covers. Checked rather than assumed — importing it leaves
-`rich,rich_argparse` in `sys.modules`. No `lib/report` module can ever be
-eligible, since the package exists to print, so the tuple now says so once for
-all four rather than leaving each absence to be re-discovered.
-
-The patch inventory is two calls, both in `tests/test_cli.py`
-(`_gather_speaker_info`, `_print_speaker_info`) and both retargeted to the new
-module. Small, but not to be trusted on a green suite alone: each was checked
-in both directions — break the production function and the patching test must
-still pass, then aim the same patch at a throwaway object and it must fail with
-the sabotage reaching the real function. The third patch in that test,
-`version.get_version`, needed no retargeting and is the payoff of `c6f90db`:
-had the generator still been re-exporting that name, the moved caller would
-have read the real version through `lib/version.py` while the patch rebound a
-copy, and the assertion about a version-stamped header would have passed
-anyway. The other 57 references — 52 in `tests/test_speaker_sinks.py`, five in
-`tests/test_cli.py` — are plain calls, and every `monkeypatch.setattr` those
-tests rely on already names `lib.hardware.*` rather than the generator.
-
-Five duplications were **noticed and deliberately left**, for the reason the
-rule gives: collapsing one inside a move commit is a behaviour change under a
-subject line promising there isn't one.
-
-- `_gather_speaker_pins` and `_gather_speaker_info` share their first dozen
-  lines verbatim — the `/proc/asound/cards` read, the three `codecs.get_*`
-  probes, the demo-injection guard around `_detect_hda_speakers`. The split is
-  deliberate and documented (the cheap one must not pay for `amixer`,
-  `journalctl` and a `/lib/firmware` glob), but the overlap is copy, not
-  design.
-- The pin sentence is written twice: `warn_hidden_speaker_pin`'s "Upstream
-  Linux carries a fix for this exact model that declares {phrase} on codec
-  {ssid} an internal speaker, and your kernel isn't applying it" and
-  `speaker_pin_status`'s lowercase near-identical detail. Two surfaces, one
-  claim, and the *procedure* under it is already shared through
-  `speaker_pin_fix_steps` — so this is the half that got left behind when the
-  rest was unified.
-- The firmware-gate symptom ("silent, thin or crackly") is spelled out in
-  `warn_speaker_firmware_gate` and again in `_amp_status_lines`, with a comment
-  in the second saying it is hedged for the same reason as the first.
-- `speakers.find_hidden_speaker_pin(info)` is called twice inside
-  `_print_speaker_info` — once for the flagged-pin set, once for the layout
-  line — and a third time by `unlisted_speaker_pin_finding`, all on the same
-  `SpeakerInfo`. Pure recomputation of a pure function; cheap, but three
-  answers where there is one question.
-- `_pin_phrase(missing)` is computed in `warn_hidden_speaker_pin` and again in
-  the `_hidden_pin_finding` it calls two lines later with the same argument.
-
-### The `--doctor` I/O, and the patch dividend being spent
-
-372 lines — `parse_ee_version` through `warn_ee_environment`, plus
-`easyeffects_is_running` from further down the file — left the generator for
-`lib/report/doctor_run.py`, taking it from 2,116 lines to 1,744. This is the
-half slice 5 deliberately stranded: the `*_status` verdicts went to
-`report/environment.py` then, and the `_probe_`/`_gather_`/`_print_` wrappers
-that do the I/O stayed because each read something still in the generator. Both
-blockers are gone — the install paths resolve through `lib/ee_paths.py`
-(slice ①) and `_gather_speaker_info` / `_print_speaker_info` /
-`speaker_pin_status` are in `lib/report/speaker.py` (slice ③) — so nothing here
-needed a call re-pointed inside a moved body.
-
-Membership was derived from the call graph rather than the section boundary,
-which matters because the block is **not contiguous**: `list_endpoints`,
-`sanitize_profile_type` and `get_profile_types` sit between
-`warn_ee_environment` and `easyeffects_is_running` and are XML inspection, not
-diagnostics. `easyeffects_is_running` had to travel regardless of where it sat
-— `_probe_ee_version`'s `native()` calls it to tell "installed but silent" from
-"absent" (issue #46), so leaving it behind would have meant re-pointing a moved
-line. Its third caller, in `main()`'s autoload block, re-points for free the way
-every root-side call site does. `symtable` over the result says the module
-reaches seventeen names it does not define, and every one is an import: `Path`,
-`dataclass`, `json`, `re`, `shutil`, `subprocess`; `console`, `ee_paths`,
-`version`, `autoload`, `environment`, `report_findings`, `report_speaker`; and
-`CheckResult`, `DOCTOR_PASS`, `DOCTOR_WARN`, `DOCTOR_FAIL`.
-
-**Why a new module and not more of `environment.py`.** That would close a
-loop. `speaker.py` imports `environment.py` (`upgrade_prospect` reads
-`parse_kernel_series`, `_print_speaker_info` reads `_kernel_series_age`), and
-the doctor assembles *both* — `_gather_doctor_report` calls
-`_gather_speaker_info` and `speaker_pin_status`, `_print_doctor_report` calls
-`_print_speaker_info`. So it sits strictly above them, and putting it back in
-`environment.py` would make environment → speaker → environment. The direction
-actually created is one-way: `doctor_run` → {`speaker`, `environment`,
-`findings`, `autoload`}, and nothing under `lib/` imports `doctor_run` at all.
-The converter is untouched by it, so `test_converter_startup_pulls_in_no_dsp`
-never sees the new edge.
-
-**`report_doctor` came too**, on `lib/pipewire/checks.py`'s precedent: the
-converter calls `checks.report_pw_doctor()` straight from `main()`, and this is
-the same seam one tool over. It makes `report_doctor` and `warn_ee_environment`
-the first functions under `lib/` to take an argparse namespace. That is a real
-deviation from "each entry point keeps its argparse builders and `main()`", and
-the tiebreak is that both are `--doctor`'s own top level rather than the
-program's: what `main()` keeps is the decision to run them.
-
-**The report vocabulary went with its last reader.** `DOCTOR_PASS` /
-`DOCTOR_WARN` / `DOCTOR_FAIL` / `DOCTOR_UNKNOWN` / `CheckResult` were bound onto
-the generator as attributes of `lib/doctor.py`, and after this move not one of
-the five has a reader left in that file — `DOCTOR_UNKNOWN` already had none, and
-was reachable only because a test read it through the generator. So the five
-lines are deleted rather than moved, the module takes the four it uses as bare
-names on `environment.py`'s precedent, and the reads in `tests/test_preset.py`
-and `tests/test_speaker_sinks.py` retarget to `lib.doctor`, which is where they
-were defined all along. The move
-also orphans `import shutil`, `import subprocess`, `dataclass` and the
-`lib.doctor` module import; those come out of the generator's import block with
-it.
-
-**This is the slice that spends slice 5's dividend**, and the whole of it.
-Thirteen `monkeypatch.setattr` calls retarget, in two shapes:
-
-- `_probe_ee_version` (`tests/test_preset.py`) and `warn_ee_environment`
-  (`tests/test_cli.py`) — one call each, ordinary function patches now naming
-  `lib.report.doctor_run`.
-- the **module objects** `subprocess` (×7) and `shutil` (×4), all in
-  `tests/test_preset.py` and all spelled `monkeypatch.setattr(d.subprocess,
-  "run", …)`. These read the module *through* the generator's binding, so they
-  survive being pointed anywhere the same module object is reachable — but the
-  generator no longer imports either, so left alone they would have raised
-  `AttributeError` rather than passing quietly. They now name `doctor_run`.
-
-A green suite proves none of that. Each was checked in both directions. For the
-two function patches: `raise AssertionError("SABOTAGE")` as the first statement
-of the production function, and the patching test must still pass — then the
-same patch aimed at a throwaway `SimpleNamespace` must fail with the sabotage
-reaching real code. Both did. The module patches need the equivalent of a
-poisoned attribute, since there is no "production function" to break: replacing
-the module's own `subprocess` / `shutil` bindings with shims whose `run` /
-`which` raise on call leaves all seven tests green (every one patched the object
-production reads through), and re-aiming the patches at a throwaway fails
-exactly the tests that patch that name — all seven for `subprocess`, and for
-`shutil` the four that patch it while the other three stay green.
-
-`lib/report/doctor_run.py` cannot join `tests/test_layout.py`'s `STDLIB_ONLY`
-for the reason the whole package can't: it prints, so it reaches `lib/console.py`
-and the optional `rich` that list's `FORBIDDEN` also covers. The comment
-covering all of `lib/report` already said so and now names it among the four.
-
-Two things were **noticed and left**, per the rule that collapsing duplication
-inside a move commit is a behaviour change under a subject line promising there
-isn't one:
-
-- `_gather_doctor_report` and `warn_ee_environment` open with the same four
-  lines — probe, unpack `probe.version` / `found` / `is_flatpak` into locals,
-  hand them to `environment.ee_version_status` — and then ask the
-  install-location question twice more, once through
-  `environment.install_status` and once as a bare `ee_is_flatpak !=
-  ee_paths.USE_FLATPAK`. Two surfaces on one probe, which is the same shape
-  `e3a7ee4` unified on the *message* side and did not on the probe side.
-  `report_doctor`'s `custom_dirs` predicate and `warn_ee_environment`'s
-  default-dirs guard are that third copy in opposite polarity.
-- The unpacking in both binds a local named `version`, which shadows the
-  `lib/version.py` module the file imports. It is harmless today because
-  neither function calls `version.get_version()` and `_print_doctor_report`
-  (which does) has no such local — but it is the exact hazard the generator
-  aliases `hardware_sinks`, `report_findings` and `report_speaker` to avoid,
-  and it moved verbatim because a move commit may not rename what it carries.
-
-> **Closed in part — the last sentence of the first bullet only.**
-> `report_doctor`'s `custom_dirs` predicate and `warn_ee_environment`'s
-> default-dirs guard, the "third copy in opposite polarity", are now one
-> `_uses_custom_ee_dirs(args)` (`5ba87bb`), which is what makes every check
-> keyed on it agree about what "custom" means. The two really were De Morgan
-> duals — the commit body writes the four-row truth table out rather than
-> asserting it, because an inverted hand-written copy is the failure this
-> shape has — and the extra `ee_is_flatpak` conjuncts stayed at the warning's
-> call site, since only the dir comparison is the shared concept. Nothing else
-> here moved: `_gather_doctor_report` and `warn_ee_environment` still open on
-> the same four probe-and-unpack lines and still ask the install-location
-> question twice, once through `environment.install_status` and once as the
-> bare comparison. The second bullet stands verbatim — both still bind a local
-> `version` over the module of that name, `_print_doctor_report` still has no
-> such local, so the shadow is still harmless and still the hazard described.
-
-Unrelated to the move but found while checking what it orphaned: the generator
-still imports `configparser`, `contextlib`, `math`, `Callable`, `field`,
-`kernel_releases` and `bands` with no reader for any of them, most of them
-stranded by earlier slices. Deadwood for the tidy-up commit, not this one.
-
-### The voicing table, and a table that serves two packages
-
-Nine lines — `VOICING_CURVES`, the Balanced/Detailed/Warm → `ieq_*` curve-key
-map — left the generator for `lib/report/messages.py`. It goes on its own and
-first because its two readers end up in *different packages*: the per-profile
-report derives its "this profile's three voicings" sentence from it, and the
-emit loop keys the presets it builds off it, and those two are headed for
-`lib/report/profile.py` and `lib/preset/emit.py` respectively. Whichever of the
-two had kept it, the other would have had to import it — and both reach numpy,
-so a shared nine-line table would have been reason enough to drag scipy across
-a package boundary.
-
-That is the same argument slice 5 of wave 1 made for the `--disable`/`--enable`
-menus, one step further out. It is *not* the same constraint: those tables are
-read on the completion path, where `_load_dsp` has deliberately not run, so
-their home had to be stdlib-only. Both of `VOICING_CURVES`'s readers are
-DSP-bound, and neither is on the completion path. What picks `messages.py` here
-is the content — the table is copy as much as it is data, and `print_what_now`
-twenty lines below already spells two of the three voicing names in the hint it
-derives from what was built.
-
-Like the install paths in the first slice of this wave, and for the same
-reason, it is deliberately **not** a seed/trim pair: nine lines sit well under
-the threshold where a copy edge earns its own commit. Unlike them it *is* pure
-motion — `check_move_purity.py` reports 9 moved, 0 unmoved — because the block
-crosses verbatim, comment included. The only edit either side is at the two
-call sites, which are still in the root script at this point and therefore
-re-point for free; they arrive at `lib/` already reading
-`messages.VOICING_CURVES`, so the two bodies that carry them are unchanged by
-their own moves.
-
-The patch inventory is **empty** — no test names `VOICING_CURVES` — which is
-worth recording rather than passing over, since the sabotage check that follows
-every other slice has nothing to bite on here.
-
-Two duplications were **noticed and left**. `print_what_now` tests
-`n.endswith("-Detailed")` and `n.endswith("-Warm")` as string literals, and
-`dolby_to_pipewire.py`'s `VARIANT_STEMS` spells all three a third time to map
-`--variant warm` onto a preset stem. Both are now in a position to read the
-table instead — the first is in the same module — but collapsing either inside
-a move commit is a behaviour change under a subject line promising there isn't
-one.
-
-> **The wrapper's copy is closed; `print_what_now`'s is not.** `VARIANT_STEMS`
-> is `{label.lower(): label for label in messages.VOICING_CURVES}` (`caaf174`)
-> — the wrapper already imported the module, so it cost no startup, and the
-> derived dict matches the literal key for key and in order, so `--help`
-> renders byte-identically. What forced that check is now recorded on both
-> sides and is the reusable part: the table's insertion order *is* build order,
-> and a reader that renders the list — `--variant`'s `choices`, and `--help`
-> behind it — silently inherits an ordering guarantee the table only stated in
-> a comment. `print_what_now`'s `n.endswith("-Detailed")` and
-> `n.endswith("-Warm")` are still string literals, in the same module as the
-> table they could be reading.
-
-### The per-profile report, and the first module `_load_dsp` binds
-
-543 lines — the whole of `_report_parsed_profile` — left the generator for
-`lib/report/profile.py`, taking it from 1,744 lines to 1,188. It was the
-largest symbol left in the file and had already been told it wasn't `main()`:
-its own docstring said it was "split out of `main()` so the orchestration there
-stays legible".
-
-Membership came out unusually clean. `symtable` over the block says it reaches
-ten names it does not define, and every one is an import — `np`, `console`,
-`parse`, `fir`, `plugins`, `report_findings`, `messages`,
-`_print_finding_detail`, plus the two channel arrays a lambda closes over.
-**No private helper travelled with it**, because it has none: `register` and
-`_peq_spec` are nested inside the body, and everything else it calls is
-already under `lib/`. One call site stays, in `main()`, and re-points for free
-the way root-side call sites always do.
-
-**This is the first extracted module the generator may not import at the top of
-the file.** It reaches numpy directly (the audio-optimizer summary),
-`lib/preset/fir.py` for the sample rate the compressor crossovers print
-against, and `lib/preset/plugins.py` for the decoders whose answers it reports
-— so it is bound inside `_load_dsp()` beside `fir` and `build`, on
-`lib/preset/plugins.py`'s precedent from slice 5 of wave 1. Importing it at the
-top would put numpy and scipy — ~0.4 s of a ~0.5 s startup — on every TAB
-press, which
-`tests/test_completions.py::test_completion_path_skips_the_dsp_import` traps.
-Verified rather than assumed: `_ARGCOMPLETE=1` and an `import
-dolby_to_easyeffects` still leave numpy and scipy out of a 223-module
-`sys.modules`, and `--help` still costs 0.62–0.68 s against 0.63–0.67 s
-before.
-
-Two consequences for `_load_dsp` itself. `lib.preset.plugins` loses its last
-reader in the generator — the report was it — so the binding comes out with
-the move, and `build` alone carries the chain (`build` → `plugins` → `fir` →
-numpy). And the module is aliased **`report_profile`** on
-`report_findings`/`report_speaker`'s precedent: `main()` binds `profile_type`,
-`profile_label` and `profile_findings` within a few lines of the one call it
-serves. `lib/report/profile.py` cannot join `tests/test_layout.py`'s
-`STDLIB_ONLY` for two reasons now rather than one — it prints *and* it reaches
-numpy — and the comment covering the whole of `lib/report` already says the
-first.
-
-**The patch inventory is empty, and that is the finding.** Not one
-`monkeypatch.setattr` in the suite moves: the full inventory across `tests/`
-names 45 distinct targets and none of them is a symbol this slice touches. What
-retargets is three import sites — `tests/test_preset.py`'s top-level import,
-one local `import dolby_to_easyeffects as d` that existed only for this call
-(deleted, the module-level name serves), and two calls in `tests/test_cli.py`,
-now through a `report_profile` alias matching the generator's.
-
-An import retarget has the same silent failure as a stale patch, so it was
-checked in both directions with the equivalent instruments:
-
-- `raise AssertionError("SABOTAGE")` as the first statement of the moved
-  function fails **34 tests** across the two files — so the retargeted sites
-  reach real, moved code.
-- Leaving the sabotage in place and putting a *working* `_report_parsed_profile`
-  back on the root script as a stale binding changes nothing: the same 34 still
-  fail. Nothing reads the generator's name.
-- Pointing the two retargeted imports at a `SimpleNamespace` instead fails
-  **28** — the six-test difference is the tests that reach the report through
-  `main()` rather than through the import, which is the expected shape and not
-  a gap.
-
-### Preset emission, and a blocker that had quietly expired
-
-199 lines — `_emit_ieq_presets`, the `FIR_VERIFY_OK_DB` gate it grades against,
-and `save_wav_stereo` — left the generator for `lib/preset/emit.py`, taking it
-from 1,188 lines to 985. `symtable` says the three reach nine names between
-them and every one is an import: `json`, `np`, `wavfile`, `console`, `parse`,
-`fir`, `build`, `autoload`, `messages`. `save_wav_stereo` and the gate travel
-because `_emit_ieq_presets` calls and reads them; nothing else does.
-
-**`save_wav_stereo`'s recorded blocker had expired without anyone noticing.**
-The comment over it said it stayed behind `lib/preset/fir.py` "because binding
-`wavfile` in a module that isn't this one means writing a second deferred
-import, which is new code rather than motion". That was true when `fir.py`
-moved and is not true now: `fir.py` imports numpy at module scope, so a module
-the generator only reaches through `_load_dsp()` may import scipy the same way
-— in the **top-level import block, which `check_move_purity.py` exempts**. The
-deferral it was avoiding was never needed; what was needed was a destination
-that is itself deferred. Worth generalising: a blocker recorded in a comment
-is a fact about the code *at that commit*, and the slice that removes it will
-not be the one that wrote it down.
-
-`_load_dsp` is now the whole point of the pattern rather than a place numpy
-lands. Three of its five globals go — `wavfile`, `fir` and `build` all lose
-their last generator reader with these lines — and what is left is `np` (which
-`main()` still needs to convert the parsed curves to dB) plus the two modules
-this wave created. Every module in `lib/` that reaches the DSP stack is now
-behind one of those two, and the generator's own import block is stdlib-only
-below `lib/`.
-
-> **Superseded by the deferral commit (`ec3b1e1`).** The pattern outlived the
-> function. What this paragraph leaves bound — `np`, plus `lib.preset.emit` and
-> `lib.report.profile` — is exactly what the generator imports today, as three
-> function-local imports at the top of `main()`'s emit loop; `_load_dsp` and
-> the module-scope guard that called it are gone, and with them the deferral's
-> restriction to the completion path. The closing claim is what lets that work
-> and it still holds: every `lib/` module reaching the DSP stack sits behind
-> one of those two imports, so a bare `import dolby_to_easyeffects` reaches 223
-> modules with numpy and scipy absent, on any path.
-
-The one edit that is **not** motion is disclosed here because nothing in the
-tooling would have caught it: `main()`'s call to `_emit_ieq_presets` grew five
-characters, so its visually-aligned continuation lines were re-indented to
-match. Root-side call sites re-point for free and `check_move_purity.py` only
-reads lines added under `lib/`, so this passed as pure; it is a whitespace
-change to nine lines that stay in the generator, and it changes no provenance
-that `-C` would have followed.
-
-`lib/preset/emit.py` is the **only edge from `lib/preset/` into
-`lib/report/`** — `messages.VOICING_CURVES`, per the slice above — and it is
-one-way: nothing under `lib/report/` imports it. It also cannot join
-`STDLIB_ONLY` for the strongest reason in the list, being the one module that
-imports scipy at module scope.
-
-Five test import sites retarget, one per file: `test_preset`,
-`test_golden_preset`, `test_ee_to_pipewire`, `corpus/test_corpus` and
-`corpus/test_ee_to_pipewire_corpus`. No `monkeypatch.setattr` target moves —
-the same finding as the slice before, and now the second slice in a row where
-the patch inventory is empty and the exposure is entirely in imports. Checked
-in both directions: sabotaging both moved functions fails 3,066 tests and
-errors 78 more; leaving the sabotage in place and putting a *working*
-`save_wav_stereo` back on the root script changes those numbers by nothing, so
-no test reads the generator's name; and aiming the five imports at a throwaway
-fails all five files (the fifth only under `--run-slow`, where its 3,056 tests
-stop being skipped — a default-run green there is no evidence, per
-`.claude/rules/testing.md`).
-
-Two consumers keyed on paths were checked and one moved. `.claude/rules/`'s
-`user-messages.md` and `cli-help.md` both already glob `lib/**/*.py`, so the
-copy contract and the argparse↔README mirror followed the code without an
-edit. `ee-preset-format.md` did not: its `.irs`-extension trap is about the
-filename this module builds, and the module that builds it has only just
-arrived at a path a rule can be scoped to. It joins the list, which is the
-"what the split unlocks" argument arriving one rule early.
-
-Two bookkeeping items landed on this trim that belonged on the one before it:
-`tests/test_layout.py`'s `STDLIB_ONLY` comments, which enumerated the
-`lib.preset` and `lib.report` modules and so went stale as each new one
-arrived. Both now name every sibling and say which of the two disqualifying
-dependencies each has, verified by importing each module in a subprocess
-rather than by reading.
-
-Nothing was collapsed. The duplication left alone here is
-`FIR_VERIFY_OK_DB`'s prose: the constant's own comment and the comment inside
-the loop both explain the same threshold in the same terms ("far above the
-minimum-phase design's normal residual (~0.05 dB)"), now nine lines apart in
-one module instead of split across two parts of an 8,000-line file. Task #26.
-
-### The sweep-up, and the seed that would have cost more than it bought
-
-The last slice of the wave is four small moves and one cleanup, and none of
-them is the interesting part. The generator ends at 924 lines from 8,108, the
-wrapper at 449 from 610, the converter untouched at 484.
-
-- **`list_endpoints`, `sanitize_profile_type`, `get_profile_types`** (39 lines)
-  → `lib/dax/parse.py`. These are the reason the `--doctor` block was not
-  contiguous: they sat between `warn_ee_environment` and
-  `easyeffects_is_running` and inspect the XML rather than the environment.
-  `parse.py` already excluded the `off` profile *citing* `get_profile_types`,
-  so the rule and its citation now share a file. One import (`re`) added, four
-  root-side call sites and one test import re-pointed for free.
-- **`_HelpHintParser`** (14 lines) → `lib/console.py`, beside the
-  `_HelpFormatter` it is the argparse-side sibling of.
-- **The activation block** (149 lines) → `lib/pipewire/install.py`.
-- **`_safe_node_name`** (5 lines) → `lib/pipewire/conf.py`, beside the
-  `_sanitize_name` and `DEFAULT_NODE_NAME` it predicts the output of.
-- **Eight unread imports** off the generator, in a commit of their own:
-  `configparser`, `contextlib`, `json`, `math`, `Callable`, `field`,
-  `kernel_releases`, `bands` — the seven the `--doctor` slice recorded, plus
-  `json`, whose last reader left with `_emit_ieq_presets` one slice later.
-  `replace` on the `dataclasses` line still has a caller and stays;
-  `from __future__ import annotations` is a compiler directive, not an import,
-  and stays in all three root scripts. Confirmed by `ast` at the commit, not by
-  grep: `bands` has 22 textual hits in the file and every one is prose.
-
-**A seed can cost more than it buys, and this is the shape where it does.** The
-rule above says extending an existing module needs a seed from the blob that
-path held at *its own* first seed. That rule assumes one source script.
-`lib/pipewire/install.py` held 180 lines extracted from `ee_to_pipewire.py`
-and was about to receive 149 from `dolby_to_pipewire.py`, and **no blob
-contains both**. Both shapes were built and measured on the same paths:
-
-| shape | of the 149 moved lines | of the 191 lines above them |
-|---|---|---|
-| flat extraction | **149** | 180 (the 11 are this commit's docstring and `import time`) |
-| seed = copy of `dolby_to_pipewire.py`, then trim | 149 | **18** |
-
-The seed recovers nothing the flat commit did not already have, and spends 162
-traced lines to do it — because the seed *replaces* the file, so install.py's
-own earlier content exists nowhere in the trim's parent tree for `-C -C -C` to
-find. So this one shipped flat, and the general form of the rule wants the extra
-clause: **a seed pays only when a single blob holds every line the commit is
-about to put at that path.** For a second helping from a different root script
-there is no such blob, and the flat commit is not the fallback but the better
-answer.
-
-Why flat did so well here at all is the same variance the table further up
-measured: this commit removed 149 lines from a 609-line file and added them to
-a 180-line one, which is a similarity problem `-C -C` solves, unlike ~800 lines
-against a shrinking 8,000-line file. The other three moves were measured the
-same way and needed no seed either — 38 of 39 lines traced into `parse.py`
-(the exception is `    ep = root.find(`, four tokens long) and all 14 lines of
-the class into `console.py`. `_safe_node_name` traces 3 of 5, which is the two
-impure lines below and not a provenance problem.
-
-**The import direction, re-checked against the tree rather than the note.**
-`checks.py` → `install.py` was avoided in slice 6 to prevent a cycle, and slice
-3 has since put a module-scope `from lib.report import speaker as gen` on
-`checks.py`. Neither matters here: the activation block reaches five names it
-does not define — `Path`, `console`, `shutil`, `subprocess`, `time`, every one
-an import — and none of them is in `checks.py`. The package still layers
-`plugins ← conf ← {install, checks}` with no edge between the top two, and a
-graph walk over all of `lib/` reports no cycle anywhere. `lib/pipewire/` still
-imports nothing from `lib/preset/`, and this slice adds no edge in either
-direction between `lib/preset/` and `lib/report/`.
-
-**The numpy claim was wrong, and the measurement says so.** The reason given
-for moving `_HelpHintParser` was that `from dolby_to_easyeffects import
-_HelpHintParser` dragged the generator's numpy into the wrapper. It does not:
-two lines above it, `import dolby_to_easyeffects` does — unconditionally, since
-the generator calls `_load_dsp()` at module scope on any non-completion run —
-and the wrapper cannot drop that import, which is how it reaches `run_cli`,
-`ensure_dsp` and the shared argument builders. A wrapper import measures 666
-modules with numpy and scipy present either side of the commit, and 666 again
-with the `from`-import deleted and nothing else changed. What the move is
-actually worth is that it was the last import crossing between two root
-scripts. On the completion path all three scripts stay DSP-free: 222 / 214 /
-231 modules, numpy and scipy absent from each. The generator's 223 became 222
-for one reason — `lib.preset.bands` was the only *module* among the eight dead
-imports; the other seven are stdlib and still arrive transitively.
-
-> **Superseded by the deferral commit.** The paragraph above is correct for
-> the tree it was written against, and the "666 either side" measurement is
-> what made the numpy claim falsifiable — kept for that. What it rests on, the
-> module-scope `if "_ARGCOMPLETE" not in os.environ: _load_dsp()`, is gone:
-> the generator now imports numpy, `lib.preset.emit` and `lib.report.profile`
-> as three ordinary function-local imports just above `main()`'s emit loop, so
-> `import dolby_to_easyeffects` no longer imports numpy on *any* path. Same
-> probe, re-measured after that commit: a wrapper import is 232 modules (was
-> 666) and a generator import 223 (was 658), numpy and scipy absent from both.
-> The wrapper still pays for the DSP on a real conversion — it runs both steps
-> in-process — just no earlier than the generator itself does.
-
-> **A second copy the same reasoning held up — and the two cases are not the
-> same case.** `ee_to_pipewire.py` kept its own `_make_adder` rather than
-> import the generator's, its docstring citing the identical NumPy/SciPy cost.
-> That one was *true* as written, and the difference is the whole lesson: the
-> wrapper already had `import dolby_to_easyeffects` two lines up, so the
-> `from`-import above bought the numpy nothing, whereas the converter imports
-> the generator nowhere at all, so the same import really would have been a new
-> edge dragging the DSP stack onto a startup contract there is a test for. Two
-> justifications reading alike, one false on inspection and one only falsified
-> later — by `ec3b1e1`, after which the bodies were identical and the double
-> bought nothing. `03bc3e5` collapsed it into `lib/console.py` rather than by
-> importing the generator, so the converter still reaches nothing of the
-> generator's; `8dcab03` and `fc9cae8` sent the `--no-color` / `--version` pair
-> and the help-formatter/epilog pick the same way. None of the three belongs in
-> the list of moves above — they are later commits of their own, not part of
-> this slice — and none reinstates a cross-script import, so "the last import
-> crossing between two root scripts" still reads true: the wrapper's
-> `import dolby_to_easyeffects` and `import ee_to_pipewire`, named above as the
-> ones it cannot drop, are the only edges between root scripts.
-
-**One disclosed impurity, in the smallest move of the five.**
-`_safe_node_name`'s body read `conf._sanitize_name(...)` and
-`conf.DEFAULT_NODE_NAME`, and inside `conf.py` those prefixes cannot stand, so
-two of its five lines are rewritten and `check_move_purity.py` reports them.
-There is no exempt shape to reach for — the alternative is a module importing
-itself — and the rule is to leave the code where it reads best and disclose,
-as slices 1 and 7 did. The other three moves are pure.
-
-The patch inventory is **six**, all in `tests/test_dolby_to_pipewire.py` and
-all of the module-object kind: `install.subprocess` ×4, `install.shutil` and
-`install.time` ×1, previously reaching those modules through the wrapper's
-bindings. The wrapper no longer imports any of the three — they left with the
-block — so left alone they would have raised `AttributeError` rather than
-passing quietly, the same shape the `--doctor` slice hit. Checked in both
-directions with a shim scoped to the three calls the moved code makes
-(`subprocess.run` on `pw-cli`/`systemctl`, `shutil.which("pw-cli")`,
-`time.sleep`), so `_validate_conf`'s use of the same two modules is untouched:
-poisoned, all 41 tests stay green; re-aimed at a throwaway with the poison
-still in, exactly 6 fail on the sabotage. The re-pointed calls were checked the
-same way — sabotaging the three moved print/activate functions fails 24 tests,
-and putting working copies back on the wrapper under their old names changes
-that by nothing, so no caller reads a root binding. Sabotaging
-`_safe_node_name` fails 27, with the same stale-binding result.
-
-Two duplications **noticed and left**. `PIPEWIRE_RESTART_CMD` collapses a
-string now written out three more times — `ee_to_pipewire.py`'s "To activate:"
-line, `lib/pipewire/checks.py`'s doctor remedy, and
-`lib/pipewire/install.py`'s own `_print_next_steps` step 1, which after this
-move sits 24 lines above the constant that would replace it. Collapsing it is a
-behaviour change under a subject line promising there isn't one, and the four
-sites do not phrase it identically, so it is task #26 rather than a follow-up
-commit here. The second is smaller: `_print_manual_activation` and
-`_print_next_steps` now spell the same "nothing usually means the LSP or Calf
-LV2 plugins are missing" sentence in one file, deliberately differing only in
-the tail about what happens once the line appears.
-
-> **Both are closed.** `PIPEWIRE_RESTART_CMD` moved down to
-> `lib/pipewire/conf.py` and the three spellings now read it (`d6eed66`).
-> `conf.py` is a module all three printers already import, so the collapse
-> added no import edge — the reason it went down a level rather than staying
-> where it was defined. (`lib/console.py` is the other one they all share, and
-> the wrong home: it owns printing, not the conf's vocabulary.) The "do not
-> phrase it identically" objection held for the prose *around* the command and
-> not for the command itself, which
-> is byte-identical at all four sites; rendered output does not move. The grep
-> sentence is `_grep_expectation(tail)` (`7fcef93`), with the one clause the two
-> paths differ in as that parameter, so they can no longer tell a user different
-> things about the same grep.
-
-### What it does to the test suite
-
-Less than the 12,269 lines of tests suggest. Measured before starting, because
-the answer changes the order:
-
-| Kind of change | Lines | Files |
-|---|---|---|
-| Nothing at all | ~630 | `test_layout`, `test_version`, `test_readme_cli_sync`, `test_changelog_section`, `test_corpus_audit`, `test_stimuli`, `test_validate_conf` |
-| One path constant | ~590 | `test_kernel_releases`, `test_speaker_pin_quirks` |
-| Patch targets renamed, assertions untouched | ~2,510 | `test_cli` (1,717), `test_dolby_to_pipewire`, `test_completions` |
-| Import lines only | ~1,950 | `test_biquads`, `test_fir_math`, `test_decoders`, `test_golden_preset`, `tests/corpus/*` |
-| Real churn | ~6,280 | `test_speaker_sinks`, `test_preset`, `test_pw_doctor`, `test_ee_to_pipewire` |
-
-`test_cli.py` is the one to notice: 1,717 lines, the largest single block of
-generator tests, and **zero** `d.<attr>` accesses — it drives the generator as a
-*subprocess* through `SCRIPT = ROOT / "dolby_to_easyeffects.py"`. Its 57
-`monkeypatch.setattr` calls each name the module explicitly, so a split renames
-57 patch targets and touches not one assertion. That is the dividend of keeping
-the entry points at root: every test that exercises the CLI the way a user does
-is immune to how the code behind it is arranged.
-
-The other end is `test_speaker_sinks.py` — 1,609 lines, 50 distinct `d.<attr>`
-accesses (`find_hidden_speaker_pin` ×23, `SpeakerInfo` ×20, `_amp_status_lines`
-×12), every one of which follows its symbol into `lib/hardware/`. Do that slice
-after the pattern is proven elsewhere.
+and every line taken out of it becomes a parameter passed back in. The wrapper
+is 262 of 453, and lower only because it borrows the other two scripts'
+argument builders instead of defining its own — its `main()` alone is 257.
+
+**The standing constraints on where a module may live.** These are what a
+future extraction has to respect, and each is checked rather than remembered:
+
+- **`lib/report/` can never join `tests/test_layout.py`'s `STDLIB_ONLY`.** The
+  package exists to print, so every module in it reaches `lib/console.py` and
+  the optional `rich` that list's `FORBIDDEN` also covers. Neither `lib/dax/`
+  module is eligible for the same reason, nor `lib/pipewire/install.py` and
+  `checks.py`. The list is a record of modules that promised the contract, not
+  a rule over `lib/`; the rule with no list is
+  `test_converter_startup_pulls_in_no_dsp`.
+- **`lib/pipewire/*` may not import `lib/preset/*`.** `plugins.py` and
+  `build.py` there reach numpy through `fir.py`, so the failure would be
+  immediate and the reason non-obvious. `lib/preset/emit.py` is the only edge
+  from `lib/preset/` into `lib/report/` (`messages.VOICING_CURVES`), and it is
+  one-way.
+- **`lib/pipewire/` layers `plugins ← conf ← {install, checks}`**, with no edge
+  between the top two. `lib/report/doctor_run.py` sits strictly above
+  `speaker.py` and `environment.py` — `speaker.py` imports `environment.py`,
+  and putting the doctor's I/O back into `environment.py` would close that
+  loop — and nothing under `lib/` imports `doctor_run` at all.
+- **The generator may not import a DSP-reaching module at the top of the
+  file.** `ec3b1e1` settled the shape: numpy, `lib.preset.emit` and
+  `lib.report.profile` are three ordinary function-local imports just above
+  `main()`'s emit loop, so every path that returns before a conversion — the
+  completion path included — stays DSP-free, and a bare
+  `import dolby_to_easyeffects` pulls in neither numpy nor scipy.
+- **`lib/console.py` is the one module allowed to import `rich`.** The optional
+  presentation dependency is contained there rather than spread across whatever
+  else gets extracted, which is why it is absent from `STDLIB_ONLY` while still
+  bound by the DSP rule.
+
+### What the eight slices taught
+
+The second wave — the one that emptied the generator — ran as eight slices.
+What survives them is six generalisations, each paid for once:
+
+- **A "noticed and left" count is a lower bound, not an inventory.** Every
+  slice recorded the duplications it saw and deferred, per the sequencing rule
+  above. When one of them was finally collapsed — the DriverStore
+  `dax3_ext_*.inf_*` wrapper scan, `8072bed` — it turned out to have **five**
+  spellings, not the two the note claimed, because one site had decomposed the
+  glob into `name.startswith("dax3_ext_") and ".inf_" in name` and a grep for
+  the pattern did not find it. Re-derive the count when you collapse; do not
+  trust the note.
+- **A seed pays only when one blob holds the whole helping.** The rule above
+  says extending an existing module needs a seed from the blob that path held
+  at its own first seed. That assumes one source script. `lib/pipewire/install.py`
+  held 180 lines from `ee_to_pipewire.py` and was about to receive 149 from
+  `dolby_to_pipewire.py`, and no blob contains both — the seed *replaces* the
+  file, so install.py's own earlier content exists nowhere in the trim's parent
+  for `-C -C -C` to find. Both shapes were built and measured: flat traced all
+  149 moved lines and kept 180 of the 191 above them; the seed traced the same
+  149 and dropped those 180 to 18. Where no single blob holds every line the
+  commit is about to place, the flat commit is not the fallback but the better
+  answer.
+- **A blocker recorded in a comment is a fact about the code at that commit.**
+  `save_wav_stereo` sat behind a comment saying it could not follow
+  `lib/preset/fir.py` because binding `wavfile` elsewhere meant writing a second
+  deferred import. True when written; false by the time it mattered, since
+  `fir.py` imports numpy at module scope and a module the generator only reaches
+  through a deferred import may import scipy in its top-level block, which
+  `check_move_purity.py` exempts. The slice that removes a blocker will not be
+  the one that wrote it down — re-check it, don't inherit it.
+- **Membership comes from the call graph, not the section boundary.** The
+  `--doctor` block was not contiguous: three XML-inspection functions sat in the
+  middle of it and belonged in `lib/dax/parse.py` instead, while
+  `easyeffects_is_running` sat far below and had to travel because a moved line
+  called it. Derive the set from what calls what and from what the block reaches
+  but does not define (`symtable` answers the second), then check that no moved
+  body needs a call re-pointed — that edit is exactly what `-C` cannot follow.
+- **Under ~20 lines a seed does not earn its commit.** The EasyEffects install
+  paths (17 lines) and `VOICING_CURVES` (9) both shipped as plain trims. Size
+  is not the whole test: the install-path block was also not verbatim motion —
+  its private aliases became the module's public names, so `check_move_purity.py`
+  correctly reported derivations as changed. Where the code reads best in a
+  shape the checker calls impure, leave it there and disclose the impurity in
+  the commit body rather than contorting the code to score a clean exit.
+- **Assert identity, not equality, when a default is supposed to be *the* one.**
+  `tests/test_ee_to_pipewire.py::test_irs_default_matches_the_generator` outlived
+  the duplicate constant it policed, because the layer where drift is possible
+  moved up: the constants can no longer disagree, but a `--irs-dir` given a
+  default of its own can. It now asks both parsers and asserts identity with
+  `lib.ee_paths.DEFAULT_IRS_DIR`. Equality would pass on a native install while
+  being wrong for exactly the Flatpak users the original bug hit.
+
+### What the split did to the test suite
+
+Less than the size of `tests/` suggests, and the reason is the entry points
+staying at root. The largest single block of generator tests drives the script
+as a *subprocess* and reaches no module attribute at all, so a split renames
+its patch targets and touches not one assertion: every test that exercises the
+CLI the way a user does is immune to how the code behind it is arranged. The
+other end is the tests that reach `d.<attr>` — each of those follows its symbol
+into `lib/`, which is why `lib/hardware/`, the slice carrying most of them, ran
+fourth, after the import rule had been exercised on three cheaper ones.
 
 `tests/` stays **flat**. A test file splits only when its subject does, named
 for the module it covers (`test_fir_math.py` already is). Mirroring `lib/` into
 subdirectories would add a second axis of churn on top of the source moves and
 buy nothing the filename doesn't already give.
+
+**A green suite proves nothing about a retargeted patch**, because one that
+reaches nothing leaves a passing test that quietly ran the real code. Every
+slice checked its retargets in both directions: `raise
+AssertionError("SABOTAGE")` as the first statement of the production function,
+and the patching test must still pass — then the same patch aimed at a
+throwaway `SimpleNamespace` must fail, with the sabotage reaching real code.
+Patches on a *module object* (`d.subprocess`, `d.shutil`) have no production
+function to break, so the equivalent is a poisoned attribute: swap the module's
+own binding for a shim whose `run`/`which` raises. Retargeted *imports* have
+the same silent failure and want the same instrument.
 
 ### The monkeypatch hazard, and the import rule that prevents it
 
@@ -1239,7 +454,7 @@ Two cases that look like they need the rule and don't:
   `cprint` reads the global at call time, so patching it on whichever module
   owns the console works from any caller. Only the module named in the patch
   changes. They were also the obvious candidate for one `conftest.py` fixture,
-  which the prep phase below took: `silence_console`, called with the module
+  which the prep phase took: `silence_console`, called with the module
   whose output the test asserts on.
 - **The 19 `setattr(d.subprocess, …)` / `setattr(d.shutil, …)` patches** reach
   the *stdlib module object* through the generator's namespace, so they are
@@ -1289,13 +504,13 @@ the golden digest hold": grep the whole repo, `.github/` and `.claude/`
 included, for the name of the file being emptied, and read every hit that isn't
 prose.
 
-### What the split unlocks for CLAUDE.md
+### Which CLAUDE.md rules a granular `lib/` can absorb
 
-CLAUDE.md sits at 137 loaded lines against the ~120 its own house rules target,
-and the usual fix — move rationale into `docs/` — is already applied. The
-remaining lever is path-scoped `.claude/rules/*.md`, and granular files are what
-makes scoping mean anything: a rule scoped to an 8,100-line file fires on
-essentially every edit, which is indistinguishable from being global.
+Path-scoped `.claude/rules/*.md` is how CLAUDE.md stays under its line budget,
+and granular files are what makes scoping mean anything: a rule scoped to a
+single file that holds the whole program fires on essentially every edit, which
+is indistinguishable from being global. Scoped to `lib/preset/fir.py`, the
+minimum-phase rule fires exactly when someone is about to lengthen an IR.
 
 The principle that decides what is eligible:
 
@@ -1308,178 +523,53 @@ issue triage, deciding a change needs a CHANGELOG entry, creating a new file.
 Roughly half of "Repo etiquette" is action-gating and stays put however granular
 the source gets.
 
-Eligible once the split lands, ~29 lines:
+Four counter-examples, recorded so they aren't re-proposed. The
+`ee_to_pipewire.py — companion converter` section looks eligible but isn't:
+"stereo only; 4-channel upmix isn't translated" is a *triage* fact, wanted when
+reading an issue about surround sound rather than when editing the converter,
+and one edit-constraint clause in it does not pay for a rule file of its own.
+"Co-locate definitions with use" is an edit constraint whose glob would be every
+source file in the repo — a rule that fires on every edit is a CLAUDE.md rule
+with an extra hop in front of it. "Docs are layered" is a map for *reading*, and
+no `paths:` glob fires on a read. And the comparison-plots rule keeps its
+trigger because the scripts where hidden-curve bugs actually happen are ad-hoc
+ones under the gitignored artifacts directory, which may not be named in a
+committed file, so no glob can cover them.
 
-| CLAUDE.md | Lines | Scoped to |
-|---|---|---|
-| Zero added latency / minimum-phase FIR | 6 | `lib/preset/fir.py` |
-| Golden-digest + corpus-tier mechanics | 12 | `tests/**`, `pyproject.toml` |
-| EE preset format quirks | 4 | `lib/preset/build.py`, `lib/preset/bands.py` |
-| XML-only derivability, the evidence-bar detail | ~5 | `lib/dax/**`, `lib/preset/**` |
-| `filter_coefficients` is not an audio EQ | 2 | `lib/dax/parse.py` |
+Two lessons from doing it. A demotion is not free — each one leaves a one-line
+trigger in CLAUDE.md, so the saving is the rationale moved, not the whole
+entry, and an estimate that costs a demotion at zero will overshoot. And a
+scope has to be checked against the code before it is written: the
+`filter_coefficients` rule was slated for `lib/dax/parse.py`, where the string
+does not appear and never will, the whole point being that it is never parsed
+— it went into `xml-derivability.md` instead, scoping the rule to the file
+where the mistake *would* be made. `ee-preset-format.md` went the other way and
+had to widen past the two modules that write preset keys to every module that
+writes or reads one, since all of them have to agree on the enum label strings
+character for character.
 
-The FIR entry shows why the split is the unlock rather than a nicety. Scoped to
-`dolby_to_easyeffects.py` it fires on every edit to the file, so it belongs in
-CLAUDE.md today. Scoped to a ~70-line `lib/preset/fir.py` it fires exactly when
-someone is about to lengthen an IR — which is the only moment it matters. Each
-demotion keeps a one-line trigger in CLAUDE.md and moves only the rationale into
-the rule, the same division `changelog.md` and `user-messages.md` already use.
+### Ordering and verifying the next slice
 
-One counter-example, recorded so it isn't re-proposed: the `ee_to_pipewire.py —
-companion converter` section looks eligible but isn't. "Stereo only; 4-channel
-upmix isn't translated" is a *triage* fact — needed when reading an issue about
-surround sound, not when editing the converter — and a rule scoped to the file
-would not be loaded at the moment it is wanted.
+**Cheap-to-falsify slices first.** What separates two otherwise-equal slices is
+how fast a mistake is *proven*. The `lib/data/` slice is the worked case: half
+of it fails `pytest` in seconds, because `tests/test_kernel_releases.py` and
+`tests/test_speaker_pin_quirks.py` parse the table out of the real file, so a
+stale path constant fails at once. The other half lives in two weekly
+workflows that name the generator by hand (`git add dolby_to_easyeffects.py`)
+and that nothing under `tests/` reads. Move the tables without editing those
+lines and the `git add` becomes a whitelist pointing at an unmodified file: it
+stages nothing, and the run dies a step later on `git commit` refusing an empty
+commit — a week after the mistake, in a message about git rather than about the
+move, on a schedule nobody is watching. Both workflows now assert
+`git diff --cached --quiet` fails before committing, so the failure names the
+file it expected to have changed.
 
-Projected: **137 → ~108 loaded lines**, with headroom for the next real rule.
-About 3 lines (the comparison-plots bullet → `tools/**/*.py`) are demotable
-today without waiting for anything.
-
-**Done after slice 6: 140 → 121 loaded lines**, across five new rule files —
-`dsp-fir.md` (`lib/preset/fir.py`), `testing.md` (`tests/**`,
-`pyproject.toml`), `xml-derivability.md` (`lib/dax/**`, `lib/preset/**`),
-`ee-preset-format.md` (the four modules that write or read an EE preset key,
-which now includes `lib/pipewire/plugins.py` — the two sides have to agree on
-the enum label strings character for character) and `plots.md`
-(`tools/**/*.py`). The 108 was optimistic because it costed the demotions at
-zero: every one of them leaves a one-line trigger, and five triggers is five
-lines that the projection had spent. 121 against a ~120 target is the honest
-number, and the remaining slack is in the triggers rather than in prose.
-
-Two of the table's rows needed correcting against the code before they could
-be scoped. **`filter_coefficients` does not appear in `lib/dax/parse.py`** —
-it appears in no source file at all, only in the docs, because the whole point
-is that it is never parsed. Scoping a rule to the file where the mistake
-*would* be made is still right, so it went into `xml-derivability.md` under
-"What is not a source of parameters" rather than becoming a rule of its own
-for two lines. And the **EE-format row's scope was too narrow**: `build.py`
-and `bands.py` write the keys, but `lib/pipewire/plugins.py` reads them back
-and `lib/report/environment.py` has the `--doctor` check for the
-`kernel-path`/`kernel-name` trap, and all four have to agree.
-
-Three more counter-examples, to go with the `ee_to_pipewire.py` one above:
-
-- **"Co-locate definitions with use"** is an edit constraint, but its glob
-  would be `lib/**/*.py` plus all three root scripts — every source file in
-  the repo. A rule that fires on every edit is a rule in CLAUDE.md with an
-  extra hop in front of it.
-- **"Docs are layered"** looks like `docs.md`'s business, and `docs.md` even
-  defers to CLAUDE.md for it. It stays because it is a map for *reading*, not
-  for editing: you consult it to decide which of four docs to open, and no
-  `paths:` glob fires on a read.
-- **The comparison-plots rule keeps its trigger for a specific reason** — the
-  scripts where hidden-curve bugs actually happen are ad-hoc ones under
-  `localresearch/`, which is gitignored and may not be named in a committed
-  file, so no glob can cover them. `tools/**/*.py` catches the committed half;
-  the CLAUDE.md line catches the rest.
-
-The `ee_to_pipewire.py — companion converter` section survives slice 6 intact,
-which is worth noting because the split was supposed to be what unlocked it.
-"It pins a WirePlumber 0.5+ smart filter … keep both defaults on" *is* an edit
-constraint, and `lib/pipewire/install.py` is now a precise scope for it — but
-it is one clause of a seven-line section whose other six are the triage
-context the counter-example above is about. Extracting the clause costs a
-sixth rule file and saves nothing.
-
-### Order to do it in
-
-A prep phase came first, before any code moved (`5c16e4b..7c3687c`). The
-`cli-help` and `user-messages` rule globs widened to `lib/**/*.py`, so they keep
-firing on the argparse and Finding copy as it moves. `lib/paths.py`'s
-`REPO_ROOT` gave the first `__file__`-relative path to move one place to resolve
-through. `tools/extract_claims.py` learned to walk `lib/` (above).
-`tests/test_layout.py` gained the two guards a split needs and a single module
-never did — the re-export trap, and `test_converter_startup_pulls_in_no_dsp`,
-which asks the stdlib-only contract from the converter's end rather than off a
-hand-kept list — plus `test_subpackage_init_is_import_free`, whose subject list
-is discovered rather than written down, so it is in force on the commit that
-creates `lib/hardware/` instead of a later one that remembers it. And
-`tools/check_move_purity.py` arrived to check the move rule itself. Each is
-something the moves are then measured against, which is worth more before them
-than after. In the same phase the inline `_CONSOLE` patches — the generator's
-30 and the converter's seven — collapsed into one `silence_console` fixture in
-`tests/conftest.py` (`7c3687c`, 35 call sites), each call naming the module
-whose output that test asserts on; the two tests that are *about* the console
-still patch it themselves. The console slice then has one patch shape to update
-rather than 35 lines to find.
-
-One further prep commit belongs to that slice alone, and it is a *behaviour*
-change rather than a guard. The converter's console targeted **stderr** where
-the generator's targeted stdout — a leftover from when `ee_to_pipewire.py`
-wrote the generated conf to stdout and its messages had to keep clear of it.
-`2c3fb30` removed that dump, leaving no machine-readable stdout anywhere in the
-repo, so the split protected nothing while costing two mechanisms that existed
-only to undo it: `_report_on_stdout()`, which swapped the console (and a
-`_PLAIN_TO_STDOUT` flag for the no-rich path) around the diagnostic report so
-`--doctor > report.txt` wouldn't write an empty file, and an unconditional
-`contextlib.redirect_stdout(sys.stderr)` in `dolby_to_pipewire.py` so the
-generator's closing block would land in the stream its phase banners were on.
-Putting the converter's console on stdout deletes both, and makes a run of
-either PipeWire script one redirectable stream. Doing it *before* the move is
-the point: `tools/check_move_purity.py` cannot tell a behaviour change from a
-motion, so every remaining difference between the two consoles — the stream,
-a missing `width=_wrap_width()` cap, an inlined versus named theme dict, a
-`_make_console` helper with a parameter nothing passed any more — was resolved
-in a commit honestly labelled as the change it is, leaving the move nothing to
-carry but identical lines. Two of those resolved without touching rendering,
-and both were checked rather than assumed: the width cap is inert under
-`soft_wrap=True` (rich neither wraps nor pads, so a real run is byte-identical
-at 60, 100 and 200 columns, ANSI included), and `rich.text.Text` — the
-generator's only rich use outside `cprint` — moved down to `print_ask` rather
-than into the shared console, so what gets extracted is what both scripts
-actually share.
-
-Then each slice is one commit of pure code motion, and each carries its measured
-test cost. A rules demotion lands *after* the slice that creates its scope
-target, one per slice, so a rule never points at a path that doesn't exist yet.
-
-1. **`lib/console.py`** — `dolby_to_pipewire.py` already reaches into *both*
-   scripts for `cprint` / `_disable_color`; one shared console ends that.
-   *Test cost: the `_CONSOLE` patches now all run through `silence_console`,
-   so what the slice retargets is one patch shape* rather than 35 hand-written
-   lines.
-2. **`lib/data/`** — the highest value per line moved, and it isn't about size:
-   two weekly workflows currently rewrite tables inside a hand-edited file.
-   Touches `tools/update_kernel_releases.py`,
-   `tools/update_speaker_pin_quirks.py` and both workflows' `git add` /
-   `git checkout --` lines. *Test cost: near zero* — both updaters already work
-   on a file path through `parse_table` / `render_table` / `apply_update`, and
-   their tests assert against a self-contained `FIXTURE` string, so only the
-   `DEFAULT_SCRIPT` / `CONVERTER` constants move.
-
-   It went second, behind the console, and the reason is worth keeping: what
-   separates two cheap slices is how fast a mistake is *proven*. A console
-   mistake fails `pytest` in seconds. Half a `lib/data/` mistake does too —
-   `tests/test_kernel_releases.py` and `tests/test_speaker_pin_quirks.py` parse
-   the table out of the real file, so a stale path constant fails at once — but
-   the other half lives in `.github/workflows/kernel-release-table.yml` and
-   `speaker-pin-quirks.yml`, which name the generator by hand (`git add
-   dolby_to_easyeffects.py`, `git checkout -- dolby_to_easyeffects.py`) and
-   which nothing under `tests/` reads. Move the tables without editing those
-   lines and the `git add` becomes a whitelist pointing at an unmodified file:
-   it stages nothing, and the run dies a step later on `git commit` refusing an
-   empty commit — a week after the mistake, in a message about git rather than
-   about the move, on a schedule nobody is watching. Both workflows want an
-   `if git diff --cached --quiet; then … exit 1; fi` before the commit, so the
-   failure names the file it expected to have changed. Cheap-to-falsify slices
-   first.
-3. **`lib/preset/fir.py`** and **`lib/dax/parse.py`** — the pieces
-   `tools/measure_dax/analyze.py` imports today, so the measurement harness
-   stops pulling in an 8,000-line module to call `make_fir`. *Test cost: import
-   lines in four files.* Decide where `SAMPLE_RATE` / `FIR_LENGTH` and
-   `DB_FIXED_POINT_SCALE` land — four test files import them, and "co-locate
-   with use" and "one obvious home" pull in different directions here.
-4. **`lib/hardware/`** — the expensive one (`test_speaker_sinks.py`); worth
-   doing only once the import rule above has been exercised on slices 1–3.
-5. **`lib/report/`**, the **`lib/preset/`** remainder, then **`lib/pipewire/`** —
-   the converter last, once the pattern is proven on the generator.
-
-Every step is guarded by `tests/test_golden_preset.py`: a pure move cannot
-change an emitted parameter, so a moved digest means the move wasn't pure. The
-stronger check, cheap enough to repeat per slice, is running the generator from
-a `git worktree add --detach <scratch> HEAD~1` and `cmp`-ing the `.irs`, the
+**Verify the move on real input, not only on the fixture.**
+`tests/test_golden_preset.py` is the floor: a pure move cannot change an
+emitted parameter, so a moved digest means the move wasn't pure. The stronger
+check, cheap enough to repeat per slice, is running the generator from a
+`git worktree add --detach <scratch> HEAD~1` and `cmp`-ing the `.irs`, the
 preset JSON (ignoring the `_generator` stamp) and the conf `ee_to_pipewire.py
 --output` writes (ignoring its `# version:` stamp) against the same run at the
 parent commit — that is what confirmed `26d5c58` was a pure move on real input
-rather than only on the synthetic golden fixture. The conf used to come off
-`--dry-run`'s stdout; `2c3fb30` removed that, and `--output` is the route now.
+rather than only on the synthetic golden fixture.
