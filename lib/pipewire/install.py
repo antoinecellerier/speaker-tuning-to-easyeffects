@@ -9,8 +9,9 @@ afterwards. Where the impulse response is read *from* is not decided here:
 the generator's ``--irs-dir`` writes to, so the two cannot drift apart.
 
 ``_autodetect_speaker_sink`` shares its probe with the EasyEffects autoload
-pathway (``lib.hardware.sinks``), imported inside the function so a converter
-run that never needs a sink never shells out to ``pw-dump``.
+pathway (``lib.hardware.sinks``). Importing it is free: ``pw-dump`` is read
+inside ``_enumerate_audio_sinks``, so a converter run that never needs a sink
+never shells out, whether the import sits here or in the function.
 
 ``_sanitize_name`` is imported bare from ``lib.pipewire.conf`` because
 ``_print_next_steps`` calls it and arrived here as a move; see that module's
@@ -36,6 +37,7 @@ import time
 from pathlib import Path
 
 from lib import console
+from lib.hardware import sinks
 from lib.paths import REPO_ROOT
 from lib.pipewire.conf import _sanitize_name
 
@@ -75,11 +77,6 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     surfaces that, falls back to the v1 virtual-sink conf, and asks the user to
     pass ``--target-sink``.
     """
-    try:
-        from lib.hardware import sinks
-    except Exception as e:  # pragma: no cover — defensive
-        return None, [f"could not import speaker probe: {e}"]
-
     # Terse, description-less form of the shared diagnostic (console warnings).
     def _diag(sink: dict) -> str:
         return sinks._sink_diag_line(sink, with_description=False)

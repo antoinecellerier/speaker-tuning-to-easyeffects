@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from lib import console, ee_paths, version
+from lib.hardware import sinks
 from lib.pipewire import checks, install
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
@@ -244,7 +245,6 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
     """Tab-completion for --target-sink / --target-object: PipeWire node.name
     values, from the same pw-dump boundary _autodetect_speaker_sink() uses."""
     try:
-        from lib.hardware import sinks
         names = [s.get("name", "") for s in sinks._enumerate_audio_sinks()]
     except Exception:  # a wedged or absent PipeWire must never break TAB
         return []
