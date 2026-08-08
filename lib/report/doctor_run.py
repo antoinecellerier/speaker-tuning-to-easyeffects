@@ -348,12 +348,24 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")
 
 
+def _uses_custom_ee_dirs(args) -> bool:
+    """Did the run write somewhere other than EasyEffects' own tree?
+
+    *Either* dir moved counts, so every check that keys on this agrees about
+    what "custom" means: --doctor skips the EE-location and selected-preset
+    verdicts here, and the end-of-run install-mismatch warning fires only on
+    its negation. Written once because the two read as De Morgan duals and
+    an inverted hand-written copy would be silent.
+    """
+    return (args.output_dir != ee_paths.DEFAULT_OUTPUT_DIR
+            or args.irs_dir != ee_paths.DEFAULT_IRS_DIR)
+
+
 def report_doctor(args) -> None:
     """--doctor entry point: run environment self-diagnostics and print them."""
-    custom_dirs = (args.output_dir != ee_paths.DEFAULT_OUTPUT_DIR
-                   or args.irs_dir != ee_paths.DEFAULT_IRS_DIR)
     report = _gather_doctor_report(args.output_dir, args.irs_dir,
-                                   ee_paths.DEFAULT_EASYEFFECTS_RC, custom_dirs=custom_dirs)
+                                   ee_paths.DEFAULT_EASYEFFECTS_RC,
+                                   custom_dirs=_uses_custom_ee_dirs(args))
     _print_doctor_report(report)
 
 
@@ -397,7 +409,7 @@ def warn_ee_environment(args) -> None:
     # Install-location mismatch (only meaningful for the default EE dirs): the
     # detected EE build differs from where we wrote. Warn so the user can point
     # --output-dir/--irs-dir at the install they actually run.
-    if (args.output_dir == ee_paths.DEFAULT_OUTPUT_DIR and args.irs_dir == ee_paths.DEFAULT_IRS_DIR
+    if (not _uses_custom_ee_dirs(args)
             and ee_is_flatpak is not None and ee_is_flatpak != ee_paths.USE_FLATPAK):
         run_where = "Flatpak" if ee_is_flatpak else "native"
         where = "Flatpak" if ee_paths.USE_FLATPAK else "native"
