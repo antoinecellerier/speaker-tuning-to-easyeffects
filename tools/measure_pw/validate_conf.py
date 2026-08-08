@@ -37,6 +37,7 @@ Both are tiny, sub-millisecond CLIs. No PipeWire daemon required.
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -59,12 +60,25 @@ def main() -> int:
     else:
         text = args.conf.read_text()
 
-    if not subprocess.run(["which", "lv2info"], capture_output=True).returncode == 0:
-        print("error: lv2info not in PATH (install lilv-utils / lv2info)",
-              file=sys.stderr)
+    # Both CLIs, not just `lv2info`: the conf parse below shells out to
+    # `spa-json-dump` before any schema is read, so checking one of the two
+    # leaves the other to surface as a traceback.
+    missing = [cli for cli in ("lv2info", "spa-json-dump")
+               if not shutil.which(cli)]
+    if missing:
+        print(f"error: {' and '.join(missing)} not in PATH "
+              f"(install lilv-utils and pipewire)", file=sys.stderr)
         return 2
 
-    nodes = validate.parse_conf(text)
+    try:
+        nodes = validate.parse_conf(text)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+        # Exit 2, not the 1 an escaping exception would give: "the check could
+        # not run" is a different statement from "this conf has errors", and a
+        # caller gating on `$?` acts on the difference. Same exception triple
+        # `validate.run` maps to `UNCHECKED` for the same reason.
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     if not nodes:
         print("error: no filter nodes found in conf", file=sys.stderr)
         return 2

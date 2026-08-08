@@ -903,3 +903,50 @@ def test_the_validator_cli_still_finds_its_runtime_core(tmp_path):
         "fails with it, and by hand it stops being reachable at all.\n"
         f"{result.stderr.strip()}"
     )
+
+
+def test_the_validator_cli_separates_setup_failure_from_a_bad_conf(tmp_path):
+    """A missing or broken dependency exits 2, never 1.
+
+    The wrapper's docstring defines 1 as "at least one error" — a statement
+    about the *conf* — and 2 as a setup error. An unguarded exception exits 1
+    with a traceback, so a caller gating on `$?` (the corpus tier does, and so
+    would any CI step) reads "your tooling isn't installed" as "the conf this
+    tool generated is invalid" and goes looking for a bug in the converter.
+
+    Both arms are here because they fail in different places: the preflight
+    runs before anything is read, the parse failure comes out of
+    `spa-json-dump` mid-run. Neither needs a corpus, and the fake CLIs mean
+    neither needs the real ones either.
+    """
+    wrapper = ROOT / "tools" / "measure_pw" / "validate_conf.py"
+    conf = "context.modules = [ { name = libpipewire-module-filter-chain } ]\n"
+
+    missing = subprocess.run(
+        [sys.executable, str(wrapper), "-"],
+        input=conf, cwd=tmp_path, capture_output=True, text=True,
+        env={"PATH": "", "HOME": str(tmp_path)},
+    )
+    assert missing.returncode == 2, (
+        f"with no CLI on PATH the wrapper exited {missing.returncode}, which "
+        f"its own docstring reads as a bad conf:\n{missing.stderr.strip()}"
+    )
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name, body in (("lv2info", "exit 0"),
+                       ("spa-json-dump", "echo 'boom' >&2; exit 1")):
+        script = fake_bin / name
+        script.write_text(f"#!/bin/sh\n{body}\n")
+        script.chmod(0o755)
+
+    broken = subprocess.run(
+        [sys.executable, str(wrapper), "-"],
+        input=conf, cwd=tmp_path, capture_output=True, text=True,
+        env={"PATH": str(fake_bin), "HOME": str(tmp_path)},
+    )
+    assert broken.returncode == 2, (
+        f"with a failing spa-json-dump the wrapper exited "
+        f"{broken.returncode}, which its own docstring reads as a bad "
+        f"conf:\n{broken.stderr.strip()}"
+    )
