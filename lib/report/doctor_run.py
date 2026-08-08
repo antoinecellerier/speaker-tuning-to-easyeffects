@@ -166,15 +166,15 @@ def _probe_ee_version() -> EEProbe:
               else [(False, native), (True, flatpak)])
     fallback = EEProbe()                 # best found-but-unparseable, in order
     for is_flatpak, probe in probes:
-        version, found, silent = probe()
+        ee_version, found, silent = probe()
         src = "flatpak info" if is_flatpak else "easyeffects --version"
         if not found:
             if silent and fallback.silent is None:
                 fallback.silent = silent
                 fallback.source = src
             continue
-        if version is not None:
-            return EEProbe(version, True, src, is_flatpak)
+        if ee_version is not None:
+            return EEProbe(ee_version, True, src, is_flatpak)
         if not fallback.found:           # remember the first install that answered
             fallback = EEProbe(None, True, src, is_flatpak, fallback.silent)
     return fallback
@@ -188,9 +188,14 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
 
     # 1. EasyEffects version / compatibility
     probe = _probe_ee_version()
-    version, found, source, ee_is_flatpak = (
+    # `ee_version`, not `version`: this module imports `lib.version`, and
+    # `_print_doctor_report` below calls `version.get_version()` for the tool's
+    # own version. A local of that name reads identically and means the other
+    # thing entirely.
+    ee_version, found, source, ee_is_flatpak = (
         probe.version, probe.found, probe.source, probe.is_flatpak)
-    report.checks.append(environment.ee_version_status(version, found, probe.silent))
+    report.checks.append(
+        environment.ee_version_status(ee_version, found, probe.silent))
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
@@ -261,7 +266,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report.checks.append(environment.kernel_age_status(report.speaker_info.kernel))
 
     report.facts = {
-        "ee_version": (".".join(map(str, version)) if version else "unknown")
+        "ee_version": (".".join(map(str, ee_version)) if ee_version
+                       else "unknown")
                       + (f" (via {source})" if source else ""),
         "ee_running": easyeffects_is_running(),
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
@@ -373,11 +379,12 @@ def warn_ee_environment(args) -> None:
     installed EasyEffects can't use the presets we just wrote. Silent on the
     happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate."""
     probe = _probe_ee_version()
-    version, found, ee_is_flatpak = probe.version, probe.found, probe.is_flatpak
-    ver = environment.ee_version_status(version, found, probe.silent)
+    ee_version, found, ee_is_flatpak = (
+        probe.version, probe.found, probe.is_flatpak)
+    ver = environment.ee_version_status(ee_version, found, probe.silent)
 
     if ver.status == DOCTOR_FAIL:
-        vstr = ".".join(str(x) for x in version)
+        vstr = ".".join(str(x) for x in ee_version)
         console.cprint("err", f"\n{'=' * 60}")
         console.cprint("err", f"⚠  EasyEffects {vstr} detected — these presets need EasyEffects 8.")
         print()
