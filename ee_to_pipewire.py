@@ -49,25 +49,9 @@ except ImportError:
 # CLI
 # ---------------------------------------------------------------------------
 
-def _make_adder(container, only):
-    """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
-    selected by ``only`` (keyed by primary option string) and records the
-    added actions so dolby_to_pipewire.py can rebuild a child argv from them.
-    Deliberate double of dolby_to_easyeffects._make_adder — importing it here
-    would drag that script's NumPy/SciPy into this one's dependency-free path.
-    """
-    added = []
-
-    def add(*names, **kwargs):
-        if only is None or names[0] in only:
-            added.append(container.add_argument(*names, **kwargs))
-
-    return add, added
-
-
 def add_routing_args(container, *, only=None):
     """Routing flags (dolby_to_pipewire.py shares --target-sink)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--target-sink",
         default=None,
@@ -111,7 +95,7 @@ def default_conf_path(node_name: str) -> Path:
 
 def add_output_args(container, *, only=None):
     """Output naming/location flags (dolby_to_pipewire.py shares --force)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--output",
         type=Path,
@@ -147,7 +131,7 @@ def add_output_args(container, *, only=None):
 def add_impulse_response_args(container, *, only=None):
     """Impulse-response flags — never shared with the wrapper (it stages the
     .irs in a tempdir and must keep the default copy-beside-conf behavior)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--irs-dir",
         type=Path,
@@ -172,7 +156,7 @@ def add_impulse_response_args(container, *, only=None):
 
 def add_general_args(container, *, only=None):
     """General flags (dolby_to_pipewire.py shares --no-validate)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--no-validate",
         action="store_true",

@@ -83,20 +83,6 @@ if console._HelpFormatter is not argparse.HelpFormatter:
     ]
 
 
-def _make_adder(container, only):
-    """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
-    selected by ``only`` (keyed by primary name: first option string, or the
-    positional's name) and records the added actions so callers — notably
-    dolby_to_pipewire.py — can rebuild a child argv from them generically."""
-    added = []
-
-    def add(*names, **kwargs):
-        if only is None or names[0] in only:
-            added.append(container.add_argument(*names, **kwargs))
-
-    return add, added
-
-
 TUNING_INPUT_DESCRIPTION = (
     "with neither an XML path nor --windows, the script auto-discovers: it "
     "probes mounted Windows partitions (/proc/mounts) and the current "
@@ -106,7 +92,7 @@ TUNING_INPUT_DESCRIPTION = (
 
 def add_tuning_input_args(container, *, only=None):
     """Tuning-input flags (group shared with dolby_to_pipewire.py)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "xml_file",
         nargs="?",
@@ -137,7 +123,7 @@ def add_tuning_input_args(container, *, only=None):
 
 def add_inspection_args(container, *, only=None):
     """Inspection modes (group shared with dolby_to_pipewire.py)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--list",
         action="store_true",
@@ -162,7 +148,7 @@ def add_inspection_args(container, *, only=None):
 
 def add_profile_selection_args(container, *, only=None):
     """Profile-selection flags (group shared with dolby_to_pipewire.py)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--endpoint",
         default="internal_speaker",
@@ -189,7 +175,7 @@ def add_profile_selection_args(container, *, only=None):
 
 def add_autoload_args(container, *, only=None):
     """Autoload flags — EasyEffects-only, never shared with the wrapper."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--autoload",
         nargs="?",
@@ -232,7 +218,7 @@ def add_autoload_args(container, *, only=None):
 
 def add_output_args(container, *, only=None):
     """Output naming/location flags (dolby_to_pipewire.py shares --prefix)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--prefix",
         default="Dolby",
@@ -255,7 +241,7 @@ def add_output_args(container, *, only=None):
 
 def add_filter_tweak_args(container, *, only=None):
     """Filter-tweak flags (group shared with dolby_to_pipewire.py)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--disable",
         action="append",
@@ -303,7 +289,7 @@ def add_filter_tweak_args(container, *, only=None):
 def add_general_args(container, *, only=None):
     """General flags — dolby_to_pipewire.py authors its own equivalents
     (and forwards --verbose to the generator it runs)."""
-    add, added = _make_adder(container, only)
+    add, added = console._make_adder(container, only)
     add(
         "--verbose", "-v",
         action="store_true",

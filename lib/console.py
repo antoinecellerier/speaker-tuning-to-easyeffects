@@ -20,7 +20,14 @@ every helper below degrades to a plain ``print`` rather than failing.
 error is output too, and it is the one message two of the three entry points
 print from a class rather than a function. It lived on the generator and the
 wrapper imported it from there — the last import that crossed between two
-root scripts.
+root scripts. ``_make_adder`` sits beside it as the other half of that story:
+not output at all, but the argparse plumbing both converters build their
+shared argument groups on, kept as two identical copies because importing the
+generator's was said to drag numpy/scipy into the converter's startup. Moving
+the generator's DSP imports into its ``main()`` made that false, so the double
+bought nothing and the copies collapse here — where neither root script has to
+import the other to reach it, and where, being closures over the parser it is
+handed, it imports nothing itself.
 """
 
 import argparse
@@ -89,6 +96,20 @@ class _HelpHintParser(argparse.ArgumentParser):
             f"{self.prog}: error: {message}\n"
             "Run with --help to see usage and all options.\n",
         )
+
+
+def _make_adder(container, only):
+    """Shared-group plumbing: an ``add_argument`` wrapper that skips flags not
+    selected by ``only`` (keyed by primary name: first option string, or the
+    positional's name) and records the added actions so callers — notably
+    dolby_to_pipewire.py — can rebuild a child argv from them generically."""
+    added = []
+
+    def add(*names, **kwargs):
+        if only is None or names[0] in only:
+            added.append(container.add_argument(*names, **kwargs))
+
+    return add, added
 
 
 def cprint(style: str, text: str = "") -> None:
