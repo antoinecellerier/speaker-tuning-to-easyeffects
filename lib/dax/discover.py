@@ -19,6 +19,7 @@ filename, and several emitted parameters key off that answer.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -45,6 +46,24 @@ DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Za-z]{8}.*\.xml$", re.IGNORECASE)
 # Filename-suffix exclusions applied at probe candidate sites. All lowercase;
 # compare against ``name.lower().endswith(...)``.
 _NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
+
+# DriverStore wrapper directories. Windows renames each installed package's
+# payload directory to ``<inf-stem>.inf_<arch>_<hash>``, so Dolby's DAX3
+# extension packages land as ``dax3_ext_rtk.inf_amd64_<hash>`` and similar,
+# with the tuning XMLs one level inside. Extractions that never went through
+# Setup (``innoextract`` output, hand-organised collections) carry no wrapper,
+# which is why every scan below falls back to the scanned directory itself.
+_INF_WRAPPER_GLOB = "dax3_ext_*.inf_*"
+
+
+def _is_inf_wrapper(name: str) -> bool:
+    """True if a directory *name* is a DriverStore wrapper for DAX3 tunings.
+
+    The same pattern as ``_INF_WRAPPER_GLOB``, matched against a name already
+    in hand instead of by globbing its parent. ``fnmatchcase`` rather than
+    ``fnmatch`` so it keeps ``Path.glob``'s case sensitivity.
+    """
+    return fnmatch.fnmatchcase(name, _INF_WRAPPER_GLOB)
 
 
 def is_soundwire_xml(filename: str) -> bool:
@@ -99,7 +118,7 @@ def _resolve_driver_store(windows_root: Path) -> Path | None:
             return file_repo
         if not windows_root.is_dir():
             return None
-        if any(windows_root.glob("dax3_ext_*.inf_*")):
+        if any(windows_root.glob(_INF_WRAPPER_GLOB)):
             return windows_root
         if _has_dolby_xml(windows_root):
             return windows_root
@@ -173,7 +192,7 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
     driver_store = _resolve_driver_store(candidate)
     if driver_store is None:
         return False
-    xml_dirs = sorted(driver_store.glob("dax3_ext_*.inf_*")) or [driver_store]
+    xml_dirs = sorted(driver_store.glob(_INF_WRAPPER_GLOB)) or [driver_store]
     for xml_dir in xml_dirs:
         try:
             for entry in xml_dir.iterdir():
@@ -241,7 +260,7 @@ def autoprobe_dolby_source() -> Path:
         if driver_store is None:
             continue
         try:
-            if any(driver_store.glob("dax3_ext_*.inf_*")):
+            if any(driver_store.glob(_INF_WRAPPER_GLOB)):
                 mount_candidates.append(mp)
         except OSError:
             continue
@@ -254,7 +273,7 @@ def autoprobe_dolby_source() -> Path:
             # Cosmetic lift: a directly-matched ``dax3_ext_*.inf_*`` wrapper
             # is reported as its parent (the extraction root), matching the
             # path the user would otherwise pass as ``--windows DIR``.
-            if cand.name.startswith("dax3_ext_") and ".inf_" in cand.name:
+            if _is_inf_wrapper(cand.name):
                 cand = cand.parent
             if cand in seen:
                 continue
@@ -434,7 +453,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
 
     # Scan for XMLs inside dax3_ext_*.inf_* wrappers, falling back to the
     # driver_store root itself if no wrappers are present (layout 4).
-    xml_dirs = sorted(driver_store.glob("dax3_ext_*.inf_*"))
+    xml_dirs = sorted(driver_store.glob(_INF_WRAPPER_GLOB))
     if not xml_dirs:
         xml_dirs = [driver_store]
     candidates = []
