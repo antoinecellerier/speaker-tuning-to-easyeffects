@@ -52,7 +52,11 @@ _NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
 # extension packages land as ``dax3_ext_rtk.inf_amd64_<hash>`` and similar,
 # with the tuning XMLs one level inside. Extractions that never went through
 # Setup (``innoextract`` output, hand-organised collections) carry no wrapper,
-# which is why every scan below falls back to the scanned directory itself.
+# which is why the scans of a directory the user pointed at fall back to that
+# directory itself: ``_resolve_driver_store``, ``_candidate_has_matching_xml``
+# and ``find_tuning_xml``. ``autoprobe_dolby_source``'s mount probe is the one
+# that must not — it is deciding whether an NTFS mount is a Windows install
+# worth offering unprompted, and a wrapper hit is the whole of that test.
 _INF_WRAPPER_GLOB = "dax3_ext_*.inf_*"
 
 

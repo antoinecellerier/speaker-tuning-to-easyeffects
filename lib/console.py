@@ -22,15 +22,23 @@ print from a class rather than a function. It lived on the generator and the
 wrapper imported it from there — the last import that crossed between two
 root scripts. ``_make_adder`` sits beside it as the other half of that story:
 not output at all, but the argparse plumbing both converters build their
-shared argument groups on, kept as two identical copies because importing the
+shared argument groups on, kept as two copies because importing the
 generator's was said to drag numpy/scipy into the converter's startup. Moving
 the generator's DSP imports into its ``main()`` made that false, so the double
 bought nothing and the copies collapse here — where neither root script has to
 import the other to reach it, and where, being closures over the parser it is
-handed, it imports nothing itself. ``add_color_and_version_args`` is the third
-of that cluster and the only one about this module's own subject: ``--no-color``
+handed, it imports nothing itself. The two bodies were identical; the two
+docstrings were not, and the surviving one is the generator's. The converter's
+called the filter key the "primary option string", which was wrong before the
+copies met: ``names[0]`` is the key whether or not it starts with a dash, and
+the generator registers its ``xml_file`` positional through this very adder.
+``add_color_and_version_args`` is the third of that cluster and the only one
+about this module's own subject: ``--no-color``
 is the switch every helper above obeys, and it was declared three times, once
-per entry point, beside a ``--version`` that had drifted along with it.
+per entry point, beside a ``--version`` copied the same three times. Nothing
+had diverged — all three declarations of each flag were character-identical —
+so this collapses a count, not a repair. The one real difference between the
+sites is structural, and the helper's own docstring below explains it.
 ``help_style`` is its other end — the flag has to be honoured a second time,
 before argparse renders ``--help``, and answering that means reading both
 private names above, which is a poor thing to make three callers do.
@@ -157,9 +165,10 @@ def help_style(argv: list[str] | None = None):
     the rich-present help plus exactly this line).
 
     Returns the two values rather than a built parser. All three entry points
-    want the same formatter and the same epilog, but each instantiates a
-    different parser class, and taking that class as a parameter would hide
-    the one difference between them behind the thing they share.
+    want the same formatter and the same epilog, but not the same parser class:
+    ``ee_to_pipewire.py`` builds a bare ``argparse.ArgumentParser`` where the
+    other two build ``_HelpHintParser``. Taking that class as a parameter would
+    hide the one place they differ behind the thing they share.
     """
     _argv = sys.argv[1:] if argv is None else argv
     formatter_class = (argparse.HelpFormatter

@@ -17,8 +17,9 @@ never shells out, whether the import sits here or in the function.
 ``_print_next_steps`` calls it and arrived here as a move; see that module's
 docstring for why a carried body may not be re-pointed. ``PIPEWIRE_RESTART_CMD``
 rides the same import — it was defined here until ``checks.py`` and
-``ee_to_pipewire.py`` had to spell it too, and ``conf`` is the module all
-three already share. Not stdlib-only —
+``ee_to_pipewire.py`` had to spell it too, and ``conf`` is a module all three
+already import, and the one whose subject the command belongs to (``console``,
+the other they share, owns printing). Not stdlib-only —
 ``lib.console`` owns the optional rich dependency — but nothing here reaches
 the DSP stack.
 

@@ -14,18 +14,22 @@ asked of the confs on disk instead of the live graph, and it reads them through
 the same ``installed_confs``.
 
 ``DEFAULT_OUTPUT_DIR`` is defined here too, beside the ``_UNSCANNED_CONF_DIR``
-it is the counterpart of: four of its six readers are in this module, and it is
-the one constant the suite patches to point the doctor at a temporary tree — so
-it has to be one binding, not a name copied in from elsewhere. The argparse
-default and ``main`` reach it through this module.
+it is the counterpart of: every check that names the directory reads it here —
+``check_conf_directory``, ``gather_pw_doctor``, ``report_pw_doctor`` — and it
+is the one constant the suite patches to point the doctor at a temporary tree,
+so it has to be one binding, not a name copied in from elsewhere. Its readers
+outside are the two converters, which import this module either way:
+``ee_to_pipewire.py`` reaches it through ``default_conf_path``, and
+``dolby_to_pipewire.py`` spells it twice, for ``--output-dir``'s help default
+and again in ``main``.
 
 The report vocabulary — PASS/WARN/FAIL/UNKNOWN, ``CheckResult``, the summary
 counter, the check printer and the ``~``-collapsing path renderer — comes from
 ``lib/doctor.py``, shared with the EasyEffects doctor so the two read as one
 tool. The constants and the plugin URIs are imported under bare names because
 that is how these lines read in ``ee_to_pipewire.py`` and a move may not
-re-point what it carries; they are constants and a frozen dataclass, so there
-is nothing here a test would patch. The functions stay module-qualified.
+re-point what it carries; they are string constants and a record type, so
+there is nothing here a test would patch. The functions stay module-qualified.
 
 This doctor ends on the same hardware dump the EasyEffects one prints, because
 hardware sits under the whole chain and the questions it answers are the same

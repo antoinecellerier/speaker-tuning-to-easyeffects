@@ -17,14 +17,16 @@ that both `--doctor` and a normal run's end-of-run warning render, which is
 what stops the two from drifting (`e3a7ee4` fixed a pair that already had).
 
 The report vocabulary — PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary
-counter, the check printer and the `~`-collapsing path renderer — comes from
-`lib/doctor.py`, shared with `ee_to_pipewire.py`'s PipeWire-side doctor so the
-two read as one tool. The constants are imported under bare names rather than
-through the module because that is how these lines read in
+counter and the check printer — comes from `lib/doctor.py`, shared with
+`ee_to_pipewire.py`'s PipeWire-side doctor so the two read as one tool. Not
+the `~`-collapsing path renderer, though: these functions take plain inputs,
+so the one verdict that names a path (`install_status`) is handed it already
+collapsed, as `base_display`. The constants are imported under bare names
+rather than through the module because that is how these lines read in
 `dolby_to_easyeffects.py`, and a move commit may not re-point what it carries;
-they are constants and a frozen dataclass, so there is nothing here a test
-would want to patch. `BYPASS_PRESET_NAME` arrives the
-same way, from `lib/preset/autoload.py` — the empty preset written there is
+they are string constants and a record type, so there is nothing here a test
+would want to patch. `BYPASS_PRESET_NAME` arrives the same way, from
+`lib/preset/autoload.py` — the empty preset written there is
 one this doctor has to recognise, because having it selected is itself a
 "sounds like nothing" cause.
 """

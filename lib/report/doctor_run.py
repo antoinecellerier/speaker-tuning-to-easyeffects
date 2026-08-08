@@ -27,11 +27,12 @@ loop: environment → speaker → environment.
 The EasyEffects-side counterpart of `lib/pipewire/checks.py`, whose
 `report_pw_doctor` the converter calls the same way `dolby_to_easyeffects.py`
 calls `report_doctor` here. The two doctors share their report vocabulary —
-PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary counter and the check
-printer — through `lib/doctor.py`, so they read as one tool. It arrives under
-bare names rather than through the module because that is how these lines read
-in the generator and a move commit may not re-point what it carries; they are
-constants and a frozen dataclass, so there is nothing here a test would patch.
+PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary counter, the check printer
+and the `~`-collapsing path renderer — through `lib/doctor.py`, so they read as
+one tool. The constants and `CheckResult` arrive under bare names rather than
+through the module because that is how these lines read in the generator and a
+move commit may not re-point what it carries; they are string constants and a
+record type, so there is nothing here a test would patch.
 
 `findings` and `speaker` keep the aliases the generator gave them
 (`report_findings`, `report_speaker`) for the same reason: the moved lines

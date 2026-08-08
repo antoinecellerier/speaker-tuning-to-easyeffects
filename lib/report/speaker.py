@@ -22,7 +22,9 @@ user different things about the same fixup.
 because these bodies read through it verbatim, and `Finding` arrives as a bare
 name for the same reason — it is a frozen record with nothing to patch, the way
 `lib/report/messages.py` already takes it. `CheckResult` and `DOCTOR_WARN`
-come from `lib/doctor.py` on the same terms.
+come from `lib/doctor.py` on the same reasoning if not the same terms: a
+dataclass (not a frozen one) and a string constant, neither of them module
+state a test rebinds.
 
 Nothing here may import `lib/report/environment.py`'s importers: this module
 reads that one (`parse_kernel_series`, `_kernel_series_age`) and the `--doctor`

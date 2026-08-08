@@ -498,9 +498,13 @@ def main(argv: list[str] | None = None,
     # *every* TAB press, exiting inside autocomplete()). `emit` and `profile`
     # are here for the same reason rather than at the top: between them they
     # pull in lib.preset.{fir,build,plugins}, so importing either eagerly
-    # would undo the deferral. What this file does import at the top —
-    # autoload, findings, messages, speaker, doctor_run, environment, and
-    # dax.{discover,parse} — reaches no numpy.
+    # would undo the deferral. Everything this file does import at the top —
+    # console, doctor, ee_paths; dax.{discover,parse}; hardware.{speakers,
+    # sinks}; preset.autoload; report.{findings,speaker,doctor_run,
+    # environment,messages} — reaches no numpy. That is the whole predicate,
+    # and it is not "stdlib-only": console owns the optional rich import and
+    # still belongs at the top, because rich costs milliseconds where the DSP
+    # stack costs ~0.35 s.
     #
     # Before the loop rather than inside it, which is the same thing minus the
     # repetition: profile_types is never empty by here (the empty case

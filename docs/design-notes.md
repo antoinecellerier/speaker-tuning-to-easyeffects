@@ -3463,9 +3463,10 @@ that comes next with no pin edge at all.
 `CheckResult`, `DOCTOR_WARN`. Nothing had to be dragged along beyond
 `_MODPROBE_CONF` and `_pin_phrase`, both private to the block, and no moved
 body needed a call re-pointed. The last three arrive as bare names on
-`lib/report/environment.py`'s precedent — a frozen dataclass and two string
-constants, nothing a test would patch — and `report_findings` keeps the
-generator's alias because the moved lines read through it. In the generator and
+`lib/report/environment.py`'s precedent — two dataclasses (`Finding` frozen,
+`CheckResult` not) and a string constant, nothing a test would patch — and
+`report_findings` keeps the generator's alias because the moved lines read
+through it. In the generator and
 in both test files the new module is imported as `report_speaker`: one letter
 from `lib.hardware.speakers`, which those files still use.
 
@@ -4053,10 +4054,12 @@ the tail about what happens once the line appears.
 
 > **Both are closed.** `PIPEWIRE_RESTART_CMD` moved down to
 > `lib/pipewire/conf.py` and the three spellings now read it (`d6eed66`).
-> `conf.py` is the only module all three printers already share, so the
-> collapse added no import edge — the reason it went down a level rather than
-> staying where it was defined. The "do not phrase it identically" objection
-> held for the prose *around* the command and not for the command itself, which
+> `conf.py` is a module all three printers already import, so the collapse
+> added no import edge — the reason it went down a level rather than staying
+> where it was defined. (`lib/console.py` is the other one they all share, and
+> the wrong home: it owns printing, not the conf's vocabulary.) The "do not
+> phrase it identically" objection held for the prose *around* the command and
+> not for the command itself, which
 > is byte-identical at all four sites; rendered output does not move. The grep
 > sentence is `_grep_expectation(tail)` (`7fcef93`), with the one clause the two
 > paths differ in as that parameter, so they can no longer tell a user different

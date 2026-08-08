@@ -16,10 +16,13 @@ where numpy has deliberately not been imported yet. Keeping them beside
 press.
 
 `VOICING_CURVES` is here on the same argument one step further out. It is the
-Balanced/Detailed/Warm table, and its readers — the per-profile report, the
-emit loop, and `dolby_to_pipewire.py`'s `--variant` choices — end up in
-different packages, neither of which may import the other (both reach numpy,
-and a shared table is no reason to drag scipy across a package boundary). It
+Balanced/Detailed/Warm table, and no reader of it can be its home. The
+per-profile report and the emit loop are in packages that may not import each
+other, and both reach numpy — a shared table is no reason to drag scipy across
+a package boundary. `dolby_to_pipewire.py`'s `--variant` choices are the third
+reader and reach neither: this module is numpy-free, which is what lets the
+wrapper derive those choices from the table with the DSP stack still out of
+its `sys.modules`. It
 is copy as much as it is data: `print_what_now` right below already names two
 of the three voicings in the hint it derives from what was built. Its
 insertion order is the order voicings are built in, so a reader that renders

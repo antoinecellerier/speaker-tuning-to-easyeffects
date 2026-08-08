@@ -24,10 +24,12 @@ every TAB press — must not reach them
 (`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
 `VOICING_CURVES` comes from `lib/report/messages.py` — the Balanced/Detailed/
-Warm table is copy as much as it is data, and its other reader
-(`lib/report/profile.py`) is in a package this one may not import. That is the
-only edge from `lib/preset/` into `lib/report/`, and it is one-way: nothing
-under `lib/report/` imports this module.
+Warm table is copy as much as it is data, and neither of its other readers is
+a place this module could reach it from: `lib/report/profile.py` sits in a
+package this one may not import, and `dolby_to_pipewire.py`'s `--variant`
+choices sit in a root script, not a package at all. That is the only edge from
+`lib/preset/` into `lib/report/`, and it is one-way: nothing under
+`lib/report/` imports this module.
 """
 
 from __future__ import annotations

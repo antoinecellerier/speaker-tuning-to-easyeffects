@@ -51,10 +51,12 @@ def get_hda_codec_ids():
 # name under it: "sdw:L:N:MMMM:PPPP:VV", capturing the manufacturer and part
 # ids the Dolby SOUNDWIRE_MAN_*_FUNC_* filenames key on.
 #
-# Two unrelated scans open exactly this way — the id collection below, and
-# ``lib.hardware.speakers._detect_soundwire_speakers``'s amplifier probe — so
-# the entry point has one definition here. Only the entry point: the loop
-# bodies read different things and are deliberately kept apart.
+# Both names are shared rather than re-spelled at each reader. ``iterdir`` the
+# bus, keep what the regex matches: that is how ``get_soundwire_ids`` below
+# opens, and how ``lib.hardware.speakers._detect_soundwire_speakers``'s
+# amplifier probe opens; ``get_pci_audio_subsystem``'s ``sdw_bus`` default
+# takes the path on its own. Only the entry point is shared — the loop bodies
+# read different things and are deliberately kept apart.
 SDW_BUS = Path("/sys/bus/soundwire/devices")
 SDW_SLAVE_RE = re.compile(r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+")
 

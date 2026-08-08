@@ -44,10 +44,11 @@ DEFAULT_LINK_GROUP_SUFFIX = "_smart_filter"
 
 # Nothing in this module prints it. It lives here because the three that do —
 # ``lib.pipewire.install``, ``lib.pipewire.checks`` and ``ee_to_pipewire.py``
-# — already import this module and no other module all three share, so this
-# is the one home that collapses the four copies without adding an import
-# edge. ``install`` also runs it, splitting on whitespace: keep it a plain
-# argv-shaped string with no shell syntax in it.
+# — already import this module, so collapsing the four copies here adds no
+# import edge. ``lib.console`` is the other module all three share and the
+# wrong home for it: it owns how a line is printed, not the conf vocabulary a
+# restart-to-load-it belongs to. ``install`` also runs it, splitting on
+# whitespace: keep it a plain argv-shaped string with no shell syntax in it.
 PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
 
 

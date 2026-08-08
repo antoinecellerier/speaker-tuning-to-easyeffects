@@ -29,8 +29,9 @@ re-runs the whole script for on every TAB press
 lines read through those spellings and a move commit may not re-point what it
 carries — the same terms `lib/report/messages.py` and `lib/report/speaker.py`
 already take them on. `VOICING_CURVES` comes from `messages` for the reason
-recorded there: its other reader is `lib/preset/emit.py`, in a package this
-one may not import.
+recorded there: its other readers are `lib/preset/emit.py`, in a package this
+one may not import, and `dolby_to_pipewire.py`'s `--variant` choices, in a
+root script.
 """
 
 from __future__ import annotations
