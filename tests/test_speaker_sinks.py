@@ -672,6 +672,9 @@ def test_warn_old_kernel_silent_when_recent_or_unparseable(silence_console,
 # channel count; each SoundWire slave is one amp, default 1.
 
 def test_layout_summary_soundwire_amps_not_doubled():
+    """The arithmetic half only — `channels=1` is typed here, not produced, so
+    this cannot see the detector regress. `test_detector_counts_six_mono_
+    cs35l56_as_six` below reaches the same assertion through the bus walk."""
     info = speakers.SpeakerInfo()
     info.speakers = [speakers.SpeakerPin(f"sdw:{i}", "cs35l56", "amplifier", channels=1)
                      for i in range(6)]
@@ -706,6 +709,216 @@ def test_read_sysfs_int_tolerates_bad_bytes(tmp_path):
     p = tmp_path / "max_ch"
     p.write_bytes(b"\xff\xfe")  # non-UTF-8 sysfs blob → None, not a traceback
     assert speakers._read_sysfs_int(p) is None
+
+
+# --- The bus walk that produces those counts (issue #27) --------------------
+#
+# Everything above builds SpeakerPins by hand, so nothing above can see
+# `_detect_soundwire_speakers` regress: put the stereo default back and the
+# layout test named for issue #27 stays green. Nor does the walk run on a
+# developer machine that has /sys/bus/soundwire/devices but nothing on it.
+# These reach the same assertions through the detector, over a fake bus.
+#
+# `codecs.SDW_BUS` is the patch target because codecs *defines* it and
+# speakers.py reads it back through the module object on every access — no
+# module holds a bare copy of the name, so both patch-collision guards in
+# tests/test_layout.py stay silent. SDW_SLAVE_RE is deliberately left real:
+# the device-name shape is logic worth exercising, not scaffolding.
+
+
+def _sdw_bus(tmp_path, *devices):
+    """A fake /sys/bus/soundwire/devices from `(name, driver, sinks)` triples.
+
+    *driver* is the basename the device's ``driver`` symlink resolves to —
+    sysfs points it at the entry under ``bus/soundwire/drivers/`` — or "" for
+    an enumerated slave with nothing bound. *sinks* maps a data-port directory
+    to its raw ``max_ch`` bytes, or is None for a device exposing no DisCo
+    props at all. Entries are created in argument order, so passing them
+    unsorted is what makes the walk's own sort observable.
+    """
+    bus, drivers = tmp_path / "devices", tmp_path / "drivers"
+    bus.mkdir()
+    drivers.mkdir()
+    for name, driver, sinks in devices:
+        dev = bus / name
+        dev.mkdir()
+        if driver:
+            target = drivers / driver
+            target.mkdir(exist_ok=True)
+            (dev / "driver").symlink_to(target)
+        for port, max_ch in (sinks or {}).items():
+            (dev / port).mkdir()
+            (dev / port / "max_ch").write_bytes(max_ch)
+    return bus
+
+
+def _no_amixer(monkeypatch):
+    """Neutralise the mixer fallback the walk ends on.
+
+    It fires whenever no speaker was found, so every case below that leaves
+    the list empty would otherwise shell out to the developer's real `amixer`
+    with a 5 s timeout — machine-dependent, and slow. FileNotFoundError is the
+    branch the function already handles for a host without alsa-utils, and the
+    same stand-in `test_detect_firmware_gates_no_amixer` uses.
+    """
+    def fake_run(*a, **k):
+        raise FileNotFoundError("amixer")
+    monkeypatch.setattr(speakers.subprocess, "run", fake_run)
+
+
+def test_detector_counts_six_mono_cs35l56_as_six(tmp_path, monkeypatch):
+    """Issue #27's machine, reached through the walk rather than typed in: six
+    enumerated slaves, each one mono amp, reported as six speakers not twelve.
+
+    These carry no ``dp*_sink`` at all, which is the case that matters — the
+    probe returns None and the ``or 1`` fallback decides the count. That line
+    is the whole regression; ``or 2`` restores the twelve.
+    """
+    _no_amixer(monkeypatch)
+    nodes = [f"sdw:0:1:01fa:3557:01:{i}" for i in range(6)]
+    # Created out of order: the walk sorts, and the report prints in list order.
+    monkeypatch.setattr(codecs, "SDW_BUS", _sdw_bus(
+        tmp_path, *((nodes[i], "cs35l56", None) for i in (3, 0, 5, 1, 4, 2))))
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert info.layout_summary == "6 speakers → multi-way: 6x amplifier"
+    assert [(s.node, s.channels, s.role) for s in info.speakers] == [
+        (n, 1, "amplifier") for n in nodes]
+    assert [(a.node, a.driver, a.bound, a.channels) for a in info.amp_status] == [
+        (n, "cs35l56", True, 1) for n in nodes]
+    assert info.sdw_amplifiers == [f"{n} (driver: cs35l56)" for n in nodes]
+    assert info.sdw_codecs == []
+
+
+@pytest.mark.parametrize("sinks,expected", [
+    ({"dp1_sink": b"1\n"}, 1),                       # a mono amp declares one
+    ({"dp1_sink": b"2\n"}, 2),                       # a stereo-capable port, honoured
+    ({"dp1_sink": b"1\n", "dp3_sink": b"2\n"}, 2),   # two ports → max, never the sum
+    ({"dp1_sink": b"0\n"}, 1),                       # 0 is not a channel count
+    ({"dp1_sink": b"\xff\xfe"}, 1),                  # non-UTF-8 sysfs blob
+    (None, 1),                                       # no DisCo props at all
+])
+def test_detector_probes_channels_from_the_sink_ports(tmp_path, monkeypatch,
+                                                      sinks, expected):
+    """Probed, not assumed — and the two unusable readings land on 1 rather
+    than propagating a 0 into the layout line. The two-port row is the one
+    that separates `max(chans)` from a sum: 1 + 2 would read as three."""
+    node = "sdw:0:1:01fa:3557:01:0"
+    monkeypatch.setattr(codecs, "SDW_BUS",
+                        _sdw_bus(tmp_path, (node, "cs35l56", sinks)))
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert [s.channels for s in info.speakers] == [expected]
+    assert [a.channels for a in info.amp_status] == [expected]
+
+
+@pytest.mark.parametrize("driver,is_amp", [
+    ("cs35l56", True),
+    ("snd_soc_cs35l56", True),    # module spelling — the token is a substring
+    ("rt711", False),             # SoundWire jack codec: "rt13" must not catch it
+    ("snd_soc_max98090", False),  # Maxim jack CODEC, not a smart amp
+    ("snd_soc_max98357a", False),  # dumb I2S Class-D, no DSP
+])
+def test_detector_keeps_non_amps_out_of_the_speaker_count(tmp_path, monkeypatch,
+                                                          driver, is_amp):
+    """A bound slave is an amp only if its driver carries an
+    ``amps._AMP_DRIVER_TOKENS`` token, so the detector and the firmware
+    profiler decide "is this a smart amp" from one source. A jack codec that
+    slipped through would add a SpeakerPin and inflate the layout count — the
+    #27 failure by another route.
+    """
+    _no_amixer(monkeypatch)
+    node = "sdw:0:1:01fa:3557:01:0"
+    monkeypatch.setattr(codecs, "SDW_BUS",
+                        _sdw_bus(tmp_path, (node, driver, None)))
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    # The same three drivers are pinned against _amp_firmware_profile below;
+    # both readings must agree, or one report contradicts the other.
+    assert (amps._amp_firmware_profile(driver) is not None) is is_amp
+    if is_amp:
+        assert [s.node for s in info.speakers] == [node]
+        assert info.sdw_codecs == []
+    else:
+        assert info.speakers == []
+        assert info.amp_status == []          # not an amp, so not amp status
+        assert info.sdw_amplifiers == []
+        assert info.sdw_codecs == [f"{node} (driver: {driver})"]
+        assert info.layout_summary == "Could not determine speaker layout"
+
+
+def test_detector_reports_an_unbound_slave_without_counting_it(tmp_path,
+                                                               monkeypatch):
+    """An enumerated slave with no driver is surfaced neutrally — it may be a
+    non-amp peripheral, or one still binding — so it reaches amp_status and
+    nothing else. A SpeakerPin here would count a speaker nothing can drive."""
+    _no_amixer(monkeypatch)
+    node = "sdw:0:1:01fa:3557:01:0"
+    monkeypatch.setattr(codecs, "SDW_BUS",
+                        _sdw_bus(tmp_path, (node, "", None)))
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert info.amp_status == [speakers.AmpStatus(node, "", False, 0)]
+    assert info.speakers == []
+    assert info.sdw_amplifiers == [] and info.sdw_codecs == []
+
+
+def test_detector_treats_a_regular_driver_file_as_unbound(tmp_path, monkeypatch):
+    """The bind test is ``is_symlink``, not ``exists``, and only a symlink
+    resolves to the driver's own name. Under ``exists`` this device comes back
+    bound to a driver literally called "driver", which matches no amp token —
+    so it lands in sdw_codecs and the unbound signal, the one thing amp_status
+    exists to give, disappears without an error."""
+    _no_amixer(monkeypatch)
+    node = "sdw:0:1:01fa:3557:01:0"
+    bus = _sdw_bus(tmp_path, (node, "", None))
+    (bus / node / "driver").write_text("not a symlink\n")
+    monkeypatch.setattr(codecs, "SDW_BUS", bus)
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert [(a.node, a.driver, a.bound) for a in info.amp_status] == [
+        (node, "", False)]
+    assert info.sdw_codecs == []
+
+
+def test_detector_skips_bus_entries_that_are_not_slaves(tmp_path, monkeypatch):
+    """``sdw-master-0`` really does sit on the bus beside the slaves, so the
+    name filter is load-bearing rather than defensive: without it the master
+    is walked too, and a bus with two links reports two extra devices."""
+    _no_amixer(monkeypatch)
+    monkeypatch.setattr(codecs, "SDW_BUS", _sdw_bus(
+        tmp_path,
+        ("sdw-master-0", "intel_sdw_master", None),   # a real sibling entry
+        ("sdw:0:1:01fa:3557", "cs35l56", None),       # truncated: no unique id
+    ))
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert info == speakers.SpeakerInfo()
+
+
+def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
+    """No bus directory at all — every HDA laptop, and CI. The record is left
+    exactly as the caller handed it over, so an HDA scan that ran first is not
+    disturbed."""
+    _no_amixer(monkeypatch)
+    monkeypatch.setattr(codecs, "SDW_BUS", tmp_path / "no-soundwire-here")
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert info == speakers.SpeakerInfo()
 
 
 # --- Smart-amp firmware/log evidence: bus-agnostic, driver-keyed (issue #27) -
