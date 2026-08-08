@@ -768,6 +768,20 @@ def main(argv: list[str] | None = None,
                                           for f in [*tuning.findings,
                                                     *profile_findings]))
 
+        # The closing block, ~120 lines down, wants two scalars off `tuning`.
+        # Bound here rather than read off the loop variable down there, so
+        # that "the last profile's" is a choice made where the loop makes it:
+        # under --all-profiles this runs up to nine times, and reaching back
+        # into `tuning` afterwards said nothing about which one it meant.
+        #
+        # Only "last" for profile_used, and only nominally: its one reader is
+        # gated on a single-profile run, where last is also only.
+        last_profile_used = tuning.profile_used
+        # No "last" for this one — <setting><default_profile> is read off the
+        # document root, not the profile, so every iteration parses the same
+        # value out of the same file.
+        default_profile = tuning.default_profile
+
     _configure_autoload(args, tally.all_preset_names)
 
     # A requested --enable that never produced an active stage is silent
@@ -888,21 +902,21 @@ def main(argv: list[str] | None = None,
         # XML, but only here, once, at the very end.
         profile_used = n_modes = None
         if not args.all_profiles and len(profile_types) == 1:
-            profile_used = tuning.profile_used
+            profile_used = last_profile_used
             n_modes = len(parse.get_profile_types(xml_path, args.endpoint,
                                                   args.mode))
         messages.print_what_now(tally.all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
                        default_unknown=(args.profile is None
-                                        and tuning.default_profile is None),
+                                        and default_profile is None),
                        # "autogain" marker = leveler present but bypassed
                        # (the --enable-menu state); -active = running.
                        autogain_off=("autogain" in tally.filters_by_profile
                                      and "autogain-active"
                                      not in tally.filters_by_profile),
                        menu_printed=menu_printed,
-                       declared_default=(tuning.default_profile
+                       declared_default=(default_profile
                                          if args.profile is None else None))
 
     # Last, so the link is still on screen when the run ends. A wrapper that
