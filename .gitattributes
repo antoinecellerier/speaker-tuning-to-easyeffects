@@ -1,0 +1,9 @@
+# The GitHub "Source code" zip/tar.gz and the "Download ZIP" button are both
+# `git archive` output: no .git, so `git describe` has nothing to read. This
+# makes git substitute the version into the file at archive time instead, so a
+# downloaded copy still reports what produced it. See lib/version.py.
+#
+# Keep this scoped to the one file. export-subst rewrites every matched file in
+# full, so widening it would expand placeholder-shaped text anywhere in the tree
+# -- including the test that asserts the placeholder is *un*expanded.
+lib/version.py export-subst

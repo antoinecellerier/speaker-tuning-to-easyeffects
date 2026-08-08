@@ -16,6 +16,31 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      # Before publishing, not after: the "Source code" zip is the download
+      # most people click, and a tag whose archive says "unknown" has to be
+      # deleted and re-cut. Extract under RUNNER_TEMP, never the workspace --
+      # that is a checkout of this tag, so a failed substitution would fall
+      # through to git describe and pass on a broken archive.
+      - name: Verify the source archive is version-stamped
+        env:
+          TAG: ${{ github.ref_name }}
+          ARCHIVE: ${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz
+        run: |
+          for i in 1 2 3; do
+            curl -fsSL "$ARCHIVE" -o "$RUNNER_TEMP/src.tar.gz" && break || sleep 5
+          done
+          mkdir -p "$RUNNER_TEMP/src"
+          tar -xzf "$RUNNER_TEMP/src.tar.gz" -C "$RUNNER_TEMP/src" --strip-components=1
+          # Never let a traceback stand in for the verdict: if lib/version.py
+          # moved, python exits non-zero and the || keeps our message the one
+          # that prints.
+          got=$(cd "$RUNNER_TEMP/src" && python3 -c 'from lib import version; print(version.get_version())') \
+            || got="(lib.version did not import -- has it moved?)"
+          [ "$got" = "$TAG" ] || {
+            echo "::error::source archive reports '$got', expected '$TAG' -- export-subst in .gitattributes is not being applied"
+            exit 1
+          }
+
       - name: Extract changelog notes
         run: python3 tools/changelog_section.py "${GITHUB_REF_NAME}" > NOTES.md
       - name: Create GitHub Release

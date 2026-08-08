@@ -206,6 +206,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   installed-plugin defaults staying put), and warns on preset content it
   can't translate instead of dropping it silently. Re-run
   `ee_to_pipewire.py` to regenerate (`docs/ee-to-pipewire.md`).
+- A copy downloaded as a zip or tarball reports its version instead of
+  `unknown`: git now writes the version into the archive as it builds it,
+  rather than the tool looking for a `.git` directory a download doesn't have.
+  So `--version`, `--doctor`, and the stamp on every preset and `.conf` say
+  which build produced them in a device report. Applies to releases from this
+  one on.
 
 ### Changed
 
