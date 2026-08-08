@@ -95,6 +95,20 @@ def add_routing_args(container, *, only=None):
     return added
 
 
+def default_conf_path(node_name: str) -> Path:
+    """Where the conf lands when ``--output`` doesn't say.
+
+    Three readers have to agree on this: the real write, the ``--dry-run``
+    preview — whose whole job is to name the file a real run would produce —
+    and the ``--output`` help text below. The help gets it from here too, by
+    passing the literal ``<node-name>`` as the stem: the placeholder survives
+    ``expanduser()`` untouched (it only ever rewrites a leading ``~``), so the
+    sentence a user reads is rendered by the code it describes instead of
+    restating it, and cannot drift from it.
+    """
+    return (checks.DEFAULT_OUTPUT_DIR / f"{node_name}.conf").expanduser()
+
+
 def add_output_args(container, *, only=None):
     """Output naming/location flags (dolby_to_pipewire.py shares --force)."""
     add, added = _make_adder(container, only)
@@ -102,8 +116,7 @@ def add_output_args(container, *, only=None):
         "--output",
         type=Path,
         default=None,
-        help=f"output .conf path (default: "
-             f"{checks.DEFAULT_OUTPUT_DIR}/<node-name>.conf)",
+        help=f"output .conf path (default: {default_conf_path('<node-name>')})",
     )
     add(
         "--node-name",
@@ -319,14 +332,14 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         node_description = args.node_description
 
     safe_node_name = pw_conf._sanitize_name(node_name)
+    default_conf = default_conf_path(safe_node_name)
     output_path: Path | None
     if args.dry_run:
         output_path = None
     elif args.output is not None:
         output_path = args.output.expanduser()
     else:
-        output_path = (checks.DEFAULT_OUTPUT_DIR
-                       / f"{safe_node_name}.conf").expanduser()
+        output_path = default_conf
 
     try:
         chain = pw_conf.build_chain(preset, args.irs_dir.expanduser(),
@@ -350,7 +363,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     elif args.output is not None:
         target_irs_dir = args.output.expanduser().parent
     else:
-        target_irs_dir = checks.DEFAULT_OUTPUT_DIR.expanduser()
+        target_irs_dir = default_conf.parent
     target_irs = target_irs_dir / f"{safe_node_name}.irs"
     src_irs: Path | None = None
     if not args.no_copy_irs:
@@ -439,8 +452,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # the text has --output, which writes it wherever they point it
         # without installing anything into the PipeWire drop-in directory.
         would_conf = (args.output.expanduser() if args.output is not None
-                      else (checks.DEFAULT_OUTPUT_DIR
-                            / f"{safe_node_name}.conf").expanduser())
+                      else default_conf)
         would_irs = (target_irs if (src_irs is not None
                      and src_irs.resolve() != target_irs.resolve())
                      else None)
