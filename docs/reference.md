@@ -24,7 +24,7 @@ there:
 | `ee_to_pipewire.py` | converter: EE preset → PipeWire `filter-chain` conf |
 | `dolby_to_pipewire.py` | one-command wrapper around both |
 | `lib/` | everything the three are built from |
-| `tests/` · `tools/` · `docs/` | suite, maintenance and measurement tooling, these notes |
+| `tests/` · `tools/` · `docs/` | suite, maintenance and measurement tooling ([index](../tools/README.md)), these notes |
 
 Those three paths are load-bearing well outside the code — the README, the
 [issue template](../.github/ISSUE_TEMPLATE/device-report.yml), the
