@@ -82,6 +82,20 @@ def test_parse_lv2info_records_a_bound_it_cannot_read():
         "\t\tMinimum:     0.0\n", "")
     assert validate._parse_lv2info(omitted)["g_in"].unparsed == ()
 
+    # NaN is the quiet version of the same fault: float() takes it, and then
+    # every comparison against it is False, so the range check would pass
+    # anything and say nothing. Recorded, so it degrades visibly instead.
+    nan_min = validate._parse_lv2info(_LV2INFO_BLOCK.format(minimum="nan"))
+    assert nan_min["g_in"].minimum is None
+    assert nan_min["g_in"].unparsed == ("Minimum",)
+
+    # inf is not: it is a legitimate LV2 bound and it compares correctly, so
+    # treating it as unreadable would fire on every run for any plugin that
+    # uses one. This is the asymmetry, pinned.
+    inf_min = validate._parse_lv2info(_LV2INFO_BLOCK.format(minimum="-inf"))
+    assert inf_min["g_in"].minimum == float("-inf")
+    assert inf_min["g_in"].unparsed == ()
+
 
 def test_validate_warns_once_per_node_about_unreadable_bounds():
     """The warning names the plugin, the port and the field, and is raised at

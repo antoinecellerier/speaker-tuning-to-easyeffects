@@ -114,10 +114,19 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
             if v is None:
                 return None
             try:
-                return float(v)
+                parsed = float(v)
             except ValueError:
                 unparsed.append(field)
                 return None
+            # NaN parses fine and then compares False against everything, so a
+            # NaN bound would let the range check below pass every value while
+            # reporting nothing — the same false clearance an unreadable bound
+            # used to cause, by a quieter door. `inf` is deliberately left
+            # alone: it is a legitimate LV2 bound and it compares correctly.
+            if parsed != parsed:
+                unparsed.append(field)
+                return None
+            return parsed
 
         # Properties may continue on subsequent lines indented further
         # than the field tag — collect the whole "Properties:" multiline.
