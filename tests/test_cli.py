@@ -1191,6 +1191,34 @@ def test_find_tuning_xml_malformed_version_does_not_crash(monkeypatch, tmp_path)
     assert find_tuning_xml(tmp_path) == winner
 
 
+def test_find_tuning_xml_ranked_listing_names_the_winner_first(
+        monkeypatch, tmp_path, capsys, silence_console):
+    """The whole listing, verbatim: header, the chosen XML on its `→` row,
+    then the also-rans in descending version order with the malformed one
+    last showing `?`.
+
+    `_rank_by_tuning_version` decides that order and nothing else; the lines
+    themselves stay in `find_tuning_xml`, and they are what a user reads when
+    a driver store ships several tunings for one codec. Pinning them here is
+    what makes the ranking safe to move.
+    """
+    silence_console(console)
+    _patch_single_hda_match(monkeypatch, tmp_path)
+    oldest = _write_hda_candidate(tmp_path, "3")
+    winner = _write_hda_candidate(tmp_path, "12")
+    middle = _write_hda_candidate(tmp_path, "7")
+    malformed = _write_hda_candidate(tmp_path, None)
+
+    assert find_tuning_xml(tmp_path) == winner
+    assert capsys.readouterr().out.splitlines() == [
+        "Multiple matching XMLs found, using highest tuning version:",
+        f"  → {doctor.tilde(winner)} (tuning_version=12)",
+        f"    {doctor.tilde(middle)} (tuning_version=7)",
+        f"    {doctor.tilde(oldest)} (tuning_version=3)",
+        f"    {doctor.tilde(malformed)} (tuning_version=?)",
+    ]
+
+
 # --- find_tuning_xml: PCI-keyed (Apple Boot Camp / Intel Mac) match — issue #21 ---
 # Apple's Boot Camp DAX tunings are named by the audio function's PCI subsystem
 # in device-first order, e.g. PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_72708086

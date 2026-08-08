@@ -396,6 +396,41 @@ def _scan_speaker_tunings_by_manufacturer(xml_files, sdw_man_ids):
     return sorted(guesses)
 
 
+def _rank_by_tuning_version(candidates):
+    """Order candidate XMLs by tuning version, highest first.
+
+    Prefer the highest tuning version from the XML metadata. Parse each
+    candidate once, recording both the numeric version (sort key) and the
+    raw value string (display); on a parse/decode failure both fall back to
+    0 / "?" so the malformed candidate sorts last and prints without
+    crashing the listing.
+
+    Returns the `(path, version, raw)` triples in display order — the
+    caller owns the printing, because the order and wording of those lines
+    are what a user reads. `sorted` is stable, so candidates sharing a
+    version keep the order they arrived in.
+    """
+    def parse_version(path):
+        # ver is the raw value string for display; version is its int form
+        # for sorting (0 when absent/non-numeric, so it sorts last).
+        try:
+            tv = ET.parse(path).getroot().find("tuning_version")
+            ver = tv.get("value", "?") if tv is not None else "?"
+        except (ET.ParseError, ValueError, AttributeError):
+            return path, 0, "?"
+        try:
+            version = int(tv.get("value", "0")) if tv is not None else 0
+        except (ValueError, AttributeError):
+            version = 0
+        return path, version, ver
+
+    return sorted(
+        (parse_version(c) for c in candidates),
+        key=lambda pv: pv[1],
+        reverse=True,
+    )
+
+
 def find_tuning_xml(windows_root: Path, best_guess: bool = False):
     """Find the DAX3 tuning XML matching this machine's audio hardware.
 
@@ -614,30 +649,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
         raise FileNotFoundError("\n".join(lines))
 
     if len(candidates) > 1:
-        # Prefer the highest tuning version from the XML metadata. Parse each
-        # candidate once, recording both the numeric version (sort key) and
-        # the raw value string (display); on a parse/decode failure both fall
-        # back to 0 / "?" so the malformed candidate sorts last and prints
-        # without crashing the listing.
-        def parse_version(path):
-            # ver is the raw value string for display; version is its int form
-            # for sorting (0 when absent/non-numeric, so it sorts last).
-            try:
-                tv = ET.parse(path).getroot().find("tuning_version")
-                ver = tv.get("value", "?") if tv is not None else "?"
-            except (ET.ParseError, ValueError, AttributeError):
-                return path, 0, "?"
-            try:
-                version = int(tv.get("value", "0")) if tv is not None else 0
-            except (ValueError, AttributeError):
-                version = 0
-            return path, version, ver
-
-        ranked = sorted(
-            (parse_version(c) for c in candidates),
-            key=lambda pv: pv[1],
-            reverse=True,
-        )
+        ranked = _rank_by_tuning_version(candidates)
         candidates = [path for path, _version, _ver in ranked]
         console.cprint("head", "Multiple matching XMLs found, using highest tuning version:")
         for i, (c, _version, ver) in enumerate(ranked):
