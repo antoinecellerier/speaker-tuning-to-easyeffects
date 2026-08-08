@@ -393,6 +393,92 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
             action.completer = completer
 
 
+def _configure_autoload(args, all_preset_names) -> None:
+    """Write the autoload entries, the bypass fallback, and the
+    persistence tip — the whole of what --autoload sets up.
+
+    No-op unless --autoload was passed and something was generated, so
+    main() calls it unconditionally and the guard lives with the work.
+    """
+    # Autoload configuration
+    if args.autoload and all_preset_names:
+        autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
+        sinks = hardware_sinks._resolve_autoload_sinks(args.autoload_sink, args.dry_run)
+        if sinks:
+            console.cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
+            verb = "Would write" if args.dry_run else "Wrote"
+            for sink in sinks:
+                # EasyEffects keys the autoload file on the active output route
+                # description (node.name + route), not the card profile — see
+                # _enumerate_audio_sinks() and issue #18. Without the route we
+                # can't predict the filename EE will look for; guessing the
+                # profile silently recreates #18 on classic analog cards, so
+                # skip and say why rather than write a file that never matches.
+                route = sink.get("route", "")
+                if not route:
+                    console.cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
+                                   "its active output route from PipeWire, which is "
+                                   "what EasyEffects matches autoload on. Re-run "
+                                   "with this device as the active output, or set "
+                                   "the autoload profile manually in EasyEffects.")
+                    continue
+                path = autoload.write_autoload(
+                    args.autoload_dir,
+                    sink["name"],
+                    sink["description"],
+                    route,
+                    autoload_preset,
+                    dry_run=args.dry_run,
+                )
+                console.cprint("ok", f"  {verb} {doctor.tilde(path)}")
+                print(f"  Device: {sink['description'] or sink['name']} ({route})")
+
+        # Fallback preset: neutralize the Dolby chain on any non-speaker sink
+        # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload
+        # entry. Without this, EE keeps the last-loaded preset applied and
+        # mangles audio on outputs the Dolby tuning wasn't designed for.
+        if args.autoload_bypass:
+            console.cprint("head", f"\nConfiguring fallback preset → '{autoload.BYPASS_PRESET_NAME}':")
+            bypass_path, bypass_status = autoload.write_bypass_preset(
+                args.output_dir, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            )
+            if bypass_status == "kept":
+                console.cprint("ok", f"  Kept existing {doctor.tilde(bypass_path)}")
+            elif bypass_status == "would-write":
+                console.cprint("ok", f"  Would write {doctor.tilde(bypass_path)}")
+            else:
+                console.cprint("ok", f"  Wrote {doctor.tilde(bypass_path)}")
+
+            fallback_status, existing = autoload.set_autoload_fallback(
+                ee_paths.DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
+            )
+            rc_shown = doctor.tilde(ee_paths.DEFAULT_EASYEFFECTS_RC)
+            if fallback_status == "already-configured":
+                console.cprint("ok", f"  Fallback preset already configured "
+                              f"('{existing}') in {rc_shown} — leaving as-is")
+            elif fallback_status == "would-patch":
+                console.cprint("ok", f"  Would enable fallback preset in {rc_shown}")
+            else:
+                console.cprint("ok", f"  Enabled fallback preset in {rc_shown}")
+                if doctor_run.easyeffects_is_running():
+                    console.cprint("warn", "  EasyEffects is currently running — restart it for "
+                                   "the fallback setting to take effect (EE rewrites "
+                                   "this file on exit).")
+
+        # Autoload only persists across logins if EasyEffects both starts at
+        # login (autostart) and stays alive in the background (service mode);
+        # nudge toward the prefs, but only when one is off so the fully
+        # configured case stays quiet.
+        try:
+            _rc_text = ee_paths.DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
+        except OSError:
+            _rc_text = ""
+        _rc = autoload.read_ee_rc(_rc_text)
+        if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
+            console.cprint("warn", "  Tip: enable Background Service + Autostart on login in "
+                           "EasyEffects' preferences so this autoloads on every login.")
+
+
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
          troubleshooting: dict | None = None,
@@ -640,83 +726,7 @@ def main(argv: list[str] | None = None,
                                           for f in [*tuning.findings,
                                                     *profile_findings]))
 
-    # Autoload configuration
-    if args.autoload and all_preset_names:
-        autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
-        sinks = hardware_sinks._resolve_autoload_sinks(args.autoload_sink, args.dry_run)
-        if sinks:
-            console.cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
-            verb = "Would write" if args.dry_run else "Wrote"
-            for sink in sinks:
-                # EasyEffects keys the autoload file on the active output route
-                # description (node.name + route), not the card profile — see
-                # _enumerate_audio_sinks() and issue #18. Without the route we
-                # can't predict the filename EE will look for; guessing the
-                # profile silently recreates #18 on classic analog cards, so
-                # skip and say why rather than write a file that never matches.
-                route = sink.get("route", "")
-                if not route:
-                    console.cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
-                                   "its active output route from PipeWire, which is "
-                                   "what EasyEffects matches autoload on. Re-run "
-                                   "with this device as the active output, or set "
-                                   "the autoload profile manually in EasyEffects.")
-                    continue
-                path = autoload.write_autoload(
-                    args.autoload_dir,
-                    sink["name"],
-                    sink["description"],
-                    route,
-                    autoload_preset,
-                    dry_run=args.dry_run,
-                )
-                console.cprint("ok", f"  {verb} {doctor.tilde(path)}")
-                print(f"  Device: {sink['description'] or sink['name']} ({route})")
-
-        # Fallback preset: neutralize the Dolby chain on any non-speaker sink
-        # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload
-        # entry. Without this, EE keeps the last-loaded preset applied and
-        # mangles audio on outputs the Dolby tuning wasn't designed for.
-        if args.autoload_bypass:
-            console.cprint("head", f"\nConfiguring fallback preset → '{autoload.BYPASS_PRESET_NAME}':")
-            bypass_path, bypass_status = autoload.write_bypass_preset(
-                args.output_dir, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
-            )
-            if bypass_status == "kept":
-                console.cprint("ok", f"  Kept existing {doctor.tilde(bypass_path)}")
-            elif bypass_status == "would-write":
-                console.cprint("ok", f"  Would write {doctor.tilde(bypass_path)}")
-            else:
-                console.cprint("ok", f"  Wrote {doctor.tilde(bypass_path)}")
-
-            fallback_status, existing = autoload.set_autoload_fallback(
-                ee_paths.DEFAULT_EASYEFFECTS_RC, autoload.BYPASS_PRESET_NAME, dry_run=args.dry_run,
-            )
-            rc_shown = doctor.tilde(ee_paths.DEFAULT_EASYEFFECTS_RC)
-            if fallback_status == "already-configured":
-                console.cprint("ok", f"  Fallback preset already configured "
-                              f"('{existing}') in {rc_shown} — leaving as-is")
-            elif fallback_status == "would-patch":
-                console.cprint("ok", f"  Would enable fallback preset in {rc_shown}")
-            else:
-                console.cprint("ok", f"  Enabled fallback preset in {rc_shown}")
-                if doctor_run.easyeffects_is_running():
-                    console.cprint("warn", "  EasyEffects is currently running — restart it for "
-                                   "the fallback setting to take effect (EE rewrites "
-                                   "this file on exit).")
-
-        # Autoload only persists across logins if EasyEffects both starts at
-        # login (autostart) and stays alive in the background (service mode);
-        # nudge toward the prefs, but only when one is off so the fully
-        # configured case stays quiet.
-        try:
-            _rc_text = ee_paths.DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
-        except OSError:
-            _rc_text = ""
-        _rc = autoload.read_ee_rc(_rc_text)
-        if not (_rc.get("autostart_on_login") and _rc.get("service_mode")):
-            console.cprint("warn", "  Tip: enable Background Service + Autostart on login in "
-                           "EasyEffects' preferences so this autoloads on every login.")
+    _configure_autoload(args, all_preset_names)
 
     # A requested --enable that never produced an active stage is silent
     # otherwise: make_autogain returns None when the XML's volume leveler is
