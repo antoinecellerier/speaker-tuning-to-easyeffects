@@ -433,3 +433,73 @@ def test_emit_check_without_steps_is_unchanged(capsys):
     emit_check(CheckResult(DOCTOR_PASS, "Presets", "all load."),
                lambda _style, text: print(text), width=80)
     assert capsys.readouterr().out == "  [PASS] Presets\n         all load.\n"
+
+
+# --- One wrap width, both doctors -------------------------------------------
+
+def _pw_check_block(check, monkeypatch, tmp_path, capsys) -> list[str]:
+    """Render one CheckResult through the whole PipeWire report and return the
+    lines of its check block — headers, summary and paste block dropped.
+
+    Goes through ``report_pw_doctor`` rather than calling the printer directly
+    because the width this file is about is chosen at that call site, and a
+    test that passed its own would assert nothing about it.
+
+    COLUMNS pins what ``shutil.get_terminal_size`` answers, so a width read
+    from the terminal anywhere on this path lands on the cap (120) instead of
+    the runner's own window. Without it the assertions below would pass or
+    fail depending on how wide the terminal running the suite happens to be.
+    """
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setattr(checks, "gather_pw_doctor",
+                        lambda: ([check], [], [],
+                                 {"wireplumber": None, "version": "0.0-test",
+                                  "sinks": []}))
+    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+
+    assert checks.report_pw_doctor() == 0
+    lines = capsys.readouterr().out.split("Summary:")[0].splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("  ["))
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines[start:]
+
+
+def test_pw_doctor_wraps_detail_to_the_console_width(tmp_path, monkeypatch,
+                                                     silence_console, capsys):
+    """Redirected output used to wrap wider here than anywhere else the tool
+    prints: this report sized its own prose off a 100-column fallback while
+    lib.console fell back to 80, so `--doctor > report.txt` came out at a
+    measure no other block used."""
+    from lib.doctor import CheckResult
+
+    monkeypatch.setattr(console, "_wrap_width", lambda: 72)
+    silence_console(console)
+
+    lines = _pw_check_block(CheckResult(DOCTOR_WARN, "Gate", "word " * 40),
+                            monkeypatch, tmp_path, capsys)
+    assert len([l for l in lines if l.startswith("         ")]) > 1, \
+        "the detail has to be long enough to wrap for this to test anything"
+    assert max(len(l) for l in lines) <= 72, \
+        "a detail line wider than the console width the rest of the run uses"
+
+
+def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,
+                                                 silence_console, capsys):
+    """The two reports must read as one tool, and a check that wraps at one
+    measure here and another there is the visible half of that. Same
+    CheckResult, same bytes."""
+    from lib.doctor import CheckResult
+    from lib.report import environment
+
+    check = CheckResult(DOCTOR_WARN, "Gate", "word " * 40,
+                        steps=(("dim", "Switch it on:"), ("", ""),
+                               ("cta", "systemctl --user restart pipewire")))
+    monkeypatch.setattr(console, "_wrap_width", lambda: 72)
+    silence_console(console)
+
+    environment.emit_check(check)
+    ee_lines = capsys.readouterr().out.splitlines()
+
+    assert _pw_check_block(check, monkeypatch, tmp_path, capsys) == ee_lines

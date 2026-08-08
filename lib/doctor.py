@@ -16,12 +16,11 @@ below.
 
 from __future__ import annotations
 
-import shutil
 import textwrap
 from dataclasses import dataclass
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
-           "CheckResult", "summarize", "default_width", "emit_check",
+           "CheckResult", "summarize", "emit_check",
            "print_summary",
            "print_verdict"]
 
@@ -56,15 +55,14 @@ def summarize(checks) -> tuple[int, int, int, int]:
     )
 
 
-def default_width() -> int:
-    """Terminal width for wrapped detail, bounded the way the generator bounds
-    its prose: below the floor a hanging indent eats the line, above the cap a
-    paragraph stretches into one unscannable line."""
-    return max(60, min(120, shutil.get_terminal_size(fallback=(100, 24)).columns))
-
-
-def emit_check(check: CheckResult, cprint, width: int | None = None) -> None:
+def emit_check(check: CheckResult, cprint, width: int) -> None:
     """Print one check: the status box, the label, wrapped detail, then steps.
+
+    ``width`` is required, and passed in for the same reason ``cprint`` is:
+    this module is stdlib-only (``tests/test_layout.py``'s ``STDLIB_ONLY``),
+    so it cannot reach ``lib.console`` to ask what measure the rest of the run
+    prints at. A default here could only be a second wrap policy — which is
+    what it was, and the two disagreed whenever output was redirected.
 
     The split is what makes a fix reachable from here at all. ``detail`` is
     prose and wraps; ``steps`` is printed exactly as given, because a command
@@ -74,8 +72,6 @@ def emit_check(check: CheckResult, cprint, width: int | None = None) -> None:
     checks used to send readers elsewhere for the fix only because this
     printer had nowhere to put one.
     """
-    if width is None:
-        width = default_width()
     cprint(_STYLE.get(check.status, "dim"),
            f"  [{check.status:^4}] {check.label}")
     for line in textwrap.wrap(check.detail, width=width - 9):

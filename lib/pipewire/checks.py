@@ -537,7 +537,7 @@ def report_pw_doctor() -> int:
     console.cprint("head", "=== PipeWire filter-chain doctor ===")
     print()
     for c in checks:
-        doctor.emit_check(c, console.cprint)
+        doctor.emit_check(c, console.cprint, console._wrap_width())
     print()
     doctor.print_summary(checks, console.cprint)
     print()
