@@ -33,19 +33,21 @@ python3 tools/measure_pw/validate_conf.py <some.conf>
 > `VALIDATE_CONF_SCRIPT` in `lib/pipewire/install.py`. It needs no audio, no
 > capture and no PipeWire daemon, and it sits in a `measure_*` directory for
 > historical reasons — a known layering violation, since a top-level
-> user-runnable script should depend only on `lib/`. The planned fix moves the
-> runtime core to `lib/pipewire/validate.py` and leaves the CLI here as a thin
-> wrapper that imports it.
+> user-runnable script should depend only on `lib/`. The runtime core has
+> moved to [`lib/pipewire/validate.py`](../../lib/pipewire/validate.py) and
+> what is left here is a thin CLI that imports it, but **the converter still
+> shells out to this path**, so the violation is narrower rather than gone.
 >
-> Whoever does that has four places to re-point, and **three fail silently**:
-> `VALIDATE_CONF_SCRIPT` (returns -1, which the caller treats as a soft
-> warning, so confs keep being written unchecked),
+> Whoever finishes the move has three places to re-point, and **all three fail
+> silently**: `VALIDATE_CONF_SCRIPT` (returns -1, which the caller treats as a
+> soft warning, so confs keep being written unchecked),
 > `tests/corpus/test_ee_to_pipewire_corpus.py` (its `is_file()` guard turns a
 > missing script into "don't check", and the XML passes green), and
-> `ee_to_pipewire.py`'s `--help` text, which names the path. Only
-> `tests/test_validate_conf.py` fails loudly, at collection.
-> `tests/test_layout.py::test_the_converter_can_find_its_validator` makes the
-> first one loud as well. Wider context: [`tools/README.md`](../README.md).
+> `ee_to_pipewire.py`'s `--help` text, which names the path.
+> `tests/test_layout.py::test_the_converter_can_find_its_validator` is the one
+> loud guard — `tests/test_validate_conf.py` used to fail at collection, but it
+> imports the library directly now. Wider context:
+> [`tools/README.md`](../README.md).
 
 It shells out to `lv2info` for every LV2 URI in the conf, parses
 each port's `Symbol`/`Min`/`Max`/`Default`/`Properties`, and
@@ -72,7 +74,7 @@ at runtime.
 | [`capture_battery.py`](capture_battery.py) | Plays the 5-stimulus battery into the chain and captures from `ee_capture.monitor` to `loopback_<stim>_<label>.{wav,json}`, schema-identical to `tools/measure_ee/capture_battery.py`. Re-uses `tools/measure_ee/smoke.py`'s `play_and_capture` primitive for timing parity. |
 | [`compare_ee_vs_pw.py`](compare_ee_vs_pw.py) | Frequency-domain magnitude diff: Farina deconvolution for sweeps, Welch-averaged spectrum for steady-state stimuli. Multitone-aware (only the actual tone bins are compared; inter-tone bins are noise vs noise). PASS when |dB diff| ≤ tolerance (default 0.5 dB) across 50 Hz–18 kHz on every stimulus. |
 | [`compare_ee_vs_pw_time_domain.py`](compare_ee_vs_pw_time_domain.py) | Sample-aligned subtraction: integer-sample lag from cross-correlation, fractional refinement via FFT phase rotation, residual = ee − pw_aligned. Reports signal-to-residual ratio (S/R) in dB. PASS when S/R ≥ 30 dB on every stimulus. |
-| [`validate_conf.py`](validate_conf.py) | The deterministic schema check described above. No PipeWire daemon needed; sub-second. Not a measurement tool — `ee_to_pipewire.py` shells out to it on every run; see the note above before moving it. |
+| [`validate_conf.py`](validate_conf.py) | The CLI front end for the deterministic schema check described above — argument parsing and exit codes over `lib/pipewire/validate.py`, which holds the parsing and validation itself. No PipeWire daemon needed; sub-second. Not a measurement tool — `ee_to_pipewire.py` shells out to it on every run; see the note above before moving it. |
 | [`autogain_proof.py`](autogain_proof.py) | Leveler-only EE-vs-PW comparison: strips every other stage from `plugins_order` so no convolver/MBC/limiter confounds the reading, plays a loud→quiet→loud→silence pink stimulus through both sides, and compares short-term-LUFS trajectories (target, ride depth, 90% rise/fall time). This is what established that the PW `autogain_stereo` translation tracks EE's leveler. |
 | [`autogain_fullchain.py`](autogain_fullchain.py) | The same comparison over the *full* HDA chain with autogain forced active — a long quiet segment lets the leveler wind gain up, then a hard loud onset arrives while it is still high. Answers whether PW reproduces or worsens EE's overshoot into the brickwall. Reuses the signal helpers from `autogain_proof.py`. |
 

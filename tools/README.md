@@ -9,8 +9,10 @@ you need.
 
 One exception to "nothing here is part of the conversion", and it matters:
 [`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) is a **runtime
-dependency of `ee_to_pipewire.py`**, and a known layering violation with a fix
-planned. See "Three files that look misplaced" below before touching it.
+dependency of `ee_to_pipewire.py`**, and a known layering violation. Its
+runtime core has since moved to `lib/pipewire/validate.py`, but the converter
+still shells out to the CLI left here, so the violation is narrower rather
+than gone. See "Three files that look misplaced" below before touching it.
 
 **The capture and comparison scripts touch your audio devices.** They mute
 speakers, reroute sinks and swap presets, so they run behind the audio handoff
@@ -49,7 +51,7 @@ only which question the directory answers.
 
 "This is obviously in the wrong place" is the first thought every reader has
 about each of these. For two of them it is wrong, and the reason is worth
-writing down; for the third it is right, and a fix is planned.
+writing down; for the third it is right, and the fix is half-landed.
 
 **[`_wavio.py`](_wavio.py) — a library at the root of a directory of CLIs.**
 It has no CLI, no test and, until this file, no documentation. It sits here
@@ -76,24 +78,29 @@ no capture. It is in `measure_pw/` for historical reasons — next to the audio
 battery that is the *other* half of proving a conf correct — and that is the
 status quo, not a decision.
 
-It is the one place in the tree where a top-level user-runnable script depends
-on something outside `lib/`, and the plan is to fix it: the runtime core moves
-to `lib/pipewire/validate.py`, with the CLI staying here as a thin wrapper
-that imports it. Until that lands, treat this file as converter code that
-happens to live under `tools/`.
+The runtime core has since moved to
+[`lib/pipewire/validate.py`](../lib/pipewire/validate.py); what stayed here is
+the CLI — argument parsing, the stdin form, the 0/1/2 exit codes and the prose
+`--help` prints. **The converter still shells out to this path**, so this is
+still the one place in the tree where a top-level user-runnable script depends
+on something outside `lib/`; the violation is narrower, not gone. Until
+`install.py` calls the library in-process, treat this file as converter code
+that happens to live under `tools/`.
 
-Whoever does that move has four places to re-point, and three of them fail
-silently:
+Whoever finishes that move has three places to re-point, and every one of them
+fails silently:
 
 | site | what happens if it is missed |
 |---|---|
 | `lib/pipewire/install.py` (`VALIDATE_CONF_SCRIPT`) | **Silent.** Returns -1, which the caller treats as a soft warning; the converter keeps writing confs, having stopped checking them |
 | `tests/corpus/test_ee_to_pipewire_corpus.py` | **Silent.** Its `is_file()` guard makes a missing script mean "don't check", and the XML passes green |
 | `ee_to_pipewire.py`'s `--help` text | **Silent.** It names the path; it would simply be wrong |
-| `tests/test_validate_conf.py` | Loud — `spec_from_file_location` fails at collection |
 
 `tests/test_layout.py::test_the_converter_can_find_its_validator` turns the
-first of those into a collection-time failure.
+first of those into a collection-time failure — which now matters more, since
+it is the only loud guard left. `tests/test_validate_conf.py` used to be the
+fourth site and the one that failed at collection; it imports
+`lib.pipewire.validate` directly now and no longer holds the path at all.
 
 ## Why this directory is flat
 

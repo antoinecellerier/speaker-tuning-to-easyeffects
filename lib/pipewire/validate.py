@@ -1,47 +1,35 @@
-#!/usr/bin/env python3
-"""Deterministic schema validation for ee_to_pipewire.py output.
+"""Deterministic schema validation for a generated PipeWire filter-chain conf.
 
-Shells out to `lv2info` for every LV2 URI referenced in a generated
-PipeWire `filter-chain` `.conf`, parses the per-port (Symbol, Minimum,
-Maximum, Default, Properties) metadata, and checks the conf's `control
-= { ... }` block against it. Catches:
+Shells out to `lv2info` for every LV2 URI referenced in a conf, parses the
+per-port (Symbol, Minimum, Maximum, Default, Properties) metadata, and checks
+the conf's `control = { ... }` block against it. Catches:
 
   - unknown ports (typo in symbol name, schema drift)
   - out-of-range values
-  - inverted-bool traps on toggled ports (e.g. xm = MUTE not enable —
-    if a non-Off filter type pairs with xm=1, the band is silently
-    muted; flagged as an error)
+  - inverted-bool traps on toggled ports (e.g. xm = MUTE not enable — if a
+    non-Off filter type pairs with xm=1, the band is silently muted; flagged
+    as an error)
 
-Audio testing is still the final gate. This is the cheap up-front
-check that catches schema-level mistakes before you spend ten minutes
-on a capture battery.
+Audio testing is still the final gate. This is the cheap up-front check that
+catches schema-level mistakes before anyone spends ten minutes on a capture
+battery, and `ee_to_pipewire.py` runs it on every conf it generates.
 
-Usage:
+This module is the runtime core only: parsing and validation, no argument
+parsing, no exit codes, no stdout. It raises `RuntimeError` when a tool it
+needs fails, and never calls `sys.exit`. The command-line front end lives in
+`tools/measure_pw/validate_conf.py`, which owns the CLI prose and the 0/1/2
+exit-code contract.
 
-  python3 tools/measure_pw/validate_conf.py path/to/file.conf
-  ... | python3 tools/measure_pw/validate_conf.py -    # conf on stdin
-
-ee_to_pipewire.py runs the stdin form itself on every conf it
-generates (unless --no-validate), so reach for this by hand only to
-re-check a conf already on disk.
-
-Exit 0 = clean. Exit 1 = at least one error. Exit 2 = setup error.
-
-Dependencies:
-  - `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`)
-  - `spa-json-dump` (ships with PipeWire ≥ 0.3.x)
-
-Both are tiny, sub-millisecond CLIs. No PipeWire daemon required.
+Needs `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`) and
+`spa-json-dump` (ships with PipeWire) on PATH. Both are tiny, sub-millisecond
+CLIs, and no PipeWire daemon is required.
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -276,63 +264,3 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
             errors.extend(_check_peq_mute(node))
 
     return errors, warnings
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("conf", type=Path,
-                    help="filter-chain .conf file (or - / /dev/stdin)")
-    ap.add_argument("-q", "--quiet", action="store_true",
-                    help="only print errors")
-    args = ap.parse_args()
-
-    if str(args.conf) in ("-", "/dev/stdin"):
-        text = sys.stdin.read()
-    else:
-        text = args.conf.read_text()
-
-    if not subprocess.run(["which", "lv2info"], capture_output=True).returncode == 0:
-        print("error: lv2info not in PATH (install lilv-utils / lv2info)",
-              file=sys.stderr)
-        return 2
-
-    nodes = parse_conf(text)
-    if not nodes:
-        print("error: no filter nodes found in conf", file=sys.stderr)
-        return 2
-
-    # Build schema cache
-    uris = {n["plugin"] for n in nodes
-            if n["type"] == "lv2" and n.get("plugin")}
-    schemas: dict[str, dict[str, Port]] = {}
-    for uri in uris:
-        try:
-            schemas[uri] = lv2info_schema(uri)
-        except RuntimeError as e:
-            print(f"warning: {e}", file=sys.stderr)
-
-    if not args.quiet:
-        print(f"parsed {len(nodes)} nodes:", file=sys.stderr)
-        for n in nodes:
-            ident = (n["plugin"].rsplit("/", 1)[-1] if n["type"] == "lv2"
-                     else "builtin")
-            print(f"  - {n['name']} [{n['type']}/{ident}] "
-                  f"({len(n['control'])} controls)", file=sys.stderr)
-
-    errors, warnings = validate(nodes, schemas)
-    for w in warnings:
-        print(f"WARN: {w}", file=sys.stderr)
-    for e in errors:
-        print(f"FAIL: {e}", file=sys.stderr)
-
-    if errors:
-        print(f"{len(errors)} error(s)", file=sys.stderr)
-        return 1
-    if not args.quiet:
-        suffix = " (with warnings)" if warnings else ""
-        print(f"PASS{suffix}", file=sys.stderr)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

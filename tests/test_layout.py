@@ -739,11 +739,13 @@ def test_the_converter_can_find_its_validator():
     `lib/pipewire/install.py` assembles `VALIDATE_CONF_SCRIPT` from path
     components (`REPO_ROOT / "tools" / "measure_pw" / …`), so the string
     `tools/measure_pw/validate_conf.py` appears nowhere in that file and the
-    sweep above is blind to it. Three files hold the path in code, and this is
-    the only one the sweep cannot reach: `tests/test_validate_conf.py` loads
-    it by `spec_from_file_location` and would fail loudly at collection, and
+    sweep above is blind to it. Two files hold the path in code, and this is
+    the only one the sweep cannot reach:
     `tests/corpus/test_ee_to_pipewire_corpus.py` assembles it the same way but
     writes it out in its module docstring, which the sweep does see.
+    (`tests/test_validate_conf.py` was a third, loading it by
+    `spec_from_file_location` and failing loudly at collection; it imports
+    `lib.pipewire.validate` directly now, so it notices nothing.)
 
     It is also the one worth checking most, because it is the only one that
     runs on a user's machine. `_validate_conf` returns -1 when the file is
@@ -760,10 +762,12 @@ def test_the_converter_can_find_its_validator():
     So moving this file is not a `tools/` reorganisation, it is a change to
     the converter — which is also why it is scheduled to move. A top-level
     user-runnable script may depend only on `lib/`, and this is the one place
-    in the tree where that does not hold; the plan is for the runtime core to
-    become `lib/pipewire/validate.py`, with a thin CLI wrapper left behind in
-    `tools/measure_pw/`. This assert is not a claim that the path is
-    permanent. It is the guard for exactly that move: whatever
+    in the tree where that does not hold. The runtime core is already
+    `lib/pipewire/validate.py` and what remains here is a thin CLI wrapper,
+    but `install.py` still reaches it by shelling out to this path, so the
+    dependency stands until that call goes in-process. This assert is not a
+    claim that the path is permanent. It is the guard for exactly that move:
+    whatever
     `VALIDATE_CONF_SCRIPT` ends up pointing at has to be a file that exists,
     and if the move re-points some of the sites above and not this one, the
     suite says so at collection instead of a user's conf silently going
