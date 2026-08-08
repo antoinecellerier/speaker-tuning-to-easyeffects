@@ -30,7 +30,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, ee_paths, version
+from lib import console, ee_paths
 from lib.hardware import sinks
 from lib.pipewire import checks, install
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -184,17 +184,7 @@ def add_general_args(container, *, only=None):
              "pointer replaces it; dolby_to_pipewire.py passes this "
              "automatically and prints its own steps instead",
     )
-    add(
-        "--no-color",
-        action="store_true",
-        help="disable colored terminal output",
-    )
-    add(
-        "--version",
-        action="version",
-        version=f"%(prog)s {version.get_version()}",
-        help="show version and exit",
-    )
+    console.add_color_and_version_args(add)
     return added
 
 

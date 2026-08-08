@@ -24,7 +24,7 @@ from pathlib import Path
 # --help, a tab completion and an argparse error cost nothing here either.
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib import console, version
+from lib import console
 from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
@@ -130,17 +130,9 @@ def _compose_parser(argv=None):
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
-    group.add_argument(
-        "--no-color",
-        action="store_true",
-        help="disable colored terminal output",
-    )
-    group.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {version.get_version()}",
-        help="show version and exit",
-    )
+    # Straight onto the group, not through a recorder: these two are the
+    # wrapper's own, and rebuild_argv must never see them.
+    console.add_color_and_version_args(group.add_argument)
     return parser, step1_actions, step2_actions
 
 

@@ -27,13 +27,18 @@ generator's was said to drag numpy/scipy into the converter's startup. Moving
 the generator's DSP imports into its ``main()`` made that false, so the double
 bought nothing and the copies collapse here — where neither root script has to
 import the other to reach it, and where, being closures over the parser it is
-handed, it imports nothing itself.
+handed, it imports nothing itself. ``add_color_and_version_args`` is the third
+of that cluster and the only one about this module's own subject: ``--no-color``
+is the switch every helper above obeys, and it was declared three times, once
+per entry point, beside a ``--version`` that had drifted along with it.
 """
 
 import argparse
 import shutil
 import sys
 import textwrap
+
+from lib import version
 
 
 # Prose wraps to the terminal, within bounds. Below the floor, a hanging
@@ -110,6 +115,32 @@ def _make_adder(container, only):
             added.append(container.add_argument(*names, **kwargs))
 
     return add, added
+
+
+def add_color_and_version_args(add) -> None:
+    """Add the two flags every entry point closes its "general" group with.
+
+    ``add`` is an ``add_argument``-shaped callable — either a ``_make_adder``
+    adder or a group's own ``add_argument``. Which one the caller passes is
+    the load-bearing choice: dolby_to_pipewire.py rebuilds a child argv from
+    the actions an adder records, and neither of these flags may land there.
+    ``--version`` is not forwardable at all, and ``--no-color`` the wrapper
+    propagates itself, appending it to each step's common argv — so the
+    wrapper passes ``group.add_argument`` and records nothing, while the two
+    converters pass their adder and keep the ``only`` filtering that lets the
+    wrapper drop these from the groups it borrows.
+    """
+    add(
+        "--no-color",
+        action="store_true",
+        help="disable colored terminal output",
+    )
+    add(
+        "--version",
+        action="version",
+        version=f"%(prog)s {version.get_version()}",
+        help="show version and exit",
+    )
 
 
 def cprint(style: str, text: str = "") -> None:

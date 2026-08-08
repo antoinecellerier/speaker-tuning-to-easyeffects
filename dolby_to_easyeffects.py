@@ -30,7 +30,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
 
-from lib import console, ee_paths, version
+from lib import console, ee_paths
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: main() binds a local named `sinks` for the resolver's result, which
@@ -287,8 +287,10 @@ def add_filter_tweak_args(container, *, only=None):
 
 
 def add_general_args(container, *, only=None):
-    """General flags — dolby_to_pipewire.py authors its own equivalents
-    (and forwards --verbose to the generator it runs)."""
+    """General flags — dolby_to_pipewire.py takes only --verbose from here
+    (which it forwards to the generator it runs), authors its own --dry-run,
+    and adds the shared --no-color/--version itself so neither is recorded
+    as forwardable."""
     add, added = console._make_adder(container, only)
     add(
         "--verbose", "-v",
@@ -317,17 +319,7 @@ def add_general_args(container, *, only=None):
              "use it, and the report-back block) — for wrappers that install "
              "elsewhere and present their own",
     )
-    add(
-        "--no-color",
-        action="store_true",
-        help="disable colored terminal output",
-    )
-    add(
-        "--version",
-        action="version",
-        version=f"%(prog)s {version.get_version()}",
-        help="show version and exit",
-    )
+    console.add_color_and_version_args(add)
     return added
 
 
