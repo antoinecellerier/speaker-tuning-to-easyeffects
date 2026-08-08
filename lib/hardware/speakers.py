@@ -14,18 +14,6 @@ It mirrors ``snd_hda_pick_fixup`` closely enough to only claim a match the
 kernel could itself make, against the table in
 ``lib/data/speaker_pin_quirks.py``.
 
-One name is imported *bare* from a sibling, against the "import the module,
-not the name" rule (``docs/design-notes.md``, "The monkeypatch hazard"):
-``_AMP_DRIVER_TOKENS``, which ``_detect_soundwire_speakers`` reads to tell an
-amplifier from any other slave on the bus. That is not a preference — this
-code arrived as a pure move, and qualifying that one call site would have
-rewritten a line ``git blame -C`` needs unchanged. The hazard the rule exists
-for cannot reach it: the name is a tuple built once at import from a literal
-table, no test patches it, and patching ``amps._AMP_FAMILIES`` after import
-would not change ``amps._AMP_LOG_ERROR_RE`` either — so there is no patch a
-module import would have preserved. Rewrite it as a module import the next
-time that body changes for another reason.
-
 Standard library plus ``lib.data.speaker_pin_quirks``, ``lib.hardware.amps``
 and ``lib.hardware.codecs``, all stdlib-only themselves, so this module is too.
 """
@@ -40,8 +28,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lib.data import speaker_pin_quirks
+from lib.hardware import amps
 from lib.hardware import codecs  # single source of the SoundWire bus entry point
-from lib.hardware.amps import _AMP_DRIVER_TOKENS
 
 
 @dataclass
@@ -237,7 +225,7 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
     if not codecs.SDW_BUS.is_dir():
         return
 
-    amp_patterns = _AMP_DRIVER_TOKENS  # single source of amp-family identity
+    amp_patterns = amps._AMP_DRIVER_TOKENS  # single source of amp-family identity
 
     for dev_dir in sorted(codecs.SDW_BUS.iterdir()):
         if not codecs.SDW_SLAVE_RE.match(dev_dir.name):
