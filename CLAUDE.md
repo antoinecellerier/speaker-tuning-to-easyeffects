@@ -105,7 +105,7 @@ sessions shipped bugs that only showed on real content.
   grouped by meaning, not piled at module top (module-wide values excepted).
 - **Repo root = command surface** — only the three entry-point scripts, every
   other module in `lib/`; `tests/test_layout.py` enforces it. Extraction
-  recipe: `docs/design-notes.md` "Splitting the single-file scripts".
+  recipe: `docs/code-organisation.md` "Splitting the single-file scripts".
 - **End-of-run messages** follow a copy contract — detail inline, one short
   sentence in the closing block, one link: `.claude/rules/user-messages.md`.
 

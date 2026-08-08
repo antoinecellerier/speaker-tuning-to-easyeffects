@@ -4,7 +4,7 @@
 script.
 
 The split of ``dolby_to_easyeffects.py`` and ``ee_to_pipewire.py`` into
-``lib/`` ran across 17 move commits, under one rule (``docs/design-notes.md``,
+``lib/`` ran across 17 move commits, under one rule (``docs/code-organisation.md``,
 "Splitting the single-file scripts"): **a move commit moves only.** No
 reformatting, no renamed functions, no behaviour change riding along. That is
 not tidiness — the root scripts stay put, so code leaving them is an

@@ -14,7 +14,7 @@ behind that constant would be paid by everything downstream of it.
 
 Two names are imported *bare* from `lib.report.findings`, against the
 "import the module, not the name" rule the rest of `lib/` keeps
-(`docs/design-notes.md`, "The monkeypatch hazard"). That is not a preference:
+(`docs/code-organisation.md`, "The monkeypatch hazard"). That is not a preference:
 this code arrived as a pure move, and qualifying the call sites it already
 had — `_print_finding_detail(finding)` at the end of `parse_xml`,
 `Finding(...)` inside `collect_unmodeled_features` — would have rewritten

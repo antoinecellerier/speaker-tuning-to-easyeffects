@@ -485,6 +485,7 @@ In-tree docs and tooling with more context:
 
 - [docs/reference.md](docs/reference.md) — current-state reference: XML→parameter mappings, the plugin chain, units, profile differences, and what's not implemented
 - [docs/design-notes.md](docs/design-notes.md) — research log: why the plugin chain is ordered the way it is, gain-staging rationale, why autogain is bypassed by default, and an empirical comparison of our generated FIR against DAX3's actual response on Windows
+- [docs/code-organisation.md](docs/code-organisation.md) — how the two entry points were split into `lib/`: the module shape it landed in, and the git discipline that keeps `git blame -C` tracing code back through an extraction
 - [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical analysis of ~2,500 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic, and SoundWire smart-amp codecs, including which DSP blocks are unmodeled
 - [docs/alternative-pipelines.md](docs/alternative-pipelines.md) — design sketches for offloading parts of the pipeline to Intel SOF DSP or running under PipeWire filter-chain instead of EasyEffects
 - [docs/ee-to-pipewire.md](docs/ee-to-pipewire.md) — current architecture of the `ee_to_pipewire.py` companion converter: smart-filter routing, self-contained conf layout, plugin coverage, and equivalence guarantees

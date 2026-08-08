@@ -15,7 +15,7 @@ commas. Reading it back is the opposite — ``spa-json-dump`` does that, in
 ``Stage``, ``ChainResult`` and ``EE_KEY_DISPATCH`` are imported under their
 bare names rather than through their module: ``build_chain``, ``emit_links``
 and ``format_conf`` arrived here as a move and a move commit may not re-point
-a line inside a body it carries (`docs/design-notes.md`, "Splitting the
+a line inside a body it carries (`docs/code-organisation.md`, "Splitting the
 single-file scripts"). Nothing patches them — two dataclasses and a table
 built at import time — so the stale-binding hazard the house rule guards
 against does not apply.

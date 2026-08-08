@@ -24,7 +24,7 @@ daemon.)
 |---|---|---|
 | [`_wavio.py`](_wavio.py) | Every WAV read in the measurement tree. `pw-record` writes a `PEAK` chunk that `scipy.io.wavfile` doesn't recognise and warns about on each read; this strips it | Nobody directly — it has no CLI. Nine scripts across `measure_dax/`, `measure_ee/` and `measure_pw/` `sys.path`-insert this directory and `from _wavio import read`. See below for why it lives here |
 | [`changelog_section.py`](changelog_section.py) | The GitHub Release notes — slices `CHANGELOG.md` down to one version's section | `.github/workflows/release.yml`, on a pushed `vYYYY.MM` tag. Exits non-zero on a missing section, so the job fails loudly instead of publishing empty notes. Guarded by `tests/test_changelog_section.py` |
-| [`check_move_purity.py`](check_move_purity.py) | `git blame -C -C` history across an extraction: it proves a commit is *pure code motion* — every line it adds under `lib/` was already there, byte-for-byte, in a line it removed | You, by hand, against one commit, before pushing an extraction. Wired to nothing; the rule it enforces is in `docs/design-notes.md`, "Splitting the single-file scripts" |
+| [`check_move_purity.py`](check_move_purity.py) | `git blame -C -C` history across an extraction: it proves a commit is *pure code motion* — every line it adds under `lib/` was already there, byte-for-byte, in a line it removed | You, by hand, against one commit, before pushing an extraction. Wired to nothing; the rule it enforces is in `docs/code-organisation.md`, "Splitting the single-file scripts" |
 | [`corpus_audit.py`](corpus_audit.py) | Every cross-device figure in `docs/cross-device-findings.md` and `docs/design-notes.md`. Those numbers are meant to be re-derived from this, never carried forward | You, after pulling new driver packages; and the **/copy-audit** skill, which captures its output as the evidence reviewers check numbers against. Also imported as a library — see below. Guarded by `tests/test_corpus_audit.py` |
 | [`extract_claims.py`](extract_claims.py) | The inventory of user-visible strings the **/copy-audit** skill reviews, each tagged with whether a given git range changed it | That skill, at the start of an audit. Guarded by `tests/test_extract_claims.py`, which exists because this tool has twice failed by *shrinking* rather than erroring |
 | [`preview_output.py`](preview_output.py) | The end-of-run copy. For each finding a run can raise it locates a corpus XML that actually raises it and prints a real run's tail — every run `--dry-run`, nothing written | You, after changing any message a user reads; and the **/user-review** and **/copy-audit** skills. `--list` says which XML matches what |
@@ -106,7 +106,7 @@ expensive to rediscover:
   `paths:` frontmatter, `.claude/skills/`, the workflows, `docs/`, `lib/`
   docstrings, the suite, and the tools' own usage strings. Moving one file is
   a repo-wide edit whose misses are silent — which is exactly the failure
-  `docs/design-notes.md` records under "A tool keyed on a fixed path list goes
+  `docs/code-organisation.md` records under "A tool keyed on a fixed path list goes
   quiet when code moves". `tests/test_layout.py` now sweeps every one of those
   references and fails on any that stops resolving, so the cost is *findable*;
   it is still a cost.

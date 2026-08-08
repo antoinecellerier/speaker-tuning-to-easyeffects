@@ -7,7 +7,7 @@ filenames. `d6eed66` hoisted `PIPEWIRE_RESTART_CMD` into `lib/pipewire/conf.py`
 and the lines that spell it in became `{PIPEWIRE_RESTART_CMD}` — a stub with no
 sentence in it, which the copy filter then dropped. Both times the tool exited
 0, printed a plausible row count, and the next audit reviewed less than it
-believed it was reviewing. `docs/design-notes.md`, "A tool keyed on a fixed path
+believed it was reviewing. `docs/code-organisation.md`, "A tool keyed on a fixed path
 list goes quiet when code moves", is the write-up.
 
 So the guards here are in two halves. The first builds the real inventory with

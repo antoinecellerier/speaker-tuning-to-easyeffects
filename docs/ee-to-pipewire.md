@@ -26,7 +26,7 @@ layers each importing only the one below — `plugins.py` (one EE plugin block
 the conf and `.irs` go, the smart-filter target sink, the `lv2info`
 self-check, the closing messages) and `checks.py` (`--doctor`, and the
 stacked-chain warning that shares its machinery). The split rules are in
-[design-notes.md](design-notes.md) "Splitting the single-file scripts".
+[code-organisation.md](code-organisation.md) "Splitting the single-file scripts".
 
 ## One-command wrapper (`dolby_to_pipewire.py`)
 

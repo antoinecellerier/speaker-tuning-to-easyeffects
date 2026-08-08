@@ -36,7 +36,7 @@ only the root script's own copy — see
 CLAUDE.md, the rules, the skills, the workflows, the docs, `lib/`, the suite
 and the tools themselves — none of which any import graph reaches, so a moved
 or renamed tool leaves every one of those hits pointing at nothing and no test
-notices. `docs/design-notes.md` ("A tool keyed on a fixed path list goes quiet
+notices. `docs/code-organisation.md` ("A tool keyed on a fixed path list goes quiet
 when code moves") is the recorded cost: `16c4723` moved `doctor.py` into
 `lib/`, and because `tools/extract_claims.py` harvested from a hardcoded table
 of filenames, that module's three verdict lines dropped out of the copy-audit

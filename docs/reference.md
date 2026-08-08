@@ -51,7 +51,7 @@ subprocess and fails if numpy or scipy turned up in `sys.modules`, however deep
 the import chain that pulled them in — so the check keeps holding as `lib/`
 fills up, with no list to remember to extend. The split that filled `lib/` is
 done — the shape it landed in, and the rules that kept `git blame` working
-through it, are in [design-notes.md](design-notes.md) "Splitting the
+through it, are in [code-organisation.md](code-organisation.md) "Splitting the
 single-file scripts".
 
 ## Units & conventions
