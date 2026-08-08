@@ -3425,6 +3425,22 @@ narrow what the generator can match. The fourth is across the boundary:
 `autoprobe_dolby_source`'s mount-then-CWD walk, which its own docstring already
 admits.
 
+> **Two of the four are closed, and the first was undercounted here.** The
+> wrapper scan is now one `_INF_WRAPPER_GLOB` constant plus an
+> `_is_inf_wrapper(name)` predicate for the one site that has a name rather
+> than a parent to glob (`8072bed`), and the byte order is `_pci_subsys_token()`
+> (`3704e79`), both in `discover.py`. Collapsing the first found **five**
+> spellings, not the two named above: `_resolve_driver_store`,
+> `_candidate_has_matching_xml`, `find_tuning_xml` and `autoprobe_dolby_source`
+> each globbed the pattern, and `autoprobe_dolby_source` also tested it a
+> second time as `cand.name.startswith("dax3_ext_") and ".inf_" in cand.name`
+> — decomposed, so a grep for the glob string does not find it. That is the
+> generalisable part: a noticed-and-left note records the copies the reader
+> happened to see, and the count is a lower bound rather than an inventory.
+> The other two stand. The DAX3-eligible-file predicate is still spelled four
+> times, deliberately and for the reason given; `_discover_corpus` still
+> re-implements the mount-then-CWD walk.
+
 ### The speaker report, and where a `lib/` caller may be re-pointed
 
 649 lines — `warn_speaker_firmware_gate` through `report_speaker_info`, plus
@@ -3657,6 +3673,22 @@ isn't one:
   aliases `hardware_sinks`, `report_findings` and `report_speaker` to avoid,
   and it moved verbatim because a move commit may not rename what it carries.
 
+> **Closed in part — the last sentence of the first bullet only.**
+> `report_doctor`'s `custom_dirs` predicate and `warn_ee_environment`'s
+> default-dirs guard, the "third copy in opposite polarity", are now one
+> `_uses_custom_ee_dirs(args)` (`5ba87bb`), which is what makes every check
+> keyed on it agree about what "custom" means. The two really were De Morgan
+> duals — the commit body writes the four-row truth table out rather than
+> asserting it, because an inverted hand-written copy is the failure this
+> shape has — and the extra `ee_is_flatpak` conjuncts stayed at the warning's
+> call site, since only the dir comparison is the shared concept. Nothing else
+> here moved: `_gather_doctor_report` and `warn_ee_environment` still open on
+> the same four probe-and-unpack lines and still ask the install-location
+> question twice, once through `environment.install_status` and once as the
+> bare comparison. The second bullet stands verbatim — both still bind a local
+> `version` over the module of that name, `_print_doctor_report` still has no
+> such local, so the shadow is still harmless and still the hazard described.
+
 Unrelated to the move but found while checking what it orphaned: the generator
 still imports `configparser`, `contextlib`, `math`, `Callable`, `field`,
 `kernel_releases` and `bands` with no reader for any of them, most of them
@@ -3704,6 +3736,18 @@ Two duplications were **noticed and left**. `print_what_now` tests
 table instead — the first is in the same module — but collapsing either inside
 a move commit is a behaviour change under a subject line promising there isn't
 one.
+
+> **The wrapper's copy is closed; `print_what_now`'s is not.** `VARIANT_STEMS`
+> is `{label.lower(): label for label in messages.VOICING_CURVES}` (`caaf174`)
+> — the wrapper already imported the module, so it cost no startup, and the
+> derived dict matches the literal key for key and in order, so `--help`
+> renders byte-identically. What forced that check is now recorded on both
+> sides and is the reusable part: the table's insertion order *is* build order,
+> and a reader that renders the list — `--variant`'s `choices`, and `--help`
+> behind it — silently inherits an ordering guarantee the table only stated in
+> a comment. `print_what_now`'s `n.endswith("-Detailed")` and
+> `n.endswith("-Warm")` are still string literals, in the same module as the
+> table they could be reading.
 
 ### The per-profile report, and the first module `_load_dsp` binds
 
@@ -3951,6 +3995,26 @@ imports; the other seven are stdlib and still arrive transitively.
 > The wrapper still pays for the DSP on a real conversion — it runs both steps
 > in-process — just no earlier than the generator itself does.
 
+> **A second copy the same reasoning held up — and the two cases are not the
+> same case.** `ee_to_pipewire.py` kept its own `_make_adder` rather than
+> import the generator's, its docstring citing the identical NumPy/SciPy cost.
+> That one was *true* as written, and the difference is the whole lesson: the
+> wrapper already had `import dolby_to_easyeffects` two lines up, so the
+> `from`-import above bought the numpy nothing, whereas the converter imports
+> the generator nowhere at all, so the same import really would have been a new
+> edge dragging the DSP stack onto a startup contract there is a test for. Two
+> justifications reading alike, one false on inspection and one only falsified
+> later — by `ec3b1e1`, after which the bodies were identical and the double
+> bought nothing. `03bc3e5` collapsed it into `lib/console.py` rather than by
+> importing the generator, so the converter still reaches nothing of the
+> generator's; `8dcab03` and `fc9cae8` sent the `--no-color` / `--version` pair
+> and the help-formatter/epilog pick the same way. None of the three belongs in
+> the list of moves above — they are later commits of their own, not part of
+> this slice — and none reinstates a cross-script import, so "the last import
+> crossing between two root scripts" still reads true: the wrapper's
+> `import dolby_to_easyeffects` and `import ee_to_pipewire`, named above as the
+> ones it cannot drop, are the only edges between root scripts.
+
 **One disclosed impurity, in the smallest move of the five.**
 `_safe_node_name`'s body read `conf._sanitize_name(...)` and
 `conf.DEFAULT_NODE_NAME`, and inside `conf.py` those prefixes cannot stand, so
@@ -3986,6 +4050,17 @@ commit here. The second is smaller: `_print_manual_activation` and
 `_print_next_steps` now spell the same "nothing usually means the LSP or Calf
 LV2 plugins are missing" sentence in one file, deliberately differing only in
 the tail about what happens once the line appears.
+
+> **Both are closed.** `PIPEWIRE_RESTART_CMD` moved down to
+> `lib/pipewire/conf.py` and the three spellings now read it (`d6eed66`).
+> `conf.py` is the only module all three printers already share, so the
+> collapse added no import edge — the reason it went down a level rather than
+> staying where it was defined. The "do not phrase it identically" objection
+> held for the prose *around* the command and not for the command itself, which
+> is byte-identical at all four sites; rendered output does not move. The grep
+> sentence is `_grep_expectation(tail)` (`7fcef93`), with the one clause the two
+> paths differ in as that parameter, so they can no longer tell a user different
+> things about the same grep.
 
 ### What it does to the test suite
 
