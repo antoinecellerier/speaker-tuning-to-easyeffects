@@ -97,6 +97,23 @@ def test_parse_lv2info_records_a_bound_it_cannot_read():
     assert inf_min["g_in"].unparsed == ()
 
 
+def test_parse_lv2info_does_not_record_an_unreadable_default():
+    """`unparsed` drives a warning that says values "were not range-checked",
+    and nothing range-checks against Default — `Port.default` is parsed and
+    never read. Recording it would report a port whose Minimum and Maximum both
+    read fine as unchecked, which is false in the direction that matters: it
+    sends someone auditing a conf after a real range failure to a port that was
+    checked in full.
+    """
+    block = _LV2INFO_BLOCK.format(minimum="0.0").replace(
+        "\t\tDefault:     1.000000", "\t\tDefault:     nan")
+    port = validate._parse_lv2info(block)["g_in"]
+    assert port.unparsed == ()
+    assert port.default is None
+    # The bounds either side are readable, so nothing was forgone.
+    assert (port.minimum, port.maximum) == (0.0, 10.0)
+
+
 def test_validate_warns_once_per_node_about_unreadable_bounds():
     """The warning names the plugin, the port and the field, and is raised at
     the point a check is forgone — so a port the conf never writes is not
@@ -116,6 +133,27 @@ def test_validate_warns_once_per_node_about_unreadable_bounds():
     assert "g_in Minimum" in warnings[0]
     # g_out is just as unreadable, but nothing was going to check it.
     assert "g_out" not in warnings[0]
+
+
+def test_validate_counts_bounds_not_ports():
+    """The count is worded "port bounds", so it has to be bounds. One port with
+    both of them unreadable has had two checks forgone, and calling that "1
+    port bound" understates by exactly the amount that matters — the reader is
+    deciding how much of this conf went unverified.
+    """
+    both = _LV2INFO_BLOCK.format(minimum="0,000000").replace(
+        "\t\tMaximum:     10.000000", "\t\tMaximum:     10,000000")
+    schema = validate._parse_lv2info(both)
+    assert schema["g_in"].unparsed == ("Minimum", "Maximum")
+
+    node = {"type": "lv2", "name": "peq", "plugin": LSP_PEQ_URI,
+            "control": {"g_in": 1.0}}
+    errors, warnings = validate.validate([node], {LSP_PEQ_URI: schema})
+
+    assert errors == []
+    assert len(warnings) == 1
+    assert "reported 2 port bounds" in warnings[0]
+    assert "g_in Minimum" in warnings[0] and "g_in Maximum" in warnings[0]
 
 
 def _one_peq_conf(monkeypatch):

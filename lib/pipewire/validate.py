@@ -53,10 +53,10 @@ class Port:
     maximum: float | None
     default: float | None
     toggled: bool
-    # Which of Minimum/Maximum/Default `lv2info` printed as something other
-    # than a float, so the bound is `None` for a reason worth reporting. A
-    # bound `lv2info` simply omits is *not* recorded — nothing was skipped
-    # there, the port just has no such limit.
+    # Which of Minimum/Maximum `lv2info` printed as something other than a
+    # float, so the bound is `None` for a reason worth reporting. A bound
+    # `lv2info` simply omits is *not* recorded — nothing was skipped there, the
+    # port just has no such limit. Nor is `Default`, which no check reads.
     unparsed: tuple[str, ...] = ()
 
 
@@ -109,14 +109,24 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
         # to "this bound is unknown" and is recorded rather than swallowed.
         unparsed: list[str] = []
 
-        def grab_float(field: str) -> float | None:
+        def grab_float(field: str, *, checked: bool) -> float | None:
+            """`lv2info`'s value for `field`, or None if it isn't a usable
+            float.
+
+            `checked` says whether `validate` range-checks a control value
+            against this field. Only those are recorded in `unparsed`, because
+            that list answers one question — which check did we forgo? Nothing
+            reads `Port.default`, so noting an unreadable Default would report
+            a range as unchecked when it had in fact been checked in full.
+            """
             v = grab(field)
             if v is None:
                 return None
             try:
                 parsed = float(v)
             except ValueError:
-                unparsed.append(field)
+                if checked:
+                    unparsed.append(field)
                 return None
             # NaN parses fine and then compares False against everything, so a
             # NaN bound would let the range check below pass every value while
@@ -124,7 +134,8 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
             # used to cause, by a quieter door. `inf` is deliberately left
             # alone: it is a legitimate LV2 bound and it compares correctly.
             if parsed != parsed:
-                unparsed.append(field)
+                if checked:
+                    unparsed.append(field)
                 return None
             return parsed
 
@@ -140,9 +151,9 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
             symbol=symbol,
             name=name,
             type=type_,
-            minimum=grab_float("Minimum"),
-            maximum=grab_float("Maximum"),
-            default=grab_float("Default"),
+            minimum=grab_float("Minimum", checked=True),
+            maximum=grab_float("Maximum", checked=True),
+            default=grab_float("Default", checked=False),
             toggled=toggled,
             # Last, so all three grab_float calls above have run.
             unparsed=tuple(unparsed),
@@ -316,8 +327,10 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
                 continue
             v = float(value)
 
-            if port.unparsed:
-                unparsed.append(f"{sym} {'/'.join(port.unparsed)}")
+            # One entry per bound, not per port: the count below is worded as
+            # bounds, and a port whose Minimum *and* Maximum are both unreadable
+            # has had two checks forgone, not one.
+            unparsed.extend(f"{sym} {field}" for field in port.unparsed)
 
             if port.minimum is not None and v < port.minimum - 1e-6:
                 errors.append(
