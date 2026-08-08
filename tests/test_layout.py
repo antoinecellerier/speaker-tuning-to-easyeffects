@@ -27,10 +27,13 @@ not run at all.
 
 **Import the module, not the name.** Across a `lib/` boundary a caller binds
 the module (`from lib.hardware import codecs`, then `codecs.get_soundwire_ids()`)
-so that a `monkeypatch.setattr` on the defining module reaches it. A root script
-that instead re-exports the bare name hands the test suite a target that patches
-only the root script's own copy — see
-`test_no_test_patches_a_re_exported_name` for why that failure is silent.
+so that a `monkeypatch.setattr` on the defining module reaches it. A module that
+instead re-exports the bare name hands the test suite a target that patches only
+one of the two bindings, and the two guards below say which one from each side:
+`test_no_test_patches_a_re_exported_name` catches a patch aimed at the copy, and
+`test_no_test_patches_a_name_another_module_copied` a patch aimed at the
+definition while a copy exists elsewhere. Both failures are silent — the test
+passes, having exercised the unpatched path.
 
 **A path named outside the code still has to resolve.** `tools/` is named from
 CLAUDE.md, the rules, the skills, the workflows, the docs, `lib/`, the suite
@@ -294,12 +297,33 @@ def test_root_holds_only_entry_points():
 
 ROOT_MODULES = ("dolby_to_easyeffects", "ee_to_pipewire", "dolby_to_pipewire")
 
+# Discovered rather than listed, so a module added to lib/ is covered by the
+# commit that adds it rather than by a later one that remembers to come back
+# here. `__init__.py` files are excluded because the two tests above already
+# hold them to something stricter: no submodule re-exports at all.
+LIB_MODULES = tuple(sorted(
+    ".".join(path.relative_to(ROOT).with_suffix("").parts)
+    for path in (ROOT / "lib").rglob("*.py")
+    if path.name != "__init__.py"
+))
+
+# Both guards below read the same two sides — what our own modules re-export,
+# and what the suite patches — so they range over the same set of modules.
+ALL_MODULES = ROOT_MODULES + LIB_MODULES
+
 # Genuine violations that predate the guard. Deliberately tiny: an entry here
 # is a latent bug someone has to fix, not a blessed exception to the rule.
 # Empty, and worth keeping that way — the one violation this guard found on
 # arrival (tests/test_cli.py patching a re-exported get_version) was fixed by
-# importing the module instead, which is the whole rule in one commit.
+# importing the module instead, which is the whole rule in one commit. Widening
+# the guard from the three root scripts to all of lib/, and adding the second
+# direction below, needed no entry either: both were green on arrival.
 KNOWN_STALE_BINDING_PATCHES: set[tuple[str, str]] = set()
+
+
+def _module_file(dotted):
+    """The .py behind a dotted module name, root scripts and lib/ alike."""
+    return ROOT.joinpath(*dotted.split(".")).with_suffix(".py")
 
 
 def _module_level(tree):
@@ -340,8 +364,8 @@ def _names_lib_module(dotted):
     return base.with_suffix(".py").exists() or (base / "__init__.py").exists()
 
 
-def _lib_reexports(script):
-    """{name a root script binds: the lib path it really lives at}.
+def _lib_reexports(module_path):
+    """{name this module binds: the lib path it really lives at}.
 
     Two shapes qualify, and both leave one object reachable under two names:
 
@@ -352,8 +376,12 @@ def _lib_reexports(script):
     itself — the form the refactor rule asks for — and setting an attribute on
     it is seen by every caller that imported the same module, which is the
     whole point.
+
+    Reads a root script and a lib/ module the same way: both are `lib.`-rooted
+    absolute imports (there are no relative imports anywhere under lib/), so
+    the same parse answers "what did this file copy in" for either.
     """
-    tree = ast.parse(script.read_text(encoding="utf-8"))
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
     lib_modules = {"lib": "lib"}   # local name -> the lib module it refers to
     reexports = {}
 
@@ -393,21 +421,40 @@ def _lib_reexports(script):
     return reexports
 
 
-def _root_module_patches(test_file):
-    """(line, root module, attribute) for each setattr aimed at a root script.
+def _module_patches(test_file):
+    """(line, module, attribute) for each setattr aimed at one of our modules.
 
-    Aliases come from the test file's own `import X as Y` lines rather than a
-    fixed list, so this keeps covering new tests whatever short name they
-    pick — `d`, `e` and `pw` are all in use today, and the next one won't
-    need an edit here.
+    Aliases come from the test file's own import lines rather than a fixed
+    list, so this keeps covering new tests whatever short name they pick —
+    `d`, `e`, `pw`, `hw_sinks` and `report_speaker` are all in use today, and
+    the next one won't need an edit here. Both spellings that bind a module
+    count: `import dolby_to_easyeffects as d` for the root scripts, and
+    `from lib.hardware import sinks as hw_sinks` for lib/, which is the form
+    the refactor rule asks callers to use.
+
+    Imports are read wherever they appear rather than at module level only:
+    several tests import the lib module they patch inside the test function,
+    to keep a heavy import off collection.
     """
     tree = ast.parse(test_file.read_text(encoding="utf-8"))
     aliases = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in ROOT_MODULES:
-                    aliases[alias.asname or alias.name] = alias.name
+                # A dotted `import lib.x.y` with no `as` binds `lib`, not the
+                # submodule, so it is not a usable patch target and the bound
+                # name is skipped rather than mis-recorded.
+                bound = alias.asname or alias.name
+                if alias.name in ALL_MODULES and "." not in bound:
+                    aliases[bound] = alias.name
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            module = node.module or ""
+            if module != "lib" and not module.startswith("lib."):
+                continue
+            for alias in node.names:
+                origin = f"{module}.{alias.name}"
+                if origin in LIB_MODULES:
+                    aliases[alias.asname or alias.name] = origin
 
     found = []
     for node in ast.walk(tree):
@@ -447,18 +494,26 @@ def test_no_test_patches_a_re_exported_name():
     There are ~150 such patches in tests/, so the exposure grows with every
     symbol the split moves. Checking it statically catches the mistake in the
     commit that makes it, on both sides at once: the re-export is read from
-    the root scripts, the patch from the test files.
+    the module, the patch from the test files.
+
+    The three root scripts were the whole scope on arrival, back when they
+    were the only things importing out of lib/. They no longer are, and the
+    imbalance is not close: lib/ modules copy 46 names out of each other
+    across 17 import statements, where the scripts copy 2, both by assignment
+    rather than by import. A patch aimed at `lib.pipewire.checks` meets
+    exactly the same stale copy as one aimed at `ee_to_pipewire`, so the scope
+    is every module we ship.
 
     If this fires, the fix is at the patch site, not here: patch the module
     named in the message. Ideally fix the re-export too, but a test patching
     the defining module is correct either way.
     """
-    reexports = {module: _lib_reexports(ROOT / f"{module}.py")
-                 for module in ROOT_MODULES}
+    reexports = {module: _lib_reexports(_module_file(module))
+                 for module in ALL_MODULES}
 
     violations = []
     for test_file in sorted((ROOT / "tests").rglob("*.py")):
-        for line, module, attr in _root_module_patches(test_file):
+        for line, module, attr in _module_patches(test_file):
             if attr not in reexports[module]:
                 continue
             if (module, attr) in KNOWN_STALE_BINDING_PATCHES:
@@ -467,14 +522,76 @@ def test_no_test_patches_a_re_exported_name():
             defining_module = origin.rsplit(".", 1)[0]
             violations.append(
                 f"{test_file.relative_to(ROOT)}:{line}: patches "
-                f"{module}.{attr}, but {module}.py only re-exports that name "
+                f"{module}.{attr}, but {module} only re-exports that name "
                 f"from {origin} — patch {defining_module} instead, or the "
                 f"patch will be invisible to callers inside {defining_module}"
             )
 
     assert not violations, (
         "monkeypatch target is a re-exported binding, so the patch reaches "
-        "only the root script's own copy:\n  " + "\n  ".join(violations)
+        "only that module's own copy:\n  " + "\n  ".join(violations)
+    )
+
+
+def test_no_test_patches_a_name_another_module_copied():
+    """The same trap approached from the other end, and the sharper half.
+
+    Above, the patch is aimed at a module holding a bare copy and misses the
+    definition. Here it is aimed at the *definition* — which is the correct
+    target, and what the fix message above tells you to do — but some third
+    module took its own bare copy at import time, and that copy still holds
+    the real object:
+
+        # lib/report/messages.py
+        from lib.report.findings import Finding      # bare copy, bound once
+
+        # a test
+        monkeypatch.setattr(findings, "Finding", Recording)
+
+    `findings.Finding` is now the fake, and every caller that goes through the
+    module sees it. `messages.Finding` does not — it was bound to the original
+    class when `messages` was first imported, and rebinding the attribute on
+    `findings` cannot reach through to it. So a test that patches the right
+    module still exercises the unpatched path in whichever module copied the
+    name, and passes while doing it.
+
+    That makes this direction the one worth having. The first direction fires
+    on a patch that is wrong on its face; this one fires on a patch that is
+    correct, and is silent about a module that is nowhere near the test. It is
+    also the direction that decays on its own: nothing about adding
+    `from lib.x import helper` to a new module looks like it touches the
+    suite, and the test it breaks does not live in that file.
+
+    Both sides are read statically, so a re-export added in one commit and a
+    patch added in another meet here on whichever lands second. If this fires,
+    the fix is in the *holder* named in the message — import the module and
+    look the name up through it — not at the patch site, which was right.
+    """
+    holders = {module: _lib_reexports(_module_file(module))
+               for module in ALL_MODULES}
+
+    violations = []
+    for test_file in sorted((ROOT / "tests").rglob("*.py")):
+        for line, module, attr in _module_patches(test_file):
+            origin = f"{module}.{attr}"
+            for holder, reexports in sorted(holders.items()):
+                if holder == module:
+                    continue
+                for name in sorted(n for n, held in reexports.items()
+                                   if held == origin):
+                    violations.append(
+                        f"{test_file.relative_to(ROOT)}:{line}: patches "
+                        f"{origin} where it is defined, but {holder} holds a "
+                        f"bare copy of it as {holder}.{name} — that copy keeps "
+                        f"the real object, so the patch never reaches "
+                        f"{holder}. Import the module in {holder} rather than "
+                        "the name"
+                    )
+
+    assert not violations, (
+        "a third module copied the patched name out at import time, so the "
+        "patch reaches every caller except that one:\n  "
+        + "\n  ".join(violations)
     )
 
 
