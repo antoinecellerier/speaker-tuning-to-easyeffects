@@ -827,17 +827,23 @@ def test_coupled_bands_eligibility_helper():
 
 
 def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
-                   default_profile=None, geq_max_range=192, ao_enabled=True):
+                   default_profile=None, geq_max_range=192, ao_enabled=True,
+                   ao_db=None):
     """Minimal tuning stand-in for _report_parsed_profile: every optional
-    block is falsy so only the regulator/volmax sections print."""
+    block is falsy so only the regulator/volmax sections print.
+
+    ``ao_db`` is the audio-optimizer curve in dB — the unit these tests reason
+    in — carried here in the 1/16-dB fixed point the XML uses, since that is
+    what the report converts back."""
     from types import SimpleNamespace
+    ao_raw = [v * parse.DB_FIXED_POINT_SCALE for v in (ao_db or [0.0] * 20)]
     return SimpleNamespace(
         ieq_amount=10, peq_filters=[], dialog_enhancer=None, surround=None,
         vol_leveler=None, mb_comp=None, regulator=regulator,
         volmax_boost=volmax_boost, freqs=SYNTHETIC_FREQS_20,
         profile_used=profile_used, default_profile=default_profile,
         geq_max_range=geq_max_range, ao_enabled=ao_enabled, findings=[],
-        curves={})
+        curves={}, ao_left=ao_raw, ao_right=ao_raw)
 
 
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
@@ -855,7 +861,7 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
     silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(threshold_high), volmax_boost),
-        [0.0] * 20, [0.0] * 20, disabled)
+        disabled)
     out = capsys.readouterr().out
     assert ("regulator never engages" in out) is expect_warn
 
@@ -868,15 +874,14 @@ def test_report_summarises_by_default_and_dumps_with_verbose(silence_console,
     silence_console(console)
     tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
 
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set())
+    _report_parsed_profile(tuning, set())
     out = capsys.readouterr().out
     assert "limits 20 of 20 frequency bands" in out
     assert "full tables with -v" in out
     assert "threshold_high (dB):" not in out
     assert "Left:  [" not in out
 
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set(),
-                           verbose=True)
+    _report_parsed_profile(tuning, set(), verbose=True)
     out = capsys.readouterr().out
     assert "threshold_high (dB):" in out
     assert "zones, not per-band" in out
@@ -897,7 +902,7 @@ def test_report_names_the_bass_enhancer_it_ships(silence_console, capsys,
     silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 0.0),
-        [0.0] * 20, [0.0] * 20, disabled, is_soundwire=is_soundwire)
+        disabled, is_soundwire=is_soundwire)
     assert ("Bass enhancer:" in capsys.readouterr().out) is expect
 
 
@@ -932,8 +937,9 @@ def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
     th[10] = -6.0                              # limits somewhere regardless
     ao = _peaked_ao(peak_band, peak_db)
     _report_parsed_profile(
-        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), volmax),
-        ao, ao, disabled, enabled=enabled)
+        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), volmax,
+                       ao_db=ao),
+        disabled, enabled=enabled)
     out = capsys.readouterr().out
     assert ("leaves unlimited" in out) is expect_warn
     if expect_warn:                            # names the offending band
@@ -950,8 +956,9 @@ def test_report_unlimited_boost_warning_uses_the_xml_declared_range(
     ao = _peaked_ao(1, 12.0)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), 9.0,
-                       geq_max_range=256),     # 16 dB range; +12 is mid-scale
-        ao, ao, set())
+                       geq_max_range=256,      # 16 dB range; +12 is mid-scale
+                       ao_db=ao),
+        set())
     assert "leaves unlimited" not in capsys.readouterr().out
 
 
@@ -968,7 +975,7 @@ def test_report_notes_dolby_declared_default_profile(
     findings = _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 6.0,
                        profile_used=profile_used, default_profile=declared),
-        [0.0] * 20, [0.0] * 20, set())
+        set())
     out = capsys.readouterr().out
     # The two halves: the mismatch is explained where it is detected, and the
     # rebuild to try is held back for the closing block.
@@ -1046,7 +1053,7 @@ def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys
     """Zeros in the printed curve would otherwise read as a flat tuning."""
     tuning = parse.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
     capsys.readouterr()
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set())
+    _report_parsed_profile(tuning, set())
     assert "audio-optimizer-enable=0" in capsys.readouterr().out
 
 

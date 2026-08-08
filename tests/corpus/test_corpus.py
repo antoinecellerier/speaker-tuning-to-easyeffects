@@ -319,7 +319,9 @@ def test_corpus_xml_every_endpoint_profile_curve(xml_path):
             assert len(tuning.freqs) == 20, where
             assert len(tuning.ao_left) == len(tuning.ao_right) == 20, where
 
-            # Same gain staging main() performs before _emit_ieq_presets.
+            # Same gain staging _emit_ieq_presets performs on its way to
+            # make_fir — re-derived here rather than called, so this walk
+            # checks the arithmetic instead of trusting it.
             scale = tuning.ieq_amount / 100.0
             ao_db_left = np.array(tuning.ao_left) / DB_FIXED_POINT_SCALE
             ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE

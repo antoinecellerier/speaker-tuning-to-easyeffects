@@ -2200,7 +2200,7 @@ def _fully_stocked_tuning():
         regulator=synthetic_regulator([-6.0] * 20), volmax_boost=6.0,
         freqs=SYNTHETIC_FREQS_20, profile_used="dynamic",
         default_profile=None, geq_max_range=192, ao_enabled=True,
-        findings=[])
+        findings=[], ao_left=[0] * 20, ao_right=[0] * 20)
 
 
 @pytest.mark.parametrize("name", sorted(_SECTION_OWNING_FILTERS))
@@ -2222,12 +2222,10 @@ def test_switching_a_stage_off_changes_what_the_run_says(name, silence_console,
     """
     silence_console(console)
     tuning = _fully_stocked_tuning()
-    report_profile._report_parsed_profile(
-        tuning, [0.0] * 20, [0.0] * 20, set(), is_soundwire=True)
+    report_profile._report_parsed_profile(tuning, set(), is_soundwire=True)
     shipped = " ".join(capsys.readouterr().out.split())
 
-    report_profile._report_parsed_profile(
-        tuning, [0.0] * 20, [0.0] * 20, {name}, is_soundwire=True)
+    report_profile._report_parsed_profile(tuning, {name}, is_soundwire=True)
     dropped = " ".join(capsys.readouterr().out.split())
 
     assert dropped != shipped, (

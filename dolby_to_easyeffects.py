@@ -621,23 +621,23 @@ def main(argv: list[str] | None = None,
     # ~0.35 s of a ~0.5 s start-up, and every path that returns above reaches
     # none of it — --version, --list, --doctor, --speaker-info, an argparse
     # error, and a tab completion (argcomplete re-runs the whole script on
-    # *every* TAB press, exiting inside autocomplete()). `emit` and `profile`
-    # are here for the same reason rather than at the top: between them they
-    # pull in lib.preset.{fir,build,plugins}, so importing either eagerly
-    # would undo the deferral. Everything this file does import at the top —
-    # console, doctor, ee_paths; dax.{discover,parse}; hardware.{speakers,
-    # sinks}; preset.autoload; report.{findings,speaker,doctor_run,
-    # environment,messages} — reaches no numpy. That is the whole predicate,
-    # and it is not "stdlib-only": console owns the optional rich import and
-    # still belongs at the top, because rich costs milliseconds where the DSP
-    # stack costs ~0.35 s.
+    # *every* TAB press, exiting inside autocomplete()). This file names no
+    # numpy of its own; `emit` and `profile` are what pull it in, and they are
+    # here rather than at the top for that reason — between them they reach
+    # numpy, scipy and lib.preset.{fir,build,plugins}, so importing either
+    # eagerly would undo the deferral. Everything this file does import at the
+    # top — console, doctor, ee_paths; dax.{discover,parse};
+    # hardware.{speakers,sinks}; preset.autoload; report.{findings,speaker,
+    # doctor_run,environment,messages} — reaches no numpy. That is the whole
+    # predicate, and it is not "stdlib-only": console owns the optional rich
+    # import and still belongs at the top, because rich costs milliseconds
+    # where the DSP stack costs ~0.35 s.
     #
     # Before the loop rather than inside it, which is the same thing minus the
     # repetition: profile_types is never empty by here (the empty case
     # returned above) and always holds at least one entry, so the loop body
     # runs on exactly the paths that reach this line.
     try:
-        import numpy as np
         from lib.preset import emit
         # Aliased on report_findings/report_speaker's precedent: profile_type,
         # profile_label and profile_findings are all bound within a few lines
@@ -732,22 +732,8 @@ def main(argv: list[str] | None = None,
             announce_profile=True,
         )
 
-        # ieq-amount is a percentage: amount=10 -> the IEQ voicing is applied
-        # at 10% weight on top of the audio-optimizer correction, not as a
-        # full-depth EQ. DAX steers the IEQ via Media Intelligence
-        # (mi-ieq-steering-enable), so a small static weight approximates its
-        # steady-state; full weight (the old amount/10 reading) over-applied
-        # the IEQ and crashed the HF match to DAX by up to ~28 dB. See
-        # docs/design-notes.md "Finding 9".
-        scale = tuning.ieq_amount / 100.0
-
-        # Audio-optimizer curves in dB
-        ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
-        ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
-        float_freqs = np.array(tuning.freqs, dtype=float)
-
         profile_findings = report_profile._report_parsed_profile(
-            tuning, ao_db_left, ao_db_right, disabled,
+            tuning, disabled,
             args.volmax_slot, enabled=set(args.enable),
             is_soundwire=is_soundwire, verbose=args.verbose)
 
@@ -756,8 +742,7 @@ def main(argv: list[str] | None = None,
             raised_in.setdefault(finding.slug, []).append(profile_label)
         leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
-        emit._emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right,
-                               float_freqs, scale, is_soundwire, disabled,
+        emit._emit_ieq_presets(tuning, name_base, is_soundwire, disabled,
                                args, profile_label, all_preset_names,
                                filters_by_profile,
                                # ⚠ hints print warn-styled above; the check

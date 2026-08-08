@@ -60,9 +60,8 @@ def save_wav_stereo(path: Path, fir_left: np.ndarray,
 FIR_VERIFY_OK_DB = 0.5
 
 
-def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
-                      scale, is_soundwire, disabled, args, profile_label,
-                      all_preset_names, filters_by_profile,
+def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
+                      profile_label, all_preset_names, filters_by_profile,
                       warned: bool = False):
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile:
     build each combined FIR, write the .irs + .json, print the verification
@@ -76,6 +75,19 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
     regulator = tuning.regulator
     freqs = tuning.freqs
     volmax_boost = tuning.volmax_boost
+
+    # ieq-amount is a percentage: amount=10 -> the IEQ voicing is applied
+    # at 10% weight on top of the audio-optimizer correction, not as a
+    # full-depth EQ. DAX steers the IEQ via Media Intelligence
+    # (mi-ieq-steering-enable), so a small static weight approximates its
+    # steady-state; full weight (the old amount/10 reading) over-applied
+    # the IEQ and crashed the HF match to DAX by up to ~28 dB. See
+    # docs/design-notes.md "Finding 9".
+    scale = tuning.ieq_amount / 100.0
+
+    # Audio-optimizer curves in dB
+    ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
+    ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
 
     ieq_presets = {f"{name_base}-{label}": key
                    for label, key in messages.VOICING_CURVES.items()}
@@ -100,11 +112,13 @@ def _emit_ieq_presets(tuning, name_base, ao_db_left, ao_db_right, float_freqs,
         combined_left = ieq_db + ao_db_left
         combined_right = ieq_db + ao_db_right
 
-        # Generate FIR impulse responses
-        fir_left, peak_left_db = fir.make_fir(float_freqs, combined_left,
-                                          normalize=True)
-        fir_right, peak_right_db = fir.make_fir(float_freqs, combined_right,
-                                            normalize=True)
+        # Generate FIR impulse responses. freqs is the XML's raw int band
+        # list; make_fir casts both of its curve arguments to float itself,
+        # so there is nothing to convert on the way in.
+        fir_left, peak_left_db = fir.make_fir(freqs, combined_left,
+                                              normalize=True)
+        fir_right, peak_right_db = fir.make_fir(freqs, combined_right,
+                                                normalize=True)
 
         # --enable level-restore: hand the chain back the level normalisation
         # removed. make_fir divides each channel by its own realised peak, so

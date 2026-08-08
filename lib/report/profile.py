@@ -602,9 +602,8 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     return findings
 
 
-def _report_parsed_profile(tuning, ao_db_left, ao_db_right, disabled,
-                           volmax_slot="input-gain", enabled=None,
-                           is_soundwire=False, verbose=False):
+def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
+                           enabled=None, is_soundwire=False, verbose=False):
     """Print the human-readable per-profile diagnostics for a parsed tuning
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax), and return the findings raised while doing so.
@@ -614,6 +613,12 @@ def _report_parsed_profile(tuning, ao_db_left, ao_db_right, disabled,
     here, in place; main() collects the returned list and renders the one-line
     asks at the end, where a user still has them on screen."""
     findings: list[Finding] = []
+
+    # Audio-optimizer curves in dB, from the XML's 1/16-dB fixed point.
+    # Derived here rather than handed in: both readers are in this module,
+    # so no caller has to know the unit to call this.
+    ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
+    ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
 
     declared = tuning.default_profile
     if declared and declared != tuning.profile_used:
