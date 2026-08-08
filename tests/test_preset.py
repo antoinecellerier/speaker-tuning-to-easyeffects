@@ -36,6 +36,7 @@ from lib.doctor import (
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
+    summarize,
 )
 from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
@@ -66,7 +67,6 @@ from lib.preset.plugins import (
 )
 from lib.report.environment import (
     DoctorReport,
-    _doctor_summary,
     autostart_status,
     check_preset_kernel,
     ee_version_status,
@@ -1621,7 +1621,7 @@ def test_doctor_summary_counts():
     checks = [CheckResult(DOCTOR_FAIL, "a", ""), CheckResult(DOCTOR_WARN, "b", ""),
               CheckResult(DOCTOR_PASS, "c", ""), CheckResult(DOCTOR_PASS, "d", ""),
               CheckResult(DOCTOR_UNKNOWN, "e", "")]
-    assert _doctor_summary(checks) == (1, 1, 2, 1)
+    assert summarize(checks) == (1, 1, 2, 1)
 
 
 def _gate(on):

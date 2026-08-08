@@ -358,9 +358,6 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | No
         steps=tuple(("cta", speakers.amixer_enable_cmd(g)) for g in off))
 
 
-_doctor_summary = doctor.summarize
-
-
 def emit_check(check: CheckResult) -> None:
     """Print one diagnostic line: status box, label, wrapped detail, steps.
 
@@ -377,7 +374,7 @@ def print_doctor_summary(checks: list[CheckResult]) -> None:
     """Print the counted one-line summary. Split from the verdict below it
     because the two surfaces put different things between them — the
     EasyEffects report interleaves its paste block."""
-    fail, warn, ok, unknown = _doctor_summary(checks)
+    fail, warn, ok, unknown = doctor.summarize(checks)
     parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
     if unknown:
         parts.append(f"{unknown} UNKNOWN")
@@ -392,7 +389,7 @@ def print_doctor_verdict(checks: list[CheckResult]) -> None:
     names something that plausibly explains "I hear no difference", so
     "no blocking problems" printed beside one contradicts the lines above it.
     """
-    fail, warn, ok, unknown = _doctor_summary(checks)
+    fail, warn, ok, unknown = doctor.summarize(checks)
     if not (fail or warn or unknown):
         console.cprint("ok", "No blocking problems detected.")
     elif warn and not fail:
