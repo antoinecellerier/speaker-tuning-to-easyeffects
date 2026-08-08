@@ -443,7 +443,19 @@ def test_disable_bass_enhancer_drops_harmonic_generator():
 
 # --- argparse smoke tests (subprocess) ---
 
-def _run_script(*args, timeout=10):
+# 120 s, and not the 10 s this defaulted to, because 10 could not bound what
+# it claimed to: the run's *own* probes are time-bounded past it. One --doctor
+# spends up to 5 s each on `easyeffects --version` and `flatpak info`, 2 s per
+# `pgrep -x easyeffects` (reached twice), 5 s per sound card in `amixer
+# contents`, then 4 s on journalctl before a further 4 s on dmesg — ≥27 s on a
+# single-card machine. A run genuinely wedged in a probe therefore outlived
+# 10 s no matter what, so the only thing that ceiling could fire on was a
+# healthy run on a loaded box — which it did, repeatedly, under `-n auto`.
+# 120 s is this suite's modal budget for a full-script spawn — five sites use
+# it, the rest 30 s to 300 s. The ceiling exists to stop a hang, not to time
+# one; do not trim it back toward the observed cost (~2.5 s idle for --doctor
+# here).
+def _run_script(*args, timeout=120):
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         capture_output=True,
