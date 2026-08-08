@@ -7,12 +7,13 @@ the converter's own output. They are listed below with what they keep correct
 and who runs them, because that — not the filename — is how you find the one
 you need.
 
-One exception to "nothing here is part of the conversion", and it matters:
-[`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) is a **runtime
-dependency of `ee_to_pipewire.py`**, and a known layering violation. Its
-runtime core has since moved to `lib/pipewire/validate.py`, but the converter
-still shells out to the CLI left here, so the violation is narrower rather
-than gone. See "Three files that look misplaced" below before touching it.
+One near-exception to "nothing here is part of the conversion":
+[`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) runs the same
+schema check `ee_to_pipewire.py` applies to every conf it writes. It is no
+longer a runtime dependency of the converter, though — that check's runtime
+core is `lib/pipewire/validate.py`, which the converter calls in process — so
+what is left here is a front end you can point at a conf yourself. See "Three
+files that look misplaced" below before touching it.
 
 **The capture and comparison scripts touch your audio devices.** They mute
 speakers, reroute sinks and swap presets, so they run behind the audio handoff
@@ -45,7 +46,7 @@ only which question the directory answers.
 | [`measure_dax/`](measure_dax/) | The measured ground truth — what DAX3 itself does, captured on Windows over WASAPI loopback and analysed here. Converter-independent, so these captures stay valid across our edits | You, when a device's real response is the missing evidence. `make_stimulus.py` (Linux) → `capture_dax.py` (Windows) → `analyze.py` (Linux) |
 | [`measure_ee/`](measure_ee/) | Whether the generated preset, running live in EasyEffects, matches that ground truth — plus the variant sweeps that narrow a candidate change before it is adopted | You, through **/audio-validate**. EE-side captures go stale after any FIR or scaling change; regenerate before comparing |
 | [`measure_perf/`](measure_perf/) | The README's "which should I use?" guidance: CPU cycles and memory for the same preset through EasyEffects vs the PipeWire filter-chain | You, when that cost claim needs re-measuring on a device |
-| [`measure_pw/`](measure_pw/) | That the PipeWire `filter-chain` conf is equivalent to the EasyEffects chain in both frequency and time domain — and, through `validate_conf.py`, that it is schema-valid at all | The comparisons: you, through the handoff. `validate_conf.py`: `ee_to_pipewire.py` itself, on every run |
+| [`measure_pw/`](measure_pw/) | That the PipeWire `filter-chain` conf is equivalent to the EasyEffects chain in both frequency and time domain — and, through `validate_conf.py`, that it is schema-valid at all | The comparisons: you, through the handoff. `validate_conf.py`: you, against a conf already on disk — `ee_to_pipewire.py` runs the same check in process on every run |
 
 ## Three files that look misplaced
 
@@ -71,36 +72,33 @@ moves.
 
 **[`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) — not a
 measurement tool.**
-It is a runtime dependency of `ee_to_pipewire.py`, which shells out to it on
-every run through `VALIDATE_CONF_SCRIPT` in `lib/pipewire/install.py` and
-refuses to write a conf that fails. It needs no audio, no PipeWire daemon and
-no capture. It is in `measure_pw/` for historical reasons — next to the audio
-battery that is the *other* half of proving a conf correct — and that is the
-status quo, not a decision.
+It is the command-line front end to the schema check `ee_to_pipewire.py`
+applies to every conf it writes, refusing to write one that fails. It needs no
+audio, no PipeWire daemon and no capture. It is in `measure_pw/` for
+historical reasons — next to the audio battery that is the *other* half of
+proving a conf correct — and that is the status quo, not a decision.
 
-The runtime core has since moved to
+The runtime core it wraps is
 [`lib/pipewire/validate.py`](../lib/pipewire/validate.py); what stayed here is
 the CLI — argument parsing, the stdin form, the 0/1/2 exit codes and the prose
-`--help` prints. **The converter still shells out to this path**, so this is
-still the one place in the tree where a top-level user-runnable script depends
-on something outside `lib/`; the violation is narrower, not gone. Until
-`install.py` calls the library in-process, treat this file as converter code
-that happens to live under `tools/`.
+`--help` prints. **The converter no longer shells out to this path**: it calls
+`validate.run(conf)` in process, gets a `Report` back and renders the warnings
+and errors itself. So the layering violation this file used to carry — the one
+place where a top-level user-runnable script depended on something outside
+`lib/` — is gone rather than narrowed, and the script is now a standalone tool
+like everything else here.
 
-Whoever finishes that move has three places to re-point, and every one of them
-fails silently:
+One site still runs it, and it fails silently: the `is_file()` guard in
+`tests/corpus/test_ee_to_pipewire_corpus.py` turns a missing script into
+"don't check", and the XML then passes green with no conf ever validated.
 
-| site | what happens if it is missed |
-|---|---|
-| `lib/pipewire/install.py` (`VALIDATE_CONF_SCRIPT`) | **Silent.** Returns -1, which the caller treats as a soft warning; the converter keeps writing confs, having stopped checking them |
-| `tests/corpus/test_ee_to_pipewire_corpus.py` | **Silent.** Its `is_file()` guard makes a missing script mean "don't check", and the XML passes green |
-| `ee_to_pipewire.py`'s `--help` text | **Silent.** It names the path; it would simply be wrong |
-
-`tests/test_layout.py::test_the_converter_can_find_its_validator` turns the
-first of those into a collection-time failure — which now matters more, since
-it is the only loud guard left. `tests/test_validate_conf.py` used to be the
-fourth site and the one that failed at collection; it imports
-`lib.pipewire.validate` directly now and no longer holds the path at all.
+`tests/test_layout.py::test_the_validator_cli_still_finds_its_runtime_core` is
+the loud guard, and it watches the opposite direction: that this script's own
+`sys.path` bootstrap — the repo root, counted from
+`Path(__file__).resolve().parents[2]` — still resolves `lib`, so the CLI keeps
+starting from outside the checkout. Move either file and that import breaks,
+while `tests/test_validate_conf.py` goes on importing `lib.pipewire.validate`
+directly and holds no path at all.
 
 ## Why this directory is flat
 

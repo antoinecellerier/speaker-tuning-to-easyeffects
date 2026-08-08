@@ -307,12 +307,14 @@ Gen 7, HDA, `Dolby-Balanced`):
 
 Measurement workflow + thresholds in
 [`tools/measure_pw/README.md`](../tools/measure_pw/README.md). A
-deterministic schema check (`tools/measure_pw/validate_conf.py`)
-runs automatically after conversion (skip with `--no-validate`) —
-it shells out to `lv2info` for every URI in the conf and validates
-the `control = { ... }` block against each port's
+deterministic schema check (`lib/pipewire/validate.py`, called in
+process) runs automatically after conversion (skip with
+`--no-validate`) — it shells out to `lv2info` for every URI in the
+conf and validates the `control = { ... }` block against each port's
 `Symbol`/`Min`/`Max`/`Default`/`Properties`. Catches unknown port
-symbols, out-of-range values, and the `xm`-MUTE-inversion trap.
+symbols, out-of-range values, and the `xm`-MUTE-inversion trap. The
+same check has a command-line front end at
+`tools/measure_pw/validate_conf.py`, for a conf already on disk.
 
 ## Validation in pytest
 

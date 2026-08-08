@@ -223,11 +223,13 @@ mitigate.
   that the code is old.
 - **Re-anchor `__file__`-relative paths when they move.** `lib/version.py`'s
   `Path(__file__).resolve().parent` still works (git walks up to find the
-  checkout), but `ee_to_pipewire.py` builds
-  `SCRIPT_DIR / "tools" / "measure_pw" / "validate_conf.py"` assuming the repo
-  root. That shared anchor now exists — `lib/paths.py`'s `REPO_ROOT`
-  (`63449ef`), which the converter's `validate_conf.py` lookup already resolves
-  through. Route the next one through it rather than adding a `parent.parent`.
+  checkout), and the shared anchor for anything deeper exists — `lib/paths.py`'s
+  `REPO_ROOT` (`63449ef`). Nothing resolves through it today: its one caller
+  built `tools/measure_pw/validate_conf.py` from it to shell out to, and that
+  check now runs in process against `lib.pipewire.validate`, needing no path at
+  all. The scripts under `tools/` keep their own walk-ups because they insert
+  the result into `sys.path` before any `lib` import can happen. Route the next
+  such path through `REPO_ROOT` rather than adding a `parent.parent`.
 - **`lib/__init__.py` stays empty of code.** A convenience re-export there
   would drag the package in behind any single import and hand every future
   module a ready-made cycle (`tests/test_layout.py` enforces this).
@@ -479,28 +481,36 @@ in `tests/` aim at a `lib/` module, so the exposure is real.
 
 The qualifier is the rule, and it turns on state rather than on package
 boundaries — a bare `from x import name` is a hazard exactly when `name` has
-something behind it to swap. Both sides, measured at `b0df496`:
+something behind it to swap. Both sides, measured at `dbee942`:
 
-- **Has state, so module-qualified.** All 31 patch targets are values the
-  machine decides: 23 read a subprocess, a filesystem probe (`/proc`, `/sys`,
-  a mounted Windows partition) or the terminal, directly or through a callee
-  that does; 4 are paths under `Path.home()`, plus `lib.ee_paths`'s own `Path`,
-  patched so `home()` redirects; 2 are module flags a run mutates
-  (`lib.console._CONSOLE`, `lib.report.findings._TAG_CONVENTION_SHOWN`); 1 is
-  a printer stubbed to keep a nested dump out of an enclosing report.
-- **Has none, so a bare name is free.** `lib/` modules bare-import 46
-  `(module, name)` pairs across 17 import statements — 30 distinct names, 11
-  holder modules — every one fixed by the source: 13 constants (status
-  strings, LV2 URIs, the restart command, the emitter table), 4 record types,
-  11 builders that are arithmetic over their arguments, and 2 printers holding
-  no state of their own, reading the tag flag and the console through their
-  defining modules at call time.
+- **Has state, so module-qualified.** All 33 patch targets under `lib/` are
+  values the machine decides: 25 read a subprocess, a filesystem probe
+  (`/proc`, `/sys`, a mounted Windows partition) or the terminal, directly or
+  through a callee that does; 4 are paths under `Path.home()`, plus
+  `lib.ee_paths`'s own `Path`, patched so `home()` redirects; 2 are module
+  flags a run mutates (`lib.console._CONSOLE`,
+  `lib.report.findings._TAG_CONVENTION_SHOWN`); 1 is a printer stubbed to keep
+  a nested dump out of an enclosing report.
+- **Has none, so a bare name is free.** `lib/` modules bare-import 45
+  `(module, name)` pairs across 16 import statements in 11 modules — 29
+  distinct names, held by 7 — every one fixed by the source: 12 constants
+  (status strings, LV2 URIs, the restart command, the emitter table), 4 record
+  types, 11 builders that are arithmetic over their arguments, and 2 printers
+  holding no state of their own, reading the tag flag and the console through
+  their defining modules at call time.
 
 The two sets are **disjoint**: no name is both bare-imported and patched. What
-does not survive is the shorthand — *paths* and *printers* land on both sides.
-`lib.paths.REPO_ROOT` is bare-imported, being anchored at `__file__` rather
-than `Path.home()`, and qualifying it would buy nothing anyway:
-`VALIDATE_CONF_SCRIPT` derives from it once, at import. Read the property.
+does not survive is the shorthand — *printers* land on both sides.
+`lib.report.findings._print_finding_detail` is bare-imported by `lib/dax/parse.py`
+and `lib/report/profile.py`, and that is safe: the only state it touches,
+`_TAG_CONVENTION_SHOWN`, sits in its defining module and is mutated there with
+`global`, so both copies of the name reach the same flag.
+`lib.report.speaker._print_speaker_info` is patched instead — stubbed to keep a
+nested dump out of an enclosing report — so copying *that* name would strand
+the patch. Paths sit wholly on the patched side today, but only by accident of
+what exists: one anchored at `__file__` rather than `Path.home()` would be free
+to bare-import, which is what `lib/paths.py` is holding the ground for. Read
+the property, not the word.
 
 Enforced rather than remembered. `tests/test_layout.py` reads every module we
 ship for names copied out of another, reads `tests/` for the setattr calls,
