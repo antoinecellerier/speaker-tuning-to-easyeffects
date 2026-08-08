@@ -192,6 +192,18 @@ def harvest_script(prefix: str, rel: str, rows: list, base: str,
                     and isinstance(first.value.value, str)):
                 docstrings.add(id(first.value))
 
+    # An f-string's literal chunks are already carried by the row the whole
+    # f-string produces, and `literal()` renders that row from them. Taking
+    # them again as constants in their own right gave a third of the inventory
+    # to truncated halves of sentences a reviewer can read whole one row up —
+    # each with its own citable id, and each looking like a claim to check.
+    fragments = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            for value in node.values:
+                if isinstance(value, ast.Constant):
+                    fragments.add(id(value))
+
     def add(node: ast.AST, kind: str) -> None:
         text = literal(node)
         if text is None:
@@ -232,7 +244,7 @@ def harvest_script(prefix: str, rel: str, rows: list, base: str,
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Constant, ast.JoinedStr)):
-            if id(node) not in docstrings:
+            if id(node) not in docstrings and id(node) not in fragments:
                 add(node, "literal")
 
 
