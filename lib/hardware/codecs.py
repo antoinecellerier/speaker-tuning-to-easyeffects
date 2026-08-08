@@ -47,6 +47,18 @@ def get_hda_codec_ids():
     return results
 
 
+# Where the SoundWire bus lives in sysfs, and the shape of a slave device's
+# name under it: "sdw:L:N:MMMM:PPPP:VV", capturing the manufacturer and part
+# ids the Dolby SOUNDWIRE_MAN_*_FUNC_* filenames key on.
+#
+# Two unrelated scans open exactly this way — the id collection below, and
+# ``lib.hardware.speakers._detect_soundwire_speakers``'s amplifier probe — so
+# the entry point has one definition here. Only the entry point: the loop
+# bodies read different things and are deliberately kept apart.
+SDW_BUS = Path("/sys/bus/soundwire/devices")
+SDW_SLAVE_RE = re.compile(r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+")
+
+
 def get_soundwire_ids():
     """Read SoundWire device IDs from /sys/bus/soundwire/devices.
 
@@ -54,14 +66,10 @@ def get_soundwire_ids():
     strings, e.g. [("025D", "1318")].
     """
     results = []
-    sdw_path = Path("/sys/bus/soundwire/devices")
-    if not sdw_path.is_dir():
+    if not SDW_BUS.is_dir():
         return results
-    for dev_dir in sorted(sdw_path.iterdir()):
-        # SoundWire slave devices look like "sdw:L:N:MMMM:PPPP:VV"
-        match = re.match(
-            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+", dev_dir.name
-        )
+    for dev_dir in sorted(SDW_BUS.iterdir()):
+        match = SDW_SLAVE_RE.match(dev_dir.name)
         if match:
             man_id = match.group(1).upper()
             part_id = match.group(2).upper()
@@ -114,7 +122,7 @@ def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
 def get_pci_audio_subsystem(
     sound_class=Path("/sys/class/sound"),
     proc_asound=Path("/proc/asound"),
-    sdw_bus=Path("/sys/bus/soundwire/devices"),
+    sdw_bus=SDW_BUS,
 ):
     """Get the PCI subsystem ID of the audio controller.
 

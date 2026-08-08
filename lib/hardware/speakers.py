@@ -26,8 +26,8 @@ would not change ``amps._AMP_LOG_ERROR_RE`` either — so there is no patch a
 module import would have preserved. Rewrite it as a module import the next
 time that body changes for another reason.
 
-Standard library plus ``lib.data.speaker_pin_quirks`` and
-``lib.hardware.amps``, both stdlib-only themselves, so this module is too.
+Standard library plus ``lib.data.speaker_pin_quirks``, ``lib.hardware.amps``
+and ``lib.hardware.codecs``, all stdlib-only themselves, so this module is too.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lib.data import speaker_pin_quirks
+from lib.hardware import codecs  # single source of the SoundWire bus entry point
 from lib.hardware.amps import _AMP_DRIVER_TOKENS
 
 
@@ -233,18 +234,13 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
     enumerated-but-unbound device is surfaced neutrally — it may be a non-amp
     slave or one still binding).
     """
-    sdw_path = Path("/sys/bus/soundwire/devices")
-    if not sdw_path.is_dir():
+    if not codecs.SDW_BUS.is_dir():
         return
 
     amp_patterns = _AMP_DRIVER_TOKENS  # single source of amp-family identity
 
-    for dev_dir in sorted(sdw_path.iterdir()):
-        match = re.match(
-            r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+",
-            dev_dir.name,
-        )
-        if not match:
+    for dev_dir in sorted(codecs.SDW_BUS.iterdir()):
+        if not codecs.SDW_SLAVE_RE.match(dev_dir.name):
             continue
         driver_link = dev_dir / "driver"
         bound = driver_link.is_symlink()
