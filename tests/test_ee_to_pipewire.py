@@ -1260,6 +1260,46 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
     assert "calf-plugins" in out
 
 
+def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
+                                                        monkeypatch, capsys):
+    """A self-check that reports real errors (rc==1) must abort the run and
+    leave *nothing* on disk.
+
+    The other three `_validate_conf` return codes are soft — -1 and 2 are
+    setup skips, 0 is a pass — so this is the only one whose contract is that
+    the conf never gets written. Asserting the exit status and the message
+    would pass even if the file had been written and the run then changed its
+    mind; the assertion that carries the contract is that `--output` names a
+    path which does not exist afterwards. A half-written or fully-written conf
+    that failed schema validation is the bad outcome: it loads into PipeWire.
+    """
+    from lib.pipewire import install
+    monkeypatch.setattr(
+        install, "_validate_conf",
+        lambda conf: (1, "FAIL: peq: unknown port symbol 'ftl_99' for "
+                         "para_equalizer_x16_lr\n1 error(s)"))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "TestChain.conf"
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(out_path),
+    ])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "schema validation failed" in out
+    assert "conf not written" in out
+    assert not out_path.exists(), (
+        "a conf that failed schema validation was written anyway — the "
+        "message says it wasn't, and PipeWire would load it"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Colored output (rich, optional) — lib/console.py, shared with the generator
 # ---------------------------------------------------------------------------
