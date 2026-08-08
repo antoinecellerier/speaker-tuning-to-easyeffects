@@ -2233,6 +2233,12 @@ _URI_FOR_KEY = {
 
 @functools.lru_cache(maxsize=None)
 def _lv2info_defaults(uri: str) -> dict[str, float]:
+    # 60 s, not the 10 s the two production call sites use
+    # (lib/pipewire/validate.py, lib/pipewire/checks.py) — deliberately, not
+    # drift. Those bound a user waiting at a terminal; this one runs under
+    # `-n auto` alongside a core's worth of pytest workers, where a call that
+    # costs ~15 ms cold and serial can take far longer. Nothing here is worth
+    # a flake.
     out = subprocess.run(["lv2info", uri], capture_output=True, text=True,
                          timeout=60).stdout
     defaults: dict[str, float] = {}

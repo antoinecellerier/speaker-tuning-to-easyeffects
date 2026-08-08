@@ -160,6 +160,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged everywhere else and not yet heard on affected hardware; re-run to
   regenerate ([docs/cross-device-findings.md](docs/cross-device-findings.md)
   "Curves shipped with the optimizer switched off").
+- `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
+  conf when the schema self-check can't read `lv2info`'s output, or can't run
+  it for one plugin. The unreadable setting is left unchecked and reported,
+  naming the plugin, instead of ending the run
+  ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - The smart-amp firmware-gate fix command printed at the end of a run now
   works on current kernels: it spells the control's `iface` out instead of
   letting a bare `name=` lookup guess it wrong. The firmware self-check also

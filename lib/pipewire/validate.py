@@ -49,6 +49,11 @@ class Port:
     maximum: float | None
     default: float | None
     toggled: bool
+    # Which of Minimum/Maximum/Default `lv2info` printed as something other
+    # than a float, so the bound is `None` for a reason worth reporting. A
+    # bound `lv2info` simply omits is *not* recorded — nothing was skipped
+    # there, the port just has no such limit.
+    unparsed: tuple[str, ...] = ()
 
 
 _TOGGLE_PROP = "http://lv2plug.in/ns/lv2core#toggled"
@@ -92,9 +97,23 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
         type_ = "ControlPort"
         name = grab("Name") or ""
 
+        # A bound that is present but not a bare float — a decimal comma from
+        # a non-C locale, a unit suffix, a spelling of infinity we don't
+        # expect, a future format change — used to raise `ValueError` out of
+        # here and abort the whole run, taking the user's conf with it. One
+        # unreadable number is not a reason to write no conf, so it degrades
+        # to "this bound is unknown" and is recorded rather than swallowed.
+        unparsed: list[str] = []
+
         def grab_float(field: str) -> float | None:
             v = grab(field)
-            return float(v) if v is not None else None
+            if v is None:
+                return None
+            try:
+                return float(v)
+            except ValueError:
+                unparsed.append(field)
+                return None
 
         # Properties may continue on subsequent lines indented further
         # than the field tag — collect the whole "Properties:" multiline.
@@ -112,14 +131,29 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
             maximum=grab_float("Maximum"),
             default=grab_float("Default"),
             toggled=toggled,
+            # Last, so all three grab_float calls above have run.
+            unparsed=tuple(unparsed),
         )
     return ports
 
 
 def lv2info_schema(uri: str) -> dict[str, Port]:
-    rc = subprocess.run(
-        ["lv2info", uri], capture_output=True, text=True, timeout=10,
-    )
+    """The port metadata `lv2info` reports for one plugin URI.
+
+    Every way the exec itself can fail — a non-zero exit, a timeout, a binary
+    that went away between the PATH check and the fork, a fork that couldn't
+    allocate — arrives as one `RuntimeError` naming the URI, because the
+    caller's response to all of them is the same: warn, and leave this
+    plugin's ports unchecked. Only the exec is wrapped. A failure to parse
+    what `lv2info` did print is our bug, and still propagates.
+    """
+    try:
+        rc = subprocess.run(
+            ["lv2info", uri], capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        # subprocess.TimeoutExpired is a SubprocessError, so it lands here.
+        raise RuntimeError(f"lv2info {uri!r} failed: {e}") from e
     if rc.returncode != 0:
         raise RuntimeError(
             f"lv2info {uri!r} failed: {rc.stderr.strip() or rc.stdout.strip()}"
@@ -230,6 +264,15 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
             )
             continue
 
+        # Bounds `lv2info` printed unreadably, collected across this node's
+        # ports and reported as one line: a check that stops checking without
+        # stopping reads exactly like a pass. Raised here rather than in the
+        # parser for two reasons — only a port the conf actually writes has a
+        # check to forgo (a plugin exposes hundreds this conf never touches),
+        # and the same misformatting usually hits every port at once, so
+        # per-port lines would bury the rest of the run.
+        unparsed: list[str] = []
+
         for sym, value in node["control"].items():
             port = schema.get(sym)
             if port is None:
@@ -246,6 +289,9 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
                 continue
             v = float(value)
 
+            if port.unparsed:
+                unparsed.append(f"{sym} {'/'.join(port.unparsed)}")
+
             if port.minimum is not None and v < port.minimum - 1e-6:
                 errors.append(
                     f"{node['name']}: {sym}={v} is below the port minimum "
@@ -261,6 +307,17 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
                     f"{node['name']}: {sym}={v} on a toggled port "
                     f"(must be 0 or 1)"
                 )
+
+        if unparsed:
+            shown = ", ".join(unparsed[:3])
+            more = (f", and {len(unparsed) - 3} more"
+                    if len(unparsed) > 3 else "")
+            warnings.append(
+                f"{node['name']}: lv2info reported {len(unparsed)} port "
+                f"bound{'' if len(unparsed) == 1 else 's'} for "
+                f"{uri.rsplit('/', 1)[-1]} in a form this check can't read "
+                f"({shown}{more}); those values were not range-checked"
+            )
 
         # Cross-check: filter-type non-Off must have xm=0 (active). Targets
         # the bug where xm was inverted and silently muted every band.
@@ -325,7 +382,9 @@ def run(conf_text: str) -> Report:
     for the failures that genuinely mean *could not run* — `spa-json-dump`
     missing, failing, or handing back something that is not JSON. A single URI
     whose `lv2info` fails or times out is narrower than that: it degrades to a
-    warning and that plugin's ports go unchecked. Anything else propagates.
+    warning and that plugin's ports go unchecked. A bound `lv2info` prints in
+    a form we can't read is narrower still: that one range goes unchecked, and
+    `validate` names it. Anything else propagates.
     """
     if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
         return Report(NO_TOOLING,
@@ -353,7 +412,10 @@ def run(conf_text: str) -> Report:
             continue
         try:
             schemas[uri] = lv2info_schema(uri)
-        except (RuntimeError, subprocess.TimeoutExpired) as e:
+        except RuntimeError as e:
+            # Narrow on purpose: `lv2info_schema` funnels every exec failure
+            # into this one type, so anything else escaping it is a bug in the
+            # parse and must not be quietly downgraded to "unchecked".
             tool_warnings.append(str(e))
 
     errors, warnings = validate(nodes, schemas)
