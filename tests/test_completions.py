@@ -2,11 +2,19 @@
 
 Completions are derived from the live argparse parsers rather than generated
 into a checked-in file, so there is no third mirror of the flag list to drift
-(cf. .claude/rules/cli-help.md). What *can* break silently is the plumbing:
-the magic marker slipping past the 1024-byte window the shell hook scans, the
-optional import turning into a hard one, or the generator's deferred DSP
+(cf. .claude/rules/cli-help.md). What *can* break silently is the plumbing: a
+newly added option nobody classified completing nothing, the wrapper's two
+composed completer tables drifting apart, or the generator's deferred DSP
 import climbing back out of main() to module scope. Those are what these traps
 lock down.
+
+Everything left here needs argcomplete *installed*: the tests below the gate
+drive its own protocol, and `_attach_completers` imports
+`argcomplete.completers`. The gate itself is at module scope, so it aborts the
+import of this whole file rather than skipping a section of it — the
+DSP-deferral trap above it is collateral, and a trap for argcomplete being
+*absent* could not run here at all. Those live in
+`tests/test_optional_deps.py`, which has no such gate.
 """
 
 from __future__ import annotations
@@ -33,42 +41,6 @@ SCRIPTS = (
     REPO / "ee_to_pipewire.py",
     REPO / "dolby_to_pipewire.py",
 )
-
-# The shell hook reads only the head of the file looking for the marker, so
-# placement is load-bearing, not cosmetic.
-# https://github.com/kislyuk/argcomplete — "the shell will look for the string
-# PYTHON_ARGCOMPLETE_OK in the first 1024 bytes of any executable".
-MARKER_WINDOW = 1024
-
-
-@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
-def test_marker_within_the_scanned_window(script):
-    """Every script advertises itself to the shell hook, early enough to be
-    seen. Editing the header docstring is what would push it out of range."""
-    head = script.read_bytes()[:MARKER_WINDOW]
-    assert b"# PYTHON_ARGCOMPLETE_OK" in head, (
-        f"{script.name}: the marker must appear in the first {MARKER_WINDOW} "
-        "bytes or the shell will not offer completions for it"
-    )
-
-
-@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
-def test_runs_with_argcomplete_absent(script, tmp_path):
-    """argcomplete is optional, exactly like rich/rich-argparse: with it
-    unimportable the scripts must behave identically. Guards against someone
-    "tidying" the guarded import into a plain one."""
-    blocker = tmp_path / "blocker"
-    blocker.mkdir()
-    (blocker / "argcomplete.py").write_text(
-        'raise ImportError("blocked by tests/test_completions.py")\n'
-    )
-    env = {**os.environ, "PYTHONPATH": str(blocker)}
-    result = subprocess.run(
-        [sys.executable, str(script), "--no-color", "--help"],
-        capture_output=True, text=True, timeout=30, env=env, cwd=REPO,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "usage:" in result.stdout
 
 
 def test_the_dsp_import_is_deferred_past_every_early_return(tmp_path):
@@ -212,11 +184,12 @@ def test_completion_survives_an_unimportable_dsp_stack(tmp_path):
     than a sys.modules probe: a probe passes on a path that would have imported
     them had it gone one line further.
 
-    Below the argcomplete gate on purpose, not by oversight. That
-    `pytest.importorskip` is at module scope, so it aborts the import of this
-    whole file — the tests above it are no more collected without argcomplete
-    than the ones below. This trap has always been gated on it; the placement
-    costs no coverage and buys the real protocol.
+    Below the argcomplete gate on purpose, not by oversight: it drives the
+    real protocol, so it could not run without argcomplete wherever in this
+    file it sat. That is a fact about this test, not about the gate — the gate
+    is at module scope and aborts the import of the whole file, so it skips
+    what sits above it too. See `tests/test_optional_deps.py` for the traps
+    that had to leave because of it.
     """
     blocker = tmp_path / "no-dsp"
     blocker.mkdir()

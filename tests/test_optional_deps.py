@@ -1,25 +1,22 @@
-"""The colour dependencies stay optional, end to end.
+"""The optional dependencies stay optional, end to end.
 
 `rich` and `rich-argparse` are optional — the README promises that "without
 them everything still works in plain monochrome" — and two guarded imports in
 `lib/console.py` carry that promise: the themed `Console`, and the
-`RichHelpFormatter` each `build_parser` hands to argparse. Nothing else in the
-suite notices if either is "tidied" into a plain import: the machine that
-makes that edit has both installed, so the run stays green and only a user on
-a plain install ever sees the traceback.
+`RichHelpFormatter` each `build_parser` hands to argparse. `argcomplete` is
+the third, guarded the same way at the top of all three scripts. Nothing else
+in the suite notices if one of them is "tidied" into a plain import: the
+machine that makes that edit has them all installed, so the run stays green
+and only a user on a plain install ever sees the traceback.
 
-`tests/test_completions.py::test_runs_with_argcomplete_absent` is the sibling
-trap, in the same shape, for the third optional dependency.
-
-**Why this one is not in that file.** Its module-scope
-`pytest.importorskip("argcomplete")` aborts the import of the whole module, so
-on a machine without argcomplete the file collapses to a single skip and
-*every* test in it goes uncollected — including the ones defined above the
-gate, the argcomplete-absence trap among them. Measured by hiding argcomplete
-behind a meta-path finder: 17 passed becomes 1 skipped. Hosting the rich trap
-there would gate rich coverage on an unrelated optional dependency, which is
-the failure mode these traps exist to prevent. This file has no module-scope
-gate, and nothing added here may grow one.
+**Why the argcomplete traps are here and not in `tests/test_completions.py`.**
+That file's module-scope `pytest.importorskip("argcomplete")` aborts the
+import of the whole module, so on a machine without argcomplete it collapses
+to a single skip and *every* test in it goes uncollected — including the ones
+defined above the gate. An absence trap that only runs where the dependency is
+present asserts nothing, which is the failure mode these traps exist to
+prevent, so the two that need no argcomplete of their own live here. This file
+has no module-scope gate, and nothing added here may grow one.
 """
 
 from __future__ import annotations
@@ -127,4 +124,47 @@ def test_runs_with_rich_absent(script, tmp_path):
         "append the install tip naming them. Its absence means either the "
         "epilog no longer names both, or the shadow modules did not take "
         f"effect at all:\n{without}"
+    )
+
+
+# --- argcomplete ----------------------------------------------------------
+
+@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
+def test_runs_with_argcomplete_absent(script, tmp_path):
+    """argcomplete is optional, exactly like rich/rich-argparse: with it
+    unimportable the scripts must behave identically. Guards against someone
+    "tidying" the guarded import into a plain one."""
+    blocker = tmp_path / "blocker"
+    blocker.mkdir()
+    (blocker / "argcomplete.py").write_text(
+        'raise ImportError("blocked by tests/test_optional_deps.py")\n'
+    )
+    env = {**os.environ, "PYTHONPATH": str(blocker)}
+    result = subprocess.run(
+        [sys.executable, str(script), "--no-color", "--help"],
+        capture_output=True, text=True, timeout=30, env=env, cwd=REPO,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
+# The shell hook reads only the head of the file looking for the marker, so
+# placement is load-bearing, not cosmetic.
+# https://github.com/kislyuk/argcomplete — "the shell will look for the string
+# PYTHON_ARGCOMPLETE_OK in the first 1024 bytes of any executable".
+MARKER_WINDOW = 1024
+
+
+@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
+def test_marker_within_the_scanned_window(script):
+    """Every script advertises itself to the shell hook, early enough to be
+    seen. Editing the header docstring is what would push it out of range.
+
+    Here rather than with the completion traps because it reads bytes off
+    disk: it must hold on a machine that has yet to install argcomplete,
+    which is precisely the machine where the marker is about to matter."""
+    head = script.read_bytes()[:MARKER_WINDOW]
+    assert b"# PYTHON_ARGCOMPLETE_OK" in head, (
+        f"{script.name}: the marker must appear in the first {MARKER_WINDOW} "
+        "bytes or the shell will not offer completions for it"
     )
