@@ -66,7 +66,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile:
     build each combined FIR, write the .irs + .json, print the verification
     table, and record emitted filters. Mutates ``all_preset_names`` and
-    ``filters_by_profile`` in place (main() reads them after the loop)."""
+    ``filters_by_profile`` in place — main() passes two fields of its
+    ``RunTally`` and reads them back off it after the loop."""
     curves = tuning.curves
     peq_filters = tuning.peq_filters
     vol_leveler = tuning.vol_leveler

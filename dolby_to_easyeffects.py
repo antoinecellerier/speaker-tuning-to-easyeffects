@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib import console, doctor, ee_paths
@@ -36,8 +36,8 @@ from lib.hardware import speakers
 # would shadow the module for every later line that reads through it.
 from lib.hardware import sinks as hardware_sinks
 from lib.preset import autoload
-# Aliased: main() binds a local named `findings`, which would shadow the
-# module for the one line that resets _TAG_CONVENTION_SHOWN through it.
+# Aliased: `findings` is what main()'s RunTally calls the same collection, so
+# an unqualified `findings.` in this file would read as that, not the module.
 from lib.report import findings as report_findings
 # Aliased: one letter apart from lib.hardware.speakers above, which this file
 # still reads on the lines that hand it a SpeakerInfo to report on.
@@ -520,6 +520,38 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
     return found
 
 
+@dataclass
+class RunTally:
+    """Everything the per-profile loop accumulates for the closing block to
+    read. One record rather than five parallel locals: the loop visits up to
+    nine profiles and every one of them adds to all five, so they are one
+    thing with five faces, and naming them as one is what keeps the loop's
+    inputs readable at its head."""
+
+    # Preset names in emission order. --autoload with no name takes the first
+    # (see _configure_autoload), so the order is part of the contract.
+    all_preset_names: list[str] = field(default_factory=list)
+    # filter name → set of profile labels that emitted it. Lets the
+    # end-of-run --disable hint say *which* profiles each suggestion
+    # actually touches, so a user autoloading one preset isn't misled
+    # into thinking a filter applies to them when it only runs in other
+    # profiles.
+    filters_by_profile: dict[str, set[str]] = field(default_factory=dict)
+    # Findings raised across every profile built this run, in first-seen order
+    # and de-duplicated by slug: --all-profiles would otherwise repeat the same
+    # one nine times. The key is the slug rather than the rendered text because
+    # several findings embed a per-profile value (peak-level=-3), which made
+    # text-keyed de-duplication miss them.
+    findings: dict[str, Finding] = field(default_factory=dict)
+    # slug → profiles that raised it, so the closing block can say when one
+    # applies to some profiles and not the preset the user will autoload.
+    raised_in: dict[str, list[str]] = field(default_factory=dict)
+    # Leveler substages seen anywhere this run. A dict keyed to None rather
+    # than a set, because the closing block reports it as a list and insertion
+    # order is the only order that means anything.
+    leveler_substages: dict[str, None] = field(default_factory=dict)
+
+
 def main(argv: list[str] | None = None,
          closing: list[Finding] | None = None,
          troubleshooting: dict | None = None,
@@ -674,23 +706,7 @@ def main(argv: list[str] | None = None,
         args.output_dir.mkdir(parents=True, exist_ok=True)
         args.irs_dir.mkdir(parents=True, exist_ok=True)
 
-    all_preset_names = []
-    # filter name → set of profile labels that emitted it. Lets the
-    # end-of-run --disable hint say *which* profiles each suggestion
-    # actually touches, so a user autoloading one preset isn't misled
-    # into thinking a filter applies to them when it only runs in other
-    # profiles.
-    filters_by_profile: dict[str, set[str]] = {}
-    # Findings raised across every profile built this run, in first-seen order
-    # and de-duplicated by slug: --all-profiles would otherwise repeat the same
-    # one nine times. The key is the slug rather than the rendered text because
-    # several findings embed a per-profile value (peak-level=-3), which made
-    # text-keyed de-duplication miss them.
-    findings: dict[str, Finding] = {}
-    # slug → profiles that raised it, so the closing block can say when one
-    # applies to some profiles and not the preset the user will autoload.
-    raised_in: dict[str, list[str]] = {}
-    leveler_substages: dict[str, None] = {}
+    tally = RunTally()
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
@@ -738,13 +754,13 @@ def main(argv: list[str] | None = None,
             is_soundwire=is_soundwire, verbose=args.verbose)
 
         for finding in [*tuning.findings, *profile_findings]:
-            findings.setdefault(finding.slug, finding)
-            raised_in.setdefault(finding.slug, []).append(profile_label)
-        leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
+            tally.findings.setdefault(finding.slug, finding)
+            tally.raised_in.setdefault(finding.slug, []).append(profile_label)
+        tally.leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
         emit._emit_ieq_presets(tuning, name_base, is_soundwire, disabled,
-                               args, profile_label, all_preset_names,
-                               filters_by_profile,
+                               args, profile_label, tally.all_preset_names,
+                               tally.filters_by_profile,
                                # ⚠ hints print warn-styled above; the check
                                # verdict goes dim on those runs so green never
                                # reads as cancelling a warning (round 9).
@@ -752,21 +768,22 @@ def main(argv: list[str] | None = None,
                                           for f in [*tuning.findings,
                                                     *profile_findings]))
 
-    _configure_autoload(args, all_preset_names)
+    _configure_autoload(args, tally.all_preset_names)
 
     # A requested --enable that never produced an active stage is silent
     # otherwise: make_autogain returns None when the XML's volume leveler is
     # disabled, so the flag can't do anything and the preset is unchanged.
     # First of the closing output because it answers something the user typed,
     # rather than something we noticed.
-    if "autogain" in args.enable and "autogain-active" not in filters_by_profile:
+    if ("autogain" in args.enable
+            and "autogain-active" not in tally.filters_by_profile):
         print()
         console._cprint_wrapped("warn", "--enable autogain had no effect: this "
                                 "tuning's volume leveler is disabled in the "
                                 "XML, so there is no leveler stage to "
                                 "activate. The preset is unchanged.")
     if ("coupled-bands" in args.enable
-            and "coupled-bands-active" not in filters_by_profile):
+            and "coupled-bands-active" not in tally.filters_by_profile):
         print()
         console._cprint_wrapped("warn", "--enable coupled-bands had no effect: this "
                                 "tuning's regulator has no 0 dBFS zone whose "
@@ -778,7 +795,7 @@ def main(argv: list[str] | None = None,
     # the system won't play this correctly whatever the preset says, so there
     # is no point offering filter tweaks above them.
     for finding in _speaker_environment_findings(args.endpoint):
-        findings.setdefault(finding.slug, finding)
+        tally.findings.setdefault(finding.slug, finding)
 
     # Proactively flag an EasyEffects install that can't use what we just wrote
     # — the failure mode #22 surfaced (a correct preset silently inaudible
@@ -795,38 +812,40 @@ def main(argv: list[str] | None = None,
     # Experimental emissions are numerically verified but have never been
     # confirmed by ear, and a user with an affected device is the only way
     # that changes — so they ask rather than merely announcing themselves.
-    fired = [k for k in messages.EXPERIMENTAL_MARKERS if k in filters_by_profile]
+    fired = [k for k in messages.EXPERIMENTAL_MARKERS
+             if k in tally.filters_by_profile]
     experimental = [messages.EXPERIMENTAL_MARKERS[k] for k in fired]
     if experimental:
         # Only the markers that are also --disable names give the user an A/B;
         # "mbc-1band" and "coupled-bands-active" have no flag of their own.
-        findings.setdefault("unconfirmed-by-ear", report_findings._experimental_finding(
-            ", ".join(experimental),
-            [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
-        _print_finding_detail(findings["unconfirmed-by-ear"])
+        tally.findings.setdefault(
+            "unconfirmed-by-ear", report_findings._experimental_finding(
+                ", ".join(experimental),
+                [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
+        _print_finding_detail(tally.findings["unconfirmed-by-ear"])
 
     # Gated on the leveler actually running, not on the flag being passed:
     # --enable autogain does nothing when the XML disables the leveler, and
     # escalating on the flag alone contradicted the "had no effect" warning
     # printed a few lines above on exactly those devices.
     substage_finding = report_findings._leveler_gap_finding(
-        list(leveler_substages),
-        autogain_on="autogain-active" in filters_by_profile,
+        list(tally.leveler_substages),
+        autogain_on="autogain-active" in tally.filters_by_profile,
         # "autogain" is the marker for a leveler that shipped bypassed but
         # could be switched on; absent means the XML disabled it outright —
         # or that --disable autogain cleared it, which the flag branch owns
         # so the tuning doesn't get blamed for the reader's own choice.
-        autogain_available="autogain" in filters_by_profile,
+        autogain_available="autogain" in tally.filters_by_profile,
         disabled_by_flag="autogain" in args.disable)
     if substage_finding is not None:
-        findings.setdefault(substage_finding.slug, substage_finding)
+        tally.findings.setdefault(substage_finding.slug, substage_finding)
         _print_finding_detail(substage_finding)
 
     # Stamp the scope on last, once every profile has been seen. Findings
     # raised everywhere carry none, so a single-profile run — the default —
     # never shows one.
     def _scope(finding):
-        seen = list(dict.fromkeys(raised_in.get(finding.slug, [])))
+        seen = list(dict.fromkeys(tally.raised_in.get(finding.slug, [])))
         if not seen or len(seen) == len(profile_types):
             return finding
         # Naming them beats counting them right up until the list is longer
@@ -836,7 +855,7 @@ def main(argv: list[str] | None = None,
                  else f"{len(seen)} of {len(profile_types)} profiles")
         return replace(finding, scope=label)
 
-    scoped = [_scope(f) for f in findings.values()]
+    scoped = [_scope(f) for f in tally.findings.values()]
 
     # A wrapper takes the menu along with the closing ask (round 4: printed
     # at [1/3] it told the reader what to re-run before setup had finished,
@@ -846,11 +865,11 @@ def main(argv: list[str] | None = None,
     if troubleshooting is not None:
         troubleshooting.update(
             findings=scoped,
-            filters_by_profile=filters_by_profile,
+            filters_by_profile=tally.filters_by_profile,
             enabled_by_flag=frozenset(args.enable))
     else:
         menu_printed = messages.print_troubleshooting(
-            scoped, filters_by_profile,
+            scoped, tally.filters_by_profile,
             installs_presets=not args.skip_closing,
             enabled_by_flag=frozenset(args.enable),
             dry_run=args.dry_run)
@@ -872,16 +891,16 @@ def main(argv: list[str] | None = None,
             profile_used = tuning.profile_used
             n_modes = len(parse.get_profile_types(xml_path, args.endpoint,
                                                   args.mode))
-        messages.print_what_now(all_preset_names, bool(args.autoload), args.dry_run,
+        messages.print_what_now(tally.all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
                        default_unknown=(args.profile is None
                                         and tuning.default_profile is None),
                        # "autogain" marker = leveler present but bypassed
                        # (the --enable-menu state); -active = running.
-                       autogain_off=("autogain" in filters_by_profile
+                       autogain_off=("autogain" in tally.filters_by_profile
                                      and "autogain-active"
-                                     not in filters_by_profile),
+                                     not in tally.filters_by_profile),
                        menu_printed=menu_printed,
                        declared_default=(tuning.default_profile
                                          if args.profile is None else None))
