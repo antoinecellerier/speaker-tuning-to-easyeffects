@@ -30,12 +30,17 @@ from lib.report import findings as report_findings
 from lib.report import messages
 
 
-# The Balanced/Detailed/Warm stems _emit_ieq_presets emits, keyed by the
-# --variant choices. The curves are Dolby-global constants (identical arrays
-# on every device in the corpus; see docs/cross-device-findings.md), and
-# ieq_balanced is the curve every device's profile selects by default —
-# hence the default here.
-VARIANT_STEMS = {"balanced": "Balanced", "detailed": "Detailed", "warm": "Warm"}
+# The --variant choices: messages.VOICING_CURVES' labels, lowercased into flag
+# values. Derived rather than restated, because that table calls itself the
+# single source for the voicings and this was the copy contradicting it — a
+# wrapper offering a voicing the emit loop no longer builds would fail two
+# steps later, on a name it had itself promised. Its insertion order is build
+# order, and carries through to --help's choices below.
+#
+# The curves are Dolby-global constants (identical arrays on every device in
+# the corpus; see docs/cross-device-findings.md), and ieq_balanced is the curve
+# every device's profile selects by default — hence the default below.
+VARIANT_STEMS = {label.lower(): label for label in messages.VOICING_CURVES}
 
 
 def _compose_parser(argv=None):

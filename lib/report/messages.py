@@ -16,12 +16,14 @@ where numpy has deliberately not been imported yet. Keeping them beside
 press.
 
 `VOICING_CURVES` is here on the same argument one step further out. It is the
-Balanced/Detailed/Warm table, and its two readers — the per-profile report and
-the emit loop — end up in different packages, neither of which may import the
-other (both reach numpy, and a shared table is no reason to drag scipy across
-a package boundary). It is copy as much as it is data: `print_what_now` right
-below already names two of the three voicings in the hint it derives from what
-was built.
+Balanced/Detailed/Warm table, and its readers — the per-profile report, the
+emit loop, and `dolby_to_pipewire.py`'s `--variant` choices — end up in
+different packages, neither of which may import the other (both reach numpy,
+and a shared table is no reason to drag scipy across a package boundary). It
+is copy as much as it is data: `print_what_now` right below already names two
+of the three voicings in the hint it derives from what was built. Its
+insertion order is the order voicings are built in, so a reader that renders
+the list — `--variant`'s choices, and `--help` behind it — inherits it.
 
 `Finding`'s asks print through `lib/report/findings.py`; this module renders
 the menus around them. `_print_ask` comes in as a bare name rather than
