@@ -166,8 +166,11 @@ def ee_chain_mag_db(tuning, freqs_probe):
     This is the magnitude that rides on top of the stimulus into the MBC."""
     scale = tuning.ieq_amount / 100.0
     float_freqs = np.array(tuning.freqs, float)
-    ieq_db = np.array(tuning.curves["ieq_balanced"]) / 16.0 * scale
-    ao_db_left = np.array(tuning.ao_left) / 16.0  # matches the generator's main()
+    # Mirrors the gain staging _emit_ieq_presets does on its way to make_fir.
+    # A second copy on purpose: this tool has to reproduce what the converter
+    # emitted to measure against it, so it is written out rather than called.
+    ieq_db = np.array(tuning.curves["ieq_balanced"]) / parse.DB_FIXED_POINT_SCALE * scale
+    ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
     combined = ieq_db + ao_db_left
     fir_left, _ = fir.make_fir(float_freqs, combined, normalize=True)
     H = np.fft.rfft(fir_left, n=fir.FIR_LENGTH)

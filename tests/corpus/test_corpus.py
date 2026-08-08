@@ -319,9 +319,13 @@ def test_corpus_xml_every_endpoint_profile_curve(xml_path):
             assert len(tuning.freqs) == 20, where
             assert len(tuning.ao_left) == len(tuning.ao_right) == 20, where
 
-            # Same gain staging _emit_ieq_presets performs on its way to
-            # make_fir — re-derived here rather than called, so this walk
-            # checks the arithmetic instead of trusting it.
+            # A second copy of the gain staging _emit_ieq_presets does on its
+            # way to make_fir, written out rather than called: what this walk
+            # asserts below is minimum phase, a property of make_fir, and the
+            # staging is only here to feed it a realistic curve. So nothing
+            # here compares against emit.py — if that staging changed, this
+            # would keep passing on the old one, testing an input production
+            # no longer builds.
             scale = tuning.ieq_amount / 100.0
             ao_db_left = np.array(tuning.ao_left) / DB_FIXED_POINT_SCALE
             ao_db_right = np.array(tuning.ao_right) / DB_FIXED_POINT_SCALE

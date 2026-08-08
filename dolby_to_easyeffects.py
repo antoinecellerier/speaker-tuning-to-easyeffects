@@ -32,8 +32,9 @@ from pathlib import Path
 from lib import console, doctor, ee_paths
 from lib.dax import discover, parse
 from lib.hardware import speakers
-# Aliased: main() binds a local named `sinks` for the resolver's result, which
-# would shadow the module for every later line that reads through it.
+# Aliased: _configure_autoload binds a local named `sinks` for the resolver's
+# result, which would shadow the module for every later line that reads
+# through it.
 from lib.hardware import sinks as hardware_sinks
 from lib.preset import autoload
 # Aliased: `findings` is what main()'s RunTally calls the same collection, so
