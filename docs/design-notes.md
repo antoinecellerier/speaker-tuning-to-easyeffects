@@ -404,6 +404,84 @@ those experiments produce measurement-backed conclusions, the relevant row
 will be updated to cite the residual numbers and the decision (kept,
 changed, or documented trade-off).
 
+### Recorded contradiction: "nothing takes look-ahead" vs. two 1 ms sites
+
+`CLAUDE.md` states the latency invariant as a constraint plus a mechanism:
+"**Zero added latency** over the PipeWire quantum is a hard constraint (video
+lip-sync, interactive use), so the FIR stays **minimum-phase** and nothing in
+the chain takes look-ahead" (`.claude/rules/dsp-fir.md` puts the second half
+harder still — "nothing in the output chain may spend any"). The *constraint*
+is not what is in question here. **The mechanism clause is false as written:**
+two sites in the shipped chain ask for 1 ms of look-ahead.
+
+- `make_limiter` (`lib/preset/plugins.py`) writes `"lookahead": 1.0` on
+  `limiter#0`; `emit_limiter` (`lib/pipewire/plugins.py`) carries it to the
+  filter-chain conf as `lk`.
+- `make_regulator` writes `"sidechain-lookahead": 1.0` — comment, "1 ms head
+  start for transients" — on every in-zone band of `multiband_compressor#1`;
+  `emit_mb_compressor` translates it to `sla_N`.
+
+Neither is an LSP default riding through. The music compressor's per-band dict
+in `make_multiband_compressor` writes `0.0`, as does the shared band-off
+template `_disabled_band` (inert there — the band is off), so the regulator's
+`1.0` is a choice made for that plugin. The audit table above carries no row
+for it at all.
+
+Three of our own doc claims then disagree with each other about what that 1 ms
+is:
+
+1. **A deliberate trade-off, recorded as one.** The `limiter#0` / `lookahead`
+   row above classes 1.0 ms as **TOPOLOGY**: "Below LSP default (5 ms) but
+   non-zero. Allows correct peak detection without the full-default delay" —
+   i.e. we chose a *smaller* delay, not no delay.
+2. **Look-ahead is the latency.** "Translating active autogain to LSP
+   `autogain_stereo`" below pins `lkahead` to `0.0` because "`lkahead=0` keeps
+   it at zero over the PipeWire quantum (the hard constraint)", and the comment
+   at that line in `emit_autogain` calls lookahead "the only latency source
+   (port 41)". On that reading, non-zero look-ahead is exactly what spends
+   latency — which is what the two sites above then spend.
+3. **Not ours to answer for.** `.claude/rules/dsp-fir.md` says the limiter's
+   `lk` "is whatever the EasyEffects preset already carried rather than a value
+   we chose". That holds only from `ee_to_pipewire.py`'s vantage, where the
+   preset is an input; this repo *writes* that preset, in `make_limiter`, so at
+   the project level the value is ours. The sentence is a third position in the
+   disagreement, not a resolution of it.
+
+**What the measurements on record do and don't cover.** The 2026-06-22 EE-vs-PW
+proof below reports identical capture onsets at 0.30 s, but it ran an
+*autogain-only* preset with every other stage stripped from `plugins_order` —
+the limiter and both MBCs were not in that chain, so it cannot speak to either
+site. The full-chain capture from the same session, and the EE↔PW equivalence
+residuals in `docs/ee-to-pipewire.md`, are EE-*against*-PW comparisons in which
+both sides carry the same look-ahead: they would catch a relative delay between
+the two paths, not an absolute one against bypass. So nothing measured here
+currently bears on the mechanism clause either way.
+
+**What would settle it** — named as evidence, not scheduled as work:
+
+- `lv2info` on the LSP limiter and MBC URIs: whether either declares a latency
+  output port, and what it reports at `lk=1.0` / `sla_N=1.0` against `0`.
+  `lib/pipewire/checks.py` already shells out to `lv2info` for conf validation,
+  so the tool is a stated dependency rather than new apparatus.
+- Whether LSP's MBC `sidechain-lookahead` delays the **main** path or only the
+  detector. Port metadata plus a measured impulse position would answer it; the
+  capture route exists but sits behind the `/audio-validate` gate and an audio
+  handoff.
+- Live node latency from `pw-top` / `pw-cli` on a loaded chain, and
+  EasyEffects' own per-plugin latency readout, at 1 ms against 0.
+
+**A candidate reconciliation, explicitly unverified.** 1 ms is well inside a
+typical PipeWire quantum — 256/48000 ≈ 5.3 ms, 1024/48000 ≈ 21 ms, and the
+perf/equivalence rigs documented here ran at 1024 / 48 kHz. If the look-ahead
+is absorbed within a period the node is already being called with, then "zero
+added latency *over the quantum*" and "takes 1 ms of look-ahead" are both true
+and only the clause's wording is wrong; if it is added on top, the constraint
+itself is at stake. That is the *shape* an answer could take — it is not a
+finding, and none of it has been measured.
+
+Recorded 2026-08-08 by decision, with the fix deferred: no code, no invariant
+wording, and none of the three claims above were changed.
+
 ### Measurement outcome: dynamics plugins are dormant on the test stimuli
 
 A reduced A/B sweep (current vs `limiter mode = "Herm Wide"` +
