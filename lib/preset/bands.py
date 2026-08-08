@@ -4,8 +4,10 @@ One builder per Dolby PEQ filter type — bell, low/high shelf, high/low pass �
 each funnelled through `_eq_band` so the EE-schema fillers (`mode`, `mute`,
 `solo`, `width`) are written in one place and a schema change lands once.
 `make_peq_eq` stacks them into the speaker-PEQ stage, matching the channels
-band-for-band and paying back the boost it added; everything else that becomes
-a plugin block is in `plugins.py`, and what ships is decided in `build.py`.
+band-for-band and paying back the boost it added — everything it knows about a
+shape (its Dolby type codes, builder, filler, boost) is one `_PEQ_CATEGORIES`
+row beside it. Everything else that becomes a plugin block is in `plugins.py`,
+and what ships is decided in `build.py`.
 
 Stdlib-only, and the numbers are why: a shelf Q from its S, a slope label from
 a Dolby order and a per-channel gain sum are closed-form arithmetic. So this
@@ -16,6 +18,8 @@ half of preset construction is importable at the top of the generator, unlike
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import NamedTuple
 
 
 def _eq_band(*, frequency, gain, q, slope, lsp_type) -> dict:
@@ -147,31 +151,84 @@ def make_lp_band(freq: float, order: int) -> dict:
     return _make_passfilter(freq, order, "Lo-pass")
 
 
+class _PeqCategory(NamedTuple):
+    """One Dolby PEQ filter shape, and everything `make_peq_eq` does with it.
+
+    A row is the whole of it: bucketing, band building, the filler and the
+    boost sum all read from here, so a new shape — or a re-read Dolby type
+    code — is one row's edit, not the same knowledge restated in four places
+    that a partial change leaves disagreeing.
+    """
+    types: tuple[int, ...]          # Dolby PEQ `type` codes selecting this
+                                    # shape. Must be disjoint across rows —
+                                    # each row buckets independently, so a
+                                    # code in two rows emits its filter twice.
+    build: Callable[[dict], dict]   # parsed filter → EE band
+    filler: Callable[[], dict]      # band for a slot the shorter channel has
+                                    # no filter for (see the fill pass)
+    boost: Callable[[dict], float] | None
+                                    # broadband dB a positive-gain filter of
+                                    # this shape adds, for the output-gain
+                                    # compensation below; None = cut-only, so
+                                    # it contributes nothing
+
+
+# The shapes `make_peq_eq` emits, in the order their bands are laid out —
+# row order *is* band order, and both channels walk it from the same offsets,
+# which is what keeps L and R matched band-for-band. Fillers keep the slot's
+# shape rather than being transparent: shelf and bell fill at 0 dB (a genuine
+# no-op), while HP/LP have no neutral setting and fill at an out-of-the-way
+# corner instead.
+_PEQ_CATEGORIES = (
+    _PeqCategory(   # high pass
+        types=(7, 9),
+        build=lambda pf: make_hp_band(pf["f0"], pf["order"]),
+        filler=lambda: make_hp_band(100.0, 4),
+        boost=None,
+    ),
+    _PeqCategory(   # low pass
+        types=(6, 8),
+        build=lambda pf: make_lp_band(pf["f0"], pf["order"]),
+        filler=lambda: make_lp_band(20000.0, 4),
+        boost=None,
+    ),
+    _PeqCategory(   # low shelf
+        types=(4,),
+        build=lambda pf: make_shelf_band(pf["f0"], pf["gain"], pf["s"]),
+        filler=lambda: make_shelf_band(100.0, 0.0),
+        boost=lambda pf: pf["gain"],
+    ),
+    _PeqCategory(   # high shelf
+        types=(3,),
+        build=lambda pf: make_hishelf_band(pf["f0"], pf["gain"], pf["s"]),
+        filler=lambda: make_hishelf_band(10000.0, 0.0),
+        boost=lambda pf: pf["gain"],
+    ),
+    _PeqCategory(   # bell
+        types=(1,),
+        build=lambda pf: make_band(pf["f0"], pf["gain"], q=pf["q"]),
+        filler=lambda: make_band(1000.0, 0.0),
+        boost=lambda pf: pf["gain"] * min(1.0, 2.0 / pf.get("q", 1.0)),
+    ),
+)
+
+
 def make_peq_eq(peq_filters: list[dict]) -> dict | None:
     """Parametric EQ for the explicit speaker PEQ from Dolby.
 
-    Handles filter types: 1 (bell), 4 (low-shelf), 7/9 (high-pass),
-    3 (high-shelf, experimental), 6/8 (low-pass, experimental). The HP
-    protects laptop speakers from sub-bass energy they can't reproduce;
-    the LP is a tweeter-guard rolloff seen on a handful of ALC274 SKUs.
+    Handles the filter types in `_PEQ_CATEGORIES`: 1 (bell), 4 (low-shelf),
+    7/9 (high-pass), 3 (high-shelf, experimental), 6/8 (low-pass,
+    experimental); any other type is dropped. The HP protects laptop
+    speakers from sub-bass energy they can't reproduce; the LP is a
+    tweeter-guard rolloff seen on a handful of ALC274 SKUs.
     """
-    bells_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 1]
-    bells_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 1]
-    hp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (7, 9)]
-    hp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (7, 9)]
-    lp_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] in (6, 8)]
-    lp_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] in (6, 8)]
-    loshelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 4]
-    loshelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 4]
-    hishelf_l = [f for f in peq_filters if f["speaker"] == 0 and f["type"] == 3]
-    hishelf_r = [f for f in peq_filters if f["speaker"] == 1 and f["type"] == 3]
+    def bucket(cat: _PeqCategory, speaker: int) -> list[dict]:
+        return [f for f in peq_filters
+                if f["speaker"] == speaker and f["type"] in cat.types]
 
-    num_bells = max(len(bells_l), len(bells_r))
-    num_hp = max(len(hp_l), len(hp_r))
-    num_lp = max(len(lp_l), len(lp_r))
-    num_loshelf = max(len(loshelf_l), len(loshelf_r))
-    num_hishelf = max(len(hishelf_l), len(hishelf_r))
-    num_bands = num_hp + num_lp + num_loshelf + num_hishelf + num_bells
+    buckets = [(bucket(cat, 0), bucket(cat, 1)) for cat in _PEQ_CATEGORIES]
+    counts = [max(len(b_l), len(b_r)) for b_l, b_r in buckets]
+    num_bands = sum(counts)
 
     if num_bands == 0:
         return None
@@ -179,45 +236,25 @@ def make_peq_eq(peq_filters: list[dict]) -> dict | None:
     left_bands = {}
     right_bands = {}
 
-    def place(bucket_l, bucket_r, builder, off):
-        for j, pf in enumerate(bucket_l):
-            left_bands[f"band{off + j}"] = builder(pf)
-        for j, pf in enumerate(bucket_r):
-            right_bands[f"band{off + j}"] = builder(pf)
-
     off = 0
-    place(hp_l, hp_r, lambda pf: make_hp_band(pf["f0"], pf["order"]), off)
-    off += num_hp
-    place(lp_l, lp_r, lambda pf: make_lp_band(pf["f0"], pf["order"]), off)
-    off += num_lp
-    place(loshelf_l, loshelf_r,
-          lambda pf: make_shelf_band(pf["f0"], pf["gain"], pf["s"]), off)
-    off += num_loshelf
-    place(hishelf_l, hishelf_r,
-          lambda pf: make_hishelf_band(pf["f0"], pf["gain"], pf["s"]), off)
-    off += num_hishelf
-    place(bells_l, bells_r,
-          lambda pf: make_band(pf["f0"], pf["gain"], q=pf["q"]), off)
+    for (bucket_l, bucket_r), cat, count in zip(buckets, _PEQ_CATEGORIES,
+                                                counts):
+        for j, pf in enumerate(bucket_l):
+            left_bands[f"band{off + j}"] = cat.build(pf)
+        for j, pf in enumerate(bucket_r):
+            right_bands[f"band{off + j}"] = cat.build(pf)
+        off += count
 
     # Fill missing bands on whichever channel is shorter. Each slot keeps
     # its filter category so the channels stay topologically matched.
-    fillers = []
-    for _ in range(num_hp):
-        fillers.append(lambda: make_hp_band(100.0, 4))
-    for _ in range(num_lp):
-        fillers.append(lambda: make_lp_band(20000.0, 4))
-    for _ in range(num_loshelf):
-        fillers.append(lambda: make_shelf_band(100.0, 0.0))
-    for _ in range(num_hishelf):
-        fillers.append(lambda: make_hishelf_band(10000.0, 0.0))
-    for _ in range(num_bells):
-        fillers.append(lambda: make_band(1000.0, 0.0))
+    slot_category = [cat for cat, count in zip(_PEQ_CATEGORIES, counts)
+                     for _ in range(count)]
     for idx in range(num_bands):
         key = f"band{idx}"
         if key not in left_bands:
-            left_bands[key] = fillers[idx]()
+            left_bands[key] = slot_category[idx].filler()
         if key not in right_bands:
-            right_bands[key] = fillers[idx]()
+            right_bands[key] = slot_category[idx].filler()
 
     # Compensate for PEQ boost to prevent clipping. Bells are scaled by
     # bandwidth: a narrow Q=4.6 bell at +4 dB barely raises broadband
@@ -225,17 +262,16 @@ def make_peq_eq(peq_filters: list[dict]) -> dict | None:
     # (effective boost ≈ gain * min(1, 2/Q)). Shelves (both low- and
     # high-shelf) contribute their full gain because they raise an entire
     # half-band above/below the corner. HP/LP filters are cut-only and
-    # reduce headroom, so they don't enter the compensation sum.
+    # reduce headroom, so they don't enter the compensation sum — that is
+    # the `boost=None` rows above.
     effective_boosts = []
-    for pf in bells_l + bells_r:
-        if pf["gain"] <= 0:
+    for (bucket_l, bucket_r), cat in zip(buckets, _PEQ_CATEGORIES):
+        if cat.boost is None:
             continue
-        q = pf.get("q", 1.0)
-        effective_boosts.append(pf["gain"] * min(1.0, 2.0 / q))
-    for pf in loshelf_l + loshelf_r + hishelf_l + hishelf_r:
-        if pf["gain"] <= 0:
-            continue
-        effective_boosts.append(pf["gain"])
+        for pf in bucket_l + bucket_r:
+            if pf["gain"] <= 0:
+                continue
+            effective_boosts.append(cat.boost(pf))
     peak_boost = max(effective_boosts, default=0.0)
     output_gain = -peak_boost
 

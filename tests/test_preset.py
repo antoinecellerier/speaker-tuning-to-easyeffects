@@ -454,6 +454,56 @@ def test_peq_output_gain_uses_global_max_across_asymmetric_channels():
     assert eq["right"]["band0"]["gain"] == pytest.approx(2.0, abs=0.01)
 
 
+@pytest.mark.parametrize("shelf_type", [4, 3])   # low shelf, high shelf
+def test_peq_output_gain_counts_a_shelf_at_its_full_gain(shelf_type):
+    """Both shelf directions raise a whole half-band, so they enter the
+    compensation at their full gain — no bandwidth scaling, unlike a bell.
+    The golden digest can't see this: its mixed-shape fixture has a bell
+    boosting harder than the shelf, so the shelf never sets the maximum.
+    """
+    peq = synthetic_peq_filters([
+        (0, shelf_type, 4000.0, 5.0, 0.7, 0, 1.0),
+        (1, shelf_type, 4000.0, 5.0, 0.7, 0, 1.0),
+    ])
+    eq = make_peq_eq(peq)
+    assert eq["output-gain"] == pytest.approx(-5.0, abs=0.01)
+
+
+# --- LOCK-IN: each Dolby filter type keeps its own shape, fillers included ---
+# Dolby type code → filter shape drives bucketing, band building, the filler
+# and the boost sum from one table. These pin the code→shape mapping (a code
+# claimed by the wrong shape emits the wrong filter) and the neutral band that
+# fills an unmatched slot on the shorter channel. The golden digest covers the
+# shapes themselves, but only the high-pass filler — its asymmetric fixture is
+# the one with an unmatched slot.
+
+@pytest.mark.parametrize("type_code,expected", [
+    (7, {"type": "Hi-pass", "frequency": 100.0, "slope": "x2"}),
+    (9, {"type": "Hi-pass", "frequency": 100.0, "slope": "x2"}),
+    (6, {"type": "Lo-pass", "frequency": 20000.0, "slope": "x2"}),
+    (8, {"type": "Lo-pass", "frequency": 20000.0, "slope": "x2"}),
+    (4, {"type": "Lo-shelf", "frequency": 100.0, "gain": 0.0}),
+    (3, {"type": "Hi-shelf", "frequency": 10000.0, "gain": 0.0}),
+    (1, {"type": "Bell", "frequency": 1000.0, "gain": 0.0}),
+])
+def test_peq_unmatched_slot_is_filled_with_its_own_shape(type_code, expected):
+    """One filter on the left channel only: the right channel's band0 is a
+    filler of the *same* shape, so the two channels stay matched band-for-band
+    (EE has one band list per channel and no way to say "absent"). The shelf
+    and bell fillers are 0 dB no-ops; HP/LP have no neutral setting, so they
+    fill at an out-of-the-way corner — 100 Hz / 20 kHz, 4th order.
+    """
+    peq = synthetic_peq_filters([(0, type_code, 1234.0, 3.0, 1.5, 2, 1.0)])
+    eq = make_peq_eq(peq)
+    assert eq["num-bands"] == 1
+    # The real band on the left carries the shape its type code selects...
+    assert eq["left"]["band0"]["type"] == expected["type"]
+    assert eq["left"]["band0"]["frequency"] == 1234.0
+    # ...and the filler opposite it is the same shape, at its own defaults.
+    for key, value in expected.items():
+        assert eq["right"]["band0"][key] == value
+
+
 # --- TRAP: HDA autogain bypass + crackle-safe gate ---
 # The leveler stays bypassed by default on HDA: EE's autogain lacks
 # Dolby's MI steering, so it boosts legitimate quiet content and loud
