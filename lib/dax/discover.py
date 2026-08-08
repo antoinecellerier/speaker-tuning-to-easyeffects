@@ -642,10 +642,10 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
         console.cprint("head", "Multiple matching XMLs found, using highest tuning version:")
         for i, (c, _version, ver) in enumerate(ranked):
             if i == 0:
-                console.cprint("ok", f"  → {c} (tuning_version={ver})")
+                console.cprint("ok", f"  → {doctor.tilde(c)} (tuning_version={ver})")
             else:
-                print(f"    {c} (tuning_version={ver})")
+                print(f"    {doctor.tilde(c)} (tuning_version={ver})")
     else:
-        console.cprint("ok", f"Matched tuning XML: {candidates[0]}")
+        console.cprint("ok", f"Matched tuning XML: {doctor.tilde(candidates[0])}")
 
     return candidates[0]
