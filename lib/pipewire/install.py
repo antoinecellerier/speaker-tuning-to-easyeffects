@@ -160,6 +160,29 @@ def _print_results(conf_path: Path, irs_path: Path | None,
             console.cprint("ok", f"Copied impulse response (.irs): {irs_path}")
 
 
+def _grep_expectation(tail: str = "") -> str:
+    """The line printed under a ``pw-cli ls Node | grep`` step, saying what
+    success looks like. Both finish paths render it from here, so the two
+    cannot tell a user different things about the same grep.
+
+    What success looks like (round 6): with no expected output stated, an
+    empty grep couldn't be told apart from "this step doesn't matter". And it
+    names the usual cause of an empty grep instead of blaming the restart —
+    when an LSP or Calf plugin is missing, module-filter-chain fails to load
+    the whole conf and no node ever appears, so a reader told only "the
+    restart didn't load it" re-restarts forever. The automated path says it
+    too, in its own words (``_verify_sinks``).
+
+    ``tail`` appends what happens *once* the line shows up: the only part that
+    differs between the callers, and empty where the caller says nothing about
+    it.
+    """
+    once = f" — {tail}" if tail else ""
+    return ('     (it should print a line, showing node.name = "..."; '
+            "nothing usually means the LSP or Calf LV2 plugins are "
+            f"missing, so the whole file failed to load{once})")
+
+
 def _print_next_steps(node_name: str,
                       target_object: str | None = None) -> None:
     """The actions to take after a real (non-dry-run) write."""
@@ -176,14 +199,7 @@ def _print_next_steps(node_name: str,
                   "or remove its autoload for this device)")
     console.cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
                   f"{_sanitize_name(node_name)}")
-    # What success looks like (round 6): with no expected output stated, an
-    # empty grep couldn't be told apart from "this step doesn't matter".
-    # Names the usual cause of an empty grep rather than blaming the restart:
-    # a missing LSP/Calf plugin makes module-filter-chain drop the whole
-    # conf, so no node appears and re-restarting never helps.
-    console.cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
-                  "nothing usually means the LSP or Calf LV2 plugins are "
-                  "missing, so the whole file failed to load)")
+    console.cprint("dim", _grep_expectation())
     if target_object:
         console.cprint("cta", "  4. Verify routing:          "
                       f"pw-link -l | grep {target_object}")
@@ -234,25 +250,17 @@ def _print_manual_activation(node_names: list[str],
     for i, name in enumerate(node_names, start=2):
         console.cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
-    # What success looks like (round 6): with no expected output stated, an
-    # empty grep couldn't be told apart from "this step doesn't matter".
     # "Pinned ... automatically": the verify step proved existence, not
     # routing, and nothing said whether to go pick it in Settings (round
-    # 10) — the smart filter pins it, so say so.
-    # Names the usual cause of an empty grep instead of blaming the restart:
-    # when an LSP or Calf plugin is missing, module-filter-chain fails to
-    # load the whole conf and no node ever appears, so a reader told only
-    # "the restart didn't load it" re-restarts forever. The automated path
-    # already says this (_verify_sinks); the manual one didn't.
+    # 10) — the smart filter pins it, so say so. This path carries a tail
+    # where _print_next_steps has none.
     # "pinned automatically" is true of smart-filter routing only. Under
     # --target-sink '' the chain is an ordinary output that does nothing until
     # it is selected, and this sentence promised the opposite.
     tail = ("once the line is there, pick it as your output in sound settings"
             if selectable else
             "once the line is there, it's pinned to your speakers automatically")
-    console.cprint("dim", "     (it should print a line, showing node.name = \"...\"; "
-                  "nothing usually means the LSP or Calf LV2 plugins are "
-                  f"missing, so the whole file failed to load — {tail})")
+    console.cprint("dim", _grep_expectation(tail))
     console.cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
