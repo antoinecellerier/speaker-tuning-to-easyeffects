@@ -279,11 +279,27 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     changed = [r for r in rows if r["changed"]]
+    # Rows are per *site*, so one sentence written at two places is two rows
+    # and each stays citable by id. That makes the row count fall on a commit
+    # that collapses a duplicate into one definition, with the rendered output
+    # byte-identical: `8dcab03` dropped four rows and no claim. Counting texts
+    # too gives the comparison a number that survives such a commit. Not an
+    # invariant — hoisting a literal into a constant rewrites the text to
+    # `{expr}`, which moves both counts and can push a row under the filters
+    # above — but the two together say which of the three happened.
+    distinct = len({r["text"] for r in rows})
     header = [
         "# Claim inventory — user-visible strings",
         "",
-        f"Range `{args.since}..HEAD`. {len(rows)} strings, "
-        f"{len(changed)} tagged CHANGED.",
+        f"Range `{args.since}..HEAD`. {len(rows)} rows over {distinct} "
+        f"distinct strings, {len(changed)} tagged CHANGED.",
+        "",
+        "A string emitted from two sites is two rows, one per site, so a "
+        "commit that collapses the duplicate into one definition shrinks "
+        "the row count while printing exactly what it printed before. "
+        "Compare the distinct count across a refactor: it counts sentences "
+        "rather than sites. Both move when a literal is hoisted into a "
+        "constant, since the text then reads `{expr}`.",
         "",
         "Columns: `ID | CHANGED | file:line | enclosing def | emitter | text`.",
         "`{expr}` marks an interpolated value. Only CHANGED rows are "
@@ -298,8 +314,8 @@ def main() -> int:
     ]
     (args.out_dir / "claims.md").write_text(
         "\n".join(header + [r["rendered"] for r in rows]) + "\n")
-    print(f"{len(rows)} strings ({len(changed)} CHANGED) -> "
-          f"{args.out_dir / 'claims.md'}")
+    print(f"{len(rows)} rows / {distinct} distinct strings "
+          f"({len(changed)} CHANGED) -> {args.out_dir / 'claims.md'}")
 
     for name, (note, keep) in SLICES.items():
         picked = [r["rendered"] for r in changed if keep(r)]

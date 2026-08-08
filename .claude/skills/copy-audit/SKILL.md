@@ -75,6 +75,10 @@ Writes `claims.md` and the per-reviewer slices. Unchanged strings stay in the
 file so a claim can be read against the run it prints in; only `CHANGED` rows
 are targets.
 
+It reports two totals: a refactor that collapses a string written at two sites
+legitimately shrinks the row count while the run prints the same words, so
+compare the distinct count, which counts sentences rather than sites.
+
 ## 3. Fan out, partitioned by evidence source
 
 Give each reviewer **one slice and one evidence source**. Partitioning by
