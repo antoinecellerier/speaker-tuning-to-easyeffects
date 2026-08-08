@@ -77,6 +77,53 @@ _CODEISH = re.compile(r"^[\w./:@%{}$*=+-]+$")
 _HAS_WORDS = re.compile(r"[a-z]{3,}\s+\S")
 
 
+def is_copy(text: str) -> bool:
+    """Does this read as a sentence a user sees, rather than as code?"""
+    return (len(text) >= 12 and _HAS_WORDS.search(text) is not None
+            and _CODEISH.match(text) is None)
+
+
+# `f"Note: {QUIT_EE_HINT}."` renders as its source form, and the source form is
+# what the filter above then judges: a stub with no sentence in it, so a whole
+# footnote never reached a reviewer. Substituting the constant's value gives
+# the filter the sentence to judge — for the accept/reject decision only. The
+# row keeps `{expr}`, because the reviewer is being asked about the line as it
+# is written, and a row whose text silently differed from the source would be
+# uncitable.
+_CONST_REF = re.compile(r"\{([A-Z][A-Z0-9_]*)\}")
+
+
+def module_constants(rels: list[str]) -> dict[str, str]:
+    """``NAME -> "literal"``, for every module-level UPPER string constant.
+
+    Repo-wide rather than per-file, because the definition and the sentence
+    that interpolates it routinely sit in different modules —
+    ``PIPEWIRE_RESTART_CMD`` is defined in `lib/pipewire/conf.py` and spelled
+    into a line of copy in three others. Only a plain `str` constant bound at
+    module scope counts: an f-string would need the same resolution one level
+    down, and a name bound inside a function is not what `{NAME}` in a sibling
+    module refers to. A name defined twice with different text is ambiguous
+    here, so the probe keeps neither.
+    """
+    found: dict[str, str] = {}
+    clashed: set[str] = set()
+    for rel in rels:
+        tree = ast.parse((REPO / rel).read_text())
+        for node in tree.body:  # module scope only
+            if not isinstance(node, ast.Assign):
+                continue
+            if not (isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)):
+                continue
+            for target in node.targets:
+                if not (isinstance(target, ast.Name) and target.id.isupper()):
+                    continue
+                if found.get(target.id, node.value.value) != node.value.value:
+                    clashed.add(target.id)
+                found[target.id] = node.value.value
+    return {k: v for k, v in found.items() if k not in clashed}
+
+
 def changed_lines(path: str, base: str) -> set[int]:
     """New-file line numbers the range added or rewrote, from the hunk heads."""
     diff = subprocess.run(
@@ -125,7 +172,8 @@ def enclosing(tree: ast.AST) -> dict[int, str]:
     return span
 
 
-def harvest_script(prefix: str, rel: str, rows: list, base: str) -> None:
+def harvest_script(prefix: str, rel: str, rows: list, base: str,
+                   consts: dict[str, str]) -> None:
     path = REPO / rel
     tree = ast.parse(path.read_text())
     where = enclosing(tree)
@@ -149,7 +197,9 @@ def harvest_script(prefix: str, rel: str, rows: list, base: str) -> None:
         if text is None:
             return
         text = " ".join(text.split())
-        if len(text) < 12 or not _HAS_WORDS.search(text) or _CODEISH.match(text):
+        probe = " ".join(_CONST_REF.sub(
+            lambda m: consts.get(m.group(1), m.group(0)), text).split())
+        if not (is_copy(text) or is_copy(probe)):
             return
         line = node.lineno
         if (line, text) in seen:
@@ -261,8 +311,10 @@ def main() -> int:
         return 2
 
     rows: list[dict] = []
-    for prefix, rel in (SCRIPTS | lib_modules()).items():
-        harvest_script(prefix, rel, rows, args.since)
+    sources = SCRIPTS | lib_modules()
+    consts = module_constants(sorted(set(sources.values())))
+    for prefix, rel in sources.items():
+        harvest_script(prefix, rel, rows, args.since, consts)
     for prefix, rel in PROSE.items():
         harvest_prose(prefix, rel, rows, args.since)
     harvest_prose("L", "CHANGELOG.md", rows, args.since,
