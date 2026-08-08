@@ -15,11 +15,14 @@ never shells out, whether the import sits here or in the function.
 
 ``_sanitize_name`` is imported bare from ``lib.pipewire.conf`` because
 ``_print_next_steps`` calls it and arrived here as a move; see that module's
-docstring for why a carried body may not be re-pointed. Not stdlib-only —
+docstring for why a carried body may not be re-pointed. ``PIPEWIRE_RESTART_CMD``
+rides the same import — it was defined here until ``checks.py`` and
+``ee_to_pipewire.py`` had to spell it too, and ``conf`` is the module all
+three already share. Not stdlib-only —
 ``lib.console`` owns the optional rich dependency — but nothing here reaches
 the DSP stack.
 
-The block from ``PIPEWIRE_RESTART_CMD`` down is the same seam for
+The block from ``QUIT_EE_HINT`` down is the same seam for
 ``dolby_to_pipewire.py``: restart, poll ``pw-cli`` until the nodes appear,
 say what is still to be picked, and say how to undo the whole thing. It has
 no edge to ``lib.pipewire.checks`` and adds none — that direction is the one
@@ -39,7 +42,7 @@ from pathlib import Path
 from lib import console
 from lib.hardware import sinks
 from lib.paths import REPO_ROOT
-from lib.pipewire.conf import _sanitize_name
+from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 
 VALIDATE_CONF_SCRIPT = REPO_ROOT / "tools" / "measure_pw" / "validate_conf.py"
@@ -184,8 +187,7 @@ def _print_next_steps(node_name: str,
                       target_object: str | None = None) -> None:
     """The actions to take after a real (non-dry-run) write."""
     console.cprint("head", "Next steps:")
-    console.cprint("cta", "  1. Restart PipeWire:        "
-                  "systemctl --user restart pipewire pipewire-pulse")
+    console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
     # Stays a numbered step here, unlike the wrapper's footnote: this script
     # converts an existing EasyEffects preset, so its caller almost certainly
     # runs EasyEffects. "Stop it starting again" because quitting the window
@@ -202,7 +204,6 @@ def _print_next_steps(node_name: str,
                       f"pw-link -l | grep {target_object}")
 
 
-PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
 # Conditional on purpose: this script's audience chose it to avoid
 # EasyEffects, and an unconditional "quit EasyEffects" read as "did
 # something install it behind my back?" (round-3 review). The

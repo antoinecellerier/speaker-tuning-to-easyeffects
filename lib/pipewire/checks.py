@@ -57,7 +57,7 @@ from lib.doctor import (
     DOCTOR_WARN,
     CheckResult,
 )
-from lib.pipewire.conf import CONF_HEADER_MARK
+from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
 from lib.pipewire.plugins import (
     CALF_BE_URI,
     LSP_LIM_URI,
@@ -566,7 +566,7 @@ def report_pw_doctor() -> int:
     # it is the one step a reader can't derive from a diagnosis.
     console.cprint("dim", "To remove a chain: delete its .conf (and matching .irs), "
                   "then restart PipeWire:")
-    console.cprint("cta", f"  systemctl --user restart pipewire pipewire-pulse")
+    console.cprint("cta", f"  {PIPEWIRE_RESTART_CMD}")
     print()
 
     info = gen._gather_speaker_info()

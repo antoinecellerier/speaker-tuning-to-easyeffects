@@ -485,8 +485,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # unmentioned as inactive — keep the one action that makes it live.
         # Unless a wrapper is driving: its [3/3] owns activation.
         if not wrapped:
-            console.cprint("cta", "To activate: systemctl --user restart pipewire "
-                          "pipewire-pulse")
+            console.cprint("cta", f"To activate: {pw_conf.PIPEWIRE_RESTART_CMD}")
     else:
         install._print_next_steps(node_name, target_object=args.target_object)
     return 0

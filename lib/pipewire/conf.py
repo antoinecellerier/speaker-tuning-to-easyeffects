@@ -42,6 +42,14 @@ DEFAULT_NODE_NAME = "Dolby_Filter_Chain"
 DEFAULT_NODE_DESCRIPTION = "Dolby DAX3 (filter-chain)"
 DEFAULT_LINK_GROUP_SUFFIX = "_smart_filter"
 
+# Nothing in this module prints it. It lives here because the three that do —
+# ``lib.pipewire.install``, ``lib.pipewire.checks`` and ``ee_to_pipewire.py``
+# — already import this module and no other module all three share, so this
+# is the one home that collapses the four copies without adding an import
+# edge. ``install`` also runs it, splitting on whitespace: keep it a plain
+# argv-shaped string with no shell syntax in it.
+PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
+
 
 def _assert_positional(plugins_order: list[str]) -> None:
     """Lock the dialog/PEQ and MBC/regulator disambiguation contracts.
