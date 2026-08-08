@@ -872,23 +872,24 @@ def test_the_validator_cli_still_finds_its_runtime_core(tmp_path):
     are inaudible as bug reports — a mistyped symbol makes PipeWire refuse the
     whole chain, a muted band merely sounds like a worse tuning — which is why
     the check is on by default, and why it matters that everything reaching it
-    degrades *quietly*. `tests/corpus/test_ee_to_pipewire_corpus.py` still
-    holds this path in code: its `is_file()` guard turns a missing script into
-    "don't check", and the XML then passes green with no conf ever validated.
+    degrades *quietly*.
 
-    `ee_to_pipewire.py` used to hold it too, and no longer does — it calls
-    `lib.pipewire.validate.run` in process, so no path under `tools/` reaches
-    a user-runnable script any more. What is left
-    here is the command-line front end, whose own way of breaking is specific
-    and silent to everything else: it inserts the repo root on `sys.path`,
+    Nothing shells out to it per conf any more: `ee_to_pipewire.py` and, since
+    the session schema memo, `tests/corpus/test_ee_to_pipewire_corpus.py` both
+    call `lib.pipewire.validate.run` in process, so no path under `tools/`
+    reaches a user-runnable script any more. That corpus module runs the
+    wrapper once, on one rendered conf, which is the only end-to-end exercise
+    of it left — and it needs a corpus and both CLIs to say anything. What is
+    left here is the command-line front end, whose own way of breaking is
+    specific and silent to everything else: it inserts the repo root on `sys.path`,
     counted from `Path(__file__).resolve().parents[2]`, before importing that
     module. Move either file and the import fails — while
     `tests/test_validate_conf.py` goes on importing `lib.pipewire.validate`
     directly and the reference sweep above goes on finding a file that exists.
 
     `--help` is the whole test. It reaches the module-scope import and the
-    argument parser, needs neither `lv2info` nor `spa-json-dump`, and costs
-    about 30 ms. It runs from a directory outside the checkout because
+    argument parser, needs neither `lv2info` nor `spa-json-dump` nor a corpus,
+    and costs about 30 ms. It runs from a directory outside the checkout because
     `python path/to/script.py` puts only the script's own directory on
     `sys.path` — so the bootstrap is the only thing that can make `lib`
     importable, which is exactly the claim being tested.
@@ -898,7 +899,7 @@ def test_the_validator_cli_still_finds_its_runtime_core(tmp_path):
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, (
         f"{wrapper.relative_to(ROOT)} does not start: it exited "
-        f"{result.returncode}. Anything shelling out to it — the corpus tier "
-        "today — silently stops checking confs instead of failing.\n"
+        f"{result.returncode}. The corpus tier's one end-to-end run of it "
+        "fails with it, and by hand it stops being reachable at all.\n"
         f"{result.stderr.strip()}"
     )

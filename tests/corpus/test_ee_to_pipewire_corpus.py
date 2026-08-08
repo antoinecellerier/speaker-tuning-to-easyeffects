@@ -7,10 +7,16 @@ invariants ``test_ee_to_pipewire.py`` exercises only on the synthetic
 fixture (every link endpoint resolves; the conf has at least one
 stage).
 
-If ``lv2info`` and ``spa-json-dump`` are on PATH, also runs
-``tools/measure_pw/validate_conf.py`` against the rendered conf to
-catch unknown-port / out-of-range / xm-MUTE-inversion regressions.
-Skips that step cleanly if either tool is missing.
+If ``lv2info`` and ``spa-json-dump`` are on PATH, also schema-checks
+the rendered conf through ``lib.pipewire.validate.run`` — in process,
+with each URI's ``lv2info`` output memoized for the session — to catch
+unknown-port / out-of-range / xm-MUTE-inversion regressions. Skips that
+step cleanly if either tool is missing.
+
+The memo took the subprocess out of the per-XML path, so one test at
+the end runs the command-line front end,
+``tools/measure_pw/validate_conf.py``, over a single corpus conf —
+otherwise nothing runs that wrapper on a real conf at all.
 
 Catches "converter crashes on a non-X1-Yoga XML shape" before it
 reaches a tester. Reuses the discovery machinery in
@@ -31,6 +37,7 @@ from lib.preset.build import make_preset
 from lib.preset.emit import save_wav_stereo
 from lib.dax.parse import parse_xml
 from lib.preset.fir import make_fir
+from lib.pipewire import validate
 from lib.pipewire.conf import (
     build_chain,
     emit_links,
@@ -38,11 +45,10 @@ from lib.pipewire.conf import (
 )
 from tests.corpus.test_corpus import CORPUS, _skip_if_no_corpus
 
-# This tier runs the full XML→conf pipeline plus an lv2info subprocess for
-# every discovered XML (thousands on a populated corpus) — minutes of
-# wall-clock. Gated behind `slow`: `pytest --run-slow` or ATMOS_RUN_SLOW=1.
-# The fast structural invariants still run by default via
-# `tests/test_ee_to_pipewire.py` on the synthetic fixture.
+# This tier runs the full XML→conf pipeline for every discovered XML —
+# thousands of FIR builds on a populated corpus. Gated behind `slow`: `pytest
+# --run-slow` or ATMOS_RUN_SLOW=1. The fast structural invariants still run by
+# default via `tests/test_ee_to_pipewire.py` on the synthetic fixture.
 pytestmark = pytest.mark.slow
 
 VALIDATE_CONF_SCRIPT = (
@@ -50,18 +56,44 @@ VALIDATE_CONF_SCRIPT = (
     / "tools" / "measure_pw" / "validate_conf.py"
 )
 
+# Hoisted out of the test body: whether a CLI is installed cannot change
+# between parametrised cases, and asking per case is one PATH walk per XML.
+_HAS_LV2_TOOLING = bool(shutil.which("lv2info")
+                        and shutil.which("spa-json-dump"))
 
-@pytest.mark.parametrize("xml_path", CORPUS, ids=lambda p: p.name)
-def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
-    """Full pipeline: XML → preset → PW conf, plus structural checks
-    and (when tooling is available) deterministic schema validation.
+
+@pytest.fixture(scope="session")
+def lv2_schemas() -> dict:
+    """One memo of what `lv2info` answered, for the whole session.
+
+    A port schema is a property of the installed plugin, not of the XML under
+    test, so reading it per XML re-execs `lv2info` thousands of times for an
+    answer that cannot have changed. `validate.run` takes the dict as an
+    argument and fills it, so the converter and the CLI keep validating with a
+    fresh one and no process-global cache exists to invalidate.
+
+    Declared here rather than in a `tests/corpus/conftest.py`: `test_corpus.py`
+    shares that directory and has no conf to validate. Session scope is per
+    xdist worker, so the cost is bounded by (workers × distinct URIs) — a real
+    conf references three — rather than by the number of XMLs. Measured over
+    the full `--run-slow` walk when this landed: 21 execs, against 8,082 when
+    each XML shelled out to the CLI front end.
     """
-    _skip_if_no_corpus()
+    return {}
 
+
+def _render_conf(xml_path: Path, tmp_path: Path) -> tuple[str | None, str]:
+    """Full pipeline: XML → preset → PW conf, with its structural invariants
+    asserted along the way.
+
+    Returns ``(conf, "")``, or ``(None, reason)`` for an XML this tier does not
+    cover — which the parametrised test turns into a skip and the CLI check
+    below turns into "try the next one".
+    """
     try:
         result = parse_xml(xml_path)
     except ValueError as e:
-        pytest.skip(f"{xml_path.name}: parser rejected by design: {e}")
+        return None, f"{xml_path.name}: parser rejected by design: {e}"
 
     freqs = result.freqs
     curves = result.curves
@@ -74,7 +106,7 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
     regulator = result.regulator
 
     if not curves:
-        pytest.skip(f"{xml_path.name}: no IEQ curves")
+        return None, f"{xml_path.name}: no IEQ curves"
 
     ieq = next(iter(curves.values()))
     target_l = [(ieq[i] + ao_left[i]) / 16.0 for i in range(20)]
@@ -143,21 +175,71 @@ def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path):
     # invariants, not implementation details.
     assert "context.modules = [" in conf
     assert "libpipewire-module-filter-chain" in conf
+    return conf, ""
 
-    if shutil.which("lv2info") and shutil.which("spa-json-dump") \
-            and VALIDATE_CONF_SCRIPT.is_file():
-        rc = subprocess.run(
-            [sys.executable, str(VALIDATE_CONF_SCRIPT), "-", "-q"],
-            input=conf, capture_output=True, text=True, timeout=60,
-        )
-        # 0 = clean, 1 = errors, 2 = setup error (treated as a skip
-        # for that XML — e.g. an LV2 URI not installed locally).
-        if rc.returncode == 2:
-            pytest.skip(
-                f"{xml_path.name}: validate_conf setup error "
-                f"({(rc.stderr or rc.stdout).strip()})"
-            )
-        assert rc.returncode == 0, (
-            f"{xml_path.name}: validate_conf reported errors:\n"
-            f"{(rc.stderr or rc.stdout).strip()}"
-        )
+
+@pytest.mark.parametrize("xml_path", CORPUS, ids=lambda p: p.name)
+def test_corpus_xml_runs_through_pw_pipeline(tmp_path, xml_path, lv2_schemas):
+    """Full pipeline: XML → preset → PW conf, plus structural checks
+    and (when tooling is available) deterministic schema validation.
+    """
+    _skip_if_no_corpus()
+
+    conf, reason = _render_conf(xml_path, tmp_path)
+    if conf is None:
+        pytest.skip(reason)
+
+    if not _HAS_LV2_TOOLING:
+        return
+
+    report = validate.run(conf, schemas=lv2_schemas)
+    # `UNCHECKED` is a skip, not a verdict — the check could not run at all
+    # (spa-json-dump missing, or its output not JSON). Nothing else may be
+    # routed here: an unexpected exception must fail the test, because
+    # turning one into a skip would pass this tier green with thousands of
+    # confs never validated.
+    if report.status == validate.UNCHECKED:
+        pytest.skip(f"{xml_path.name}: conf validation could not run "
+                    f"({report.reason})")
+    assert report.status == validate.CLEAN, (
+        f"{xml_path.name}: conf validation returned {report.status}"
+        f"{' — ' + report.reason if report.reason else ''}\n"
+        + "\n".join(report.errors)
+    )
+
+
+def test_the_validator_cli_still_validates_a_real_conf(tmp_path):
+    """`tools/measure_pw/validate_conf.py`, end to end, on one real conf.
+
+    Every other caller of this check now runs `lib.pipewire.validate` in
+    process — the converter, and the walk above once the session memo replaced
+    its per-XML subprocess. The wrapper still owns its stdin handling, its
+    `sys.path` bootstrap and its 0/1/2 exit-code contract, and none of that is
+    reachable from an import. `tests/test_layout.py` proves `--help` starts;
+    this proves the whole path works on a conf the converter really produces.
+
+    One XML, not the corpus: what scales with the corpus is the *conf*, and
+    the walk above already validates every one of them.
+    """
+    _skip_if_no_corpus()
+    if not _HAS_LV2_TOOLING:
+        pytest.skip("lv2info or spa-json-dump not in PATH")
+
+    for xml_path in CORPUS:
+        conf, _ = _render_conf(xml_path, tmp_path)
+        if conf is not None:
+            break
+    else:
+        pytest.skip("no corpus XML rendered a conf")
+
+    # No `is_file()` guard on the script: a wrapper that moved away should
+    # fail this loudly, not turn into "nothing was checked".
+    rc = subprocess.run(
+        [sys.executable, str(VALIDATE_CONF_SCRIPT), "-", "-q"],
+        input=conf, capture_output=True, text=True, timeout=60,
+    )
+    assert rc.returncode == 0, (
+        f"{xml_path.name}: {VALIDATE_CONF_SCRIPT.name} exited "
+        f"{rc.returncode} (0 = clean, 1 = errors, 2 = setup error):\n"
+        f"{(rc.stderr or rc.stdout).strip()}"
+    )

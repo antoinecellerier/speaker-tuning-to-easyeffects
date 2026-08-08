@@ -1,10 +1,10 @@
 """Unit tests for lib/pipewire/validate.py.
 
-The slow corpus tier exercises the same code through its CLI front end,
-tools/measure_pw/validate_conf.py, as a subprocess; these tests lock the
-load-bearing xm-MUTE inversion detector directly and fast, with no
-lv2info/spa-json-dump dependency. The detector is the cheap guard against the
-bug that once produced ~30 dB extra bass (an active PEQ band silently muted).
+The slow corpus tier exercises the same code in process, against the conf every
+discovered XML renders to; these tests lock the load-bearing xm-MUTE inversion
+detector directly and fast, with no lv2info/spa-json-dump dependency. The
+detector is the cheap guard against the bug that once produced ~30 dB extra
+bass (an active PEQ band silently muted).
 """
 
 from __future__ import annotations
@@ -109,6 +109,12 @@ def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):
     the others validated fine. Every exec failure — a vanished binary, a
     timeout, a fork that couldn't allocate — arrives as one `RuntimeError`
     naming the URI, which `run` turns into a warning.
+
+    A memoized failure keeps warning. The corpus tier hands `run` one session
+    dict across thousands of confs, so a URI that failed must not be re-exec'd
+    per conf — but every conf it affects went unchecked, so every one of them
+    has to say so. Storing the miss without its note is invisible to a green
+    run: the tier would report the failure once and pass the rest.
     """
     for exc in (FileNotFoundError(2, "No such file or directory", "lv2info"),
                 subprocess.TimeoutExpired(cmd="lv2info", timeout=10),
@@ -129,6 +135,25 @@ def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):
     report = validate.run("")
     assert report.status == validate.CLEAN
     assert any("lv2info" in w and LSP_PEQ_URI in w for w in report.warnings)
+
+    execs = 0
+
+    def counting_boom(*a, **k):
+        nonlocal execs
+        execs += 1
+        raise FileNotFoundError(2, "No such file or directory", "lv2info")
+
+    monkeypatch.setattr(validate.subprocess, "run", counting_boom)
+    memo: dict = {}
+    for i in range(3):
+        report = validate.run("", schemas=memo)
+        assert report.status == validate.CLEAN
+        assert any("lv2info" in w and LSP_PEQ_URI in w
+                   for w in report.warnings), (
+            f"conf {i + 1}: the memoized failure stopped being reported: "
+            f"{report.warnings}")
+    assert execs == 1, (
+        f"lv2info was exec'd {execs} times for one memoized URI")
 
 
 def test_run_maps_only_a_tool_failure_to_unchecked(monkeypatch):

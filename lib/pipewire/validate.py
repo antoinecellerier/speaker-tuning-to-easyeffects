@@ -40,7 +40,11 @@ from dataclasses import dataclass
 # lv2info → port schema
 # ---------------------------------------------------------------------------
 
-@dataclass
+# Frozen because a caller may memoize these across confs (`run`'s `schemas`
+# argument): one `Port` can end up shared by every validation in a session, so
+# a mutation anywhere would rewrite the schema everything else is checked
+# against. Value-only already — nothing has ever written to one.
+@dataclass(frozen=True)
 class Port:
     symbol: str
     name: str
@@ -372,8 +376,28 @@ class Report:
 _BUDGET_S = 30
 
 
-def run(conf_text: str) -> Report:
+def run(conf_text: str, *,
+        schemas: dict[str, tuple[dict[str, Port] | None, str]] | None = None,
+        ) -> Report:
     """Schema-check `conf_text` against `lv2info`'s port metadata.
+
+    `schemas` is an optional memo of what `lv2info` answered, keyed by URI and
+    **shared with every later call that is handed the same dict** — including
+    the `Port` objects inside it, which is why they are frozen. A port schema
+    is a property of the installed plugin, not of the conf under test, so a
+    caller validating many confs in one process (the corpus tier, thousands of
+    them) can pass a session dict and pay for each URI once. It is passed in
+    rather than cached in here on purpose: the converter and the CLI validate
+    one conf each and would never see a hit, so an `lru_cache` at module scope
+    would be process-global mutable state kept for a test's benefit — the same
+    dependency injection `validate(nodes, schemas)` already uses one layer up.
+    Omit it and the call is exactly as it was: a fresh dict, no shared state.
+
+    Each entry is `(schema_or_None, note)`, not a bare schema: a URI whose
+    `lv2info` failed must not be re-exec'd per conf, but the warning that says
+    its ports went unchecked has to be re-emitted for every conf it affects.
+    Storing the miss without its note would report the failure once and then
+    silently stop mentioning it.
 
     **`UNCHECKED` is a skip, not a verdict**, and that is why nothing generic
     maps to it: a caller prints it dim and goes on to write the conf, and the
@@ -403,22 +427,34 @@ def run(conf_text: str) -> Report:
     # URI `lv2info` would not answer for is why that plugin's ports went
     # unchecked, and the two lines are about the same plugin.
     tool_warnings: list[str] = []
-    schemas: dict[str, dict[str, Port]] = {}
+    memo = {} if schemas is None else schemas
+    port_schemas: dict[str, dict[str, Port]] = {}
     for uri in {n["plugin"] for n in nodes
                 if n["type"] == "lv2" and n.get("plugin")}:
-        if time.monotonic() >= deadline:
-            tool_warnings.append(f"lv2info {uri!r} skipped: the {_BUDGET_S}s "
-                                 "validation budget ran out")
-            continue
-        try:
-            schemas[uri] = lv2info_schema(uri)
-        except RuntimeError as e:
-            # Narrow on purpose: `lv2info_schema` funnels every exec failure
-            # into this one type, so anything else escaping it is a bug in the
-            # parse and must not be quietly downgraded to "unchecked".
-            tool_warnings.append(str(e))
+        if uri not in memo:
+            if time.monotonic() >= deadline:
+                # Not memoized: a budget that ran out is a property of this
+                # run, not of the plugin, and caching it would leave the URI
+                # unchecked for the rest of the process.
+                tool_warnings.append(f"lv2info {uri!r} skipped: the "
+                                     f"{_BUDGET_S}s validation budget ran out")
+                continue
+            try:
+                memo[uri] = (lv2info_schema(uri), "")
+            except RuntimeError as e:
+                # Narrow on purpose: `lv2info_schema` funnels every exec
+                # failure into this one type, so anything else escaping it is a
+                # bug in the parse and must not be quietly downgraded to
+                # "unchecked".
+                memo[uri] = (None, str(e))
+        schema, note = memo[uri]
+        if note:
+            # Re-emitted on every hit, not just the exec that produced it.
+            tool_warnings.append(note)
+        if schema is not None:
+            port_schemas[uri] = schema
 
-    errors, warnings = validate(nodes, schemas)
+    errors, warnings = validate(nodes, port_schemas)
     return Report(ERRORS if errors else CLEAN,
                   errors=tuple(errors),
                   warnings=tuple(tool_warnings + warnings))

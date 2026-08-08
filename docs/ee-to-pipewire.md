@@ -332,10 +332,13 @@ same check has a command-line front end at
   (auto-discovered from NTFS mounts and CWD; override via
   `ATMOS_CORPUS_DIR`). Asserts every link endpoint resolves, that the
   converter emits **zero warnings** on generated presets (the coverage
-  guard's drift check re-run against real XMLs), and shells out to
-  `validate_conf.py` when `lv2info` and `spa-json-dump` are installed.
-  Catches "converter crashes on a non-X1-Yoga XML shape" before it
-  reaches a tester.
+  guard's drift check re-run against real XMLs), and — when `lv2info`
+  and `spa-json-dump` are installed — schema-checks each rendered conf
+  through `lib/pipewire/validate.py` in process, with every URI's
+  `lv2info` output memoized for the session. One further test runs the
+  `validate_conf.py` CLI over a single rendered conf, since nothing
+  else exercises the wrapper end to end. Catches "converter crashes on
+  a non-X1-Yoga XML shape" before it reaches a tester.
 
 ## Limitations / known gaps
 
