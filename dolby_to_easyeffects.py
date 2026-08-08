@@ -620,7 +620,7 @@ def main(argv: list[str] | None = None,
         float_freqs = np.array(tuning.freqs, dtype=float)
 
         profile_findings = report_profile._report_parsed_profile(
-            tuning, ao_db_left, ao_db_right, scale, disabled,
+            tuning, ao_db_left, ao_db_right, disabled,
             args.volmax_slot, enabled=set(args.enable),
             is_soundwire=is_soundwire, verbose=args.verbose)
 

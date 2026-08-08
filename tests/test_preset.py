@@ -805,7 +805,7 @@ def test_report_warns_only_when_volmax_rides_inert_regulator(
     silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(threshold_high), volmax_boost),
-        [0.0] * 20, [0.0] * 20, 0.1, disabled)
+        [0.0] * 20, [0.0] * 20, disabled)
     out = capsys.readouterr().out
     assert ("regulator never engages" in out) is expect_warn
 
@@ -818,14 +818,14 @@ def test_report_summarises_by_default_and_dumps_with_verbose(silence_console,
     silence_console(console)
     tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
 
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set())
     out = capsys.readouterr().out
     assert "limits 20 of 20 frequency bands" in out
     assert "full tables with -v" in out
     assert "threshold_high (dB):" not in out
     assert "Left:  [" not in out
 
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set(),
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set(),
                            verbose=True)
     out = capsys.readouterr().out
     assert "threshold_high (dB):" in out
@@ -847,7 +847,7 @@ def test_report_names_the_bass_enhancer_it_ships(silence_console, capsys,
     silence_console(console)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 0.0),
-        [0.0] * 20, [0.0] * 20, 0.1, disabled, is_soundwire=is_soundwire)
+        [0.0] * 20, [0.0] * 20, disabled, is_soundwire=is_soundwire)
     assert ("Bass enhancer:" in capsys.readouterr().out) is expect
 
 
@@ -883,7 +883,7 @@ def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
     ao = _peaked_ao(peak_band, peak_db)
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), volmax),
-        ao, ao, 0.1, disabled, enabled=enabled)
+        ao, ao, disabled, enabled=enabled)
     out = capsys.readouterr().out
     assert ("leaves unlimited" in out) is expect_warn
     if expect_warn:                            # names the offending band
@@ -901,7 +901,7 @@ def test_report_unlimited_boost_warning_uses_the_xml_declared_range(
     _report_parsed_profile(
         _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), 9.0,
                        geq_max_range=256),     # 16 dB range; +12 is mid-scale
-        ao, ao, 0.1, set())
+        ao, ao, set())
     assert "leaves unlimited" not in capsys.readouterr().out
 
 
@@ -918,7 +918,7 @@ def test_report_notes_dolby_declared_default_profile(
     findings = _report_parsed_profile(
         _report_tuning(synthetic_regulator([-6.0] * 20), 6.0,
                        profile_used=profile_used, default_profile=declared),
-        [0.0] * 20, [0.0] * 20, 0.1, set())
+        [0.0] * 20, [0.0] * 20, set())
     out = capsys.readouterr().out
     # The two halves: the mismatch is explained where it is detected, and the
     # rebuild to try is held back for the closing block.
@@ -996,7 +996,7 @@ def test_report_explains_a_flat_curve_caused_by_the_enable_gate(tmp_path, capsys
     """Zeros in the printed curve would otherwise read as a flat tuning."""
     tuning = parse.parse_xml(_xml_with_ao_enable(tmp_path, "off.xml", 0))
     capsys.readouterr()
-    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, 0.1, set())
+    _report_parsed_profile(tuning, [0.0] * 20, [0.0] * 20, set())
     assert "audio-optimizer-enable=0" in capsys.readouterr().out
 
 

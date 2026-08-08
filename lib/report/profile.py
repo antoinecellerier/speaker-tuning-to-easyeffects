@@ -602,7 +602,7 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     return findings
 
 
-def _report_parsed_profile(tuning, ao_db_left, ao_db_right, scale, disabled,
+def _report_parsed_profile(tuning, ao_db_left, ao_db_right, disabled,
                            volmax_slot="input-gain", enabled=None,
                            is_soundwire=False, verbose=False):
     """Print the human-readable per-profile diagnostics for a parsed tuning

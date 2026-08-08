@@ -2183,11 +2183,11 @@ def test_switching_a_stage_off_changes_what_the_run_says(name, silence_console,
     silence_console(console)
     tuning = _fully_stocked_tuning()
     report_profile._report_parsed_profile(
-        tuning, [0.0] * 20, [0.0] * 20, 0.1, set(), is_soundwire=True)
+        tuning, [0.0] * 20, [0.0] * 20, set(), is_soundwire=True)
     shipped = " ".join(capsys.readouterr().out.split())
 
     report_profile._report_parsed_profile(
-        tuning, [0.0] * 20, [0.0] * 20, 0.1, {name}, is_soundwire=True)
+        tuning, [0.0] * 20, [0.0] * 20, {name}, is_soundwire=True)
     dropped = " ".join(capsys.readouterr().out.split())
 
     assert dropped != shipped, (
