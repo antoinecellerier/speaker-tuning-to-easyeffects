@@ -31,6 +31,7 @@ I/O that assembles both sits above the two.
 
 from __future__ import annotations
 
+import platform
 import textwrap
 from datetime import date
 from pathlib import Path
@@ -387,8 +388,6 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
     env vars — all of it for the amp-status report, which a default run never
     prints. A normal conversion must not pay for it.
     """
-    import platform
-
     info = speakers.SpeakerInfo(kernel=platform.release())
     cards_path = Path("/proc/asound/cards")
     if cards_path.exists():
@@ -407,8 +406,6 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
 
 def _gather_speaker_info() -> speakers.SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
-    import platform
-
     info = speakers.SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
 
     # System identity
