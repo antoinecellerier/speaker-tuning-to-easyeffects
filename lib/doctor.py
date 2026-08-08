@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
+           "tilde",
            "CheckResult", "summarize", "emit_check",
            "print_summary",
            "print_verdict"]
@@ -28,6 +30,21 @@ DOCTOR_PASS, DOCTOR_WARN, DOCTOR_FAIL, DOCTOR_UNKNOWN = "PASS", "WARN", "FAIL", 
 
 _STYLE = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
           DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
+
+
+def tilde(path) -> str:
+    """Render a path with $HOME collapsed to ~ — paste-safe (no username).
+
+    Part of the shared vocabulary for the same reason the status boxes are:
+    both reports are written to be pasted into an issue, and a home path is
+    the one line in them that carries something the reporter didn't mean to
+    send. The separator is the literal "/" rather than ``os.sep`` — the only
+    platform either doctor describes is the one PipeWire and EasyEffects run
+    on, and spelling it costs this module no import it doesn't already have.
+    """
+    s = str(path)
+    home = str(Path.home())
+    return "~" + s[len(home):] if s == home or s.startswith(home + "/") else s
 
 
 @dataclass

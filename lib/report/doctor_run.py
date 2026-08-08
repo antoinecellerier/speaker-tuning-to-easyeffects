@@ -50,7 +50,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from lib import console, ee_paths, version
+from lib import console, doctor, ee_paths, version
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_WARN, CheckResult
 from lib.preset import autoload
 from lib.report import environment
@@ -196,12 +196,12 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
         report.checks.append(CheckResult(DOCTOR_PASS, "Install location",
-            f"custom output dir ({environment._tilde(output_dir)}) — skipping EasyEffects "
+            f"custom output dir ({doctor.tilde(output_dir)}) — skipping EasyEffects "
             "location checks."))
     else:
         report.checks.append(environment.install_status(
             ee_paths.FLATPAK_BASE.exists(), ee_paths.NATIVE_BASE.exists(), ee_paths.USE_FLATPAK,
-            environment._tilde(ee_paths.EASYEFFECTS_BASE), ee_is_flatpak))
+            doctor.tilde(ee_paths.EASYEFFECTS_BASE), ee_is_flatpak))
 
     # 3. Preset + impulse-file integrity
     try:
@@ -216,7 +216,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     dolby_presets = [p for p in preset_paths if p.stem != autoload.BYPASS_PRESET_NAME]
     if not dolby_presets:
         report.checks.append(CheckResult(DOCTOR_WARN, "Generated presets",
-            f"no presets found in {environment._tilde(output_dir)} — run the script on your "
+            f"no presets found in {doctor.tilde(output_dir)} — run the script on your "
             "tuning XML first."))
     else:
         for p in dolby_presets:
@@ -266,11 +266,11 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
                       + (f" (via {source})" if source else ""),
         "ee_running": easyeffects_is_running(),
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
-        "output_dir": environment._tilde(output_dir),
-        "irs_dir": environment._tilde(irs_dir),
+        "output_dir": doctor.tilde(output_dir),
+        "irs_dir": doctor.tilde(irs_dir),
         "preset_count": len(generated_names),
         "irs_count": len(irs_stems),
-        "rc_path": environment._tilde(rc_path),
+        "rc_path": doctor.tilde(rc_path),
         "rc_present": bool(rc_text),
         "selected_preset": rc.get("last_output_preset", "")
                            or rc.get("fallback_preset", ""),

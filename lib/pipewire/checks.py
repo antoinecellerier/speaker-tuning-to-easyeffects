@@ -20,11 +20,12 @@ it has to be one binding, not a name copied in from elsewhere. The argparse
 default and ``main`` reach it through this module.
 
 The report vocabulary — PASS/WARN/FAIL/UNKNOWN, ``CheckResult``, the summary
-counter and the check printer — comes from ``lib/doctor.py``, shared with the
-EasyEffects doctor so the two read as one tool. It and the plugin URIs are
-imported under bare names because that is how these lines read in
-``ee_to_pipewire.py`` and a move may not re-point what it carries; they are
-constants and a frozen dataclass, so there is nothing here a test would patch.
+counter, the check printer and the ``~``-collapsing path renderer — comes from
+``lib/doctor.py``, shared with the EasyEffects doctor so the two read as one
+tool. The constants and the plugin URIs are imported under bare names because
+that is how these lines read in ``ee_to_pipewire.py`` and a move may not
+re-point what it carries; they are constants and a frozen dataclass, so there
+is nothing here a test would patch. The functions stay module-qualified.
 
 This doctor ends on the same hardware dump the EasyEffects one prints, because
 hardware sits under the whole chain and the questions it answers are the same
@@ -391,9 +392,9 @@ def check_conf_directory() -> CheckResult | None:
         return None
     return CheckResult(
         DOCTOR_WARN, "Conf in an unread directory",
-        f"{len(strays)} conf(s) are in {_tilde(_UNSCANNED_CONF_DIR)}, which "
+        f"{len(strays)} conf(s) are in {doctor.tilde(_UNSCANNED_CONF_DIR)}, which "
         "PipeWire's stock config does not load — only pipewire.conf.d/ is "
-        f"auto-included. Move them to {_tilde(DEFAULT_OUTPUT_DIR)} and "
+        f"auto-included. Move them to {doctor.tilde(DEFAULT_OUTPUT_DIR)} and "
         "restart PipeWire.")
 
 
@@ -478,7 +479,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         checks.insert(0, CheckResult(
             DOCTOR_WARN, "Installed confs",
             f"no filter-chain conf from this tool in "
-            f"{_tilde(DEFAULT_OUTPUT_DIR)} — run dolby_to_pipewire.py on your "
+            f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run dolby_to_pipewire.py on your "
             "tuning XML first."))
     if dump is None:
         checks.append(CheckResult(
@@ -515,13 +516,6 @@ def _plugin_presence() -> list[str]:
     return out
 
 
-def _tilde(path) -> str:
-    """Render a path with $HOME collapsed to ~ — paste-safe (no username)."""
-    s = str(path)
-    home = str(Path.home())
-    return "~" + s[len(home):] if s == home or s.startswith(home + "/") else s
-
-
 def report_pw_doctor() -> int:
     """Print the PipeWire-side diagnostic report. Returns a process exit code.
 
@@ -550,12 +544,12 @@ def report_pw_doctor() -> int:
     print(f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
           " (PipeWire path)")
     print(f"  WirePlumber:  {'.'.join(map(str, wp)) if wp else 'unknown'}")
-    print(f"  Confs:        {len(confs)} in {_tilde(DEFAULT_OUTPUT_DIR)}")
+    print(f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}")
     for c in confs:
         state = "unreadable" if not c.readable else (
             f"smart→{c.target}" if c.smart
             else (f"pinned→{c.pinned}" if c.pinned else "virtual sink, unpinned"))
-        print(f"                {_tilde(c.path)} [{c.version or '?'}] {state}")
+        print(f"                {doctor.tilde(c.path)} [{c.version or '?'}] {state}")
     print(f"  Live chains:  {len(chains)}"
           + (": " + ", ".join(sorted(c.name for c in chains)) if chains else ""))
     print(f"  Sinks:        {len(facts['sinks'])}")

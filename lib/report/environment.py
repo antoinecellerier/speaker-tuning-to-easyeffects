@@ -17,12 +17,13 @@ that both `--doctor` and a normal run's end-of-run warning render, which is
 what stops the two from drifting (`e3a7ee4` fixed a pair that already had).
 
 The report vocabulary — PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary
-counter and the check printer — comes from `lib/doctor.py`, shared with
-`ee_to_pipewire.py`'s PipeWire-side doctor so the two read as one tool. It is
-imported under bare names rather than through the module because that is how
-these lines read in `dolby_to_easyeffects.py`, and a move commit may not
-re-point what it carries; they are constants and a frozen dataclass, so there
-is nothing here a test would want to patch. `BYPASS_PRESET_NAME` arrives the
+counter, the check printer and the `~`-collapsing path renderer — comes from
+`lib/doctor.py`, shared with `ee_to_pipewire.py`'s PipeWire-side doctor so the
+two read as one tool. The constants are imported under bare names rather than
+through the module because that is how these lines read in
+`dolby_to_easyeffects.py`, and a move commit may not re-point what it carries;
+they are constants and a frozen dataclass, so there is nothing here a test
+would want to patch. `BYPASS_PRESET_NAME` arrives the
 same way, from `lib/preset/autoload.py` — the empty preset written there is
 one this doctor has to recognise, because having it selected is itself a
 "sounds like nothing" cause.
@@ -30,12 +31,10 @@ one this doctor has to recognise, because having it selected is itself a
 
 from __future__ import annotations
 
-import os
 import platform
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from pathlib import Path
 
 from lib import console, doctor
 from lib.data import kernel_releases
@@ -61,13 +60,6 @@ class DoctorReport:
     checks: list[CheckResult] = field(default_factory=list)
     facts: dict = field(default_factory=dict)   # raw probed values, always shown
     speaker_info: "speakers.SpeakerInfo | None" = None
-
-
-def _tilde(path) -> str:
-    """Render a path with $HOME collapsed to ~ — paste-safe (no username)."""
-    s = str(path)
-    home = str(Path.home())
-    return "~" + s[len(home):] if s == home or s.startswith(home + os.sep) else s
 
 
 def ee_silent_message(reason: str, tail: str) -> str:
