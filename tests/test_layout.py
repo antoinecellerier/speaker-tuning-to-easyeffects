@@ -613,3 +613,51 @@ def test_measure_readme_lists_every_script(directory):
         "add a row saying what the script does and where in the procedure it "
         "runs, or delete the script"
     )
+
+
+def test_the_converter_can_find_its_validator():
+    """`ee_to_pipewire.py` shells out to a path in `tools/`, and degrades
+    quietly when it isn't there.
+
+    `lib/pipewire/install.py` assembles `VALIDATE_CONF_SCRIPT` from path
+    components (`REPO_ROOT / "tools" / "measure_pw" / …`), so the string
+    `tools/measure_pw/validate_conf.py` appears nowhere in that file and the
+    sweep above is blind to it. Three files hold the path in code, and this is
+    the only one the sweep cannot reach: `tests/test_validate_conf.py` loads
+    it by `spec_from_file_location` and would fail loudly at collection, and
+    `tests/corpus/test_ee_to_pipewire_corpus.py` assembles it the same way but
+    writes it out in its module docstring, which the sweep does see.
+
+    It is also the one worth checking most, because it is the only one that
+    runs on a user's machine. `_validate_conf` returns -1 when the file is
+    missing, its caller treats -1 as a soft warning, and `ee_to_pipewire.py`
+    goes on writing confs — having silently stopped checking that every LV2
+    port symbol and control value in them is real. Validation is on by default
+    precisely because the check is cheap and what it catches is inaudible as a
+    bug report: a mistyped port symbol, or the xm/MUTE inversion that once
+    silently muted an active PEQ band. The corpus tier degrades the same way,
+    from the other side — its `if ... VALIDATE_CONF_SCRIPT.is_file()` guard
+    makes a missing script mean "don't check", and the XML passes green
+    without a conf ever being validated.
+
+    So moving this file is not a `tools/` reorganisation, it is a change to
+    the converter — which is also why it is scheduled to move. A top-level
+    user-runnable script may depend only on `lib/`, and this is the one place
+    in the tree where that does not hold; the plan is for the runtime core to
+    become `lib/pipewire/validate.py`, with a thin CLI wrapper left behind in
+    `tools/measure_pw/`. This assert is not a claim that the path is
+    permanent. It is the guard for exactly that move: whatever
+    `VALIDATE_CONF_SCRIPT` ends up pointing at has to be a file that exists,
+    and if the move re-points some of the sites above and not this one, the
+    suite says so at collection instead of a user's conf silently going
+    unvalidated.
+    """
+    from lib.pipewire import install
+
+    assert install.VALIDATE_CONF_SCRIPT.is_file(), (
+        f"ee_to_pipewire.py shells out to {install.VALIDATE_CONF_SCRIPT}, "
+        "which does not exist — conf validation is silently a no-op. Either "
+        "put the script back or re-point VALIDATE_CONF_SCRIPT in "
+        "lib/pipewire/install.py (and the copy in "
+        "tests/corpus/test_ee_to_pipewire_corpus.py) at where it went."
+    )
