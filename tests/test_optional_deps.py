@@ -271,6 +271,48 @@ def test_a_missing_dsp_dependency_names_itself(module, tmp_path):
     )
 
 
+def test_a_broken_first_party_import_is_not_reported_as_a_missing_dep(tmp_path):
+    """Two of the three imports that handler guards are our own.
+
+    So a module deleted in a refactor raises the same `ModuleNotFoundError`
+    numpy does — and rendering it through the same message tells the user to
+    install `lib.preset.bands` from requirements.txt. That is unactionable, and
+    it hides a repo bug behind an instruction that cannot fix it: the run looks
+    like the user's own fault, so it is never reported. A traceback naming the
+    module is the honest answer, and it is also what keeps the message above
+    true, since only a real dependency can now reach it.
+
+    `lib.preset.bands` specifically, because the reachable shape is narrower
+    than it looks: `from lib.preset import emit` with `emit` itself missing
+    raises `ImportError`, not `ModuleNotFoundError` (the import system swallows
+    the latter for a name in the fromlist), so it never reaches that handler at
+    all. What does reach it is a module *inside* the graph — `build.py` does
+    `from lib.preset.bands import ...`, two hops down and deferred with the
+    rest.
+    """
+    from tests.conftest import write_synthetic_tuning_xml
+
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    result = subprocess.run(
+        [sys.executable, str(REPO / "dolby_to_easyeffects.py"), "--no-color",
+         str(xml), "--output-dir", str(tmp_path / "presets"),
+         "--irs-dir", str(tmp_path / "irs")],
+        capture_output=True, text=True, timeout=120, cwd=REPO,
+        env={**os.environ,
+             "PYTHONPATH": _absent(tmp_path, "lib.preset.bands")},
+    )
+    output = result.stdout + result.stderr
+
+    assert "requirements.txt" not in output, (
+        "a first-party module that isn't there was reported as a dependency "
+        f"the user has to install:\n{output}"
+    )
+    assert "lib.preset.bands" in output, (
+        f"the failure must name the module that is actually missing:\n{output}"
+    )
+    assert result.returncode != 0, "a run that could not start exited 0"
+
+
 # The shell hook reads only the head of the file looking for the marker, so
 # placement is load-bearing, not cosmetic.
 # https://github.com/kislyuk/argcomplete — "the shell will look for the string

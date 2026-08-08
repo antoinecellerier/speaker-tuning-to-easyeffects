@@ -677,6 +677,22 @@ def main(argv: list[str] | None = None,
         # of the one call this module serves.
         from lib.report import profile as report_profile
     except ModuleNotFoundError as exc:
+        if (exc.name or "").split(".")[0] == "lib":
+            # Two of the three imports above are first-party, and a module
+            # missing from inside their graph — `lib/preset/build.py` does
+            # `from lib.preset.bands import …`, two hops down — arrives here as
+            # the same exception numpy does. There is nothing to install for
+            # one. Re-raised as itself: a traceback naming the module is what
+            # says so, where the message below would send someone to
+            # requirements.txt for a bug in this repo. It is also what keeps
+            # that message honest, since it can now only ever name a real
+            # dependency.
+            #
+            # Narrower than it looks, and deliberately not relied on: `emit`
+            # itself going missing raises `ImportError`, which this never sees,
+            # because the import system swallows `ModuleNotFoundError` for a
+            # name in the fromlist.
+            raise
         # Someone who cloned the repo and skipped the install step lands here,
         # and on the default single-profile path nothing has been printed yet:
         # this is the whole screen, so it has to say what to install on its own.
