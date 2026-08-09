@@ -67,7 +67,7 @@ from lib.pipewire.plugins import (
     LSP_MBC_URI,
     LSP_PEQ_URI,
 )
-from lib.report import findings as report_findings
+from lib.report import doctor_layout as layout
 from lib.report import speaker as gen
 
 
@@ -520,6 +520,32 @@ def _plugin_presence() -> list[str]:
     return out
 
 
+def _environment_lines(confs, chains, facts) -> list[str]:
+    """The `=== Environment ===` body: what this tool has installed and what
+    PipeWire is doing with it. Labels pad to a 16-column gutter so the values
+    line up, and the per-conf and per-sink lines hang under that gutter."""
+    wp = facts["wireplumber"]
+    lines = [
+        f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
+        " (PipeWire path)",
+        f"  WirePlumber:  {'.'.join(map(str, wp)) if wp else 'unknown'}",
+        f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
+    ]
+    for c in confs:
+        state = "unreadable" if not c.readable else (
+            f"smart→{c.target}" if c.smart
+            else (f"pinned→{c.pinned}" if c.pinned else "virtual sink, unpinned"))
+        lines.append(f"                {doctor.tilde(c.path)} "
+                     f"[{c.version or '?'}] {state}")
+    lines.append(f"  Live chains:  {len(chains)}"
+                 + (": " + ", ".join(sorted(c.name for c in chains))
+                    if chains else ""))
+    lines.append(f"  Sinks:        {len(facts['sinks'])}")
+    lines += [f"                {s}" for s in facts["sinks"]]
+    lines += [f"  {line}" for line in _plugin_presence()]
+    return lines
+
+
 def report_pw_doctor() -> int:
     """Print the PipeWire-side diagnostic report. Returns a process exit code.
 
@@ -529,71 +555,17 @@ def report_pw_doctor() -> int:
     """
     checks, confs, chains, facts = gather_pw_doctor()
 
-    # The project name, not this module's: dolby_to_pipewire.py --doctor runs
-    # the same report, and a header naming the other script reads as a
-    # mis-invocation.
-    console.cprint("head", f"speaker-tuning-to-easyeffects {facts['version']}")
-    print()
-
-    # Inventory leads, diagnosis trails. Someone runs --doctor because
-    # something is already wrong, and this report is longer than a terminal:
-    # printed first, the checks and the restart command scrolled off and the
-    # last thing on screen was a PCI listing. Hardware first (the widest
-    # context, and the same block --speaker-info prints), then the tool's own
-    # state, then what is wrong with it.
-    info = gen._gather_speaker_info()
-    gen._print_speaker_info(info)
-
-    # Raw probed facts, always shown: a verdict can be wrong or UNKNOWN and
-    # the report still has to be diagnosable by someone reading it remotely.
-    # Directly above the checks because the check details name these confs and
-    # sinks — the facts a reader cross-references stay on the same screen.
-    console.cprint("head", "=== Environment ===")
-    wp = facts["wireplumber"]
-    print(f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
-          " (PipeWire path)")
-    print(f"  WirePlumber:  {'.'.join(map(str, wp)) if wp else 'unknown'}")
-    print(f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}")
-    for c in confs:
-        state = "unreadable" if not c.readable else (
-            f"smart→{c.target}" if c.smart
-            else (f"pinned→{c.pinned}" if c.pinned else "virtual sink, unpinned"))
-        print(f"                {doctor.tilde(c.path)} [{c.version or '?'}] {state}")
-    print(f"  Live chains:  {len(chains)}"
-          + (": " + ", ".join(sorted(c.name for c in chains)) if chains else ""))
-    print(f"  Sinks:        {len(facts['sinks'])}")
-    for s in facts["sinks"]:
-        print(f"                {s}")
-    for line in _plugin_presence():
-        print(f"  {line}")
-    print()
-
-    # The header sits with the checks it names, not at the top of the report:
-    # above the inventory it labelled a hardware dump it has nothing to do with,
-    # and left the check block as the only section without a heading.
-    console.cprint("head", "=== PipeWire filter-chain doctor ===")
-    for c in checks:
-        doctor.emit_check(c, console.cprint, console._wrap_width())
-    print()
-    doctor.print_summary(checks, console.cprint)
-    print()
-
-    doctor.print_verdict(checks, console.cprint)
-    print()
-
-    # Removing a conf and restarting is the answer to most of the above, and
-    # it is the one step a reader can't derive from a diagnosis. Last, so it is
-    # still on screen when the report ends.
-    console.cprint("dim", "To remove a chain: delete its .conf (and matching .irs), "
-                  "then restart PipeWire:")
-    console.cprint("cta", f"  {PIPEWIRE_RESTART_CMD}")
-    print()
-
-    # One link, and it is last (`.claude/rules/user-messages.md`). The report is
-    # written to be pasted, and with the inventory no longer trailing there is
-    # nothing else left to say where it should go.
-    console.cprint("cta", "Still stuck? Paste everything above into an issue:")
-    console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")
+    layout.print_report_header(facts["version"])
+    # Probed here rather than in gather_pw_doctor: nothing judges this block,
+    # so it costs a ~2.5 s probe only on the path that prints it.
+    gen._print_speaker_info(gen._gather_speaker_info())
+    layout.print_environment(_environment_lines(confs, chains, facts))
+    layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
+    layout.print_closing((
+        ("dim", "To remove a chain: delete its .conf (and matching .irs), "
+                "then restart PipeWire:"),
+        ("cta", f"  {PIPEWIRE_RESTART_CMD}"),
+    ))
     return 0
 
 

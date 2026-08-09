@@ -350,18 +350,6 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | No
         steps=tuple(("cta", speakers.amixer_enable_cmd(g)) for g in off))
 
 
-def emit_check(check: CheckResult) -> None:
-    """Print one diagnostic line: status box, label, wrapped detail, steps.
-
-    Hands off to the shared printer so this report and ee_to_pipewire.py's
-    PipeWire-side one read as one tool. This used to be a second
-    implementation of it, which is how a check's ``steps`` reached the
-    PipeWire doctor and not this one — the same duplication the steps
-    themselves exist to end.
-    """
-    doctor.emit_check(check, console.cprint, console._wrap_width())
-
-
 def warn_old_kernel(release: str | None = None) -> None:
     """End-of-run hint: an old kernel series can mis-configure the speaker
     path no matter how good the preset is — issue #33 was fixed by a

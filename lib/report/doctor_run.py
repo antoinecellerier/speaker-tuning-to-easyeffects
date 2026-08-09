@@ -32,12 +32,15 @@ and the `~`-collapsing path renderer — through `lib/doctor.py`, so they read a
 one tool. The constants and `CheckResult` arrive under bare names because
 string constants and a record type hold no state a patch would have to reach.
 
-`findings` and `speaker` keep the aliases the generator gave them
-(`report_findings`, `report_speaker`) for the same reason: the moved lines
-read through those names. In the generator the first dodges a local named
-`findings` in `main()` and the second is one letter from `lib.hardware.speakers`
-— neither hazard exists here, and the names are kept anyway because renaming
-them would cost the provenance of every line that uses them.
+`speaker` keeps the alias the generator gave it (`report_speaker`) for the same
+reason: the moved lines read through that name. In the generator it is one
+letter from `lib.hardware.speakers` — a hazard that does not exist here, and the
+name is kept anyway because renaming it would cost the provenance of every line
+that uses it.
+
+The report's frame — the order of its sections and the text around them — is
+`lib/report/doctor_layout.py`, shared with the PipeWire doctor so the two cannot
+drift. What is left here is this side's own two builders and its probes.
 """
 
 from __future__ import annotations
@@ -52,8 +55,8 @@ from pathlib import Path
 from lib import console, doctor, ee_paths, version
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_WARN, CheckResult
 from lib.preset import autoload
+from lib.report import doctor_layout as layout
 from lib.report import environment
-from lib.report import findings as report_findings
 from lib.report import speaker as report_speaker
 
 
@@ -287,79 +290,80 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
+def _environment_lines(f: dict) -> list[str]:
+    """The `=== Environment ===` body: where this tool wrote, and what
+    EasyEffects is doing with it. Labels pad to a 16-column gutter so the
+    values line up. The last three rows appear only once there is one."""
+    lines = [
+        f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}",
+        f"  EasyEffects:  {f.get('ee_version', '?')}; "
+        f"running: {'yes' if f.get('ee_running') else 'no'}",
+        f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})",
+        f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
+        f"{f.get('irs_count', 0)} impulse files",
+        f"  Config:       {f.get('rc_path')} "
+        f"({'present' if f.get('rc_present') else 'absent'})",
+        f"  Background:   service mode "
+        f"{'on' if f.get('service_mode') else 'off'}, autostart "
+        f"{'on' if f.get('autostart_on_login') else 'off'}",
+    ]
+    if f.get("selected_preset"):
+        lines.append(f"  Selected:     {f['selected_preset']}")
+    if f.get("output_device"):
+        lines.append(f"  Output sink:  {f['output_device']}")
+    if f.get("output_plugins"):
+        lines.append(f"  Active chain: {', '.join(f['output_plugins'])}")
+    return lines
+
+
+def _collapse_preset_checks(checks: list[CheckResult]) -> list[CheckResult]:
+    """Fold a run of passing per-preset checks into one line.
+
+    A machine can have dozens of profiles, and a screenful of identical PASS
+    lines buries everything else; any preset with a problem is still listed
+    individually, in place of the run. The collapsed line is a `CheckResult`
+    carrying no detail, so it renders through the same printer as every other
+    check rather than a hand-built copy of its format.
+
+    Display only — the summary counts the originals (`print_check_block`'s
+    ``counted``), so the PASS total still says how many presets were read.
+    """
+    presets = [c for c in checks if c.label.startswith("Preset ")]
+    problems = [c for c in presets if c.status != DOCTOR_PASS]
+    passing = len(presets) - len(problems)
+
+    shown: list[CheckResult] = []
+    folded = False
+    for c in checks:
+        if not c.label.startswith("Preset "):
+            shown.append(c)
+        elif not folded:
+            folded = True
+            if passing:
+                shown.append(CheckResult(
+                    DOCTOR_PASS,
+                    f"Presets ({passing}/{len(presets)} load their impulse file)",
+                    ""))
+            shown += problems
+    return shown
+
+
 def _print_doctor_report(report: environment.DoctorReport) -> None:
     """Print a compact, paste-safe diagnostic report."""
-    emit = environment.emit_check
-
-    console.cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
-    print()
-
-    # Inventory leads, diagnosis trails — the report is longer than a terminal
-    # and the reader is here because something is already wrong, so the checks
-    # and what to do about them have to be what survives on screen. Hardware
-    # first (the widest context), then this tool's own state, then the checks
-    # that name it.
+    layout.print_report_header(version.get_version())
     if report.speaker_info is not None:
         report_speaker._print_speaker_info(report.speaker_info)
-
-    # Raw probed facts — always shown so an issue can be diagnosed remotely even
-    # when a heuristic verdict is UNKNOWN or wrong.
-    f = report.facts
-    console.cprint("head", "=== Environment ===")
-    print(f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}")
-    print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
-          f"running: {'yes' if f.get('ee_running') else 'no'}")
-    print(f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})")
-    print(f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
-          f"{f.get('irs_count', 0)} impulse files")
-    print(f"  Config:       {f.get('rc_path')} "
-          f"({'present' if f.get('rc_present') else 'absent'})")
-    print(f"  Background:   service mode "
-          f"{'on' if f.get('service_mode') else 'off'}, autostart "
-          f"{'on' if f.get('autostart_on_login') else 'off'}")
-    if f.get("selected_preset"):
-        print(f"  Selected:     {f['selected_preset']}")
-    if f.get("output_device"):
-        print(f"  Output sink:  {f['output_device']}")
-    if f.get("output_plugins"):
-        print(f"  Active chain: {', '.join(f['output_plugins'])}")
-    print()
-
-    # The header sits with the checks it names, not at the top of the report:
-    # above the inventory it labelled a hardware dump it has nothing to do with,
-    # and left the check block as the only section without a heading.
-    console.cprint("head", "=== EasyEffects doctor ===")
-    # Per-preset checks collapse to one line when they all pass (a machine can
-    # have dozens of profiles); any problem preset is still listed individually.
-    preset_checks = [c for c in report.checks if c.label.startswith("Preset ")]
-    preset_problems = [c for c in preset_checks if c.status != DOCTOR_PASS]
-    shown_presets = False
-    for c in report.checks:
-        if c.label.startswith("Preset "):
-            if not shown_presets:
-                shown_presets = True
-                ok_n = len(preset_checks) - len(preset_problems)
-                if ok_n:
-                    console.cprint("ok", f"  [{DOCTOR_PASS:^4}] Presets "
-                                 f"({ok_n}/{len(preset_checks)} load their impulse file)")
-                for pc in preset_problems:
-                    emit(pc)
-            continue
-        emit(c)
-    print()
-    doctor.print_summary(report.checks, console.cprint)
-    print()
-
+    layout.print_environment(_environment_lines(report.facts))
+    layout.print_check_block("=== EasyEffects doctor ===",
+                             _collapse_preset_checks(report.checks),
+                             counted=report.checks)
     # What the doctor can't see — guide the user through the manual checks.
-    doctor.print_verdict(report.checks, console.cprint)
-    console.cprint("dim", "If you still hear no difference between the preset and bypass:")
-    console.cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
-    console.cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
-    console.cprint("dim", "  • Confirm system output is the speaker sink and volume is up.")
-    print()
-
-    console.cprint("cta", "Still stuck? Paste everything above into an issue:")
-    console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")
+    layout.print_closing((
+        ("dim", "If you still hear no difference between the preset and bypass:"),
+        ("dim", "  • In EasyEffects, toggle the preset off/on to A/B it."),
+        ("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF."),
+        ("dim", "  • Confirm system output is the speaker sink and volume is up."),
+    ))
 
 
 def _uses_custom_ee_dirs(args) -> bool:

@@ -57,10 +57,13 @@ enough to need folding must ask** via `_cprint_wrapped` / `_print_flag_hint`.
 
 Both doctors (`lib/pipewire/checks.py`, `lib/report/doctor_run.py`) print
 version → hardware → `=== Environment ===` → checks → summary → verdict → fix
-→ link. Same reason as above, sharpened: the report is longer than a terminal
-and the reader is there *because* something is already wrong, so ending on the
-inventory scrolled the verdict and the fix command off a 26-line window and
-left a PCI listing as the last thing on screen.
+→ link. **That order and the text around it live in
+`lib/report/doctor_layout.py`** — edit the frame there, not in either doctor,
+which supply only their own facts lines, checks and remedy. Same reason as
+above, sharpened: the report is longer than a terminal and the reader is there
+*because* something is already wrong, so ending on the inventory scrolled the
+verdict and the fix command off a 26-line window and left a PCI listing as the
+last thing on screen.
 
 - **Inventory is context, so it goes first** — widest (hardware, what
   `--speaker-info` prints) then narrowest (this tool's confs, sinks, presets).

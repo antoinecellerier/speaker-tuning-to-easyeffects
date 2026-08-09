@@ -563,13 +563,34 @@ def test_pw_doctor_wraps_detail_to_the_console_width(tmp_path, monkeypatch,
         "a detail line wider than the console width the rest of the run uses"
 
 
+def _ee_check_block(check, monkeypatch, capsys) -> list[str]:
+    """The same, through the whole EasyEffects report.
+
+    ``DoctorReport.speaker_info`` defaults to None, so the hardware block is
+    skipped and nothing here probes the machine.
+    """
+    from lib.report import doctor_run, environment
+
+    monkeypatch.setenv("COLUMNS", "200")
+    doctor_run._print_doctor_report(environment.DoctorReport(checks=[check]))
+    lines = capsys.readouterr().out.split("Summary:")[0].splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("  ["))
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines[start:]
+
+
 def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,
                                                  silence_console, capsys):
     """The two reports must read as one tool, and a check that wraps at one
     measure here and another there is the visible half of that. Same
-    CheckResult, same bytes."""
+    CheckResult, same bytes.
+
+    Both sides go through their real report function, not the shared printer
+    directly: that the two now call one printer is the thing under test, so a
+    test that called it itself would assert nothing about either report.
+    """
     from lib.doctor import CheckResult
-    from lib.report import environment
 
     check = CheckResult(DOCTOR_WARN, "Gate", "word " * 40,
                         steps=(("dim", "Switch it on:"), ("", ""),
@@ -577,7 +598,5 @@ def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,
     monkeypatch.setattr(console, "_wrap_width", lambda: 72)
     silence_console(console)
 
-    environment.emit_check(check)
-    ee_lines = capsys.readouterr().out.splitlines()
-
-    assert _pw_check_block(check, monkeypatch, tmp_path, capsys) == ee_lines
+    assert (_pw_check_block(check, monkeypatch, tmp_path, capsys)
+            == _ee_check_block(check, monkeypatch, capsys))
