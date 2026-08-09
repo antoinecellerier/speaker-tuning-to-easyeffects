@@ -220,6 +220,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   built. It then separates fixes you can apply from the project's one-line
   asks, and the warnings that used to print mid-run are no longer buried
   under the per-band tables.
+- `--doctor` now ends on what to do about a problem instead of the hardware
+  dump, so the checks, verdict and fix commands survive a short terminal. It
+  prints those fix commands — the speaker-pin `hda_model=` procedure, the
+  smart-amp `amixer` line — rather than pointing at them, and the PipeWire
+  side gained the report link
+  ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
 - `--dry-run` no longer prints the generated conf to stdout — it reports where
   the conf and impulse response would be written, and nothing else. To get a
   conf without installing it, pass `ee_to_pipewire.py --output PATH` (or
@@ -238,11 +244,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   says what to do when it can't find your card; and the persistence fallback
   asks you to get in touch instead of naming a systemd unit it never showed
   you.
-- `--doctor` now prints the fix commands it used to point at: the speaker-pin
-  `hda_model=` procedure, which asked you to re-run without `--doctor`, and the
-  smart-amp firmware-gate `amixer` line, which sent you to a section further
-  down. Its confirmation step now leads with what you should hear
-  ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
 - The voicing-strength line no longer gives a percentage and then says Windows
   applies none in the same breath: where the profile switches voicing off it
   now leads with that, and says the percentage is ours and what it buys. The

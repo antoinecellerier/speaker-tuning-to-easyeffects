@@ -19,6 +19,7 @@ import ee_to_pipewire
 from lib import console
 from lib.pipewire import checks, conf
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
+from lib.report import findings as report_findings
 
 SPEAKER = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
 
@@ -282,11 +283,60 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     assert "No blocking problems detected." not in out
     assert "systemctl --user restart pipewire" in out
     # The paste block is the point of running this before filing an issue.
-    assert "paste this into your issue" in out
+    assert "=== Environment ===" in out
+    assert "Paste everything above into an issue" in out
     # ...and `--doctor > report.txt` has to capture all of it. The console and
     # the bare prints here both target stdout, so the report arrives whole with
     # no mechanism holding the two together.
     assert captured.err == ""
+
+
+def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
+                                                        silence_console, capsys):
+    """Inventory leads, diagnosis trails.
+
+    This report is longer than a terminal and the reader is here because
+    something is already wrong. Printed inventory-last, the checks, the verdict
+    and the restart command scrolled off a 26-line window and a PCI listing was
+    the last thing on screen. Same principle as the generator's closing block
+    (`.claude/rules/user-messages.md`), which nothing else traps for --doctor.
+    """
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced"),
+            *_smart_chain("Dolby_Warm")]
+    monkeypatch.setattr(checks, "_pw_dump", lambda: dump)
+    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+    # Stubbed rather than probed: the sequence is the assertion here, and the
+    # real hardware block differs line for line per machine.
+    monkeypatch.setattr(checks.gen, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(checks.gen, "_print_speaker_info",
+                        lambda info: print("=== HARDWARE STUB ==="))
+    silence_console(console)
+
+    assert checks.report_pw_doctor() == 0
+    out = capsys.readouterr().out
+
+    # Widest context first, then this tool's state, then what is wrong with it.
+    # Environment sits directly above the checks because the check details name
+    # those confs and sinks.
+    assert (out.index("=== HARDWARE STUB ===")
+            < out.index("=== Environment ===")
+            < out.index("=== PipeWire filter-chain doctor ===")
+            < out.index("Stacked filter chains")
+            < out.index("Summary:")
+            < out.index("systemctl --user restart pipewire")
+            < out.index(report_findings._REPORT_FORM_URL))
+
+    # The bottom line has to survive one screen — 26 lines is what
+    # tools/user_review_capture.py treats as a terminal's worth.
+    tail = "\n".join(out.splitlines()[-26:])
+    assert "Summary:" in tail
+    assert "systemctl --user restart pipewire" in tail
+    # A FAIL suppresses the verdict line (lib/doctor.py), so the summary and the
+    # remedy are what carry the bottom line here.
+    assert out.rstrip().endswith(report_findings._REPORT_FORM_URL)
 
 
 def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,

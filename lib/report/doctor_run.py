@@ -292,8 +292,43 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     emit = environment.emit_check
 
     console.cprint("head", f"speaker-tuning-to-easyeffects {version.get_version()}")
-    console.cprint("head", "=== EasyEffects doctor ===")
     print()
+
+    # Inventory leads, diagnosis trails — the report is longer than a terminal
+    # and the reader is here because something is already wrong, so the checks
+    # and what to do about them have to be what survives on screen. Hardware
+    # first (the widest context), then this tool's own state, then the checks
+    # that name it.
+    if report.speaker_info is not None:
+        report_speaker._print_speaker_info(report.speaker_info)
+
+    # Raw probed facts — always shown so an issue can be diagnosed remotely even
+    # when a heuristic verdict is UNKNOWN or wrong.
+    f = report.facts
+    console.cprint("head", "=== Environment ===")
+    print(f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}")
+    print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
+          f"running: {'yes' if f.get('ee_running') else 'no'}")
+    print(f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})")
+    print(f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
+          f"{f.get('irs_count', 0)} impulse files")
+    print(f"  Config:       {f.get('rc_path')} "
+          f"({'present' if f.get('rc_present') else 'absent'})")
+    print(f"  Background:   service mode "
+          f"{'on' if f.get('service_mode') else 'off'}, autostart "
+          f"{'on' if f.get('autostart_on_login') else 'off'}")
+    if f.get("selected_preset"):
+        print(f"  Selected:     {f['selected_preset']}")
+    if f.get("output_device"):
+        print(f"  Output sink:  {f['output_device']}")
+    if f.get("output_plugins"):
+        print(f"  Active chain: {', '.join(f['output_plugins'])}")
+    print()
+
+    # The header sits with the checks it names, not at the top of the report:
+    # above the inventory it labelled a hardware dump it has nothing to do with,
+    # and left the check block as the only section without a heading.
+    console.cprint("head", "=== EasyEffects doctor ===")
     # Per-preset checks collapse to one line when they all pass (a machine can
     # have dozens of profiles); any problem preset is still listed individually.
     preset_checks = [c for c in report.checks if c.label.startswith("Preset ")]
@@ -315,29 +350,6 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     environment.print_doctor_summary(report.checks)
     print()
 
-    # Raw probed facts — always shown so an issue can be diagnosed remotely even
-    # when a heuristic verdict is UNKNOWN or wrong.
-    f = report.facts
-    console.cprint("head", "=== Environment (paste this into your issue) ===")
-    print(f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}")
-    print(f"  EasyEffects:  {f.get('ee_version', '?')}; "
-          f"running: {'yes' if f.get('ee_running') else 'no'}")
-    print(f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})")
-    print(f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
-          f"{f.get('irs_count', 0)} impulse files")
-    print(f"  Config:       {f.get('rc_path')} "
-          f"({'present' if f.get('rc_present') else 'absent'})")
-    print(f"  Background:   service mode "
-          f"{'on' if f.get('service_mode') else 'off'}, autostart "
-          f"{'on' if f.get('autostart_on_login') else 'off'}")
-    if f.get("selected_preset"):
-        print(f"  Selected:     {f['selected_preset']}")
-    if f.get("output_device"):
-        print(f"  Output sink:  {f['output_device']}")
-    if f.get("output_plugins"):
-        print(f"  Active chain: {', '.join(f['output_plugins'])}")
-    print()
-
     # What the doctor can't see — guide the user through the manual checks.
     environment.print_doctor_verdict(report.checks)
     console.cprint("dim", "If you still hear no difference between the preset and bypass:")
@@ -345,9 +357,6 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     console.cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
     console.cprint("dim", "  • Confirm system output is the speaker sink and volume is up.")
     print()
-
-    if report.speaker_info is not None:
-        report_speaker._print_speaker_info(report.speaker_info)
 
     console.cprint("cta", "Still stuck? Paste everything above into an issue:")
     console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")

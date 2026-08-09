@@ -1736,7 +1736,7 @@ def test_firmware_gate_check_carries_the_command_that_switches_it_on():
 def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     """TRAP: --doctor is the output the issue form asks people to paste when
     something is wrong. A gate that mutes the speakers upstream of the whole
-    preset must reach the verdict, not just the hardware dump below it."""
+    preset must reach the verdict, not just the hardware dump it sits beside."""
     silence_console(console)
     report = DoctorReport(checks=[
         CheckResult(DOCTOR_PASS, "EasyEffects version", "8.1.0"),
@@ -1746,6 +1746,38 @@ def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     out = capsys.readouterr().out
     assert "No blocking problems detected." not in out
     assert "1 WARN" in out
+
+
+def test_doctor_ends_on_the_diagnosis_not_the_inventory(monkeypatch,
+                                                        silence_console, capsys):
+    """Inventory leads, diagnosis trails.
+
+    The report is longer than a terminal and the reader is here because
+    something is already wrong, so the checks and what to do about them are
+    what has to survive on screen — the hardware dump used to sit between the
+    verdict and the closing link. Same principle as the generator's closing
+    block (`.claude/rules/user-messages.md`).
+    """
+    silence_console(console)
+    # Stubbed rather than probed: the sequence is the assertion, and the real
+    # hardware block differs line for line per machine.
+    monkeypatch.setattr(doctor_run.report_speaker, "_print_speaker_info",
+                        lambda info: print("=== HARDWARE STUB ==="))
+    report = DoctorReport(
+        checks=[CheckResult(DOCTOR_WARN, "Background service", "not autostarted")],
+        speaker_info=object(),
+    )
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+
+    assert (out.index("=== HARDWARE STUB ===")
+            < out.index("=== Environment ===")
+            < out.index("=== EasyEffects doctor ===")
+            < out.index("Background service")
+            < out.index("Summary:")
+            < out.index("what to fix first")
+            < out.index(report_findings._REPORT_FORM_URL))
+    assert out.rstrip().endswith(report_findings._REPORT_FORM_URL)
 
 
 def test_doctor_report_unknown_not_summarised_as_clean(silence_console,

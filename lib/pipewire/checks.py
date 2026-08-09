@@ -67,6 +67,7 @@ from lib.pipewire.plugins import (
     LSP_MBC_URI,
     LSP_PEQ_URI,
 )
+from lib.report import findings as report_findings
 from lib.report import speaker as gen
 
 
@@ -532,17 +533,22 @@ def report_pw_doctor() -> int:
     # the same report, and a header naming the other script reads as a
     # mis-invocation.
     console.cprint("head", f"speaker-tuning-to-easyeffects {facts['version']}")
-    console.cprint("head", "=== PipeWire filter-chain doctor ===")
     print()
-    for c in checks:
-        doctor.emit_check(c, console.cprint, console._wrap_width())
-    print()
-    doctor.print_summary(checks, console.cprint)
-    print()
+
+    # Inventory leads, diagnosis trails. Someone runs --doctor because
+    # something is already wrong, and this report is longer than a terminal:
+    # printed first, the checks and the restart command scrolled off and the
+    # last thing on screen was a PCI listing. Hardware first (the widest
+    # context, and the same block --speaker-info prints), then the tool's own
+    # state, then what is wrong with it.
+    info = gen._gather_speaker_info()
+    gen._print_speaker_info(info)
 
     # Raw probed facts, always shown: a verdict can be wrong or UNKNOWN and
     # the report still has to be diagnosable by someone reading it remotely.
-    console.cprint("head", "=== Environment (paste this into your issue) ===")
+    # Directly above the checks because the check details name these confs and
+    # sinks — the facts a reader cross-references stay on the same screen.
+    console.cprint("head", "=== Environment ===")
     wp = facts["wireplumber"]
     print(f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
           " (PipeWire path)")
@@ -562,18 +568,32 @@ def report_pw_doctor() -> int:
         print(f"  {line}")
     print()
 
+    # The header sits with the checks it names, not at the top of the report:
+    # above the inventory it labelled a hardware dump it has nothing to do with,
+    # and left the check block as the only section without a heading.
+    console.cprint("head", "=== PipeWire filter-chain doctor ===")
+    for c in checks:
+        doctor.emit_check(c, console.cprint, console._wrap_width())
+    print()
+    doctor.print_summary(checks, console.cprint)
+    print()
+
     doctor.print_verdict(checks, console.cprint)
     print()
 
     # Removing a conf and restarting is the answer to most of the above, and
-    # it is the one step a reader can't derive from a diagnosis.
+    # it is the one step a reader can't derive from a diagnosis. Last, so it is
+    # still on screen when the report ends.
     console.cprint("dim", "To remove a chain: delete its .conf (and matching .irs), "
                   "then restart PipeWire:")
     console.cprint("cta", f"  {PIPEWIRE_RESTART_CMD}")
     print()
 
-    info = gen._gather_speaker_info()
-    gen._print_speaker_info(info)
+    # One link, and it is last (`.claude/rules/user-messages.md`). The report is
+    # written to be pasted, and with the inventory no longer trailing there is
+    # nothing else left to say where it should go.
+    console.cprint("cta", "Still stuck? Paste everything above into an issue:")
+    console.cprint("cta", f"  {report_findings._REPORT_FORM_URL}")
     return 0
 
 

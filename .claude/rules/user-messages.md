@@ -53,6 +53,27 @@ Rules that hold for anything added here:
 `cprint` hands text to the console verbatim so URLs survive, so **prose long
 enough to need folding must ask** via `_cprint_wrapped` / `_print_flag_hint`.
 
+## `--doctor`: inventory leads, diagnosis trails
+
+Both doctors (`lib/pipewire/checks.py`, `lib/report/doctor_run.py`) print
+version → hardware → `=== Environment ===` → checks → summary → verdict → fix
+→ link. Same reason as above, sharpened: the report is longer than a terminal
+and the reader is there *because* something is already wrong, so ending on the
+inventory scrolled the verdict and the fix command off a 26-line window and
+left a PCI listing as the last thing on screen.
+
+- **Inventory is context, so it goes first** — widest (hardware, what
+  `--speaker-info` prints) then narrowest (this tool's confs, sinks, presets).
+  Environment sits directly above the checks because the check details name
+  those confs and sinks.
+- **Each section's header sits with what it labels.** The doctor header names
+  the checks, not the report.
+- **Nothing is appended after the link**, and the closing
+  "Paste everything above" is what makes the whole report pasteable — no
+  section repeats the instruction in its own heading.
+- `tests/test_pw_doctor.py` and `tests/test_preset.py` each carry a
+  `test_doctor_ends_on_the_diagnosis_not_the_inventory` trap.
+
 ## Every claim is checkable
 
 Plain language is the goal, but a sentence a first-time reader understands
