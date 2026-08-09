@@ -47,6 +47,24 @@ DOLBY_FILENAME_RE = re.compile(r"SUBSYS_[0-9A-Za-z]{8}.*\.xml$", re.IGNORECASE)
 # compare against ``name.lower().endswith(...)``.
 _NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
 
+
+def is_dolby_tuning_filename(name: str) -> bool:
+    """True if *name* is a DAX3 playback tuning rather than one of the
+    companions that share its shape.
+
+    The single definition of "a corpus XML". The probes below,
+    ``tests/corpus/`` and ``tools/corpus_audit.py`` all route through it, so
+    what the converter accepts and what the cross-device sweep counts cannot
+    drift apart. They had: the sweep tested for a ``DEV_``/``SOUNDWIRE``/
+    ``SDW`` filename *prefix*, which skipped the ``HDAUDIO_``/``INTELAUDIO_``/
+    ``PCI_``/``AUCD_`` DriverStore spellings of the same tunings and counted
+    the ``_dmic``/``_amic`` microphone files as speaker ones.
+    """
+    if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
+        return False
+    return bool(DOLBY_FILENAME_RE.search(name))
+
+
 # DriverStore wrapper directories. Windows renames each installed package's
 # payload directory to ``<inf-stem>.inf_<arch>_<hash>``, so Dolby's DAX3
 # extension packages land as ``dax3_ext_rtk.inf_amd64_<hash>`` and similar,
@@ -86,10 +104,7 @@ def _has_dolby_xml(directory: Path) -> bool:
     """Return True if ``directory`` directly contains a Dolby-shaped XML."""
     try:
         for entry in directory.iterdir():
-            name = entry.name
-            if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
-                continue
-            if entry.is_file() and DOLBY_FILENAME_RE.search(name):
+            if entry.is_file() and is_dolby_tuning_filename(entry.name):
                 return True
     except OSError:
         pass
@@ -219,11 +234,9 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
             for entry in xml_dir.iterdir():
                 if not entry.is_file():
                     continue
-                if entry.name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
+                if not is_dolby_tuning_filename(entry.name):
                     continue
                 name = entry.name.upper()
-                if not DOLBY_FILENAME_RE.search(entry.name):
-                    continue
                 for subsys in expected_subsys:
                     if f"SUBSYS_{subsys}" in name:
                         return True
@@ -248,9 +261,7 @@ def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) 
         if depth >= max_depth:
             dirnames[:] = []
         for fn in filenames:
-            if fn.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
-                continue
-            if DOLBY_FILENAME_RE.search(fn):
+            if is_dolby_tuning_filename(fn):
                 results.append(current)
                 break
     return results

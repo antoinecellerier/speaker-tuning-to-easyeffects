@@ -39,23 +39,80 @@ _SYNTHETIC_XML = """<device_data>
 
 def test_is_dax3_xml_name_filter():
     assert corpus_audit.is_dax3_xml("DEV_0287_SUBSYS_17AA22E6.xml")
-    assert corpus_audit.is_dax3_xml("SOUNDWIRE_MAN_025D_FUNC_1318.xml")
-    assert corpus_audit.is_dax3_xml("SDW_x.xml")
+    assert corpus_audit.is_dax3_xml("SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml")
+    # The same tunings once Setup has renamed them into a DriverStore. The
+    # sweep used to test for a leading DEV_/SOUNDWIRE/SDW and skipped all of
+    # these, undercounting the corpus by a few hundred real speaker tunings.
+    assert corpus_audit.is_dax3_xml("HDAUDIO_DEV_0257_SUBSYS_17AA3801.xml")
+    assert corpus_audit.is_dax3_xml("INTELAUDIO_DEV_0274_SUBSYS_17AA3801.xml")
+    assert corpus_audit.is_dax3_xml("AUCD_DEV_0C29_SUBSYS_233817AA_ADCM_SUBSYS_233817AA.xml")
+    # Companions that share the shape but hold no playback tuning.
     assert not corpus_audit.is_dax3_xml("DEV_0287_SUBSYS_17AA22E6_settings.xml")
+    assert not corpus_audit.is_dax3_xml("DEV_0287_SUBSYS_17AA22E6_dmic.xml")
+    assert not corpus_audit.is_dax3_xml("SOUNDWIRE_MAN_025D_SUBSYS_233917AA_amic.xml")
     assert not corpus_audit.is_dax3_xml("readme.txt")
     assert not corpus_audit.is_dax3_xml("random.xml")
 
 
-def test_find_xmls_excludes_settings(tmp_path):
-    (tmp_path / "DEV_0287_SUBSYS_TEST.xml").write_text(_SYNTHETIC_XML)
-    (tmp_path / "DEV_0287_SUBSYS_TEST_settings.xml").write_text("<x/>")
+def test_find_xmls_excludes_companions(tmp_path):
+    (tmp_path / "DEV_0287_SUBSYS_17AA22E6.xml").write_text(_SYNTHETIC_XML)
+    (tmp_path / "DEV_0287_SUBSYS_17AA22E6_settings.xml").write_text("<x/>")
+    (tmp_path / "DEV_0287_SUBSYS_17AA22E6_dmic.xml").write_text("<x/>")
     found = corpus_audit.find_xmls([str(tmp_path)])
     assert len(found) == 1
-    assert found[0].endswith("DEV_0287_SUBSYS_TEST.xml")
+    assert found[0].endswith("DEV_0287_SUBSYS_17AA22E6.xml")
+
+
+def test_codec_of_reads_through_bus_prefixes():
+    c = corpus_audit.codec_of
+    assert c("DEV_0287_SUBSYS_17AA22E6.xml") == "DEV_0287"
+    assert c("HDAUDIO_DEV_0257_SUBSYS_17AA3801.xml") == "DEV_0257"
+    assert c("INTELAUDIO_DEV_0274_SUBSYS_17AA3801.xml") == "DEV_0274"
+    assert c("PCI_DEV_1803_SUBSYS_1880106B.xml") == "DEV_1803"
+    assert c("AUCD_DEV_0C29_SUBSYS_233817AA.xml") == "DEV_0C29"
+    assert c("SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml") == "SOUNDWIRE"
+    assert c("SDW_MAN_025D_SUBSYS_233917AA.xml") == "SDW"
+
+
+def test_package_of_matches_any_package_prefix():
+    p = corpus_audit.package_of
+    # A prefix match, so packages absent from any hardcoded list still bucket.
+    assert p("/x/ext_ideapad_AIO_senary_21h2_22h2_v8.920.549.59/a.xml") == (
+        "ext_ideapad_AIO_senary_21h2_22h2_v8.920.549.59")
+    assert p("/x/dax3_ext_rtk.inf_amd64_deadbeef/a.xml") == (
+        "dax3_ext_rtk.inf_amd64_deadbeef")
+    # "extracted" starts with ext but not ext_ — it is not a package name.
+    assert p("/x/extracted/dolby-xmls/a.xml") == "OTHER"
+
+
+def test_package_of_falls_back_to_an_inf_beside_the_tunings(tmp_path):
+    """Packages that ship flat, with the .inf next to the XMLs rather than in
+    a directory named after them — Samsung's Cirrus SoundWire drop."""
+    d = tmp_path / "APO" / "Dolby"
+    d.mkdir(parents=True)
+    xml = d / "SOUNDWIRE_MAN_01FA_FUNC_3556_SUBSYS_F020144D.xml"
+    xml.write_text(_SYNTHETIC_XML)
+    (d / "dax3_swc_aposvc.inf").write_text("")  # not a tuning package
+    assert corpus_audit.package_of(str(xml)) == "OTHER"
+    (d / "dax3_ext_cirrus.inf").write_text("")
+    corpus_audit._package_inf_in.cache_clear()
+    assert corpus_audit.package_of(str(xml)) == "dax3_ext_cirrus"
+
+
+def test_composition_prints_makeup_and_stops(tmp_path, capsys):
+    (tmp_path / "DEV_0287_SUBSYS_17AA22E6.xml").write_text(_SYNTHETIC_XML)
+    assert corpus_audit.main(["--composition", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("1 tuning XMLs total")
+    assert "1 content-unique" in out
+    assert "1 distinct SUBSYS device ids" in out
+    assert "1 profile rows total" in out
+    # --composition stops before the per-parameter sweep.
+    assert "Universal-constant checks" not in out
 
 
 def test_analyse_extracts_profile_row(tmp_path):
-    p = tmp_path / "DEV_0287_SUBSYS_TEST.xml"
+    p = tmp_path / "DEV_0287_SUBSYS_17AA22E6.xml"
     p.write_text(_SYNTHETIC_XML)
     rows = corpus_audit.analyse(str(p))
     assert len(rows) == 1

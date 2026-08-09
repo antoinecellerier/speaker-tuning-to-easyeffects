@@ -23,21 +23,27 @@ folder of collected XMLs:
     python3 tools/corpus_audit.py
     python3 tools/corpus_audit.py /mnt/c/Windows/System32/DriverStore
     ATMOS_CORPUS_DIR=~/dax3-xmls python3 tools/corpus_audit.py
+
+``--composition`` stops after the makeup block — file, content-unique and
+device counts, codecs, driver packages, endpoint/mode/profile coverage. That
+is the section ``docs/corpus.md`` tabulates, so it is the one to run against
+your own collection to see how it compares.
 """
 
 import argparse
+import functools
+import hashlib
 import os
 import re
 import statistics
 import sys
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-def is_dax3_xml(name):
-    if not name.endswith(".xml") or name.endswith("_settings.xml"):
-        return False
-    return name.startswith(("DEV_", "SOUNDWIRE", "SDW"))
+from lib.dax.discover import is_dolby_tuning_filename as is_dax3_xml  # noqa: E402
 
 
 def find_xmls(roots):
@@ -60,15 +66,22 @@ def discover_roots(cli_dirs):
     return ["."]
 
 
+# The codec id sits behind a bus prefix that varies with how the package was
+# installed — bare ``DEV_0287_…`` from an extracted tree, ``HDAUDIO_DEV_0257_…``
+# / ``INTELAUDIO_DEV_0274_…`` / ``PCI_DEV_1803_…`` once Setup has renamed them
+# into a DriverStore, ``AUCD_DEV_0C29_…`` on Qualcomm Aqstic. Search rather
+# than anchor, or those spellings all fall to UNKNOWN.
+_CODEC_RE = re.compile(r"DEV_([0-9A-Za-z]{4})")
+
+
 def codec_of(fn):
     bn = os.path.basename(fn)
-    if bn.startswith("DEV_"):
-        return bn[:8]  # e.g. DEV_0287
     if bn.startswith("SOUNDWIRE"):
         return "SOUNDWIRE"
     if bn.startswith("SDW"):
         return "SDW"
-    return "UNKNOWN"
+    m = _CODEC_RE.search(bn)
+    return f"DEV_{m.group(1).upper()}" if m else "UNKNOWN"
 
 
 _SUBSYS_RE = re.compile(r"SUBSYS_([0-9A-Za-z]{8})")
@@ -132,22 +145,42 @@ def peq_effective_boost(f):
     return 0.0
 
 
-# Driver-package wrapper prefixes seen in the wild, used only to bucket files
-# by source package in the report (purely cosmetic — unknowns fall to OTHER).
-_PACKAGE_KEYS = (
-    "dax3_ext_rtk", "ext_lenovo_AIO_rtk", "ext_thinkpad_AIO_rtk",
-    "ext_capg_thinkpad", "ext_capg_lenovo", "ext_amd_thinkpad",
-    "ext_amic_rtk_thinkpad", "fusion_ext_intel",
-    "ExtRtk_9826", "ExtRtk_9915", "Codec_",
-)
+# Files are bucketed by the directory segment named after the driver package
+# they shipped in: a Dolby extension package (``ext_*``), a DAX3/Fusion INF
+# wrapper as installed in a Windows DriverStore (``dax3_ext_*``, ``fusion_*``),
+# or a Realtek codec drop (``ExtRtk_*``, ``Codec_*``). A prefix match rather
+# than a fixed list, because every driver pull brings new package names — the
+# old hardcoded list silently binned real ones as OTHER. What is left
+# in OTHER is genuinely package-less: hand-organised collections, vendor APO
+# folders, and loose one-off XMLs attached to issue reports.
+_PACKAGE_PREFIXES = ("ext_", "fusion_", "dax3_ext_", "ExtRtk_", "Codec_")
+
+
+@functools.lru_cache(maxsize=None)
+def _package_inf_in(directory):
+    """Package name taken from a Dolby ``.inf`` sitting beside the tunings.
+
+    Not every package gets a directory of its own: Samsung's Cirrus SoundWire
+    drop ships ``dax3_ext_cirrus.inf`` flat in an ``APO/Dolby`` folder next to
+    the XMLs. Reading the INF stem keeps those attributed instead of dropping
+    a real package into OTHER. Cached per directory — packages hold hundreds
+    of files and the answer is the same for all of them.
+    """
+    try:
+        for name in sorted(os.listdir(directory)):
+            stem, ext = os.path.splitext(name)
+            if ext.lower() == ".inf" and stem.startswith(_PACKAGE_PREFIXES):
+                return stem
+    except OSError:
+        pass
+    return None
 
 
 def package_of(fn):
     for seg in fn.split(os.sep):
-        for key in _PACKAGE_KEYS:
-            if seg.startswith(key):
-                return seg
-    return "OTHER"
+        if seg.startswith(_PACKAGE_PREFIXES):
+            return seg
+    return _package_inf_in(os.path.dirname(fn)) or "OTHER"
 
 
 def parse_int_attr(elt, attr="value"):
@@ -365,8 +398,25 @@ def analyse(xml_path):
     return rows
 
 
-def report(xmls):
+def _content_digest(path):
+    """SHA-1 of the file bytes. The same tuning ships in many packages and
+    under many SUBSYS names, so a file count overstates how much distinct
+    tuning data a corpus holds — see docs/corpus.md."""
+    h = hashlib.sha1()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.digest()
+
+
+def composition(xmls):
+    """Print what the corpus is made of — the makeup figures behind
+    ``docs/corpus.md`` — and return the parsed profile rows for ``report``."""
     print(f"{len(xmls)} tuning XMLs total")
+    print(f"  {len({_content_digest(f) for f in xmls}):5} content-unique "
+          "(by file digest)")
+    print(f"  {len({subsys_of(f) for f in xmls}):5} distinct SUBSYS device ids")
+    print(f"  {len({os.path.basename(f) for f in xmls}):5} distinct filenames")
     by_codec = Counter(codec_of(f) for f in xmls)
     print("\nBy codec:")
     for k, v in by_codec.most_common():
@@ -389,6 +439,12 @@ def report(xmls):
     print(f"\nEndpoint types: {dict(ep_types)}")
     print(f"Operating modes: {dict(op_modes.most_common(10))}")
     print(f"Profiles: {dict(profiles.most_common(20))}")
+    return all_rows
+
+
+def report(xmls):
+    all_rows = composition(xmls)
+    profiles = Counter(r["profile"] for r in all_rows)
 
     ieq_presets = Counter(r.get("ieq_preset") for r in all_rows
                           if r.get("ieq_enable") == 1)
@@ -714,6 +770,13 @@ def main(argv=None):
         help="directories to walk for DAX3 XMLs (default: $ATMOS_CORPUS_DIR, "
              "else the current directory)",
     )
+    ap.add_argument(
+        "--composition", action="store_true",
+        help="print only what the corpus is made of — file/content-unique/"
+             "device counts, codecs, driver packages, endpoint-mode-profile "
+             "coverage — and stop, to compare a collection against the one "
+             "described in docs/corpus.md",
+    )
     args = ap.parse_args(argv)
 
     roots = discover_roots(args.corpus_dirs)
@@ -726,7 +789,10 @@ def main(argv=None):
             file=sys.stderr,
         )
         return 1
-    report(xmls)
+    if args.composition:
+        composition(xmls)
+    else:
+        report(xmls)
     return 0
 
 

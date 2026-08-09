@@ -32,11 +32,10 @@ import pytest
 
 from lib.preset.emit import save_wav_stereo
 from lib.dax.discover import (
-    DOLBY_FILENAME_RE,
-    _NON_DAX3_FILENAME_SUFFIXES,
     _ntfs_family_mountpoints,
     _resolve_driver_store,
     _walk_for_dolby_xml_dirs,
+    is_dolby_tuning_filename as _is_dax3_xml,
     is_soundwire_xml,
 )
 from lib.preset.build import make_preset
@@ -48,13 +47,6 @@ from lib.dax.parse import (
 )
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from tests.conftest import is_minimum_phase, read_irs_file
-
-
-def _is_dax3_xml(name: str) -> bool:
-    """Filename matches the DAX3 sentinel and isn't a mic-AEC variant."""
-    if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
-        return False
-    return bool(DOLBY_FILENAME_RE.search(name))
 
 
 def _is_simplified_schema(xml_path: Path) -> bool:
