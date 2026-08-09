@@ -4,8 +4,9 @@ The settled current state: how DAX3 XML fields map to the generated
 EasyEffects preset, the plugin chain, units, and what's deliberately left
 out. This is the **what**. For the **why** (the research log, superseded
 hypotheses, what was attempted) see [design-notes.md](design-notes.md); for
-the empirical picture across ~2,500 DAX3 files see
-[cross-device-findings.md](cross-device-findings.md).
+the empirical picture across ~3,000 DAX3 files see
+[cross-device-findings.md](cross-device-findings.md), and for what that
+collection is made of, [corpus.md](corpus.md).
 
 > **Core invariant:** every parameter emitted traces to a parsed DAX3 XML
 > field — no per-device hand-tuned offsets. The XML→param mappings below are

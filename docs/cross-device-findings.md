@@ -13,6 +13,9 @@ specific device; this doc captures what's universal across the ecosystem and wha
 varies from device to device, so readers can judge which parts of the pipeline are
 portable and which are tuned.
 
+What that collection is made of, and which OEM driver package each part came
+from, is [`corpus.md`](corpus.md).
+
 > **All figures below are from the 2795-XML cohort audited 2026-08-03**, except
 > where a passage is explicitly marked as the original 196-XML cohort (kept for
 > the historical methodology notes), or carries its own later re-derivation
@@ -20,6 +23,14 @@ portable and which are tuned.
 > [`tools/corpus_audit.py`](../tools/corpus_audit.py) — including the §12 and
 > §14 checks, which were ad-hoc queries until 2026-08-03 and are now part of
 > the committed sweep.
+
+> **The file counts here predate a filter fix (2026-08-09) and are known to be
+> off.** The sweep tool used its own filename test rather than the converter's,
+> so it counted `_dmic`/`_amic` microphone companions as tunings and skipped the
+> `HDAUDIO_`/`INTELAUDIO_`/`PCI_`/`AUCD_` spellings of real ones. Row-based
+> distributions move only by what the added devices contribute; the file, device
+> and package counts need a re-derivation pass. See
+> [`corpus.md`](corpus.md#reconciling-the-counts).
 
 Original `dax3_ext_rtk` + `fusion_ext_intel` cohort (`dynamic` profile rows):
 
