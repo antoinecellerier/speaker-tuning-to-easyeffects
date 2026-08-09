@@ -362,36 +362,6 @@ def emit_check(check: CheckResult) -> None:
     doctor.emit_check(check, console.cprint, console._wrap_width())
 
 
-def print_doctor_summary(checks: list[CheckResult]) -> None:
-    """Print the counted one-line summary. Split from the verdict below it
-    because the two surfaces put different things between them — the
-    EasyEffects report interleaves its paste block."""
-    fail, warn, ok, unknown = doctor.summarize(checks)
-    parts = [f"{fail} FAIL", f"{warn} WARN", f"{ok} PASS"]
-    if unknown:
-        parts.append(f"{unknown} UNKNOWN")
-    console.cprint("err" if fail else ("warn" if (warn or unknown) else "ok"),
-           "Summary: " + ", ".join(parts))
-
-
-def print_doctor_verdict(checks: list[CheckResult]) -> None:
-    """Print the one-line verdict, shared so both doctors conclude the same way.
-
-    A WARN suppresses the all-clear: every warning either report can raise
-    names something that plausibly explains "I hear no difference", so
-    "no blocking problems" printed beside one contradicts the lines above it.
-    """
-    fail, warn, ok, unknown = doctor.summarize(checks)
-    if not (fail or warn or unknown):
-        console.cprint("ok", "No blocking problems detected.")
-    elif warn and not fail:
-        console.cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
-                       "to fix first.")
-    elif unknown and not fail:
-        console.cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
-                       "above); the rest look OK.")
-
-
 def warn_old_kernel(release: str | None = None) -> None:
     """End-of-run hint: an old kernel series can mis-configure the speaker
     path no matter how good the preset is — issue #33 was fixed by a

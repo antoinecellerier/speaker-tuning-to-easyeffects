@@ -347,11 +347,11 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
             continue
         emit(c)
     print()
-    environment.print_doctor_summary(report.checks)
+    doctor.print_summary(report.checks, console.cprint)
     print()
 
     # What the doctor can't see — guide the user through the manual checks.
-    environment.print_doctor_verdict(report.checks)
+    doctor.print_verdict(report.checks, console.cprint)
     console.cprint("dim", "If you still hear no difference between the preset and bypass:")
     console.cprint("dim", "  • In EasyEffects, toggle the preset off/on to A/B it.")
     console.cprint("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF.")
