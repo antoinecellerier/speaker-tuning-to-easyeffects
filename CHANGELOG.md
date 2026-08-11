@@ -75,14 +75,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   presets are unchanged
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
-- **[AUDIBLE]** (opt-in) New experimental `--enable coupled-bands` flag
-  engages the speaker-protection limiter on bands the tuning marks
-  non-isolated but leaves at a 0 dB threshold, so loud content that
-  crosses full scale there is tamed before the final limiter. Not yet
-  heard on device; default presets are unchanged
-  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44),
-  [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27);
-  hypothesis and measurements in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-out) New `--disable autogain` flag switches the volume
   leveler off on SoundWire devices, where it runs by default — the escape
   hatch if loudness pumps between quiet and loud passages. Default presets are
@@ -109,8 +101,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - A run now warns when the tuning's largest correction boost lands on a
   band the speaker-protection limiter leaves unlimited, so that boost and
   the volmax gain reach the final limiter unprotected. Suggests
-  `--disable volmax` / `--enable coupled-bands` if bass or loud content
-  distorts; presets are unchanged
+  `--disable volmax` if bass or loud content distorts; presets are unchanged
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
 - A run now says when the tuning names a different profile than the one
   built: a few XMLs declare the profile the device ships on under Windows,
@@ -215,6 +206,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- **[AUDIBLE]** Peaks on loud content are caught earlier on tunings that left
+  part of the range unprotected, instead of landing on the final limiter.
+  Nothing changes below peak levels, and the engaged path is measured but not
+  yet heard by ear. `--disable coupled-bands` restores the old behaviour —
+  re-run to regenerate
+  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
+  measurements and why in `docs/design-notes.md`).
 - The end of a run now confirms success and states its guaranteed differences
   from Windows: the leveler is off by default, and which sound mode was
   built. It then separates fixes you can apply from the project's one-line

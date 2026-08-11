@@ -319,6 +319,14 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
     curve_els = "\n    ".join(
         f'<{name} target="{vals}"/>' for name, vals in curves.items())
     ao = ",".join(str(8 * (i % 3 - 1)) for i in range(20))
+    # A regulator that limits the bottom half and leaves the top half at full
+    # scale, with isolated_band marking that top half non-isolated — i.e. the
+    # shape the coupled-bands mapping acts on. Present so the end-to-end case
+    # walks parse_xml's isolated_band read into make_regulator's default
+    # path; without a regulator here nothing in the fast tier did, and the
+    # corpus tier that would is `slow` and skips with no corpus.
+    reg_th = ",".join(str(-96 if i < 10 else 0) for i in range(20))   # 1/16 dB
+    reg_iso = ",".join(str(1 if i < 10 else 0) for i in range(20))
     setting = (f'\n  <setting><default_profile value="{default_profile}"/></setting>'
                if default_profile else "")
     path.write_text(f"""<dax3>
@@ -337,6 +345,11 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
           <ch_00 value="{ao}"/>
           <ch_01 value="{ao_right or ao}"/>
         </audio-optimizer-bands>
+        <regulator-speaker-dist-enable value="1"/>
+        <regulator-tuning>
+          <threshold_high value="{reg_th}"/>
+          <isolated_band value="{reg_iso}"/>
+        </regulator-tuning>
       </tuning-vlldp>
     </profile>
   </endpoint>

@@ -812,8 +812,9 @@ def test_regulator_isolated_data_alone_changes_nothing():
 
 
 def test_coupled_bands_eligibility_helper():
-    """_coupled_bands_eligible drives the end-of-run --enable hint: true
-    only when a >= 0 dB band is marked non-isolated."""
+    """_coupled_bands_eligible gates the run's "Added a limit ..." line, so it
+    must answer exactly what make_regulator does: true only when a whole
+    ZONE sits at >= 0 dB with every one of its bands marked non-isolated."""
     from lib.preset.plugins import _coupled_bands_eligible
     th = [-6.0] * 10 + [0.0] * 10
     assert _coupled_bands_eligible(
@@ -824,6 +825,28 @@ def test_coupled_bands_eligibility_helper():
     assert not _coupled_bands_eligible(
         synthetic_regulator([-6.0] * 20, isolated_band=[0] * 20))
     assert not _coupled_bands_eligible(None)
+
+
+def test_coupled_bands_eligibility_is_zone_level_not_band_level():
+    """A non-isolated band inside a zone that also holds an isolated one does
+    NOT qualify — make_regulator declines that zone, so a band-level `any()`
+    would have the run announce a limit the preset never carries. It did, on
+    274 of 37,949 otherwise-eligible corpus profiles (re-derived 2026-08-11).
+
+    The 20 bands share one threshold here, so they form a single zone; one
+    isolated band anywhere in it must sink the whole thing.
+    """
+    from lib.preset.plugins import _coupled_bands_eligible
+    th = [0.0] * 20                            # one zone, at full scale
+    iso = [0] * 20
+    assert _coupled_bands_eligible(synthetic_regulator(th, isolated_band=iso))
+    iso[7] = 1                                 # one isolated band in the zone
+    assert not _coupled_bands_eligible(
+        synthetic_regulator(th, isolated_band=iso))
+    # Split it into two zones and the all-zero one qualifies again.
+    split_th = [0.0] * 10 + [-3.0] * 10
+    assert _coupled_bands_eligible(
+        synthetic_regulator(split_th, isolated_band=[0] * 10 + [1] * 10))
 
 
 def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
@@ -913,20 +936,31 @@ def _peaked_ao(peak_band, peak_db):
     return ao
 
 
-@pytest.mark.parametrize("peak_db,peak_limited,volmax,disabled,enabled,expect_warn", [
-    (12.0, False, 9.0, set(), set(), True),      # issue #46's T495 shape
-    (12.0, True, 9.0, set(), set(), False),      # regulator covers the peak band
-    (9.0, False, 9.0, set(), set(), False),      # boost short of the full range
-    (12.0, False, 0.0, set(), set(), False),     # no volmax riding on top
-    (12.0, False, 9.0, {"volmax"}, set(), False),
-    (12.0, False, 9.0, set(), {"coupled-bands"}, False),   # that band now limited
-    # --enable level-restore adds the peak back as gain, so a boost short of
-    # the range now does reach the brickwall and has to warn (issue #50).
-    (9.0, False, 9.0, set(), {"level-restore"}, True),
-    (9.0, True, 9.0, set(), {"level-restore"}, False),     # still limited there
-])
+# `iso` is the isolated_band array, and since 2026-08-11 it is load-bearing
+# here: coupled-bands is on by default, so a zone the tuning leaves at full
+# scale AND marks non-isolated (iso 0) is now limited — which is exactly the
+# exposure this finding warns about. All-1s means nothing qualifies, so the
+# warning describes a band that really is left alone.
+@pytest.mark.parametrize(
+    "peak_db,peak_limited,volmax,iso,disabled,enabled,expect_warn", [
+        (12.0, False, 9.0, 1, set(), set(), True),   # issue #46's T495 shape
+        (12.0, True, 9.0, 1, set(), set(), False),   # regulator covers the peak
+        (9.0, False, 9.0, 1, set(), set(), False),   # boost short of the range
+        (12.0, False, 0.0, 1, set(), set(), False),  # no volmax riding on top
+        (12.0, False, 9.0, 1, {"volmax"}, set(), False),
+        # iso 0 -> the default coupled-bands mapping limits that zone, so the
+        # boost is no longer unprotected and the warning must go quiet. This
+        # is the row that used to pass enabled={"coupled-bands"}.
+        (12.0, False, 9.0, 0, set(), set(), False),
+        # ...and opting out of it puts the exposure back.
+        (12.0, False, 9.0, 0, {"coupled-bands"}, set(), True),
+        # --enable level-restore adds the peak back as gain, so a boost short of
+        # the range now does reach the brickwall and has to warn (issue #50).
+        (9.0, False, 9.0, 1, set(), {"level-restore"}, True),
+        (9.0, True, 9.0, 1, set(), {"level-restore"}, False),  # still limited
+    ])
 def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
-        silence_console, capsys, peak_db, peak_limited, volmax, disabled,
+        silence_console, capsys, peak_db, peak_limited, volmax, iso, disabled,
         enabled, expect_warn):
     """Issue #46: the regulator limits *somewhere*, so the all-inert warning
     stays quiet, but the band carrying the largest correction boost is one it
@@ -937,11 +971,14 @@ def test_report_warns_when_biggest_boost_lands_on_an_unlimited_band(
     th[10] = -6.0                              # limits somewhere regardless
     ao = _peaked_ao(peak_band, peak_db)
     _report_parsed_profile(
-        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), volmax,
+        _report_tuning(synthetic_regulator(th, isolated_band=[iso] * 20), volmax,
                        ao_db=ao),
         disabled, enabled=enabled)
     out = capsys.readouterr().out
-    assert ("leaves unlimited" in out) is expect_warn
+    # Assert on the slug, not on prose: "leaves unlimited" also occurs in the
+    # regulator section's coupled-bands line, and which of the two a wrap
+    # breaks across lines is not a fact this test should depend on.
+    assert ("[boost-unlimited]" in out) is expect_warn
     if expect_warn:                            # names the offending band
         assert f"{SYNTHETIC_FREQS_20[peak_band]} Hz" in out
 
@@ -955,11 +992,11 @@ def test_report_unlimited_boost_warning_uses_the_xml_declared_range(
     th[10] = -6.0
     ao = _peaked_ao(1, 12.0)
     _report_parsed_profile(
-        _report_tuning(synthetic_regulator(th, isolated_band=[0] * 20), 9.0,
+        _report_tuning(synthetic_regulator(th, isolated_band=[1] * 20), 9.0,
                        geq_max_range=256,      # 16 dB range; +12 is mid-scale
                        ao_db=ao),
         set())
-    assert "leaves unlimited" not in capsys.readouterr().out
+    assert "[boost-unlimited]" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("profile_used,declared,expect_note", [

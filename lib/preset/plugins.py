@@ -358,6 +358,42 @@ def make_multiband_compressor(mb_comp: dict | None,
     return result
 
 
+def _regulator_zones(th: list[float]) -> list[tuple[int, int, float]]:
+    """Group the 20 Dolby bands into the <=8 zones EasyEffects can carry.
+
+    Returns (start_idx, end_idx, threshold) per zone. Runs of identical
+    threshold_high become one zone; while there are more than 8, the
+    adjacent pair with the smallest threshold difference is merged, taking
+    the *less* aggressive (higher) threshold so a merge never limits harder
+    than the tuning asked.
+
+    Shared with `_coupled_bands_eligible`, which has to answer the same
+    question make_regulator does — the coupling test is per zone, and a band
+    that qualifies on its own can sit in a zone that does not.
+    """
+    zones: list[tuple[int, int, float]] = []
+    i = 0
+    while i < len(th):
+        j = i + 1
+        while j < len(th) and th[j] == th[i]:
+            j += 1
+        zones.append((i, j - 1, th[i]))
+        i = j
+
+    while len(zones) > 8:
+        min_diff = float("inf")
+        min_idx = 0
+        for k in range(len(zones) - 1):
+            diff = abs(zones[k][2] - zones[k + 1][2])
+            if diff < min_diff:
+                min_diff = diff
+                min_idx = k
+        z1, z2 = zones[min_idx], zones[min_idx + 1]
+        zones[min_idx] = (z1[0], z2[1], max(z1[2], z2[2]))
+        del zones[min_idx + 1]
+    return zones
+
+
 def make_regulator(regulator: dict | None, freqs: list[int],
                    volmax_boost: float = 0.0,
                    volmax_slot: str = "input-gain",
@@ -385,17 +421,22 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     docs/design-notes.md "Follow-ups" entry on regulator-stress for
     the empirical work that closed that hypothesis.
 
-    couple_bands (experimental, `--enable coupled-bands`, issue #44):
-    by default a zone whose threshold_high is >= 0 dBFS is treated as
-    "never triggers" and disabled. A second-device DAX capture showed
-    band dynamics on exactly such bands when the XML marks them
-    non-isolated (`isolated_band` 0). With couple_bands on, a zero-dB
-    zone whose bands are all isolated_band==0 takes its threshold at
-    face value instead — a live limiter at full scale, which engages
-    when upstream gain (e.g. volmax on input-gain) pushes the band past
-    0 dBFS. Zones without isolated data, or containing an
-    isolated_band==1 band, keep the default disabled behaviour. See
-    design-notes Finding 10 / unvalidated-scaling entry 11 (f).
+    couple_bands (default on since 2026-08-11, `--disable coupled-bands`
+    opts out, issue #44): a zone whose threshold_high is >= 0 dBFS could
+    be read as "never triggers" and disabled. A second-device DAX capture
+    showed band dynamics on exactly such bands when the XML marks them
+    non-isolated (`isolated_band` 0), so a zero-dB zone whose bands are
+    all isolated_band==0 takes its threshold at face value — a live
+    limiter at full scale, which engages when upstream gain (e.g. volmax
+    on input-gain) pushes the band past 0 dBFS. Zones without isolated
+    data, or containing an isolated_band==1 band, stay disabled.
+
+    The reading is still a hypothesis: no capture has confirmed it, because
+    the levels that engage it are above what the capture battery reaches
+    (design-notes Finding 10 / unvalidated-scaling entry 11 (f)). It is the
+    default because the alternative reading — discard the threshold — leaves
+    the volmax boost feeding the brickwall untamed on the tunings where this
+    fires, which is the exact failure issue #23 measured.
 
     volmax_boost lands on `input-gain` by default (issue #23) so the per-band
     compression tames the boosted low end before the brickwall;
@@ -423,33 +464,7 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     # timbre=0 → hard knee (0 dB), timbre=1 → soft knee (-6 dB)
     knee = -6.0 * timbre
 
-    # Group the 20 bands into zones with distinct thresholds.
-    # Find runs of identical threshold_high values.
-    zones = []  # list of (start_idx, end_idx, threshold)
-    i = 0
-    while i < len(th):
-        j = i + 1
-        while j < len(th) and th[j] == th[i]:
-            j += 1
-        zones.append((i, j - 1, th[i]))
-        i = j
-
-    # Merge zones if we have more than 8 (EasyEffects limit)
-    # In practice, Dolby regulators typically produce 2-5 zones
-    while len(zones) > 8:
-        # Merge the two adjacent zones with the smallest threshold difference
-        min_diff = float("inf")
-        min_idx = 0
-        for k in range(len(zones) - 1):
-            diff = abs(zones[k][2] - zones[k + 1][2])
-            if diff < min_diff:
-                min_diff = diff
-                min_idx = k
-        z1 = zones[min_idx]
-        z2 = zones[min_idx + 1]
-        merged_thresh = max(z1[2], z2[2])  # use the less aggressive threshold
-        zones[min_idx] = (z1[0], z2[1], merged_thresh)
-        del zones[min_idx + 1]
+    zones = _regulator_zones(th)
 
     # Build the multiband compressor (used as limiter: ratio=100:1, fast attack).
     # volmax_slot picks which gain slot carries the static volmax-boost:
@@ -533,16 +548,24 @@ def make_regulator(regulator: dict | None, freqs: list[int],
 
 
 def _coupled_bands_eligible(regulator: dict | None) -> bool:
-    """True when the XML carries bands the experimental coupled-bands
-    mapping could activate: threshold_high >= 0 dBFS (excluded from
-    limiting by default) while marked non-isolated (isolated_band == 0).
-    Band-level check used for the end-of-run `--enable` hint; the actual
-    activation in make_regulator is zone-level and can be stricter."""
+    """True when the coupled-bands mapping actually activates a zone here:
+    a zone whose threshold_high is >= 0 dBFS (excluded from limiting on the
+    old reading) and *all* of whose bands are marked non-isolated
+    (isolated_band == 0).
+
+    Zone-level, deliberately: this gates the run's "Added a limit to some of
+    the bands..." line, so a band-level `any()` claimed a limit that never
+    appeared on 274 of 37,949 eligible corpus profiles (re-derived
+    2026-08-11) — the zone containing that band also held an isolated one,
+    and make_regulator declined it. The two must answer alike or the report
+    describes a stage the preset does not carry."""
     iso = (regulator or {}).get("isolated_band")
     if not iso:
         return False
-    return any(t >= 0 and i == 0
-               for t, i in zip(regulator["threshold_high"], iso))
+    th = regulator["threshold_high"]
+    return any(
+        threshold >= 0 and all(iso[k] == 0 for k in range(start, end + 1))
+        for start, end, threshold in _regulator_zones(th))
 
 
 def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:

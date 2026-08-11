@@ -234,6 +234,17 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   confirmed against a DAX capture**. Each, with the measurement that would
   validate it, is catalogued in design-notes "Unvalidated converter scaling
   factors".
+- **Unvalidated, and knowingly so — `isolated_band`:** a zone whose
+  `threshold_high` is 0 dBFS and whose bands are all marked non-isolated
+  joins the limiter at full scale rather than being read as "never
+  triggers". On by default since 2026-08-11 (`--disable coupled-bands`
+  opts out). No DAX capture confirms it and none can at battery levels:
+  the mapping only acts above ≈−5 dBFS in-band, where the captures do not
+  reach. It is the default because the opposite reading leaves the volmax
+  boost feeding the brickwall untamed on the tunings where it fires —
+  the failure issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23) measured — and because an A/B on both a
+  one-zone and a full-band device measured the audible cost at ≤1 dB
+  (design-notes Finding 10 / entry 11 (f), issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
 
 ## Not implemented (and why)
 
@@ -243,11 +254,8 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   "Rejected approaches".)
 - **`regulator-stress-amount` / `threshold_low`** — secondary regulator
   parameters; only `threshold_high` drives the per-band limiter.
-  `isolated_band` is parsed but acts only behind the experimental
-  `--enable coupled-bands` flag: bands at a 0 dB threshold that the XML
-  marks non-isolated join the limiter at full scale (unvalidated
-  hypothesis from a second-device capture — design-notes Finding 10 /
-  entry 11 (f); default output is unchanged).
+  (`isolated_band` *is* implemented, and on by default — see the
+  unvalidated list above.)
 - **The level the FIR is normalised by** — the convolver's peak
   normalisation is not compensated on the default path; `volmax-boost` is
   the only static gain that puts level back, and on tunings whose peak

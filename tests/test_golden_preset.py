@@ -106,8 +106,8 @@ _MBC_4 = synthetic_mb_comp(4, [(4, -200, 16000, 29000, 32000, 64),
                                (19, -140, 17200, 31500, 32700, 0)])
 
 _REG = synthetic_regulator([-6.0] * 20)
-# Bands 0-3 at full scale but marked non-isolated: the shape --enable
-# coupled-bands acts on (issue #44).
+# Bands 0-3 at full scale but marked non-isolated: the shape the
+# coupled-bands mapping acts on (issue #44), on by default since 2026-08-11.
 _REG_COUPLED = synthetic_regulator(
     [0.0] * 4 + [-8.0] * 16,
     isolated_band=[0] * 4 + [1] * 16,
@@ -154,9 +154,9 @@ SCENARIOS = {
     "volmax-input-gain": _base(volmax_boost=9.0, volmax_slot="input-gain"),
     "volmax-output-gain": _base(volmax_boost=9.0, volmax_slot="output-gain"),
     "enable-autogain": _base(enabled={"autogain"}),
-    "enable-coupled-bands": _base(regulator=_REG_COUPLED,
-                                  enabled={"coupled-bands"}),
-    "coupled-bands-available-but-off": _base(regulator=_REG_COUPLED),
+    "coupled-bands-default": _base(regulator=_REG_COUPLED),
+    "disable-coupled-bands": _base(regulator=_REG_COUPLED,
+                                   disabled={"coupled-bands"}),
     # --enable level-restore adds fir_peak_db to whatever slot carries
     # volmax-boost, so the pair pins both the sum and the untouched default.
     "enable-level-restore": _base(volmax_boost=9.0, fir_peak_db=11.4,
@@ -287,9 +287,9 @@ def test_flags_do_what_their_names_say(digests):
     as a coincidence a reader has to spot in the baseline file."""
     # --disable volmax must land exactly where a tuning with no boost does.
     assert digests["disable-volmax"] == digests["full-chain"]
-    # --enable coupled-bands must actually reach the regulator.
-    assert (digests["enable-coupled-bands"]
-            != digests["coupled-bands-available-but-off"])
+    # --disable coupled-bands must actually reach the regulator.
+    assert (digests["coupled-bands-default"]
+            != digests["disable-coupled-bands"])
     # A fir_peak_db the flag hasn't been asked for must change nothing: the
     # value is passed on every run, so an accidental default-path leak would
     # otherwise ship silently.

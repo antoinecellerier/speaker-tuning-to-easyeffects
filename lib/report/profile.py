@@ -426,6 +426,20 @@ def _print_regulator(tuning, disabled, verbose):
         # count and floor are what a report diagnosis reads first.
         th = regulator["threshold_high"]
         active = [x for x in th if x < 0]
+        iso = regulator.get("isolated_band")
+        # How many raw bands the coupled-bands mapping actually put a limit
+        # on. Computed before the headline because the headline depends on
+        # it: on a tuning that limits nothing itself, "configured never to
+        # engage" stops being true once these zones go live, and the two
+        # lines would contradict each other on the same screen.
+        coupled = 0
+        if "coupled-bands" not in disabled and plugins._coupled_bands_eligible(
+                regulator):
+            coupled = sum(
+                end - start + 1
+                for start, end, threshold in plugins._regulator_zones(th)
+                if threshold >= 0 and all(iso[k] == 0
+                                          for k in range(start, end + 1)))
         # "Steps in only when": distinguishes it from the always-shaping
         # multi-band compressor two sections up, whose gloss otherwise
         # read as the same job (round 5). The inert case leads with the
@@ -448,6 +462,21 @@ def _print_regulator(tuning, disabled, verbose):
             print(f"  your tuning limits {len(active)} of {len(th)} frequency "
                   f"bands (deepest {min(th):+.1f} dB)"
                   + ("" if verbose else "  (full tables with -v)"))
+        elif coupled:
+            # The tuning sets no limits of its own, yet the regulator does
+            # run: every band sits at full scale and the coupled mapping
+            # takes that at face value. Saying "configured never to engage"
+            # here — the wording the no-coupling case still uses — would be
+            # false, and sat one line above "Added a limit to 20 more
+            # bands" (round 12).
+            print()
+            console._cprint_wrapped("", "Regulator (per-band limiter): your "
+                                "tuning sets no limit of its own, so it "
+                                "steps in only where a band would reach "
+                                "full volume"
+                                + ("" if verbose
+                                   else "  (full tables with -v)"),
+                            indent="  ")
         else:
             print()
             console._cprint_wrapped("", "Regulator (per-band limiter): configured "
@@ -456,32 +485,43 @@ def _print_regulator(tuning, disabled, verbose):
                                 + ("" if verbose
                                    else "  (full tables with -v)"),
                             indent="  ")
-        iso = regulator.get("isolated_band")
-        # Gated on the same eligibility test the flag menu and the --enable
+        # Gated on the same eligibility test the flag menu and the -active
         # marker use, not on the field merely being present: where every
-        # unlimited band is also marked isolated the flag adds nothing, and
-        # this line offered an effect in a run whose own menu didn't list
-        # the flag and whose re-run answers "had no effect".
-        if plugins._coupled_bands_eligible(regulator):
+        # unlimited band is also marked isolated the mapping adds nothing,
+        # and this line would describe a stage the run did not build.
+        # And on `disabled` too, for the same reason in the other direction:
+        # --disable coupled-bands drops those zones, so claiming we added
+        # them is the exact "stage keeps describing itself after you
+        # switched it off" bug the section trap exists to catch.
+        if coupled:
             # Co-located with the fact it explains: the only plain wording
             # for coupled-bands used to sit a screen away in the flag menu
-            # (rounds 2–3). Mechanism only, no second count (round 7, user
+            # (rounds 2–3). Still no isolated_band count (round 7, user
             # decision): "marks N of 20 isolated (limited on their own)"
-            # both over-claimed a field whose semantics are still open
-            # (design-notes) and read as flatly contradicting the "limits
-            # N bands" line whenever the counts differ. The raw
-            # isolated_band array stays under -v.
-            # "Some of": the flag's scope is a subset of the unlimited
-            # bands (those the tuning also marks non-isolated), and the
-            # subset word carries that without the 'isolated' jargon three
-            # rounds of reviewers bounced off (rounds 7-9). The -v table
-            # names the field for anyone digging. "Adds a limit to", not
-            # "extends limiting to" (round 10): on all-inert tunings —
-            # where the flag helps most — "extends" read as growing
-            # existing limits, of which that reader has none.
-            console._cprint_wrapped("", "  --enable coupled-bands adds a limit to "
-                                "some of the bands the tuning leaves "
-                                "unlimited (experimental, issue #44)",
+            # over-claimed a field whose semantics are still open, and read
+            # as contradicting the "limits N bands" line above whenever the
+            # counts differed. The raw array stays under -v.
+            # The count below is a different number and safe where that one
+            # wasn't: it is how many raw bands the run actually put a limit
+            # on, fully determined by the zones make_regulator built, and it
+            # reads *with* the "limits N of 20" line rather than against it.
+            # It replaces "some of the bands" — two independent first-time
+            # readers (round 12) called that out as the one place the tool
+            # changes what the tuning asked for while going vague, next to
+            # exact figures everywhere else.
+            # Not "the other N": bands can stay unlimited here (a zone
+            # holding an isolated band is declined), so the two counts need
+            # not sum to 20.
+            # "Adds a limit to", not "extends limiting to" (round 10): on
+            # all-inert tunings — where it does the most — "extends" read as
+            # growing existing limits, of which that reader has none.
+            # States what the run did rather than offering a flag: the
+            # mapping is the default, so the actionable half is the way out
+            # of it, which the --disable menu carries.
+            console._cprint_wrapped("", f"  Added a limit to {coupled} more "
+                                f"band{'' if coupled == 1 else 's'} the tuning "
+                                "leaves unlimited "
+                                "(--disable coupled-bands drops them)",
                             indent="    ")
         if verbose:
             print(f"  threshold_high (dB): {[f'{x:+.1f}' for x in regulator['threshold_high']]}")
@@ -551,13 +591,17 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     # tames the boost before the brickwall" rationale doesn't apply, and
     # both volmax slots degenerate to the same untamed brickwall feed
     # (issue #27 field report; see design-notes).
+    # coupled-bands is on unless switched off, so on an all-inert tuning that
+    # qualifies the zone is now limited and the warning would be false. It
+    # survives for the two ways a run can still reach the untamed shape:
+    # --disable coupled-bands, and a tuning with no qualifying zone.
+    coupled_on = ("coupled-bands" not in disabled
+                  and plugins._coupled_bands_eligible(regulator))
     if (volmax_boost > 0 and "volmax" not in disabled
             and regulator and "regulator" not in disabled
             and all(t >= 0 for t in regulator["threshold_high"])
-            and not ("coupled-bands" in (enabled or set())
-                     and plugins._coupled_bands_eligible(regulator))):
-        findings.append(report_findings._loudness_untamed_finding(
-            plugins._coupled_bands_eligible(regulator)))
+            and not coupled_on):
+        findings.append(report_findings._loudness_untamed_finding())
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
@@ -584,8 +628,7 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     #    but is the point when someone has opted into the boost.
     elif (volmax_boost > 0 and "volmax" not in disabled
             and regulator and "regulator" not in disabled
-            and not ("coupled-bands" in (enabled or set())
-                     and plugins._coupled_bands_eligible(regulator))):
+            and not coupled_on):
         peak_band = max(range(len(ao_db_left)),
                         key=lambda i: max(ao_db_left[i], ao_db_right[i]))
         peak_db = max(ao_db_left[peak_band], ao_db_right[peak_band])
@@ -596,8 +639,7 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
                 and peak_band < len(thresholds)
                 and thresholds[peak_band] >= 0):
             findings.append(report_findings._boost_unlimited_finding(
-                peak_db, freqs[peak_band],
-                plugins._coupled_bands_eligible(regulator), restored))
+                peak_db, freqs[peak_band], restored))
             _print_finding_detail(findings[-1])
     return findings
 

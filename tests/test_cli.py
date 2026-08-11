@@ -115,8 +115,8 @@ def test_disable_choices_match_documented_set():
     the documented choices and the actual code paths.
     """
     expected = {
-        "volmax", "mbc", "regulator", "autogain", "bass-enhancer", "dialog",
-        "high-shelf", "lo-pass",
+        "volmax", "mbc", "regulator", "coupled-bands", "autogain",
+        "bass-enhancer", "dialog", "high-shelf", "lo-pass",
     }
     assert set(DISABLEABLE_FILTERS) == expected
 
@@ -208,8 +208,7 @@ def test_disable_dialog_drops_dialog_enhancer():
 def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
-    assert set(ENABLEABLE_FILTERS) == {"autogain", "coupled-bands",
-                                       "level-restore"}
+    assert set(ENABLEABLE_FILTERS) == {"autogain", "level-restore"}
 
 
 def test_enable_autogain_activates_leveler():
@@ -231,58 +230,79 @@ def test_enable_autogain_activates_leveler():
     assert "autogain-active" in emitted_on
 
 
-def test_enable_coupled_bands_hint_and_active_marker():
-    """--enable coupled-bands mirrors the autogain emitted contract:
-    an eligible-but-inactive regulator (0 dB zone marked non-isolated,
-    flag off) lands "coupled-bands" in emitted for the end-of-run hint;
-    with the flag on, the zone activates at 0 dBFS and the
-    "coupled-bands-active" marker replaces it."""
+def test_coupled_bands_default_on_and_active_marker():
+    """coupled-bands is on by default (2026-08-11): an eligible regulator
+    (0 dB zone marked non-isolated) activates that zone at 0 dBFS with no
+    flag and emits "coupled-bands-active", which is what keys the
+    --disable menu row. --disable coupled-bands restores the old reading.
+    The plain "coupled-bands" marker is gone with the --enable hint."""
     eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
                                    isolated_band=[1] * 10 + [0] * 10)
     preset, emitted = _build(regulator=eligible)
     reg = preset["output"]["multiband_compressor#1"]
-    assert not any(reg[f"band{i}"]["compressor-enable"]
-                   and reg[f"band{i}"]["attack-threshold"] >= 0
-                   for i in range(8))
-    assert "coupled-bands" in emitted
-    assert "coupled-bands-active" not in emitted
-
-    preset_on, emitted_on = _build(regulator=eligible,
-                                   enabled={"coupled-bands"})
-    reg_on = preset_on["output"]["multiband_compressor#1"]
-    assert any(reg_on[f"band{i}"]["compressor-enable"]
-               and reg_on[f"band{i}"]["attack-threshold"] == 0.0
+    assert any(reg[f"band{i}"]["compressor-enable"]
+               and reg[f"band{i}"]["attack-threshold"] == 0.0
                for i in range(8))
-    assert "coupled-bands-active" in emitted_on
-    assert "coupled-bands" not in emitted_on
+    assert "coupled-bands-active" in emitted
+    assert "coupled-bands" not in emitted
 
-    # No isolated data -> flag requested but nothing to couple: neither
-    # the hint nor the active marker may appear (main() warns off this).
+    preset_off, emitted_off = _build(regulator=eligible,
+                                     disabled={"coupled-bands"})
+    reg_off = preset_off["output"]["multiband_compressor#1"]
+    assert not any(reg_off[f"band{i}"]["compressor-enable"]
+                   and reg_off[f"band{i}"]["attack-threshold"] >= 0
+                   for i in range(8))
+    assert "coupled-bands-active" not in emitted_off
+
+    # No isolated data -> nothing to couple, so the marker stays away and
+    # the --disable row never appears (main() warns off this).
     plain = synthetic_regulator([-6.0] * 10 + [0.0] * 10)
-    _, emitted_plain = _build(regulator=plain, enabled={"coupled-bands"})
-    assert "coupled-bands" not in emitted_plain
+    _, emitted_plain = _build(regulator=plain)
     assert "coupled-bands-active" not in emitted_plain
 
 
-def test_experimental_markers_cover_coupled_bands_activation():
-    """The active marker doubles as an EXPERIMENTAL_MARKERS key, so an
-    engaged --enable coupled-bands run triggers the end-of-run
-    "please report back" prompt — the flag ships unheard on device and
-    the feedback ask is the validation path. Locks the full marker set
-    so drift in either direction is deliberate."""
+def test_disable_coupled_bands_marks_when_it_actually_dropped_zones():
+    """The "--disable coupled-bands had no effect" warning keys off
+    `coupled-bands-dropped`, and it has to: --disable forces couple_bands
+    off, so `coupled-bands-active` can never appear on a run that passed the
+    flag. Keying the warning off *that* absence made it fire on every opt-out
+    run, telling users "the preset is unchanged" on runs that dropped 16
+    zones. Mirroring autogain is how it got there — --enable is what sets
+    autogain's marker, so autogain has no such inversion.
+    """
+    eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
+                                   isolated_band=[1] * 10 + [0] * 10)
+    _, dropped = _build(regulator=eligible, disabled={"coupled-bands"})
+    assert "coupled-bands-dropped" in dropped
+    assert "coupled-bands-active" not in dropped
+
+    # Nothing to couple in: the opt-out really did nothing, so the marker
+    # stays away and the warning is free to fire.
+    plain = synthetic_regulator([-6.0] * 10 + [0.0] * 10)
+    _, none = _build(regulator=plain, disabled={"coupled-bands"})
+    assert "coupled-bands-dropped" not in none
+
+    # And on the default path the marker is irrelevant either way.
+    _, default = _build(regulator=eligible)
+    assert "coupled-bands-dropped" not in default
+    assert "coupled-bands-active" in default
+
+
+def test_experimental_markers_exclude_coupled_bands_activation():
+    """coupled-bands-active is NOT an EXPERIMENTAL_MARKERS key. It was one
+    while the mapping was opt-in; once it became the default (2026-08-11)
+    it fires on essentially every run, and an ask that is never absent is
+    an ask nobody reads — the closing block is written for someone who
+    runs this once. Locks the full marker set so drift is deliberate."""
     from lib.report.messages import EXPERIMENTAL_MARKERS
     assert set(EXPERIMENTAL_MARKERS) == {
-        "high-shelf", "lo-pass", "mbc-1band", "coupled-bands-active",
-        "level-restore-active",
+        "high-shelf", "lo-pass", "mbc-1band", "level-restore-active",
     }
     eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
                                    isolated_band=[1] * 10 + [0] * 10)
-    _, emitted = _build(regulator=eligible, enabled={"coupled-bands"})
-    # (_full_inputs ships high-shelf/lo-pass PEQ types, so those markers
-    # fire alongside — membership, not equality.)
-    assert "coupled-bands-active" in emitted & set(EXPERIMENTAL_MARKERS)
-    _, emitted_off = _build(regulator=eligible)
-    assert "coupled-bands-active" not in emitted_off
+    _, emitted = _build(regulator=eligible)
+    assert "coupled-bands-active" in emitted
+    assert not (emitted & {"coupled-bands-active"}) & set(EXPERIMENTAL_MARKERS)
     assert "autogain-active" not in emitted
 
 
@@ -2183,8 +2203,8 @@ def test_finding_asks_do_not_borrow_other_filters_symptoms():
 # The stages that own a section line in the run report. high-shelf and lo-pass
 # are PEQ filter *types* — they appear as bell/shelf rows, not as a section
 # that could describe itself as shipping — so they have nothing to trap here.
-_SECTION_OWNING_FILTERS = {"volmax", "mbc", "regulator", "autogain",
-                           "dialog", "bass-enhancer"}
+_SECTION_OWNING_FILTERS = {"volmax", "mbc", "regulator", "coupled-bands",
+                           "autogain", "dialog", "bass-enhancer"}
 
 
 def test_every_disableable_filter_is_classified_for_the_section_trap():
@@ -2208,7 +2228,11 @@ def _fully_stocked_tuning():
                      "in_target": -20.0, "out_target": -20.0},
         mb_comp=synthetic_mb_comp(2, [(4, 16, 0, 0, 0, 0),
                                       (12, 16, 0, 0, 0, 0)]),
-        regulator=synthetic_regulator([-6.0] * 20), volmax_boost=6.0,
+        # isolated_band + a 0 dB zone so --disable coupled-bands has
+        # something to drop; without it that stage owns no section to react.
+        regulator=synthetic_regulator([-6.0] * 10 + [0.0] * 10,
+                                      isolated_band=[1] * 10 + [0] * 10),
+        volmax_boost=6.0,
         freqs=SYNTHETIC_FREQS_20, profile_used="dynamic",
         default_profile=None, geq_max_range=192, ao_enabled=True,
         findings=[], ao_left=[0] * 20, ao_right=[0] * 20)
@@ -2256,8 +2280,7 @@ def test_an_ask_never_names_a_flag_the_same_run_withholds(silence_console,
     re-run answered "--enable coupled-bands had no effect".
     """
     silence_console(console)
-    findings = [report_findings._loudness_untamed_finding(
-        coupled_bands_possible=False)]
+    findings = [report_findings._loudness_untamed_finding()]
     by_profile = {name: {"default"} for name in
                   ("volmax", "mbc", "regulator", "dialog")}
     messages.print_troubleshooting(findings, by_profile)

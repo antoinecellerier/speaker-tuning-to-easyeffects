@@ -255,14 +255,18 @@ def _endpoint_modes(xml_path: Path) -> list[tuple[str, str]]:
     return pairs
 
 
-# The three flag combinations worth walking per curve. The default is what
-# every user gets; the other two are the only emission paths reachable
-# solely through a flag, so nothing else in the suite sees them run against
-# real tuning data.
+# The flag combinations worth walking per curve. The default is what every
+# user gets; the others are emission paths reachable only through a flag, so
+# nothing else in the suite sees them run against real tuning data.
+# coupled-bands moved from the `enabled` row to a `disabled` one when it
+# became the default (2026-08-11): the mapping itself now rides the default
+# walk, and what needs its own row is the opt-out, which is the path that
+# would otherwise stop being exercised against real isolated_band arrays.
 _ARG_VARIANTS = (
-    ("default", "input-gain", frozenset()),
-    ("volmax-slot", "output-gain", frozenset()),
-    ("enabled", "input-gain", frozenset({"autogain", "coupled-bands"})),
+    ("default", "input-gain", frozenset(), frozenset()),
+    ("volmax-slot", "output-gain", frozenset(), frozenset()),
+    ("enabled", "input-gain", frozenset({"autogain"}), frozenset()),
+    ("disabled", "input-gain", frozenset(), frozenset({"coupled-bands"})),
 )
 
 
@@ -334,7 +338,7 @@ def test_corpus_xml_every_endpoint_profile_curve(xml_path):
                 assert is_minimum_phase(fir_left, tol=1e-2), f"{where} {curve_key} L"
                 assert is_minimum_phase(fir_right, tol=1e-2), f"{where} {curve_key} R"
 
-                for label, volmax_slot, enabled in _ARG_VARIANTS:
+                for label, volmax_slot, enabled, disabled in _ARG_VARIANTS:
                     preset, emitted = make_preset(
                         kernel_name=xml_path.stem,
                         peq_filters=tuning.peq_filters,
@@ -347,7 +351,7 @@ def test_corpus_xml_every_endpoint_profile_curve(xml_path):
                         volmax_boost=tuning.volmax_boost,
                         volmax_slot=volmax_slot,
                         enabled=set(enabled),
-                        disabled=set(),
+                        disabled=set(disabled),
                     )
                     json.dumps(preset)  # catches non-serialisable values
                     assert isinstance(emitted, set), f"{where} {curve_key} {label}"

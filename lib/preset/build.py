@@ -168,7 +168,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     if "regulator" not in disabled:
         reg = make_regulator(regulator, freqs, volmax_boost=static_boost,
                              volmax_slot=volmax_slot,
-                             couple_bands="coupled-bands" in enabled)
+                             couple_bands="coupled-bands" not in disabled)
     if reg:
         preset["output"]["multiband_compressor#1"] = reg
         preset["output"]["plugins_order"].append("multiband_compressor#1")
@@ -180,13 +180,23 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
             reg[f"band{i}"]["compressor-enable"]
             and reg[f"band{i}"]["attack-threshold"] >= 0
             for i in range(8))
-        if "coupled-bands" in enabled and coupled_fired:
-            # Marker (not an ENABLEABLE_FILTERS key): lets main() tell
-            # "--enable coupled-bands worked" from "nothing to couple in"
-            # — same contract as autogain-active above.
+        if coupled_fired:
+            # Marker, not a DISABLEABLE_FILTERS key in its own right: it is
+            # what _DISABLE_MENU_MARKER keys the --disable coupled-bands row
+            # off, so the row appears only where the mapping actually put a
+            # zone in — same contract as autogain-active above.
             emitted.add("coupled-bands-active")
-        elif _coupled_bands_eligible(regulator):
-            emitted.add("coupled-bands")  # actionable via --enable on a rerun
+        elif ("coupled-bands" in disabled
+                and _coupled_bands_eligible(regulator)):
+            # The opt-out actually removed zones. It needs a marker of its
+            # own because the -active one cannot serve here: --disable
+            # forces couple_bands off, so `coupled_fired` is false on every
+            # run that passes the flag, and keying the "had no effect"
+            # warning off its absence made that warning fire on ~99% of
+            # opt-out runs — including this one, where 16 zones were
+            # dropped. Autogain has no such inversion (--enable is what
+            # sets its marker), which is how mirroring it introduced this.
+            emitted.add("coupled-bands-dropped")
     else:
         limiter_boost = static_boost
 

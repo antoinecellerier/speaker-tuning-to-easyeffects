@@ -162,28 +162,23 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
             "which sounds better.")
 
 
-def _untamed_boost_ask(coupled_bands_possible: bool) -> str:
-    """The two-step ask both members of the untamed-boost family carry.
+def _untamed_boost_ask() -> str:
+    """The one-step ask both members of the untamed-boost family carry.
 
     One template for one risk family (round 8: two wordings for the same risk
-    left the reader unsure which explanation to trust) — but step 2 only
-    exists where `--enable coupled-bands` could actually do something. On a
-    tuning with no qualifying band the flag changes nothing, the run's own
-    "Optional extras" menu doesn't offer it, and a re-run answers
-    "--enable coupled-bands had no effect".
+    left the reader unsure which explanation to trust).
 
-    "(not both)": every compact form — "swap it for" (round 3), "instead"
-    (round 5), "just" (round 8), "replace that flag with" (round 9) — kept
-    reading ambiguous against the seam line's "they combine". The
-    parenthetical says it outright.
+    This used to carry a second step offering `--enable coupled-bands`. That
+    step died when the mapping became the default (2026-08-11): a run that
+    reaches either finding has already either applied the coupled zones —
+    in which case the finding is suppressed — or cannot (no qualifying zone,
+    or the user disabled them). Offering the flag would name a switch that is
+    already on.
     """
-    if not coupled_bands_possible:
-        return "If loud parts distort, re-run with --disable volmax."
-    return ("If loud parts distort, re-run with --disable volmax; if "
-            "still harsh, swap to --enable coupled-bands (not both).")
+    return "If loud parts distort, re-run with --disable volmax."
 
 
-def _loudness_untamed_finding(coupled_bands_possible: bool = True) -> Finding:
+def _loudness_untamed_finding() -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
         slug="loudness-untamed",
@@ -203,14 +198,14 @@ def _loudness_untamed_finding(coupled_bands_possible: bool = True) -> Finding:
         detail="This tuning's regulator never engages — every band's "
                "limit sits at or above full volume — so nothing trims "
                "the loudness boost band by band on its way out.",
-        # Same two-step ask as boost-unlimited — one template for one risk
-        # family (round 9); coupled-bands is exactly the all-inert class's
-        # remedy (issue #27), where it qualifies.
-        ask=_untamed_boost_ask(coupled_bands_possible))
+        # Same ask as boost-unlimited — one template for one risk family
+        # (round 9). Note this finding can only fire now on a tuning the
+        # coupled-bands default does NOT cover: where it does, the all-inert
+        # bands are limited and the gate above suppresses this outright.
+        ask=_untamed_boost_ask())
 
 
 def _boost_unlimited_finding(peak_db: float, freq,
-                             coupled_bands_possible: bool = True,
                              restored: bool = False) -> Finding:
     """The band carrying the largest boost is one the regulator leaves free."""
     # Name everything riding on that band, not just volmax: under
@@ -229,16 +224,12 @@ def _boost_unlimited_finding(peak_db: float, freq,
                f"lands on a band the regulator leaves unlimited, with "
                f"{on_top} — nothing trims it band by band on its "
                "way out.",
-        # Sequenced, and step 2 speaks the menu's symptom family for
-        # coupled-bands (harshness) instead of inventing its own: with
-        # "if they still distort" the same screen sold the flag for
-        # distortion while the menu sold it for harshness (rounds 3 and 5
-        # — one heard symptom per flag). Not "loud music": the vocabulary
-        # trap reserves "music" for the mbc symptom. No region word — the
-        # unlimited band's frequency is device-specific and the detail
-        # above already names it. Wording and the "(not both)" rationale
-        # live in _untamed_boost_ask, shared with loudness-untamed.
-        ask=_untamed_boost_ask(coupled_bands_possible))
+        # Not "loud music": the vocabulary trap reserves "music" for the
+        # mbc symptom. No region word — the unlimited band's frequency is
+        # device-specific and the detail above already names it. The wording
+        # lives in _untamed_boost_ask, shared with loudness-untamed, along
+        # with why it no longer offers coupled-bands as a second step.
+        ask=_untamed_boost_ask())
 
 
 def _experimental_finding(named: str, flags: list[str]) -> Finding:

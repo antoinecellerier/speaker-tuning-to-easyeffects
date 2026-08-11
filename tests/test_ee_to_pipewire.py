@@ -2377,17 +2377,18 @@ def test_regulator_volmax_output_gain_g_out_round_trips(tmp_path):
 
 
 def test_regulator_coupled_bands_activation_round_trips(tmp_path):
-    """--enable coupled-bands (issue #44) flips `compressor-enable` on at a
-    0 dB attack-threshold inside multiband_compressor#1 — values that ride
-    the generic ce_N/al_N translation. The sweep's enable-coupled-bands
-    variant can't fire the coupling (its synthetic regulator carries no
-    isolated_band data), so this locks the activated values through to the
-    conf: ce=1 with al at 0 dBFS (1.0 linear) on the coupled zone.
+    """The coupled-bands mapping (issue #44, default since 2026-08-11) leaves
+    `compressor-enable` on at a 0 dB attack-threshold inside
+    multiband_compressor#1 — values that ride the generic ce_N/al_N
+    translation. The sweep's variants can't fire the coupling (their
+    synthetic regulator carries no isolated_band data), so this locks the
+    activated values through to the conf: ce=1 with al at 0 dBFS (1.0
+    linear) on the coupled zone, and the --disable path back off again.
     """
     eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
                                    isolated_band=[1] * 10 + [0] * 10)
 
-    def conf_reg(enabled):
+    def conf_reg(disabled):
         preset, _ = make_preset(
             kernel_name="Synthetic",
             peq_filters=synthetic_peq_filters([
@@ -2395,14 +2396,14 @@ def test_regulator_coupled_bands_activation_round_trips(tmp_path):
                 (1, 1, 1000.0, 4.0, 1.5, 0, 1.0),
             ]),
             regulator=eligible, freqs=SYNTHETIC_FREQS_20,
-            enabled=enabled,
+            disabled=disabled,
         )
         chain = build_chain(preset, tmp_path, must_exist=False)
         conf = format_conf(chain.stages, emit_links(chain.stages),
                            "test_node", "test")
         return preset, _extract_node_control(conf, "reg")
 
-    preset_on, reg_on = conf_reg({"coupled-bands"})
+    preset_on, reg_on = conf_reg(set())
     src = preset_on["output"]["multiband_compressor#1"]
     # Generator-side precondition (its own contract is locked in
     # test_cli.py): band1 is the coupled 0 dB zone.
@@ -2414,9 +2415,10 @@ def test_regulator_coupled_bands_activation_round_trips(tmp_path):
     assert reg_on["ce_0"] == 1
     assert abs(lin_to_db(reg_on["al_0"]) - (-6.0)) < 1e-4
 
-    # Contrast run without the flag: the 0 dB zone must stay disabled —
-    # proves the assertions above aren't vacuously true of any regulator.
-    _, reg_off = conf_reg(set())
+    # Contrast run with the opt-out: the 0 dB zone must go back to
+    # disabled — proves the assertions above aren't vacuously true of any
+    # regulator.
+    _, reg_off = conf_reg({"coupled-bands"})
     assert reg_off["ce_1"] == 0
 
 

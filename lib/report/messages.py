@@ -58,6 +58,16 @@ DISABLEABLE_FILTERS = {
             "drops the Dolby multi-band compressor"),
     "regulator": ("the volume audibly wobbles or surges on its own",
                   "drops the per-band limiter"),
+    # Narrower than --disable regulator, which drops the whole per-band
+    # limiter: this drops only the zones the tuning leaves at full scale and
+    # marks non-isolated. Symptom has to be the *inverse* of the --enable
+    # wording it replaces ("loud music turns harsh"), because the reader is
+    # now hearing what the mapping does rather than what its absence does.
+    # No "distort"/"crushed" (volmax's), no "flat and lifeless" (mbc's), no
+    # "wobbles or surges" (regulator's) — the vocabulary must not collide or
+    # the reader gets four candidates for one symptom.
+    "coupled-bands": ("the loudest moments feel clamped or lose impact",
+                      "drops the full-scale zones from the per-band limiter"),
     "autogain": ("quiet passages swell, then duck when things get loud",
                  "drops the volume leveler"),
     "bass-enhancer": ("bass sounds artificial or buzzy",
@@ -76,7 +86,14 @@ DISABLEABLE_FILTERS = {
 # "autogain" marker that means "present but bypassed" and feeds the --enable
 # menu — otherwise every HDA run would offer to disable a stage that is
 # already off.
-_DISABLE_MENU_MARKER = {"autogain": "autogain-active"}
+# coupled-bands is here for the same reason without the --enable half: it is
+# on by default but only *does* anything where the tuning has a full-scale
+# non-isolated zone, so the row keys off the -active marker to stay silent on
+# the tunings with nothing to couple in — 0.8% of corpus profiles, and one
+# device outright (re-derived 2026-08-11: 37,675 of 37,976 profiles, 978 of
+# 979 devices).
+_DISABLE_MENU_MARKER = {"autogain": "autogain-active",
+                        "coupled-bands": "coupled-bands-active"}
 
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
 # --enable NAME activates them on a rebuild. Same contract — adding an
@@ -101,18 +118,6 @@ ENABLEABLE_FILTERS = {
     "autogain": ("it sounds right but quieter than it did on Windows",
                  "enabling may make quiet passages swell then duck "
                  "(issue #25)"),
-    # Describes what you'd hear, not where in the chain it happens: "where the
-    # limiter is inactive" names an internal state the listener has no access
-    # to, so it can't be matched against anything.
-    # No region claim ("in the treble"): the flag extends limiting to
-    # whichever zero-threshold non-isolated bands the tuning has — treble
-    # on the two examined devices (3-6 kHz dev XML, 13.9 kHz #44), but
-    # full-band on the issue-#27 class, so naming treble over-claims.
-    # "(issue #NN)", not the bare "(#NN)": reviewers guessed the numbers
-    # were GitHub issues but had no confirmation. Still no URL — the one
-    # link rule.
-    "coupled-bands": ("loud music turns harsh",
-                      "experimental (issue #44)"),
     # Trigger says "than with the preset off", not "than on Windows": that
     # second phrasing is autogain's, and the two flags sit in the same menu.
     # The distinction is the whole diagnosis — autogain closes a gap against
@@ -125,18 +130,20 @@ ENABLEABLE_FILTERS = {
 # Emission paths that are numerically verified but not yet user-validated
 # on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
 # off with --disable <key>; "mbc-1band" is a marker-only name (no separate
-# flag — users who want it off should pass --disable mbc instead), and
-# "coupled-bands-active" is the marker make_preset emits when --enable
-# coupled-bands actually engaged a zone (drop the --enable flag to turn it
-# off). Used to trigger a targeted "please report" prompt at end-of-run
-# when any of these fired for the current preset.
+# flag — users who want it off should pass --disable mbc instead). Used to
+# trigger a targeted "please report" prompt at end-of-run when any of these
+# fired for the current preset.
+# "coupled-bands-active" was here while the mapping was opt-in. It came out
+# when the mapping became the default (2026-08-11): the marker now fires on
+# essentially every run, and an ask that is never absent is an ask nobody
+# reads — the closing block is written for someone who runs this once. The
+# mapping's unvalidated status is recorded in docs/reference.md instead.
 # Plain name first, the tuning's own token in parentheses (round 8:
 # "type-3 high-shelf" bare read as an undefined severity level).
 EXPERIMENTAL_MARKERS = {
     "high-shelf": "a treble shelf boost (the tuning's type-3 high-shelf)",
     "lo-pass": "a top-end rolloff (type-6/8 low-pass)",
     "mbc-1band": "the compressor running as a single band (group_count=1)",
-    "coupled-bands-active": "the coupled-bands limiter (isolated_band)",
     "level-restore-active": "the level the impulse response was normalised by, "
                             "handed back as a static gain",
 }

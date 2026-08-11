@@ -253,8 +253,10 @@ def add_filter_tweak_args(container, *, only=None):
         metavar="NAME",
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
-             "Try --disable volmax if output sounds too loud / saturated, or "
-             "--disable mbc if you dislike the compressor character.",
+             "Try --disable volmax if output sounds too loud / saturated, "
+             "--disable mbc if you dislike the compressor character, or "
+             "--disable coupled-bands if loud passages sound held back "
+             "(issue #44).",
     )
     add(
         "--enable",
@@ -265,11 +267,9 @@ def add_filter_tweak_args(container, *, only=None):
         help="activate a filter that ships present but inactive "
              f"(repeatable). Valid names: {', '.join(messages.ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
-             "than Windows (issue #25), --enable coupled-bands "
-             "(experimental) if loud content turns harsh where the "
-             "per-band limiter is inactive (issue #44), or --enable "
-             "level-restore (experimental) if the preset is quieter than "
-             "switching it off altogether (issue #50).",
+             "than Windows (issue #25), or --enable level-restore "
+             "(experimental) if the preset is quieter than switching it off "
+             "altogether (issue #50).",
     )
     add(
         "--volmax-slot",
@@ -813,14 +813,14 @@ def main(argv: list[str] | None = None,
                                 "tuning's volume leveler is disabled in the "
                                 "XML, so there is no leveler stage to "
                                 "activate. The preset is unchanged.")
-    if ("coupled-bands" in args.enable
-            and "coupled-bands-active" not in tally.filters_by_profile):
+    if ("coupled-bands" in disabled
+            and "coupled-bands-dropped" not in tally.filters_by_profile):
         print()
-        console._cprint_wrapped("warn", "--enable coupled-bands had no effect: this "
+        console._cprint_wrapped("warn", "--disable coupled-bands had no effect: this "
                                 "tuning's regulator has no 0 dBFS zone whose "
                                 "bands are all marked non-isolated "
-                                "(isolated_band), so there is nothing to "
-                                "couple in. The preset is unchanged.")
+                                "(isolated_band), so there was nothing to "
+                                "drop. The preset is unchanged.")
 
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there

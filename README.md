@@ -135,8 +135,8 @@ pip install -r requirements.txt
 - `--no-autoload-bypass` — with `--autoload`, don't write a `Nothing` bypass preset or enable EasyEffects' global Fallback Preset. See [Autoload](#autoload) below.
 
 **Filter tweaks**
-- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `coupled-bands`, `level-restore`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `coupled-bands`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
@@ -194,6 +194,7 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 | `volmax` | Loud parts distort or sound crushed. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if that costs loudness, try `--volmax-slot output-gain`.* |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
 | `regulator` | The volume audibly wobbles or surges on its own. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
+| `coupled-bands` | The loudest moments feel clamped or lose impact. Drops the zones the tuning leaves at full scale but marks non-isolated, which the per-band limiter covers by default. |
 | `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers — the mirror of `--enable autogain` below. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
@@ -205,8 +206,7 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 | Name | What to try if you hear... |
 |------|----------------------------|
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler — see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet). |
-| `coupled-bands` | Loud content turns harsh in ranges the per-band limiter leaves inactive. **Experimental** — feedback welcome on [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44). |
-| `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, so pair it with `coupled-bands` if loud content distorts, and report on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
+| `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, so try `--disable volmax` if loud content distorts, and report on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 
