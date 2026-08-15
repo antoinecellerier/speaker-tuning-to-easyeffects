@@ -310,7 +310,11 @@ def _environment_lines(f: dict) -> list[str]:
     if f.get("selected_preset"):
         lines.append(f"  Selected:     {f['selected_preset']}")
     if f.get("output_device"):
-        lines.append(f"  Output sink:  {f['output_device']}")
+        # EasyEffects' rc names whatever sink it is on, which is the Bluetooth
+        # headset whenever one is connected — the one node-name leak on this
+        # path, in a block the issue form asks for whole.
+        lines.append("  Output sink:  "
+                     + doctor.no_bt_address(f['output_device']))
     if f.get("output_plugins"):
         lines.append(f"  Active chain: {', '.join(f['output_plugins'])}")
     return lines

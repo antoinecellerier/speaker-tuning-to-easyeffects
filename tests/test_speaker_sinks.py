@@ -21,7 +21,7 @@ import subprocess
 import pytest
 
 from lib.pipewire import install as pw
-from lib import console
+from lib import console, doctor
 from lib.data import speaker_pin_quirks
 from lib.doctor import DOCTOR_WARN
 from lib.hardware import amps, codecs, speakers
@@ -175,6 +175,75 @@ def test_exclusions_yield_none(monkeypatch):
     assert sel["selected"] == []
     # all_sinks is preserved for diagnostics.
     assert len(sel["all_sinks"]) == 4
+
+
+# --- What the diagnostics may say out loud ---------------------------------
+#
+# The listings below are printed under a call to action that asks the reader to
+# paste them into a public issue, and the widest of them prints every sink in
+# the graph. A Bluetooth node name is the device's MAC address, so it is
+# rendered out — the prefix and profile stay, since "a Bluetooth sink exists"
+# is the part with triage value.
+
+def test_sink_listing_prints_no_bluetooth_address(monkeypatch, capsys):
+    """The `tier == "none"` path lists *every* sink, headsets included."""
+    _patch_sinks(monkeypatch, [HDMI_SINK, USB_HEADSET, BLUEZ_SINK])
+    hw_sinks._resolve_autoload_sinks([], dry_run=True)
+    out = capsys.readouterr().out
+    assert "AA_BB_CC_DD_EE_FF" not in out, (
+        "a Bluetooth device's address reached a block the issue form asks "
+        "users to paste whole; render it with doctor.no_bt_address() at the "
+        "print"
+    )
+    # Presence still reported: the redaction takes the address, not the fact.
+    assert "bluez_output.<mac>.1" in out
+
+
+"""A Bluetooth *speaker* reaches the strict tier: `_classify_sink` returns
+"strict" on device.icon_name=audio-speakers before it excludes bluez. So
+"your built-in speakers" can name a headset, and the sink lists the PipeWire
+scripts print are not speakers-only."""
+BT_SPEAKER = dict(BLUEZ_SINK, icon_name="audio-speakers")
+
+
+def test_a_bluetooth_speaker_is_autodetected_but_not_printed_raw(monkeypatch):
+    """The detector must keep the real name — it goes in the conf — so the
+    redaction belongs at the print."""
+    _patch_sinks(monkeypatch, [BT_SPEAKER])
+    name, warnings = pw._autodetect_speaker_sink()
+    assert name == BLUEZ_SINK["name"], "the conf needs the real target"
+    assert doctor.no_bt_address(name) == "bluez_output.<mac>.1"
+
+
+def test_multiple_speaker_sinks_warning_redacts(monkeypatch):
+    """Two strict-tier candidates → the "pass --target-sink to pick one"
+    warning, which both PipeWire scripts print to the user."""
+    _patch_sinks(monkeypatch, [STRICT_SPEAKER, BT_SPEAKER])
+    name, warnings = pw._autodetect_speaker_sink()
+    assert name is None and warnings
+    joined = " ".join(warnings)
+    assert "AA_BB_CC_DD_EE_FF" not in joined
+    assert STRICT_SPEAKER["name"] in joined, "ordinary names stay typeable"
+
+
+def test_a_typed_sink_name_is_echoed_verbatim(monkeypatch, capsys):
+    """The reader's own argument, not something the tool discovered. Redacting
+    it would hide the one-character mistake this message exists to catch."""
+    _patch_sinks(monkeypatch, [IDEAPAD_ANALOG])
+    hw_sinks._resolve_autoload_sinks(["bluez_output.AA_BB_CC_DD_EE_FF.1"],
+                                     dry_run=True)
+    assert "AA_BB_CC_DD_EE_FF" in capsys.readouterr().out
+
+
+def test_sink_listing_keeps_ordinary_names_intact(monkeypatch, capsys):
+    """The redaction is anchored on the bluez_ prefix, so a normal sink name —
+    which triage needs verbatim to reproduce a `--autoload-sink` — is
+    untouched."""
+    _patch_sinks(monkeypatch, [HDMI_SINK, USB_HEADSET])
+    hw_sinks._resolve_autoload_sinks([], dry_run=True)
+    out = capsys.readouterr().out
+    assert USB_HEADSET["name"] in out
+    assert "<mac>" not in out
 
 
 def test_relaxed_ambiguous_sorted_pci_first(monkeypatch):

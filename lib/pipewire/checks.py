@@ -499,10 +499,23 @@ def check_targets_exist(chains, sinks, dump) -> CheckResult | None:
         return None
     return CheckResult(
         DOCTOR_FAIL, "Target sink missing",
-        f"the chain is attached to {', '.join(orphans)}, which isn't among "
+        f"the chain is attached to {doctor.no_bt_address(', '.join(orphans))}, which isn't among "
         "this machine's sinks, so it never joins the audio path. Re-run the "
         "converter to pick up the current speaker sink, or pass "
         "--target-sink with the right node.name.")
+
+
+def _runnable(name: str) -> bool:
+    """Whether a sink name may be printed inside a command.
+
+    A Bluetooth name carries the device's address, and `doctor.no_bt_address`
+    takes it out of everything this report prints — but a redacted name is not
+    something a shell can run, and printing the real one in a step would put
+    the address back into the same pasted block the redaction just cleaned.
+    So a check that would name such a sink in a command drops the command and
+    keeps its prose route instead (issue #63 follow-up).
+    """
+    return name == doctor.no_bt_address(name)
 
 
 def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | None:
@@ -556,10 +569,13 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
         # 70-character node name inside wrapped prose, which folds it mid-name.
         # ...and only claim it is named below when a step will actually name
         # it: a smart chain whose filter.smart.target didn't parse reaches this
-        # same detail with no steps, and a pointer to nothing is worse than none.
-        names_it = " (named in the fix below)" if picked.target else ""
+        # same detail with no steps, and a pointer to nothing is worse than
+        # none. Same for a target whose name carries an address — that step is
+        # replaced by prose that names nothing, so the pointer must go with it.
+        names_it = (" (named in the fix below)"
+                    if picked.target and _runnable(picked.target) else "")
         detail = (
-            f"{defaults.effective} is your selected output, but it is a filter "
+            f"{doctor.no_bt_address(defaults.effective)} is your selected output, but it is a filter "
             f"rather than a device — it attaches itself to your speaker "
             f"sink{names_it}, so everything playing there goes through "
             # "can be", not "is why": the two-stage arrangement is what the
@@ -578,10 +594,13 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
                        "your speakers once.")
         detail += _hidden_attenuation(picked)
         steps = ()
-        if picked.target:
+        if picked.target and _runnable(picked.target):
             steps = (("dim", "Pick your speakers as the output — in sound "
                              "settings, or:"),
                      ("cta", f"  pactl set-default-sink {picked.target}"))
+        elif picked.target:
+            steps = (("dim", "Pick your speakers as the output in sound "
+                             "settings."),)
         return CheckResult(DOCTOR_WARN, "Default output", detail, steps)
 
     # A v1 chain that IS selected is the mode working as intended, so this is
@@ -595,14 +614,17 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
         if hidden:
             below = (picked.target or picked.pinned
                      or downstream_sink(dump, picked.name))
+            steps = (("dim", "Put that one back to full and use this chain's "
+                             "own control for volume:"),
+                     ("cta", f"  pactl set-sink-volume {below} 100%")
+                     ) if _runnable(below) else (
+                ("dim", "Put that one back to full in sound settings, and use "
+                        "this chain's own control for volume."),)
             return CheckResult(
                 DOCTOR_WARN, "Default output",
-                f"{defaults.effective} is your selected output, which is how "
+                f"{doctor.no_bt_address(defaults.effective)} is your selected output, which is how "
                 "this mode is meant to run — but it feeds another sink, and "
-                "both levels apply." + hidden,
-                (("dim", "Put that one back to full and use this chain's own "
-                         "control for volume:"),
-                 ("cta", f"  pactl set-sink-volume {below} 100%")))
+                "both levels apply." + hidden, steps)
         return None
 
     # Gate on *none* of them being selected rather than on each chain: with
@@ -612,7 +634,7 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
     if virtual and picked is None:
         names = ", ".join(f"effect_input.{n}" for n in virtual)
         plural = len(virtual) > 1
-        where = (f"your selected output is {defaults.effective}"
+        where = (f"your selected output is {doctor.no_bt_address(defaults.effective)}"
                  if defaults.effective else "nothing here is selected as the output")
         detail = (
             f"{names} {'are plain virtual sinks' if plural else 'is a plain virtual sink'}, "
@@ -661,7 +683,7 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
                        "marked ← default above — but" if defaults.effective
                        else " But")
         detail = (
-            f"your remembered output is {defaults.configured}, which isn't in "
+            f"your remembered output is {doctor.no_bt_address(defaults.configured)}, which isn't in "
             "the graph — a filter chain that was deleted or renamed."
             + reassurance
             + " WirePlumber restores that choice as soon as a sink of that "
@@ -674,8 +696,11 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
             # name to the head of WirePlumber's stack and pushes the stale one
             # down. It is never erased — it just stops being the one restored.
             detail += " Selecting the output you actually use, once, replaces it."
-            steps = (("dim", "Make the one you use the remembered choice:"),
-                     ("cta", f"  pactl set-default-sink {defaults.effective}"))
+            steps = ((("dim", "Make the one you use the remembered choice:"),
+                      ("cta", f"  pactl set-default-sink {defaults.effective}"))
+                     if _runnable(defaults.effective) else
+                     (("dim", "Make the one you use the remembered choice by "
+                              "picking it in sound settings."),))
         return CheckResult(DOCTOR_WARN, "Default output", detail, steps)
 
     return None
@@ -897,7 +922,12 @@ def _environment_lines(confs, chains, facts) -> list[str]:
         stale = "" if default.configured in facts["sinks"] else " (not in the graph)"
         lines.append(f"  Chosen sink:  {default.configured}{stale}")
     lines += [f"  {line}" for line in _plugin_presence()]
-    return lines
+    # Once, over the whole block, rather than at each of the four sites that
+    # interpolate a node name: this is the densest listing the tool prints, the
+    # `Sinks:` lines are every sink in the graph, and a line added later would
+    # otherwise have to remember. Nothing here is a command, so nothing here
+    # needs to stay runnable.
+    return [doctor.no_bt_address(line) for line in lines]
 
 
 def report_pw_doctor() -> int:

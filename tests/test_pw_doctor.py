@@ -440,6 +440,54 @@ def test_chain_volume_is_silent_without_volume_data_or_daemon():
     assert checks.check_chain_volume([], None) is None
 
 
+# --- Addresses stay out of a block written to be pasted ---------------------
+
+BT_SINK = "bluez_output.80_99_E7_E0_8A_23.1"
+
+
+def test_environment_block_prints_no_bluetooth_address():
+    """The `Sinks:` list is every sink in the graph, and the closing line asks
+    the reader to paste everything above it into an issue."""
+    facts = {"version": "v-test", "wireplumber": (0, 5),
+             "sinks": [SPEAKER, BT_SINK],
+             "default": checks.DefaultSink(BT_SINK, BT_SINK)}
+    lines = "\n".join(checks._environment_lines([], [], facts))
+    assert "80_99_E7_E0_8A_23" not in lines
+    # Presence survives: which sink is selected is the fact triage reads.
+    assert "bluez_output.<mac>.1" in lines
+    assert SPEAKER in lines
+
+
+def test_a_command_is_dropped_rather_than_printed_with_an_address():
+    """The one place redaction and runnability collide. A redacted name is not
+    runnable, and printing the real one would put the address back into the
+    same block the redaction just cleaned — so the command goes and the
+    sound-settings route stays."""
+    dump = [_speaker_sink(BT_SINK), *_smart_chain("Dolby_Balanced", target=BT_SINK)]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump)
+    rendered = result.detail + "".join(text for _, text in result.steps)
+    assert "80_99_E7_E0_8A_23" not in rendered
+    assert not any("pactl" in text for _, text in result.steps)
+    assert any("sound settings" in text for _, text in result.steps)
+    # And the detail must not promise a pointer the dropped step took with it.
+    assert "named in the fix below" not in result.detail
+
+
+def test_an_ordinary_target_still_gets_its_command():
+    """The fallback above must not cost every other reader their one
+    copy-pasteable line."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump)
+    assert any(f"pactl set-default-sink {SPEAKER}" in text
+               for _, text in result.steps)
+
+
 # --- Conf-vs-graph checks ---------------------------------------------------
 
 def _conf(tmp_path, name, **kw):

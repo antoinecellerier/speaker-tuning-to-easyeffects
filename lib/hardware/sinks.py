@@ -24,7 +24,7 @@ import json
 import subprocess
 import sys
 
-from lib import console
+from lib import console, doctor
 
 
 # Speaker-sink detection for autoload / smart-filter targeting.
@@ -202,8 +202,13 @@ def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
     candidate/diagnostic lines stay in lockstep."""
     desc = sink.get("description") or ""
     desc_part = f'  "{desc}"' if (with_description and desc) else ""
-    return (f"node.name={sink.get('name', '?')}{desc_part}  "
-            f"(icon={sink.get('icon_name') or '?'}, bus={sink.get('bus') or '?'})")
+    # Redacted here, at the one renderer both scripts share, rather than at its
+    # five call sites: every listing that reaches a user goes through this, and
+    # the widest of them prints every sink in the graph. The dict keeps the real
+    # name — callers classify and build autoload filenames from it.
+    return doctor.no_bt_address(
+        f"node.name={sink.get('name', '?')}{desc_part}  "
+        f"(icon={sink.get('icon_name') or '?'}, bus={sink.get('bus') or '?'})")
 
 
 def _print_sink_candidates(sinks: list[dict]) -> None:
@@ -258,8 +263,13 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
         for name in override_names:
             sink = by_name.get(name)
             if sink is None:
-                console.cprint("warn", f"  --autoload-sink {name!r}: not currently in "
-                               "pw-dump, so its output route is unknown.")
+                # Echoed verbatim, unlike the enumerations below: this is the
+                # reader's own argument, and the whole point of the message is
+                # letting them compare it against what they meant to type. A
+                # redacted echo would hide a one-character mistake, which is
+                # the mistake this message exists to catch.
+                console.cprint("warn", f"  --autoload-sink {name!r}: not currently "
+                               "in pw-dump, so its output route is unknown.")
                 sink = {"name": name, "description": name, "profile": "", "route": ""}
             resolved.append(sink)
         return resolved

@@ -417,7 +417,8 @@ def _configure_autoload(args, all_preset_names) -> None:
                 # skip and say why rather than write a file that never matches.
                 route = sink.get("route", "")
                 if not route:
-                    console.cprint("warn", f"  Skipping {sink['name']}: couldn't determine "
+                    console.cprint("warn", "  Skipping "
+                                   f"{doctor.no_bt_address(sink['name'])}: couldn't determine "
                                    "its active output route from PipeWire, which is "
                                    "what EasyEffects matches autoload on. Re-run "
                                    "with this device as the active output, or set "
@@ -431,8 +432,13 @@ def _configure_autoload(args, all_preset_names) -> None:
                     autoload_preset,
                     dry_run=args.dry_run,
                 )
-                console.cprint("ok", f"  {verb} {doctor.tilde(path)}")
-                print(f"  Device: {sink['description'] or sink['name']} ({route})")
+                # `tilde` alone is not enough on this one: the filename
+                # write_autoload builds embeds the node name, so a Bluetooth
+                # sink's address rides inside the path.
+                console.cprint("ok", "  " + verb + " "
+                               + doctor.no_bt_address(doctor.tilde(path)))
+                print("  Device: " + doctor.no_bt_address(
+                    f"{sink['description'] or sink['name']} ({route})"))
 
         # Fallback preset: neutralize the Dolby chain on any non-speaker sink
         # (HDMI, USB headset, Bluetooth, etc.) that lacks its own autoload

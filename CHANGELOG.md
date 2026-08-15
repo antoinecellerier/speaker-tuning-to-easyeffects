@@ -164,6 +164,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- Reports no longer print a connected Bluetooth device's address. Its node name
+  carries the MAC, and the sink listings in `--doctor` and in a `--autoload` run
+  name every output on the machine — blocks the issue form asks you to paste
+  whole. The device is still reported, just without the address
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
   whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
   never read, so a curve shipped alongside a disabled optimizer was applied

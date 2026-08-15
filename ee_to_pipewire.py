@@ -406,8 +406,13 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # detection picked the wrong device assumed their only path
             # was filing a report. And how to find NAME (round 8): the
             # flag alone left them with no way to discover a value.
+            # Redacted: this name came from the graph, not from the reader. A
+            # Bluetooth speaker reaches the strict tier (lib/hardware/sinks.py
+            # `_classify_sink`), so "your built-in speakers" can name a headset
+            # and print its address. The `--target-sink` echo above is left
+            # verbatim on purpose — that one the reader typed.
             console.cprint("ok", f"[smart-filter] your built-in speakers: "
-                         f"{target_sink} "
+                         f"{doctor.no_bt_address(target_sink)} "
                          "(autodetected — wrong device? --target-sink NAME "
                          "overrides)")
             console.cprint("dim", "  (list sink names with: pw-cli ls Node | grep "

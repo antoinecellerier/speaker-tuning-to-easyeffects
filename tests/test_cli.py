@@ -512,6 +512,42 @@ ENTRY_POINTS = (
 )
 
 @pytest.mark.parametrize("text,expected", [
+    # WirePlumber writes the address with underscores in a node name; the colon
+    # form is what its own state files hold, and it reaches us through the
+    # default-sink metadata.
+    ("bluez_output.80_99_E7_E0_8A_23.1", "bluez_output.<mac>.1"),
+    ("bluez_input.94:DB:56:52:9E:03", "bluez_input.<mac>"),
+    # Inside a rendered line, which is how the diagnostics hand it over.
+    ('node.name=bluez_output.AA_BB_CC_DD_EE_FF.1  "Headset"  (bus=?)',
+     'node.name=bluez_output.<mac>.1  "Headset"  (bus=?)'),
+    # Anchored on the prefix, not on "six hex pairs": an address-shaped token
+    # anywhere else is someone's real identifier for something we don't know,
+    # and mangling it would cost triage a name it needs verbatim.
+    ("some_other.80_99_E7_E0_8A_23", "some_other.80_99_E7_E0_8A_23"),
+    ("alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink",
+     "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"),
+    # Left edge: a longer name ending in the prefix must not fire.
+    ("not_bluez_output.AA_BB_CC_DD_EE_FF.1",
+     "not_bluez_output.AA_BB_CC_DD_EE_FF.1"),
+    # Our own chain names carry no address and must survive verbatim — they are
+    # what the steps tell people to type.
+    ("effect_input.Dolby_Balanced", "effect_input.Dolby_Balanced"),
+])
+def test_no_bt_address_masks_only_a_bluetooth_address(text, expected):
+    """A Bluetooth node name is the device's MAC. It reaches the blocks the
+    issue form asks users to paste whole, and nothing this tool does needs it —
+    the surviving prefix already says a Bluetooth sink is there."""
+    assert doctor.no_bt_address(text) == expected
+
+
+def test_no_bt_address_survives_a_non_string():
+    """It runs at the print, like its two siblings, and a render is not where a
+    surprising type should surface."""
+    assert doctor.no_bt_address(None) == "None"
+    assert doctor.no_bt_address(42) == "42"
+
+
+@pytest.mark.parametrize("text,expected", [
     ("/home/ann", "~"),
     ("/home/ann/.local/share/easyeffects/output/Dolby-Balanced.json",
      "~/.local/share/easyeffects/output/Dolby-Balanced.json"),

@@ -88,9 +88,14 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     if tier == "strict":
         if len(selected) == 1:
             return selected[0]["name"], []
+        # Redacted like the relaxed-tier lines below, which reach the same
+        # printers through `_diag`. A Bluetooth *speaker* lands in this tier —
+        # `_classify_sink` returns "strict" on device.icon_name=audio-speakers
+        # before it excludes bluez — so this list is not speakers-only.
         return None, [
-            f"multiple speaker sinks found ({len(selected)}): "
-            + ", ".join(s["name"] for s in selected)
+            doctor.no_bt_address(
+                f"multiple speaker sinks found ({len(selected)}): "
+                + ", ".join(s["name"] for s in selected))
             + "; pass --target-sink to pick one"
         ]
 

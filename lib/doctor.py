@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
-           "tilde", "dollar_user",
+           "tilde", "dollar_user", "no_bt_address",
            "CheckResult", "summarize", "emit_check",
            "print_summary",
            "print_verdict"]
@@ -93,6 +93,55 @@ def dollar_user(path) -> str:
     # right one is tilde's, so /media/annie and /media/ann.bak stay whole.
     return re.sub(rf"(/(?:{parents}))/{re.escape(user)}(?![\w.~-])",
                   r"\1/$USER", s)
+
+
+# A Bluetooth node name is `bluez_output.<addr>.<profile>` with the address's
+# colons turned into underscores, though the colon form reaches us too (it is
+# what WirePlumber's own state files hold). Anchored on the `bluez_` prefix
+# rather than on "six hex pairs", so a token that merely looks like an address
+# somewhere else in a line is left alone.
+_BT_ADDRESS_RE = re.compile(
+    r"(?<![\w.-])(bluez_(?:output|input)\.)"
+    r"(?:[0-9A-Fa-f]{2}[:_]){5}[0-9A-Fa-f]{2}")
+
+
+def no_bt_address(text) -> str:
+    """Render a node name with no Bluetooth address in it — paste-safe.
+
+    The third of the same promise ``tilde`` and ``dollar_user`` make, for the
+    one field they never see: a PipeWire node name, which arrives from
+    ``pw-dump`` verbatim and carries the adapter's MAC when the device is a
+    headset. Several blocks list *every* sink on the machine, and the issue
+    form asks for those blocks whole, so a connected headset's address is
+    pasted in public by a reporter who was only sending a speaker log.
+
+    Only the address goes. ``bluez_output.`` and the trailing profile number
+    survive, for the reason ``dollar_user`` keeps volume labels: they are the
+    part with triage value — a Bluetooth sink exists, on that profile — and the
+    address has none, since nothing this tool does is per-device for hardware
+    it does not tune.
+
+    **``<mac>`` is not a placeholder a shell expands**, unlike ``~`` and
+    ``$USER``. That is deliberate — there is no expansion that reproduces an
+    address — and it is why this must never be applied to a command line: a
+    redacted name is not runnable. Where a command would name a redacted sink,
+    the caller drops the command, not the redaction.
+
+    **Applies to what the tool discovered, not to what the user typed.** A name
+    a reader passed on the command line is theirs, and redacting it back at them
+    makes a diagnostic lie about its own input: ``--autoload-sink
+    'bluez_output.<mac>.1': not currently in pw-dump`` gives someone who
+    mistyped a hex digit no way to see it. The enumerations this tool prints
+    unbidden — every sink on the machine, the selected output, the sink
+    EasyEffects is on — are the ones a reporter never chose to send, and they
+    are what this renders.
+
+    Takes a whole name or a line with one inside it, as ``tilde`` does, so a
+    caller can hand it an already-rendered line. Non-strings are stringified
+    rather than rejected: this runs at the print, and a render is not where a
+    surprising type should surface.
+    """
+    return _BT_ADDRESS_RE.sub(r"\1<mac>", str(text))
 
 
 def tilde(path) -> str:
