@@ -168,6 +168,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor`'s verdict now points at the `[WARN]` lines it actually prints. It
+  said "the ⚠ lines above", a symbol neither report contains, so anyone
+  scanning for it found nothing.
 - On the EasyEffects path, `--doctor` no longer reports a preset, output sink
   or bypass state that is hours out of date — it now asks the running
   EasyEffects and PipeWire instead of reading a config file EasyEffects only

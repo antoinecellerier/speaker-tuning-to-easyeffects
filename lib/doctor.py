@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
-           "tilde", "dollar_user", "no_bt_address",
+           "tag", "tilde", "dollar_user", "no_bt_address",
            "CheckResult", "summarize", "emit_check",
            "print_summary",
            "print_verdict"]
@@ -34,6 +34,18 @@ DOCTOR_PASS, DOCTOR_WARN, DOCTOR_FAIL, DOCTOR_UNKNOWN = "PASS", "WARN", "FAIL", 
 
 _STYLE = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
           DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
+
+
+def tag(status: str) -> str:
+    """The bracketed status as a check line shows it: ``[WARN]``, ``[ ?  ]``.
+
+    The verdict lines send readers to "the [WARN] lines above", so they build
+    that label through this rather than spelling it out. Both used to, and
+    both were wrong: the WARN one named a ⚠ that appears nowhere in either
+    report, and the UNKNOWN one wrote ``[ ? ]`` where the centring yields
+    ``[ ?  ]``. Either way the reader searched for a string that wasn't there.
+    """
+    return f"[{status:^4}]"
 
 
 # Where a desktop mounts a removable disk: udisks2 uses ``/run/media/<login>/
@@ -222,8 +234,7 @@ def emit_check(check: CheckResult, cprint, width: int) -> None:
     checks used to send readers elsewhere for the fix only because this
     printer had nowhere to put one.
     """
-    cprint(_STYLE.get(check.status, "dim"),
-           f"  [{check.status:^4}] {check.label}")
+    cprint(_STYLE.get(check.status, "dim"), f"  {tag(check.status)} {check.label}")
     for line in textwrap.wrap(check.detail, width=width - 9):
         cprint("dim", f"         {line}")
     for style, text in check.steps:
@@ -255,8 +266,8 @@ def print_verdict(checks, cprint) -> None:
     if not (fail or warn or unknown):
         cprint("ok", "No blocking problems detected.")
     elif warn and not fail:
-        cprint("warn", "Nothing failed outright — the ⚠ lines above are what "
-                       "to fix first.")
+        cprint("warn", f"Nothing failed outright — the {tag(DOCTOR_WARN)} lines "
+                       "above are what to fix first.")
     elif unknown and not fail:
-        cprint("warn", "Some checks couldn't be verified (the [ ? ] lines "
-                       "above); the rest look OK.")
+        cprint("warn", f"Some checks couldn't be verified (the "
+                       f"{tag(DOCTOR_UNKNOWN)} lines above); the rest look OK.")

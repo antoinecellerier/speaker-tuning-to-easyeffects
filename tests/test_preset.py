@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, ee_paths
+from lib import console, doctor as doctor_module, ee_paths
 from lib.dax import parse
 from lib.doctor import (
     CheckResult,
@@ -37,6 +37,8 @@ from lib.doctor import (
     DOCTOR_PASS,
     DOCTOR_UNKNOWN,
     DOCTOR_WARN,
+    emit_check,
+    print_verdict,
     summarize,
 )
 from lib.hardware import speakers
@@ -1823,6 +1825,23 @@ def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     out = capsys.readouterr().out
     assert "No blocking problems detected." not in out
     assert "1 WARN" in out
+
+
+@pytest.mark.parametrize("status", [DOCTOR_WARN, DOCTOR_UNKNOWN])
+def test_verdict_names_a_tag_the_report_actually_prints(status, capsys):
+    """TRAP: the verdict points readers at "the [WARN] lines above", so the
+    label it quotes must be the one the check printer emits. Both lines used
+    to spell it by hand and both were wrong — WARN named a ⚠ that appears
+    nowhere in either doctor, and UNKNOWN wrote `[ ? ]` where the centring
+    yields `[ ?  ]`. Anyone hunting for the quoted string found nothing."""
+    checks = [CheckResult(status, "Some check", "detail")]
+    emit_check(checks[0], lambda _style, text: print(text), 80)
+    print_verdict(checks, lambda _style, text: print(text))
+    out = capsys.readouterr().out
+    quoted = doctor_module.tag(status)
+    assert quoted in out, f"verdict must quote {quoted!r}"
+    # The same string appears on the check line above it, not just in prose.
+    assert out.count(quoted) >= 2
 
 
 def test_doctor_ends_on_the_diagnosis_not_the_inventory(monkeypatch,
