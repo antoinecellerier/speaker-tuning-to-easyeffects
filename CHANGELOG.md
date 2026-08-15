@@ -60,6 +60,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- `--doctor` now reports EasyEffects' global bypass, the first thing to suspect
+  behind "I hear no difference" and previously something only you could check
+  by hand. It warns when bypass is on, and stops asking you to verify it once
+  it has read it.
 - On the PipeWire path, `--doctor` now reports which output is selected: the
   filter chain itself, where its volume control and your speakers' both apply;
   a virtual-sink chain nothing is playing through; or a remembered choice
@@ -164,6 +168,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- On the EasyEffects path, `--doctor` no longer reports a preset, output sink
+  or bypass state that is hours out of date — it now asks the running
+  EasyEffects and PipeWire instead of reading a config file EasyEffects only
+  writes when it quits or while its window is open. It could previously report
+  the silent bypass preset, or a Bluetooth headset that was not even connected,
+  while a Dolby preset played on the speakers.
 - Reports no longer print a connected Bluetooth device's address. Its node name
   carries the MAC, and the sink listings in `--doctor` and in a `--autoload` run
   name every output on the machine — blocks the issue form asks you to paste

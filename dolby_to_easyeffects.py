@@ -470,7 +470,8 @@ def _configure_autoload(args, all_preset_names) -> None:
                 if doctor_run.easyeffects_is_running():
                     console.cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
-                                   "this file on exit).")
+                                   "this file when it quits, and every 30s while its "
+                                   "window is open).")
 
         # Autoload only persists across logins if EasyEffects both starts at
         # login (autostart) and stays alive in the background (service mode);

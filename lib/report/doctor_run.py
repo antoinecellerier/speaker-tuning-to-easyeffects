@@ -46,10 +46,13 @@ drift. What is left here is this side's own two builders and its probes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import socket
 import subprocess
-from dataclasses import dataclass
+import textwrap
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib import console, doctor, ee_paths, version
@@ -87,8 +90,9 @@ def easyeffects_is_running() -> bool:
     """Return True if an EasyEffects process is currently running.
 
     Used to warn the user that easyeffectsrc edits won't take effect until
-    EE is restarted — EE reads the file on startup and writes it on exit,
-    so mid-run writes get clobbered.
+    EE is restarted — EE reads the file on startup and rewrites it from
+    ``saveAll()``, which runs on quit *and* on a 30 s autosave timer that
+    only ticks while its window is open, so mid-run writes get clobbered.
     """
     try:
         result = subprocess.run(
@@ -101,6 +105,160 @@ def easyeffects_is_running() -> bool:
         # (sandboxed/SELinux hosts) — never crash a caller that only wants a
         # best-effort "is EE up?" (e.g. --doctor's fact-gathering).
         return False
+
+
+def _live_default_sink() -> str:
+    """node.name of the sink PipeWire is sending output to now, or "".
+
+    Imported inside the function so the EasyEffects path doesn't drag in the
+    PipeWire checks module (which imports back into lib/report/) on the runs
+    that never need it.
+    """
+    from lib.pipewire import checks
+    return checks.default_sinks(checks._pw_dump()).effective
+
+
+# EasyEffects' daemon listens on a QLocalServer of this name and answers
+# newline-terminated ASCII requests (`tags::local_server`). Only these two are
+# ever sent: the same socket also takes quit_app, hide_window, show_window,
+# load_preset and toggle_global_bypass, none of which a diagnostic may send.
+# Naming the allowed set means a later edit cannot reach a mutating request by
+# passing a different string.
+_EE_PRESET_REQUEST = "get_last_loaded_preset:output\n"
+_EE_BYPASS_REQUEST = "get_global_bypass\n"
+_EE_READ_REQUESTS = frozenset({_EE_PRESET_REQUEST, _EE_BYPASS_REQUEST})
+
+
+@dataclass
+class EEReply:
+    """What the daemon said, and how far we got asking.
+
+    Three states, because two of them must look different in the report.
+    ``reached`` False is no socket — EasyEffects isn't running, which is
+    ordinary, and falling back to its config file quietly is right.
+    ``reached`` with ``answered`` False means the daemon is listening but did
+    not reply to this request: its protocol moved under us. That must be
+    visible, because the alternative is serving a stale config value as
+    though it were current for as long as nobody notices.
+
+    ``answered`` with an empty ``value`` is a real answer — over the socket EE
+    sends the raw preset name, so "" means no preset is loaded. (Its CLI
+    substitutes the string "None" there; the socket does not.)
+    """
+    value: str = ""
+    reached: bool = False
+    answered: bool = False
+
+
+def _ee_query(request: str) -> EEReply:
+    """Ask the running EasyEffects daemon over its local socket.
+
+    The seam tests monkeypatch, mirroring `lib/pipewire/checks._pw_dump`.
+
+    Deliberately NOT the `easyeffects` CLI, which looks like the obvious way
+    to ask and has two side effects a diagnostic must not have:
+
+    * It **hides the running instance's window.** Its argument parser emits
+      `onHideWindow()` for these very queries, which the secondary instance
+      forwards to the daemon as a `hide_window` message. Asking what preset is
+      loaded would close the window out from under whoever is reading it.
+    * With no daemon it becomes the *primary* instance and starts a whole
+      second EasyEffects — upstream picks that branch purely on whether a lock
+      file is held, and under Flatpak that lock lives in the sandbox's temp
+      dir where a host-side client cannot see it.
+
+    Talking to the socket ourselves avoids both: the daemon acts only on the
+    request we send, and connecting to a socket cannot start anything. When
+    EasyEffects isn't running the socket isn't there and we fall back to its
+    config file, as we do for a Flatpak install whose socket sits inside the
+    sandbox.
+    """
+    if request not in _EE_READ_REQUESTS:
+        raise ValueError(f"refusing to send a non-read-only request: {request!r}")
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime_dir:
+        return EEReply()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(str(Path(runtime_dir) / "EasyEffectsServer"))
+            sock.sendall(request.encode())
+            # The daemon writes a reply only from the branch matching the
+            # request tag; an unrecognised one falls through and writes
+            # nothing, so a read that times out is the drift signal. Waiting
+            # out the timeout is the point — not a slow path to avoid.
+            reply = sock.recv(4096)
+    except (socket.timeout, TimeoutError):
+        return EEReply(reached=True)
+    except OSError:
+        return EEReply()
+    return EEReply(value=reply.decode("utf-8", errors="replace").strip(),
+                   reached=True, answered=True)
+
+
+@dataclass
+class LiveState:
+    """EasyEffects state resolved from the best source available per value.
+
+    Each value carries where it came from, because the report has to say so:
+    a config-file reading can be arbitrarily old (see `read_ee_rc`), and one
+    presented as current is how --doctor came to report the silent 'Nothing'
+    preset while a Dolby one was loaded.
+    """
+    preset: str = ""
+    preset_is_live: bool = False
+    sink: str = ""
+    sink_source: str = "saved"   # "live" | "pinned" | "saved"
+    bypass: bool = False
+    bypass_is_live: bool = False
+    # Requests a listening daemon did not answer. Non-empty means EasyEffects'
+    # socket protocol changed, not that it is absent — reported rather than
+    # absorbed, so this stops reporting stale values as current the moment it
+    # happens instead of whenever someone next reads the source.
+    unanswered: list[str] = field(default_factory=list)
+
+
+def _resolve_live_state(rc: dict) -> LiveState:
+    """Prefer the running daemon and the live graph; fall back to the rc."""
+    state = LiveState()
+
+    # An answered request wins even when the name is empty: that is EasyEffects
+    # saying nothing is loaded, which its config file cannot distinguish from
+    # never-written.
+    reply = _ee_query(_EE_PRESET_REQUEST)
+    if reply.answered:
+        state.preset, state.preset_is_live = reply.value, True
+    else:
+        state.preset = rc.get("last_output_preset", "")
+        if reply.reached:
+            state.unanswered.append("loaded preset")
+
+    # useDefaultOutputDevice defaults ON, in which case EE just follows the
+    # system default sink and the rc holds a stale copy of it. Pinned is the
+    # opposite: only the GUI writes that key, so the rc is then the truth and
+    # the live default sink is the wrong answer.
+    if rc.get("use_default_output_device", True):
+        live_sink = _live_default_sink()
+        if live_sink:
+            state.sink, state.sink_source = live_sink, "live"
+        else:
+            state.sink, state.sink_source = rc.get("output_device", ""), "saved"
+    else:
+        state.sink, state.sink_source = rc.get("output_device", ""), "pinned"
+
+    # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
+    # changed reply format degrades to the config copy instead of being read
+    # as a confident "off" — and, since we got *an* answer, counts as drift.
+    # The rc copy is only ever a display fallback, never a verdict.
+    bypass_reply = _ee_query(_EE_BYPASS_REQUEST)
+    if bypass_reply.value in ("1", "2"):
+        state.bypass, state.bypass_is_live = bypass_reply.value == "1", True
+    else:
+        state.bypass = rc.get("bypass", False)
+        if bypass_reply.reached:
+            state.unanswered.append("global bypass")
+
+    return state
 
 
 @dataclass
@@ -241,11 +399,26 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     except OSError:
         rc_text = ""
     rc = autoload.read_ee_rc(rc_text)
+    live = _resolve_live_state(rc)
     # The selected-preset check compares against presets in output_dir; that's
     # only meaningful when output_dir is where EE actually loads from (default
     # dirs). Under custom dirs, surface the loaded preset as a fact instead.
-    if rc_text and not custom_dirs:
-        report.checks.append(environment.loaded_preset_status(rc, generated_names))
+    # A live answer runs the check even with no rc at all — the daemon knows
+    # what it loaded whether or not it has got round to writing it down.
+    if (rc_text or live.preset_is_live) and not custom_dirs:
+        report.checks.append(environment.loaded_preset_status(
+            rc, generated_names,
+            live_preset=live.preset if live.preset_is_live else None))
+    # Global bypass silences the whole chain, and it is the first thing to
+    # suspect behind "I hear no difference". Only a live reading may raise it:
+    # the rc copy predates any GUI toggle since EE last saved.
+    if live.bypass_is_live and live.bypass:
+        report.checks.append(environment.global_bypass_status())
+    # A listening daemon that ignored our request means its protocol moved,
+    # not that it is absent — surfaced so the fallback below can't quietly
+    # become permanent.
+    if live.unanswered:
+        report.checks.append(environment.ee_unanswered_status(live.unanswered))
     # Background-service / autostart is install-global, not output-dir-specific,
     # so it runs even under custom dirs (unlike the selected-preset check).
     if rc_text:
@@ -280,12 +453,16 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "irs_count": len(irs_stems),
         "rc_path": doctor.tilde(rc_path),
         "rc_present": bool(rc_text),
-        "selected_preset": rc.get("last_output_preset", "")
-                           or rc.get("fallback_preset", ""),
+        "selected_preset": live.preset or (""  if live.preset_is_live
+                                           else rc.get("fallback_preset", "")),
+        "selected_is_live": live.preset_is_live,
         "autostart_on_login": rc.get("autostart_on_login", False),
         "service_mode": rc.get("service_mode", True),
-        "output_device": rc.get("output_device", ""),
+        "output_device": live.sink,
+        "output_device_source": live.sink_source,
         "output_plugins": rc.get("output_plugins", []),
+        "bypass": live.bypass,
+        "bypass_is_live": live.bypass_is_live,
     }
     return report
 
@@ -294,29 +471,71 @@ def _environment_lines(f: dict) -> list[str]:
     """The `=== Environment ===` body: where this tool wrote, and what
     EasyEffects is doing with it. Labels pad to a 16-column gutter so the
     values line up. The last three rows appear only once there is one."""
+    # Rows below come from whichever source is authoritative for that value,
+    # so a row EasyEffects could have answered live but didn't says where it
+    # came from instead. Only worth saying while EE is running: with no daemon
+    # every row is necessarily the last save, and the Config: line says so
+    # once rather than repeating it down the block.
+    # A row EasyEffects could have answered live but didn't says where it came
+    # from — including when EE isn't running at all. Stating it once up top
+    # instead was worse: the rows then read identically whether or not the
+    # value was confirmed, and the closing block's bypass reminder (which is
+    # dropped only on a live reading) looked arbitrary next to a `Bypass:` line
+    # that looked equally sure of itself either way.
+    saved = " (from saved config)"
+    running = f.get("ee_running")
     lines = [
         f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}",
         f"  EasyEffects:  {f.get('ee_version', '?')}; "
-        f"running: {'yes' if f.get('ee_running') else 'no'}",
+        f"running: {'yes' if running else 'no'}",
         f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})",
         f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
         f"{f.get('irs_count', 0)} impulse files",
         f"  Config:       {f.get('rc_path')} "
         f"({'present' if f.get('rc_present') else 'absent'})",
+    ]
+    lines.append(
         f"  Background:   service mode "
         f"{'on' if f.get('service_mode') else 'off'}, autostart "
-        f"{'on' if f.get('autostart_on_login') else 'off'}",
-    ]
+        f"{'on' if f.get('autostart_on_login') else 'off'}")
     if f.get("selected_preset"):
-        lines.append(f"  Selected:     {f['selected_preset']}")
+        lines.append(f"  Selected:     {f['selected_preset']}"
+                     + ("" if f.get("selected_is_live") else saved))
     if f.get("output_device"):
-        # EasyEffects' rc names whatever sink it is on, which is the Bluetooth
-        # headset whenever one is connected — the one node-name leak on this
-        # path, in a block the issue form asks for whole.
+        # Whichever sink this names can be a Bluetooth one — the live default
+        # follows the headset on connect exactly as EE's own record did — so
+        # this stays the one redacted node name on a path the issue form asks
+        # for whole.
+        source = {"live": "", "pinned": " (pinned in EasyEffects)"}.get(
+            f.get("output_device_source", "saved"), saved)
         lines.append("  Output sink:  "
-                     + doctor.no_bt_address(f['output_device']))
+                     + doctor.no_bt_address(f['output_device']) + source)
+    # No live source exists for the chain, so it is always the saved copy —
+    # worth marking next to rows that aren't. Wrapped because a full chain is
+    # seven plugin names and ran to ~145 columns on one line; continuations
+    # land on the same 16-column gutter as the values above. break_on_hyphens
+    # is off for the same reason `_cprint_wrapped` turns it off — a plugin name
+    # split across lines stops being greppable.
     if f.get("output_plugins"):
-        lines.append(f"  Active chain: {', '.join(f['output_plugins'])}")
+        width = console._wrap_width()
+        chain = textwrap.wrap(
+            ", ".join(f["output_plugins"]),
+            width=width, break_on_hyphens=False,
+            initial_indent="  Active chain: ", subsequent_indent=" " * 16)
+        # The marker is appended after wrapping, not wrapped with the list:
+        # split across lines it reads as part of the last plugin name
+        # ("limiter#0 (from" / "saved config)").
+        if len(chain[-1]) + len(saved) <= width:
+            chain[-1] += saved
+        else:
+            chain.append(" " * 16 + saved.strip())
+        lines += chain
+    # Prints even when off: "is it bypassed?" is the first question behind
+    # "I hear no difference", and a positive "off" answers it. Label is
+    # `Bypass:` so the value still lands on the 16-column gutter.
+    if f.get("bypass_is_live") or f.get("rc_present"):
+        lines.append(f"  Bypass:       {'on' if f.get('bypass') else 'off'}"
+                     + ("" if f.get("bypass_is_live") else saved))
     return lines
 
 
@@ -362,12 +581,20 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
                              _collapse_preset_checks(report.checks),
                              counted=report.checks)
     # What the doctor can't see — guide the user through the manual checks.
-    layout.print_closing((
+    # The bypass line drops out once we have asked the daemon and it said off:
+    # sending someone to verify a setting we just read is how a closing block
+    # teaches people to skip it. When bypass is genuinely on, a check says so
+    # above and this stops being the place it's raised.
+    closing = [
         ("dim", "If you still hear no difference between the preset and bypass:"),
         ("dim", "  • In EasyEffects, toggle the preset off/on to A/B it."),
-        ("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF."),
-        ("dim", "  • Confirm system output is the speaker sink and volume is up."),
-    ))
+    ]
+    if not report.facts.get("bypass_is_live"):
+        closing.append(
+            ("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF."))
+    closing.append(
+        ("dim", "  • Confirm system output is the speaker sink and volume is up."))
+    layout.print_closing(tuple(closing))
 
 
 def _uses_custom_ee_dirs(args) -> bool:

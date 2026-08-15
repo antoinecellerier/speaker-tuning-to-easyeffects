@@ -254,15 +254,24 @@ def check_preset_kernel(preset_json: dict, irs_stems: set,
         f"speaker-correction filter loads {name}.irs.")
 
 
-def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
+def loaded_preset_status(rc_data: dict, generated_names,
+                         live_preset: str | None = None) -> CheckResult:
     """Whether EasyEffects' selected output preset is one this script generated.
     Reports last-loaded / fallback without over-claiming which is *active*
     (per-device autoloading lives elsewhere in EE's config). The empty
     ``Nothing`` bypass preset is excluded from "generated": having it selected
-    is itself a "sounds like nothing" cause, not a healthy state."""
+    is itself a "sounds like nothing" cause, not a healthy state.
+
+    ``live_preset`` is the running daemon's own answer when we got one, and
+    then it is authoritative: the fallback key is skipped, because what EE
+    reports *is* the outcome autoloading already arrived at. Without it this
+    check reads a file EE may not have written for hours — which is how it
+    came to report the silent bypass preset while a Dolby one was loaded."""
     dolby = {n for n in generated_names if n != BYPASS_PRESET_NAME}
-    loaded = rc_data.get("last_output_preset", "")
-    fallback = rc_data.get("fallback_preset", "")
+    loaded = rc_data.get("last_output_preset", "") if live_preset is None \
+        else live_preset
+    fallback = "" if live_preset is not None \
+        else rc_data.get("fallback_preset", "")
     if not loaded and not fallback:
         return CheckResult(DOCTOR_WARN, "Selected preset",
             "EasyEffects has no output preset recorded yet — open it and load a "
@@ -283,6 +292,34 @@ def loaded_preset_status(rc_data: dict, generated_names) -> CheckResult:
     return CheckResult(DOCTOR_WARN, "Selected preset",
         f"EasyEffects' selected output preset is '{loaded or fallback}', which "
         "this script didn't generate — load a Dolby-* preset in EasyEffects.")
+
+
+def ee_unanswered_status(names) -> CheckResult:
+    """EasyEffects is listening but didn't answer what we asked it.
+
+    Its local socket is an internal protocol with no stability promise, so a
+    request it stops recognising is a real possibility. Saying so is the whole
+    point: the alternative is falling back to its config file in silence and
+    reporting hours-old values as current for as long as nobody notices. The
+    values are still shown, marked as coming from that file."""
+    return CheckResult(DOCTOR_UNKNOWN, "EasyEffects state",
+        f"EasyEffects is running but didn't answer when asked its "
+        f"{' and '.join(names)} — this tool may be out of step with your "
+        "EasyEffects version. Values below come from its config file, which "
+        "it rewrites only on quit or while its window is open.")
+
+
+def global_bypass_status() -> CheckResult:
+    """Global bypass is on, so every preset is passthrough.
+
+    Raised only on a live reading from the running daemon — the config file's
+    copy of this key is written on save, so a stale one would accuse a user
+    whose audio is fine. No 'off' counterpart: a check that passes for the
+    overwhelming majority is noise, and the Environment block states it."""
+    return CheckResult(DOCTOR_WARN, "Global bypass",
+        "EasyEffects' global bypass is ON — every preset is passthrough, so "
+        "nothing you load will change the sound. Turn it off with the "
+        "power-button icon in EasyEffects' top bar.")
 
 
 def autostart_status(rc_data: dict) -> CheckResult:

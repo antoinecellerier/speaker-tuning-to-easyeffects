@@ -123,7 +123,13 @@ def read_ee_rc(rc_text: str) -> dict:
     are
     ``[StreamOutputs] outputDevice``/``plugins``. Missing sections/keys fall
     back to empty/False so callers never KeyError on a partial or older rc.
-    Note there is NO global-bypass key here — that toggle is runtime/GUI only.
+
+    Everything here is a *snapshot*, not live state: EasyEffects writes this
+    file from ``saveAll()``, which runs on quit and on an autosave timer that
+    ``Main.qml`` starts only while the window is open. In service mode with
+    the window closed it is never rewritten, so values drift from what EE is
+    actually doing. ``lib/report/doctor_run.py`` prefers live sources where
+    they exist and falls back to these.
     """
     parser = _ee_rc_parser()
     try:
@@ -153,6 +159,17 @@ def read_ee_rc(rc_text: str) -> dict:
                           "true").lower() == "true",
         "output_device": g("StreamOutputs", "outputDevice"),
         "output_plugins": [p for p in plugins.split(",") if p],
+        # Written only when toggled OFF, so an absent key is the ON default —
+        # same polarity as service_mode above. True (the default) means EE
+        # follows the system default sink and outputDevice is merely its cache
+        # of it; false means the user pinned EE to that device, and then this
+        # file is authoritative because nothing but the GUI can change it.
+        "use_default_output_device": g("StreamOutputs", "useDefaultOutputDevice",
+                                       "true").lower() == "true",
+        # [EffectsPipelines] bypass, default false. Only a fallback for the
+        # live `easyeffects -b 3` query — a stale copy of this must never
+        # raise a confident "your audio is bypassed" verdict.
+        "bypass": g("EffectsPipelines", "bypass", "false").lower() == "true",
     }
 
 

@@ -1671,6 +1671,23 @@ def test_read_ee_rc_garbage_does_not_crash():
     assert read_ee_rc("}{ not ini ][").get("last_output_preset") == ""
 
 
+def test_read_ee_rc_use_default_output_device_absent_is_true():
+    """TRAP: written only when toggled OFF, so an absent key is the ON default
+    — same polarity as enableServiceMode. Reading it as False would treat every
+    default install as having pinned EE to a device, and report a stale sink."""
+    assert read_ee_rc("")["use_default_output_device"] is True
+    rc = "[StreamOutputs]\nuseDefaultOutputDevice=false\n"
+    assert read_ee_rc(rc)["use_default_output_device"] is False
+
+
+def test_read_ee_rc_bypass_absent_is_false():
+    """[EffectsPipelines] bypass defaults to false and is only written when
+    toggled on. (It does exist — this file used to claim global bypass was
+    GUI-only state with no key at all.)"""
+    assert read_ee_rc("")["bypass"] is False
+    assert read_ee_rc("[EffectsPipelines]\nbypass=true\n")["bypass"] is True
+
+
 def test_loaded_preset_generated_passes():
     rc = {"last_output_preset": "Dolby-Balanced", "fallback_preset": "", "uses_fallback": False}
     assert loaded_preset_status(rc, ["Dolby-Balanced", "Nothing"]).status == DOCTOR_PASS
@@ -1699,6 +1716,29 @@ def test_loaded_preset_names_the_matched_fallback_not_the_loaded():
     r = loaded_preset_status(rc, ["Dolby-Balanced"])
     assert r.status == DOCTOR_PASS
     assert "Dolby-Balanced" in r.detail and "SomethingElse" not in r.detail
+
+
+def test_loaded_preset_live_answer_beats_the_config_file():
+    """TRAP: EasyEffects only writes its config from saveAll() — on quit and on
+    an autosave timer that ticks only while its window is open. In service mode
+    the file can name the silent bypass preset for hours while a Dolby one is
+    loaded, which made this check WARN at a user whose audio was fine."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             live_preset="Dolby-Balanced")
+    assert r.status == DOCTOR_PASS
+    assert "Dolby-Balanced" in r.detail
+
+
+def test_loaded_preset_live_answer_ignores_the_fallback_key():
+    """A live reading is the outcome autoloading already reached, so the
+    fallback key must not rescue a preset EE says isn't loaded."""
+    rc = {"last_output_preset": "Dolby-Balanced", "fallback_preset": "Dolby-Balanced",
+          "uses_fallback": True}
+    r = loaded_preset_status(rc, ["Dolby-Balanced"], live_preset="SomethingElse")
+    assert r.status == DOCTOR_WARN
+    assert "SomethingElse" in r.detail
 
 
 def test_background_service_both_on_passes():
@@ -1954,6 +1994,249 @@ def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
 
     monkeypatch.setattr(doctor_run.subprocess, "run", boom)
     assert doctor_run.easyeffects_is_running() is False
+
+
+def _forbid_subprocess(monkeypatch):
+    """Fail loudly if anything shells out — the gates below must return before
+    the subprocess, not merely discard its result."""
+    def boom(*a, **k):
+        raise AssertionError(f"must not run a subprocess: {a}")
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+
+
+def test_ee_query_refuses_a_request_that_is_not_read_only():
+    """TRAP: the same socket accepts quit_app, hide_window and
+    toggle_global_bypass. A diagnostic sending one of those would change the
+    app it is diagnosing — which is exactly what the `easyeffects` CLI does
+    (its parser emits onHideWindow for these very queries, hiding the running
+    window), and why we speak to the socket ourselves instead."""
+    for forbidden in ("quit_app\n", "hide_window\n", "toggle_global_bypass\n"):
+        with pytest.raises(ValueError):
+            doctor_run._ee_query(forbidden)
+
+
+def test_ee_query_never_spawns_a_process(monkeypatch):
+    """TRAP: invoking the `easyeffects` binary is the hazard, not the socket.
+    With no daemon it becomes the PRIMARY instance and starts a whole second
+    EasyEffects — new virtual sink, possibly a moved default sink."""
+    _forbid_subprocess(monkeypatch)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    assert doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST).answered is False
+
+
+def test_ee_query_absent_socket_is_not_reached(monkeypatch, tmp_path):
+    """EasyEffects not running (or a Flatpak one whose socket lives inside the
+    sandbox): nothing to connect to, so fall back to the config file quietly.
+    Must NOT look like protocol drift — that would cry wolf on every machine
+    where EE simply isn't up."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    reply = doctor_run._ee_query(doctor_run._EE_BYPASS_REQUEST)
+    assert (reply.reached, reply.answered, reply.value) == (False, False, "")
+
+
+def test_ee_query_contract_pins_the_request_strings():
+    """The wire protocol we depend on, spelled out. EasyEffects' local socket
+    is internal with no stability promise, so if upstream renames a tag this
+    test is where it is meant to be noticed — the request must keep matching
+    `tags::local_server` (get_last_loaded_preset:(input|output)\\n and
+    get_global_bypass\\n), and both must stay newline-terminated."""
+    assert doctor_run._EE_PRESET_REQUEST == "get_last_loaded_preset:output\n"
+    assert doctor_run._EE_BYPASS_REQUEST == "get_global_bypass\n"
+    assert doctor_run._EE_READ_REQUESTS == {doctor_run._EE_PRESET_REQUEST,
+                                            doctor_run._EE_BYPASS_REQUEST}
+
+
+def _fake_socket(monkeypatch, *, reply=None, connect_error=None, timeout=False):
+    """Stand in for the daemon: reply bytes, a refused connect, or silence."""
+    class FakeSock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, _t): pass
+        def connect(self, _p):
+            if connect_error:
+                raise connect_error
+        def sendall(self, _d): pass
+        def recv(self, _n):
+            if timeout:
+                raise TimeoutError()
+            return reply
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/test")
+    monkeypatch.setattr(doctor_run.socket, "socket", lambda *a, **k: FakeSock())
+
+
+def test_ee_query_silence_from_a_live_daemon_is_drift(monkeypatch):
+    """TRAP: the daemon replies only from the branch matching the request tag;
+    an unrecognised tag falls through and writes nothing. So connect-then-
+    timeout means EasyEffects is there but no longer understands us, which
+    must be distinguishable from EE simply not running."""
+    _fake_socket(monkeypatch, timeout=True)
+    reply = doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST)
+    assert (reply.reached, reply.answered) == (True, False)
+
+
+def test_ee_query_empty_preset_reply_is_a_real_answer(monkeypatch):
+    """TRAP: over the socket EE sends the raw preset name, so "\\n" means no
+    preset is loaded — a live answer, not silence. (Its CLI substitutes the
+    string "None" here; the socket does not.) Treating it as a failure would
+    resurrect the stale config value this change exists to replace."""
+    _fake_socket(monkeypatch, reply=b"\n")
+    reply = doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST)
+    assert (reply.reached, reply.answered, reply.value) == (True, True, "")
+
+
+def test_ee_query_reads_a_normal_reply(monkeypatch):
+    _fake_socket(monkeypatch, reply=b"Dolby-Balanced\n")
+    assert doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST).value == "Dolby-Balanced"
+
+
+def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
+    """Drift must be loud AND non-fatal: the config values still print, marked
+    as such, with an UNKNOWN check naming what went unanswered."""
+    monkeypatch.setattr(doctor_run, "_ee_query",
+                        lambda r: doctor_run.EEReply(reached=True))
+    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
+    s = doctor_run._resolve_live_state(
+        {"last_output_preset": "Saved", "bypass": False,
+         "use_default_output_device": True})
+    assert s.unanswered == ["loaded preset", "global bypass"]
+    assert s.preset == "Saved" and s.preset_is_live is False
+    assert environment.ee_unanswered_status(s.unanswered).status == DOCTOR_UNKNOWN
+
+
+def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
+    """TRAP: EE not running is the ordinary case and must stay quiet."""
+    monkeypatch.setattr(doctor_run, "_ee_query", lambda r: doctor_run.EEReply())
+    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
+    s = doctor_run._resolve_live_state({"last_output_preset": "Saved"})
+    assert s.unanswered == []
+
+
+def _resolve(monkeypatch, rc, *, preset="", bypass="", sink=""):
+    monkeypatch.setattr(
+        doctor_run, "_ee_query",
+        lambda r: doctor_run.EEReply(
+            value=preset if r == doctor_run._EE_PRESET_REQUEST else bypass,
+            reached=True, answered=True))
+    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: sink)
+    return doctor_run._resolve_live_state(rc)
+
+
+def test_resolve_live_state_prefers_live_over_the_saved_copy(monkeypatch):
+    rc = {"last_output_preset": "Nothing", "output_device": "bluez_output.x.1",
+          "use_default_output_device": True, "bypass": True}
+    s = _resolve(monkeypatch, rc, preset="Dolby-Balanced", bypass="2",
+                 sink="alsa_output.spk")
+    assert (s.preset, s.preset_is_live) == ("Dolby-Balanced", True)
+    assert (s.sink, s.sink_source) == ("alsa_output.spk", "live")
+    assert (s.bypass, s.bypass_is_live) == (False, True)
+
+
+def test_resolve_live_state_empty_answer_beats_a_saved_name(monkeypatch):
+    """TRAP: an answered request wins even when the preset name is empty —
+    that is EasyEffects saying nothing is loaded. Falling back to the config
+    name there would resurrect the stale value this change exists to replace,
+    and would claim a preset is loaded when none is."""
+    rc = {"last_output_preset": "Dolby-Balanced", "use_default_output_device": True}
+    s = _resolve(monkeypatch, rc, preset="", sink="alsa_output.spk")
+    assert s.preset == "" and s.preset_is_live is True
+
+
+def test_resolve_live_state_falls_back_per_value_not_all_or_nothing(monkeypatch):
+    """Each request is resolved on its own: a bypass reply we can't parse must
+    not cost us the preset we did get. The two are separate requests on the
+    same socket, so one going unrecognised says nothing about the other."""
+    rc = {"last_output_preset": "Saved-Preset", "bypass": False,
+          "use_default_output_device": True}
+    s = _resolve(monkeypatch, rc, preset="Dolby-Balanced", bypass="",
+                 sink="alsa_output.spk")
+    assert s.preset_is_live is True
+    assert s.bypass_is_live is False
+
+
+def test_resolve_live_state_pinned_device_keeps_the_config_value(monkeypatch):
+    """useDefaultOutputDevice off means the user pinned EE to a device, and
+    only the GUI writes that key — so the config is authoritative and the live
+    default sink is the wrong answer."""
+    rc = {"output_device": "alsa_output.hdmi", "use_default_output_device": False}
+    s = _resolve(monkeypatch, rc, sink="alsa_output.spk")
+    assert (s.sink, s.sink_source) == ("alsa_output.hdmi", "pinned")
+
+
+def test_resolve_live_state_falls_back_when_pipewire_is_silent(monkeypatch):
+    rc = {"output_device": "alsa_output.saved", "use_default_output_device": True}
+    s = _resolve(monkeypatch, rc, sink="")
+    assert (s.sink, s.sink_source) == ("alsa_output.saved", "saved")
+
+
+def test_environment_lines_mark_only_the_rows_that_fell_back():
+    f = {"ee_running": True, "rc_present": True,
+         "selected_preset": "Dolby-Balanced", "selected_is_live": True,
+         "output_device": "alsa_output.spk", "output_device_source": "live",
+         "output_plugins": ["convolver#0"],
+         "bypass": False, "bypass_is_live": False}
+    lines = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
+    assert "saved config" not in lines["Selected"]
+    assert "saved config" not in lines["Output sink"]
+    # No live source exists for the chain, and bypass fell back here.
+    assert "saved config" in lines["Active chain"]
+    assert "saved config" in lines["Bypass"]
+
+
+def test_environment_lines_mark_the_source_even_with_no_daemon():
+    """TRAP: a value that wasn't confirmed must say so on its own row, whether
+    or not EasyEffects is running. Stating it once at the top instead left
+    `Bypass:` reading identically live and stale — while the closing block
+    drops its bypass reminder only on a live reading, which then looked
+    arbitrary."""
+    f = {"ee_running": False, "rc_present": True, "rc_path": "~/rc",
+         "selected_preset": "Dolby-Balanced", "selected_is_live": False,
+         "output_plugins": ["convolver#0"], "bypass": False}
+    rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
+    assert "(from saved config)" in rows["Selected"]
+    assert "(from saved config)" in rows["Bypass"]
+    assert "(from saved config)" in rows["Active chain"]
+
+
+def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
+    """A full chain is seven plugin names — ~145 columns on one line. It wraps
+    to the gutter, and the provenance marker is appended after wrapping: split
+    across lines, "limiter#0 (from" reads as part of the plugin name."""
+    f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
+         "output_plugins": ["convolver#0", "equalizer#0", "equalizer#1",
+                            "autogain#0", "multiband_compressor#0",
+                            "multiband_compressor#1", "limiter#0"]}
+    lines = doctor_run._environment_lines(f)
+    chain = [ln for ln in lines if "Active chain" in ln or ln.startswith(" " * 16)]
+    assert len(chain) > 1, "a seven-plugin chain must wrap"
+    assert all(len(ln) <= console._wrap_width() for ln in chain)
+    assert any("(from saved config)" in ln for ln in chain), "marker kept whole"
+
+
+def test_environment_lines_keep_the_16_column_gutter():
+    """Values line up only if every label pads to 16 — `Global bypass:` would
+    not fit, which is why the row is labelled `Bypass:`."""
+    f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
+         "selected_preset": "P", "selected_is_live": True,
+         "output_device": "s", "output_device_source": "live",
+         "output_plugins": ["c"], "bypass": False, "bypass_is_live": True}
+    for line in doctor_run._environment_lines(f):
+        if line.startswith(" " * 16):
+            continue  # a continuation line, already on the gutter
+        label, _, _rest = line.partition(":")
+        assert len(label) + 1 <= 16, line
+        assert line[16] != " ", line
+
+
+def test_environment_lines_redact_a_bluetooth_default_sink():
+    """The live default sink follows the headset on connect exactly as EE's
+    own record did, so it needs the same redaction."""
+    f = {"ee_running": True, "rc_present": True,
+         "output_device": "bluez_output.80_99_E7_E0_8A_23.1",
+         "output_device_source": "live"}
+    line = [ln for ln in doctor_run._environment_lines(f) if "Output sink" in ln][0]
+    assert "80_99_E7_E0_8A_23" not in line
 
 
 def test_easyeffects_is_running_degrades_on_permission_error(monkeypatch):
