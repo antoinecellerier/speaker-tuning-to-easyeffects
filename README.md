@@ -49,7 +49,7 @@ Each generated preset and `.conf` is stamped with the version that produced it (
 
 ## Supported devices
 
-The converter works on internal speakers whose Windows driver ships a Dolby DAX3 tuning (laptops, and handhelds like the ROG Xbox Ally X). Confirmed on:
+The converter works on internal speakers whose Windows driver ships a Dolby DAX3 tuning (laptops, handhelds, etc.). Confirmed on:
 
 | Device | Codec / Subsystem | Reported by |
 |---|---|---|
