@@ -46,6 +46,7 @@ what it carries.
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -125,6 +126,13 @@ class LiveChain:
     smart: bool = False
     target: str = ""
     pinned: str = ""
+
+
+@dataclass
+class DefaultSink:
+    """Which sink audio follows, and which one the user chose by hand."""
+    effective: str = ""      # default.audio.sink — where streams go now
+    configured: str = ""     # default.configured.audio.sink — the explicit pick
 
 
 def _pw_dump() -> list | None:
@@ -260,6 +268,118 @@ def sink_names(dump) -> set[str]:
     return names - {""}
 
 
+def _metadata_node_name(value) -> str:
+    """The node.name inside a `{ "name": ... }` metadata value.
+
+    pw-dump parses Spa:String:JSON values into dicts, but the same two-shape
+    tolerance ``_target_node_name`` needs applies here for the same reason:
+    guessing wrong makes every check below read an empty default and go quiet,
+    which is indistinguishable from "nothing to report".
+    """
+    if isinstance(value, dict):
+        return str(value.get("name") or "")
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value.strip()
+        return str(parsed.get("name") or "") if isinstance(parsed, dict) else ""
+    return ""
+
+
+# The two keys the "default" Metadata object carries for outputs. `effective` is
+# what the session is doing; `configured` is the user's own pick, which
+# WirePlumber stores in ~/.local/state/wireplumber/default-nodes and re-applies
+# whenever a node of that name exists again. That second one is why this is
+# worth reading at all: no sound-settings UI shows it, it outlives the sink it
+# names, and default-nodes/find-selected-default-node.lua scores it 30000 +
+# priority.session — far above anything a conf we write could declare.
+_DEFAULT_SINK_KEYS = {"default.audio.sink": "effective",
+                      "default.configured.audio.sink": "configured"}
+
+
+def default_sinks(dump) -> DefaultSink:
+    """The default-sink metadata out of a pw-dump, empty when it isn't there."""
+    found = DefaultSink()
+    for obj in dump or []:
+        if not str(obj.get("type", "")).endswith("Metadata"):
+            continue
+        # A Metadata object carries its props at the top level, where a Node
+        # keeps them under "info". Accepting both costs one `or` and makes a
+        # dump shape we guessed wrong about degrade to "no answer" rather than
+        # a confident wrong one.
+        props = obj.get("props") or obj.get("info", {}).get("props", {})
+        if props.get("metadata.name") != "default":
+            continue
+        for entry in obj.get("metadata") or []:
+            field_name = _DEFAULT_SINK_KEYS.get(entry.get("key"))
+            if field_name:
+                setattr(found, field_name,
+                        _metadata_node_name(entry.get("value")))
+    return found
+
+
+def sink_volumes(dump) -> dict[str, float]:
+    """node.name → the linear volume PipeWire is applying, per Audio/Sink.
+
+    Linear amplitude, not the percentage sound settings show: PulseAudio maps
+    its 0-100 % through a cube, so 40 % is 0.064 and −23.8 dB. Both renderings
+    matter — the percentage is what the reader recognises from their own
+    settings, the dB is the size of the problem — so this returns the raw value
+    and ``_volume_reading`` formats it.
+    """
+    vols = {}
+    for obj in dump or []:
+        info = obj.get("info") or {}
+        if (info.get("props") or {}).get("media.class") != "Audio/Sink":
+            continue
+        name = (info.get("props") or {}).get("node.name")
+        for param in (info.get("params") or {}).get("Props", []) or []:
+            channels = param.get("channelVolumes")
+            if name and channels:
+                vols[name] = max(float(v) for v in channels)
+    return vols
+
+
+def _volume_reading(linear: float) -> str:
+    """"40 % (−23.8 dB)" — the way the reader's own settings would show it."""
+    percent = round(100 * (linear ** (1 / 3)))
+    if linear <= 0:
+        return "0 % (silent)"
+    return f"{percent} % ({20 * math.log10(linear):.1f} dB)"
+
+
+def downstream_sink(dump, chain_name: str) -> str:
+    """The sink a chain's playback is actually linked into, or "".
+
+    Read from the graph's Links rather than the conf, because the case that
+    needs it most is the one the conf cannot answer: an unpinned v1 chain has
+    no ``target.object``, and WirePlumber picks its downstream at link time.
+    Measured on this hardware, it picks the speaker sink and keeps it — but
+    "measured once" is not something a report should assert, so it is read.
+    """
+    ids, sinks = {}, {}
+    for obj in dump or []:
+        info = obj.get("info") or {}
+        props = info.get("props") or {}
+        name = props.get("node.name")
+        if not name:
+            continue
+        ids[obj.get("id")] = name
+        if props.get("media.class") == "Audio/Sink":
+            sinks[obj.get("id")] = name
+    want = f"effect_output.{chain_name}"
+    for obj in dump or []:
+        if not str(obj.get("type", "")).endswith("Link"):
+            continue
+        info = obj.get("info") or {}
+        if ids.get(info.get("output-node-id")) == want:
+            target = sinks.get(info.get("input-node-id"))
+            if target:
+                return target
+    return ""
+
+
 def _conf_for(chain_name: str, confs) -> str:
     """The conf file a live chain came from — the remedy is deleting one, and
     the file name is the part a reader can't derive from a node name. The
@@ -385,6 +505,218 @@ def check_targets_exist(chains, sinks, dump) -> CheckResult | None:
         "--target-sink with the right node.name.")
 
 
+def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | None:
+    """Which output is selected, and whether that is the one the reader wants.
+
+    Three states, most-live first, and all three are about the same question, so
+    they share one label:
+
+    (a) A smart filter selected as the output (issue #63). It works — measured
+        on this hardware, the graph is identical either way and nothing is
+        processed twice — but the chain's sink and the speaker are then two
+        sinks in series, each with its own volume, and `pactl list sink-inputs`
+        shows the stream on one and the chain's own output on the other. The
+        speaker's level still applies underneath, so a speaker left at 40 %
+        takes -23.8 dB off a chain that reads 100 %.
+    (b) A virtual-sink chain that loaded but is selected nowhere: it only
+        processes what is played to it, so it is doing nothing at all.
+    (c) A remembered pick naming a chain that is gone. Nothing is wrong at that
+        moment, which is why nothing else reports it — but WirePlumber restores
+        the pick the moment a sink of that name exists again, so the next chain
+        installed under the same name silently becomes the selected output.
+
+    The remembered pick is the part nothing else can see: it lives in
+    ~/.local/state/wireplumber/default-nodes, no sound-settings UI shows it, and
+    default-nodes/find-selected-default-node.lua scores it 30000 + priority, so
+    it outranks every priority.session actually in play — 0 for a filter chain,
+    1000 for an ALSA speaker, 1010 for Bluetooth, the 600s for HDMI.
+    """
+    if dump is None:
+        return None
+    chain_sinks = {f"effect_input.{c.name}": c for c in chains}
+    picked = chain_sinks.get(defaults.effective)
+    volumes = sink_volumes(dump)
+
+    # The downstream level is the half of this the reader cannot see: their
+    # slider is on the chain, and whatever the sink underneath is set to comes
+    # off on top of it. Naming the figure is the whole point — "leave it at
+    # 100 %" is advice, "it is at 40 %, which is -23.8 dB" is a diagnosis.
+    def _hidden_attenuation(chain) -> str:
+        below = chain.target or chain.pinned or downstream_sink(dump, chain.name)
+        level = volumes.get(below)
+        if not below or level is None or level > 0.99:
+            return ""
+        return (f" The sink it feeds is itself at {_volume_reading(level)}, and "
+                "that comes off everything on top of this — raise it there, or "
+                "you are turning one control down against the other.")
+
+    if picked is not None and picked.smart:
+        # The target sink is named by the step below, unwrapped, and by the
+        # environment block's `smart→` line. Naming it here too put a
+        # 70-character node name inside wrapped prose, which folds it mid-name.
+        # ...and only claim it is named below when a step will actually name
+        # it: a smart chain whose filter.smart.target didn't parse reaches this
+        # same detail with no steps, and a pointer to nothing is worse than none.
+        names_it = " (named in the fix below)" if picked.target else ""
+        detail = (
+            f"{defaults.effective} is your selected output, but it is a filter "
+            f"rather than a device — it attaches itself to your speaker "
+            f"sink{names_it}, so everything playing there goes through "
+            # "can be", not "is why": the two-stage arrangement is what the
+            # check detected, but it is not the only thing that makes a machine
+            # quiet, and a diagnosis this line cannot make would send a reader
+            # who fixes it and hears no change away with nothing left to try.
+            "it either way. Selecting it as well leaves you two volume sliders "
+            "for the same sound and both apply, so sound can be quieter than "
+            "the slider you are moving suggests.")
+        if defaults.configured == defaults.effective:
+            # Only when the user picked it: WirePlumber restores the *current*
+            # configured sink, not every sink ever chosen, so this sentence is
+            # false for a chain that merely won the automatic pick.
+            detail += (" WirePlumber restores the output you picked last, so "
+                       "this comes back after every restart until you pick "
+                       "your speakers once.")
+        detail += _hidden_attenuation(picked)
+        steps = ()
+        if picked.target:
+            steps = (("dim", "Pick your speakers as the output — in sound "
+                             "settings, or:"),
+                     ("cta", f"  pactl set-default-sink {picked.target}"))
+        return CheckResult(DOCTOR_WARN, "Default output", detail, steps)
+
+    # A v1 chain that IS selected is the mode working as intended, so this is
+    # silent — unless the sink underneath is turned down, which is the one thing
+    # that arrangement hides. The reader's slider is on the chain; the level
+    # below it is invisible from there, survives reboots, and is subtracted from
+    # everything. Smart-filter routing has no equivalent exposure: there the
+    # single slider a reader sees is the one that applies.
+    if picked is not None and not picked.smart:
+        hidden = _hidden_attenuation(picked)
+        if hidden:
+            below = (picked.target or picked.pinned
+                     or downstream_sink(dump, picked.name))
+            return CheckResult(
+                DOCTOR_WARN, "Default output",
+                f"{defaults.effective} is your selected output, which is how "
+                "this mode is meant to run — but it feeds another sink, and "
+                "both levels apply." + hidden,
+                (("dim", "Put that one back to full and use this chain's own "
+                         "control for volume:"),
+                 ("cta", f"  pactl set-sink-volume {below} 100%")))
+        return None
+
+    # Gate on *none* of them being selected rather than on each chain: with
+    # --target-sink '' the tool installs several by design and only one can be
+    # the output, so a per-chain warning would fire on the mode it fires most on.
+    virtual = sorted(c.name for c in chains if not c.smart and not c.pinned)
+    if virtual and picked is None:
+        names = ", ".join(f"effect_input.{n}" for n in virtual)
+        plural = len(virtual) > 1
+        where = (f"your selected output is {defaults.effective}"
+                 if defaults.effective else "nothing here is selected as the output")
+        detail = (
+            f"{names} {'are plain virtual sinks' if plural else 'is a plain virtual sink'}, "
+            f"so {'each' if plural else 'it'} only processes what is played to "
+            f"{'them' if plural else 'it'} — and {where}, so nothing is going "
+            f"through {'any of them' if plural else 'it'}. Pick "
+            f"{'one' if plural else 'it'} in your sound settings.")
+        if not plural:
+            # Only for a single chain: the converter refuses smart-filter
+            # routing for multi-chain installs, so suggesting it to someone who
+            # has several would be advice the tool turns down.
+            # Conditional on how the conf got here, because this branch cannot
+            # tell: an identical v1 conf is written both by an explicit
+            # --target-sink '' and by autodetection finding no speaker sink,
+            # and in the second case re-running without the flag just repeats
+            # the fallback. Neither InstalledConf nor LiveChain records which.
+            #
+            # "the one you use", not "one volume control": the chain sink keeps
+            # a volume control in smart-filter mode too, and it still
+            # attenuates — measured, gain 7.9 with the speaker selected. What
+            # changes is that nothing puts you on that slider, which is why
+            # check_chain_volume exists to notice when it is left down.
+            detail += (" If you installed it with --target-sink '', re-running "
+                       "without that flag attaches it to your speakers instead "
+                       "— nothing to select, and the speaker's is then the only "
+                       "control you touch.")
+        steps = (("dim", "Or from a terminal:"),) + tuple(
+            ("cta", f"  pactl set-default-sink effect_input.{n}") for n in virtual)
+        return CheckResult(DOCTOR_WARN, "Default output", detail, steps)
+
+    if (defaults.configured.startswith("effect_input.")
+            and defaults.configured not in sinks
+            # A conf of that name on disk means the chain failed to load, which
+            # check_confs_loaded already FAILs on. Two remedies for one file
+            # reads as two problems.
+            and not any(c.node_name == defaults.configured for c in confs)):
+        # The reassurance is conditional, and so is its punctuation: "nothing is
+        # wrong right now" holds only while audio has somewhere to go. With no
+        # effective default there is no sink it is landing on, which is not a
+        # state to reassure anyone about.
+        #
+        # The effective sink is also named by the step below and marked in the
+        # environment block, so it is not repeated here — a 70-character node
+        # name inside wrapped prose folds across two lines mid-name.
+        reassurance = (" Nothing is wrong right now — audio follows the sink "
+                       "marked ← default above — but" if defaults.effective
+                       else " But")
+        detail = (
+            f"your remembered output is {defaults.configured}, which isn't in "
+            "the graph — a filter chain that was deleted or renamed."
+            + reassurance
+            + " WirePlumber restores that choice as soon as a sink of that "
+            "name exists again, so the next chain installed under the same name "
+            "becomes your selected output, with its volume control in front of "
+            "your speakers'.")
+        steps = ()
+        if defaults.effective:
+            # "replaces it", not "clears it": set-default-sink moves the new
+            # name to the head of WirePlumber's stack and pushes the stale one
+            # down. It is never erased — it just stops being the one restored.
+            detail += " Selecting the output you actually use, once, replaces it."
+            steps = (("dim", "Make the one you use the remembered choice:"),
+                     ("cta", f"  pactl set-default-sink {defaults.effective}"))
+        return CheckResult(DOCTOR_WARN, "Default output", detail, steps)
+
+    return None
+
+
+def check_chain_volume(chains, dump) -> CheckResult | None:
+    """A chain sink left turned down — the attenuation nothing points at.
+
+    A filter-chain sink carries its own volume, and it applies whether or not
+    the chain is the selected output: measured with the speaker selected and
+    the chain at 0.125, the output came back 7.9x down. In smart-filter mode
+    nothing ever puts a reader on that slider — their sound settings move the
+    speaker's — so a chain turned down once, by someone who selected it and
+    then switched back, stays down through reboots with no visible cause.
+
+    Ahead of the graph, too, so it is not only quieter: the tuning's compressor
+    and limiter see the attenuated signal (docs/design-notes.md, issue #63).
+    """
+    if dump is None or not chains:
+        return None
+    volumes = sink_volumes(dump)
+    turned_down = sorted(
+        (f"effect_input.{c.name}", volumes[f"effect_input.{c.name}"])
+        for c in chains
+        if volumes.get(f"effect_input.{c.name}", 1.0) <= 0.99)
+    if not turned_down:
+        return None
+    name, level = turned_down[0]
+    more = (f" ({len(turned_down) - 1} more like it.)"
+            if len(turned_down) > 1 else "")
+    return CheckResult(
+        DOCTOR_WARN, "Chain volume",
+        f"{name} is itself at {_volume_reading(level)}. That is the chain's own "
+        "volume, and it comes off everything the chain processes — including "
+        "when your speakers are the selected output and their slider is the one "
+        f"you are moving.{more} Nothing in sound settings will show you this "
+        "one; put it back to full unless you meant it.",
+        (("dim", "Put it back to full:"),
+         ("cta", f"  pactl set-sink-volume {name} 100%")))
+
+
 def check_conf_directory() -> CheckResult | None:
     """Confs in filter-chain.conf.d/, which the running daemon never reads."""
     try:
@@ -459,6 +791,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     dump = _pw_dump()
     chains = live_chains(dump)
     sinks = sink_names(dump)
+    defaults = default_sinks(dump)
     # Only the directory the daemon reads. A conf in _UNSCANNED_CONF_DIR is
     # not installed in any meaningful sense — counting it inflated "Confs: N"
     # and, because it shares a node name with the real one, let "Chains
@@ -473,6 +806,14 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_confs_loaded(confs, chains, dump),
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
+        # After the target check, so the block reads in the order a reader
+        # debugs in: does the chain exist → did it load → are its files there →
+        # is its target there → is it, or should it be, the selected output.
+        check_default_sink(chains, confs, defaults, sinks, dump),
+        # After it: which output is selected is the question a reader arrives
+        # with, and a turned-down chain is the one that survives getting that
+        # answer right.
+        check_chain_volume(chains, dump),
         check_conf_directory(),
         check_wireplumber(wireplumber),
         check_easyeffects_conflict(sinks, chains, dump),
@@ -495,6 +836,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         "confs": confs,
         "chains": chains,
         "sinks": sorted(sinks),
+        "default": defaults,
         "wireplumber": wireplumber,
         "version": running,
     }
@@ -540,8 +882,20 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     lines.append(f"  Live chains:  {len(chains)}"
                  + (": " + ", ".join(sorted(c.name for c in chains))
                     if chains else ""))
+    # `.get` because tests stub `facts`, and because a report whose whole job is
+    # to print what it knows must not die on a key it doesn't have.
+    default = facts.get("default") or DefaultSink()
     lines.append(f"  Sinks:        {len(facts['sinks'])}")
-    lines += [f"                {s}" for s in facts["sinks"]]
+    lines += [f"                {s}"
+              + ("   ← default" if s == default.effective else "")
+              for s in facts["sinks"]]
+    # The remembered pick is why a chain someone deleted can still be steering
+    # their audio, and it appears nowhere else in a pasted report — least of all
+    # when it names a node that no longer exists, which is exactly when it
+    # matters. Only worth a line when it differs from where audio actually goes.
+    if default.configured and default.configured != default.effective:
+        stale = "" if default.configured in facts["sinks"] else " (not in the graph)"
+        lines.append(f"  Chosen sink:  {default.configured}{stale}")
     lines += [f"  {line}" for line in _plugin_presence()]
     return lines
 

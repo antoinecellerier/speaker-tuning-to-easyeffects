@@ -60,6 +60,25 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- On the PipeWire path, `--doctor` now reports which output is selected: the
+  filter chain itself, where its volume control and your speakers' both apply;
+  a virtual-sink chain nothing is playing through; or a remembered choice
+  pointing at a chain that is gone, which takes over again as soon as a chain
+  of that name comes back. The environment block names the selected and
+  remembered outputs
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
+  measurements in `docs/design-notes.md`).
+- When a chain is your selected output, `--doctor` now names the volume of the
+  sink it feeds — the level that comes off everything and that your slider no
+  longer shows — and a `--target-sink ''` run names your speakers' level as it
+  writes the conf. Both are for that mode, where two controls in series are
+  unavoidable
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
+- `--doctor` also reports a filter chain left turned down on its own volume
+  control. It attenuates everything the chain processes even when your speakers
+  are the selected output, and no sound-settings slider shows it
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
+  measured in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New `--enable autogain` activates the volume leveler
   for Windows-level loudness on HDA devices, where it ships bypassed — it
   stays opt-in because the gain ride can audibly saturate quiet backgrounds.
@@ -210,6 +229,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- On the PipeWire path, a smart-filter chain now calls itself
+  "<preset> (speaker filter)" in sound settings, and the run says to leave your
+  speakers selected — the chain is inserted into them automatically, and
+  picking it instead stacks a second volume control in front of them. With
+  `--target-sink ''` the run now says the opposite, including on the fallback
+  where speaker detection failed; re-run to regenerate
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - **[AUDIBLE]** Peaks on loud content are caught earlier on tunings that left
   part of the range unprotected, instead of landing on the final limiter.
   Nothing changes below peak levels, and the engaged path is measured but not

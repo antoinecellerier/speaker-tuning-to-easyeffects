@@ -57,6 +57,28 @@ def _speaker_sink(name=SPEAKER):
     return _node(name, **{"media.class": "Audio/Sink"})
 
 
+def _default_metadata(effective="", configured=""):
+    """The pw-dump Metadata object WirePlumber keeps the default sink in.
+
+    `default.audio.sink` is where streams go now; `default.configured.audio.sink`
+    is the pick WirePlumber stores in ~/.local/state/wireplumber/default-nodes
+    and re-applies whenever a node of that name exists — the state no
+    sound-settings UI shows, and the one that outlives the sink it names.
+
+    Unlike a Node, a Metadata object carries its props at the top level, which
+    is the shape the reader has to cope with.
+    """
+    entries = []
+    if effective:
+        entries.append({"subject": 0, "key": "default.audio.sink",
+                        "type": "Spa:String:JSON", "value": {"name": effective}})
+    if configured:
+        entries.append({"subject": 0, "key": "default.configured.audio.sink",
+                        "type": "Spa:String:JSON", "value": {"name": configured}})
+    return {"type": "PipeWire:Interface:Metadata",
+            "props": {"metadata.name": "default"}, "metadata": entries}
+
+
 # --- Reading the graph ------------------------------------------------------
 
 def test_live_chains_joins_both_halves():
@@ -133,6 +155,289 @@ def test_unpinned_siblings(chains, flagged):
     assert (result is not None) is flagged
     if flagged:
         assert result.status == DOCTOR_WARN
+
+
+# --- Default output: which sink is selected --------------------------------
+#
+# Measured on this hardware (issue #63): selecting the chain does NOT process
+# twice — the graph is identical either way — but it puts two sinks in series,
+# each with its own volume, and the chain's control lands *ahead of* the filter
+# graph (indistinguishable from scaling the source content: S/R 730 dB) while
+# the speaker's hardware control lands after everything PipeWire does.
+
+def _defaults(effective="", configured=""):
+    return checks.DefaultSink(effective=effective, configured=configured)
+
+
+def test_default_sinks_reads_both_keys():
+    dump = [_default_metadata(effective=SPEAKER, configured="effect_input.X")]
+    got = checks.default_sinks(dump)
+    assert got.effective == SPEAKER
+    assert got.configured == "effect_input.X"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ({"name": SPEAKER}, SPEAKER),           # pw-dump's parsed shape
+    (f'{{"name": "{SPEAKER}"}}', SPEAKER),  # raw Spa:String:JSON text
+    ("bare-name", "bare-name"),             # not JSON at all
+    (None, ""),
+    ([], ""),
+])
+def test_metadata_node_name_handles_every_shape(raw, expected):
+    """Same trap as _target_node_name: guess the shape wrong and every branch
+    below reads an empty default and goes quiet — indistinguishable from
+    "nothing to report"."""
+    assert checks._metadata_node_name(raw) == expected
+
+
+def test_default_sinks_ignores_other_metadata_objects():
+    dump = [{"type": "PipeWire:Interface:Metadata",
+             "props": {"metadata.name": "route-settings"},
+             "metadata": [{"key": "default.audio.sink",
+                           "value": {"name": "nope"}}]},
+            _default_metadata(effective=SPEAKER)]
+    assert checks.default_sinks(dump).effective == SPEAKER
+
+
+def test_default_sinks_tolerates_no_daemon():
+    assert checks.default_sinks(None) == checks.DefaultSink()
+
+
+def test_selected_smart_filter_warns_about_the_second_volume():
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert result.label == "Default output"
+    assert "effect_input.Dolby_Balanced" in result.detail
+    # The target sink belongs in the steps, which print verbatim — a 70-char
+    # node name inside the wrapped detail folds across two lines mid-name.
+    assert SPEAKER not in result.detail
+    assert any("set-default-sink" in text and SPEAKER in text
+               for _, text in result.steps)
+
+
+def test_selected_smart_filter_names_the_remembered_pick_only_when_it_is_one():
+    """The predicate has to match the sentence. WirePlumber restores the
+    *current* configured sink, so promising it comes back after every restart
+    is false for a chain that merely won the automatic pick."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    chains, sinks = checks.live_chains(dump), checks.sink_names(dump)
+    chain = "effect_input.Dolby_Balanced"
+
+    picked = checks.check_default_sink(
+        chains, [], _defaults(effective=chain, configured=chain), sinks, dump)
+    assert "picked last" in picked.detail
+
+    auto = checks.check_default_sink(
+        chains, [], _defaults(effective=chain, configured=SPEAKER), sinks, dump)
+    assert "picked last" not in auto.detail
+
+
+def test_smart_filter_left_unselected_is_silent():
+    """The state the tool aims for: speaker selected, chain inserted into it."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    assert checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective=SPEAKER, configured=SPEAKER),
+        checks.sink_names(dump), dump) is None
+
+
+def test_virtual_chain_nobody_selected_warns_that_it_does_nothing():
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [], _defaults(effective=SPEAKER),
+        checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert "nothing is going through it" in result.detail
+    assert "--target-sink ''" in result.detail
+
+
+def test_selected_virtual_chain_is_silent():
+    """That mode working as intended — the user picked it, which is the point."""
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced")]
+    assert checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump) is None
+
+
+def test_several_virtual_chains_report_once_without_the_smart_filter_advice():
+    """--variant all installs several by design and only one can be selected,
+    so this must not fire per chain — and must not offer smart-filter routing,
+    which the converter refuses for multi-chain installs."""
+    dump = [_speaker_sink(), *_virtual_chain("A"), *_virtual_chain("B"),
+            *_virtual_chain("C")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [], _defaults(effective=SPEAKER),
+        checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert "--target-sink ''" not in result.detail
+    assert sum("set-default-sink" in text for _, text in result.steps) == 3
+
+
+def test_stale_remembered_chain_warns():
+    """Measured: with this name at the head of WirePlumber's stack, installing
+    a chain under it takes the default output back on the next restart."""
+    dump = [_speaker_sink(), _default_metadata(effective=SPEAKER,
+                                               configured="effect_input.Gone")]
+    result = checks.check_default_sink(
+        [], [], checks.default_sinks(dump), checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert "effect_input.Gone" in result.detail
+    assert any(SPEAKER in text for _, text in result.steps)
+
+
+def test_stale_remembered_chain_defers_to_the_load_failure(tmp_path):
+    """A conf of that name on disk means the chain failed to load, which
+    check_confs_loaded already FAILs on. Two remedies for one file reads as two
+    problems."""
+    conf = checks.InstalledConf(path=tmp_path / "Gone.conf",
+                                node_name="effect_input.Gone")
+    dump = [_speaker_sink()]
+    assert checks.check_default_sink(
+        [], [conf], _defaults(effective=SPEAKER, configured="effect_input.Gone"),
+        checks.sink_names(dump), dump) is None
+
+
+def test_selected_smart_filter_outranks_an_unselected_virtual_one():
+    dump = [_speaker_sink(), *_smart_chain("Smart"), *_virtual_chain("Loose")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [], _defaults(effective="effect_input.Smart"),
+        checks.sink_names(dump), dump)
+    assert "effect_input.Smart" in result.detail
+    assert "Loose" not in result.detail
+
+
+def test_default_sink_check_is_silent_without_a_daemon():
+    assert checks.check_default_sink([], [], _defaults(), set(), None) is None
+
+
+# --- The level you cannot see from the slider you are moving ----------------
+#
+# Two sinks in series means the one underneath is subtracted from everything,
+# and nothing in a desktop's sound settings shows it while the chain is
+# selected. This dev machine sits at 0.064548 — 40 %, -23.8 dB — under a chain
+# reading 100 %.
+
+def _sink_with_volume(name, linear):
+    node = _node(name, **{"media.class": "Audio/Sink"})
+    node["info"]["params"] = {"Props": [{"channelVolumes": [linear, linear]}]}
+    return node
+
+
+def _link(dump, src, dst):
+    """A Link joining two nodes already in `dump`, by the ids they were given."""
+    ids = {o["info"]["props"]["node.name"]: o["id"] for o in dump if "id" in o}
+    return {"type": "PipeWire:Interface:Link",
+            "info": {"output-node-id": ids[src], "input-node-id": ids[dst]}}
+
+
+def _with_ids(objs):
+    for i, obj in enumerate(objs, start=100):
+        obj["id"] = i
+    return objs
+
+
+def test_sink_volumes_reads_channel_volumes():
+    dump = [_sink_with_volume(SPEAKER, 0.064548), _node("Firefox")]
+    assert checks.sink_volumes(dump) == {SPEAKER: 0.064548}
+
+
+@pytest.mark.parametrize("linear,expected", [
+    (0.064548, "40 % (-23.8 dB)"),   # this machine, as its settings show it
+    (1.0, "100 % (0.0 dB)"),
+    (0.0, "0 % (silent)"),
+])
+def test_volume_reading_speaks_the_readers_units(linear, expected):
+    """The percentage is what they recognise from their own settings; the dB is
+    how big the problem is. PulseAudio cubes the percentage, so neither can be
+    derived from the other by eye."""
+    assert checks._volume_reading(linear) == expected
+
+
+def test_downstream_sink_follows_the_link_not_the_conf():
+    """An unpinned v1 chain has no target.object — WirePlumber picks its
+    downstream at link time, so the graph is the only place it is written."""
+    dump = _with_ids([*_virtual_chain("Dolby_Balanced"),
+                      _sink_with_volume(SPEAKER, 0.5)])
+    dump.append(_link(dump, "effect_output.Dolby_Balanced", SPEAKER))
+    assert checks.downstream_sink(dump, "Dolby_Balanced") == SPEAKER
+    assert checks.downstream_sink(dump, "Nobody") == ""
+
+
+def test_selected_smart_filter_names_the_level_underneath():
+    dump = [_sink_with_volume(SPEAKER, 0.064548), *_smart_chain("Dolby_Balanced")]
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump)
+    assert "40 % (-23.8 dB)" in result.detail
+
+
+def test_selected_v1_chain_warns_only_when_the_sink_below_is_turned_down():
+    """Selecting a v1 chain is correct usage, so it stays silent — the fault is
+    the invisible level underneath, not the selection."""
+    quiet = _with_ids([*_virtual_chain("Dolby_Balanced"),
+                       _sink_with_volume(SPEAKER, 0.064548)])
+    quiet.append(_link(quiet, "effect_output.Dolby_Balanced", SPEAKER))
+    result = checks.check_default_sink(
+        checks.live_chains(quiet), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(quiet), quiet)
+    assert result.status == DOCTOR_WARN
+    assert "40 % (-23.8 dB)" in result.detail
+    assert any(f"set-sink-volume {SPEAKER} 100%" in text
+               for _, text in result.steps)
+
+    loud = _with_ids([*_virtual_chain("Dolby_Balanced"),
+                      _sink_with_volume(SPEAKER, 1.0)])
+    loud.append(_link(loud, "effect_output.Dolby_Balanced", SPEAKER))
+    assert checks.check_default_sink(
+        checks.live_chains(loud), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(loud), loud) is None
+
+
+# --- A chain turned down on its own slider ----------------------------------
+#
+# Measured: with the speaker selected and the chain at 0.125, output came back
+# 7.9x down. The chain's volume applies in smart-filter mode too — nothing ever
+# puts a reader on that slider, so it is the attenuation that survives getting
+# the selected output right.
+
+def test_chain_turned_down_is_reported_even_when_not_selected():
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    dump[1]["info"]["params"] = {"Props": [{"channelVolumes": [0.125, 0.125]}]}
+    result = checks.check_chain_volume(checks.live_chains(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert result.label == "Chain volume"
+    assert "50 % (-18.1 dB)" in result.detail
+    assert any("set-sink-volume effect_input.Dolby_Balanced 100%" in text
+               for _, text in result.steps)
+
+
+def test_chain_at_full_volume_is_silent():
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    dump[1]["info"]["params"] = {"Props": [{"channelVolumes": [1.0, 1.0]}]}
+    assert checks.check_chain_volume(checks.live_chains(dump), dump) is None
+
+
+def test_chain_volume_says_how_many_others_without_listing_them():
+    dump = [_speaker_sink(), *_smart_chain("A"), *_smart_chain("B")]
+    for node in (dump[1], dump[3]):
+        node["info"]["params"] = {"Props": [{"channelVolumes": [0.5, 0.5]}]}
+    result = checks.check_chain_volume(checks.live_chains(dump), dump)
+    assert "1 more like it" in result.detail
+
+
+def test_chain_volume_is_silent_without_volume_data_or_daemon():
+    """No Props in the dump is "we don't know", not "it is turned down"."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
+    assert checks.check_chain_volume(checks.live_chains(dump), dump) is None
+    assert checks.check_chain_volume([], None) is None
 
 
 # --- Conf-vs-graph checks ---------------------------------------------------

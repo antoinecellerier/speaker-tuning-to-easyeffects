@@ -2892,6 +2892,125 @@ louder" but could not reach high volume. Until that is closed the flag stays
 opt-in, and the loud-content cost is an argument for leaving it there even
 after.
 
+## Selecting the chain as the system output (issue [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63))
+
+Measured 2026-08-15 on the dev device (ALC287 `17AA:22E6`, PipeWire 1.6.8,
+WirePlumber 0.5), after a reporter described a hand-selected chain sink whose
+volume "compounded" with the speaker's and confused their audio UI across
+restarts — then qualified it: both sinks were at 100 %, they could not
+reproduce it, and it may have been an overconfident reading of an initial
+quiet result. So this is a hazard characterisation, not a bug fix.
+
+**Selecting it is not fatal, and does not double-process.** With the chain as
+the default output the graph is identical to the normal case:
+`pw-play → effect_input → chain → effect_output → speaker`. WirePlumber does
+not re-insert the smart filter on the chain's own output link.
+
+**It is two sinks in series, so two volume controls.** `pactl list sink-inputs`
+shows the app as an input on the chain and the chain's own output as an input
+on the speaker. The levels multiply, and the speaker's setting is invisible
+from the chain's slider: this machine's speaker sits at 40 % / −23.8 dB.
+
+**The chain's control is ahead of the tuning; the speaker's is behind it.**
+`tools/measure_pw/volume_stage_probe.py` captures the speaker sink's monitor —
+after the chain, before the hardware mixer — over four legs (chain at unity,
+chain turned down, speaker turned down, and the stimulus pre-scaled inside the
+file). Results on pink at −0.5 dBFS peak / −6.5 dBFS RMS:
+
+| legs | S/R | reading |
+|---|---|---|
+| chain volume vs unity | 28.7 dB | not a plain gain |
+| content pre-scaled vs unity | 28.7 dB | not a plain gain — the dynamics do engage |
+| chain volume vs content pre-scaled | 729.9 dB | **the same thing** |
+| speaker volume vs unity | inf | invisible — applied after everything |
+
+So the chain's volume reaches the graph as a quieter input and the MBC,
+regulator and limiter engage differently, while the speaker's hardware control
+cannot affect the processing at all.
+
+**The negative control is the load-bearing part.** The first two runs, on pink
+at −5.4 and −1.0 dBFS peak, showed the chain's volume as an *exact* scalar
+(S/R 598 dB) — which reads as "applied after the DSP" and is wrong. At those
+levels the dynamics never engage, so both hypotheses predict a pure gain. The
+pre-scaled leg is what distinguishes them, and it only separates once the
+stimulus is hot enough. This extends the dormancy in Finding 3 / entry 6: still
+dormant at −13.9 dBFS RMS, active at −6.5.
+
+**The chain's own control applies in smart-filter mode too.** Tested separately,
+with the speaker left as the selected output and audio played to *it* so
+WirePlumber inserts the filter: setting the chain sink to 0.125 returned the
+same 7.9× / 28.7 dB S/R signature as when the chain was selected. The result
+rules out its own confound — had the chain not been in the path, its volume
+could not have changed anything. So "smart-filter routing means one volume
+layer" was wrong: it removes the *reason* to touch the chain's control, not the
+control. A chain turned down once and then switched away from stays down
+through reboots with nothing pointing at it, which is why `--doctor` grew a
+"Chain volume" check that fires regardless of which sink is selected.
+
+Deleting the conf does not clear it, either — found the hard way, when a
+freshly written conf read 50 % before anything had touched it. WirePlumber
+persists a sink's volume by `media.name` in
+`~/.local/state/wireplumber/stream-properties` and restores it onto any later
+node with that name, so a chain reinstalled under the same description returns
+at the level it was left. The same remembered-by-name shape as the selected
+output, with the same consequence: reinstalling is not a reset.
+
+**WirePlumber remembers the pick, and that is what outlives the mistake.**
+`default-nodes/find-selected-default-node.lua` scores the current
+`default.configured.audio.sink` at `30000 + priority.session`;
+`state-default-nodes.lua` persists it and scores older entries at
+`priority.session + 20001 − i`. Measured consequences: a hand-picked chain
+stays the default across three restarts; picking the speaker again clears it
+across three more, demoting the chain to `…audio.sink.0` rather than erasing
+it; the head entry survives the sink it names, so re-installing a chain under
+that name takes the default output straight back; and a *demoted* name does
+not — a stored node at position *i* only beats the speaker at *j* when
+`j − i > 1000`, which no real stack reaches.
+
+Shipped from this: the `--doctor` "Default output" check (three states), the
+remembered pick in the environment block, a ` (speaker filter)` description
+suffix in smart-filter mode, and the install-time copy in both modes.
+
+### Open: does a hand-picked chain suppress Bluetooth auto-switching?
+
+Deferred to a run with a headset connected — no Bluetooth device was paired for
+the session above, and the HDMI switch was the proxy. The arithmetic predicts a
+problem: `find-selected-default-node.lua` scores the current configured pick at
+`30000 + priority`, while a freshly-connected Bluetooth sink is scored by
+`find-best-default-node.lua` at its own 1010 (`monitors/bluez.lua`). So a user
+who picked the chain *by hand* should keep the chain as their default when a
+headset connects, rather than switching to it automatically — which would make
+the "no automatic bypass on output switch" problem in
+`docs/ee-to-pipewire.md` true for a different reason than that section gives.
+
+Untested, and it does not apply to the default (smart-filter) path, where the
+speaker stays selected and the reporter of issue #63 confirmed Bluetooth
+bypasses correctly. Test: pair a headset, hand-pick the chain, connect the
+headset, read `default.audio.sink` from `pw-dump`'s "default" Metadata.
+
+### Rejected: `priority.session` on the v1 capture node
+
+The idea was to make a v1 chain win the default automatically, so the user
+never picks it by hand and never writes the sticky entry. Declined: it only
+feeds `find-best-default-node`, which runs after the selected/stored hooks and
+cannot beat `30000 + p`, so on any machine where an output was ever picked by
+hand it changes nothing; there is no safe value (the speaker's own priority is
+readable, but the scale shifts for USB `+100` and the devices that need this
+most are already on the relaxed detection tier, issue #18); and where it did
+work it would make the chain the default on every boot with nothing in the
+user's own history explaining why. The offered `pactl set-default-sink` writes
+the same entry the desktop writes, and is explicit and reversible.
+
+### Rejected: pinning a single v1 chain's playback
+
+`--target-object` is forced for multi-chain installs (they would otherwise
+chain into each other). Extending it to a single chain was measured and
+declined: unpinned, its playback settled on the speaker sink and stayed there
+as the selected output, with the default switched to HDMI, and across a
+PipeWire restart — identical to the pinned conf in all four states. A single
+unpinned chain does not follow the default anywhere, so there is nothing to
+fix. (Bluetooth was not connected for this; the HDMI switch is the proxy.)
+
 ## Rejected approaches
 
 Things that were investigated and explicitly declined, recorded so they don't get

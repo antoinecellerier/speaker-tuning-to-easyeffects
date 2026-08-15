@@ -308,6 +308,12 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         node_description = preset_path.stem or pw_conf.DEFAULT_NODE_DESCRIPTION
     else:
         node_description = args.node_description
+    # Decorated further down, once the routing mode is known: only a smart
+    # filter is the "don't pick me" case, and only a derived description is
+    # ours to change — someone who passed --node-description asked for that
+    # name verbatim.
+    describe_as_filter = (args.node_description is None
+                          and bool(preset_path.stem))
 
     safe_node_name = pw_conf._sanitize_name(node_name)
     default_conf = default_conf_path(safe_node_name)
@@ -358,6 +364,33 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("dim", "[smart-filter] disabled by --target-sink ''; emitting "
                       "v1 virtual-sink conf (apps will target effect_input."
                       f"{safe_node_name} directly)")
+        # Detail at the detection site, where the flag that caused it is still
+        # in view: this is the mode where the reader has to pick the chain as
+        # their output, which is what puts two volume controls in the path.
+        console._cprint_wrapped(
+            "dim", f"  ({install.V1_SECOND_VOLUME_HINT}; drop --target-sink '' "
+            "to attach it to your speakers instead, with nothing to select and "
+            "one volume control)", indent="   ")
+        # The reading, where the flag that causes it is still in view. Advice
+        # ("leave them at 100%") is not the same as a diagnosis ("they are at
+        # 40%"), and once this sink is selected the speaker's own level is
+        # invisible from the slider the reader will be moving.
+        attenuated = install.speaker_attenuation()
+        if attenuated:
+            console._cprint_wrapped(
+                "warn", f"  ({attenuated} — that comes off everything on top "
+                "of this sink's own control)", indent="   ")
+        # Which control to use has a measured consequence, so say which half is
+        # affected: the speaker correction is linear and identical either way;
+        # only the compressor's behaviour on loud content moves with it
+        # (docs/design-notes.md, issue #63).
+        # "compressor and limiter", not "the compressor": the measurement says
+        # the MBC, regulator and limiter all see the attenuated signal, and
+        # naming one of the three reads as a promise about the other two.
+        console._cprint_wrapped(
+            "dim", "  (the speaker correction is identical either way — only "
+            "the compression and limiting follow this control, on loud "
+            "content)", indent="   ")
     elif args.target_sink:
         target_sink = args.target_sink
         console.cprint("ok", f"[smart-filter] target sink: {target_sink} (from "
@@ -384,6 +417,19 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                            "conf (apps will target effect_input."
                            f"{safe_node_name}); pass --target-sink "
                            "<node.name> to enable smart-filter routing.")
+            # This path reaches the same v1 conf without the reader having asked
+            # for it, so it needs the consequence spelled out too — and it is
+            # the one path that never said the chain does nothing until picked.
+            console._cprint_wrapped(
+                "dim", "  (until you pick it as your output it processes "
+                f"nothing, and {install.V1_SECOND_VOLUME_HINT})", indent="   ")
+            # No speaker reading on this branch, deliberately: we are here
+            # *because* _autodetect_speaker_sink() found nothing, so there is no
+            # sink to read a level from. --doctor still catches it later, from
+            # the graph, where the chain's actual downstream is visible.
+
+    if target_sink and describe_as_filter:
+        node_description += pw_conf.SMART_DESCRIPTION_SUFFIX
 
     links = pw_conf.emit_links(chain.stages)
     conf = pw_conf.format_conf(chain.stages, links, node_name,
@@ -479,7 +525,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         if not wrapped:
             console.cprint("cta", f"To activate: {pw_conf.PIPEWIRE_RESTART_CMD}")
     else:
-        install._print_next_steps(node_name, target_object=args.target_object)
+        install._print_next_steps(node_name, target_object=args.target_object,
+                                  selectable=target_sink is None)
     return 0
 
 

@@ -257,7 +257,12 @@ def test_multi_sink_modes_refuse_smart_filter_routing(recorders, flags, capsys):
 @pytest.mark.parametrize("flags,pinned", [
     (["--variant", "all", "--target-sink", ""], True),
     (["--all-profiles", "--target-sink", ""], True),
-    # One chain follows the default sink harmlessly: nothing to keep apart.
+    # A single chain needs no pin. Measured on WirePlumber 0.5 (issue #63):
+    # unpinned, its playback settled on the speaker sink and stayed there — as
+    # the selected output, with the default switched to HDMI, and across a
+    # PipeWire restart — identical to the pinned conf in all four states. So it
+    # does not "follow the default" at all; there is simply nothing to keep it
+    # apart from, which is why pinning was measured and then not shipped.
     ([], False),
     (["--variant", "warm"], False),
 ])

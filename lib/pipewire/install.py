@@ -166,8 +166,15 @@ def _grep_expectation(tail: str = "") -> str:
 
 
 def _print_next_steps(node_name: str,
-                      target_object: str | None = None) -> None:
-    """The actions to take after a real (non-dry-run) write."""
+                      target_object: str | None = None,
+                      selectable: bool = False) -> None:
+    """The actions to take after a real (non-dry-run) write.
+
+    ``selectable`` mirrors the wrapper's ``_print_selection_step``: with
+    --target-sink '' the chain is an ordinary output that processes nothing
+    until it is chosen, and this checklist used to end without saying so — the
+    exact gap the wrapper's traps exist to prevent, on the path that has none.
+    """
     console.cprint("head", "Next steps:")
     console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
     # Stays a numbered step here, unlike the wrapper's footnote: this script
@@ -181,8 +188,22 @@ def _print_next_steps(node_name: str,
     console.cprint("cta", "  3. Verify the sink:         pw-cli ls Node | grep "
                   f"{_sanitize_name(node_name)}")
     console.cprint("dim", _grep_expectation())
+    # Counted rather than hard-coded: both tails below are optional, and as two
+    # literal "4."s they collided on the run that printed both.
+    step = 4
+    if selectable:
+        console.cprint("cta", f"  {step}. Select it as output:     pactl "
+                      f"set-default-sink effect_input.{_sanitize_name(node_name)}")
+        console._cprint_wrapped(
+            "dim", "     (or pick it in sound settings — until you do it "
+            f"processes nothing; {V1_SECOND_VOLUME_HINT})", indent="     ")
+        step += 1
+    else:
+        console.cprint("dim", "     (nothing to select afterwards: it attaches to "
+                      "your speakers by itself — leave your speakers selected as "
+                      "the output)")
     if target_object:
-        console.cprint("cta", "  4. Verify routing:          "
+        console.cprint("cta", f"  {step}. Verify routing:          "
                       f"pw-link -l | grep {target_object}")
 
 
@@ -198,6 +219,39 @@ def _print_next_steps(node_name: str,
 QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it and "
                 "stop it starting again (its Background Service and "
                 "autostart, or remove its autoload)")
+
+# What running the chain as its own output costs, in the words of the symptom it
+# produces. Measured for issue #63: the chain and the speaker are two sinks in
+# series, each with its own control, so the levels multiply — and the chain's
+# lands *ahead of* the filter graph (indistinguishable from turning the source
+# content down), so on loud material it also changes how hard the tuning's
+# compressor and limiter work.
+#
+# v1 only, hence the name: this is the mode where selecting the chain is the
+# instruction, so the caveat rides with it. In smart-filter mode selecting it is
+# the *mistake*, so that path says something else entirely, at its own site.
+# Five v1 sites share this wording, across both entry points.
+V1_SECOND_VOLUME_HINT = ("it has a volume control of its own, on top of your "
+                         "speakers' — both apply, so leave your speakers at "
+                         "100% and use this one")
+
+
+def speaker_attenuation() -> str:
+    """"your speakers are at 40% (-23.8 dB)" when they are turned down, else "".
+
+    Telling someone to leave their speakers at 100 % is advice; telling them
+    what those speakers are set to right now is a reading, and it is the half
+    they cannot see once the chain is their selected output. Costs a pw-dump on
+    the v1 path only, which is the fallback mode, not the default one.
+    """
+    from lib.pipewire import checks  # local: checks imports this module
+    name, _ = _autodetect_speaker_sink()
+    if not name:
+        return ""
+    level = checks.sink_volumes(checks._pw_dump()).get(name)
+    if level is None or level > 0.99:
+        return ""
+    return f"your speakers are at {checks._volume_reading(level)} right now"
 
 
 def _print_undo(written: list[Path]) -> None:
@@ -244,6 +298,8 @@ def _print_manual_activation(node_names: list[str],
             if selectable else
             "once the line is there, it's pinned to your speakers automatically")
     console.cprint("dim", _grep_expectation(tail))
+    if selectable:
+        console.cprint("dim", f"  Note: {V1_SECOND_VOLUME_HINT}.")
     console.cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
     _print_undo(written)
@@ -324,8 +380,26 @@ def _print_selection_step(node_names: list[str], selectable: bool) -> None:
     if not selectable:
         console.cprint("dim", "     (pinned to your speakers automatically — apps "
                       "keep playing to the speaker as usual)")
+        # The chain is still listed as an output, so it can be selected by
+        # mistake — and it looks like an ordinary device in the list. Selecting
+        # it works, but it is then two sinks in series (issue #63).
+        #
+        # The trailing clause is not padding. The [2/3] block offers
+        # `--variant all --target-sink ''` as a way to "switch between them in
+        # your sound settings", so without it this run says both "pick the
+        # chain there" and "never pick the chain there", and a reader cannot
+        # tell which applies to them. It matches the predicate exactly:
+        # `selectable` is `target_sink is None`.
+        console._cprint_wrapped(
+            "dim", "     Leave your speakers selected as the output: this chain "
+            "attaches to them by itself, so picking it in sound settings would "
+            "only add a second volume control on top of theirs. (Only "
+            "--target-sink '' installs are meant to be picked that way.)",
+            indent="     ")
         return
     console.cprint("cta", "  Now pick it as your output in sound settings — until "
                   "you do, it processes nothing:")
     for name in node_names:
         console.cprint("cta", f"    {name}")
+    console._cprint_wrapped("dim", f"     ({V1_SECOND_VOLUME_HINT})",
+                            indent="     ")

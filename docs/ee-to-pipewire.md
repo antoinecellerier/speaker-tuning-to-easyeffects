@@ -81,11 +81,18 @@ The naive PipeWire filter-chain pattern (`media.class = "Audio/Sink"`)
 creates a *virtual sink* apps target. That gives every user two
 problems:
 
-1. **Volume stacking.** PulseAudio flat-volume mode multiplies
-   along the chain — the chain sink × hardware sink. If the user's
-   hardware sink was at 56 % when EasyEffects-autoload was wrapping
-   the speaker directly, switching to a virtual-sink chain at 100 %
-   silently adds another –15 dB of attenuation on top.
+1. **Volume stacking.** The chain sink and the hardware sink are two
+   sinks in series, and each applies its own volume to its own inputs —
+   `pactl list sink-inputs` shows the app as an input on the chain and
+   the chain's own output as an input on the speaker — so the two
+   levels multiply. Plain series gain is the whole mechanism; this is
+   *not* PulseAudio's flat-volume mode, which nothing here runs: no
+   sink reports the `FLAT_VOLUME` flag in `pactl list sinks`, and
+   pipewire-pulse offers no such option. The loss is also larger than
+   the percentages suggest, because a desktop's 0–100 % is cube-mapped
+   on the way to `channelVolumes` (measured: `wpctl set-volume … 0.5`
+   lands 0.125). So a hardware sink left at 56 % is –15 dB, and a
+   virtual-sink chain at 100 % on top of it keeps every one of them.
 2. **No automatic bypass on output switch.** Plugging in HDMI or
    pairing Bluetooth headphones leaves the chain as the default
    sink, processing audio destined for hardware it was never tuned
@@ -115,15 +122,22 @@ resolver intercepts streams targeting the matching hardware sink
 (via the `node.name` rule) and inserts the filter into the path
 automatically. `filter.smart.targetable` defaults to false, so apps
 can't pick the chain's capture sink directly — they target the
-hardware speaker as usual. `priority.session = -1` keeps WP's
-"best default node" tiebreaker from picking the chain over the
-speaker on a fresh session.
+hardware speaker as usual. `priority.session = -1` nudges WP's
+"best default node" tiebreaker away from the chain — belt-and-braces
+rather than load-bearing: a `module-filter-chain` node declares neither
+`priority.session` nor `priority.driver`, so `lib/node-utils.lua` scores
+it 0 anyway, against 1000 for an ALSA speaker sink
+(`monitors/alsa.lua`), 1010 for Bluetooth (`monitors/bluez.lua`) and the
+600s for HDMI. It has no bearing at all on a sink the user picked by
+hand — see "The selected output is remembered" below.
 
 Net result:
 
 - Speaker sink stays the system default.
 - Apps targeting the speaker get audio routed through the chain
-  transparently (one volume slider — the speaker's).
+  transparently (one volume slider in practice — the speaker's; the
+  chain keeps a control of its own, and it still attenuates, but
+  nothing puts a user on it. See "A chain can still be turned down").
 - HDMI / Bluetooth / USB outputs aren't matched by `filter.smart.target`,
   so the chain bypasses on its own when audio routes elsewhere.
 
@@ -141,6 +155,94 @@ non-standard policy. Separately, `--target-object <node.name>` binds the
 chain's *playback* to an explicit downstream node (e.g. a measurement
 null sink) instead of letting WirePlumber choose — a measurement-route
 override; end users want `--target-sink`.
+
+### The selected output is remembered
+
+The chain's sink stays visible in sound settings (see Limitations), so it
+can be picked as the system output. Doing so is not fatal — measured on
+WirePlumber 0.5, the graph is *identical* either way
+(`app → effect_input → chain → effect_output → speaker`), and nothing is
+processed twice. What changes is that the chain and the speaker are then
+two sinks in series, each with its own volume control: `pactl list
+sink-inputs` shows the app on the chain and the chain's own output on the
+speaker, so the levels multiply. A speaker left at 40 % takes −23.8 dB off
+a chain that reads 100 %.
+
+The chain's control is also on the *wrong side of the tuning*. Measured
+with `tools/measure_pw/volume_stage_probe.py`, capturing the speaker sink's
+monitor: turning the chain's volume down is indistinguishable from scaling
+the source content itself (S/R 730 dB — the float64 noise floor), so it
+reaches the graph as a quieter input and the MBC, regulator and limiter
+engage differently. The speaker's own control is the opposite — a hardware
+mixer element, invisible in that capture, applied after everything PipeWire
+does. This only bites on loud material: on pink noise at −13.9 dBFS RMS the
+dynamics stay dormant and both are a plain gain; at −6.5 dBFS RMS they do
+not.
+
+The part that outlives the mistake is WirePlumber's memory of it.
+`default-nodes/find-selected-default-node.lua` scores the *current*
+`default.configured.audio.sink` at `30000 + priority.session`, which no
+`priority.session` a conf could declare competes with, and
+`state-default-nodes.lua` persists it to
+`~/.local/state/wireplumber/default-nodes`. Consequences, all measured:
+
+- A chain picked by hand stays the default across PipeWire restarts.
+- Picking the speaker again clears it, and *that* sticks. It replaces
+  rather than erases: the chain drops to `…audio.sink.0` in the state file.
+- The entry survives the sink it names. Delete the chain and the head entry
+  still says `effect_input.<name>`; install a chain under that name again
+  and it takes the default output straight back — a conf that is now
+  correct, routed wrongly by a year-old click.
+- Only the **head** entry does this. A name demoted down the stack does not
+  come back: a stored node scores `priority.session + 20001 − i`, so a
+  chain at position *i* only beats the speaker at *j* when `j − i > 1000`.
+
+`--doctor`'s "Default output" check reports all three states, and the
+environment block names the remembered pick — nothing else can show it.
+
+### A chain can still be turned down
+
+Smart-filter routing removes the *reason* to touch the chain's volume, not the
+control. The chain sink keeps one, and it still applies: measured with the
+speaker selected as the output and the chain set to 0.125, the captured output
+came back 7.9× down, with the same pre-graph signature as before — so the
+tuning's dynamics see the attenuated signal too.
+
+Nothing in a desktop's sound settings puts a user on that slider once the
+speaker is selected, which is exactly what makes it worth a check. The way in
+is the sequence issue #63 describes: select the chain, turn it down, switch
+back to the speaker. The level stays, survives reboots, and has no visible
+cause. `--doctor`'s "Chain volume" check reports it.
+
+Deleting the conf does not clear it either. WirePlumber persists a sink's
+volume by `media.name` in `~/.local/state/wireplumber/stream-properties` and
+restores it onto any later node with that name, so a chain reinstalled under
+the same description comes back at the level it was left — observed on a
+freshly written conf reading 50 % before anything had touched it. Same
+remembered-by-name shape as the selected output above, and the same
+consequence: reinstalling is not a reset.
+
+### What a v1 install can and cannot get back
+
+`--target-sink ''` cannot have what smart-filter routing gives: one control,
+applied after the graph. The chain is the selected sink there, so the desktop's
+volume keys act on it, and its control is upstream of the tuning. Hiding or
+proxying the chain was explored twice and rejected (Limitations), and
+`priority.session` cannot help — any value derived from the sinks in play
+(0–2010) loses to the remembered pick's `30000 + priority`.
+
+What is worth knowing is that the loss is narrower than it looks. The speaker
+correction is linear, so where the attenuation lands does not change it at all:
+at −13.9 dBFS RMS the whole chain measured as exactly linear. Only the dynamics
+move, and only on loud material. So the practical advice — leave the speaker at
+100 %, use the chain's control, because that is the one the volume keys reach —
+costs compressor behaviour on loud content, not the tuning.
+
+The half a reader cannot see is the level *underneath*. Once the chain is the
+selected output, the sink it feeds is invisible from the slider they are moving,
+survives reboots, and is subtracted from everything. Both the run (v1 mode) and
+`--doctor` therefore read that sink's volume and print it — "your speakers are
+at 40 % (−23.8 dB) right now" — rather than only advising that it be raised.
 
 ### One smart filter per target sink
 
@@ -179,9 +281,12 @@ reports the state of what is installed rather than converting anything: chains
 stacked on one target sink, a conf on disk with no node in the graph (a
 missing LSP/Calf plugin makes `module-filter-chain` drop the whole file), an
 `.irs` a conf names but that isn't there, a `filter.smart.target` naming a sink
-that no longer exists, confs under `filter-chain.conf.d/`, WirePlumber older
-than 0.5, EasyEffects processing the same audio, and confs written by another
-version of the tool. It ends with an environment block to paste into an issue.
+that no longer exists, which output is selected (the chain itself, a
+virtual-sink chain nothing is playing through, or a remembered pick naming a
+chain that is gone — see "The selected output is remembered"), confs under
+`filter-chain.conf.d/`, WirePlumber older than 0.5, EasyEffects processing the
+same audio, and confs written by another version of the tool. It ends with an
+environment block to paste into an issue.
 
 It deliberately reports the *EasyEffects* side as a conflict only. On this path
 EasyEffects is an intermediate format staged in a tempdir, so the generator's
@@ -348,11 +453,16 @@ same check has a command-line front end at
   back to the v1 virtual-sink emission, with the volume-stacking
   and HDMI-bypass caveats noted above.
 - **The chain sink stays visible** in pavucontrol / GNOME's sound
-  output picker as a separate entry alongside the hardware speaker.
-  Picking it works (the chain auto-routes to the speaker) but the
-  per-sink volume slider is then on the chain, not the speaker —
-  reintroducing the v1 stacking. The desired UX (one sink per
-  hardware output, chain transparently inserted) requires hiding
+  output picker as a separate entry alongside the hardware speaker,
+  distinguished only by a `HARDWARE` flag no picker shows. Picking it
+  works (the chain auto-routes to the speaker) but
+  the per-sink volume slider is then on the chain, not the speaker —
+  reintroducing the v1 stacking, and WirePlumber remembers the choice
+  ("The selected output is remembered"). Two mitigations ship instead
+  of a fix: in smart-filter mode the description carries a
+  ` (speaker filter)` suffix so the entry reads as what it is, and
+  `--doctor` reports it when it is selected. The desired UX (one sink
+  per hardware output, chain transparently inserted) requires hiding
   the chain from PA enumeration; we explored two paths and neither
   is viable on this class of hardware:
   - `media.class = "Audio/Sink/Internal"` does suppress the chain

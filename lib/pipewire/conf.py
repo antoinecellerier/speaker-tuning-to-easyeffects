@@ -38,6 +38,16 @@ DEFAULT_NODE_NAME = "Dolby_Filter_Chain"
 DEFAULT_NODE_DESCRIPTION = "Dolby DAX3 (filter-chain)"
 DEFAULT_LINK_GROUP_SUFFIX = "_smart_filter"
 
+# What a smart filter calls itself in a sound-settings list. Every Audio/Sink
+# node is listed there, this chain included — hiding it was explored twice and
+# neither path survives on multi-port HDA cards (docs/ee-to-pipewire.md,
+# Limitations). Measured on this hardware: the entry is indistinguishable from a
+# real output, listed first, described as the bare preset name. So the
+# description is the only place left to say it is not an output to pick — it is
+# already applied to the speaker beside it, and selecting it stacks a second
+# volume control in front of that speaker (issue #63).
+SMART_DESCRIPTION_SUFFIX = " (speaker filter)"
+
 # Nothing in this module prints it. It lives here because the three that do —
 # ``lib.pipewire.install``, ``lib.pipewire.checks`` and ``ee_to_pipewire.py``
 # — already import this module, so collapsing the four copies here adds no
@@ -276,17 +286,33 @@ def format_conf(stages: list[Stage], links: list[dict],
         # `filter.smart.targetable` defaults to false, which keeps apps
         # from picking the chain's capture sink directly — they target
         # the hardware speaker sink as usual, the chain inserts itself
-        # in the path. No second volume layer; HDMI/BT outputs aren't
-        # matched, so the chain bypasses automatically when audio
-        # routes anywhere other than ``target_sink``.
+        # in the path. HDMI/BT outputs aren't matched, so the chain
+        # bypasses automatically when audio routes anywhere other than
+        # ``target_sink``.
         #
-        # `priority.session = -1` keeps WirePlumber's
-        # default-nodes/find-best-default-node.lua from picking the
-        # chain as the default sink (it would otherwise win the
-        # tiebreaker against the speaker sink — both have priority 0
-        # by default, and the freshly-loaded chain sorts later). With
-        # smart-filter routing, the user wants the speaker sink to
-        # remain the default; the chain inserts itself transparently.
+        # Not "no second volume layer", which is what this said: the
+        # chain sink keeps its own volume and it still applies here —
+        # measured 7.9x down with the speaker selected and the chain at
+        # 0.125. What smart-filter routing removes is the *reason to
+        # touch it*; --doctor's "Chain volume" check catches one left
+        # down (issue #63).
+        #
+        # `priority.session = -1` is belt-and-braces against WirePlumber's
+        # default-nodes/find-best-default-node.lua picking the chain as the
+        # default sink. It is not load-bearing, and the reason it was once
+        # thought to be does not survive contact with a real graph: a
+        # module-filter-chain node declares neither priority.session nor
+        # priority.driver, so node-utils.lua scores it 0 — while an ALSA
+        # speaker sink starts at 1000 (monitors/alsa.lua), Bluetooth at 1010
+        # (monitors/bluez.lua) and HDMI in the 600s. The chain loses that
+        # comparison with or without the -1.
+        #
+        # What it does *not* do is anything about a sink the user picked by
+        # hand: find-selected-default-node.lua scores the current
+        # default.configured.audio.sink at 30000 + priority, so a chain
+        # selected once stays the default across restarts, and comes back if a
+        # sink of that name reappears (both measured, issue #63).
+        # --doctor's "Default output" check is what reports that state.
         capture_props.update({
             "node.link-group": f"{safe_name}{DEFAULT_LINK_GROUP_SUFFIX}",
             "filter.smart": True,

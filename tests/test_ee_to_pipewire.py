@@ -69,6 +69,7 @@ from lib.pipewire.plugins import (
     _resolve_irs,
 )
 from ee_to_pipewire import main as ee2pw_main
+from lib.pipewire import install
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
     synthetic_mb_comp,
@@ -1741,6 +1742,85 @@ def test_main_target_sink_empty_disables_smart_filter(generated, tmp_path):
     assert rc == 0
     conf_text = out_path.read_text()
     assert "filter.smart" not in conf_text
+
+
+# --- Telling a filter apart from an output ---------------------------------
+#
+# Measured for issue #63: a smart filter is listed in sound settings exactly
+# like a real output — first in the list, described as the bare preset name,
+# distinguished only by a HARDWARE flag no picker shows. Selecting it works but
+# stacks a second volume control in front of the speaker's, so the description
+# is where the entry says what it is.
+
+def _run_with_preset_stem(generated, tmp_path, stem, *extra):
+    preset, irs_path = generated
+    preset_path = tmp_path / f"{stem}.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / f"{stem}.conf"
+    rc = ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                     "--output", str(out_path), "--no-validate", *extra])
+    return rc, out_path
+
+
+def test_smart_filter_describes_itself_as_a_filter(generated, tmp_path):
+    rc, out_path = _run_with_preset_stem(
+        generated, tmp_path, "Dolby-Balanced",
+        "--target-sink", "alsa_output.stub__Speaker__sink")
+    assert rc == 0
+    assert 'node.description = "Dolby-Balanced (speaker filter)"' \
+        in out_path.read_text()
+
+
+def test_virtual_sink_keeps_the_plain_name(generated, tmp_path):
+    """In v1 mode the reader is *supposed* to pick it, so the entry must not
+    tell them not to."""
+    rc, out_path = _run_with_preset_stem(generated, tmp_path, "Dolby-Balanced",
+                                         "--target-sink", "")
+    assert 'node.description = "Dolby-Balanced"' in out_path.read_text()
+
+
+def test_explicit_node_description_is_emitted_verbatim(generated, tmp_path):
+    """Someone who named the node asked for that name."""
+    rc, out_path = _run_with_preset_stem(
+        generated, tmp_path, "Dolby-Balanced",
+        "--target-sink", "alsa_output.stub__Speaker__sink",
+        "--node-description", "My Speakers")
+    assert 'node.description = "My Speakers"' in out_path.read_text()
+
+
+# --- The standalone script's next steps, per routing mode -------------------
+#
+# _print_next_steps was mode-blind: `ee_to_pipewire.py --target-sink ''` wrote
+# an output that processes nothing until it is selected and never said so —
+# the exact gap the wrapper's traps cover, on the path that had none.
+
+def test_next_steps_tell_a_v1_user_to_select_the_sink(generated, tmp_path, capsys):
+    _run_main(generated, tmp_path, "--target-sink", "")
+    out = capsys.readouterr().out
+    assert "pactl set-default-sink effect_input.TestChain" in out
+    assert "processes nothing" in out
+    assert "both apply" in out, "the two-volume-controls consequence must be said"
+
+
+def test_next_steps_tell_a_smart_filter_user_to_leave_it_alone(
+        generated, tmp_path, capsys):
+    _run_main(generated, tmp_path, "--target-sink", "alsa_output.stub__Speaker__sink")
+    out = capsys.readouterr().out
+    assert "nothing to select afterwards" in out
+    assert "set-default-sink" not in out, \
+        "selecting the chain is the mistake in this mode, not the instruction"
+
+
+def test_detection_failure_still_says_the_chain_is_inert(
+        generated, tmp_path, capsys, monkeypatch):
+    """The fallback nobody asked for: detection failed, so a v1 conf is written
+    anyway. It used to print neither the select-it step nor the consequence."""
+    monkeypatch.setattr(install, "_autodetect_speaker_sink",
+                        lambda: (None, ["no speaker sink found"]))
+    _run_main(generated, tmp_path)
+    out = capsys.readouterr().out
+    assert "processes nothing" in out
+    assert "pactl set-default-sink effect_input.TestChain" in out
 
 
 # ---------------------------------------------------------------------------
