@@ -118,6 +118,23 @@ def _live_default_sink() -> str:
     return checks.default_sinks(checks._pw_dump()).effective
 
 
+def _sink_is_internal_speaker(name: str) -> bool:
+    """Does PipeWire call this sink one of the machine's own speakers?
+
+    Reuses the generator's own classifier rather than matching on the node
+    name, so the doctor and `--autoload` agree about what a speaker is —
+    including the relaxed tier for laptops whose UCM2 profile omits the
+    speaker icon (issue #18). Only asked to decide whether to keep a closing
+    bullet, so any failure answers "don't know" and the bullet stays.
+    """
+    from lib.hardware import sinks
+    try:
+        return any(s.get("name") == name
+                   for s in sinks.select_speaker_sinks()["selected"])
+    except (OSError, KeyError, TypeError):
+        return False
+
+
 # EasyEffects' daemon listens on a QLocalServer of this name and answers
 # newline-terminated ASCII requests (`tags::local_server`). Only these two are
 # ever sent: the same socket also takes quit_app, hide_window, show_window,
@@ -211,6 +228,10 @@ class LiveState:
     sink_source: str = "saved"   # "live" | "pinned" | "saved"
     bypass: bool = False
     bypass_is_live: bool = False
+    # Whether `sink` is one PipeWire calls an internal speaker. Only ever set
+    # from a live reading, and only used to drop a closing bullet asking the
+    # reader to confirm what we just printed.
+    sink_is_speaker: bool = False
     # Requests a listening daemon did not answer. Non-empty means EasyEffects'
     # socket protocol changed, not that it is absent — reported rather than
     # absorbed, so this stops reporting stale values as current the moment it
@@ -241,6 +262,7 @@ def _resolve_live_state(rc: dict) -> LiveState:
         live_sink = _live_default_sink()
         if live_sink:
             state.sink, state.sink_source = live_sink, "live"
+            state.sink_is_speaker = _sink_is_internal_speaker(live_sink)
         else:
             state.sink, state.sink_source = rc.get("output_device", ""), "saved"
     else:
@@ -460,6 +482,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "service_mode": rc.get("service_mode", True),
         "output_device": live.sink,
         "output_device_source": live.sink_source,
+        "output_is_speaker": live.sink_is_speaker,
         "output_plugins": rc.get("output_plugins", []),
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
@@ -489,7 +512,11 @@ def _environment_lines(f: dict) -> list[str]:
         f"  EasyEffects:  {f.get('ee_version', '?')}; "
         f"running: {'yes' if running else 'no'}",
         f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})",
-        f"  Presets/IRs:  {f.get('preset_count', 0)} presets, "
+        # "sharing" because presets outnumber impulse files and readers read
+        # that as breakage: profiles with the same speaker correction point at
+        # one file (here 69 presets to 63 distinct kernels). Saying so costs a
+        # word and removes a "can this tool even count?" reading.
+        f"  Presets/IRs:  {f.get('preset_count', 0)} presets sharing "
         f"{f.get('irs_count', 0)} impulse files",
         f"  Config:       {f.get('rc_path')} "
         f"({'present' if f.get('rc_present') else 'absent'})",
@@ -563,10 +590,17 @@ def _collapse_preset_checks(checks: list[CheckResult]) -> list[CheckResult]:
         elif not folded:
             folded = True
             if passing:
+                # The detail reconciles two numbers readers compared and
+                # distrusted: this denominator is one short of the preset count
+                # above (the bypass preset carries no filters, so there is
+                # nothing to check), and the summary's PASS total is mostly
+                # these, counted individually but shown as one line.
                 shown.append(CheckResult(
                     DOCTOR_PASS,
                     f"Presets ({passing}/{len(presets)} load their impulse file)",
-                    ""))
+                    f"{passing} checks on one line. The '"
+                    f"{autoload.BYPASS_PRESET_NAME}' bypass preset isn't among "
+                    "them — it has no filters by design."))
             shown += problems
     return shown
 
@@ -592,8 +626,14 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     if not report.facts.get("bypass_is_live"):
         closing.append(
             ("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF."))
+    # Same rule for the sink half: we print which output PipeWire is using, and
+    # when that is one of the machine's own speakers there is nothing left for
+    # the reader to confirm. The volume half always stays — no level we read
+    # tells us what the reader can hear.
     closing.append(
-        ("dim", "  • Confirm system output is the speaker sink and volume is up."))
+        ("dim", "  • Confirm the volume is up.")
+        if report.facts.get("output_is_speaker")
+        else ("dim", "  • Confirm system output is the speaker sink and volume is up."))
     layout.print_closing(tuple(closing))
 
 

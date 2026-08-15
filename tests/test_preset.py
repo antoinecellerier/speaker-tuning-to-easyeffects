@@ -1827,6 +1827,41 @@ def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     assert "1 WARN" in out
 
 
+@pytest.mark.parametrize("is_speaker, wants_sink_check", [(True, False),
+                                                          (False, True)])
+def test_closing_drops_checks_the_report_already_answered(
+        is_speaker, wants_sink_check, silence_console, capsys):
+    """TRAP: the block prints which output PipeWire is using, then asked the
+    reader to go confirm it — the same fault as telling them to check a bypass
+    state we just read. The volume half always stays: no level we read tells us
+    what the reader can hear."""
+    silence_console(console)
+    report = DoctorReport(checks=[CheckResult(DOCTOR_PASS, "x", "y")])
+    report.facts = {"output_is_speaker": is_speaker, "bypass_is_live": True}
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+    assert ("system output is the speaker sink" in out) is wants_sink_check
+    assert "volume is up" in out
+
+
+def test_verdict_says_something_on_a_fail(capsys):
+    """TRAP: every branch below the all-clear was guarded on `not fail`, so the
+    one state that most needs a closing instruction printed no verdict at all —
+    the report just stopped after the summary counts."""
+    checks = [CheckResult(DOCTOR_FAIL, "Broken thing", "detail")]
+    print_verdict(checks, lambda _style, text: print(text))
+    out = capsys.readouterr().out.strip()
+    assert out, "a FAIL must still end on a verdict"
+    assert doctor_module.tag(DOCTOR_FAIL) in out
+
+
+def test_global_bypass_fails_rather_than_warns():
+    """TRAP: as a WARN this sat under "0 FAIL" and "Nothing failed outright" —
+    reassuring headlines above the one line saying none of the tool's output
+    reaches the speakers."""
+    assert environment.global_bypass_status().status == DOCTOR_FAIL
+
+
 @pytest.mark.parametrize("status", [DOCTOR_WARN, DOCTOR_UNKNOWN])
 def test_verdict_names_a_tag_the_report_actually_prints(status, capsys):
     """TRAP: the verdict points readers at "the [WARN] lines above", so the
@@ -2216,6 +2251,28 @@ def test_environment_lines_mark_the_source_even_with_no_daemon():
     assert "(from saved config)" in rows["Selected"]
     assert "(from saved config)" in rows["Bypass"]
     assert "(from saved config)" in rows["Active chain"]
+
+
+def test_environment_lines_say_presets_share_impulse_files():
+    """TRAP: presets outnumber impulse files because profiles with the same
+    speaker correction point at one file. Stated bare, three reviewers read
+    the mismatched counts as the tool failing to count."""
+    f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
+         "preset_count": 69, "irs_count": 64}
+    line = [ln for ln in doctor_run._environment_lines(f) if "Presets" in ln][0]
+    assert "69 presets sharing 64 impulse files" in line
+
+
+def test_collapsed_preset_check_reconciles_the_two_counts():
+    """TRAP: the folded line's denominator is one short of the preset count in
+    the inventory (the bypass preset has nothing to check), and the summary's
+    PASS total is mostly these checks, counted individually but shown as one
+    line. Both gaps were read as the numbers not adding up."""
+    checks = [CheckResult(DOCTOR_PASS, f"Preset P{i}", "") for i in range(3)]
+    collapsed = doctor_run._collapse_preset_checks(checks)
+    assert len(collapsed) == 1
+    assert "3 checks on one line" in collapsed[0].detail
+    assert BYPASS_PRESET_NAME in collapsed[0].detail
 
 
 def test_environment_lines_wrap_the_chain_without_splitting_the_marker():

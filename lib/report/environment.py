@@ -312,11 +312,16 @@ def ee_unanswered_status(names) -> CheckResult:
 def global_bypass_status() -> CheckResult:
     """Global bypass is on, so every preset is passthrough.
 
+    FAIL, not WARN: none of this tool's output is reaching the speakers, which
+    is the whole thing the reader came to check. As a WARN it sat under a
+    "Nothing failed outright" verdict and a "0 FAIL" summary — reassuring
+    headlines above the one line saying the audio is untouched.
+
     Raised only on a live reading from the running daemon — the config file's
     copy of this key is written on save, so a stale one would accuse a user
     whose audio is fine. No 'off' counterpart: a check that passes for the
     overwhelming majority is noise, and the Environment block states it."""
-    return CheckResult(DOCTOR_WARN, "Global bypass",
+    return CheckResult(DOCTOR_FAIL, "Global bypass",
         "EasyEffects' global bypass is ON — every preset is passthrough, so "
         "nothing you load will change the sound. Turn it off with the "
         "power-button icon in EasyEffects' top bar.")

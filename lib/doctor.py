@@ -265,6 +265,11 @@ def print_verdict(checks, cprint) -> None:
     fail, warn, ok, unknown = summarize(checks)
     if not (fail or warn or unknown):
         cprint("ok", "No blocking problems detected.")
+    elif fail:
+        # A FAIL used to print no verdict at all: the branches below are each
+        # guarded on `not fail`, so the one state that most needs a closing
+        # instruction ended on the summary counts alone.
+        cprint("err", f"Fix the {tag(DOCTOR_FAIL)} lines above first.")
     elif warn and not fail:
         cprint("warn", f"Nothing failed outright — the {tag(DOCTOR_WARN)} lines "
                        "above are what to fix first.")

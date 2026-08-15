@@ -168,6 +168,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` now calls global bypass a failure rather than a warning — with it
+  on, nothing the tool generates reaches your speakers, but the report still
+  headlined "0 FAIL" and "Nothing failed outright". A run with any failure also
+  ends on a verdict again; it previously printed none.
+- `--doctor` stops asking you to confirm things it just reported: the output
+  sink when it can see your speakers are selected, alongside the bypass check
+  it already dropped. It also says presets *share* impulse files and that the
+  bypass preset isn't among those checked, so its counts add up on the page.
 - `--doctor`'s verdict now points at the `[WARN]` lines it actually prints. It
   said "the ⚠ lines above", a symbol neither report contains, so anyone
   scanning for it found nothing.
