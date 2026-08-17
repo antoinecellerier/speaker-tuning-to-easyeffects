@@ -1062,6 +1062,161 @@ def test_run_cli_guards_its_own_main(module_name, monkeypatch, capsys,
     ]
 
 
+# --- The root guard, and the mess a root run leaves behind ---
+#
+# Both halves are patched rather than staged: the only way to make a genuinely
+# root-owned file is to be root, and a suite that needs that is a suite nobody
+# can run on their own machine. euid is pinned in both directions for the same
+# reason — a container that runs the tests as root would otherwise flip the
+# negative cases without failing anything.
+
+def _pretend_root(monkeypatch):
+    """Answer euid 0 with no override set, for the length of one test."""
+    monkeypatch.setattr(console.os, "geteuid", lambda: 0)
+    monkeypatch.delenv(console._ALLOW_ROOT_ENV, raising=False)
+
+
+@pytest.mark.parametrize("module_name", ["dolby_to_easyeffects",
+                                         "ee_to_pipewire",
+                                         "dolby_to_pipewire"])
+def test_a_root_run_refuses_ahead_of_every_early_return(module_name,
+                                                        monkeypatch, capsys,
+                                                        silence_console):
+    """--doctor is the mode that proves the placement.
+
+    It returns before any write, so a guard sitting with the writes would let
+    it through — and it is the one mode that would then answer, reporting
+    root's EasyEffects directories and root's XDG_RUNTIME_DIR as facts about
+    the user who ran it, in a block written to be pasted into an issue.
+    """
+    import importlib
+    module = importlib.import_module(module_name)
+    silence_console(console)
+    _pretend_root(monkeypatch)
+
+    assert module.run_cli(["--doctor"]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("Error: you ran this as root,")
+    # The plain fix leads, and the override trails it carrying the condition
+    # that makes it safe. Both were misread the round they shared a sentence:
+    # the override read as the equal of the fix, and its first condition ("if
+    # root is the only user on this machine") was taken to mean a single-user
+    # laptop — which is every reader who gets here.
+    lines = out.splitlines()
+    assert lines[1] == ("Re-run the same command as your normal user, without "
+                        "the sudo.")
+    assert lines[2].startswith("  Only if you log into the desktop as root:")
+    assert console._ALLOW_ROOT_ENV in lines[2]
+    # Neither report ran: both open on a "===" section header.
+    assert "===" not in out
+
+
+def test_a_root_run_writes_nothing(tmp_path, monkeypatch, capsys,
+                                   silence_console):
+    """The refusal claims this in so many words, and nothing it can check
+    makes it true — only where the three entry points call it from."""
+    silence_console(console)
+    _pretend_root(monkeypatch)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out_dir, irs_dir = tmp_path / "out", tmp_path / "irs"
+
+    assert dolby_to_easyeffects.run_cli(
+        [str(xml), "--skip-ee-check",
+         "--output-dir", str(out_dir), "--irs-dir", str(irs_dir)]) == 1
+    assert "nothing was written" in capsys.readouterr().out
+    # Both, because the generator makes them separately and a run that got
+    # past the guard would leave at least the first behind.
+    assert not out_dir.exists()
+    assert not irs_dir.exists()
+
+
+def test_the_override_lets_a_root_run_through(monkeypatch):
+    """The one configuration the refusal would be wrong about: root is the
+    only account, and EasyEffects runs as root too."""
+    monkeypatch.setattr(console.os, "geteuid", lambda: 0)
+    monkeypatch.setenv(console._ALLOW_ROOT_ENV, "1")
+    assert console.refuse_root() is None
+
+
+@pytest.mark.parametrize("named_exists", [True, False],
+                         ids=["the-file", "the-directory-it-would-go-in"])
+def test_a_root_owned_leftover_says_how_to_take_it_back(named_exists, tmp_path,
+                                                        monkeypatch, capsys,
+                                                        silence_console):
+    """What an ordinary run hits after an earlier one was made with sudo.
+
+    The chown names what the errno named — the file when it exists, the
+    directory the write was headed for when it doesn't — and lands on its own
+    line, because a command folded into prose is one nobody can select. The
+    sentence claims only what a stat saw (this is owned by root) and offers
+    sudo as the mechanism, never as a history: asserted as history, a reader
+    who did not remember running it that way read it as an accusation, in the
+    line they were about to run with sudo themselves. `-R` rides the directory
+    case alone, and says what it takes.
+    """
+    silence_console(console)
+    monkeypatch.setattr(console.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(console, "_owner_uid", lambda path: 0)
+    directory = tmp_path / "output"
+    directory.mkdir()
+    named = directory / "Dolby-Balanced.json"
+    if named_exists:
+        named.write_text("{}")
+
+    def blocked():
+        raise PermissionError(13, "Permission denied", str(named))
+
+    assert console.run_guarded(blocked) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("Error: ")
+    assert "a run made with sudo leaves them that way" in lines[1]
+    if named_exists:
+        assert lines[1].startswith("That file is owned by root")
+        assert lines[2] == f"  sudo chown $USER: {doctor.tilde(named)}"
+    else:
+        assert lines[1].startswith("The directory it goes in is owned by root")
+        assert "everything in it" in lines[1]
+        assert lines[2] == f"  sudo chown -R $USER: {doctor.tilde(directory)}"
+
+
+def test_a_permission_error_on_a_file_we_own_keeps_the_help_pointer(
+        tmp_path, monkeypatch, capsys, silence_console):
+    """A full disk's read-only sibling is still an ordinary failure — the
+    leftover wording would send its reader to chown a file already theirs."""
+    silence_console(console)
+    monkeypatch.setattr(console.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(console, "_owner_uid", lambda path: 1000)
+    ours = tmp_path / "Dolby-Balanced.json"
+    ours.write_text("{}")
+
+    def blocked():
+        raise PermissionError(13, "Permission denied", str(ours))
+
+    assert console.run_guarded(blocked) == 1
+    assert capsys.readouterr().out.splitlines()[1] == DEFAULT_NEXT_STEP
+
+
+def test_a_raiser_that_chose_silence_keeps_it(tmp_path, monkeypatch, capsys,
+                                              silence_console):
+    """no_next_step's empty string is a choice, not an absence.
+
+    The leftover check only sees failures whose raiser named nothing at all,
+    which is why the fallback keys on None rather than on falsiness.
+    """
+    silence_console(console)
+    monkeypatch.setattr(console.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(console, "_owner_uid", lambda path: 0)
+    leftover = tmp_path / "Dolby-Balanced.json"
+    leftover.write_text("{}")
+
+    def blocked():
+        raise console.no_next_step(
+            PermissionError(13, "Permission denied", str(leftover)))
+
+    assert console.run_guarded(blocked) == 1
+    assert len(capsys.readouterr().out.splitlines()) == 1
+
+
 def test_the_two_failure_paths_end_on_one_sentence():
     """A bad flag and a raised failure point at --help in the same words.
 

@@ -190,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.no_color:
         console._disable_color()
+    # Ahead of the child runs, which carry the same guard: the wrapper's own
+    # is the one that fires, so the refusal is rendered once, here.
+    console.refuse_root()
 
     # Pre-check the one cross-flag rule the generator enforces post-parse,
     # so the error is framed by the wrapper instead of mid-run by the child.

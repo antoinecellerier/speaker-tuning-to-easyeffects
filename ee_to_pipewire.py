@@ -274,6 +274,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     args = parser.parse_args(argv)
     if args.no_color:
         console._disable_color()
+    console.refuse_root()
 
     # Inspection mode: reads the installed state, converts nothing, so the
     # preset positional is optional — and required for everything else.

@@ -593,6 +593,10 @@ def main(argv: list[str] | None = None,
     report_findings._TAG_CONVENTION_SHOWN = False
     if args.no_color:
         console._disable_color()
+    # Below --no-color so the refusal honours it, above everything else: this
+    # run has nowhere useful to write and nothing true to report, so it should
+    # not reach --speaker-info, --doctor or a flag conflict first.
+    console.refuse_root()
     disabled = set(args.disable)
     # A name in both directions is a contradiction, not a preference to
     # resolve — silently picking a winner would leave the user believing

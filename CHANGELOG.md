@@ -60,6 +60,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- Running any of the three commands as root now stops with an explanation
+  instead of writing a preset into root's home, where your session never looks
+  — or into yours owned by root, where your next run can no longer replace it.
+  Prefix the command with `ALLOW_ROOT=1` to run anyway, if you log into the
+  desktop as root.
 - `--doctor` now reports EasyEffects' global bypass, the first thing to suspect
   behind "I hear no difference" and previously something only you could check
   by hand. It warns when bypass is on, and stops asking you to verify it once
@@ -227,6 +232,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   EasyEffects tree, and a missing NumPy or SciPy now says which one to install
   instead of printing a traceback — the output directories are created only
   once every check that can stop the run has passed.
+- A run blocked by a root-owned file an earlier `sudo` run left behind now
+  names that file and the `chown` that takes it back, instead of ending on a
+  bare permission error and a pointer to `--help`.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer print a Python
   traceback when a run fails. All three commands now end a failed run the same
   way the generator already did: one line saying what went wrong, and what to

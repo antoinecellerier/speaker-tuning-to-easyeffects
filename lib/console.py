@@ -54,10 +54,12 @@ on when nothing more specific is known.
 """
 
 import argparse
+import os
 import shutil
 import sys
 import textwrap
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from lib import doctor, version
 
@@ -172,6 +174,128 @@ def no_next_step(exc):
     return exc
 
 
+# An environment variable rather than a flag, for the case it exists for: the
+# desktop session is itself root's, so what we write does reach it. That is
+# rare enough not to earn a line in three --help listings and in the README's
+# mirror of them, and this way it reaches dolby_to_pipewire.py's in-process
+# child runs without being rebuilt into their argv. The cost is that it fails
+# open: an ALLOW_ROOT inherited from something else skips the guard silently,
+# and the run it exists to stop goes ahead.
+
+_ALLOW_ROOT_ENV = "ALLOW_ROOT"
+
+
+def refuse_root() -> None:
+    """Stop a run whose output nothing in the user's session would read.
+
+    Everything all three entry points write lands in a home directory
+    (~/.local/share/easyeffects, ~/.config/pipewire), and everything that then
+    consumes it — EasyEffects, WirePlumber, ``systemctl --user`` — is per-user.
+    So root is not a more capable version of this run, it is a different one.
+    Which way it fails depends on sudoers: with $HOME reset (the ``env_reset``
+    default) what we write lands under /root, where the user's session never
+    looks; with $HOME kept it lands in the right place owned by root, and the
+    next ordinary run cannot replace it.
+
+    Refuses every mode, including the ones that write nothing, and the message
+    says so ("nothing was written") — which is a claim about *where callers
+    put this*, not about anything it can check. It holds only while every
+    entry point calls it directly after parse_args, ahead of its first mkdir.
+
+    --doctor is in fact the worst of them, because it answers: it probes root's
+    EasyEffects
+    directories and root's XDG_RUNTIME_DIR and reports what it finds as facts
+    about a user who is not the one running it — in a block written to be
+    pasted into an issue.
+
+    The message names no path on purpose. run_guarded renders it through
+    doctor.tilde(), and under sudo $HOME *is* /root, so an interpolated
+    /root/.local/share/easyeffects would print as ``~`` — reading as the
+    user's own home, the opposite of the point. It names no user either:
+    SUDO_USER would make the next step more concrete, at the cost of putting a
+    login into output people paste, which tests/test_cli.py's
+    test_a_run_never_prints_the_users_name holds the line on everywhere else.
+    """
+    if os.geteuid() != 0 or os.environ.get(_ALLOW_ROOT_ENV):
+        return
+    exc = RuntimeError(
+        "you ran this as root, so nothing was written. As root the files land "
+        "under root's home, where your session never looks — or, if sudo kept "
+        "your HOME, in yours but owned by root, where your next run could not "
+        "replace them.")
+    # Two lines, and in this order, because both halves were misread when they
+    # were one. "run as root" opened the sentence as an instruction rather than
+    # a report of what just happened; the override, sharing the body with the
+    # explanation, read as the equal of the real fix; and its condition — first
+    # written "if root is the only user on this machine" — was taken to mean a
+    # single-user laptop, which is every reader who reaches this and precisely
+    # the one it must not license. The condition is now what actually makes the
+    # override safe: the session consuming these files is root's own.
+    exc.next_step = (
+        "Re-run the same command as your normal user, without the sudo.\n"
+        "  Only if you log into the desktop as root: prefix it with "
+        f"{_ALLOW_ROOT_ENV}=1 instead.")
+    raise exc
+
+
+def _owner_uid(path: Path) -> int:
+    """``path``'s owning uid. A function of its own so a test can answer for
+    it: the only way to make a genuinely root-owned file is to be root."""
+    return path.stat().st_uid
+
+
+def _leftover_next_step(exc):
+    """What to do about a permission failure an earlier root run caused, or
+    None when this failure is not that.
+
+    The other half of refuse_root, for whoever already got a root run in — it
+    predates the guard, or the override let it through: a run that kept $HOME
+    leaves root-owned files in the user's own tree, and every ordinary run
+    after it dies on ``[Errno 13] Permission denied`` with the generic --help
+    pointer under it — a flag list, for a problem no flag fixes.
+
+    Says only what the errno and one stat support — this path is owned by
+    root — and offers the sudo run as the mechanism that produces that, not as
+    a history it cannot see. Asserted the other way round ("a root-owned file
+    from an earlier sudo run"), a reader who did not remember running it with
+    sudo read it as the tool claiming they had, in the one line they were
+    about to run with sudo themselves. The same reader asked what a recursive
+    chown was about to touch, so the -R is both scoped to the directory case
+    and named: it appears only where the thing owned by root is a directory,
+    and the sentence says it takes the contents too.
+
+    Scoped to exactly what the errno named: the file when it exists, the
+    directory we failed to create in when it doesn't. A sudo run usually left
+    a whole subtree, so a second failure after the first chown is possible;
+    naming a wider tree to pre-empt it would put a recursive chown on a path
+    the user was never told about. The command goes on its own line for the
+    reason doctor.emit_check splits detail from steps — one folded across two
+    is not runnable.
+    """
+    if not isinstance(exc, PermissionError) or os.geteuid() == 0:
+        return None
+    named = getattr(exc, "filename", None)
+    if not named:
+        return None
+    try:
+        target = Path(named)
+        if not target.exists():
+            target = target.parent
+        if _owner_uid(target) != 0:
+            return None
+        is_dir = target.is_dir()
+    except OSError:
+        # Raised from inside the handler below, this would replace a clean
+        # error line with a traceback — the failure run_guarded exists to stop.
+        return None
+    what, take, flag = (
+        ("The directory it goes in is", "Take it and everything in it", "-R ")
+        if is_dir else ("That file is", "Take it", ""))
+    return (f"{what} owned by root — a run made with sudo leaves them that "
+            f"way. {take} back with:\n"
+            f"  sudo chown {flag}$USER: {doctor.tilde(target)}")
+
+
 def run_guarded(run) -> int:
     """Run ``run()``, rendering a failure the user can act on as one line.
 
@@ -188,6 +312,10 @@ def run_guarded(run) -> int:
 
     What follows the error line is the raiser's to choose, via a ``next_step``
     attribute on the exception (``no_next_step`` above sets the empty one).
+    A raise that chose nothing falls to ``_leftover_next_step`` and then to
+    ``_HELP_HINT``: the OSErrors reach here from a dozen write sites that
+    cannot tell an ordinary permission failure from one a past sudo run left,
+    and this is the one place that can look.
     Exception *class* cannot make that choice for it — FileNotFoundError is
     raised for three unrelated kinds of failure here and ValueError for two —
     so the site that wrote the message is the only place that knows whether
@@ -200,7 +328,14 @@ def run_guarded(run) -> int:
         # discovery errors name several paths mid-sentence, and an OSError
         # names one inside repr quotes. This is where all of them print.
         cprint("err", f"Error: {doctor.tilde(e)}")
-        next_step = getattr(e, "next_step", _HELP_HINT)
+        # None, not _HELP_HINT, as the "nothing was chosen" value: the raiser
+        # gets first say — including no_next_step's empty string, which has to
+        # stay silent — and only an unclaimed failure is offered to the
+        # leftover check, which is the one thing here that can recognise a
+        # failure the raise site had no way to name.
+        next_step = getattr(e, "next_step", None)
+        if next_step is None:
+            next_step = _leftover_next_step(e) or _HELP_HINT
         if next_step:
             cprint("cta", next_step)
         return 1
