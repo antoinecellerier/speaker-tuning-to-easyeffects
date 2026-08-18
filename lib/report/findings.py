@@ -212,7 +212,8 @@ def _boost_unlimited_finding(peak_db: float, freq,
     # --enable level-restore the peak itself is added back as gain, so
     # "with the volmax boost on top" would describe half the drive. The
     # clause stays one phrase either way — this is a detail line, and the
-    # flag's own menu entry carries the "may distort" caveat.
+    # flag's own menu entry and the [level-restore] finding carry the
+    # distortion caveat.
     on_top = ("the volmax boost and the restored level on top" if restored
               else "the volmax boost on top")
     return Finding(
@@ -256,6 +257,30 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
                "check out, but nobody with a device that uses them has told "
                "us how they sound.",
         ask=ask)
+
+
+def _level_restore_finding() -> Finding:
+    """--enable level-restore is on, and one device has now heard it.
+
+    Deliberately not one of the EXPERIMENTAL_MARKERS paths above: those are
+    reproduced-but-never-auditioned, and this one was auditioned on the dev
+    device on 2026-08-18, where loud speech picked up audible artifacts. That
+    is a specific thing to warn about and a specific thing to ask a second
+    device, neither of which the shared "nobody has told us how they sound"
+    wording can carry. The one-device qualifier is load-bearing: it is the
+    whole reason the flag is still worth trying elsewhere.
+    """
+    return Finding(
+        slug="level-restore", kind="ask",
+        detail="Restored level is on: the correction curve is handed back "
+               "as gain, so every band plays louder and the final limiter "
+               "has more to hold back. On the one device it has been "
+               "listened to, loud speech picked up audible artifacts.",
+        # No --disable volmax here: the boost-unlimited/loudness-untamed ask
+        # owns that remedy's wording, and two phrasings for one fix read as
+        # two different fixes.
+        ask="Does loud speech stay clean on yours, with and without the "
+            "flag (issue #50)?")
 
 
 def _firmware_gate_finding() -> Finding:

@@ -70,8 +70,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - **[AUDIBLE]** (opt-in) New experimental `--enable level-restore` flag gives
   back the level the impulse response was normalised by, so a tuning whose
   loudest band outruns its loudness boost stops playing quieter than the
-  preset switched off. It costs limiter headroom on loud content and is not
-  yet heard by ear; default presets are unchanged
+  preset switched off. It costs limiter headroom — loud speech distorted on
+  the one device that has heard it — so it stays opt-in and default presets
+  are unchanged
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-out) New `--disable autogain` flag switches the volume

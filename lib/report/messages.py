@@ -123,8 +123,13 @@ ENABLEABLE_FILTERS = {
     # The distinction is the whole diagnosis — autogain closes a gap against
     # Windows, this one closes a gap against bypass, which is the symptom
     # that identifies a curve whose peak outruns its volmax-boost.
+    # "loud content may distort" until 2026-08-18, when the dev device
+    # finally heard it and loud speech picked up audible artifacts. Keep the
+    # claim pinned to one device — nothing has been auditioned anywhere else
+    # — but state it as something that happened, not something that might.
     "level-restore": ("it sounds quieter than with the preset switched off",
-                      "experimental; loud content may distort (issue #50)"),
+                      "experimental; loud speech distorted on the one "
+                      "device tested (issue #50)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -138,14 +143,17 @@ ENABLEABLE_FILTERS = {
 # essentially every run, and an ask that is never absent is an ask nobody
 # reads — the closing block is written for someone who runs this once. The
 # mapping's unvalidated status is recorded in docs/reference.md instead.
+# "level-restore-active" left on 2026-08-18 for the opposite reason: it HAS
+# been heard now — loud speech turned artefacty on the dev device — so the
+# shared "nobody has told us how they sound" wording became false for it. It
+# raises its own finding instead (findings.py `_level_restore_finding`),
+# which can say what was heard and ask a second device the same question.
 # Plain name first, the tuning's own token in parentheses (round 8:
 # "type-3 high-shelf" bare read as an undefined severity level).
 EXPERIMENTAL_MARKERS = {
     "high-shelf": "a treble shelf boost (the tuning's type-3 high-shelf)",
     "lo-pass": "a top-end rolloff (type-6/8 low-pass)",
     "mbc-1band": "the compressor running as a single band (group_count=1)",
-    "level-restore-active": "the level the impulse response was normalised by, "
-                            "handed back as a static gain",
 }
 
 

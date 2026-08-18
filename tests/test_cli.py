@@ -296,7 +296,7 @@ def test_experimental_markers_exclude_coupled_bands_activation():
     runs this once. Locks the full marker set so drift is deliberate."""
     from lib.report.messages import EXPERIMENTAL_MARKERS
     assert set(EXPERIMENTAL_MARKERS) == {
-        "high-shelf", "lo-pass", "mbc-1band", "level-restore-active",
+        "high-shelf", "lo-pass", "mbc-1band",
     }
     eligible = synthetic_regulator([-6.0] * 10 + [0.0] * 10,
                                    isolated_band=[1] * 10 + [0] * 10)
@@ -2011,6 +2011,7 @@ def _every_finding():
         report_findings._boost_unlimited_finding(12.0, 120),
         report_findings._experimental_finding("type-3 high-shelf",
                                                    ["high-shelf"]),
+        report_findings._level_restore_finding(),
     ]
     return [f for f in found if f is not None]
 

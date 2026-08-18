@@ -262,7 +262,8 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   exceeds it the preset plays below bypass. The experimental
   `--enable level-restore` flag hands the normalisation scalar back to the
   regulator's gain slot (XML-derived — it is `make_fir`'s own `peak_db` —
-  but **unheard on device**; design-notes "Giving back what normalisation
+  but **heard on one device only, 2026-08-18, where loud speech picked up
+  audible artifacts**; design-notes "Giving back what normalisation
   removed", issue [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   default output is unchanged).
 - **Always-inert / out-of-scope XML fields** — deliberately ignored because

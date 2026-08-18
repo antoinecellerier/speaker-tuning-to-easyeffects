@@ -209,7 +209,7 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 | Name | What to try if you hear... |
 |------|----------------------------|
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler — see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet). |
-| `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, so try `--disable volmax` if loud content distorts, and report on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
+| `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, and on the one device that has listened, loud speech picked up audible artifacts; try `--disable volmax` if yours does too, and report either way on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 

@@ -2882,15 +2882,43 @@ on the `pink` stimulus at two levels; `multitone` and the sweeps carry no
 absolute data on the DAX side (`tones`/`ir` npz store normalised amplitudes,
 so `--absolute` skips them by design, not by omission).
 
-**Status: opt-in, measured on two devices, not yet heard.** Default output is
-unchanged and pinned by the `level-restore-available-but-off` golden digest.
-The second-device requirement in the XML-only bar is now met, so the remaining
-gate is a listening pass — specifically on loud, dense material, which is where
-the limiter measurably works hardest and where neither device has been
-auditioned. The dev-device listening check on 2026-08-04 confirmed "noticeably
-louder" but could not reach high volume. Until that is closed the flag stays
-opt-in, and the loud-content cost is an argument for leaving it there even
-after.
+### Heard on the dev device, 2026-08-18
+
+The listening gate closed, and it closed against the flag: on loud-talking
+content — a loudish podcast — the restored preset produces **audible
+artifacts** on the dev device (X1 Yoga G7, `17AA22E6`, restore +11.3 dB).
+
+That is the content the battery above predicted would be worst, and the two
+agree: sustained dense mid-band energy is what drives the limiter, and on the
+multitone the same flag raised non-stimulus energy from −44.4 dB to
+−22.6 dB. Point 3 of that battery ("the cost is on loud content, and nothing
+in the chain catches it") is now confirmed by ear as well as by number — on
+the device where the restore is largest, and where every EE–DAX table above
+says the *level* is right.
+
+**What it settles.** Restoring the whole peak cannot become the default. The
+flag stays as it shipped, opt-in, and its copy now names what was heard rather
+than saying nobody has heard it — which is also why `level-restore-active`
+left `EXPERIMENTAL_MARKERS` for a finding of its own.
+
+**What it does not settle.** One device, one kind of content, one volume
+setting (not recorded). Untested: whether `--disable volmax` — −6.0 dB of
+drive on this tuning, and the mitigation both the README and the
+`boost-unlimited` ask already offer — clears the artifacts; and whether a
+`peak − volmax`-aware restore, the smaller correction the second-device
+overshoot argued for, stays under the limiter on this content. Reports from
+other devices are still worth having: the restore that closed a 12 dB absolute
+gap here is +8.4 dB on `17AA380D`, where the tuning's own `volmax-boost`
+already covered most of it — so how much extra drive the flag actually adds
+varies device to device, and one where it stays clean would say the size is
+the problem rather than the idea.
+
+**Status: opt-in, measured on two devices, heard on one — where loud speech
+costs audible artifacts.** Default output is unchanged and pinned by the
+`level-restore-available-but-off` golden digest. The XML-only bar's
+second-device requirement is met and the listening gate is now answered
+negatively, so the flag stays opt-in and a default flip is off the table until
+a smaller restore or a mitigation is measured.
 
 ## Selecting the chain as the system output (issue [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63))
 

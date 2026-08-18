@@ -866,6 +866,16 @@ def main(argv: list[str] | None = None,
                 [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
         _print_finding_detail(tally.findings["unconfirmed-by-ear"])
 
+    # --enable level-restore is the one experimental path that HAS been
+    # heard (dev device, 2026-08-18: loud speech picked up artifacts), so it
+    # gets its own finding rather than the never-heard wording above. Gated
+    # on the marker, not the flag: the flag does nothing on a tuning whose
+    # peak the convolver never removed.
+    if "level-restore-active" in tally.filters_by_profile:
+        tally.findings.setdefault(
+            "level-restore", report_findings._level_restore_finding())
+        _print_finding_detail(tally.findings["level-restore"])
+
     # Gated on the leveler actually running, not on the flag being passed:
     # --enable autogain does nothing when the XML disables the leveler, and
     # escalating on the flag alone contradicted the "had no effect" warning
