@@ -60,34 +60,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- Running any of the three commands as root now stops with an explanation
-  instead of writing a preset into root's home, where your session never looks
-  — or into yours owned by root, where your next run can no longer replace it.
-  Prefix the command with `ALLOW_ROOT=1` to run anyway, if you log into the
-  desktop as root.
-- `--doctor` now reports EasyEffects' global bypass, the first thing to suspect
-  behind "I hear no difference" and previously something only you could check
-  by hand. It warns when bypass is on, and stops asking you to verify it once
-  it has read it.
-- On the PipeWire path, `--doctor` now reports which output is selected: the
-  filter chain itself, where its volume control and your speakers' both apply;
-  a virtual-sink chain nothing is playing through; or a remembered choice
-  pointing at a chain that is gone, which takes over again as soon as a chain
-  of that name comes back. The environment block names the selected and
-  remembered outputs
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
-  measurements in `docs/design-notes.md`).
-- When a chain is your selected output, `--doctor` now names the volume of the
-  sink it feeds — the level that comes off everything and that your slider no
-  longer shows — and a `--target-sink ''` run names your speakers' level as it
-  writes the conf. Both are for that mode, where two controls in series are
-  unavoidable
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
-- `--doctor` also reports a filter chain left turned down on its own volume
-  control. It attenuates everything the chain processes even when your speakers
-  are the selected output, and no sound-settings slider shows it
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
-  measured in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New `--enable autogain` activates the volume leveler
   for Windows-level loudness on HDA devices, where it ships bypassed — it
   stays opt-in because the gain ride can audibly saturate quiet backgrounds.
@@ -98,9 +70,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - **[AUDIBLE]** (opt-in) New experimental `--enable level-restore` flag gives
   back the level the impulse response was normalised by, so a tuning whose
   loudest band outruns its loudness boost stops playing quieter than the
-  preset switched off. Measured to narrow the absolute gap to Windows, at a
-  cost in limiter drive on loud content; not yet heard by ear, and default
-  presets are unchanged
+  preset switched off. It costs limiter headroom on loud content and is not
+  yet heard by ear; default presets are unchanged
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-out) New `--disable autogain` flag switches the volume
@@ -109,10 +80,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged (README "Disabling and enabling filters").
 - Warns when your firmware hides a speaker pin, so Linux never drives those
   speakers — usually the woofers — and the preset shapes the rest alone. Where
-  upstream Linux ships a fix, it prints the one-line `hda_model=` command that
-  forces it, the kernel version that carries it, and how to undo it.
-  `--speaker-info` also flags pins the kernel left unconfigured, and any it
-  drives against the firmware's description
+  upstream Linux ships a fix, the run prints the one-line `hda_model=` command
+  that forces it, and `--speaker-info` flags pins the kernel left unconfigured
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
   mechanism and the manufacturer-spec cross-check in `docs/design-notes.md`).
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
@@ -126,6 +95,32 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   missing impulse response, a target sink that no longer exists — with the
   command to fix each and a block to paste into an issue
   ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
+- `--doctor` now checks EasyEffects' global bypass, the first thing to suspect
+  behind "I hear no difference" and previously something only you could check
+  by hand. Bypass on is a failure — nothing generated here reaches your
+  speakers — and the closing block stops asking you to verify it once it has
+  read it.
+- On the PipeWire path, `--doctor` now reports which output is selected: the
+  filter chain, where its volume control and your speakers' both apply; a
+  virtual-sink chain nothing is playing through; or a remembered choice
+  pointing at a chain that is gone, which takes over again as soon as a chain
+  of that name comes back
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
+  measurements in `docs/design-notes.md`).
+- `--doctor` also reports a filter chain left turned down on its own volume
+  control. It attenuates everything the chain processes even when your speakers
+  are the selected output, and no sound-settings slider shows it
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
+  measured in `docs/design-notes.md`).
+- When a chain is your selected output, `--doctor` names the volume of the sink
+  it feeds — the level that applies to everything and that your slider no
+  longer shows — and a `--target-sink ''` run names your speakers' level as it
+  writes the conf
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
+- Running any of the three commands as root now stops with an explanation
+  instead of writing a preset into root's home, where your session never looks
+  — or into yours owned by root, where your next run can no longer replace it.
+  `ALLOW_ROOT=1` runs it anyway, for a desktop session that really is root's.
 - A run now warns when the tuning's largest correction boost lands on a
   band the speaker-protection limiter leaves unlimited, so that boost and
   the volmax gain reach the final limiter unprotected. Suggests
@@ -173,35 +168,26 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
-- `--doctor` now calls global bypass a failure rather than a warning — with it
-  on, nothing the tool generates reaches your speakers, but the report still
-  headlined "0 FAIL" and "Nothing failed outright". A run with any failure also
-  ends on a verdict again; it previously printed none.
-- `--doctor` stops asking you to confirm things it just reported: the output
-  sink when it can see your speakers are selected, alongside the bypass check
-  it already dropped. It also says presets *share* impulse files and that the
-  bypass preset isn't among those checked, so its counts add up on the page.
-- `--doctor`'s verdict now points at the `[WARN]` lines it actually prints. It
-  said "the ⚠ lines above", a symbol neither report contains, so anyone
-  scanning for it found nothing.
-- On the EasyEffects path, `--doctor` no longer reports a preset, output sink
-  or bypass state that is hours out of date — it now asks the running
-  EasyEffects and PipeWire instead of reading a config file EasyEffects only
-  writes when it quits or while its window is open. It could previously report
-  the silent bypass preset, or a Bluetooth headset that was not even connected,
-  while a Dolby preset played on the speakers.
-- Reports no longer print a connected Bluetooth device's address. Its node name
-  carries the MAC, and the sink listings in `--doctor` and in a `--autoload` run
-  name every output on the machine — blocks the issue form asks you to paste
-  whole. The device is still reported, just without the address
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
-  whose tuning switches the audio optimizer off. `audio-optimizer-enable` was
-  never read, so a curve shipped alongside a disabled optimizer was applied
-  anyway. Affects the `off` profile and a few devices' `music` profile,
+  whose tuning switches the audio optimizer off — `audio-optimizer-enable` was
+  never read. Affects the `off` profile and a few devices' `music` profile,
   unchanged everywhere else and not yet heard on affected hardware; re-run to
   regenerate ([docs/cross-device-findings.md](docs/cross-device-findings.md)
   "Curves shipped with the optimizer switched off").
+- On the EasyEffects path, `--doctor` no longer reports a preset, output sink
+  or bypass state hours out of date: it now asks the running EasyEffects and
+  PipeWire rather than a config file EasyEffects writes only on quit. It could
+  name the silent bypass preset, or a disconnected Bluetooth headset, while a
+  Dolby preset played.
+- `--doctor` no longer reports "No blocking problems detected" beside a
+  warning: the verdict was computed from the EasyEffects-side checks only, so
+  a smart-amp firmware gate that mutes the speakers never reached it. Any
+  warning now suppresses the all-clear, and `--doctor` / `--speaker-info`
+  print the one-line `amixer` command that switches the gate on.
+- A `--doctor` run that fails now ends on a verdict again — every closing
+  branch was guarded on nothing having failed, so the state most needing an
+  instruction printed none. The verdict also points at the `[WARN]` lines it
+  prints, rather than a `⚠` symbol neither report contains.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
   conf when the schema self-check can't read `lv2info`'s output, or can't run
   it for one plugin. A limit the check cannot use is left unchecked and
@@ -212,11 +198,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   generator's defaults follow whichever install you have, so the manual
   two-step looked for the file in a directory that never had it. Only the
   two-step was affected — `dolby_to_pipewire.py` passes the directory itself.
-- `--doctor` no longer reports "No blocking problems detected" beside a
-  warning: the verdict was computed from the EasyEffects-side checks only, so
-  a smart-amp firmware gate that mutes the speakers never reached it. Any
-  warning now suppresses the all-clear, and `--doctor` / `--speaker-info`
-  print the one-line `amixer` command that switches the gate on.
 - The smart-amp firmware-gate fix command printed at the end of a run now
   works on current kernels: it spells the control's `iface` out instead of
   letting a bare `name=` lookup guess it wrong. The firmware self-check also
@@ -243,11 +224,20 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   than a standard terminal is wide, and coloured output reflowed it mid-URL —
   as did the four "unusual XML field" notes, which carried their own copy of a
   link inside wrapped prose. There is now one link and nothing wraps it.
+- Reports no longer print a connected Bluetooth device's address. Its node name
+  carries the MAC, and the sink listings in `--doctor` and in a `--autoload` run
+  name every output on the machine — blocks the issue form asks you to paste
+  whole. The device is still reported, just without the address
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - A run no longer prints your username: every path it reports — presets
   written, PipeWire files, the tuning XML it matched, error messages — renders
-  your home as `~/…` and a mounted Windows partition as `/run/media/$USER/…`,
-  so the log pastes into a public issue report as-is. The undo and re-run
-  commands keep the absolute path, since a shell expands neither inside quotes.
+  your home as `~/…`, so the log pastes into a public issue report as-is. The
+  undo and re-run commands keep the absolute path, since a shell expands
+  neither inside quotes.
+- `--doctor` stops asking you to confirm what it just read: the output-sink
+  bullet drops out when it can see your speakers are selected, as the bypass
+  one already does. Its preset counts now say presets *share* impulse files
+  and that the bypass preset isn't among those checked, so they add up.
 - The PipeWire converter now writes the multiband compressor's
   compression-mode and boost settings explicitly instead of inheriting
   plugin defaults (same output today, but no longer tied to
@@ -255,33 +245,31 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   can't translate instead of dropping it silently. Re-run
   `ee_to_pipewire.py` to regenerate (`docs/ee-to-pipewire.md`).
 - A copy downloaded as a zip or tarball reports its version instead of
-  `unknown`: git now writes the version into the archive as it builds it,
-  rather than the tool looking for a `.git` directory a download doesn't have.
-  So `--version`, `--doctor`, and the stamp on every preset and `.conf` say
-  which build produced them in a device report. Applies to releases from this
-  one on.
+  `unknown`, so `--version`, `--doctor`, and the stamp on every preset and
+  `.conf` say which build produced them in a device report. Git now writes the
+  version into the archive as it builds it. Applies to releases from this one
+  on.
 
 ### Changed
 
-- On the PipeWire path, a smart-filter chain now calls itself
-  "<preset> (speaker filter)" in sound settings, and the run says to leave your
-  speakers selected — the chain is inserted into them automatically, and
-  picking it instead stacks a second volume control in front of them. With
-  `--target-sink ''` the run now says the opposite, including on the fallback
-  where speaker detection failed; re-run to regenerate
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - **[AUDIBLE]** Peaks on loud content are caught earlier on tunings that left
   part of the range unprotected, instead of landing on the final limiter.
-  Nothing changes below peak levels, and the engaged path is measured but not
-  yet heard by ear. `--disable coupled-bands` restores the old behaviour —
-  re-run to regenerate
+  Below peak levels the measured difference is negligible; the engaged path is
+  neither captured nor heard by ear yet. `--disable coupled-bands` restores the
+  old behaviour — re-run to regenerate
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
-  measurements and why in `docs/design-notes.md`).
+  why in `docs/design-notes.md`).
 - The end of a run now confirms success and states its guaranteed differences
   from Windows: the leveler is off by default, and which sound mode was
   built. It then separates fixes you can apply from the project's one-line
   asks, and the warnings that used to print mid-run are no longer buried
   under the per-band tables.
+- On the PipeWire path, a smart-filter chain now calls itself
+  "<preset> (speaker filter)" in sound settings, and the run says to leave your
+  speakers selected — the chain is inserted into them automatically, and
+  picking it instead stacks a second volume control in front. A
+  `--target-sink ''` run says the opposite; re-run to regenerate
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - `--doctor` now ends on what to do about a problem instead of the hardware
   dump, so the checks, verdict and fix commands survive a short terminal. It
   prints those fix commands — the speaker-pin `hda_model=` procedure, the
@@ -302,10 +290,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   was already exempt and stays so.
 - The smart-amp section no longer ends on steps you can't take: missing
   firmware says to update `linux-firmware` and report the log line naming the
-  file, instead of describing a Windows-driver extraction; the `amixer` line
-  says what to do when it can't find your card; and the persistence fallback
-  asks you to get in touch instead of naming a systemd unit it never showed
-  you.
+  file; the `amixer` line says what to do when it can't find your card; and
+  the persistence fallback asks you to get in touch instead of naming a
+  systemd unit it never showed you.
 - The voicing-strength line no longer gives a percentage and then says Windows
   applies none in the same breath: where the profile switches voicing off it
   now leads with that, and says the percentage is ours and what it buys. The
