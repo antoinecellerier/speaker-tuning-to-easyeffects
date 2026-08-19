@@ -99,7 +99,23 @@ Do it early. Skipping it in #53's triage produced three wrong leads (#50, #36,
 #46 all called likely hits on "one pin + no quirk entry"); the spec refuted
 every one in a single pass.
 
-- **Lenovo** — the PSREF static spec PDF, and read the `Speakers` line:
+- **Lenovo — resolve the machine type to the global model name first.** The
+  name a reporter gives you may be regional (China's XiaoXin / 小新 line), and
+  PSREF only carries global names, so searching the name they typed lands in
+  regional retail listings and never reaches PSREF. The machine type is the
+  region-independent key and `--speaker-info` already prints it (`Product:`,
+  e.g. `83SG`). Search **that alone**, restricted to `psref.lenovo.com`: result
+  titles read `<Family>, <Model name>, Model:<MTM>`. Verified both ways —
+  `83SG` → IdeaPad Pro 5 14AGP11 (#67, whose DMI says "XiaoXinPro 14GT AGP11")
+  and `21CD` → ThinkPad X1 Yoga Gen 7, the development machine. PSREF's own
+  APIs 403/404 and its pages are JS shells, so this is a search you run, not
+  something to automate.
+- **Never identify a Lenovo by its model suffix.** `14AGP11` alone is shared by
+  the IdeaPad Pro 5, the IdeaPad Slim 5 and the Yoga Slim 7 — and in #67 the
+  Yoga Slim 7 14AGP11 publishes four drivers and an amplifier where the
+  reporter's actual IdeaPad Pro 5 14AGP11 has "Stereo speakers, 2W x2". The
+  suffix narrows the candidates; only the machine type picks one.
+- **Lenovo** — then the PSREF static spec PDF, and read the `Speakers` line:
   `https://psref.lenovo.com/syspool/Sys/PDF/<Family>/<Slug>/<Slug>_Spec.pdf`
   (e.g. `.../Yoga/Yoga_7_16IAH7/Yoga_7_16IAH7_Spec.pdf`). Use the PDF, not the
   `/Product/…` page — that's a JS app and fetches as an empty shell.
