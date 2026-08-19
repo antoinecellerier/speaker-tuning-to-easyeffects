@@ -66,6 +66,8 @@ When auditing whether EE is applying the current preset:
 | `dynamics_gap.py` | Read-only (no capture): why EE's per-band gain reduction falls short of DAX's on the same stepped battery — separates a wrong MBC decode from the upstream level gap from the regulator under-engaging. The analysis behind the still-open design-notes entries 6/11; re-run it when a new device's stepped captures land |
 | `leveler_curve.py` | Read-only (no capture): DAX's volume-leveler gain versus input level, as DAX-on minus DAX-off at each rung of the pink ladder. The measurement the autogain constants (design-notes entries 7/10) are approximating. Works on a two-rung archive and says so; the capture procedure for the full ladder is in `tools/measure_dax/CLAUDE_WINDOWS.md` |
 | `scaling_report.py` | Read-only (no capture): reproduces the named scaling-campaign results (Finding 9, entries 2/6/11, q-mode) from one session's EE + DAX captures. Point it at a new session with `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another device |
+| `render_vbe_chain.py` | Offline (no capture, no audio): renders the issue-#14 virtual-bass chain — LSP brick-wall band-pass → Calf Saturator → brick-wall post-band — one `lv2apply` subprocess per stage, every intermediate written plus a provenance sidecar. Defaults reproduce the 2026-05-06 PoC bit-for-bit (design-notes Finding 8) |
+| `analyze_vbe_chain.py` | Read-only (no capture): harmonic tables for bass-burst WAVs — per-tone harmonic magnitudes, Δ3/Δ5/Δ7, odd/even ratio, crest factor — on any labeled set of renders/captures. Same metric definitions as the Finding 8 investigation, so numbers stay comparable |
 
 ## Usage
 

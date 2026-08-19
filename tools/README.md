@@ -18,8 +18,9 @@ files that look misplaced" below before touching it.
 **The capture and comparison scripts touch your audio devices.** They mute
 speakers, reroute sinks and swap presets, so they run behind the audio handoff
 in CLAUDE.md — use the **/audio-validate** skill rather than invoking them ad
-hoc. (`validate_conf.py` is the exception: it needs no audio and no PipeWire
-daemon.)
+hoc. (`validate_conf.py`, `measure_ee/render_vbe_chain.py` and
+`measure_ee/analyze_vbe_chain.py` are the exceptions: file-in/file-out, no
+audio and no PipeWire daemon.)
 
 ## Root scripts
 
