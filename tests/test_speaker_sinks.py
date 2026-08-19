@@ -1390,7 +1390,8 @@ def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
 
 
 # 17AA:386A is the issue #53 machine: in the table, HDA_CODEC_QUIRK-keyed, and
-# its quirk (b70f007a9fc6) is merged for 7.2 but in no released kernel yet.
+# fixed by b70f007a9fc6. Its `since` is machine-written and moves on upstream's
+# schedule, so no test here may assume a value for it.
 ISSUE_53_SSID = "0x17aa386a"
 
 # The state that used to be unreadable: the fixup is applied, so the driver
@@ -1537,7 +1538,8 @@ def test_warning_offers_no_modprobe_line_without_a_forcible_name(capsys):
 def test_hidden_pin_warning_copy(capsys):
     info = _info([_codec_dump(ssid=ISSUE_53_SSID,
                               bass_pin_default="0x411111f0")])
-    finding = report_speaker.warn_hidden_speaker_pin(speakers.find_hidden_speaker_pin(info), info)
+    found = speakers.find_hidden_speaker_pin(info)
+    finding = report_speaker.warn_hidden_speaker_pin(found, info)
     out = capsys.readouterr().out
     assert finding is not None and finding.kind == "hint"
     # The fix, its verification, and its undo must all be present: a modprobe
@@ -1545,9 +1547,13 @@ def test_hidden_pin_warning_copy(capsys):
     assert "alc287-yoga9-bass-spk-pin" in out
     assert "--speaker-info" in out
     assert f"rm {report_speaker._MODPROBE_CONF}" in out
-    # 386A's quirk is mainline-only, so "upgrade your kernel" would be a dead
-    # end and must not be what the user is told to do.
-    assert "not in any released kernel yet" in out
+    # The upgrade route has to be the one this machine's row implies — but
+    # which one that is moves under the weekly table refresh, and quoting a
+    # branch's wording here failed the week 386A's quirk reached a release.
+    # So: assert the block prints whatever upgrade_prospect returns for the
+    # matched row, and leave which branch says what to the tests below.
+    assert " ".join(report_speaker.upgrade_prospect(found[0], info.kernel).split()) \
+        in " ".join(out.split())
 
 
 def test_hidden_pin_warning_silent_without_match(capsys):

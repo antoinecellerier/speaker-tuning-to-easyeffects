@@ -12,10 +12,12 @@ Unlike the kernel-release table, this one is rebuilt wholesale each run:
 entries disappear upstream (renamed fixups, merged SKUs) and a stale entry
 would tell a user to apply a quirk their kernel no longer has.
 
-Each entry also records whether the quirk has reached a *released* kernel.
-An entry that exists only in mainline must not produce "upgrade your kernel"
-advice — as of Linux 7.2-rc6 that is exactly the state of the issue #53
-machine's own quirk (``b70f007a9fc6``, merged for 7.2).
+Each entry also records which released series first carried the quirk, and an
+entry that exists only in mainline records nothing: it must not produce
+"upgrade your kernel" advice, there being no kernel to upgrade to. That flag
+flips on its own as releases ship — the issue #53 machine's own quirk
+(``b70f007a9fc6``) sat mainline-only until 7.2 came out — so nothing
+downstream may assume a given entry's value.
 
     python3 tools/update_speaker_pin_quirks.py            # report, change nothing
     python3 tools/update_speaker_pin_quirks.py --write    # apply
