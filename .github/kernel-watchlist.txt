@@ -68,3 +68,15 @@ bass-spk-pin
 asus tuf
 ux3405
 um3405
+
+# watch: #67 XiaoXin Pro 14GT AGP11 (83SG) — ALC287 codec SSID 17aa:3941 has no
+# entry upstream, while its PCI SSID 17aa:38d5 matches another machine's
+# TAS2781 entry ("Yoga S990-16 Pro IMH YC Quad"), so the codec is handed a
+# smart-amp binding keyed to a Yoga Pro 9. Watching for an entry keyed to this
+# machine — either a pin fixup (its AGP11 sibling publishes 4 drivers) or an
+# amp one. Terms are the ids only: alc287/tas2781/bass-spk-pin are already
+# watched above and repeating them would double every hit comment.
+3941
+38d5
+xiaoxin
+agp11
