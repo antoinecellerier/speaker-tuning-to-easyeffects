@@ -266,11 +266,21 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   audible artifacts**; design-notes "Giving back what normalisation
   removed", issue [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   default output is unchanged).
+- **Virtual Bass Enhancement on HDA** — DAX synthesizes odd-dominated bass
+  harmonics on internal speakers (issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14));
+  the converter doesn't. The XML's `virtual-bass-*` fields are corpus-frozen
+  (identical values in every XML measured), so any VBE is a hardcoded
+  baseline — opt-in territory under the XML-only invariant — and EE 8.x
+  cannot express the chain that measures well (LSP brick-wall band-pass into
+  a saturator), so it could only ever ship on the PipeWire path. The
+  investigation is reproducible offline via
+  `tools/measure_ee/render_vbe_chain.py`; evidence and status live in
+  design-notes Finding 8.
 - **Always-inert / out-of-scope XML fields** — deliberately ignored because
   they're always zero/disabled on the modelled endpoints, are DSP internals
   with no EasyEffects equivalent, or concern multichannel/subwoofer routing
   irrelevant to stereo laptop output: `pregain`/`postgain`/`calibration-boost`/
-  `system-gain` (all 0 dB), `bass-extraction-*`, `virtual-bass-*`,
+  `system-gain` (all 0 dB), `bass-extraction-*`, `virtual-bass-*` (the audible gap: see the VBE entry above),
   `volume-modeler-*`, `graphic-equalizer-*`, `surround-*` /
   virtualizer-geometry, `mi-*-steering-enable`,
   `output-mode`/`mix_matrix`/`processing_mode`, `init-info` sizing, CP-level

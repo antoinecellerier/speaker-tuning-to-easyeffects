@@ -99,10 +99,15 @@ Ruled out in prior sessions; `smoke.py` already encodes the working fix:
   node.target=` / `target.object=` — WirePlumber policy overrides them all and
   reroutes to the mic. And `easyeffects_sink:monitor` is the *pre*-processing
   port anyway. Only `--target 0` + a manual `pw-link` works.
-- `lv2apply` / PipeWire `module-filter-chain` as a headless LV2 host — SIGSEGV on
-  LSP plugins (they need `work:schedule`, which only EE's LV2 wrapper provides).
 - For repeated preset switches use `easyeffects -l <name>` (no mic-indicator
   pop); only a `--service-mode` restart pops.
+
+(A bullet here used to rule out `lv2apply`/`module-filter-chain` as LV2 hosts —
+refuted 2026-08-19: both host the LSP/Calf plugins this project uses;
+`work:schedule` is optional for them. Calf Saturator aborts at teardown *after*
+a complete render — validate offline renders by frame count, as
+`tools/measure_ee/render_vbe_chain.py` does. Offline renders stay a pre-screen,
+not a validation.)
 
 ## Report
 

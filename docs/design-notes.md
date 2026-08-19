@@ -1565,15 +1565,25 @@ broken with a deeper signal chain; the cost is two extra LV2 stages
 per channel (4 LSP filter instances total in stereo) plus disabled
 internal Calf filtering.
 
-**Reproducing this PoC means rebuilding the chain from the parameters
-above.** The run that produced the −56 dB figure was driven by hand and
-no generator for it was saved, so unlike the rest of the measurement
-work there is no script to re-run. `lv2apply` is not the route — it
-segfaults on LSP plugins, which need the `work:schedule` feature only
-EasyEffects' LV2 host provides — so a rebuild means assembling the two
-`filter_stereo` stages and the Saturator as an EE chain and capturing
-through `tools/measure_ee/`. Worth doing before this number is used to
-justify shipping anything.
+**Reproducing this PoC is now scripted.** The run that produced the
+−56 dB figure was driven by hand with no saved generator;
+`tools/measure_ee/render_vbe_chain.py` (2026-08-19) rebuilds the chain
+offline — one `lv2apply` subprocess per stage — and its defaults
+reproduce the 2026-05-06 stage renders **bit-for-bit** (lsp-plugins-lv2
+1.2.33, calf-plugins 0.90.9; the BWC filters are the BT variant, and
+the Saturator ran unity output gain — the `level_out=4.0` of the
+single-plugin conf above never applied to the chain).
+`tools/measure_ee/analyze_vbe_chain.py` re-derives the harmonic tables
+from any labeled render or capture. An earlier revision of this note
+claimed `lv2apply` "segfaults on LSP plugins, which need
+`work:schedule`" — wrong on both counts: `lv2info` lists
+`worker:schedule` as *optional* for `filter_stereo` (only `urid:map` is
+required), `lv2apply` renders the whole chain, and PipeWire's
+`module-filter-chain` hosts it live (the shipped PW path already runs
+four LSP plugins through it). The quirk behind that memory: Calf
+Saturator renders its full output, then aborts during host teardown
+(glibc heap-corruption abort) — the render is complete, and the script
+validates stages by frame count instead of exit code.
 
 **Caveat: ceiling-break is for harmonic structure only, not absolute
 magnitude.** The PoC measured the wet-only output of the
