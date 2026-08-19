@@ -40,7 +40,8 @@ EDGE_SKIP_S = 0.3  # skipped at each end of a tone for the steady-state window
 class Stimulus:
     def __init__(self, sidecar: Path):
         meta = json.loads(sidecar.read_text())
-        self.sr = int(meta["sample_rate_hz"])
+        self.sr = int(meta.get("sample_rate_hz",
+                          meta.get("sample_rate")))
         self.tones = [float(f) for f in meta["tone_freqs_hz"]]
         self.tone_s = float(meta["tone_duration_s"])
         self.gap_s = float(meta["gap_duration_s"])

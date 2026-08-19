@@ -154,6 +154,113 @@ def run_stage(name: str, out: Path, argv: list[str], want_frames: int) -> None:
              f"{got}/{want_frames} frames): {shlex.join(argv)}")
 
 
+def render_dry_and_mixed(args: argparse.Namespace, final_wav: Path) -> None:
+    """Optional mixed-topology pre-screen arm: render the current preset's
+    LTI part (FIR + PEQ biquads + static gains) in the time domain, then sum
+    it with the wet chain output.
+
+    The model boundary mirrors compare_ee_analytical.py: dynamics (autogain,
+    MBC compression, limiter action) are NOT modeled — only their static
+    gains as that script composes them — so the dry fundamental is whatever
+    the LTI chain gives, and Findings 4/7 say the real dynamics take more
+    off at 50 Hz. Offline pre-screen, not a validation.
+    """
+    import numpy as np
+    from scipy.io import wavfile
+    from scipy.signal import lfilter
+
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    from _wavio import read as wav_read  # noqa: E402
+    from conftest import lsp_rlc_bell, rbj_hishelf, rbj_loshelf  # noqa: E402
+    from tools.measure_ee.compare_ee_analytical import (  # noqa: E402
+        _SLOPE_TO_DOUBLINGS, _rlc_hp_section_ba, _rlc_lp_section_ba,
+    )
+
+    def band_sections(band: dict) -> list:
+        btype = band.get("type", "Bell")
+        f0 = float(band["frequency"])
+        q = float(band.get("q", 0.707))
+        gain = float(band.get("gain", 0.0))
+        if btype == "Off":
+            return []
+        if btype == "Bell":
+            return [lsp_rlc_bell(f0, gain, q)]
+        if btype == "Hi-shelf":
+            return [rbj_hishelf(f0, gain, q)]
+        if btype == "Lo-shelf":
+            return [rbj_loshelf(f0, gain, q)]
+        if btype in ("Hi-pass", "Lo-pass"):
+            if band.get("mode", "RLC (BT)") != "RLC (BT)":
+                raise NotImplementedError(
+                    f"{btype} mode {band['mode']!r} not modeled")
+            section = _rlc_hp_section_ba if btype == "Hi-pass" \
+                else _rlc_lp_section_ba
+            n = _SLOPE_TO_DOUBLINGS[band.get("slope", "x1")]
+            return [section(f0, q)] * n
+        raise NotImplementedError(f"band type {btype!r} not modeled")
+
+    sr, stim = wav_read(str(args.stimulus))
+    stim = stim.astype(np.float64)
+    sr_ir, ir = wav_read(str(args.dry_irs))
+    if sr_ir != sr:
+        sys.exit(f"{args.dry_irs}: sample rate {sr_ir} != stimulus {sr}")
+    ir = ir.astype(np.float64)
+
+    preset = json.loads(Path(args.dry_preset).read_text())["output"]
+    static_db = 0.0
+    eq_plugins = []
+    conv = {}
+    for name in preset.get("plugins_order", []):
+        plugin = preset.get(name, {})
+        if name.startswith("convolver"):
+            conv = plugin
+        elif name.startswith("equalizer"):
+            if not plugin.get("bypass"):
+                eq_plugins.append(plugin)
+                static_db += float(plugin.get("input-gain", 0.0))
+                static_db += float(plugin.get("output-gain", 0.0))
+        elif name.startswith("multiband_compressor"):
+            if not plugin.get("bypass"):
+                static_db += float(plugin.get("output-gain", 0.0))
+        elif name.startswith("limiter"):
+            if not plugin.get("bypass"):
+                static_db += float(plugin.get("input-gain", 0.0))
+                static_db += float(plugin.get("output-gain", 0.0))
+        # autogain: dynamic, not modeled (compare_ee_analytical boundary)
+    if not conv.get("bypass"):
+        static_db += float(conv.get("input-gain", 0.0))
+        static_db += float(conv.get("output-gain", 0.0))
+
+    dry = np.empty_like(stim)
+    for ch, side in enumerate(("left", "right")):
+        x = stim[:, ch]
+        if not conv.get("bypass"):
+            ir_ch = ir[:, ch] if ir.ndim == 2 else ir
+            x = np.convolve(x, ir_ch)[:len(x)]
+        for eq in eq_plugins:
+            bands = eq.get(side, {})
+            for k in range(int(eq.get("num-bands", 0))):
+                band = bands.get(f"band{k}")
+                if band is None:
+                    continue
+                for b, a in band_sections(band):
+                    x = lfilter(b, a, x)
+        dry[:, ch] = x
+    dry *= 10.0 ** (static_db / 20.0)
+
+    _, wet = wav_read(str(final_wav))
+    mixed = dry + wet.astype(np.float64)
+    dry_path = args.out_dir / f"{args.label}_dry.wav"
+    mixed_path = args.out_dir / f"{args.label}_mixed.wav"
+    wavfile.write(dry_path, sr, dry.astype(np.float32))
+    wavfile.write(mixed_path, sr, mixed.astype(np.float32))
+    print(f"[dry] LTI model of {Path(args.dry_preset).name} "
+          f"(static gains {static_db:+.1f} dB, dynamics not modeled)")
+    print(f"[mixed] {mixed_path.name} = dry + {final_wav.name} "
+          "(offline pre-screen, not a validation)")
+
+
 def package_versions() -> dict[str, str]:
     versions = {}
     for pkg in PROVENANCE_PACKAGES:
@@ -198,6 +305,12 @@ def build_parser() -> argparse.ArgumentParser:
                          "single-plugin conf's 4.0 does not apply here)")
     parser.add_argument("--blend", type=float, default=0.0)
     parser.add_argument("--mix", type=float, default=1.0)
+    parser.add_argument("--dry-irs", type=Path, default=None,
+                        help="preset .irs — with --dry-preset, also render "
+                             "the LTI dry arm and the dry+wet mixed sum "
+                             "(offline pre-screen)")
+    parser.add_argument("--dry-preset", type=Path, default=None,
+                        help="EE output preset .json for the dry arm")
     return parser
 
 
@@ -213,6 +326,11 @@ def main() -> None:
     commands = stage_commands(args, args.stimulus, args.out_dir)
     for name, out, argv in commands:
         run_stage(name, out, argv, want_frames)
+
+    if bool(args.dry_irs) != bool(args.dry_preset):
+        sys.exit("--dry-irs and --dry-preset go together")
+    if args.dry_irs:
+        render_dry_and_mixed(args, commands[-1][1])
 
     sidecar = args.out_dir / f"{args.label}_chain.json"
     sidecar.write_text(json.dumps({
