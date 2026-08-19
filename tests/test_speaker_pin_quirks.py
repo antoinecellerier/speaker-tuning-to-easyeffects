@@ -369,11 +369,27 @@ def _run(args, cwd):
                           capture_output=True, text=True, cwd=cwd)
 
 
+UNDATED_ID = (0x17AA, 0x386A)
+
+
 def _offline(tmp_path, master_src=QUIRK_SOURCE):
     """A copy of the shipped table plus offline sources, and the argv to
-    drive them."""
+    drive them.
+
+    ``UNDATED_ID``'s recorded series is blanked in the copy, so the fixture
+    holds one entry of each kind: dated, which must be carried through
+    untouched, and undated, which must be looked up in the release. Blanked
+    rather than chosen — which entries ship undated is the weekly refresh's to
+    decide, and a test that picked one by name would fail the week it was
+    dated. That is how this fixture broke: it asserted a derived value for an
+    entry the run had just dated.
+    """
     script = tmp_path / "speaker_pin_quirks.py"
-    script.write_text(TABLE_MODULE.read_text())
+    src = TABLE_MODULE.read_text()
+    _, entries = parse_table(src)
+    model, pins, _since, codec_only = entries[UNDATED_ID]
+    entries[UNDATED_ID] = (model, pins, "", codec_only)
+    script.write_text(apply_update(src, entries))
     (tmp_path / "master.c").write_text(master_src)
     (tmp_path / "release.c").write_text(QUIRK_SOURCE)
     return script, ["--script", str(script),
@@ -399,8 +415,8 @@ def test_cli_writes_with_the_flag(tmp_path):
     assert _run([*argv, "--write"], cwd=ROOT).returncode == 0
     _, entries = parse_table(script.read_text())
     assert sorted(entries) == [(0x17AA, i) for i in sorted(PIN_IDS + FILLER_IDS)]
-    # Every id present in the release fixture resolves to that release.
-    assert entries[(0x17AA, 0x386A)][2] == "7.1"
+    # An undated id present in the release fixture resolves to that release.
+    assert entries[UNDATED_ID][2] == "7.1"
 
 
 def test_cli_carries_a_recorded_since_but_rescan_re_derives_it(tmp_path):
