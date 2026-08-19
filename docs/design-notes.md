@@ -2434,12 +2434,30 @@ Design choices:
 - **Regenerated wholesale, weekly** (`tools/update_speaker_pin_quirks.py`,
   `.github/workflows/speaker-pin-quirks.yml`), unlike the append-only kernel
   table: entries can disappear upstream, and a stale one would tell a user to
-  force a fixup their kernel no longer has. `since` is resolved by parsing the
-  newest 12 release tags; an entry present in the oldest of them is recorded
-  as "since that one", an understatement that can only make the advice more
-  conservative. The script fails closed on a partial parse — which it did on
-  first run here, correctly refusing to edit a table whose format had changed
-  under it.
+  force a fixup their kernel no longer has. The script fails closed on a
+  partial parse — which it did on first run here, correctly refusing to edit a
+  table whose format had changed under it.
+- **`since` is the one field carried forward, not re-derived.** It is resolved
+  by walking release tags newest-first until one lacks the entry, so an entry
+  older than the oldest tag walked to is recorded as *that* tag — a lower
+  bound, and an understatement that can only make the advice more conservative.
+  Re-deriving it weekly against a *rolling* window made that understatement
+  drift: when 7.2 shipped, 6.10 fell out of the newest-12 and 25 rows were
+  rewritten `6.10` → `6.11` with nothing changed upstream, which is both
+  stricter than the truth (those quirks are in 6.10) and enough noise to hide
+  the five entries that genuinely reached a release that week. What a released
+  kernel contains cannot change, so a recorded value is a fact worth keeping;
+  only entries never yet dated are looked up, which in a normal week is a
+  single release fetched. `--rescan` re-derives everything, for an audit after
+  a parser change.
+  - Scanning *every* release instead (a fixed floor, so the values would be
+    true first-releases) was measured and rejected: the googlesource mirror
+    starts returning HTTP 429 above ~30 rapid blob fetches, and a weekly
+    unattended job must not sit on that boundary. Old sources parse fine
+    otherwise (v5.10 → 9 pin-adding entries, v6.0 → 17, v6.10 → 27, v7.2 → 53),
+    so this is a rate limit, not a parsing limit. Exactness below the window
+    buys nothing anyway: a kernel that old already trips the issue #33 age
+    hint.
 
 ## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
 

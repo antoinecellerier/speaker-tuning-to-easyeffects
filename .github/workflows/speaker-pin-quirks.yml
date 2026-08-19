@@ -138,6 +138,8 @@ jobs:
             "" \
             "Each entry is keyed by subsystem id and records whether the quirk has reached a *released* kernel — an entry that is mainline-only must not produce \"upgrade your kernel\" advice. A \"changed\" line is usually that flag flipping as a release ships." \
             "" \
+            "\`since=\` is carried forward once derived, not re-derived weekly (a released kernel's contents cannot change), so rows not listed above were not re-checked. To re-derive every one of them — worth doing after a change to the parser, not otherwise — run \`tools/update_speaker_pin_quirks.py --rescan\`." \
+            "" \
             "Verify against [\`sound/hda/codecs/realtek/alc269.c\`](https://github.com/torvalds/linux/blob/master/sound/hda/codecs/realtek/alc269.c) — search the subsystem id." \
             "" \
             "\`pytest tests/\` passed in the run that produced this commit. A PR opened by \`GITHUB_TOKEN\` does not trigger \`tests.yml\`, so this PR's own checks tab stays empty — reopen it or push an empty commit if you want CI to run again." \

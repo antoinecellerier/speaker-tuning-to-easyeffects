@@ -8,9 +8,9 @@ in the DAX XML can tell. The kernel fixes this per machine, keyed by subsystem
 id — so the only way to know a *given* machine should have two pins is to
 carry upstream's list.
 
-Unlike the kernel-release table, this one is rebuilt wholesale each run:
-entries disappear upstream (renamed fixups, merged SKUs) and a stale entry
-would tell a user to apply a quirk their kernel no longer has.
+Which machines are listed is rebuilt wholesale each run, unlike the append-only
+kernel-release table: entries disappear upstream (renamed fixups, merged SKUs)
+and a stale entry would tell a user to apply a quirk their kernel no longer has.
 
 Each entry also records which released series first carried the quirk, and an
 entry that exists only in mainline records nothing: it must not produce
@@ -18,6 +18,14 @@ entry that exists only in mainline records nothing: it must not produce
 flips on its own as releases ship — the issue #53 machine's own quirk
 (``b70f007a9fc6``) sat mainline-only until 7.2 came out — so nothing
 downstream may assume a given entry's value.
+
+Unlike the rest of the row, that one field is *carried forward* rather than
+rebuilt: what a released kernel contains cannot change, so re-deriving it each
+week only risks losing it. An entry older than the oldest release we scan can
+be recorded no earlier than that release, so re-deriving used to rewrite whole
+blocks of the table to a stricter kernel than the one that actually fixed them
+every time the scan window slid. ``--rescan`` re-derives anyway, for an audit
+after a parser change.
 
     python3 tools/update_speaker_pin_quirks.py            # report, change nothing
     python3 tools/update_speaker_pin_quirks.py --write    # apply
@@ -192,12 +200,18 @@ def parse_quirks(src: str, require_helpers: bool = False
     return found
 
 
-# How many released series back to look for each quirk's first appearance.
+# How far back a walk may go looking for an undated quirk's first appearance.
 # ~2 years, which comfortably covers every entry added since laptops started
-# needing these fixups. An entry already present in the oldest series we look
-# at is recorded as "since that one" — an understatement of its age, and a
-# harmless one: it can only ever make the advice more conservative, never tell
-# somebody their kernel is new enough when it isn't.
+# needing these fixups. An entry still present in the oldest series we reach is
+# recorded as "since that one" — an understatement of its age, and a harmless
+# one: it can only ever make the advice more conservative, never tell somebody
+# their kernel is new enough when it isn't. It is a rail, not a budget: the
+# walk stops as soon as every undated entry has an answer, which in a normal
+# week is after the newest release alone.
+#
+# Raising it is cheap in fetches (they are lazy) but not free: the mirror
+# starts returning HTTP 429 somewhere above ~30 rapid blob fetches, so a run
+# that legitimately needs a deep walk sits closer to that than a normal one.
 _RELEASE_WINDOW = 12
 
 
@@ -266,13 +280,29 @@ def apply_update(src: str, entries: dict) -> str:
     return updated
 
 
-def build_entries(master_src: str, releases: list[tuple[str, str]]) -> dict:
+def build_entries(master_src: str, releases, current: dict | None = None) -> dict:
     """Merge the mainline parse with per-release parses into table entries.
 
-    *releases* is ``(tag, source)`` newest-first. ``since`` becomes the oldest
-    release in that window still carrying the entry — the kernel version a
-    user actually has to reach. Empty means no release has it yet, which makes
-    "upgrade" a dead end rather than advice.
+    *releases* yields ``(tag, source)`` newest-first and is consumed **lazily**:
+    each item pulled is a blob fetched, and the walk stops as soon as every
+    entry that needs an answer has one.
+
+    *current* is the table as it ships. What a released kernel contains is a
+    historical fact — v6.13 will never stop carrying what it carries — so a
+    ``since`` an earlier run derived is carried forward rather than re-derived.
+    Only entries we have never dated are looked up: ones recorded empty (in no
+    release yet) and ones appearing here for the first time. Pass ``None`` to
+    re-derive every value from scratch, which is what ``--rescan`` is for.
+
+    Carrying it is what keeps the weekly diff honest. Re-deriving reaches the
+    same answer for most rows, but an entry older than the oldest release we
+    reach can only be recorded as *that* release — so each time the window slid
+    forward, rows were rewritten to a newer, stricter kernel than the one that
+    actually fixed them, and the genuine changes hid among them.
+
+    ``since`` ends up the oldest release we saw still carrying the entry — the
+    kernel version a user actually has to reach. Empty means no release has it
+    yet, which makes "upgrade" a dead end rather than advice.
     """
     mainline = parse_quirks(master_src, require_helpers=True)
     if not MIN_ENTRIES <= len(mainline) <= MAX_ENTRIES:
@@ -280,17 +310,35 @@ def build_entries(master_src: str, releases: list[tuple[str, str]]) -> dict:
                          f"(expected {MIN_ENTRIES}–{MAX_ENTRIES}) — suspect a "
                          "parse bug or a renamed fixup")
 
-    since: dict[tuple[int, int], str] = {}
-    for tag, src in releases:
-        present = parse_quirks(src)
-        # Walking newest→oldest, each release the entry survives in overwrites
-        # the previous answer, so the last write is the oldest one carrying it.
-        # A re-appearance after a gap (an entry reverted then restored) would
-        # therefore report the older window — deliberately the conservative
-        # direction, and no such case exists upstream today.
-        for key in present:
-            if key in mainline:
-                since[key] = tag.lstrip("v")
+    since = {key: recorded
+             for key, (_model, _pins, recorded, _codec_only)
+             in (current or {}).items()
+             if recorded and key in mainline}
+    undated = set(mainline) - set(since)
+
+    # Walking newest→oldest, each release the entry survives in overwrites the
+    # previous answer, so the last write is the oldest one carrying it. The
+    # first release *without* it settles the entry — everything older lacks it
+    # too, so there is nothing left to learn and it leaves the walk. A
+    # re-appearance after a gap (an entry reverted then restored) therefore
+    # reports the newer run of releases — deliberately the conservative
+    # direction, and no such case exists upstream today.
+    scanned = 0
+    if undated:
+        for tag, src in releases:
+            present = parse_quirks(src)
+            scanned += 1
+            for key in sorted(undated):
+                if key in present:
+                    since[key] = tag.lstrip("v")
+                else:
+                    undated.discard(key)
+            # Tested after the work, not before it: breaking here means the
+            # next release is never asked of *releases*, so it is never
+            # fetched. Testing first would spend a fetch to find out it had
+            # nothing to do.
+            if not undated or scanned >= _RELEASE_WINDOW:
+                break
 
     return {key: (model, pins, since.get(key, ""), codec_only)
             for key, (model, pins, codec_only) in mainline.items()}
@@ -302,6 +350,12 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--write", action="store_true",
                         help="apply the rebuilt table (default: report only)")
+    parser.add_argument("--rescan", action="store_true",
+                        help="re-derive every since= from the releases instead "
+                             "of carrying the recorded ones forward (slow, and "
+                             "rewrites entries older than the oldest release "
+                             "scanned — for an audit after a parser change, "
+                             "not for the weekly run)")
     parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT,
                         help="file holding the table (default: the shipped "
                              "lib/data/speaker_pin_quirks.py)")
@@ -330,9 +384,14 @@ def main(argv: list[str] | None = None) -> int:
                 with tempfile.TemporaryDirectory() as tmp:
                     tag_lines = fetch_tag_lines(Path(tmp) / "linux-tags")
             master_src = fetch_source("refs/heads/master")
-            releases = [(tag, fetch_source(f"refs/tags/{tag}"))
-                        for tag in release_tags(tag_lines)]
-        entries = build_entries(master_src, releases)
+            # A generator, not a list: build_entries stops pulling once every
+            # undated entry has an answer, and a release it never pulls is a
+            # blob never fetched. In a week where nothing new needs dating that
+            # is the whole release walk skipped.
+            releases = ((tag, fetch_source(f"refs/tags/{tag}"))
+                        for tag in release_tags(tag_lines))
+        entries = build_entries(master_src, releases,
+                                None if args.rescan else current)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

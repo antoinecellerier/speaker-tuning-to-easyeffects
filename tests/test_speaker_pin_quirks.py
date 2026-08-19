@@ -26,7 +26,7 @@ from tools.update_speaker_pin_quirks import (
     release_tags,
     render_table,
 )
-from tools.update_speaker_pin_quirks import _FUNC_FIXUP_PINS
+from tools.update_speaker_pin_quirks import _FUNC_FIXUP_PINS, _RELEASE_WINDOW
 
 # Every helper named in _FUNC_FIXUP_PINS must appear somewhere in the source or
 # the generator aborts — a rename upstream is exactly the silent-drop failure
@@ -211,6 +211,86 @@ def test_since_is_empty_for_a_mainline_only_entry():
     assert entries[(0x17AA, 0x3801)][2] == "7.1"
 
 
+# What a released kernel contains cannot change, so a `since` already recorded
+# is carried, not re-derived. These lock the two halves of that: the recorded
+# value survives *and* costs no fetch, and an entry we have never dated is
+# still dated correctly however many releases back that takes.
+
+def _dated(since, entries=None):
+    """*entries* (default: the fixture's) with every row recorded as *since*."""
+    entries = entries or build_entries(QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)])
+    return {key: (model, pins, since, codec_only)
+            for key, (model, pins, _old, codec_only) in entries.items()}
+
+
+def _counting(*releases):
+    """A release feed that records which tags were actually pulled from it.
+
+    A generator, like the real one in ``main``: pulling an item is fetching a
+    blob, so what this list ends up holding *is* the network cost.
+    """
+    pulled = []
+
+    def feed():
+        for tag, src in releases:
+            pulled.append(tag)
+            yield tag, src
+    return feed(), pulled
+
+
+def test_a_dated_entry_costs_no_release_fetch():
+    """The saving, and the part a regression would undo silently: with every
+    entry already dated there is nothing to look up, so the walk must not pull
+    a single release — and must hand back the recorded values untouched."""
+    feed, pulled = _counting(("v7.2", QUIRK_SOURCE), ("v7.1", QUIRK_SOURCE))
+    entries = build_entries(QUIRK_SOURCE, feed, _dated("6.5"))
+    assert pulled == []
+    assert {since for _m, _p, since, _c in entries.values()} == {"6.5"}
+
+
+def test_an_undated_entry_stops_at_the_first_release_without_it():
+    """A run that missed a release must still name the *oldest* one carrying
+    the entry, not the newest it happens to look at — and must stop as soon as
+    a release lacks it, since everything older lacks it too."""
+    without = QUIRK_SOURCE.replace(
+        '\tHDA_CODEC_QUIRK(0x17aa, 0x386a, "Lenovo Yoga 7 16IAP7", '
+        'ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN),\n', "")
+    current = _dated("6.5")
+    current[(0x17AA, 0x386A)] = ("m", "0x17", "", True)  # in no release yet
+
+    feed, pulled = _counting(("v7.2", QUIRK_SOURCE), ("v7.1", QUIRK_SOURCE),
+                             ("v7.0", without), ("v6.19", without))
+    entries = build_entries(QUIRK_SOURCE, feed, current)
+    assert entries[(0x17AA, 0x386A)][2] == "7.1"
+    assert pulled == ["v7.2", "v7.1", "v7.0"]  # v6.19 had nothing left to say
+
+
+def test_an_entry_new_to_the_table_is_dated_from_the_releases():
+    """No recorded value to carry, so it takes the walk like anything else."""
+    current = _dated("6.5")
+    del current[(0x17AA, 0x386A)]
+    entries = build_entries(QUIRK_SOURCE, [("v7.2", QUIRK_SOURCE)], current)
+    assert entries[(0x17AA, 0x386A)][2] == "7.2"
+
+
+def test_a_recorded_value_newer_than_the_releases_is_still_carried():
+    """Carrying is unconditional, not a min(): the recorded value came from a
+    release that still contains what it contained. Re-deriving it against a
+    shorter walk is exactly the rewrite this exists to stop."""
+    entries = build_entries(QUIRK_SOURCE, [("v6.19", QUIRK_SOURCE)],
+                            _dated("7.1"))
+    assert entries[(0x17AA, 0x386A)][2] == "7.1"
+
+
+def test_the_walk_stops_at_the_release_window():
+    """The one case that can walk deep — a fixup family the parser only just
+    learned to read, so every row is undated at once — is railed, because the
+    mirror rate-limits a long run of blob fetches."""
+    feed, pulled = _counting(*[(f"v9.{n}", QUIRK_SOURCE) for n in range(40)])
+    build_entries(QUIRK_SOURCE, feed, None)
+    assert len(pulled) == _RELEASE_WINDOW
+
+
 def test_release_tags_excludes_candidates_and_orders_newest_first():
     tags = release_tags("v7.2-rc1 2026-07-01\nv7.1 2026-06-01\n"
                         "v7.0 2026-04-01\nv6.19 2026-02-01\n")
@@ -321,6 +401,25 @@ def test_cli_writes_with_the_flag(tmp_path):
     assert sorted(entries) == [(0x17AA, i) for i in sorted(PIN_IDS + FILLER_IDS)]
     # Every id present in the release fixture resolves to that release.
     assert entries[(0x17AA, 0x386A)][2] == "7.1"
+
+
+def test_cli_carries_a_recorded_since_but_rescan_re_derives_it(tmp_path):
+    """End to end, because carrying only helps if `main` passes the shipped
+    table down. 3801 is dated in the table and present in the release fixture,
+    so a re-derivation would visibly move it to that release — which is what
+    used to happen every week, and what --rescan is now the only way to ask
+    for. Its recorded value is read, not written down here: it is machine-
+    written and moves on upstream's schedule."""
+    script, argv = _offline(tmp_path)
+    _, shipped = parse_table(script.read_text())
+    recorded = shipped[(0x17AA, 0x3801)][2]
+    assert recorded and recorded != "7.1", "fixture no longer discriminates"
+
+    assert _run([*argv, "--write"], cwd=ROOT).returncode == 0
+    assert parse_table(script.read_text())[1][(0x17AA, 0x3801)][2] == recorded
+
+    assert _run([*argv, "--write", "--rescan"], cwd=ROOT).returncode == 0
+    assert parse_table(script.read_text())[1][(0x17AA, 0x3801)][2] == "7.1"
 
 
 def test_cli_fails_closed_on_an_implausible_parse(tmp_path):
