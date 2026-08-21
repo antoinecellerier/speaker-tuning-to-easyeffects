@@ -541,6 +541,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     output_path.write_text(conf)
     install._print_results(output_path, copied_irs, dry_run=False)
     checks.warn_if_stacked(output_path, target_sink)
+    checks.warn_if_easyeffects_running()
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go
         # unmentioned as inactive — keep the one action that makes it live.

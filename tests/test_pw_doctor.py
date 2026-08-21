@@ -18,6 +18,9 @@ import pytest
 import ee_to_pipewire
 from lib import console
 from lib.pipewire import checks, conf
+# Bound before the autouse `no_live_easyeffects_probe` fixture patches the
+# module attribute, so the probe itself stays testable.
+from lib.pipewire.checks import easyeffects_running as unpatched_ee_probe
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
 from lib.report import findings as report_findings
 
@@ -835,6 +838,36 @@ def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,
     second = tmp_path / "Dolby_Warm.conf"
     _write_conf(second, node="Dolby_Warm")
     checks.warn_if_stacked(second, SPEAKER)
+    assert capsys.readouterr().out == ""
+
+
+def test_easyeffects_running_warns_it_processes_twice(silence_console, capsys):
+    """The likeliest converter reader is an EE user crossing over for
+    --enable virtual-bass — with EasyEffects still running, whose output
+    plays into the very sink the smart filter attaches to."""
+    silence_console(console)
+    checks.warn_if_easyeffects_running(running=True)
+    out = capsys.readouterr().out
+    assert "EasyEffects is running" in out
+    assert "twice" in out
+    assert "Quit EasyEffects" in out
+    # The switch-back story, delivered at the moment both chains coexist.
+    assert "restart PipeWire" in out
+
+
+def test_no_easyeffects_process_stays_silent(silence_console, capsys,
+                                             monkeypatch):
+    silence_console(console)
+    checks.warn_if_easyeffects_running(running=False)
+    assert capsys.readouterr().out == ""
+
+    # Probe unavailable (no pgrep): None, never a crash or a guess — and
+    # None reaches the same silent branch as False.
+    def _no_pgrep(*_a, **_kw):
+        raise FileNotFoundError("pgrep")
+    monkeypatch.setattr(checks.subprocess, "run", _no_pgrep)
+    assert unpatched_ee_probe() is None
+    checks.warn_if_easyeffects_running(running=None)
     assert capsys.readouterr().out == ""
 
 

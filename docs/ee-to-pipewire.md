@@ -508,6 +508,15 @@ same check has a command-line front end at
   IIR engine with no look-ahead and the mixers/copies are builtin
   pass-throughs, so the branch adds zero latency. Evidence and the
   measured score are in `docs/design-notes.md` Finding 8.
+- **Not alongside EasyEffects.** The chain is a replacement for the
+  EasyEffects preset, not an add-on: in smart-filter mode EasyEffects'
+  own output plays into the very sink the chain attaches to, so
+  everything then carries the EE preset *and* the chain in series
+  (filters sharing a target run in series — measured, see "One smart
+  filter per target sink"). The converter warns at conf-write time when
+  an `easyeffects` process is up. Switching back to EasyEffects: delete
+  the conf and its `.irs` from `~/.config/pipewire/pipewire.conf.d/`,
+  restart PipeWire, start EasyEffects again.
 - **No `--launch` flag on this script.** PipeWire's standard reload
   path is `systemctl --user restart pipewire pipewire-pulse`; the
   converter prints it in its next-steps checklist and lets the user run

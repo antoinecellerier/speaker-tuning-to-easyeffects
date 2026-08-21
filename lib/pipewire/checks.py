@@ -987,3 +987,45 @@ def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
     console.cprint("dim", "   delete the one you don't want (and its .irs), then "
                   "restart PipeWire.")
     console.cprint("dim", "   --doctor lists what is installed and what it does.")
+
+
+def easyeffects_running() -> bool | None:
+    """Probe: is an EasyEffects process up? ``None`` when pgrep is missing.
+
+    ``pgrep -x`` (exact executable name): ``-f`` would also match any process
+    whose argv merely contains the string — including a shell running a script
+    named after it.
+    """
+    try:
+        proc = subprocess.run(["pgrep", "-x", "easyeffects"],
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, check=False)
+    except OSError:
+        return None
+    return proc.returncode == 0
+
+
+def warn_if_easyeffects_running(running: bool | None = None) -> None:
+    """Warn when EasyEffects is up as a chain conf lands.
+
+    The likeliest reader is an EasyEffects user crossing over for a
+    PipeWire-only feature (``--enable virtual-bass`` says so in as many
+    words) — and for them EasyEffects is still running when they get here.
+    In smart-filter mode its output plays into the very sink this chain
+    attaches to, so everything gets the EE preset *and* the chain, in
+    series; nothing in the run or the audio says so. Same shape as
+    ``warn_if_stacked`` above: caught at the moment it happens instead of
+    left for someone to notice the sound is wrong.
+    """
+    if running is None:
+        running = easyeffects_running()
+    if not running:
+        return
+    console.cprint("warn", "")
+    console.cprint("warn", "⚠  EasyEffects is running. This chain replaces an "
+                   "EasyEffects preset —")
+    console.cprint("warn", "   running both can process your audio twice.")
+    console.cprint("dim", "   Quit EasyEffects while you use the chain. To switch "
+                  "back later: delete")
+    console.cprint("dim", "   the conf (and its .irs), restart PipeWire, start "
+                  "EasyEffects again.")

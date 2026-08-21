@@ -82,6 +82,20 @@ def silence_console(monkeypatch):
     return silence
 
 
+@pytest.fixture(autouse=True)
+def no_live_easyeffects_probe(monkeypatch):
+    """The PipeWire converter probes for a running EasyEffects process at
+    conf-write time (`checks.warn_if_easyeffects_running`). On a dev
+    machine EasyEffects often *is* running, so without this the warning
+    joins every real-write run's output and any closing-output assertion
+    becomes machine-dependent. Autouse-forced quiet; tests of the warning
+    itself pass `running=` explicitly, and the probe's own test keeps a
+    module-level reference to the unpatched function
+    (tests/test_pw_doctor.py)."""
+    from lib.pipewire import checks
+    monkeypatch.setattr(checks, "easyeffects_running", lambda: False)
+
+
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own
 # `band_20_freq` element; this is a typical log-spaced set in the same
 # range, used purely as a non-proprietary stand-in.
