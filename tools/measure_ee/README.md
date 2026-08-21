@@ -68,6 +68,7 @@ When auditing whether EE is applying the current preset:
 | `scaling_report.py` | Read-only (no capture): reproduces the named scaling-campaign results (Finding 9, entries 2/6/11, q-mode) from one session's EE + DAX captures. Point it at a new session with `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another device |
 | `render_vbe_chain.py` | Offline (no capture, no audio): renders the issue-#14 virtual-bass chain — LSP brick-wall band-pass → Calf Saturator → brick-wall post-band — one `lv2apply` subprocess per stage, every intermediate written plus a provenance sidecar. Defaults reproduce the 2026-05-06 PoC bit-for-bit (design-notes Finding 8) |
 | `analyze_vbe_chain.py` | Read-only (no capture): harmonic tables for bass-burst WAVs — per-tone harmonic magnitudes, Δ3/Δ5/Δ7, odd/even ratio, crest factor — on any labeled set of renders/captures. Same metric definitions as the Finding 8 investigation, so numbers stay comparable |
+| `score_vbe_chain.py` | Read-only (no capture): scores bass-burst captures against a device's own DAX capture with the Finding 8 phase-2 protocol — the S metric (floor clamp, ×2 overshoot ≥200 Hz, macro averaging) plus the capture-runnable guard subset. `--dax-capture` is the reference, `--capture LABEL=PATH` the chains to judge, `--dry-capture` anchors what doing nothing scores. Math locked by `tests/test_score_vbe_chain.py` |
 
 ## Usage
 
