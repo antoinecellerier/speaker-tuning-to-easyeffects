@@ -106,6 +106,7 @@ STDLIB_ONLY = (
     # lib.console and are absent here for that reason, not by oversight.
     "lib.pipewire.plugins",
     "lib.pipewire.conf",
+    "lib.pipewire.vbe",
     # The schema self-check the converter runs over that output — listed for
     # the other half of FORBIDDEN rather than for startup cost, which
     # test_converter_startup_pulls_in_no_dsp already covers transitively and

@@ -32,7 +32,7 @@ from pathlib import Path
 
 from lib import console, doctor, ee_paths
 from lib.hardware import sinks
-from lib.pipewire import checks, install, validate
+from lib.pipewire import checks, install, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
@@ -341,6 +341,22 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                       "plugin was skipped)")
         return 1
 
+    # The generator's --enable virtual-bass records its values as a `_vbe`
+    # block; the branch itself only exists here — EasyEffects' serial
+    # pipeline can't express it, so this conf is the one place it plays.
+    vbe_links: list[dict] = []
+    vbe_meta = preset.get("_vbe")
+    if isinstance(vbe_meta, dict):
+        chain.stages, vbe_links = vbe.wrap_chain(chain.stages, vbe_meta)
+        console.cprint("ok", f"[virtual-bass] experimental: deep bass "
+                      f"({vbe_meta['src_lo_hz']:g}-{vbe_meta['mix_lo_hz']:g} Hz) "
+                      f"your speakers can't physically play is filled in with "
+                      f"quieter higher tones ({vbe_meta['mix_lo_hz']:g}-"
+                      f"{vbe_meta['mix_hi_hz']:g} Hz) your ear reads as bass "
+                      f"(issue #14)")
+        console.cprint("dim", "  (sounds wrong? re-run without "
+                      "--enable virtual-bass)")
+
     # Resolve where the IRS will live. By default we copy it next to the
     # conf so the PW chain is self-contained; --no-copy-irs keeps the
     # original EE-side absolute path baked into the conf. In dry-run we
@@ -437,7 +453,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     if target_sink and describe_as_filter:
         node_description += pw_conf.SMART_DESCRIPTION_SUFFIX
 
-    links = pw_conf.emit_links(chain.stages)
+    links = pw_conf.emit_links(chain.stages) + vbe_links
     conf = pw_conf.format_conf(chain.stages, links, node_name,
                                node_description,
                                target_object=args.target_object,
@@ -460,10 +476,11 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # user what the chain needs.
             console.cprint("warn", "[validate] the plugin set wasn't checked — make "
                            "sure the LV2 plugins this conf uses are installed: "
-                           "LSP (lsp-plugins-lv2) for the PEQ / MBC / limiter, "
-                           "plus Calf (calf-plugins) if it includes "
-                           "bass_enhancer / stereo_tools. Otherwise the chain "
-                           "won't load.")
+                           "LSP (lsp-plugins-lv2) for the PEQ / MBC / limiter "
+                           "and the virtual-bass filters, plus Calf "
+                           "(calf-plugins) if it includes bass_enhancer / "
+                           "stereo_tools or the virtual-bass saturator. "
+                           "Otherwise the chain won't load.")
         elif report.status == validate.UNCHECKED:
             # The check could not run at all — degraded gracefully, and the
             # conf is still written.

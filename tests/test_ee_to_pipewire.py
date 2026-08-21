@@ -69,12 +69,14 @@ from lib.pipewire.plugins import (
     _resolve_irs,
 )
 from ee_to_pipewire import main as ee2pw_main
-from lib.pipewire import install
+from lib.pipewire import install, vbe
+from lib.pipewire.plugins import Stage
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    synthetic_virtual_bass,
 )
 
 
@@ -2116,6 +2118,7 @@ def _coverage_preset(is_soundwire: bool = False,
         mb_comp=mb, regulator=reg, freqs=SYNTHETIC_FREQS_20,
         is_soundwire=is_soundwire, volmax_boost=3.0,
         volmax_slot=volmax_slot, enabled=enabled, disabled=disabled,
+        virtual_bass=synthetic_virtual_bass(),
     )
     return preset
 
@@ -2638,3 +2641,167 @@ def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
     assert parsed.smart is True
     assert parsed.target == sink
     assert parsed.irs and all(p.suffix == ".irs" for p in parsed.irs)
+
+
+# ---------------------------------------------------------------------------
+# --enable virtual-bass: the wet branch around the translated chain
+# (issue #14). The generator embeds a top-level `_vbe` block; the converter
+# sandwiches the chain between a copy fan-out and a dry+wet mixer via
+# vbe.wrap_chain. These tests pin the topology and every emitted value.
+# ---------------------------------------------------------------------------
+
+def _vbe_meta() -> dict:
+    """The `_vbe` block exactly as the generator embeds it, so the two
+    sides of the hand-off cannot drift apart inside this suite."""
+    preset, _ = make_preset(kernel_name="X", peq_filters=[],
+                            virtual_bass=synthetic_virtual_bass(),
+                            enabled={"virtual-bass"})
+    return preset["_vbe"]
+
+
+def _wrapped_chain(generated):
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    stages, wet_links = vbe.wrap_chain(chain.stages, _vbe_meta())
+    return chain, stages, wet_links
+
+
+def test_vbe_wrap_topology_and_graph_io(generated):
+    """The sandwich makes the fan-out the graph input and the mixer the
+    graph output, the serial linker wires copy -> dry chain -> mix In 1 on
+    its own, and the wet branch lands on mix In 2."""
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    dry_first, dry_last = chain.stages[0], chain.stages[-1]
+    stages, wet_links = vbe.wrap_chain(chain.stages, _vbe_meta())
+    serial = emit_links(stages)
+    conf = format_conf(stages, serial + wet_links, "test_node", "test")
+    assert 'inputs = [ "vbe_in_l:In" "vbe_in_r:In" ]' in conf
+    assert 'outputs = [ "vbe_mix_l:Out" "vbe_mix_r:Out" ]' in conf
+    assert {"output": "vbe_in_l:Out",
+            "input": f"{dry_first.in_l[0]}:{dry_first.in_l[1]}"} in serial
+    assert {"output": f"{dry_last.out_l[0]}:{dry_last.out_l[1]}",
+            "input": "vbe_mix_l:In 1"} in serial
+    assert {"output": "vbe_post3:out_l", "input": "vbe_mix_l:In 2"} in wet_links
+    assert {"output": "vbe_post3:out_r", "input": "vbe_mix_r:In 2"} in wet_links
+
+
+def test_vbe_every_link_endpoint_resolves(generated):
+    """Same contract as the dry chain's structural test, over the combined
+    serial + wet link set — PipeWire silently drops unresolved links."""
+    _, stages, wet_links = _wrapped_chain(generated)
+    names = {n["name"] for s in stages for n in s.nodes}
+    for link in emit_links(stages) + wet_links:
+        assert link["output"].split(":", 1)[0] in names, link
+        assert link["input"].split(":", 1)[0] in names, link
+
+
+def test_vbe_control_values_trace_to_metadata(generated):
+    """Every wet-branch number traces to the `_vbe` block or a named engine
+    constant: band edges (geometric mid), the double HP at the mix edge
+    (guard G1), IIR mode on every filter (the zero-latency engine), premix
+    gains = the XML subgains, final mix = unity dry + overall-gain wet."""
+    meta = _vbe_meta()
+    _, stages, _ = _wrapped_chain(generated)
+    head, tail = stages[0], stages[-1]
+    assert [n["label"] for n in head.nodes] == ["copy", "copy"]
+    nodes = {n["name"]: n for n in tail.nodes}
+
+    mid = round((meta["src_lo_hz"] * meta["mix_lo_hz"]) ** 0.5, 4)
+    assert nodes["vbe_a0f1"]["control"]["f"] == meta["src_lo_hz"]
+    assert nodes["vbe_a0f2"]["control"]["f"] == mid
+    assert nodes["vbe_a1f1"]["control"]["f"] == mid
+    assert nodes["vbe_a1f2"]["control"]["f"] == meta["mix_lo_hz"]
+    assert nodes["vbe_post1"]["control"] == nodes["vbe_post2"]["control"]
+    assert nodes["vbe_post1"]["control"]["ft"] == 1     # HP
+    assert nodes["vbe_post1"]["control"]["f"] == meta["mix_lo_hz"]
+    assert nodes["vbe_post3"]["control"]["ft"] == 0     # LP
+    assert nodes["vbe_post3"]["control"]["f"] == meta["mix_hi_hz"]
+
+    for name, node in nodes.items():
+        if node.get("plugin") == vbe.LSP_FILTER_URI:
+            assert node["control"]["mode"] == 0, name    # IIR = zero latency
+            assert node["control"]["fm"] == 2, name      # BWC (BT)
+            assert node["control"]["s"] == 7, name       # x16 slope
+            assert node["control"]["enabled"] == 1, name
+        if node.get("plugin") == vbe.CALF_SATURATOR_URI:
+            assert node["control"]["drive"] == vbe.VBE_SAT_DRIVE, name
+            assert node["control"]["blend"] == vbe.VBE_SAT_BLEND, name
+            assert node["control"]["mix"] == 1.0, name
+            assert node["control"]["level_in"] == 1.0, name
+            assert node["control"]["level_out"] == 1.0, name
+            assert node["control"]["bypass"] == 0, name
+
+    for side in ("l", "r"):
+        premix = nodes[f"vbe_premix_{side}"]["control"]
+        assert premix["Gain 1"] == pytest.approx(
+            db_to_lin(meta["arm_gains_db"][0]), rel=1e-5)
+        assert premix["Gain 2"] == pytest.approx(
+            db_to_lin(meta["arm_gains_db"][1]), rel=1e-5)
+        mix = nodes[f"vbe_mix_{side}"]["control"]
+        assert mix["Gain 1"] == 1.0
+        assert mix["Gain 2"] == pytest.approx(
+            db_to_lin(meta["overall_gain_db"]), rel=1e-5)
+
+
+def test_vbe_absent_leaves_conf_unchanged(generated):
+    """A preset without `_vbe` must produce a conf with no trace of the
+    branch — the default path is byte-identical to pre-VBE output."""
+    preset, irs_path = generated
+    assert "_vbe" not in preset
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    conf = format_conf(chain.stages, emit_links(chain.stages),
+                       "test_node", "test")
+    assert 'name = "vbe_' not in conf
+    assert "Saturator" not in conf
+
+
+def test_vbe_name_collision_guard_raises():
+    """wrap_chain refuses a chain that already holds vbe_-prefixed nodes
+    rather than silently double-wiring them."""
+    stage = Stage(
+        nodes=[{"type": "builtin", "name": "vbe_in_l", "label": "copy"}],
+        in_l=("vbe_in_l", "In"), in_r=("vbe_in_l", "In"),
+        out_l=("vbe_in_l", "Out"), out_r=("vbe_in_l", "Out"))
+    with pytest.raises(ValueError, match="vbe_in_l"):
+        vbe.wrap_chain([stage], _vbe_meta())
+
+
+def test_vbe_smart_filter_props_unaffected():
+    """The sandwich only redefines the first/last stage port refs, so the
+    smart-filter props (which never look past those) must still emit."""
+    preset = {
+        "output": {
+            "plugins_order": ["limiter#0"],
+            "limiter#0": {"bypass": False, "threshold": -1.0,
+                          "lookahead": 1.0, "attack": 1.0, "release": 5.0,
+                          "stereo-link": 100.0, "input-gain": 0.0,
+                          "output-gain": 0.0, "mode": "Herm Thin",
+                          "alr": False, "gain-boost": False},
+        }
+    }
+    chain = build_chain(preset, irs_dir=None, must_exist=False)
+    stages, wet_links = vbe.wrap_chain(chain.stages, _vbe_meta())
+    conf = format_conf(stages, emit_links(stages) + wet_links,
+                       "TestChain", "test desc",
+                       target_sink="alsa_output.x.HiFi__Speaker__sink")
+    assert "filter.smart = true" in conf
+    assert 'inputs = [ "vbe_in_l:In" "vbe_in_r:In" ]' in conf
+
+
+@pytest.mark.slow
+def test_vbe_conf_validates_against_lv2info(generated):
+    """The wrapped conf passes the same lv2info validation gate as the dry
+    chain: every control symbol exists on the installed plugins and every
+    value is in range."""
+    from lib.pipewire import validate
+    if shutil.which("lv2info") is None or shutil.which("spa-json-dump") is None:
+        pytest.skip("lv2info/spa-json-dump not installed")
+    _, stages, wet_links = _wrapped_chain(generated)
+    conf = format_conf(stages, emit_links(stages) + wet_links,
+                       "test_node", "test")
+    report = validate.run(conf)
+    assert report.status == validate.CLEAN, (report.status, report.errors,
+                                             report.warnings)
+    assert not report.errors
+    assert not report.warnings

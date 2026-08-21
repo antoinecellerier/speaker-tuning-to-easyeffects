@@ -62,6 +62,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
+from lib.pipewire import vbe
 from lib.pipewire.plugins import (
     CALF_BE_URI,
     LSP_LIM_URI,
@@ -877,7 +878,10 @@ def _plugin_presence() -> list[str]:
     out = []
     for label, uri in (("LSP PEQ", LSP_PEQ_URI), ("LSP MBC", LSP_MBC_URI),
                        ("LSP limiter", LSP_LIM_URI),
-                       ("Calf bass enhancer", CALF_BE_URI)):
+                       ("Calf bass enhancer", CALF_BE_URI),
+                       ("LSP filter (virtual-bass)", vbe.LSP_FILTER_URI),
+                       ("Calf saturator (virtual-bass)",
+                        vbe.CALF_SATURATOR_URI)):
         try:
             rc = subprocess.run(["lv2info", uri], capture_output=True,
                                 text=True, timeout=10).returncode
