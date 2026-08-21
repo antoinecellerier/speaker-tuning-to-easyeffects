@@ -130,6 +130,12 @@ ENABLEABLE_FILTERS = {
     "level-restore": ("it sounds quieter than with the preset switched off",
                       "experimental; loud speech distorted on the one "
                       "device tested (issue #50)"),
+    # The caveat names the path restriction, not a sound risk: the stage is
+    # a parallel graph EasyEffects cannot express, so a standalone EE run
+    # gains nothing audible from the flag — only the PipeWire conf does.
+    "virtual-bass": ("bass feels thinner than it did on Windows",
+                     "experimental; only the PipeWire chain plays it "
+                     "(issue #14)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -175,7 +181,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    default_unknown: bool = False,
                    autogain_off: bool = False,
                    menu_printed: bool = False,
-                   declared_default: str | None = None) -> None:
+                   declared_default: str | None = None,
+                   virtual_bass_pw: bool = False) -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -209,6 +216,14 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                      "volume leveler ships off here — --enable autogain "
                      "turns it on (may make quiet passages swell then "
                      "duck).")
+    # Same last-screen logic as autogain_note (reviewer round, 2026-08-21):
+    # the one admission that the flag's audible half is elsewhere printed
+    # mid-run, so a closing-block reader installs the presets, hears no
+    # bass change, and has no idea why.
+    vbass_note = ("  The virtual-bass fix you enabled is not in these "
+                  "presets — EasyEffects can't play it; "
+                  "dolby_to_pipewire.py builds it into a PipeWire chain "
+                  "instead.")
     # The mismatch echo mirrors the autogain-note pattern (round 10): the
     # most actionable fix in the run lived only at the top and in the ask
     # small-print, never on the screen people act from.
@@ -263,6 +278,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
             console._cprint_wrapped("dim", mismatch_note, indent="  ")
         if autogain_off:
             console._cprint_wrapped("dim", autogain_note, indent="  ")
+        if virtual_bass_pw:
+            console._cprint_wrapped("dim", vbass_note, indent="  ")
         return
     # "starting in": each preset is two files and only the .json lands in
     # output_dir — the .irs impulse response goes to --irs-dir, a different
@@ -297,6 +314,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         console._cprint_wrapped("dim", mismatch_note, indent="  ")
     if autogain_off:
         console._cprint_wrapped("dim", autogain_note, indent="  ")
+    if virtual_bass_pw:
+        console._cprint_wrapped("dim", vbass_note, indent="  ")
     # The one-line map back to the menu (round 7): with the Done block
     # grown, the symptom→flag menu scrolls off a 26-line screen and the
     # reader said they'd never think to scroll. The pointer puts the

@@ -22,6 +22,7 @@ their arguments, with no state a patch would have to reach.
 from __future__ import annotations
 
 from lib import version
+from lib.dax import parse
 from lib.preset.bands import make_convolver, make_peq_eq
 from lib.preset.plugins import (
     _coupled_bands_eligible,
@@ -32,6 +33,11 @@ from lib.preset.plugins import (
     make_multiband_compressor,
     make_regulator,
 )
+
+# The schema's conventional "floored/off" magnitude: a virtual-bass subgain
+# at exactly -192 (1/16 dB) marks that sub-band disabled, the same sentinel
+# geq_maximum_range and array_20_n192 use (docs/design-notes.md Finding 8).
+VBE_SUBGAIN_OFF_RAW = -192
 
 
 # NOTE: there is deliberately no surround→stereo-widening builder. Earlier
@@ -58,7 +64,8 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 volmax_slot: str = "input-gain",
                 fir_peak_db: float = 0.0,
                 enabled: set[str] | None = None,
-                disabled: set[str] | None = None) -> tuple[dict, set[str]]:
+                disabled: set[str] | None = None,
+                virtual_bass: dict | None = None) -> tuple[dict, set[str]]:
     """Build a preset dict.
 
     Returns (preset, emitted) where emitted is the set of flag-actionable
@@ -222,5 +229,32 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # Brickwall limiter at the end as a safety net
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
     preset["output"]["plugins_order"].append("limiter#0")
+
+    # Virtual bass enhancement on HDA (issue #14) — metadata only, no plugin:
+    # EasyEffects' serial pipeline cannot express the parallel wet branch, so
+    # the flag records the XML's virtual-bass values as a top-level `_vbe`
+    # block (same contract as `_generator`: EE ignores unknown top-level
+    # keys) and ee_to_pipewire.py builds the branch from it. SoundWire
+    # tunings are excluded — their bass_enhancer#0 above covers the gap.
+    if virtual_bass is not None and not is_soundwire:
+        arm_gains = [g / parse.DB_FIXED_POINT_SCALE
+                     for g in virtual_bass["subgains"]
+                     if g > VBE_SUBGAIN_OFF_RAW]
+        if arm_gains:
+            if "virtual-bass" in enabled:
+                preset["_vbe"] = {
+                    "src_lo_hz": float(virtual_bass["src_freqs"][0]),
+                    "mix_lo_hz": float(virtual_bass["mix_freqs"][0]),
+                    "mix_hi_hz": float(virtual_bass["mix_freqs"][1]),
+                    "arm_gains_db": arm_gains,
+                    "overall_gain_db":
+                        virtual_bass["overall_gain"] / parse.DB_FIXED_POINT_SCALE,
+                }
+                # Marker (not an ENABLEABLE_FILTERS key): lets main() tell
+                # "--enable virtual-bass took effect" from "the XML had no
+                # usable virtual-bass block". Same contract as autogain-active.
+                emitted.add("virtual-bass-active")
+            else:
+                emitted.add("virtual-bass")  # actionable via --enable on a rerun
 
     return preset, emitted

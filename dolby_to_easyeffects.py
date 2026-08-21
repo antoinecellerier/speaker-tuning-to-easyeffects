@@ -824,6 +824,50 @@ def main(argv: list[str] | None = None,
                                 "tuning's volume leveler is disabled in the "
                                 "XML, so there is no leveler stage to "
                                 "activate. The preset is unchanged.")
+    if "virtual-bass" in args.enable:
+        if "virtual-bass-active" in tally.filters_by_profile:
+            # The flag worked, but the audible half lives elsewhere: EE's
+            # serial pipeline can't express the parallel branch, so the
+            # preset only records the values for the PipeWire converter.
+            # Under the wrapper (staged=True) that converter is the very
+            # next step, so "run dolby_to_pipewire.py" would tell the user
+            # to run the command they are already inside.
+            print()
+            if staged:
+                # No EasyEffects aside here: the wrapper's reader chose the
+                # PipeWire path to avoid EE, and the next step is where the
+                # stage becomes real for them (reviewer round, 2026-08-21).
+                console._cprint_wrapped("", "--enable virtual-bass: recorded "
+                                        "— the next step builds it into the "
+                                        "PipeWire chain.")
+            elif args.dry_run:
+                # "recorded" would contradict the dry-run banner's "nothing
+                # was written" (reviewer round, 2026-08-21) — use the same
+                # would-style as the rest of the dry-run copy.
+                console._cprint_wrapped("", "--enable virtual-bass: the real "
+                                        "run's presets would carry it for "
+                                        "dolby_to_pipewire.py, which builds "
+                                        "the audible stage into a PipeWire "
+                                        "chain — EasyEffects itself can't "
+                                        "express it.")
+            else:
+                console._cprint_wrapped("", "--enable virtual-bass: recorded "
+                                        "for the PipeWire converter. "
+                                        "EasyEffects itself can't express "
+                                        "this stage — run "
+                                        "dolby_to_pipewire.py to hear it.")
+        else:
+            print()
+            if is_soundwire:
+                console._cprint_wrapped("warn", "--enable virtual-bass had no "
+                                        "effect: SoundWire tunings already "
+                                        "ship a bass-enhancer stage covering "
+                                        "this gap. The preset is unchanged.")
+            else:
+                console._cprint_wrapped("warn", "--enable virtual-bass had no "
+                                        "effect: this XML has no usable "
+                                        "virtual-bass block to derive the "
+                                        "stage from. The preset is unchanged.")
     if ("coupled-bands" in disabled
             and "coupled-bands-dropped" not in tally.filters_by_profile):
         print()
@@ -955,7 +999,9 @@ def main(argv: list[str] | None = None,
                                      not in tally.filters_by_profile),
                        menu_printed=menu_printed,
                        declared_default=(default_profile
-                                         if args.profile is None else None))
+                                         if args.profile is None else None),
+                       virtual_bass_pw=("virtual-bass-active"
+                                        in tally.filters_by_profile))
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own

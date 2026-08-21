@@ -158,7 +158,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                       volmax_slot=args.volmax_slot,
                                       fir_peak_db=fir_peak_db,
                                       enabled=set(args.enable),
-                                      disabled=disabled)
+                                      disabled=disabled,
+                                      virtual_bass=tuning.virtual_bass)
         for name in emitted:
             filters_by_profile.setdefault(name, set()).add(profile_label)
         out_path = args.output_dir / f"{preset_name}.json"

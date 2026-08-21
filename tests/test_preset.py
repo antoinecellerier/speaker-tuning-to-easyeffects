@@ -86,6 +86,7 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    synthetic_virtual_bass,
     write_synthetic_tuning_xml,
 )
 from lib.report import environment
@@ -1392,6 +1393,75 @@ def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
     # exceeds full scale, so the on-disk convention still holds.
     assert max(on_l, on_r) == pytest.approx(1.0, rel=1e-4)
     assert min(on_l, on_r) < 0.99
+
+
+# --- --enable virtual-bass (issue #14) ---
+# The stage is a parallel wet branch EasyEffects cannot express, so the flag
+# only embeds a top-level `_vbe` metadata block (the `_generator` contract:
+# EE ignores unknown top-level keys) that ee_to_pipewire.py builds from. The
+# audio chain in the preset itself must be byte-identical either way.
+
+def test_virtual_bass_flag_embeds_metadata_on_hda():
+    """Scaled values trace the corpus-frozen XML fields exactly: src-freqs[0],
+    mix-freqs, subgains[0..1]/16 with the -192 slot dropped as OFF, and
+    overall-gain/16."""
+    off, _ = make_preset(kernel_name="X", peq_filters=[],
+                         virtual_bass=synthetic_virtual_bass())
+    on, emitted = make_preset(kernel_name="X", peq_filters=[],
+                              virtual_bass=synthetic_virtual_bass(),
+                              enabled={"virtual-bass"})
+    assert on["_vbe"] == {
+        "src_lo_hz": 35.0,
+        "mix_lo_hz": 94.0,
+        "mix_hi_hz": 469.0,
+        "arm_gains_db": [-2.0, -9.0],
+        "overall_gain_db": 0.0,
+    }
+    assert "virtual-bass-active" in emitted
+    assert on["output"] == off["output"]   # audio chain untouched by the flag
+
+
+def test_virtual_bass_flag_is_a_noop_on_soundwire():
+    """SoundWire tunings already ship bass_enhancer#0 for this gap; the flag
+    must neither embed metadata nor offer itself in the menu there."""
+    preset, emitted = make_preset(kernel_name="X", peq_filters=[],
+                                  is_soundwire=True,
+                                  virtual_bass=synthetic_virtual_bass(),
+                                  enabled={"virtual-bass"})
+    assert "_vbe" not in preset
+    assert "virtual-bass-active" not in emitted
+    assert "virtual-bass" not in emitted
+
+
+def test_virtual_bass_offered_without_the_flag():
+    """Same contract as level-restore: the --enable menu names the flag on
+    tunings where it would do something, and only there."""
+    _, emitted = make_preset(kernel_name="X", peq_filters=[],
+                             virtual_bass=synthetic_virtual_bass())
+    assert "virtual-bass" in emitted
+    _, emitted = make_preset(kernel_name="X", peq_filters=[])
+    assert "virtual-bass" not in emitted
+
+
+def test_virtual_bass_all_floored_subgains_emit_nothing():
+    """subgains of all -192 means every sub-band is off — no arms, no
+    metadata, no menu row, so the had-no-effect warning can fire."""
+    vb = synthetic_virtual_bass()
+    vb["subgains"] = [-192, -192, -192]
+    preset, emitted = make_preset(kernel_name="X", peq_filters=[],
+                                  virtual_bass=vb,
+                                  enabled={"virtual-bass"})
+    assert "_vbe" not in preset
+    assert "virtual-bass-active" not in emitted
+    assert "virtual-bass" not in emitted
+
+
+def test_parse_xml_reads_virtual_bass_family(tmp_path):
+    """parse_xml carries the tuning-cp virtual-bass family raw (freqs in Hz,
+    gains in 1/16 dB, the -192 floored slot intact)."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    tuning = parse.parse_xml(xml)
+    assert tuning.virtual_bass == synthetic_virtual_bass()
 
 
 # --- LOCK-IN: a run that bails out leaves the EasyEffects tree alone ---

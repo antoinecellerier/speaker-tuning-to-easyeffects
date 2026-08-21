@@ -41,6 +41,7 @@ from tests.conftest import (
     synthetic_mb_comp,
     synthetic_peq_filters,
     synthetic_regulator,
+    synthetic_virtual_bass,
     write_synthetic_tuning_xml,
 )
 
@@ -163,6 +164,13 @@ SCENARIOS = {
                                   enabled={"level-restore"}),
     "level-restore-available-but-off": _base(volmax_boost=9.0,
                                              fir_peak_db=11.4),
+    # --enable virtual-bass only embeds the `_vbe` metadata block (the
+    # audible half lives in the PipeWire converter); the pair pins both the
+    # block's values and that the flagless run stays metadata-free.
+    "enable-virtual-bass": _base(virtual_bass=synthetic_virtual_bass(),
+                                 enabled={"virtual-bass"}),
+    "virtual-bass-available-but-off": _base(
+        virtual_bass=synthetic_virtual_bass()),
     "disable-volmax": _base(volmax_boost=9.0, disabled={"volmax"}),
     "disable-dynamics": _base(disabled={"mbc", "regulator"}),
     "disable-peq-shapes": _base(peq_filters=_PEQ_MIXED,

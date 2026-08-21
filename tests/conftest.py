@@ -294,6 +294,22 @@ def synthetic_regulator(threshold_high, distortion_slope=1.0,
     }
 
 
+def synthetic_virtual_bass():
+    """The virtual_bass dict parse_xml produces: raw schema values (freqs in
+    Hz, gains in 1/16 dB). The values are the corpus-frozen ones every XML
+    carries — also what write_synthetic_tuning_xml embeds, so the end-to-end
+    and unit fixtures agree.
+    """
+    return {
+        "mode": 0,
+        "src_freqs": [35, 160],
+        "mix_freqs": [94, 469],
+        "subgains": [-32, -144, -192],
+        "overall_gain": 0,
+        "slope_gain": 0,
+    }
+
+
 def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
                                ao_right: str | None = None) -> Path:
     """Write a minimal-but-complete DAX3 playback XML that parse_xml()
@@ -339,6 +355,12 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
       <tuning-cp>
         <ieq-enable value="1"/>
         <ieq-amount value="10"/>
+        <virtual-bass-mode value="0"/>
+        <virtual-bass-src-freqs value="35,160"/>
+        <virtual-bass-mix-freqs value="94,469"/>
+        <virtual-bass-subgains value="-32,-144,-192"/>
+        <virtual-bass-overall-gain value="0"/>
+        <virtual-bass-slope-gain value="0"/>
       </tuning-cp>
       <tuning-vlldp>
         <audio-optimizer-bands>

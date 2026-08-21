@@ -208,7 +208,72 @@ def test_disable_dialog_drops_dialog_enhancer():
 def test_enable_choices_match_documented_set():
     """Mirror of the --disable sanity check: --enable's argparse choices
     ARE ENABLEABLE_FILTERS."""
-    assert set(ENABLEABLE_FILTERS) == {"autogain", "level-restore"}
+    assert set(ENABLEABLE_FILTERS) == {"autogain", "level-restore",
+                                       "virtual-bass"}
+
+
+def test_enable_virtual_bass_embeds_and_points_at_pipewire(tmp_path,
+                                                           silence_console,
+                                                           capsys):
+    """--enable virtual-bass on an HDA tuning embeds the `_vbe` block and
+    tells the user where the audible half lives (the PipeWire converter) —
+    EasyEffects itself can't express the stage, so a run that said nothing
+    would read as the flag doing nothing."""
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out_dir = tmp_path / "out"
+    dolby_to_easyeffects.main([
+        str(xml), "--skip-ee-check", "--skip-closing",
+        "--output-dir", str(out_dir), "--irs-dir", str(tmp_path / "irs"),
+        "--enable", "virtual-bass"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "recorded for the PipeWire converter" in out
+    assert "had no effect" not in out
+    presets = sorted(out_dir.glob("*.json"))
+    assert presets
+    for p in presets:
+        data = json.loads(p.read_text())
+        assert data["_vbe"]["arm_gains_db"] == [-2.0, -9.0], p.name
+
+
+def test_virtual_bass_reaches_the_closing_block(tmp_path, silence_console,
+                                                capsys):
+    """The one admission that the flag's audible half lives outside these
+    presets must reach the closing block (a closing-block-only reader
+    installs, hears no bass change, and has no idea why) — and under
+    --dry-run the confirmation must not claim anything was "recorded"."""
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--enable", "virtual-bass"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "would carry it for dolby_to_pipewire.py" in out
+    assert "The virtual-bass fix you enabled is not in these presets" in out
+    assert "recorded" not in out
+
+
+def test_enable_virtual_bass_warns_on_soundwire(tmp_path, silence_console,
+                                                capsys):
+    """On a SoundWire tuning the flag is a no-op (the bass-enhancer stage
+    already covers the gap) and the run says so instead of staying silent."""
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(
+        tmp_path / "SOUNDWIRE_MAN_SYNTH_SUBSYS_TEST.xml")
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--skip-closing", "--enable", "virtual-bass"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--enable virtual-bass had no effect" in out
+    assert "bass-enhancer stage" in out
+
+
+def test_enable_menu_offers_virtual_bass_on_hda(silence_console, capsys):
+    """The bare "virtual-bass" marker (present but not enabled) feeds the
+    --enable menu row, same contract as autogain's bypassed state."""
+    silence_console(console)
+    messages.print_troubleshooting([], {"virtual-bass": {"default"}})
+    out = capsys.readouterr().out
+    assert "--enable virtual-bass" in out
+    assert "only the PipeWire chain plays it" in out
 
 
 def test_enable_autogain_activates_leveler():

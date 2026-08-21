@@ -8,6 +8,7 @@
   "disable-volmax": "fa9641dd6c5b6f73",
   "enable-autogain": "17c7e612b02bf0b3",
   "enable-level-restore": "a4750bb8fca6a8da",
+  "enable-virtual-bass": "00f345f8ea1360b8",
   "end-to-end-synthetic-xml": "279e3f0a60dfdd24",
   "full-chain": "fa9641dd6c5b6f73",
   "level-restore-available-but-off": "9a48a3c4cec2d46a",
@@ -19,6 +20,7 @@
   "peq-filter-type-mix": "7509a73b6ba2226d",
   "peq-only": "e67d10b3b8f7b751",
   "soundwire": "a125a9aa5bd727c3",
+  "virtual-bass-available-but-off": "fa9641dd6c5b6f73",
   "volmax-input-gain": "9a48a3c4cec2d46a",
   "volmax-output-gain": "360aa381387c865b"
 }

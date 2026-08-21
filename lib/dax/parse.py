@@ -190,6 +190,11 @@ class ParsedTuning:
     # collect_unmodeled_features / _unmodeled_summary).
     findings: list[Finding] = field(default_factory=list)
     leveler_substages: list[str] = field(default_factory=list)
+    # tuning-cp <virtual-bass-*> family, raw schema values (freqs in Hz,
+    # gains in 1/16 dB — the -192 floored slot means "sub-band off"). None
+    # when the family is absent or malformed. Corpus-frozen, so it feeds
+    # only the opt-in --enable virtual-bass path (issue #14).
+    virtual_bass: dict | None = None
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
@@ -532,6 +537,37 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "boost": _int_attr(cp.find("surround-boost"), default=0) / DB_FIXED_POINT_SCALE,
             }
 
+    # Virtual-bass family (tuning-cp) — corpus-frozen (identical on every
+    # corpus XML), so it drives no per-device mapping; carried raw for the
+    # opt-in PipeWire VBE branch (issue #14). Gains stay 1/16-dB ints here:
+    # the -192 floored slot must survive exactly for "band off" detection.
+    virtual_bass = None
+    if cp is not None:
+        vb_src = resolve_xml_value(cp.find("virtual-bass-src-freqs"), constant)
+        vb_mix = resolve_xml_value(cp.find("virtual-bass-mix-freqs"), constant)
+        vb_sub = resolve_xml_value(cp.find("virtual-bass-subgains"), constant)
+        if vb_src and vb_mix and vb_sub:
+            src_freqs = parse_csv_ints(vb_src)
+            mix_freqs = parse_csv_ints(vb_mix)
+            subgains = parse_csv_ints(vb_sub)
+            if len(src_freqs) == 2 and len(mix_freqs) == 2 and subgains:
+                virtual_bass = {
+                    "mode": _int_attr(cp.find("virtual-bass-mode"), default=0),
+                    "src_freqs": src_freqs,
+                    "mix_freqs": mix_freqs,
+                    "subgains": subgains,
+                    "overall_gain": _int_attr(
+                        cp.find("virtual-bass-overall-gain"), default=0),
+                    "slope_gain": _int_attr(
+                        cp.find("virtual-bass-slope-gain"), default=0),
+                }
+            else:
+                console.cprint(
+                    "warn",
+                    f"  {path.name}: virtual-bass fields have an unexpected "
+                    f"shape (src {len(src_freqs)}, mix {len(mix_freqs)}, "
+                    f"subgains {len(subgains)}); ignoring them.")
+
     # Multi-band compressor settings (from tuning-vlldp)
     mb_comp = None
     mbc_enable = vlldp.find("mb-compressor-enable")
@@ -592,6 +628,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         ieq_enabled=ieq_enabled,
         findings=findings,
         leveler_substages=leveler_substages,
+        virtual_bass=virtual_bass,
     )
 
 

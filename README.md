@@ -138,7 +138,7 @@ pip install -r requirements.txt
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `coupled-bands`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`, `virtual-bass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
@@ -210,6 +210,7 @@ The mirror direction: some filters ship in the preset but inactive, and `--enabl
 |------|----------------------------|
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler — see [Troubleshooting: correct but too quiet](#troubleshooting-correct-but-too-quiet). |
 | `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. The impulse response is normalised so its loudest band sits at 0 dB, which drops everything else below unity; on tunings whose peak exceeds their `volmax-boost` the result plays below bypass. This hands that level back. **Experimental** — it also feeds the peak into the final limiter, and on the one device that has listened, loud speech picked up audible artifacts; try `--disable volmax` if yours does too, and report either way on [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50). |
+| `virtual-bass` | Bass feels thinner than it did on Windows (HDA internal speakers). Windows DAX synthesizes harmonics that suggest bass small drivers can't physically produce; this records the XML's virtual-bass parameters so the [PipeWire converter](#pipewire-filter-chain-instead-of-easyeffects) can build that stage — EasyEffects itself can't express it, so the EE preset's audio is unchanged and you need `dolby_to_pipewire.py` to hear it. **Experimental** — measured close to DAX on one device; report what you hear on [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14). |
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI — they're the FIR correction, speaker PEQ, and safety net.
 

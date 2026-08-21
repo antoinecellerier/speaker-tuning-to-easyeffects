@@ -93,7 +93,7 @@ def test_rebuild_argv_round_trips_through_the_generator_parser():
     args = parser.parse_args([
         "some.xml", "--best-guess", "--endpoint", "headphone",
         "--disable", "mbc", "--disable", "volmax",
-        "--enable", "autogain", "--prefix", "X",
+        "--enable", "autogain", "--enable", "virtual-bass", "--prefix", "X",
     ])
     child_argv = dolby_to_pipewire.rebuild_argv(step1_actions, args)
     child = dolby_to_easyeffects.build_parser([]).parse_args(child_argv)
@@ -101,7 +101,7 @@ def test_rebuild_argv_round_trips_through_the_generator_parser():
     assert child.best_guess is True
     assert child.endpoint == "headphone"
     assert child.disable == ["mbc", "volmax"]
-    assert child.enable == ["autogain"]
+    assert child.enable == ["autogain", "virtual-bass"]
     assert child.prefix == "X"
     # Untouched flags stay on the generator's defaults, not the wrapper's.
     assert child.mode == "normal"
