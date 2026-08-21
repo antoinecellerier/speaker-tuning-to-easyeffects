@@ -91,6 +91,16 @@ and the ear are both required to sign off.
 the null sink. Always run this, including on failure, so the user's speakers
 come back.
 
+**Then verify EE actually rebuilt its pipeline, not just that it runs:**
+`pw-link -l | grep ee_soe_output_level` must show links into the speaker sink.
+An EE restarted amid graph churn (sinks/chains being torn down around it) can
+come up with `easyeffects_sink` present but **no processing graph behind it** —
+a silent black hole that swallows every app routed to it, while short event
+sounds on the raw default sink still play (2026-08-21: cost the user Firefox
+and Spotify audio for ~40 min post-teardown). Process alive + sink listed +
+rc correct is NOT restored; the output links are. If they're missing, restart
+EE once more after the graph has settled.
+
 ## Dead ends — don't retry (capture route)
 
 Ruled out in prior sessions; `smoke.py` already encodes the working fix:
