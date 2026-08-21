@@ -75,6 +75,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   are unchanged
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
+- **[AUDIBLE]** (opt-in) New experimental `--enable virtual-bass` adds Dolby's
+  missing virtual-bass stage — synthesized harmonics that suggest bass small
+  speakers can't physically produce — to the PipeWire filter-chain, built from
+  the XML's own virtual-bass fields. EasyEffects can't express the parallel
+  stage, so the flag changes nothing there; run `dolby_to_pipewire.py` to hear
+  it ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
+  measurements in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-out) New `--disable autogain` flag switches the volume
   leveler off on SoundWire devices, where it runs by default — the escape
   hatch if loudness pumps between quiet and loud passages. Default presets are

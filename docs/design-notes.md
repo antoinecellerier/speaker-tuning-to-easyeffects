@@ -1656,7 +1656,112 @@ clean (the −18 dB regression) and leaks 2nd harmonics where DAX is
 odd-dominated — a decent-but-imperfect approximation, not a faithful
 one; (b) *PW-only, more selective* — the LSP-cascade + Saturator
 injection above, which suppresses the 180 Hz over-synthesis BassEnhancer
-can't, and is expressible only in the PW path. Both stay deferred.
+can't, and is expressible only in the PW path. Shape (a) stays deferred;
+shape (b) shipped 2026-08 as the `--enable virtual-bass` opt-in — the
+phase-2 work below is how it got there.
+
+#### Phase 2 (2026-08): `virtual-bass-subgains` decoded, and a chain that scores
+
+The mixed-topology step the caveat above named has been taken — the
+parallel dry + wet render is part of `tools/measure_ee/render_vbe_chain.py`
+— and a scored search over readings of `virtual-bass-subgains` settled
+the "dead schema slots or configuration?" question from the top of this
+finding: the fields are corpus-frozen but not dead — they decode, and
+the decode predicts the measured DAX behaviour.
+
+**The sixteenth-dB unit is now proven, not inferred.** The sliding-bass
+`gain-curve[1]` ↔ `max-gain` identity (192→12.0, 288→18.0, 297→18.5625)
+fixes the 1/16-dB scale — cross-device-findings §14 documents the pairs.
+So `virtual-bass-subgains="-32,-144,-192"` is exactly −2 / −9 / −12 dB.
+
+**Two readings of subgains are dead.** A *per-harmonic* reading
+((h2,h3,h4) or (h3,h5,h7) weights) is refuted by the measured DAX table
+at the top of this finding: −2/−9/−12 would make h2 loudest, and DAX has
+h2 ≈26 dB *below* h3 at 50 Hz; the odd-only variant predicts h5 = h3−7
+where DAX measures h3−0.7. A *literal three-sub-band* reading is
+structurally impossible with any weights: the third sub-band (94–160 Hz)
+lies inside the mix band 94–469, so its fundamentals pass both filters
+into the sum — every drive/blend combination fails the wet-leakage guard
+(G1 below), on both dry captures.
+
+**Winning reading: sub-band weights, with −192 = that band off.** −192
+is the schema's conventional floored/off magnitude (`geq_maximum_range`
+is 192; the `array_20_n192` default). Read that way, the switched-off
+slot covers exactly the sources inside the mix band — the ones no
+subtractive topology can synthesize from — and the live sources
+partition [`src-freqs[0]`, `mix-freqs[0]`] = [35, 94] geometrically:
+sub-band edges 35 / 57.4 / 94 Hz.
+
+**The scored candidate ("v3").** Two brick-wall arms, 35–57.4 and
+57.4–94 Hz, premixed at −2 / −9 dB (subgains 1–2) into a Calf Saturator
+at drive 4, blend −10 — the two measurement-calibrated engine constants;
+the XML has no field for either — then a double HP@94 + LP@469 mix band
+(a single ×16 HP leaks enough of arm 2's 80 Hz fundamental to fail G1;
+the cascade lands it at ≈−104 dBFS against a ≈−61 dBFS requirement),
+summed at unity — matching `virtual-bass-overall-gain=0`. The free
+global-gain fit independently lands at 0 dB, the strongest
+self-consistency check in the batch.
+
+**Scoring protocol (red-teamed).** Targets are the 12 measured DAX cells
+(50/80/120 Hz tones × harmonics) plus a guard cell, both sides clamped
+at −80 dBFS; S = macro-average per tone of |error|, overshoot ≥200 Hz
+weighted ×2. One fitted global wet gain on a −6..+12 dB grid, unity
+reported alongside. Guards G1–G6: wet fundamental leakage ≤ dry−20 dB;
+180 Hz 2nd harmonic ≤ −80; mud cap (cells ≤ DAX+6, 200–469 Hz integral
+≤ DAX+3); quiet render clean; multitone IMD ≤ DAX+6; no grid-edge fit.
+Anchors, and repeatability across two dry captures, calibrate the scale:
+
+| candidate | S (unity wet gain) |
+|---|---:|
+| DAX scored against itself (method noise floor) | 0.07 |
+| **v3** | **4.43** |
+| emitting nothing | 10.01 |
+| the historical Calf BassEnhancer capture | 18.43 |
+
+Calf BassEnhancer scoring *worse than doing nothing* under the
+asymmetric metric matches its on-device rejection above: the metric
+ranks the known candidates correctly.
+
+**Results.** S(v3) = 4.43 at unity on both dry captures, |ΔS| = 0.00;
+all guards green. The split edge is not load-bearing: mid at 70 Hz
+instead of the geometric 57.4 scores 4.46. The remaining error is
+safe-direction undershoot — h5 at 250 Hz (−61 vs DAX −47), h4 at
+200 Hz; Calf's saturation series decays faster than DAX's above h3 —
+except the 2nd-harmonic cells, ≈9–10 dB hot at 100/160 Hz. Runners-up:
+drive 6 fits 4.14 but only at the −6 dB grid edge with unity mud fails
+(G6 reject); blend 0 loses by ≈2.1 dB. A finer drive×blend
+recalibration sweep (2026-08-21; drive 3.0–6.0 in 0.5 steps, blend
+−10..0) placed drive 4.5 / blend −10 first at unity S = 4.38 — 0.05 dB
+ahead, far under the ≥0.5 dB-on-both-captures adoption rule — so
+drive 4 / blend −10 stands. Known soft spot: sources near the 94 Hz
+boundary leak ≈−58 dBFS wet — inside G1's margin, ~25 dB under typical
+dry content there, but the topology's weakest point on real content.
+
+**Acoustic end-to-end confirmation (2026-08-21).** With a 50 Hz tone
+through the live chain, the 149–150 Hz product is audible in the room
+and visible on a phone spectrum analyzer, present with the wet mix gain
+at 1.0 and gone at 0.0 — the first room-air verification (every prior
+check was a sink-level digital capture). A music A/B on the dev X1 Yoga
+reads subtle and artifact-free, consistent with the effect's size: the
+products sit 25–30 dB under content level, and only 35–94 Hz
+fundamentals trigger them.
+
+**Standing caveat.** DAX's VBE is level-adaptive — the wet product
+collapses ~2.5 dB per dB of input at low level — and a static chain
+matches at the reference level only. G4 shows the static chain at least
+fails safe there: on quiet content it collapses in the same direction
+as DAX and stays clean.
+
+**What shipped: `--enable virtual-bass`, PipeWire path only.** The
+opt-in flag builds this chain around the translated stages
+(`lib/pipewire/vbe.py`); all-IIR, no look-ahead, zero added latency.
+It stays opt-in for the same two reasons as before, now sharpened: one
+device scored, and drive/blend are measurement-calibrated rather than
+XML-derived. The EE-path half was verified against the EasyEffects
+source (2026-08-21, master v8.2.8): the pipeline is strictly serial,
+no saturator plugin exists, arbitrary LV2 plugins cannot be loaded, and
+EE tears down foreign links on its nodes — a parallel wet branch can be
+neither expressed in a preset nor hand-patched around a running EE.
 
 ### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13))
 

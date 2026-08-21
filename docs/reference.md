@@ -234,6 +234,14 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   confirmed against a DAX capture**. Each, with the measurement that would
   validate it, is catalogued in design-notes "Unvalidated converter scaling
   factors".
+- **Capture-scored on one device, opt-in — `--enable virtual-bass`:** the
+  wet-branch topology, sub-band weights, and unity overall gain score
+  S = 4.43 against the dev device's DAX bass-burst battery (0 = identical
+  to DAX at the method's noise floor; emitting nothing scores 10.0), with
+  all cleanliness guards green and one acoustic on-device confirmation
+  (2026-08-21). One device only, and the two saturator constants are
+  measurement-calibrated rather than XML-derived — both reasons it ships
+  default-off (design-notes Finding 8, issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
 - **Unvalidated, and knowingly so — `isolated_band`:** a zone whose
   `threshold_high` is 0 dBFS and whose bands are all marked non-isolated
   joins the limiter at full scale rather than being read as "never
@@ -268,19 +276,26 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   default output is unchanged).
 - **Virtual Bass Enhancement on HDA** — DAX synthesizes odd-dominated bass
   harmonics on internal speakers (issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14));
-  the converter doesn't. The XML's `virtual-bass-*` fields are corpus-frozen
-  (identical values in every XML measured), so any VBE is a hardcoded
-  baseline — opt-in territory under the XML-only invariant — and EE 8.x
-  cannot express the chain that measures well (LSP brick-wall band-pass into
-  a saturator), so it could only ever ship on the PipeWire path. The
-  investigation is reproducible offline via
-  `tools/measure_ee/render_vbe_chain.py`; evidence and status live in
-  design-notes Finding 8.
+  the default output still doesn't. The experimental `--enable virtual-bass`
+  flag builds the measured chain on the **PipeWire path only** (EasyEffects'
+  serial pipeline cannot express the parallel branch, verified against the
+  EE source 2026-08-21): two LSP brick-wall band-passed arms over the
+  `virtual-bass-src-freqs`→`mix-freqs` split into a Calf Saturator, premixed
+  at the `virtual-bass-subgains` weights (the −192 slot = that sub-band off),
+  band-limited to `virtual-bass-mix-freqs` and summed at the XML's
+  `virtual-bass-overall-gain` (all sixteenth-dB; fields are corpus-frozen —
+  identical in every XML measured — which is what keeps this opt-in under
+  the XML-only invariant). Two saturator constants (`drive=4`, `blend=−10`)
+  are measurement-calibrated against the DAX capture, not XML-derived; the
+  chain is all-IIR with no look-ahead, so it adds zero latency. Measured
+  score, guards, and the on-device listening result live in design-notes
+  Finding 8; the offline reproduction is
+  `tools/measure_ee/render_vbe_chain.py`.
 - **Always-inert / out-of-scope XML fields** — deliberately ignored because
   they're always zero/disabled on the modelled endpoints, are DSP internals
   with no EasyEffects equivalent, or concern multichannel/subwoofer routing
   irrelevant to stereo laptop output: `pregain`/`postgain`/`calibration-boost`/
-  `system-gain` (all 0 dB), `bass-extraction-*`, `virtual-bass-*` (the audible gap: see the VBE entry above),
+  `system-gain` (all 0 dB), `bass-extraction-*`, `virtual-bass-*` on the default path (opt-in via `--enable virtual-bass`: see the VBE entry above),
   `volume-modeler-*`, `graphic-equalizer-*`, `surround-*` /
   virtualizer-geometry, `mi-*-steering-enable`,
   `output-mode`/`mix_matrix`/`processing_mode`, `init-info` sizing, CP-level

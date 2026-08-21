@@ -309,6 +309,7 @@ data, so states this developer machine can't reach are unit-tested in
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). `amount` is dB in the EE preset, linear in Calf — converted via `db_to_linear` (the `BIND_LV2_PORT_DB` macro). `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct. Triggers on SoundWire devices with small drivers. |
 | `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. **Translator retained but no longer triggered:** since 2026-06 the *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block (the `surround-boost → stereo_tools` widening was falsified by a DAX capture — design-notes entry 2), so generated presets never reach this translator. This row still applies to any hand-edited or legacy preset that carries a `stereo_tools` block. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true (unless the preset was generated with `--enable autogain`); emitting a bypassed node would just clutter. |
+| `_vbe` (top-level metadata, `--enable virtual-bass` only) | LSP `filter_stereo` ×7 + Calf `Saturator` ×2 + builtin `copy`/`mixer` | Not an EE plugin key: EasyEffects cannot express the parallel branch, so the generator records the XML's virtual-bass values top-level (the `_generator` contract) and `lib/pipewire/vbe.py` sandwiches the whole translated chain between a copy fan-out and a dry+wet mixer. See "No VBE by default" under limitations. |
 | `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`); `autogain_stereo` is the LV2 equivalent — a K-weighted (LUFS) loudness AGC. `target`→`level` and `silence-threshold`→`silence` are dB-domain ports passed **directly** (no `db_to_lin`), clamped to the port ranges (−60..0 / −84..−36); `weight=5` (K-weighting = EBU R 128); `lkahead=0` (zero added latency). EE's `maximum-history` (s) drives the gain-ride time-constants asymmetrically — `tfall_l` (gain down, 200 ms/s) faster than `tgrow_l` (gain up, 500 ms/s, anti-pumping) — matching EE's measured behaviour (on-device EE-vs-PW proof in design-notes). The mapping was validated at a 20 s history; shorter windows (HDA `--enable autogain` always; SoundWire when `volume-leveler-amount` > 5) surface a warning — on the console and in the conf-header warning block — that the PW ride may be faster than EE's. EE `input-gain`/`output-gain` are always 0.0 and have no main-path port, so they are not written. Active by default on SoundWire; on HDA only for presets generated with `--enable autogain`. |
 
 Anything the converter cannot express warns on the console instead
@@ -491,13 +492,22 @@ same check has a command-line front end at
   X13s Gen 1). Every XML in the corpus reports
   `total_count=2`, including the X13s sibling — the upmix is device
   wisdom encoded outside the XML.  See cross-device-findings.md §14.
-- **No VBE (virtual bass enhancement) on HDA.** DAX synthesises
+- **No VBE (virtual bass enhancement) by default.** DAX synthesises
   missing-fundamental bass harmonics on HDA laptops (issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)) that
-  neither the EE preset nor this conf reproduces. Kept so on purpose —
-  the converter is a faithful 1:1 translation, so closing the gap would
-  make the PW conf deliberately diverge from EE. The two deferred options
-  (cheap-both-paths vs PW-only) and why they're held are in
-  `docs/design-notes.md` (the issue-#14 VBE finding).
+  neither the EE preset nor the default conf reproduces — the converter is
+  a faithful 1:1 translation, and the stage is a parallel graph
+  EasyEffects cannot express, so building it by default would make the PW
+  conf deliberately diverge from EE. The experimental opt-in: generate the
+  preset with `--enable virtual-bass` (or pass it to
+  `dolby_to_pipewire.py`) and the generator embeds a top-level `_vbe`
+  metadata block — EasyEffects ignores unknown top-level keys, the same
+  contract as `_generator` — which this converter turns into the measured
+  wet branch (`lib/pipewire/vbe.py`): the translated chain is sandwiched
+  between a `copy` fan-out and a dry+wet `mixer`, with two LSP brick-wall
+  band-passed arms into Calf Saturators between them. All filters run the
+  IIR engine with no look-ahead and the mixers/copies are builtin
+  pass-throughs, so the branch adds zero latency. Evidence and the
+  measured score are in `docs/design-notes.md` Finding 8.
 - **No `--launch` flag on this script.** PipeWire's standard reload
   path is `systemctl --user restart pipewire pipewire-pulse`; the
   converter prints it in its next-steps checklist and lets the user run
