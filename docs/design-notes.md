@@ -1763,6 +1763,18 @@ no saturator plugin exists, arbitrary LV2 plugins cannot be loaded, and
 EE tears down foreign links on its nodes — a parallel wet branch can be
 neither expressed in a preset nor hand-patched around a running EE.
 
+**Shipped-path verification (2026-08-21).** The conf the flag actually
+generates (XML → `--enable virtual-bass` preset → `ee_to_pipewire.py`)
+was captured end-to-end on the same null-sink route as the prototype rig
+and scored with `tools/measure_ee/score_vbe_chain.py`: every scored cell
+within 0.8 dB of the rig capture above the −80 dBFS clamp, unity
+S = 4.43 vs the rig's 4.53 — run-to-run variance, so the shipped
+artifact reproduces the measured chain, not just its parameter values.
+The measured cells:
+
+![Measured harmonic cells — doing nothing vs the shipped chain vs
+DAX](images/vbe-cells-vs-dax.png)
+
 **Second-device evidence (2026-08-21): whether DAX runs VBE at all is
 decided outside the XML.** The issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
