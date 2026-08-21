@@ -1787,14 +1787,69 @@ above the processing-off floor, the 47 Hz fundamental cut ~14 dB. On
 the #44 capture the products sit within ~10–15 dB of the capture floor
 and the fundamental is *boosted* ~11 dB: that device's Windows DAX
 applies **no VBE**, despite its XML carrying the identical corpus-frozen
-`virtual-bass-*` values (parse-verified; an older 2019-era Dolby package,
-v6.503). So the frozen fields don't predict whether a given device's DAX
+`virtual-bass-*` values (an older 2019-era Dolby package, v6.503; the
+original session verified the values on a sibling tuning from the same
+package — the deep audit below re-verified them on the device's own file
+with a full structured diff). So the frozen fields don't predict whether a given device's DAX
 engages VBE — engagement is engine- or device-side, outside any
 text-readable source we ship against, which is this finding's core claim
 proven on a second device's measured data. It also reframes the flag: on
 a device we haven't captured, `--enable virtual-bass` means "add the
 effect if you like it", not "match your Windows" — the default-off
 framing is behaviorally, not just formally, correct.
+
+**Deep audit (2026-08-21): no text-readable source — XML, companion
+file, INF, or registry — names a VBE switch.** A follow-up pass
+stress-tested the "decided outside the XML" claim on every adjacent file
+the converter ignores, looking for whatever makes the two devices differ:
+
+- *Full structured XML diff* (the check the original note lacked): #44's
+  own tuning (`DEV_0287…17AA380D`, `xml_version` 3.2.1, DTT 3.1.7)
+  against the dev X1 Yoga's (`17AA22E6`, 3.5.5, DTT 3.4.0.5), every
+  value-carrying element of the speaker endpoint across all profiles.
+  The virtual-bass block is uniform across every endpoint × profile of
+  both files, and the only value differences anywhere are ordinary
+  per-device tuning (regulator thresholds, leveler amount, virtualizer
+  angles, volmax-boost) plus three surround enables on `voice`. Nothing
+  bass-adjacent differs.
+- *Corpus re-derivation (2026-08-21, 2,836 tuning XMLs):* all six
+  `virtual-bass-*` fields are single-valued across all 42,491 profile
+  blocks. The full schema (3.4.1+) also turns out to carry the one
+  in-XML VBE boolean we had never read — `virtual_bass_process_enable`,
+  an engine-init flag inside `tuning-cp/init-info` — and it is `0` in
+  all 30,724 occurrences across 1,967 files, **including every profile
+  of the dev device where VBE measurably runs**. #44's 3.2.x schema has
+  no `init-info` at all. Even the schema's own enable bit reads "off" on
+  an engaged device.
+- *Driver-package INFs* (67 Dolby INFs across the corpus): the DAX
+  extension INF assigns each hardware ID a product SKU, and that tier is
+  the one clean per-device contrast — #44's `17AA380D` is
+  `DolbyAtmosSpeakerSystem` in every package generation (v6.503 through
+  v10.1029) while the dev `17AA22E6` is `DolbyAccessNoGaming` (verified
+  in the dev machine's installed v9.1127.1236.0 DriverStore package; the
+  in-XML `<sku>` says `DolbyAtmosSpeakerSystem` for *both*, so the
+  effective tier lives in the INF, not the XML). The entire INF-writable
+  registry surface contains no VBE key; the only per-device bass gate
+  that exists anywhere in it is sliding-bass's
+  (`HKR,Streaming_Speaker,DolbySlidingBass` — cross-device findings §14).
+- *Offline registry audit of the engaged machine* (media-class driver
+  instances dumped in full, MMDevices endpoint FX properties,
+  `SOFTWARE\Dolby`, Dolby Access's UWP settings store): the only
+  bass-adjacent value on the whole surface is `DolbySlidingBass = 0`;
+  `SOFTWARE\Dolby\DAX` holds only global state (`DolbyEnable = 1`,
+  lid/orientation). No VBE enable exists under any name.
+
+So engagement sits inside the engine/APO binaries. The two text-readable
+candidates that differ between the devices — engine generation
+(v6.503/2019 vs v9.1127/2024) and product tier (`DolbyAtmosSpeakerSystem`
+vs `DolbyAccess`) — covary on our two data points, so neither is
+established. What would separate them: a capture from a
+`DolbyAtmosSpeakerSystem`-tier device on a v8+ package (28 such hardware
+IDs appear in corpus packages, re-derived 2026-08-21 — among them
+`17AA380D` itself, which newer Lenovo packages still list at that tier,
+so #44's machine on an updated driver would be the cleanest
+discriminator). Until then the finding's conclusion stands, strengthened:
+whatever enables VBE is not in any file or registry value we can read.
 
 ### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13))
 

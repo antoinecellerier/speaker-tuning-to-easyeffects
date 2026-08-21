@@ -804,6 +804,18 @@ have an in-device A/B — it is on for `music` and off for every other profile
 level, a static band shape does not, and synthesis shows new harmonics (the
 Δ3 signature the issue-#14 harness already measures).
 
+**The XML enable is not even the whole gate (2026-08-21).** The Intel
+streaming-extension INFs ship paired `EnableSlidingBassAddReg` /
+`DisableSlidingBassAddReg` sections writing
+`HKR,Streaming_Speaker,DolbySlidingBass`, selected per hardware ID (Lenovo's
+Cirrus OEM INF has an `EnableDolbySlidingBass` variant), and the dev X1 Yoga's
+live driver key carries `DolbySlidingBass = 0`. This is the only per-device
+bass feature gate found anywhere in the corpus INFs' registry surface, and it
+makes sliding bass Dolby's demonstrated pattern for gating bass behaviour
+outside the tuning XML — an implementation would face the same
+does-Windows-actually-run-it question as Virtual Bass Enhancement
+(design-notes Finding 8 deep audit).
+
 **Not surfaced to users either, deliberately (2026-08-04).** Sliding bass is
 absent from `_UNMODELED_FEATURES`, so no run mentions it — including on the
 63 devices that carry it. Adding the row was considered while triaging issue
