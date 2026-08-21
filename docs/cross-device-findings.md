@@ -448,6 +448,71 @@ dev device, which never declares the field, regenerates byte-identical
 throughout. Not heard on affected hardware: none of the devices is in reach.
 **No committed query yet** — same caveat as the block above.
 
+### Where the correction starts and stops
+
+An AO curve need not span the band grid. Counting the leading and trailing
+all-zero bands of the resolved curve says where a tuning declines to correct
+at all — which is a different statement from the enable gate above, where the
+curve is switched off wholesale.
+
+> **Derived 2026-08-21** over the 788 content-unique XMLs, first
+> `internal_speaker`/`normal` profile, resolving `ch_00` / `gain_l` through
+> `resolve_xml_value`. 787 parse; the one miss (`17AA508B`) offers only
+> `internal_speaker`/`laptop` and `/tablet`, so it has no `normal` mode to
+> read — the corpus tier skips it by design. The 20-band frequency grid is
+> **identical across all 787** — 47 Hz, 141, 234, 328, 469 … 13875, 19688 —
+> so band index and frequency are interchangeable here.
+
+| all-zero bands | at the bottom | at the top |
+|---|---|---|
+| 0 | 250 (31.8%) | 545 (69.3%) |
+| 1 | 251 (31.9%) | 85 (10.8%) |
+| 2 | 61 (7.8%) | 13 (1.7%) |
+| 3 | 89 (11.3%) | 15 (1.9%) |
+| 4 | 13 (1.7%) | 12 (1.5%) |
+| 5–19 | 10 (1.3%) | 4 (0.5%) |
+| 20 (curve all zero) | 113 (14.4%) | 113 (14.4%) |
+
+So the norm is a curve that corrects nearly the whole grid: 501 XMLs (63.7%)
+start at band 0 or 1, and 545 (69.3%) run to 19.7 kHz. Trimming ≥4 bands off
+the bottom without being all-zero is rare — 23 XMLs, **2.9%**.
+
+Rarer still is trimming ≥4 bands off **both** ends: 7 tunings across 6 device
+ids, and five of those share one exact span.
+
+| span | tunings | device ids |
+|---|---|---|
+| 469 Hz – 7125 Hz (bands 4–15) | 5 | `17AA3912`, `17AA3914`, `17AA393A` (two distinct tunings), `17AA3941` |
+| 469 Hz – 844 Hz (bands 4–6) | 2 | `17AA38D2`, `17AA38D7` |
+
+`17AA3941` is issue [#67](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/67)'s
+— a Lenovo IdeaPad Pro 5 14AGP11 (machine type 83SG) — and the only member of
+the cluster with a published speaker spec: PSREF gives "Stereo speakers, 2W
+x2, optimized with Dolby Atmos®" with no amplifier line, and the reporter's
+`--speaker-info`, ACPI and i2c listings agree that no smart amp is present.
+That single spec is the only hardware anchor either row has; the other five
+ids are unidentified. The four sharing #67's span sit in one contiguous
+`17AA:39xx` run, which suggests a single platform generation; the two
+469–844 Hz outliers sit apart from it in `17AA:38Dx`.
+
+**Why it matters for issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14).**
+The `virtual-bass-*` family is present in all 787 content-unique tunings and
+carries **one parameter set across every one of them** (§1 records the
+`virtual-bass-mode = 0` half of this): source band 35–160 Hz, mix band
+**94–469 Hz**, three sub-band gains, zero overall and slope gain. On the
+five-tuning cluster above the audio optimizer's first corrected band is 469 Hz
+— exactly the top of that mix band — so everything below the virtual-bass
+crossover is left entirely to the one stage the default chain does not
+reproduce. That makes those five tunings the corpus's clearest a-priori case
+for `--enable virtual-bass`, and is why it was offered on #67.
+
+Read the zeros as *"Dolby applies no correction here"*, not *"the driver
+cannot reach here"* — a response already flat enough needs no correction
+either. The tie to driver size rests on one device's published spec and is a
+hypothesis, not a measurement. **No committed query yet** — same caveat as the
+two blocks above; `corpus_audit` computes neither content-hash dedup nor AO
+span.
+
 ---
 
 ## 9. PEQ filters — mostly simple, occasionally complex

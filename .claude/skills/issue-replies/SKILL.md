@@ -133,7 +133,24 @@ every one in a single pass.
   Dolby processing toggled off vs on. It separates device voicing (amp
   firmware, unreachable from the XML) from host processing (the surface we
   translate).
-- If the device isn't in the corpus, ask them to attach the tuning XML to
+- **Check the corpus by `SUBSYS` before asking for the XML.** The collection
+  is keyed by device id and holds no model names, so "is this *model* in the
+  corpus?" is not a question it can answer — "is this `SUBSYS` in it?" is.
+  The id is on the codec `Subsystem:` line of `--speaker-info`
+  (`0x17AA3941` → `SUBSYS_17AA3941`), and it is also the first `SUBSYS_`
+  token of any filename the reporter quotes:
+
+  ```
+  find "${ATMOS_CORPUS_DIR:-.}" -iname '*SUBSYS_17AA3941*'
+  ```
+
+  A hit means their attachment would land as a byte-identical duplicate and
+  the ask buys nothing but goodwill. In #67 it went out twice on the premise
+  "no AGP11 machine is in there yet" — unverifiable as phrased, and false by
+  id: the tuning was already there from two driver packages, and the
+  reporter had quoted the filename a comment earlier.
+
+- If the `SUBSYS` isn't in the corpus, ask them to attach the tuning XML to
   the issue. Availability of the XML online is OEM-dependent — some OEMs'
   downloadable driver packages have contained them in the past, but ASUS's
   don't (Windows-Update-on-device only; checked EXEs + Microsoft Update
