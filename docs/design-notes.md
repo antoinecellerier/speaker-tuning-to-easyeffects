@@ -1763,6 +1763,27 @@ no saturator plugin exists, arbitrary LV2 plugins cannot be loaded, and
 EE tears down foreign links on its nodes — a parallel wet branch can be
 neither expressed in a preset nor hand-patched around a running EE.
 
+**Second-device evidence (2026-08-21): whether DAX runs VBE at all is
+decided outside the XML.** The issue
+[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
+(Yoga Slim 7 14ARE05) DAX battery has no bass-burst loopback, so the
+chain can't be re-scored against it, but its multitone stimulus carries
+one source-band tone (47 Hz) whose even-harmonic products land on clean
+bins (94/188/282/376 Hz — the bins the G5 guard reads). On the dev
+X1 Yoga capture those bins show strong synthesis — products 60–75 dB
+above the processing-off floor, the 47 Hz fundamental cut ~14 dB. On
+the #44 capture the products sit within ~10–15 dB of the capture floor
+and the fundamental is *boosted* ~11 dB: that device's Windows DAX
+applies **no VBE**, despite its XML carrying the identical corpus-frozen
+`virtual-bass-*` values (parse-verified; an older 2019-era Dolby package,
+v6.503). So the frozen fields don't predict whether a given device's DAX
+engages VBE — engagement is engine- or device-side, outside any
+text-readable source we ship against, which is this finding's core claim
+proven on a second device's measured data. It also reframes the flag: on
+a device we haven't captured, `--enable virtual-bass` means "add the
+effect if you like it", not "match your Windows" — the default-off
+framing is behaviorally, not just formally, correct.
+
 ### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13))
 
 Issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13) (taprobane99) opened arguing our 20-band → FIR construction was
