@@ -51,8 +51,12 @@ PW_TOOLS = "pipewire-tools"
 _NAMES = {
     LSP_LV2: {DEBIAN: "lsp-plugins-lv2", FEDORA: "lsp-plugins-lv2",
               SUSE: "lv2-lsp-plugins", ARCH: "lsp-plugins-lv2"},
+    # No openSUSE row on purpose: Calf reaches openSUSE only through Packman,
+    # a third-party repository, so `lv2-calf` does not resolve on a stock
+    # system — and naming it beside LSP in one `zypper install` would fail the
+    # whole transaction and leave the reader with neither.
     CALF_LV2: {DEBIAN: "calf-plugins", FEDORA: "lv2-calf-plugins",
-               SUSE: "lv2-calf", ARCH: "calf"},
+               ARCH: "calf"},
     LV2INFO: {DEBIAN: "lilv-utils", FEDORA: "lilv",
               SUSE: "lilv", ARCH: "lilv-tools"},
     # Deliberately partial, and the one row that may be: `spa-json-dump` ships
@@ -64,9 +68,24 @@ _NAMES = {
 }
 
 # Keys every family must name — a half-filled row here is a message that
-# covers three distributions and silently drops the fourth. `PW_TOOLS` is
-# exempt for the reason above.
-COMPLETE_KEYS = (LSP_LV2, CALF_LV2, LV2INFO)
+# covers three distributions and silently drops the fourth. The two exempt
+# keys are exempt for a stated reason, and each owes the reader a line saying
+# where the thing comes from instead.
+COMPLETE_KEYS = (LSP_LV2, LV2INFO)
+
+# What to say when a family has no package for a key. A gap has to be spoken:
+# dropping the key silently turns "install these two" into a command that
+# installs one and reports success.
+UNPACKAGED = {
+    (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — it comes "
+                      "from Packman",
+    (PW_TOOLS, FEDORA): "spa-json-dump ships with PipeWire's own command-line "
+                        "tools",
+    (PW_TOOLS, SUSE): "spa-json-dump ships with PipeWire's own command-line "
+                      "tools",
+    (PW_TOOLS, ARCH): "spa-json-dump ships with PipeWire's own command-line "
+                      "tools",
+}
 
 
 # ID / ID_LIKE tokens from /etc/os-release. ID_LIKE is what makes the
@@ -163,15 +182,26 @@ def print_install_hint(keys, cprint) -> None:
     `import console` here would close a cycle.
     """
     fam = family()
-    command = install_command(keys, fam)
-    if command:
-        # Just the command. A reader we could place needs no note about the
-        # distributions they are not on, and the README pointer earns its line
-        # only where we have nothing better — here it would push an actionable
-        # error screen further down for no one's benefit. A wrong guess is
-        # self-announcing: `sudo apt` on a Fedora box needs no caption.
-        cprint("cta", f"  {command}")
-        return
+    if fam:
+        packaged = [k for k in keys if names([k], fam)]
+        if packaged:
+            # Just the command. A reader we could place needs no note about
+            # the distributions they are not on, and the README pointer earns
+            # its line only where we have nothing better — here it would push
+            # an actionable error screen further down for no one's benefit. A
+            # wrong guess is self-announcing: `sudo apt` on a Fedora box needs
+            # no caption.
+            cprint("cta", f"  {install_command(packaged, fam)}")
+        # Every key the command could not carry, so a shorter command than the
+        # reader expected is explained rather than just shorter.
+        for key in keys:
+            if key not in packaged:
+                cprint("dim", f"  ({UNPACKAGED.get((key, fam), key)})")
+        if packaged or len(keys) > len(packaged):
+            return
     for label, alt in install_commands(keys):
         cprint("cta", f"  {label}: {alt}")
+    for (key, gap_fam), note in sorted(UNPACKAGED.items()):
+        if key in keys and gap_fam in FAMILIES:
+            cprint("dim", f"  ({LABELS[gap_fam]}: {note})")
     cprint("dim", f"  (on another distribution, see {README_SECTION})")

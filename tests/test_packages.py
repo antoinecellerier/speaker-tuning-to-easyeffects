@@ -74,6 +74,47 @@ def test_every_family_has_a_name_for_every_key(key):
         assert packages.names([key], fam), f"{key} missing for {fam}"
 
 
+def test_a_gap_is_spoken_not_silently_dropped():
+    """The failure the openSUSE Calf row taught: a name that doesn't resolve.
+
+    `lv2-calf` exists only in Packman, so `zypper install lv2-lsp-plugins
+    lv2-calf` fails to resolve on a stock system — and because both names ride
+    one transaction, the reader ends up with neither. Dropping the key silently
+    is the other half of the trap: the command then installs one package and
+    reports success, and the chain still won't load. So the gap has to print.
+    """
+    assert packages.names([packages.CALF_LV2], packages.SUSE) == []
+    assert (packages.CALF_LV2, packages.SUSE) in packages.UNPACKAGED
+
+    lines: list[tuple[str, str]] = []
+    orig = packages.family
+    packages.family = lambda *a, **k: packages.SUSE
+    try:
+        packages.print_install_hint(
+            [packages.LSP_LV2, packages.CALF_LV2],
+            lambda style, text="": lines.append((style, text)))
+    finally:
+        packages.family = orig
+    assert [t for s, t in lines if s == "cta"] == [
+        "  sudo zypper install lv2-lsp-plugins"]
+    assert any("Packman" in t for s, t in lines if s == "dim"), lines
+
+
+def test_a_placed_reader_never_gets_another_family_command(monkeypatch):
+    """The fallback is for a machine we could not place, and only that one.
+
+    When every requested key is unpackaged for a known family, the helper used
+    to fall through to the all-families list — handing a Fedora reader
+    `sudo apt install pipewire-bin`.
+    """
+    lines: list[tuple[str, str]] = []
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.FEDORA)
+    packages.print_install_hint([packages.PW_TOOLS],
+                                lambda style, text="": lines.append((style, text)))
+    assert not any("apt" in t for _s, t in lines), lines
+    assert any("command-line tools" in t for s, t in lines if s == "dim")
+
+
 def test_a_partial_row_drops_the_families_it_cannot_name():
     """`PW_TOOLS` is the deliberate exception, and must degrade, not guess.
 
@@ -83,6 +124,7 @@ def test_a_partial_row_drops_the_families_it_cannot_name():
     of prose saying where the tool comes from.
     """
     assert packages.PW_TOOLS not in packages.COMPLETE_KEYS
+    assert packages.CALF_LV2 not in packages.COMPLETE_KEYS
     assert packages.names([packages.PW_TOOLS], packages.DEBIAN) == [
         "pipewire-bin"]
     for fam in (packages.FEDORA, packages.SUSE, packages.ARCH):

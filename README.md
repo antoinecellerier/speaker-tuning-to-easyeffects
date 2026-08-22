@@ -293,7 +293,7 @@ The chain loads LV2 plugins from your system: **LSP** for the PEQ / MBC / regula
 
 - **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install lsp-plugins-lv2 calf-plugins`
 - **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lsp-plugins-lv2 lv2-calf-plugins`
-- **openSUSE:** `sudo zypper install lv2-lsp-plugins lv2-calf`
+- **openSUSE:** `sudo zypper install lv2-lsp-plugins` — Calf is not in openSUSE's own repositories; it comes from [Packman](https://packman.links2linux.de/)
 - **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lsp-plugins-lv2 calf`
 
 Add your distribution's `lv2info` to have the converter check the plugin set before it writes anything (optional — see below):
