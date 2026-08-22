@@ -61,7 +61,7 @@ import textwrap
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from lib import doctor, version
+from lib import doctor, packages, version
 
 
 # Prose wraps to the terminal, within bounds. Below the floor, a hanging
@@ -108,6 +108,12 @@ if _CONSOLE is None:
     _MISSING_COLOR_DEPS.append("rich")
 if _HelpFormatter is argparse.HelpFormatter:
     _MISSING_COLOR_DEPS.append("rich-argparse")
+
+# Spelled out rather than passing the display names through: they happen to
+# equal `lib.packages`' key constants today, and a message that silently
+# stopped naming a package the day one of them was renamed is exactly what
+# that module exists to prevent.
+_COLOR_KEYS = {"rich": packages.RICH, "rich-argparse": packages.RICH_ARGPARSE}
 
 
 # The sentence both failure paths end on: argparse's, when the argv itself is
@@ -312,6 +318,9 @@ def run_guarded(run) -> int:
 
     What follows the error line is the raiser's to choose, via a ``next_step``
     attribute on the exception (``no_next_step`` above sets the empty one).
+    A string is one ``cta`` line; a sequence of ``(style, text)`` pairs is a
+    procedure, printed one line each — which is how a remedy that is a command
+    per distribution gets here without being crushed into a sentence.
     A raise that chose nothing falls to ``_leftover_next_step`` and then to
     ``_HELP_HINT``: the OSErrors reach here from a dozen write sites that
     cannot tell an ordinary permission failure from one a past sudo run left,
@@ -336,8 +345,20 @@ def run_guarded(run) -> int:
         next_step = getattr(e, "next_step", None)
         if next_step is None:
             next_step = _leftover_next_step(e) or _HELP_HINT
-        if next_step:
-            cprint("cta", next_step)
+        if isinstance(next_step, str):
+            if next_step:
+                cprint("cta", next_step)
+        else:
+            # A remedy that is a procedure rather than a sentence, in the
+            # ``(style, text)`` shape ``CheckResult.steps`` and
+            # ``doctor_layout.print_closing`` already use. It exists because a
+            # missing dependency's remedy is a command — and on a machine
+            # os-release cannot place, one command per distribution — which
+            # does not fit a single ``cta`` line and must not be folded to
+            # make it. ``lib.packages.install_steps`` returns its text
+            # unindented so the margin is applied here, once.
+            for style, text in next_step:
+                cprint(style, f"  {text}")
         return 1
     return 0 if rc is None else rc
 
@@ -382,6 +403,31 @@ def add_color_and_version_args(add) -> None:
     )
 
 
+def _raw_epilog(base, epilog: str):
+    """`base`, but printing `epilog` exactly as composed.
+
+    argparse renders the epilog through the same ``_fill_text`` as the
+    description: whitespace collapsed, then re-wrapped to the terminal. That
+    is right for prose and wrong for the one thing this epilog now carries —
+    an install command, which folds at its own spaces on an 80-column terminal
+    and stops being runnable. The same rule ``lib/doctor.py``'s ``emit_check``
+    states: prose wraps, commands are printed as given.
+
+    A subclass per call rather than a formatter flag, because the epilog is
+    the only text that must survive intact — descriptions, including the
+    generator's long tuning-input group description, still wrap. Matched by
+    value: this is the string the caller built two lines up, and no
+    description in any of the three parsers is equal to it.
+    """
+    class _RawEpilogFormatter(base):
+        def _fill_text(self, text, width, indent):
+            if text == epilog:
+                return "\n".join(indent + line for line in text.splitlines())
+            return super()._fill_text(text, width, indent)
+
+    return _RawEpilogFormatter
+
+
 def help_style(argv: list[str] | None = None):
     """The two argparse knobs colour costs: ``(formatter_class, epilog)``.
 
@@ -403,8 +449,21 @@ def help_style(argv: list[str] | None = None):
                        if "--no-color" in _argv else _HelpFormatter)
     epilog = None
     if _MISSING_COLOR_DEPS:
-        epilog = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
-                  + " for colored output (see README for distro packages).")
+        tip = ("Tip: install " + " and ".join(_MISSING_COLOR_DEPS)
+               + " for colored output")
+        keys = [_COLOR_KEYS[d] for d in _MISSING_COLOR_DEPS]
+        # Only for a machine os-release places. Unplaced, this would put seven
+        # commands under every --help on a plain install, to save a reader who
+        # is not blocked one lookup — the epilog stays the pointer there.
+        steps = (packages.install_steps(keys, packages.README_INSTALL_SECTION,
+                                        "  ")
+                 if packages.family() else ())
+        if steps:
+            epilog = "\n".join([tip + ":"] + [text for _style, text in steps])
+            formatter_class = _raw_epilog(formatter_class, epilog)
+        else:
+            epilog = (tip + f" (see {packages.README_INSTALL_SECTION} for "
+                      "distro packages).")
     return formatter_class, epilog
 
 

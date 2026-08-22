@@ -82,18 +82,18 @@ If you test it on other hardware, please [open a device report](https://github.c
 
 ## Install
 
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by the PipeWire scripts on every run — but it ships with the PipeWire daemon, so a machine running PipeWire has it. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by the PipeWire scripts on every run. It ships in the same package as the daemon on Debian, Ubuntu and Arch, but Fedora, openSUSE and Alpine split the command-line tools into their own package; the scripts name it for your distribution if it turns out to be missing. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
 
 <details>
 <summary>Install commands for your distro</summary>
 
-- **Debian / Ubuntu / Mint / Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Fedora / RHEL / Rocky / Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **openSUSE (Leap / Tumbleweed):** `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Arch / Manjaro / EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich py3-rich-argparse`
+- **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Fedora/RHEL/Rocky/Alma:** `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **openSUSE:** `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Arch/Manjaro/EndeavourOS:** `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich` — Alpine has no rich-argparse package, so `--help` stays plain there
 - **Gentoo:** `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
-- **NixOS (shell):** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
+- **NixOS:** `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
 
 </details>
 
@@ -295,6 +295,9 @@ The chain loads LV2 plugins from your system: **LSP** for the PEQ / MBC / regula
 - **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lsp-plugins-lv2 lv2-calf-plugins`
 - **openSUSE:** `sudo zypper install lv2-lsp-plugins` — Calf is not in openSUSE's own repositories; it comes from [Packman](https://packman.links2linux.de/)
 - **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lsp-plugins-lv2 calf`
+- **Alpine:** `sudo apk add lsp-plugins-lv2 calf-lv2`
+- **Gentoo:** `sudo emerge media-libs/lsp-plugins media-plugins/calf` — `media-plugins/calf` needs `USE=lv2`
+- **NixOS:** add `pkgs.lsp-plugins` and `pkgs.calf` to `environment.systemPackages`, then `nixos-rebuild switch` — a `nix-shell` won't do, since PipeWire runs outside it
 
 Add your distribution's `lv2info` to have the converter check the plugin set before it writes anything (optional — see below):
 
@@ -302,10 +305,15 @@ Add your distribution's `lv2info` to have the converter check the plugin set bef
 - **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lilv`
 - **openSUSE:** `sudo zypper install lilv`
 - **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lilv-tools`
+- **Alpine:** `sudo apk add lilv`
+- **Gentoo:** `sudo emerge media-libs/lilv` — needs `USE=tools`
+- **NixOS:** `nix-shell -p lilv` — the converter runs `lv2info` itself, so this one needn't be visible to PipeWire
 
-The converter prints whichever of these matches your `/etc/os-release`, so you shouldn't need this table on a run that fails.
+The converter prints whichever of these matches your `/etc/os-release`, derivatives included, so you shouldn't need this table on a run that fails. On a distribution it can't place, it lists them all and points back here.
 
 Before writing the conf the converter runs `lv2info` to validate it against installed plugin metadata. A plugin `lv2info` can't load is the daemon's answer too — both resolve plugins through the same library — so the run **refuses to write the conf** and names the package to install. `lv2info` itself is optional: PipeWire needs the lilv *library*, not the command, so a machine with LSP and Calf installed runs the chain without it. Without it, though, nothing checks the plugin set before the conf is written, and a missing package shows up only as a sink that never appears after the restart — the run says so and names the package that would have caught it. Pass `--no-validate` to skip the check entirely.
+
+The run also uses `spa-json-dump` to read the conf back, and `pw-cli` / `pw-dump` to find your speaker sink and confirm the chain loaded. These ship with PipeWire on most distributions; openSUSE and Alpine split them into `pipewire-tools` (`pw-cli`, `pw-dump`) and `pipewire-spa-tools` (`spa-json-dump`). The run names whichever is missing.
 
 A chain that can't load no longer stops PipeWire from starting: the conf marks its module `nofail`, so PipeWire skips it and your audio keeps working unprocessed ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
 

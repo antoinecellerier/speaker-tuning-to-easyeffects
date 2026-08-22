@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import console, doctor, ee_paths
+from lib import console, doctor, ee_paths, packages
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
@@ -716,14 +716,32 @@ def main(argv: list[str] | None = None,
         #
         # Raised rather than printed here, per the convention the auto-detection
         # failure above documents — the top-level handler in run_cli() renders
-        # it as a clean error and returns 1. no_next_step because the sentence
-        # already ends on the install step, and no flag this tool has installs
-        # numpy.
-        raise console.no_next_step(RuntimeError(
-            f"{exc.name} is not installed, and generating a preset needs it. "
-            "requirements.txt lists what to install, and the README's Install "
-            "section has the command for your distro."
-        )) from exc
+        # it as a clean error and returns 1. The remedy rides on `next_step`
+        # rather than in the sentence: it is a command, and on a machine
+        # os-release cannot place it is one command per distribution, neither
+        # of which survives being folded into prose. Not `no_next_step`, whose
+        # empty string exists for a sentence that already ends on the thing to
+        # do — this one hands over the thing to do itself, and the generic
+        # --help pointer still never appears.
+        failure = RuntimeError(
+            f"{exc.name} is not installed, and generating a preset needs it.")
+        # Both DSP dependencies in the command, though the sentence names only
+        # the one that stopped this run: both are hard requirements, so a
+        # reader who installs just the named one meets the other on the next
+        # run. The sentence stays on `exc.name` for the reason above — it is
+        # what their machine actually reported.
+        failure.next_step = (
+            ("cta", "Install them:"),
+            # Indented under the lead-in: run_guarded gives every line of a
+            # next_step the same margin, so the command needs its own to read
+            # as the thing "Install them:" is pointing at.
+            *packages.install_steps([packages.NUMPY, packages.SCIPY],
+                                    packages.README_INSTALL_SECTION, "  "),
+            # The answer on a distribution the table doesn't list, and for
+            # anyone who would rather not touch system packages at all.
+            ("dim", "or in a virtualenv:  pip install -r requirements.txt"),
+        )
+        raise failure from exc
 
     # Created here rather than beside the dry-run banner above: below every
     # early return, and below the import that a machine without numpy dies

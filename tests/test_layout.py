@@ -76,6 +76,10 @@ FORBIDDEN = ("numpy", "scipy", "rich", "rich_argparse")
 
 STDLIB_ONLY = (
     "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
+    # Its own docstring promises this, and nothing enforced it: the module is
+    # imported by both PipeWire scripts, and it is exactly the kind of table
+    # that grows a convenience import nobody prices.
+    "lib.packages",
     "lib.data.kernel_releases",
     "lib.data.speaker_pin_quirks",
     "lib.hardware.codecs",
