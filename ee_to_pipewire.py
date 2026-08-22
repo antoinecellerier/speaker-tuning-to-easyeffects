@@ -30,7 +30,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, doctor, ee_paths
+from lib import console, doctor, ee_paths, packages
 from lib.hardware import sinks
 from lib.pipewire import checks, install, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -164,11 +164,14 @@ def add_general_args(container, *, only=None):
         "--no-validate",
         action="store_true",
         help="skip the schema self-check against lv2info port metadata. "
-             "By default, after generating the conf, ee_to_pipewire reads "
+             "By default, when lv2info is installed, ee_to_pipewire reads "
              "the port metadata of every LV2 plugin the conf names and "
-             "checks the conf's control values against it, catching unknown "
-             "port symbols and out-of-range values; pass this flag to "
-             "skip it (e.g. on systems without lv2info installed).",
+             "checks the conf's control values against it — catching "
+             "unknown port symbols and out-of-range values, and refusing to "
+             "write a conf naming a plugin lv2info cannot load at all. "
+             "Without lv2info nothing is checked and this flag changes "
+             "nothing. Pass it to build a conf for a different machine, or "
+             "when the check is wrong about a plugin you know works.",
     )
     add(
         "--dry-run",
@@ -259,6 +262,96 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
 # including --dry-run, so the first half is true wherever it is raised from.
 _VALIDATE_NEXT_STEP = ("The conf was not written — re-run with --no-validate "
                        "to skip the schema self-check.")
+
+
+# Which package to name for a plugin PipeWire will not load. Keyed on the URI
+# namespace rather than the URI, so a plugin either vendor adds later is
+# covered without a second edit here. Debian names only: they are the ones
+# already asserted in the README, and this line is not the place to make a
+# claim about six other distributions — the README section named below carries
+# the cross-distribution detail.
+# Which vendor a plugin URI belongs to, and the `lib.packages` key naming the
+# package that carries its LV2 build. Keyed on the URI namespace rather than
+# the URI, so a plugin either vendor adds later is covered without a second
+# edit here.
+_PLUGIN_VENDORS = (
+    ("http://lsp-plug.in/", "LSP", packages.LSP_LV2),
+    ("http://calf.sourceforge.net/", "Calf", packages.CALF_LV2),
+)
+
+
+def _chain_vendors(stages) -> list[str]:
+    """The `lib.packages` keys this particular chain's plugins need.
+
+    The no-tooling reminder used to hedge — "plus Calf if it includes
+    bass_enhancer / stereo_tools" — leaving the reader to work out what their
+    own chain includes from a preset they did not write. The stages are right
+    here, so the condition can be resolved instead of restated.
+    """
+    keys = []
+    for uri in sorted(n.get("plugin") or "" for st in stages for n in st.nodes
+                      if n.get("type") == "lv2"):
+        for prefix, _vendor, key in _PLUGIN_VENDORS:
+            if uri.startswith(prefix) and key not in keys:
+                keys.append(key)
+    return keys
+
+
+def _vendor_labels(keys, fam: str) -> list[str]:
+    """"LSP (lsp-plugins-lv2)" for each key, named for this machine."""
+    out = []
+    for _prefix, vendor, key in _PLUGIN_VENDORS:
+        if key not in keys:
+            continue
+        named = packages.names([key], fam)
+        out.append(f"{vendor} ({named[0]})" if named else vendor)
+    return out
+
+
+def _print_missing_plugins(uris: tuple[str, ...],
+                           detail: tuple[str, ...] = ()) -> None:
+    """Say which packages to install for the plugins lv2info would not load.
+
+    Grouped by vendor rather than listed one URI per line: the reader installs
+    packages, and a chain missing LSP is usually missing every LSP plugin in
+    it, which as a flat list reads as five separate problems.
+
+    `detail` is lv2info's own words, and it goes *after* the summary and dim:
+    it names each plugin by URI, which is the least readable identifier here
+    and was the first thing on screen. It stays because an issue report is
+    worth more with it than without.
+    """
+    fam = packages.family()
+    groups: dict[str, list[str]] = {}
+    keys = []
+    for uri in uris:
+        for prefix, vendor, key in _PLUGIN_VENDORS:
+            if uri.startswith(prefix):
+                # The package is named, so the bare plugin name identifies it.
+                named = packages.names([key], fam)
+                label = f"{vendor} ({named[0]})" if named else vendor
+                groups.setdefault(label, []).append(uri.rsplit("/", 1)[-1])
+                if key not in keys:
+                    keys.append(key)
+                break
+        else:
+            # An unrecognised namespace still has to be actionable, and the
+            # whole URI is the only thing we can honestly say about it.
+            groups.setdefault("no package known for", []).append(uri)
+    count = ("an LV2 plugin" if len(uris) == 1
+             else f"{len(uris)} of the LV2 plugins")
+    console.cprint("err", f"error: PipeWire cannot load {count} this chain "
+                   "needs; conf not written")
+    for label, plugin_names in groups.items():
+        console.cprint("err", f"  {label}: {', '.join(sorted(plugin_names))}")
+    for line in detail:
+        console.cprint("dim", f"  {line}")
+    # The command, not just the package names. Three first-time readers in a
+    # row stopped here and guessed their own package manager, and two of them
+    # guessed `apt` on a machine we had not asked about: the names alone are
+    # the one step in this block that cannot be pasted.
+    console.cprint("cta", "Install them and re-run:")
+    packages.print_install_hint(keys, console.cprint)
 
 
 def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
@@ -471,16 +564,49 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             raise
         if report.status == validate.NO_TOOLING:
             console.cprint("dim", f"[validate] skipped: {report.reason}")
-            # Without lv2info the plugin set can't be checked, so a missing
-            # runtime dependency would otherwise pass unnoticed — remind the
-            # user what the chain needs.
-            console.cprint("warn", "[validate] the plugin set wasn't checked — make "
-                           "sure the LV2 plugins this conf uses are installed: "
-                           "LSP (lsp-plugins-lv2) for the PEQ / MBC / limiter "
-                           "and the virtual-bass filters, plus Calf "
-                           "(calf-plugins) if it includes bass_enhancer / "
-                           "stereo_tools or the virtual-bass saturator. "
-                           "Otherwise the chain won't load.")
+            # With lv2info this run would refuse to write a conf naming a
+            # plugin that cannot load. Without it nothing checks, so the same
+            # missing package becomes a chain that quietly never loads — say
+            # what that looks like, and that installing one package buys the
+            # check back. Not required: PipeWire loads plugins through the
+            # lilv *library*, not this CLI, so a machine with LSP and Calf
+            # correctly installed needs nothing more to run the chain.
+            fam = packages.family()
+            needed = _vendor_labels(_chain_vendors(chain.stages), fam)
+            console.cprint("warn", "[validate] nothing checked that the LV2 plugins "
+                           "this chain needs are installed: "
+                           f"{' and '.join(needed)}. If one is missing the "
+                           "chain won't load, and the first sign is a sink "
+                           "that never appears after the restart.")
+            # Only the tools that are actually absent, and all of them —
+            # telling someone whose PipeWire is plainly running to install
+            # PipeWire reads as a message that has not looked at their
+            # machine, and naming one package when two tools are missing
+            # leaves the reader unable to tell whether it fixed anything.
+            # Read off the report rather than probed again, so the remedy and
+            # the skip cannot disagree about which tool is missing.
+            # One command covering every tool that is missing, not one step
+            # per tool: on Debian both live in packages `apt` takes together,
+            # and split across two lines the reader has to work out whether
+            # doing only the first fixes anything.
+            wanted = [key for tool, key in (("lv2info", packages.LV2INFO),
+                                            ("spa-json-dump", packages.PW_TOOLS))
+                      if tool in report.missing_tools]
+            named = packages.names(wanted, fam) if fam else wanted
+            if named:
+                # "a later run", not "before the conf is written": the conf is
+                # written a line later, and phrased as a precondition this
+                # read as a step to do first.
+                console.cprint("cta", "[validate] a later run can check this for "
+                               "you:")
+                packages.print_install_hint(wanted, console.cprint)
+            if ("spa-json-dump" in report.missing_tools
+                    and packages.PW_TOOLS not in
+                    [k for k in wanted if packages.names([k], fam)]):
+                # No package named for this family, so say where it comes from
+                # rather than leaving a tool the reader can't act on.
+                console.cprint("dim", "  (spa-json-dump ships with PipeWire's "
+                               "own command-line tools)")
         elif report.status == validate.UNCHECKED:
             # The check could not run at all — degraded gracefully, and the
             # conf is still written.
@@ -499,10 +625,19 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             for w in report.warnings:
                 console.cprint("warn", f"[validate] warning: {w}")
             if report.status == validate.ERRORS:
-                for err in report.errors:
-                    console.cprint("err", f"[validate] error: {err}")
-                console.cprint("err", "error: schema validation failed; conf "
-                               "not written")
+                if not report.unloadable:
+                    for err in report.errors:
+                        console.cprint("err", f"[validate] error: {err}")
+                if report.unloadable:
+                    # Not a schema problem: lv2info resolves plugins through
+                    # the same lilv the filter-chain does, so a URI it won't
+                    # answer for is one the daemon won't load. The remedy is a
+                    # package, not a value, and the lines above are lv2info's
+                    # own words about a URI — neither names what to install.
+                    _print_missing_plugins(report.unloadable, report.errors)
+                else:
+                    console.cprint("err", "error: schema validation failed; conf "
+                                   "not written")
                 return 1
 
     if args.dry_run:

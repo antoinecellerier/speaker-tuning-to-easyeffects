@@ -22,7 +22,7 @@ tool it needs fails, and never calls `sys.exit`. The command-line front end
 lives in `tools/measure_pw/validate_conf.py`, which owns the CLI prose and the
 0/1/2 exit-code contract.
 
-Needs `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`) and
+Needs `lv2info` (package names per distribution in `lib/packages.py`) and
 `spa-json-dump` (ships with PipeWire) on PATH. Both are tiny, sub-millisecond
 CLIs, and no PipeWire daemon is required.
 """
@@ -166,12 +166,13 @@ class Lv2infoUnavailable(RuntimeError):
     between the PATH check and the fork, a fork that couldn't allocate.
 
     Split from the plain `RuntimeError` a non-zero exit raises because the two
-    differ in exactly one way that matters — whether the answer can be cached.
-    A non-zero exit *is* an answer about the plugin (not installed, TTL won't
-    parse) and cannot change during the run. These describe the run itself and
-    say nothing about the plugin, so a caller holding a long-lived memo has to
-    ask again next time. What a caller *does* with either is the same: warn,
-    and leave that plugin's ports unchecked.
+    differ in the two ways that matter. Whether the answer can be cached: a
+    non-zero exit *is* an answer about the plugin (not installed, TTL won't
+    parse) and cannot change during the run, while these describe the run
+    itself and say nothing about the plugin, so a caller holding a long-lived
+    memo has to ask again next time. And what a caller does with it: a
+    non-zero exit means the daemon will not load that plugin either, so it
+    refuses the conf; these leave the plugin's ports unchecked and warn.
     """
 
 
@@ -179,11 +180,11 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
     """The port metadata `lv2info` reports for one plugin URI.
 
     Every way the exec itself can fail arrives as one `RuntimeError` naming the
-    URI, because the caller's response to all of them is the same: warn, and
-    leave this plugin's ports unchecked. The ones that never reached a verdict
-    arrive as the `Lv2infoUnavailable` subclass, for the caller that memoizes.
-    Only the exec is wrapped. A failure to parse what `lv2info` did print is
-    our bug, and still propagates.
+    URI. The ones that never reached a verdict arrive as the
+    `Lv2infoUnavailable` subclass — the distinction the caller acts on, since
+    a plain non-zero exit is lilv saying it cannot resolve this plugin and the
+    daemon uses the same lilv. Only the exec is wrapped. A failure to parse
+    what `lv2info` did print is our bug, and still propagates.
     """
     try:
         rc = subprocess.run(
@@ -285,8 +286,16 @@ def _check_peq_mute(node: dict) -> list[str]:
     return errors
 
 
-def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
+def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]],
+             unloadable: frozenset[str] = frozenset(),
              ) -> tuple[list[str], list[str]]:
+    """Check every control value against its port.
+
+    `unloadable` names URIs `lv2info` answered "no" for. They have no schema
+    either, but the caller is already refusing the conf over them, so the
+    "ports went unchecked" warning below would only restate the refusal in the
+    milder of the two words.
+    """
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -296,10 +305,11 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]]
         uri = node["plugin"]
         schema = schemas.get(uri)
         if schema is None:
-            warnings.append(
-                f"{node['name']}: no lv2info schema available for {uri}; "
-                "skipping"
-            )
+            if uri not in unloadable:
+                warnings.append(
+                    f"{node['name']}: no lv2info schema available for {uri}; "
+                    "skipping"
+                )
             continue
 
         # Bounds `lv2info` printed unreadably, collected across this node's
@@ -399,6 +409,12 @@ class Report:
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     reason: str = ""
+    unloadable: tuple[str, ...] = ()
+    # Which CLIs were absent, for a `NO_TOOLING` caller whose remedy names a
+    # package. Carried rather than re-probed: a message that asks `PATH` a
+    # second time can name a different tool than the one that stopped the
+    # check, and the two probes are what a reader would have to reconcile.
+    missing_tools: tuple[str, ...] = ()
 
 
 # The budget for the whole check, not for each `lv2info` inside it. It used to
@@ -443,15 +459,26 @@ def run(conf_text: str, *,
     approve every XML in the corpus with the run still green. It is reserved
     for the failures that genuinely mean *could not run* — `spa-json-dump`
     missing, failing, or handing back something that is not JSON. A single URI
-    whose `lv2info` fails or times out is narrower than that: it degrades to a
-    warning and that plugin's ports go unchecked. A bound `lv2info` prints in
-    a form we can't read is narrower still: that one range goes unchecked, and
-    `validate` names it. Anything else propagates.
+    whose `lv2info` times out or never answers is narrower than that: it
+    degrades to a warning and that plugin's ports go unchecked. A bound
+    `lv2info` prints in a form we can't read is narrower still: that one range
+    goes unchecked, and `validate` names it. Anything else propagates.
+
+    A URI `lv2info` *answers* for with a non-zero exit is the exception in the
+    other direction: it lands in `errors` and in `unloadable`, because the
+    filter-chain resolves plugins through the same lilv and will not load it
+    either. See the `unloadable` note in `run`.
     """
-    if not shutil.which("lv2info") or not shutil.which("spa-json-dump"):
+    # Named individually, and without package names: this line used to read
+    # "(install lilv-utils and pipewire)" whichever of the two was missing,
+    # which told a reader whose PipeWire is plainly running to install
+    # PipeWire, and disagreed with the caller's own remedy. The caller owns
+    # the remedy; this says only what is not here.
+    absent = [t for t in ("lv2info", "spa-json-dump") if not shutil.which(t)]
+    if absent:
         return Report(NO_TOOLING,
-                      reason="lv2info or spa-json-dump not in PATH "
-                             "(install lilv-utils and pipewire)")
+                      reason=f"{' and '.join(absent)} not in PATH",
+                      missing_tools=tuple(absent))
 
     deadline = time.monotonic() + _BUDGET_S
     try:
@@ -462,9 +489,12 @@ def run(conf_text: str, *,
         return Report(UNCHECKED, reason="no filter nodes found in conf")
 
     # Ordered ahead of the schema warnings below, because they explain them: a
-    # URI `lv2info` would not answer for is why that plugin's ports went
-    # unchecked, and the two lines are about the same plugin.
+    # URI `lv2info` never answered for is why that plugin's ports went
+    # unchecked, and the two lines are about the same plugin. A URI it
+    # answered *no* for takes the other list — see `unloadable` below.
     tool_warnings: list[str] = []
+    tool_errors: list[str] = []
+    unloadable: list[str] = []
     memo = {} if schemas is None else schemas
     port_schemas: dict[str, dict[str, Port]] = {}
     for uri in {n["plugin"] for n in nodes
@@ -499,12 +529,22 @@ def run(conf_text: str, *,
                 memo[uri] = (None, str(e))
         schema, note = memo[uri]
         if note:
-            # Re-emitted on every hit, not just the exec that produced it.
-            tool_warnings.append(note)
+            # An answer, not a failure to ask — so it decides the run rather
+            # than annotating it. `lv2info` and PipeWire's filter-chain load
+            # plugins through the same lilv; a URI lilv will not resolve here
+            # is one the daemon will not resolve either, whether the plugin is
+            # missing or its TTL won't parse. Writing the conf anyway leaves a
+            # chain that cannot load, which the reader discovers after
+            # restarting their sound server. Re-emitted on every hit, not just
+            # the exec that produced it.
+            unloadable.append(uri)
+            tool_errors.append(note)
         if schema is not None:
             port_schemas[uri] = schema
 
-    errors, warnings = validate(nodes, port_schemas)
+    errors, warnings = validate(nodes, port_schemas, frozenset(unloadable))
+    errors = tool_errors + errors
     return Report(ERRORS if errors else CLEAN,
                   errors=tuple(errors),
-                  warnings=tuple(tool_warnings + warnings))
+                  warnings=tuple(tool_warnings + warnings),
+                  unloadable=tuple(sorted(unloadable)))

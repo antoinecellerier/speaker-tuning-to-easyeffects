@@ -222,14 +222,17 @@ def test_an_exec_that_never_answered_is_not_memoized(monkeypatch):
         f"failure was cached and the URI is now unchecked for the run")
 
 
-def test_a_nonzero_exit_is_memoized_and_keeps_warning(monkeypatch):
+def test_a_nonzero_exit_is_memoized_and_refuses_the_conf(monkeypatch):
     """`lv2info` exiting non-zero is an answer *about the plugin* — not
     installed, or a TTL that won't parse — and it cannot change mid-run, so it
     is memoized: the corpus tier must not pay one exec per conf for it.
 
-    But every conf it affects went unchecked, so every one of them has to say
-    so. Storing the miss without its note is invisible to a green run: the tier
-    would report the failure once and pass the rest.
+    It is also a refusal, not a note. `lv2info` and PipeWire's filter-chain
+    both resolve plugins through lilv, so a URI lilv will not answer for here
+    is one the daemon will not load there — and writing the conf anyway is
+    issue #71: the reader restarts their sound server onto a chain that cannot
+    load. Every conf it affects has to carry it, memoized or not: reporting it
+    on the first conf and passing the rest is invisible to a green run.
     """
     execs = 0
 
@@ -244,11 +247,16 @@ def test_a_nonzero_exit_is_memoized_and_keeps_warning(monkeypatch):
     memo: dict = {}
     for i in range(3):
         report = validate.run("", schemas=memo)
-        assert report.status == validate.CLEAN
-        assert any("Plugin not found" in w and LSP_PEQ_URI in w
-                   for w in report.warnings), (
+        assert report.status == validate.ERRORS
+        assert report.unloadable == (LSP_PEQ_URI,)
+        assert any("Plugin not found" in e and LSP_PEQ_URI in e
+                   for e in report.errors), (
             f"conf {i + 1}: the memoized failure stopped being reported: "
-            f"{report.warnings}")
+            f"{report.errors}")
+        # The plugin has no schema either, but saying so as a warning next to
+        # the refusal restates it in the milder of the two words.
+        assert not report.warnings, (
+            f"conf {i + 1}: refusal also warned: {report.warnings}")
     assert execs == 1, (
         f"lv2info was exec'd {execs} times for one memoized URI")
 

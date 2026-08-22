@@ -422,6 +422,41 @@ symbols, out-of-range values, and the `xm`-MUTE-inversion trap. The
 same check has a command-line front end at
 `tools/measure_pw/validate_conf.py`, for a conf already on disk.
 
+The same pass decides whether the conf is written at all. `lv2info`
+and the filter-chain both resolve plugins through lilv, so a URI
+`lv2info` exits non-zero for is one the daemon will not load either
+(the plugin is missing, or its TTL won't parse) — those URIs come back
+in `Report.unloadable`, the status is `ERRORS`, and the run names the
+package instead of writing a conf that cannot work. An exec that never
+*answered* — a timeout, a fork that failed — is the opposite case and
+stays a warning: it says nothing about the plugin, so that plugin's
+ports simply go unchecked.
+
+`lilv-utils` is not required. PipeWire needs the lilv library, not the
+command, so demanding it would block a machine whose LSP and Calf are
+correctly installed. Without it the check cannot run at all
+(`NO_TOOLING`), the conf is written unchecked, and the run says what
+that costs and names the package that buys the check back.
+
+Package names differ per distribution, and the LV2 build is not always
+the base package — `lsp-plugins` on Fedora and Arch does not ship the
+`.lv2` bundle PipeWire loads; `lsp-plugins-lv2` does. `lib/packages.py`
+holds that table (verified against repology) along with the
+`/etc/os-release` family detection, so every message prints the one row
+that matches the reader's machine, and falls back to all four when it
+cannot place them. The README's "Plugin dependencies and validation"
+lists the same rows for someone reading before they run anything.
+
+Independently of any of that, the emitted module carries
+`flags = [ ifexists nofail ]` (`conf.format_conf`). The conf is a
+`pipewire.conf.d/` drop-in, so it loads in the daemon's own context:
+without the flag one unresolvable plugin aborts context creation and
+`pipewire.service` will not start at all, which is
+[#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71).
+With it the chain is skipped and playback continues unprocessed —
+reported by the activation step's sink check and by `--doctor`'s
+"Chains loaded".
+
 ## Validation in pytest
 
 - `tests/test_ee_to_pipewire.py` — DSP math, schema invariants, the

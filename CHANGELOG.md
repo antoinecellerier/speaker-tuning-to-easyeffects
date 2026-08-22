@@ -181,12 +181,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
-- Install instructions for the PipeWire chain's LV2 plugins now name the right
-  package for your distribution instead of Debian's. The README gained a
-  per-distribution list, and the scripts print the one line that matches your
-  `/etc/os-release` — the old advice pointed Fedora and Arch users at
-  `lsp-plugins`, which installs without the LV2 build the chain actually
-  loads.
 - **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
   whose tuning switches the audio optimizer off — `audio-optimizer-enable` was
   never read. Affects the `off` profile and a few devices' `music` profile,
@@ -207,11 +201,26 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   branch was guarded on nothing having failed, so the state most needing an
   instruction printed none. The verdict also points at the `[WARN]` lines it
   prints, rather than a `⚠` symbol neither report contains.
+- A filter chain that can't load no longer stops PipeWire from starting. The
+  conf marks its module `nofail`, so a missing LV2 plugin costs you the chain
+  instead of all your audio; the activation step and `--doctor` both report it
+  ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
+- A conf naming an LV2 plugin your system can't load is no longer written at
+  all: the run names the package to install and stops, where it used to warn
+  and write. Needs your distribution's `lv2info` to check — without it the run
+  says so and names the package
+  ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
+- Install instructions for the PipeWire chain's LV2 plugins now name the right
+  package for your distribution instead of Debian's. The README gained a
+  per-distribution list, and the scripts print the one line that matches your
+  `/etc/os-release` — the old advice pointed Fedora and Arch users at
+  `lsp-plugins`, which installs without the LV2 build the chain actually
+  loads.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
-  conf when the schema self-check can't read `lv2info`'s output, or can't run
-  it for one plugin. A limit the check cannot use is left unchecked and
-  reported, naming the plugin — it neither ends the run nor passes in silence
-  ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
+  conf when the schema self-check can't read `lv2info`'s output, or when
+  `lv2info` never answers for one plugin. A limit the check cannot use is left
+  unchecked and reported, naming the plugin — it neither ends the run nor
+  passes in silence ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - `ee_to_pipewire.py` finds the impulse response on a Flatpak EasyEffects.
   Its `--irs-dir` default was hardcoded to the native path while the
   generator's defaults follow whichever install you have, so the manual

@@ -414,9 +414,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         rc = install._activate(node_names, selectable=args.target_sink == "")
         # The path where the sound just changed under them, so this is where
-        # knowing the way back matters most.
+        # knowing the way back matters most — and on a failure it stops being
+        # a footnote: removing the conf is the next thing the reader does.
         print()
-        install._print_undo(written)
+        install._print_undo(written, style="dim" if rc == 0 else "cta")
 
     # The generator's closing output, held back from [1/3] so it lands here —
     # last on screen, whichever of the three ways this run ended. Menu before

@@ -56,6 +56,7 @@ from lib.pipewire.plugins import (
     LSP_AUTOGAIN_URI,
     LSP_LIM_URI,
     LSP_MBC_URI,
+    LSP_PEQ_URI,
     db_to_lin,
     emit_autogain,
     emit_bass_enhancer,
@@ -1247,8 +1248,8 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
         validate, "run",
         lambda conf: validate.Report(
             validate.NO_TOOLING,
-            reason="lv2info or spa-json-dump not in PATH "
-                   "(install lilv-utils and pipewire)"))
+            reason="lv2info and spa-json-dump not in PATH",
+            missing_tools=("lv2info", "spa-json-dump")))
 
     preset, irs_path = generated
     preset_path = tmp_path / "preset.json"
@@ -1263,7 +1264,31 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
     out = capsys.readouterr().out
     assert "[validate] skipped" in out
     assert "lsp-plugins-lv2" in out
-    assert "calf-plugins" in out
+    # Named because this chain uses them, and Calf is absent because it does
+    # not. The reminder used to hedge — "plus Calf if it includes
+    # bass_enhancer / stereo_tools" — which asks the reader to work out what
+    # is in a preset they did not write; the stages are in hand, so the
+    # condition is resolved rather than restated.
+    assert "calf-plugins" not in out, (
+        "named a package this chain has no plugin from"
+    )
+    # With lv2info the run would refuse a conf naming a plugin that cannot
+    # load (issue #71). Without it nothing checks, so the reminder has to name
+    # the package that buys the check back — otherwise the reader is told to
+    # verify something by hand with no way to do it.
+    assert "lilv-utils" in out, (
+        "the skip reminder names the plugin packages but not the one package "
+        "that would let a later run check them"
+    )
+    # Both CLIs were absent in this run, and they ship separately: naming one
+    # package leaves the reader unable to tell whether installing it fixed
+    # anything.
+    assert "pipewire-bin" in out, (
+        "two tools were missing and only one package was named"
+    )
+    # And the remedy must not read as a step to take before the conf is
+    # written — it is written a line later either way.
+    assert "before the conf is written" not in out
 
 
 def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
@@ -1306,6 +1331,125 @@ def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
     assert not out_path.exists(), (
         "a conf that failed schema validation was written anyway — the "
         "message says it wasn't, and PipeWire would load it"
+    )
+
+
+def test_skip_remedy_names_the_tool_that_is_actually_missing(generated,
+                                                             tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    """Two CLIs gate the check, and they ship in different packages.
+
+    The reason line used to say "install lilv-utils and pipewire" whichever
+    was absent, which tells a reader whose PipeWire is plainly running — this
+    tool just talked to it — to install PipeWire. The remedy reads the report
+    rather than probing PATH again, so it names the one that stopped the
+    check even on a machine that has the other.
+    """
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.NO_TOOLING, reason="spa-json-dump not in PATH",
+            missing_tools=("spa-json-dump",)))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    assert ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                       "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "pipewire-bin" in out
+    assert "lilv-utils" not in out, (
+        "named the package for a tool this machine already has"
+    )
+
+
+def test_chain_vendors_names_only_the_vendors_in_the_chain():
+    """Both directions of the resolved condition, without a whole run.
+
+    A chain with a Calf stage has to name Calf, and one without must not: the
+    failure that matters is naming a package the reader does not need, which
+    on a real run sends them to install something for no reason.
+    """
+    import ee_to_pipewire as ee2pw
+    from lib import packages
+    from lib.pipewire.plugins import Stage
+
+    def stage(*uris):
+        return Stage(nodes=[{"type": "lv2", "plugin": u} for u in uris],
+                     in_l=("", ""), in_r=("", ""),
+                     out_l=("", ""), out_r=("", ""))
+
+    lsp_only = [stage(LSP_PEQ_URI, LSP_MBC_URI), stage(LSP_LIM_URI)]
+    assert ee2pw._chain_vendors(lsp_only) == [packages.LSP_LV2]
+
+    with_calf = lsp_only + [stage(CALF_BE_URI)]
+    assert sorted(ee2pw._chain_vendors(with_calf)) == sorted(
+        [packages.LSP_LV2, packages.CALF_LV2])
+
+    # A builtin stage (convolver, mixer) carries no URI and no package.
+    builtin = Stage(nodes=[{"type": "builtin", "name": "conv"}],
+                    in_l=("", ""), in_r=("", ""),
+                    out_l=("", ""), out_r=("", ""))
+    assert ee2pw._chain_vendors([builtin]) == []
+
+    # And the label is the *reader's* package name, not one distribution's.
+    assert ee2pw._vendor_labels([packages.LSP_LV2], packages.DEBIAN) == [
+        "LSP (lsp-plugins-lv2)"]
+    assert ee2pw._vendor_labels([packages.LSP_LV2], packages.SUSE) == [
+        "LSP (lv2-lsp-plugins)"]
+    # An unplaceable machine still gets the vendor, without a wrong package.
+    assert ee2pw._vendor_labels([packages.CALF_LV2], "") == ["Calf"]
+
+
+def test_main_refuses_a_conf_naming_a_plugin_that_cannot_load(generated,
+                                                              tmp_path,
+                                                              monkeypatch,
+                                                              capsys):
+    """Issue #71: a plugin lv2info answers "no" for must stop the write.
+
+    `lv2info` and PipeWire's filter-chain both resolve plugins through lilv,
+    so a URI lilv will not answer for here is one the daemon will not load
+    there. Writing anyway hands the reader a conf whose only symptom appears
+    after they restart their sound server. The contract is the same as the
+    schema arm's — nothing on disk — but the message must differ: the remedy
+    is a package, and "schema validation failed" names neither the plugin nor
+    the package.
+    """
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.ERRORS,
+            errors=(f"lv2info {LSP_PEQ_URI!r} failed: Plugin not found.",),
+            unloadable=(LSP_PEQ_URI,)))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    out_path = tmp_path / "out" / "TestChain.conf"
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", str(out_path),
+    ])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "conf not written" in out
+    assert "lsp-plugins-lv2" in out, (
+        "the refusal named the plugin but not the package that provides it"
+    )
+    assert "para_equalizer_x16_lr" in out
+    assert "schema validation failed" not in out, (
+        "a missing package was reported as a schema problem"
+    )
+    assert not out_path.exists(), (
+        "a conf naming a plugin PipeWire cannot load was written anyway — "
+        "restarting onto it is issue #71"
     )
 
 
@@ -1686,6 +1830,25 @@ def _format_minimal(target_sink=None, target_object=None):
     return format_conf(chain.stages, links, "TestChain", "test desc",
                        target_object=target_object,
                        target_sink=target_sink)
+
+
+def test_format_conf_module_is_not_mandatory():
+    """Issue #71: the module carries `nofail`, so a chain that cannot load
+    cannot take the daemon with it.
+
+    This conf is a pipewire.conf.d/ drop-in, which the daemon reads as part of
+    its own context. Without the flag, one LV2 plugin PipeWire can't resolve
+    aborts context creation: the reporter's machine had no audio at all until
+    the file was deleted by hand, because `pipewire.service` would not start.
+    `ifexists` covers the module itself being absent. Asserted on the rendered
+    text rather than the dict, because it is the emitted token PipeWire's
+    `pw.conf` greps for.
+    """
+    conf = _format_minimal()
+    module = conf[conf.index("libpipewire-module-filter-chain"):]
+    flags = module[module.index("flags"):module.index("]") + 1]
+    assert "nofail" in flags, conf
+    assert "ifexists" in flags, conf
 
 
 def test_format_conf_no_target_sink_omits_smart_filter():

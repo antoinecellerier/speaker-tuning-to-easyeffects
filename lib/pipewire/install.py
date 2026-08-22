@@ -41,7 +41,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from lib import console, doctor
+from lib import console, doctor, packages
 from lib.hardware import sinks
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
@@ -163,11 +163,17 @@ def _grep_expectation(tail: str = "") -> str:
     ``tail`` appends what happens *once* the line shows up: the only part that
     differs between the callers, and empty where the caller says nothing about
     it.
+
+    It names the *category*, not LSP and Calf by name. The converter now says
+    which packages this particular chain needs — a chain with no Calf stage is
+    told LSP only — and a generic "LSP or Calf" a few lines later reads as a
+    second, contradictory requirement appearing from nowhere. The names belong
+    in the message that knows which ones apply.
     """
     once = f" — {tail}" if tail else ""
     return ('     (it should print a line, showing node.name = "..."; '
-            "nothing usually means the LSP or Calf LV2 plugins are "
-            f"missing, so the whole file failed to load{once})")
+            "nothing usually means one of the LV2 plugins it needs isn't "
+            f"installed, so the whole file failed to load{once})")
 
 
 def _print_next_steps(node_name: str,
@@ -259,11 +265,15 @@ def speaker_attenuation() -> str:
     return f"your speakers are at {checks._volume_reading(level)} right now"
 
 
-def _print_undo(written: list[Path]) -> None:
+def _print_undo(written: list[Path], style: str = "dim") -> None:
     """How to get back. Everything else here asks the reader to restart their
     sound server with a config file they can't read, and never said what to do
-    if the result is worse — or if PipeWire won't come back. Deleting the conf
-    and restarting is the whole answer; it just has to be written down."""
+    if the result is worse. Deleting the conf and restarting is the whole
+    answer; it just has to be written down.
+
+    `style` is "dim" on a run that worked — there, the way back is a footnote.
+    On a run that did not it is the most useful line on screen, and a footnote
+    is the wrong shape for it."""
     # Only files that exist: the .irs copy is skipped when the source
     # already sits at the target, and an rm over a missing file aborts the
     # pasted command halfway.
@@ -274,8 +284,8 @@ def _print_undo(written: list[Path]) -> None:
     if not paths:
         return
     files = " ".join(f"'{p}'" for p in paths)
-    console.cprint("dim", "  To undo: rm " + files)
-    console.cprint("dim", f"           {PIPEWIRE_RESTART_CMD}")
+    console.cprint(style, "  To undo: rm " + files)
+    console.cprint(style, f"           {PIPEWIRE_RESTART_CMD}")
 
 
 def _print_manual_activation(node_names: list[str],
@@ -338,9 +348,25 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         for name in missing:
             console.cprint("err", f"error: sink {name} did not appear after the "
                           "restart")
-        console.cprint("cta", "Check that the LSP/Calf LV2 plugins are installed "
-                      "(README: Plugin dependencies and validation), then "
-                      f"retry: {PIPEWIRE_RESTART_CMD}")
+        # What the absent sink *means*, in the reader's terms: the thing this
+        # run generated is not running. It stopped being ambiguous only
+        # recently — the conf now carries `nofail` (conf.format_conf), so a
+        # chain PipeWire cannot load is skipped rather than aborting the
+        # daemon, and before that this same message could equally have meant
+        # the machine had no sound at all.
+        console.cprint("warn", "So the filter chain this run generated isn't "
+                      "running. PipeWire skips a chain it can't load rather "
+                      "than refusing to start, so your speakers still work — "
+                      "just without the tuning.")
+        # Both packages, and said to be both: this step sees only that a node
+        # is absent, so it cannot narrow it to one the way the converter's
+        # pre-write check does. Naming them without that sentence reads as a
+        # diagnosis, and contradicts a run that named only one.
+        console.cprint("cta", "The usual cause is a missing LV2 plugin. This "
+                      "step can't tell which, so install both:")
+        packages.print_install_hint([packages.LSP_LV2, packages.CALF_LV2],
+                                    console.cprint)
+        console.cprint("cta", f"Then retry: {PIPEWIRE_RESTART_CMD}")
         return 1
     return 0
 

@@ -305,7 +305,9 @@ Add your distribution's `lv2info` to have the converter check the plugin set bef
 
 The converter prints whichever of these matches your `/etc/os-release`, so you shouldn't need this table on a run that fails.
 
-Before writing the conf the converter runs `lv2info` (the packages above) to validate it against installed plugin metadata; that pass also surfaces a **missing plugin** as a `[validate]` warning. If `lv2info` itself isn't installed the converter can't run that check — it prints a reminder to install the plugins instead. Pass `--no-validate` to skip the check entirely.
+Before writing the conf the converter runs `lv2info` to validate it against installed plugin metadata. A plugin `lv2info` can't load is the daemon's answer too — both resolve plugins through the same library — so the run **refuses to write the conf** and names the package to install. `lv2info` itself is optional: PipeWire needs the lilv *library*, not the command, so a machine with LSP and Calf installed runs the chain without it. Without it, though, nothing checks the plugin set before the conf is written, and a missing package shows up only as a sink that never appears after the restart — the run says so and names the package that would have caught it. Pass `--no-validate` to skip the check entirely.
+
+A chain that can't load no longer stops PipeWire from starting: the conf marks its module `nofail`, so PipeWire skips it and your audio keeps working unprocessed ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
 
 </details>
 
@@ -380,7 +382,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 - `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
 
 **General**
-- `--no-validate` — skip the `lv2info` schema self-check (e.g. on systems without `lv2info` installed)
+- `--no-validate` — skip the `lv2info` schema self-check (it also refuses a conf naming a plugin `lv2info` can't load)
 - `--dry-run` — report where the conf and impulse response would be written without writing them (to keep the conf, use `--output` instead)
 - `--skip-next-steps` — replace the post-write next-steps checklist with a one-line activation pointer; for callers that handle activation themselves (`dolby_to_pipewire.py` passes it automatically)
 - `--no-color` — disable colored terminal output (output is already plain when `rich` isn't installed)

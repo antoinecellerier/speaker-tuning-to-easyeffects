@@ -65,6 +65,8 @@ from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
 from lib.pipewire import vbe
 from lib.pipewire.plugins import (
     CALF_BE_URI,
+    CALF_ST_URI,
+    LSP_AUTOGAIN_URI,
     LSP_LIM_URI,
     LSP_MBC_URI,
     LSP_PEQ_URI,
@@ -876,9 +878,15 @@ def _plugin_presence() -> list[str]:
     if shutil.which("lv2info") is None:
         return ["lv2info not installed — LV2 plugin presence unknown"]
     out = []
+    # Every URI the converter can emit. Autogain and stereo tools were the two
+    # omissions: autogain is on by default on SoundWire devices, so the doctor
+    # could report a full house while the one plugin that run needs is the
+    # missing one.
     for label, uri in (("LSP PEQ", LSP_PEQ_URI), ("LSP MBC", LSP_MBC_URI),
                        ("LSP limiter", LSP_LIM_URI),
+                       ("LSP autogain", LSP_AUTOGAIN_URI),
                        ("Calf bass enhancer", CALF_BE_URI),
+                       ("Calf stereo tools", CALF_ST_URI),
                        ("LSP filter (virtual-bass)", vbe.LSP_FILTER_URI),
                        ("Calf saturator (virtual-bass)",
                         vbe.CALF_SATURATOR_URI)):

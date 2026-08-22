@@ -351,7 +351,42 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
     assert wrapper_main([]) == 1
     out = capsys.readouterr().out
     assert "did not appear" in out
-    assert "Plugin dependencies" in out
+    # The remedy has to be pasteable, not a pointer to a doc section: looking
+    # up two package names was the one step in this block a reader could not
+    # do from the terminal.
+    assert "install lsp-plugins-lv2" in out
+    # Issue #71: the conf carries `nofail`, so a chain PipeWire cannot load is
+    # skipped rather than fatal. The reader's question at this point is what
+    # the absent sink means for them, and until the flag shipped the honest
+    # answer could be "no audio at all" — so the message could not say it.
+    assert "isn't running" in out, (
+        "the failure block never says the generated chain isn't in the path"
+    )
+    assert "speakers still work" in out, (
+        "the failure block never says the machine still plays audio"
+    )
+
+
+def test_undo_is_a_footnote_when_it_worked_and_a_step_when_it_did_not(
+        tmp_path, monkeypatch):
+    """Same words, two jobs. On a run that worked the way back is a footnote —
+    nothing went wrong, and dim is what a footnote looks like here. On a run
+    that failed it is the next thing the reader does, and the failure block
+    above it is already the loudest thing on screen; leaving the remedy dim
+    puts the least-visible styling on the most useful line.
+    """
+    conf = tmp_path / "Chain.conf"
+    conf.write_text("")
+    styles: list[tuple[str, str]] = []
+    monkeypatch.setattr(install.console, "cprint",
+                        lambda style, text="", **k: styles.append((style, text)))
+
+    install._print_undo([conf])
+    install._print_undo([conf], style="cta")
+
+    undo = [s for s, t in styles if "To undo: rm" in t]
+    assert undo == ["dim", "cta"], undo
+    assert str(conf) in "".join(t for _, t in styles)
 
 
 def test_routing_step2_failure_fails_fast(recorders, monkeypatch):

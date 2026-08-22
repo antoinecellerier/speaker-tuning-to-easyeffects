@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -446,6 +447,52 @@ def test_chain_volume_is_silent_without_volume_data_or_daemon():
 # --- Addresses stay out of a block written to be pasted ---------------------
 
 BT_SINK = "bluez_output.80_99_E7_E0_8A_23.1"
+
+
+def test_plugin_presence_covers_every_uri_the_converter_can_emit(monkeypatch):
+    """The doctor's plugin inventory has to match what a run can actually put
+    in a conf, or a full house means nothing.
+
+    Autogain and stereo tools were missing from the table. Autogain is the one
+    that mattered: it is on by default on SoundWire devices, so the doctor
+    could report every plugin present on the exact machine whose chain would
+    not load. Asserted against the converter's URI constants rather than a
+    copy of them, so a plugin added there without a row here fails.
+    """
+    from lib.pipewire import plugins, vbe
+    asked = []
+
+    def fake_run(cmd, **kwargs):
+        asked.append(cmd[1])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(checks.subprocess, "run", fake_run)
+
+    lines = checks._plugin_presence()
+    expected = {plugins.LSP_PEQ_URI, plugins.LSP_MBC_URI, plugins.LSP_LIM_URI,
+                plugins.LSP_AUTOGAIN_URI, plugins.CALF_BE_URI,
+                plugins.CALF_ST_URI, vbe.LSP_FILTER_URI,
+                vbe.CALF_SATURATOR_URI}
+    assert set(asked) == expected, (
+        f"not probed: {sorted(expected - set(asked))}")
+    assert all(line.endswith(": present") for line in lines), lines
+
+
+def test_plugin_presence_says_missing_when_lv2info_says_no(monkeypatch):
+    """A non-zero exit is the whole point of the probe, so it has to survive
+    the exception path too: `lv2info` that cannot run at all must not read as
+    a plugin that is there."""
+    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(checks.subprocess, "run",
+                        lambda cmd, **kw: SimpleNamespace(returncode=255))
+    assert all(line.endswith(": MISSING")
+               for line in checks._plugin_presence())
+
+    monkeypatch.setattr(checks.subprocess, "run",
+                        lambda cmd, **kw: (_ for _ in ()).throw(OSError("boom")))
+    assert all(line.endswith(": MISSING")
+               for line in checks._plugin_presence())
 
 
 def test_environment_block_prints_no_bluetooth_address():
