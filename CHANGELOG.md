@@ -181,6 +181,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- Install instructions for the PipeWire chain's LV2 plugins now name the right
+  package for your distribution instead of Debian's. The README gained a
+  per-distribution list, and the scripts print the one line that matches your
+  `/etc/os-release` — the old advice pointed Fedora and Arch users at
+  `lsp-plugins`, which installs without the LV2 build the chain actually
+  loads.
 - **[AUDIBLE]** The speaker-correction curve is no longer applied on profiles
   whose tuning switches the audio optimizer off — `audio-optimizer-enable` was
   never read. Affects the `off` profile and a few devices' `music` profile,

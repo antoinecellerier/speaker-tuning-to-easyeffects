@@ -33,7 +33,7 @@ hands its caller an UNCHECKED report.
 Exit 0 = clean. Exit 1 = at least one error. Exit 2 = setup error.
 
 Dependencies:
-  - `lv2info` (Debian/Ubuntu: `lilv-utils`; Fedora: `lilv`)
+  - `lv2info` (package names per distribution in `lib/packages.py`)
   - `spa-json-dump` (ships with PipeWire ≥ 0.3.x)
 
 Both are tiny, sub-millisecond CLIs. No PipeWire daemon required.

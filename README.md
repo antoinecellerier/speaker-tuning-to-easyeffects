@@ -289,9 +289,23 @@ pw-cli ls Node | grep Dolby_Balanced
 <details>
 <summary>Plugin dependencies and validation</summary>
 
-The chain loads LV2 plugins from your system: **LSP** (`lsp-plugins-lv2` on Debian/Ubuntu, `lsp-plugins` on Fedora/Arch) for the PEQ / MBC / regulator / limiter, and **Calf** (`calf-plugins`) for the `bass_enhancer` / `stereo_tools` stages when the preset uses them. Both are typical EasyEffects dependencies, so they're already present if you've used EE — but if they're missing the chain won't load in PipeWire.
+The chain loads LV2 plugins from your system: **LSP** for the PEQ / MBC / regulator / limiter and the virtual-bass filters, and **Calf** for the `bass_enhancer` / `stereo_tools` stages and the virtual-bass saturator when the preset uses them. Both are typical EasyEffects dependencies, so they're already present if you've used EE — but if they're missing the chain won't load in PipeWire. Install the **LV2 builds** — the base `lsp-plugins` / `calf` packages don't all ship the `.lv2` bundle PipeWire loads:
 
-Before writing the conf the converter runs `lv2info` (`lilv-utils`) to validate it against installed plugin metadata; that pass also surfaces a **missing plugin** as a `[validate]` warning. If `lv2info` itself isn't installed the converter can't run that check — it prints a reminder to install the plugins instead. Pass `--no-validate` to skip the check entirely.
+- **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install lsp-plugins-lv2 calf-plugins`
+- **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lsp-plugins-lv2 lv2-calf-plugins`
+- **openSUSE:** `sudo zypper install lv2-lsp-plugins lv2-calf`
+- **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lsp-plugins-lv2 calf`
+
+Add your distribution's `lv2info` to have the converter check the plugin set before it writes anything (optional — see below):
+
+- **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install lilv-utils`
+- **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lilv`
+- **openSUSE:** `sudo zypper install lilv`
+- **Arch/Manjaro/EndeavourOS:** `sudo pacman -S lilv-tools`
+
+The converter prints whichever of these matches your `/etc/os-release`, so you shouldn't need this table on a run that fails.
+
+Before writing the conf the converter runs `lv2info` (the packages above) to validate it against installed plugin metadata; that pass also surfaces a **missing plugin** as a `[validate]` warning. If `lv2info` itself isn't installed the converter can't run that check — it prints a reminder to install the plugins instead. Pass `--no-validate` to skip the check entirely.
 
 </details>
 
