@@ -174,8 +174,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59)),
   ThinkPad L14 Gen 6
   ([#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61)),
-  and ThinkPad X1 Carbon Gen 9
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
+  ThinkPad X1 Carbon Gen 9
+  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)),
+  and Lenovo Legion Y540-15IRH
+  ([#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70)).
 
 ### Fixed
 
