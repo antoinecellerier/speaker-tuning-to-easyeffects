@@ -332,14 +332,18 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     moment to load after the restart. Missing after the timeout usually
     means a missing LV2 plugin."""
     if shutil.which("pw-cli") is None:
-        console.cprint("warn", "pw-cli not found — can't verify the sinks loaded; "
-                       "check with: pw-cli ls Node | grep <name>")
-        # An offer, not a fix: the chain either loaded or it didn't, and the
-        # tool only says which. Phrased like the converter's own skipped
-        # self-check for that reason — nothing here is blocking the run.
-        console.cprint("cta", "To have a later run check for you, install "
-                       "PipeWire's command-line tools:")
+        # The check command comes *after* the install, not beside the "not
+        # found": this line used to say "check with: pw-cli ls Node" in the
+        # same breath as saying pw-cli was missing, which is an instruction
+        # the reader cannot follow. Nothing failed here either — say so, or an
+        # unverified chain reads as a broken one.
+        console.cprint("warn", "pw-cli isn't installed, so this run can't "
+                       "confirm the sink loaded. Nothing failed — the chain "
+                       "may well be running.")
+        console.cprint("cta", "Install PipeWire's command-line tools:")
         packages.print_install_hint([packages.PW_TOOLS], console.cprint)
+        console.cprint("cta", "Then check yourself with:  pw-cli ls Node | "
+                       f"grep {node_names[0] if node_names else '<name>'}")
         return 0
     deadline = time.monotonic() + timeout
     missing = list(node_names)
@@ -388,9 +392,12 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         # Both packages, and said to be both: this step sees only that a node
         # is absent, so it cannot narrow it to one the way the converter's
         # pre-write check does. Naming them without that sentence reads as a
-        # diagnosis, and contradicts a run that named only one.
-        console.cprint("cta", "The usual cause is a missing LV2 plugin. This "
-                      "step can't tell which, so install both:")
+        # diagnosis, and contradicts a run that named only one — and why it
+        # cannot, because a run that names two plugins elsewhere and shrugs
+        # here reads as one of them holding something back.
+        console.cprint("cta", "The usual cause is a missing LV2 plugin. All "
+                      "this step sees is a node that isn't there, so install "
+                      "both — or run --doctor, which checks them one by one:")
         packages.print_install_hint([packages.LSP_LV2, packages.CALF_LV2],
                                     console.cprint)
         console.cprint("cta", f"Then retry: {PIPEWIRE_RESTART_CMD}")

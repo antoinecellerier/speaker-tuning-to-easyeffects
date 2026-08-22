@@ -345,7 +345,7 @@ def _print_missing_plugins(uris: tuple[str, ...],
     # row stopped here and guessed their own package manager, and two of them
     # guessed `apt` on a machine we had not asked about: the names alone are
     # the one step in this block that cannot be pasted.
-    console.cprint("cta", "Install them and re-run:")
+    console.cprint("cta", "Install them, then run this command again:")
     packages.print_install_hint(keys, console.cprint)
 
 

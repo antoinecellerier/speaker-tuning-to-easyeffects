@@ -156,14 +156,16 @@ COMPLETE_KEYS = (LSP_LV2, LV2INFO, ALSA_UTILS, EASYEFFECTS, NUMPY, SCIPY,
 # What to say when a family has no package for a key. A gap has to be spoken:
 # dropping the key silently turns "install these two" into a command that
 # installs one and reports success.
-_PW_OWN = "{} ships in the pipewire package itself"
+# Phrased so the verb agrees whichever way it is filled in: one of these
+# rows names a single tool and the other names two.
+_PW_OWN = "the pipewire package itself carries {}"
 _NIX_SYSTEM = (
     "add {} to environment.systemPackages and run nixos-rebuild switch — a "
     "nix-shell doesn't reach the PipeWire daemon")
 
 UNPACKAGED = {
-    (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — it comes "
-                      "from Packman",
+    (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — add the "
+                      "Packman repository to install it",
     (RICH_ARGPARSE, ALPINE): "Alpine has no rich-argparse package; --help "
                              "stays plain without it",
     (PW_TOOLS, ARCH): _PW_OWN.format("pw-cli and pw-dump"),
@@ -195,14 +197,15 @@ UNPACKAGED.update({
 # A name that resolves, and a command that still leaves the reader without the
 # thing. Gentoo builds these behind USE flags that are not on by default, so
 # the atom alone is the same trap as a wrong sub-package elsewhere — printed
-# after the command rather than instead of it, because the command is right as
-# far as it goes. (`media-libs/lsp-plugins` needs no caveat: its ebuild has
-# `+lv2`.)
+# *before* the command rather than instead of it: the command is right as far
+# as it goes, but a block read top to bottom is a block pasted top to bottom,
+# and a caveat underneath arrives after the build it was meant to change.
+# (`media-libs/lsp-plugins` needs no caveat: its ebuild has `+lv2`.)
 CAVEATS = {
-    (CALF_LV2, GENTOO): "media-plugins/calf needs USE=lv2 — the default build "
-                        "ships no .lv2 bundle",
-    (LV2INFO, GENTOO): "media-libs/lilv needs USE=tools — lv2info is not in "
-                       "the default build",
+    (CALF_LV2, GENTOO): "first set USE=lv2 for media-plugins/calf — the "
+                        "default build ships no .lv2 bundle",
+    (LV2INFO, GENTOO): "first set USE=tools for media-libs/lilv — lv2info is "
+                       "not in the default build",
 }
 
 
@@ -399,6 +402,9 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
     if fam:
         command = install_command(keys, fam)
         covered = _covered(keys, fam)
+        for key in keys:
+            if key in covered and (key, fam) in CAVEATS:
+                out.append(("dim", f"({CAVEATS[(key, fam)]})"))
         if command:
             # Just the command. A reader we could place needs no note about
             # the distributions they are not on, and the README pointer earns
@@ -418,8 +424,6 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
                 continue        # folded into the one instruction below
             if key not in covered:
                 out.append(("dim", f"({UNPACKAGED.get((key, fam), key)})"))
-            elif (key, fam) in CAVEATS:
-                out.append(("dim", f"({CAVEATS[(key, fam)]})"))
         if declarative:
             # One instruction for all of them, and the rebuild on its own line
             # so it stays pasteable.
@@ -432,25 +436,33 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
             return tuple((style, f"{indent}{text}") for style, text in out)
     for label, alt in install_commands(keys):
         out.append(("cta", f"{label}: {alt}"))
-    # Grouped by family, in `FAMILIES` order, rather than walked as a sorted
-    # dict: keyed on (key, family) the notes interleave — openSUSE's Calf
-    # landing between two NixOS lines — and NixOS repeats one long sentence
-    # once per package where a single instruction covers them all.
+    # Grouped by note rather than walked as a sorted dict: keyed on (key,
+    # family) the lines interleave — openSUSE's Calf landing between two NixOS
+    # ones — and the same sentence repeats per family and per package, so
+    # "the pipewire package itself carries pw-cli and pw-dump" printed three
+    # times over and read as three different facts.
+    grouped: dict[str, list[str]] = {}
+
+    def note(text, label):
+        seen = grouped.setdefault(text, [])
+        if label not in seen:
+            seen.append(label)
+
     for gap_fam in FAMILIES:
         declarative = [k for k in keys if gap_fam == NIXOS
                        and k in _NIXOS_SYSTEM and (k, gap_fam) in UNPACKAGED]
         if declarative:
             attrs = " and ".join(_NIXOS_SYSTEM[k] for k in declarative)
-            out.append(("dim", f"({LABELS[gap_fam]}: add {attrs} to "
-                               "environment.systemPackages and run "
-                               "nixos-rebuild switch — a nix-shell doesn't "
-                               "reach the PipeWire daemon)"))
+            note(f"add {attrs} to environment.systemPackages and run "
+                 "nixos-rebuild switch — a nix-shell doesn't reach the "
+                 "PipeWire daemon", LABELS[gap_fam])
         for key in keys:
             if key in declarative:
                 continue
-            note = UNPACKAGED.get((key, gap_fam))
-            if note:
-                out.append(("dim", f"({LABELS[gap_fam]}: {note})"))
+            if (key, gap_fam) in UNPACKAGED:
+                note(UNPACKAGED[(key, gap_fam)], LABELS[gap_fam])
+    for text, labels in grouped.items():
+        out.append(("dim", f"({', '.join(labels)}: {text})"))
     out.append(("dim", f"(on another distribution, see {see})"))
     return tuple((style, f"{indent}{text}") for style, text in out)
 

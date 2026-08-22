@@ -367,11 +367,16 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
     preset, and leaves the speaker-correction filter doing nothing.
     """
     fam = packages.family()
+    major = _distro_easyeffects_major(fam) if fam else None
     steps: list[tuple[str, str]] = []
-    if fam and (_distro_easyeffects_major(fam) or 0) >= 8:
+    if (major or 0) >= 8:
         command = packages.install_command([packages.EASYEFFECTS], fam)
         if command:
-            steps.append(("cta", "  • from your distribution:"))
+            # The version, because this bullet is the one that could be
+            # wrong: a reader whose distribution shipped 7 needs to see that
+            # this run actually asked, not that it guessed.
+            steps.append(("cta", "  • from your distribution, which has "
+                                 f"EasyEffects {major}:"))
             steps.append(("cta", f"      {command}"))
     # Labelled rather than listed, so two commands read as a choice instead of
     # a procedure — a bulleted caption above each keeps the command alone on
@@ -380,11 +385,22 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
                          if steps else "  • the Flathub Flatpak:"))
     steps.append(("cta", "      flatpak install flathub "
                          "com.github.wwmm.easyeffects"))
-    if len(steps) == 2:
-        # Said only when the Flatpak is the sole offer, because that is when a
-        # reader wonders why their own package manager wasn't mentioned.
-        steps.append(("dim", "    (your distribution's own package is older "
-                             "than 8, or couldn't be checked)"))
+    # The Flatpak is only "works anywhere" once Flatpak itself is set up, and
+    # on a plain install of most distributions the Flathub remote is not
+    # there. Named, not linked — the one-link rule keeps URLs out of message
+    # bodies (.claude/rules/user-messages.md) — but a reader who hits
+    # "remote flathub not found" now knows it isn't this tool's fault.
+    steps.append(("dim", "        (needs Flatpak installed and the Flathub "
+                         "remote added)"))
+    if len(steps) == 3:
+        # Which of the two it was, rather than both at once: "older than 8, or
+        # couldn't be checked" leaves a reader unable to tell whether an
+        # upgrade of their own distribution would fix it.
+        steps.append(("dim", f"    (your distribution ships EasyEffects "
+                             f"{major}, which these presets can't use)"
+                             if major else
+                             "    (couldn't ask your package manager what it "
+                             "would install)"))
     return tuple(steps)
 
 

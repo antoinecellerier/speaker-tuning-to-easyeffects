@@ -1658,13 +1658,22 @@ def test_a_distro_that_still_ships_7_is_never_named(monkeypatch):
     convolver doing nothing — the exact silent failure this check exists to
     catch, now arrived at by following our own advice. So when the machine
     says 7, only the remedy that doesn't depend on the distribution is
-    offered, and the reader is told why their package manager went unnamed.
+    offered, and the reader is told why their package manager went unnamed —
+    with the version, not "older than 8, or couldn't be checked", which left
+    them unable to tell whether upgrading their distribution would help.
     """
     _distro_ships(monkeypatch, 7)
     steps = doctor_run.easyeffects_install_steps()
     assert _FLATHUB_COMMAND in _step_commands(steps), steps
     assert not any(m in t for _s, t in steps for m in _PACKAGE_MANAGERS), steps
-    assert any(s == "dim" and "older than 8" in t for s, t in steps), steps
+    assert any(s == "dim" and "ships EasyEffects 7" in t
+               for s, t in steps), steps
+
+    # And the other way of not knowing says *that*, rather than sharing one
+    # sentence with it.
+    _distro_ships(monkeypatch, None)
+    steps = doctor_run.easyeffects_install_steps()
+    assert any(s == "dim" and "couldn't ask" in t for s, t in steps), steps
 
 
 @pytest.mark.parametrize("fam,command", [
@@ -1678,18 +1687,24 @@ def test_a_distro_that_ships_8_is_offered_ahead_of_the_flatpak(
     The distro package is the shorter path for a reader who has one, so it
     leads; the Flathub line stays because it is the answer for a machine we
     couldn't place or couldn't ask, and dropping it here would mean the offer
-    depended on a query that is allowed to fail. Nothing explains the Flatpak
-    away either: the note about a package manager going unnamed only makes
-    sense when one did.
+    depended on a query that is allowed to fail.
+
+    The bullet carries the version it found, because this is the one line that
+    could be wrong: a reader whose distribution shipped 7 has to be able to
+    see that the run asked rather than guessed.
     """
     _distro_ships(monkeypatch, 8, fam)
     steps = doctor_run.easyeffects_install_steps()
     offered = _step_commands(steps)
     assert command in offered and _FLATHUB_COMMAND in offered, steps
     assert offered.index(command) < offered.index(_FLATHUB_COMMAND), steps
-    # Nothing dimmed: the note explaining why no package manager was named
-    # belongs only to the run where none was.
-    assert not any(style == "dim" for style, _t in steps), steps
+    assert any("EasyEffects 8" in t for _s, t in steps), steps
+    # The note explaining why no package manager was named belongs only to the
+    # run where none was — the Flatpak-setup caveat below it is unconditional
+    # and is not that note.
+    assert not any("couldn't ask" in t or "ships EasyEffects" in t
+                   for _s, t in steps
+                   if "which has EasyEffects" not in t), steps
 
 
 @pytest.mark.parametrize("release,expected", [
