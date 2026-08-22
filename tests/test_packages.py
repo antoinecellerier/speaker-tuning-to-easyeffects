@@ -315,6 +315,35 @@ def test_nixos_gets_a_shell_for_python_and_a_note_for_the_daemon(monkeypatch):
                for s, t in lines if s == "dim"), lines
 
 
+def test_the_daemon_reason_is_given_only_where_it_is_the_reason():
+    """NixOS's note explains itself, and the explanation has to be true.
+
+    An LV2 plugin installed into a `nix-shell` is invisible to the PipeWire
+    daemon that has to load it — that is why the route is declarative. It is
+    not why EasyEffects is: that is an application the reader launches, and it
+    wants to be in their environment for the ordinary reason. One sentence
+    covering both would be a reason that is only half a reason, on the family
+    where this tool is otherwise most careful to say why.
+    """
+    lines: list[tuple[str, str]] = []
+    orig = packages.family
+    packages.family = lambda *a, **k: packages.NIXOS
+    try:
+        packages.print_install_hint(
+            [packages.LSP_LV2],
+            lambda style, text="": lines.append((style, text)))
+        assert any("PipeWire daemon" in t for _s, t in lines), lines
+
+        lines.clear()
+        packages.print_install_hint(
+            [packages.EASYEFFECTS],
+            lambda style, text="": lines.append((style, text)))
+        assert any("environment.systemPackages" in t for _s, t in lines), lines
+        assert not any("PipeWire daemon" in t for _s, t in lines), lines
+    finally:
+        packages.family = orig
+
+
 def test_alpine_has_no_rich_argparse_and_the_command_drops_it(monkeypatch):
     """`apk add` fails the whole transaction on one unknown name.
 

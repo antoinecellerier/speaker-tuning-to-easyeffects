@@ -162,6 +162,8 @@ _PW_OWN = "the pipewire package itself carries {}"
 _NIX_SYSTEM = (
     "add {} to environment.systemPackages and run nixos-rebuild switch — a "
     "nix-shell doesn't reach the PipeWire daemon")
+_NIX_PLAIN = (
+    "add {} to environment.systemPackages and run nixos-rebuild switch")
 
 UNPACKAGED = {
     (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — add the "
@@ -189,8 +191,15 @@ _NIXOS_SYSTEM = {
     EASYEFFECTS: "pkgs.easyeffects",
 }
 
+# Of those, the ones the *daemon* has to find — the reason a nix-shell is no
+# use for them. EasyEffects is not one: it is an application the reader
+# launches, and it wants to be in their environment permanently for the
+# ordinary reason, not because of PipeWire.
+_NIXOS_DAEMON_KEYS = (LSP_LV2, CALF_LV2)
+
 UNPACKAGED.update({
-    (key, NIXOS): _NIX_SYSTEM.format(attr)
+    (key, NIXOS): (_NIX_SYSTEM if key in _NIXOS_DAEMON_KEYS
+                   else _NIX_PLAIN).format(attr)
     for key, attr in _NIXOS_SYSTEM.items()
 })
 
@@ -350,19 +359,42 @@ _AVAILABLE_VERSION = {
     SUSE: ("zypper", "--non-interactive", "--no-refresh", "info"),
     ARCH: ("pacman", "-Si"),
     ALPINE: ("apk", "policy"),
+    # The one row where the name is not the last word — hence the `{}`. Reads
+    # the channel already on disk, so it needs no network, and `-A` forces
+    # only that attribute rather than the whole of nixpkgs. A NixOS built from
+    # flakes may have no `<nixpkgs>` at all; that errors, which the caller
+    # treats like any other way of not knowing.
+    NIXOS: ("nix-instantiate", "--eval", "-A", "{}.version", "<nixpkgs>"),
 }
 
 
 def available_version_cmd(key, fam: str) -> list[str] | None:
     """argv printing what `fam` would install for `key`, or None if we can't ask.
 
-    Built from `_NAMES` rather than taking a package name, so the thing asked
-    about and the thing later named in the command cannot drift apart.
+    Built from `_NAMES` (or `_NIXOS_SYSTEM`, whose attribute is what nixpkgs
+    answers for) rather than taking a package name, so the thing asked about
+    and the thing later named in the command cannot drift apart.
+
+    A `{}` in any argument takes the name; otherwise it goes on the end, which
+    is where every package manager but Nix wants it.
     """
-    named = names([key], fam)
-    if not named or fam not in _AVAILABLE_VERSION:
+    if fam not in _AVAILABLE_VERSION:
         return None
-    return [*_AVAILABLE_VERSION[fam], named[0]]
+    if fam == NIXOS:
+        attr = _NIXOS_SYSTEM.get(key) or (names([key], NIXOS) or [""])[0]
+        # `pkgs.easyeffects` is how a configuration.nix names it; the eval
+        # below is already inside that scope, so the prefix has to come off.
+        # Sliced rather than `removeprefix`, which is 3.9+ — this module keeps
+        # to what "Python 3" in the README can be relied on to mean.
+        name = attr[len("pkgs."):] if attr.startswith("pkgs.") else attr
+    else:
+        name = (names([key], fam) or [""])[0]
+    if not name:
+        return None
+    argv = [a.format(name) if "{}" in a else a
+            for a in _AVAILABLE_VERSION[fam]]
+    return argv if any("{}" in a for a in _AVAILABLE_VERSION[fam]) else [
+        *argv, name]
 
 
 # The README section that stays right for a distribution this table does not
@@ -428,9 +460,18 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
             # One instruction for all of them, and the rebuild on its own line
             # so it stays pasteable.
             attrs = " and ".join(_NIXOS_SYSTEM[k] for k in declarative)
-            out.append(("dim", "(NixOS installs these system-wide, since a "
-                               "nix-shell doesn't reach the PipeWire daemon — "
-                               f"add {attrs} to environment.systemPackages)"))
+            # The reason only where it holds: an LV2 plugin has to be visible
+            # to the daemon, which is why a nix-shell is no use for it. Saying
+            # that about EasyEffects, which the reader launches themselves,
+            # would be a reason that isn't one.
+            why = (", since a nix-shell doesn't reach the PipeWire daemon"
+                   if any(k in _NIXOS_DAEMON_KEYS for k in declarative) else "")
+            # Not "NixOS installs these": the reader is on NixOS — this line
+            # only prints once os-release has placed them — and "these" was
+            # wrong whenever the list held one package.
+            out.append(("dim", f"(a configuration change, not an install{why}"
+                               f" — add {attrs} to "
+                               "environment.systemPackages)"))
             out.append(("cta", "sudo nixos-rebuild switch"))
         if out:
             return tuple((style, f"{indent}{text}") for style, text in out)

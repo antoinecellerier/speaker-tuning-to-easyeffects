@@ -1707,6 +1707,34 @@ def test_a_distro_that_ships_8_is_offered_ahead_of_the_flatpak(
                    if "which has EasyEffects" not in t), steps
 
 
+def test_nixos_is_offered_nixpkgs_when_nixpkgs_has_8(monkeypatch):
+    """A family whose answer is a configuration edit still gets to answer.
+
+    NixOS has no "install this" verb, so the bullet that names a distribution's
+    own package was skipped for it and the Flatpak was all it ever saw — on the
+    one platform where Flatpak is *least* likely to already work, and while
+    nixpkgs itself ships a current EasyEffects. The offer is gated on the same
+    query as everyone else's: nixpkgs is asked, and only an answer of 8 or
+    newer puts the route on screen.
+    """
+    _distro_ships(monkeypatch, 8, packages.NIXOS)
+    steps = doctor_run.easyeffects_install_steps()
+    rendered = " ".join(t for _s, t in steps)
+    assert "environment.systemPackages" in rendered, steps
+    assert "pkgs.easyeffects" in rendered, steps
+    assert "sudo nixos-rebuild switch" in _step_commands(steps), steps
+    # And the Flatpak stays, because it is the answer when the query fails.
+    assert _FLATHUB_COMMAND in _step_commands(steps), steps
+
+    # Nothing to offer, nothing offered: a flakes-only machine has no
+    # <nixpkgs> for the query to read, and guessing "8" there would send the
+    # reader to a rebuild that changes nothing.
+    _distro_ships(monkeypatch, None, packages.NIXOS)
+    steps = doctor_run.easyeffects_install_steps()
+    assert "environment.systemPackages" not in " ".join(t for _s, t in steps)
+    assert _FLATHUB_COMMAND in _step_commands(steps), steps
+
+
 @pytest.mark.parametrize("release,expected", [
     ("6.12.74+deb13+1-amd64", (6, 12)),   # Debian/LMDE style (#33 reporter)
     ("6.15.8-arch1-1", (6, 15)),          # Arch style
@@ -2377,6 +2405,9 @@ _AVAILABLE_VERSION_OUTPUT = {
     packages.ALPINE: "easyeffects policy:\n"
                      "  8.2.8-r0:\n"
                      "    https://dl-cdn.alpinelinux.org/alpine/edge/community\n",
+    # A Nix string literal, quotes and all — the parser reads the version out
+    # of a line that is nothing but the answer.
+    packages.NIXOS: '"8.2.8"\n',
 }
 
 
@@ -2398,6 +2429,7 @@ class _Ran:
     # package however new the one it ships.
     packages.ARCH,
     packages.ALPINE,
+    packages.NIXOS,
 ])
 def test_the_available_version_query_reads_each_package_manager(fam, monkeypatch):
     """Five layouts, one parser, and a wrong read here names a wrong package.
@@ -2418,7 +2450,12 @@ def test_the_available_version_query_reads_each_package_manager(fam, monkeypatch
     # …asked through this family's own tool, and about the package name this
     # family uses — the two must not drift apart.
     assert seen == [packages.available_version_cmd(packages.EASYEFFECTS, fam)]
-    assert seen[0][-1] == packages.names([packages.EASYEFFECTS], fam)[0]
+    # Present in the argv, not necessarily last: `nix-instantiate` wants the
+    # attribute after `-A` and the channel after that, which is the whole
+    # reason the builder learned to place the name rather than append it.
+    expected = ("easyeffects" if fam == packages.NIXOS
+                else packages.names([packages.EASYEFFECTS], fam)[0])
+    assert any(expected in arg for arg in seen[0]), seen
 
 
 def test_apt_policy_answers_with_the_candidate_not_the_installed_version(
@@ -2447,12 +2484,16 @@ def test_every_way_of_not_knowing_the_distro_version_is_none(monkeypatch):
     changes nothing. What must never happen is any of them being mistaken for
     a version: that is how a stale answer becomes a named package.
     """
-    # Gentoo and NixOS have no cheap offline query, so the gate is that we
-    # return before shelling out at all — not that we discard the result.
+    # Gentoo has no cheap offline query, so the gate is that we return before
+    # shelling out at all — not that we discard the result. NixOS is not in
+    # this set: it gained one, and asserting it here again would quietly
+    # un-test the family the query was added for.
     _forbid_subprocess(monkeypatch)
-    for fam in (packages.GENTOO, packages.NIXOS):
-        assert packages.available_version_cmd(packages.EASYEFFECTS, fam) is None
-        assert doctor_run._distro_easyeffects_major(fam) is None
+    assert packages.available_version_cmd(
+        packages.EASYEFFECTS, packages.GENTOO) is None
+    assert doctor_run._distro_easyeffects_major(packages.GENTOO) is None
+    assert packages.available_version_cmd(
+        packages.EASYEFFECTS, packages.NIXOS) is not None
 
     def raises(exc):
         def run(*a, **k):

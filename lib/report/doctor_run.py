@@ -371,13 +371,18 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
     steps: list[tuple[str, str]] = []
     if (major or 0) >= 8:
         command = packages.install_command([packages.EASYEFFECTS], fam)
-        if command:
+        # NixOS answers with a configuration edit and a rebuild rather than a
+        # command, so the bullet takes whichever of the two that family has.
+        native = ([("cta", f"      {command}")] if command
+                  else list(packages.install_steps([packages.EASYEFFECTS],
+                                                   indent="      ")))
+        if native:
             # The version, because this bullet is the one that could be
             # wrong: a reader whose distribution shipped 7 needs to see that
             # this run actually asked, not that it guessed.
             steps.append(("cta", "  • from your distribution, which has "
                                  f"EasyEffects {major}:"))
-            steps.append(("cta", f"      {command}"))
+            steps.extend(native)
     # Labelled rather than listed, so two commands read as a choice instead of
     # a procedure — a bulleted caption above each keeps the command alone on
     # its line, which is what makes it pasteable.
