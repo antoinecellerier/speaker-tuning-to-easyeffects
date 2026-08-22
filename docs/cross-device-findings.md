@@ -1076,7 +1076,7 @@ are common).
 
 ## 17. Bus-prefixed filenames are one tuning, not two
 
-> Measured 2026-08-22 over the full corpus (3117 files), not the frozen
+> Measured 2026-08-22 over the full corpus (3638 files), not the frozen
 > 2795-XML cohort the sections above use.
 
 §16 ends by noting that `tuning_version` tiebreaks duplicate copies. This is
@@ -1119,8 +1119,8 @@ so "prefer `INTELAUDIO`" would be the wrong rule:
 Ranking by `tuning_version` is right, and either pick yields the same preset.
 
 **Where this can arise is bounded.** `HDAUDIO_`/`INTELAUDIO_` filenames stop
-dead after `xml_version` 3.2.1 — 203 of 232 files at 3.2.0 (88%), 26 of 762 at
-3.2.1 (3%), and **0 of 2123** at 3.4.2 and later. It cannot appear on a modern
+dead after `xml_version` 3.2.1 — 250 of 287 files at 3.2.0 (87%), 34 of 947 at
+3.2.1 (4%), and **0 of 2404** at 3.4.2 and later. It cannot appear on a modern
 tuning. (Qualcomm Aqstic's `AUCD_` prefix is a separate namespace and does
 persist into current tunings; it is not a duplicate spelling of a bare name.)
 
