@@ -270,7 +270,17 @@ def print_verdict(checks, cprint) -> None:
         # guarded on `not fail`, so the one state that most needs a closing
         # instruction ended on the summary counts alone.
         cprint("err", f"Fix the {tag(DOCTOR_FAIL)} lines above first.")
-    elif warn and not fail:
+    elif warn and unknown:
+        # Both, because this branch used to print the WARN sentence alone and
+        # leave the unknowns unmentioned — beside a check saying a missing
+        # package is "the usual reason a conf loads nothing", "the WARN lines
+        # are what to fix first" reads as a ruling on the one line it never
+        # looked at.
+        cprint("warn", f"Nothing failed outright. Start with the "
+                       f"{tag(DOCTOR_WARN)} lines above; the "
+                       f"{tag(DOCTOR_UNKNOWN)} ones are checks that couldn't "
+                       "run, and may be hiding the real fault.")
+    elif warn:
         cprint("warn", f"Nothing failed outright — the {tag(DOCTOR_WARN)} lines "
                        "above are what to fix first.")
     elif unknown and not fail:
