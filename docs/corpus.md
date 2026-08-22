@@ -15,7 +15,7 @@ guide to obtaining tuning XMLs — the [README](../README.md#extracting-the-xml)
 covers extracting the one for your own device.
 
 > **Figures below are from a `tools/corpus_audit.py --composition` run on
-> 2026-08-09**, and are re-derived on their own date. They will not match
+> 2026-08-22**, and are re-derived on their own date. They will not match
 > [cross-device-findings.md](cross-device-findings.md), which freezes its
 > per-parameter figures against a dated cohort — see "Reconciling the counts".
 
@@ -25,9 +25,12 @@ A corpus XML is one per-SKU Dolby playback tuning. They are named after the
 audio device they bind to, in one of two families:
 
 - **HD Audio** — `DEV_<codec>_SUBSYS_<vendor><device>_PCI_SUBSYS_<device><vendor>.xml`.
-  A Windows install renames these as it stores them, so the same tuning also
-  appears as `HDAUDIO_DEV_…`, `INTELAUDIO_DEV_…`, `PCI_DEV_…`, and as
-  `AUCD_DEV_…_ADCM_SUBSYS_…` on Qualcomm Aqstic.
+  The same tuning also appears as `HDAUDIO_DEV_…`, `INTELAUDIO_DEV_…`,
+  `PCI_DEV_…`, and as `AUCD_DEV_…_ADCM_SUBSYS_…` on Qualcomm Aqstic. Those
+  prefixes are the Windows hardware-ID namespace the tuning's `.inf` binds it
+  under, and the **OEM package ships them** — they are not produced by
+  installing it. See [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two)
+  for the evidence and for what it means when two of them match one device.
 - **SoundWire** — `SOUNDWIRE_[SDCAFUNCTION_NN_]MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml`,
   and a shorter `SDW_…` spelling.
 
@@ -44,21 +47,21 @@ cannot drift apart.
 
 | | |
 |---|---|
-| Tuning XMLs | 3063 |
-| Distinct tunings by content | 788 |
-| Distinct filenames | 980 |
-| Distinct `SUBSYS` device ids | 835 |
-| Profile rows (endpoint × operating mode × profile) | 46431 |
-| Codec ids | 19 |
-| Driver packages | 12 |
+| Tuning XMLs | 3117 |
+| Distinct tunings by content | 812 |
+| Distinct filenames | 1040 |
+| Distinct `SUBSYS` device ids | 856 |
+| Profile rows (endpoint × operating mode × profile) | 46992 |
+| Codec ids | 20 |
+| Driver packages | 13 |
 
 Per-codec counts and everything downstream of them are in
 [cross-device-findings.md](cross-device-findings.md); this page does not repeat
 them.
 
-The gap between 3063 files and 788 distinct tunings is the shape of the data:
+The gap between 3117 files and 812 distinct tunings is the shape of the data:
 one tuning ships to every SKU it fits, in every package that supports that SKU.
-The most-repeated tuning appears 54 times, and only 164 files are the sole copy
+The most-repeated tuning appears 54 times, and only 177 files are the sole copy
 of their content. Counting files therefore overstates coverage by roughly 4×,
 which is why the findings doc counts files, rows and devices separately rather
 than quoting one number for a prevalence.
@@ -69,9 +72,12 @@ Every file has one of three origins:
 
 | Source | Files | Distinct tunings |
 |---|---|---|
-| A publicly downloadable driver package | 2838 | 784 |
+| A publicly downloadable driver package | 2892 | 808 |
 | The development machine's Windows partition | 219 | 202 |
-| Attached to a GitHub issue | 6 | 5 |
+| Attached to a GitHub issue | 6 | 6 |
+
+The rows are disjoint and sum to the 3117 above; a file attached to an issue is
+counted only there, never also as a package file.
 
 Only the middle row is something nobody else can fetch — and it contributes
 nothing that isn't fetchable anyway: **all 202 of its tunings also ship in one of
@@ -98,13 +104,19 @@ from**, not a claim about that model.
 | `ext_lenovo_AIO_rtk_22h2_24h2_25h2_v10.1029.1430.37` | 696 | `kkau100fq18jlle0.exe` | IdeaPad 5x 2-in-1 14 |
 | `ext_lenovo_AIO_rtk_22h2_24h2_v10.725.730.25` | 655 | `14yo037flhg44zg0.exe` | Yoga 7 2-in-1 16AKP10 |
 | `ext_qc_lenovo_thinkpad` | 2 | `n3ha810w.exe` | ThinkPad X13s Gen 1 (Qualcomm Aqstic) |
+| `ext_realtek_lenovo_ideapad` | 60 | `mwy506af40hk90.exe` | Legion Y540-15IRH |
 | `ext_thinkpad_AIO_rtk_19h1_20h1_v6.108.104.39` | 68 | `n2wa126w.exe` | ThinkPad X1 Carbon Gen 8 |
 | `ext_thinkpad_AIO_rtk_20h1_22h2_24h2_v9.1127.1236.0` | 219 | `r2nao09w.exe` | ThinkPad T14s Gen 6 |
 | `ext_thinkpad_AIO_rtk_22h2_24h2_25h2_v10.1022.826.17` | 243 | `n4kao13w.exe` | ThinkPad X13 Gen 6 |
 
-The table sums to 2763. The other 75 files of this source are duplicate copies
+The table sums to 2823. The other 69 files of this source are duplicate copies
 held elsewhere in the working tree — a re-organised copy of the X1 Carbon
 package, and staged copies left by a test harness — not additional tunings.
+
+`ext_realtek_lenovo_ideapad` is not one folder: it holds fifteen per-model
+subfolders, one per SKU that download covers. That layout is why it is the only
+package here that ships two bus-prefixed spellings of the *same* device — see
+[cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two).
 
 Not every audio driver package carries a tuning, and for some vendors none of
 the downloadable ones do: ASUS ships them through Windows Update only, which is
@@ -120,7 +132,7 @@ having it — Lenovo's downloadable packages carry all 202 of these tunings.
 
 ### Attached to a GitHub issue
 
-Six files, five distinct tunings, four of which appear in no package here. These
+Six files, six distinct tunings, four of which appear in no package here. These
 arrive when someone reports a device whose vendor doesn't publish the tuning, or
 whose driver this project has no download for.
 
@@ -130,10 +142,11 @@ whose driver this project has no download for.
 | ASUS ROG Xbox Ally X | `DEV_0294`, `10431384` | [#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39) |
 | Lenovo on Qualcomm Aqstic | `AUCD_DEV_0C29`, `IDEA4002` | [#4](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/4) |
 | ThinkPad E14 | `DEV_0257`, `17AA507F` | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) |
+| Lenovo XiaoXin Pro 14GT 2026 | `DEV_0287`, `17AA3941` | [#67](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/67) |
 
 ## What it is skewed towards
 
-- **One vendor.** 826 of the 835 device ids carry Lenovo's `17AA`. The other
+- **One vendor.** 847 of the 856 device ids carry Lenovo's `17AA`. The other
   nine are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), one
   ASUS (`1043`), and one Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
   holds across the corpus is a finding that holds across *Lenovo's* tuning
@@ -142,7 +155,7 @@ whose driver this project has no download for.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.
-- **Breadth by accident, not design.** Eleven downloads yield 835 device ids
+- **Breadth by accident, not design.** Twelve downloads yield 856 device ids
   because a Lenovo audio package carries the tunings for every SKU it supports,
   not just the machine you downloaded it for. Coverage is therefore wide across
   SKUs and narrow across vendors, kernels, and codec generations.

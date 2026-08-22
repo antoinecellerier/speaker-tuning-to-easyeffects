@@ -1074,6 +1074,70 @@ are common).
 
 ---
 
+## 17. Bus-prefixed filenames are one tuning, not two
+
+> Measured 2026-08-22 over the full corpus (3117 files), not the frozen
+> 2795-XML cohort the sections above use.
+
+§16 ends by noting that `tuning_version` tiebreaks duplicate copies. This is
+what those duplicates are, and why the tiebreak is safe.
+
+The same tuning ships under several filename spellings — `DEV_…`,
+`HDAUDIO_DEV_…`, `INTELAUDIO_DEV_…`. The prefix is the Windows hardware-ID
+namespace the `.inf` binds the device under, and a Dolby extension `.inf`
+routinely binds both HD-Audio and Intel-SST enumerations of one codec:
+
+```
+%Device.ExtensionDesc% = DeviceExtension_Install,INTELAUDIO\FUNC_01&VEN_10EC&DEV_0257&SUBSYS_17AA3810
+%Device.ExtensionDesc% = DeviceExtension_Install,HDAUDIO\FUNC_01&VEN_10EC&DEV_0257&SUBSYS_17AA3810
+```
+
+so the package ships one XML per hardware ID. **These are not produced by
+installing the package**, a belief this doc and `corpus.md` both previously
+recorded. Two measurements refute it: the `ext_realtek_lenovo_ideapad` package
+([corpus.md](corpus.md#publicly-downloadable-driver-packages)) was unpacked with
+`innoextract` and never installed, yet 58 of its 60 tunings are prefixed;
+and the development machine's *installed* DriverStore is mostly bare (199 of
+219). All 20 prefixed files in that installed store exist verbatim and
+byte-identical inside an extracted package.
+
+**The pairs are the same audio.** Across all 9 device ids that carry both
+spellings, the two files are byte-identical except for `tuning_version`,
+`tuning_date` and `security-key` — the last being bus-specific, which is why a
+file-digest dedup cannot merge them (the package's 24 content-unique tunings
+are 18 distinct DSP configurations).
+
+**The tiebreak is therefore cosmetic — and its direction is not systematic**,
+so "prefer `INTELAUDIO`" would be the wrong rule:
+
+| Model | `HDAUDIO` | `INTELAUDIO` |
+|---|---|---|
+| Y540-15ICH (issue [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70)) | 4 | **5** |
+| Y540-17ICH | **16** | 15 |
+| Y545-15ICH | **11** | 10 |
+
+Ranking by `tuning_version` is right, and either pick yields the same preset.
+
+**Where this can arise is bounded.** `HDAUDIO_`/`INTELAUDIO_` filenames stop
+dead after `xml_version` 3.2.1 — 203 of 232 files at 3.2.0 (88%), 26 of 762 at
+3.2.1 (3%), and **0 of 2123** at 3.4.2 and later. It cannot appear on a modern
+tuning. (Qualcomm Aqstic's `AUCD_` prefix is a separate namespace and does
+persist into current tunings; it is not a duplicate spelling of a bare name.)
+
+It is still reachable today, though: current omnibus packages carry legacy
+3.2.0/3.2.1 tunings for old SKUs (35 prefixed files in
+`ext_lenovo_AIO_rtk_22h2_24h2_25h2_v10.1029.1430.37` alone). A *colliding* pair
+needs a second condition — a per-model package that ships both enumerations of
+one codec. All 9 collisions sit in the per-model subfolders of
+`ext_realtek_lenovo_ideapad`; the omnibus packages carry both prefixes but never
+for the same device.
+
+Practical consequence: when auto-detection reports two XMLs matching one device
+and picks the higher `tuning_version`, that is a legacy-package artifact with no
+audible stake — a device-report reply need not chase which one was chosen.
+
+---
+
 ## Interesting observations
 
 1. **No Intel Fusion devices found** — the `fusion_ext_intel` driver package shares

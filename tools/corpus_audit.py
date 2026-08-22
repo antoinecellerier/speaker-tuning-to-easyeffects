@@ -66,11 +66,13 @@ def discover_roots(cli_dirs):
     return ["."]
 
 
-# The codec id sits behind a bus prefix that varies with how the package was
-# installed — bare ``DEV_0287_…`` from an extracted tree, ``HDAUDIO_DEV_0257_…``
-# / ``INTELAUDIO_DEV_0274_…`` / ``PCI_DEV_1803_…`` once Setup has renamed them
-# into a DriverStore, ``AUCD_DEV_0C29_…`` on Qualcomm Aqstic. Search rather
-# than anchor, or those spellings all fall to UNKNOWN.
+# The codec id sits behind a bus prefix naming the Windows hardware-ID
+# namespace the tuning's ``.inf`` binds it under — bare ``DEV_0287_…``,
+# ``HDAUDIO_DEV_0257_…``, ``INTELAUDIO_DEV_0274_…``, ``PCI_DEV_1803_…``,
+# ``AUCD_DEV_0C29_…`` on Qualcomm Aqstic. The package ships every spelling it
+# binds; installing it renames nothing (cross-device-findings.md §17), so both
+# extracted trees and DriverStores carry a mix. Search rather than anchor, or
+# those spellings all fall to UNKNOWN.
 _CODEC_RE = re.compile(r"DEV_([0-9A-Za-z]{4})")
 
 

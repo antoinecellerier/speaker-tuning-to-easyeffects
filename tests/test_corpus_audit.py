@@ -40,9 +40,11 @@ _SYNTHETIC_XML = """<device_data>
 def test_is_dax3_xml_name_filter():
     assert corpus_audit.is_dax3_xml("DEV_0287_SUBSYS_17AA22E6.xml")
     assert corpus_audit.is_dax3_xml("SOUNDWIRE_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml")
-    # The same tunings once Setup has renamed them into a DriverStore. The
-    # sweep used to test for a leading DEV_/SOUNDWIRE/SDW and skipped all of
-    # these, undercounting the corpus by a few hundred real speaker tunings.
+    # The same tunings under the other hardware-ID namespaces their .inf binds
+    # them under — shipped that way by the package, not renamed by Setup
+    # (cross-device-findings.md §17). The sweep used to test for a leading
+    # DEV_/SOUNDWIRE/SDW and skipped all of these, undercounting the corpus by
+    # a few hundred real speaker tunings.
     assert corpus_audit.is_dax3_xml("HDAUDIO_DEV_0257_SUBSYS_17AA3801.xml")
     assert corpus_audit.is_dax3_xml("INTELAUDIO_DEV_0274_SUBSYS_17AA3801.xml")
     assert corpus_audit.is_dax3_xml("AUCD_DEV_0C29_SUBSYS_233817AA_ADCM_SUBSYS_233817AA.xml")
