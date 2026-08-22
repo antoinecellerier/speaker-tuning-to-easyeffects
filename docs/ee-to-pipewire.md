@@ -443,11 +443,36 @@ that costs and names the package that buys the check back.
 Package names differ per distribution, and the LV2 build is not always
 the base package — `lsp-plugins` on Fedora and Arch does not ship the
 `.lv2` bundle PipeWire loads; `lsp-plugins-lv2` does. `lib/packages.py`
-holds that table (verified against repology) along with the
-`/etc/os-release` family detection, so every message prints the one row
-that matches the reader's machine, and falls back to all four when it
-cannot place them. The README's "Plugin dependencies and validation"
-lists the same rows for someone reading before they run anything.
+holds that table along with the `/etc/os-release` family detection, so
+every message prints the one row that matches the reader's machine, and
+falls back to listing them all when it cannot place them. It covers
+seven families, and the same table serves every dependency either script
+can detect as missing — the Python stack, `lv2info`, the PipeWire
+command-line tools, `amixer`, EasyEffects itself.
+
+Two shapes of gap are recorded rather than papered over. `UNPACKAGED`
+carries what to say where a family has no package at all (Calf reaches
+openSUSE only through Packman; NixOS installs LV2 plugins declaratively,
+because a `nix-shell` never reaches the daemon), and `CAVEATS` what to
+add where the name resolves but the default build does not deliver
+(Gentoo's `media-plugins/calf` needs `USE=lv2`). Dropping either
+silently would turn "install these two" into a command that installs one
+and reports success. `pw-cli`/`pw-dump` and `spa-json-dump` are separate
+keys for the same reason: openSUSE and Alpine ship them in different
+packages.
+
+Names are per-repository facts and are verified against each
+distribution's own binary index — repology tracks Debian, Fedora and
+openSUSE at *source* granularity, so its listing says `lsp-plugins`
+where the installable package is `lsp-plugins-lv2`. EasyEffects is the
+one entry not answered from the table: which release ships version 8
+changes every few months, so the run asks the machine's own package
+manager what it would install and offers the distro package only when
+that answer is 8 or newer.
+
+The README's "Plugin dependencies and validation" and Install sections
+list the same rows for someone reading before they run anything, and
+`tests/test_readme_packages_sync.py` fails if the two disagree.
 
 Independently of any of that, the emitted module carries
 `flags = [ ifexists nofail ]` (`conf.format_conf`). The conf is a

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 import ee_to_pipewire
-from lib import console
+from lib import console, packages
 from lib.pipewire import checks, conf
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
@@ -306,6 +306,46 @@ def test_stale_remembered_chain_defers_to_the_load_failure(tmp_path):
         checks.sink_names(dump), dump) is None
 
 
+def test_unreadable_confs_are_not_reported_as_all_present(tmp_path):
+    """TRAP: the all-clear was being given about files nothing had read.
+
+    `check_confs_loaded` looks for each conf's node in the graph, and a conf
+    whose contents could not be parsed has no node name to look for — so with
+    `spa-json-dump` absent every conf fell out of the filter, `missing` came
+    back empty, and the check reported "N conf(s), all present in the graph".
+    That is the loudest reassurance this report can give, over the one state
+    where it knows least. A machine can reach it by installing PipeWire
+    without its command-line tools, which Fedora, openSUSE and Alpine all
+    allow.
+    """
+    unreadable = checks.InstalledConf(path=tmp_path / "Dolby.conf",
+                                      readable=False,
+                                      unreadable=checks.NO_SPA_JSON_DUMP)
+    result = checks.check_confs_loaded([unreadable], [], dump=[])
+    assert result.status == DOCTOR_UNKNOWN, result
+    assert "could be read" in result.detail
+
+    # And a readable one beside it is still judged, with the unread one
+    # counted rather than quietly folded into the total.
+    readable = _conf(tmp_path, "Live", node_name="effect_input.Live")
+    result = checks.check_confs_loaded(
+        [readable, unreadable], [checks.LiveChain(name="Live")], dump=[])
+    assert result.status == DOCTOR_PASS, result
+    assert "1 conf(s), all present" in result.detail
+    assert "1 more couldn't be read" in result.detail
+
+
+def test_stacked_chains_point_at_the_block_that_exists(tmp_path):
+    """The Environment block moved *above* the checks when inventory-leads
+    landed (`.claude/rules/user-messages.md`), and this detail still sent the
+    reader to "the block below" — where the report's closing advice is, not
+    the conf paths it means."""
+    dump = [_speaker_sink(), *_smart_chain("A"), *_smart_chain("B")]
+    result = checks.check_stacked_chains(checks.live_chains(dump), [])
+    assert "block below" not in result.detail, result.detail
+    assert "Environment block above" in result.detail
+
+
 def test_selected_smart_filter_outranks_an_unselected_virtual_one():
     dump = [_speaker_sink(), *_smart_chain("Smart"), *_virtual_chain("Loose")]
     result = checks.check_default_sink(
@@ -495,6 +535,133 @@ def test_plugin_presence_says_missing_when_lv2info_says_no(monkeypatch):
                for line in checks._plugin_presence())
 
 
+# --- The plugin remedy: inventory above, the fix in the check ---------------
+
+def _probe(**present) -> checks.PluginProbe:
+    """A probe answering `present` per label, everything else installed.
+
+    Built from the module's own URI table rather than a copy, so a plugin
+    added there is answered here too instead of quietly dropping out of the
+    fixture.
+    """
+    return checks.PluginProbe(
+        entries=tuple((label, uri, present.get(label, True))
+                      for label, uri in checks._PLUGIN_URIS))
+
+
+def test_a_missing_calf_plugin_names_calfs_package_and_not_lsps(monkeypatch):
+    """The reader installs a package, so the FAIL has to name the right one.
+    Mapping the URI namespace to a vendor is what makes that possible — a
+    check that named every missing URI instead would send someone whose Calf
+    is missing looking through eight strings for the one that matters, and a
+    check that named both vendors would have them install LSP twice."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    result = checks.check_plugins_present(
+        _probe(**{"Calf bass enhancer": False, "Calf stereo tools": False}))
+
+    assert result.status == DOCTOR_FAIL
+    assert "Calf" in result.detail
+    assert "LSP" not in result.detail
+    steps = "\n".join(text for _style, text in result.steps)
+    assert "calf-plugins" in steps
+    assert "lsp-plugins-lv2" not in steps
+
+
+def test_missing_plugins_from_both_vendors_name_both(monkeypatch):
+    """One conf can need both, and a command that installs half of what is
+    missing loads no more of the chain than none of it."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    result = checks.check_plugins_present(
+        _probe(**{"LSP PEQ": False, "Calf saturator (virtual-bass)": False}))
+
+    assert result.status == DOCTOR_FAIL
+    assert "LSP and Calf" in result.detail
+    steps = "\n".join(text for _style, text in result.steps)
+    assert "lsp-plugins-lv2" in steps and "calf-plugins" in steps
+
+
+def test_no_lv2info_is_unknown_and_offers_the_package(monkeypatch):
+    """Not a FAIL: nothing was checked, so nothing may be reported as missing
+    — and not a silent skip either, because this is the check that would have
+    named the commonest reason a conf loads nothing."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    result = checks.check_plugins_present(checks.PluginProbe(has_lv2info=False))
+
+    assert result.status == DOCTOR_UNKNOWN
+    assert "lv2info" in result.detail
+    assert any("lilv-utils" in text for _style, text in result.steps)
+
+
+def test_a_full_plugin_house_passes_with_nothing_to_do(monkeypatch):
+    """The one PASS worth printing for something that is *there*: it rules out
+    the commonest cause, so a reader whose chain still doesn't load knows to
+    stop looking at packages. Nothing to do, so no steps to print."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    result = checks.check_plugins_present(_probe())
+
+    assert result.status == DOCTOR_PASS
+    assert result.steps == ()
+
+
+def test_an_empty_probe_is_not_an_all_clear():
+    """"Nothing was asked" is not "all present". The stubbed shape every
+    report test uses, and a PASS built from it would be an all-clear over an
+    empty set."""
+    assert checks.check_plugins_present(checks.PluginProbe()) is None
+
+
+def test_the_plugin_remedy_lands_in_steps_not_in_the_detail(monkeypatch):
+    """`emit_check` reflows the detail to the terminal and prints the steps
+    verbatim, because a command folded across two lines is not runnable. A
+    remedy written into the prose is a command that stops working on a narrow
+    window."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    for result in (checks.check_plugins_present(_probe(**{"LSP PEQ": False})),
+                   checks.check_plugins_present(
+                       checks.PluginProbe(has_lv2info=False))):
+        assert "sudo " not in result.detail, result.detail
+        assert any(text.startswith("sudo ") for _style, text in result.steps)
+
+
+def test_the_environment_lines_are_unchanged_by_the_split():
+    """The inventory did not become a diagnosis. `_plugin_presence` renders
+    the same fact lines it always did — now off a probe the check shares — and
+    the block above the checks stays a listing a reader cross-references."""
+    probe = _probe(**{"Calf stereo tools": False})
+    assert checks._plugin_presence(probe) == [
+        "LSP PEQ: present", "LSP MBC: present", "LSP limiter: present",
+        "LSP autogain: present", "Calf bass enhancer: present",
+        "Calf stereo tools: MISSING", "LSP filter (virtual-bass): present",
+        "Calf saturator (virtual-bass): present"]
+    assert checks._plugin_presence(checks.PluginProbe(has_lv2info=False)) == [
+        "lv2info not installed — LV2 plugin presence unknown"]
+    # No remedy in the inventory: the block is printed verbatim, and a package
+    # name here would be a fix the reader meets before the diagnosis.
+    assert not any("install" in line.lower()
+                   for line in checks._plugin_presence(probe))
+
+
+def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
+    """Two readers of one answer, not two spawns: the Environment listing and
+    the LV2 plugins check. Probing per reader is eight subprocesses paid
+    twice, and — worse — two blocks that can disagree."""
+    calls = []
+    monkeypatch.setattr(checks, "_probe_plugins",
+                        lambda: (calls.append(1), _probe())[1])
+    monkeypatch.setattr(checks, "_pw_dump", lambda: [])
+    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+
+    results, _confs, _chains, facts = checks.gather_pw_doctor()
+    assert len(calls) == 1
+    assert [c.status for c in results if c.label == "LV2 plugins"] == [DOCTOR_PASS]
+    # ...and the same answer is what the Environment block renders.
+    lines = checks._environment_lines([], [], facts)
+    assert any("LSP PEQ: present" in line for line in lines)
+    assert len(calls) == 1
+
+
 def test_environment_block_prints_no_bluetooth_address():
     """The `Sinks:` list is every sink in the graph, and the closing line asks
     the reader to paste everything above it into an issue."""
@@ -569,6 +736,109 @@ def test_conf_load_is_unknown_without_a_daemon(tmp_path):
 
 def test_no_confs_is_not_a_load_failure():
     assert checks.check_confs_loaded([], [], dump=[]) is None
+
+
+def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
+    """The reader is in a terminal, mid-report, and the fix is now four lines
+    below: the LV2 plugins check both names which vendor is missing and prints
+    the install command. Sending them to the README instead was a detour away
+    from the answer — and the hedge has to survive it, because this check
+    fires just as often for a PipeWire that hasn't been restarted."""
+    result = checks.check_confs_loaded([_conf(tmp_path, "Dolby_Balanced")],
+                                       [], dump=[])
+    assert "README" not in result.detail
+    assert "LV2 plugins check" in result.detail
+    # Not a diagnosis of a missing plugin — both causes stay on the line.
+    assert "Usually" in result.detail
+    assert "restarted" in result.detail
+
+
+def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
+                                                              monkeypatch):
+    """"the LV2 plugins check below" is a direction, and the order of the
+    check list is what makes it true."""
+    monkeypatch.setattr(checks, "_pw_dump", lambda: [])
+    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(checks, "_probe_plugins",
+                        lambda: checks.PluginProbe(
+                            entries=(("LSP PEQ", "http://lsp-plug.in/x", True),)))
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+    # A conf on disk, or "Chains loaded" has nothing to report and never
+    # reaches the list the direction is about.
+    _write_conf(tmp_path / "Dolby_Balanced.conf")
+
+    labels = [c.label for c in checks.gather_pw_doctor()[0]]
+    assert labels.index("Chains loaded") < labels.index("LV2 plugins")
+
+
+# --- A conf we could not read says why --------------------------------------
+
+def test_an_unreadable_conf_says_why_it_could_not_be_read(tmp_path,
+                                                          monkeypatch):
+    """"unreadable" with no cause sends the reader looking for a damaged file,
+    when the usual answer is a tool this machine hasn't got — the same tool
+    the converter's own path names and offers a package for. Two answers on
+    one machine, and the doctor gave the useless one."""
+    path = tmp_path / "Dolby_Balanced.conf"
+    path.write_text(conf.CONF_HEADER_MARK + " — see\n# version: vtest\n"
+                    "context.modules = []\n")
+    monkeypatch.setattr(checks.shutil, "which", lambda name: None)
+
+    parsed = checks.parse_conf(path)
+    assert not parsed.readable
+    assert parsed.unreadable == checks.NO_SPA_JSON_DUMP
+    # The header is read before the tool is needed, so the version survives.
+    assert parsed.version == "vtest"
+
+    facts = {"version": "v-test", "wireplumber": (0, 5), "sinks": []}
+    line = [l for l in checks._environment_lines([parsed], [], facts)
+            if "Dolby_Balanced.conf" in l]
+    assert line and "unreadable (spa-json-dump not installed)" in line[0]
+
+
+def test_a_conf_that_could_not_be_parsed_is_not_the_missing_tool(tmp_path,
+                                                                 monkeypatch):
+    """The two causes take different remedies: one is a package away, the
+    other is a conf nothing can make sense of and no install fixes. Reported
+    as one string, the doctor would offer a package for a damaged file."""
+    path = tmp_path / "Dolby_Balanced.conf"
+    path.write_text(conf.CONF_HEADER_MARK + " — see\ncontext.modules = []\n")
+    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(checks.subprocess, "run",
+                        lambda cmd, **kw: SimpleNamespace(stdout="not json"))
+
+    parsed = checks.parse_conf(path)
+    assert not parsed.readable
+    assert parsed.unreadable and parsed.unreadable != checks.NO_SPA_JSON_DUMP
+    # No package for this one, so no check offering one.
+    assert checks.check_conf_contents([parsed]) is None
+
+    # And a file that cannot even be opened is a third cause, not either.
+    missing = checks.parse_conf(tmp_path / "gone.conf")
+    assert not missing.readable
+    assert missing.unreadable not in ("", checks.NO_SPA_JSON_DUMP)
+
+
+def test_confs_nothing_could_read_offer_the_spa_tools_package(tmp_path,
+                                                              monkeypatch):
+    """A conf whose contents were never read leaves every check that rests on
+    them judging what it could see, so the report has to say so rather than
+    read as clean."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.SUSE)
+    blind = _conf(tmp_path, "Dolby_Balanced", readable=False,
+                  unreadable=checks.NO_SPA_JSON_DUMP)
+    result = checks.check_conf_contents([blind])
+
+    assert result.status == DOCTOR_UNKNOWN
+    assert "spa-json-dump" in result.detail
+    # openSUSE splits `spa-json-dump` out of the pw-* tools, so this is also
+    # the family that catches a remedy built from the wrong package key.
+    assert any("pipewire-spa-tools" in text for _style, text in result.steps)
+    assert "sudo " not in result.detail
+
+    assert checks.check_conf_contents([]) is None
+    assert checks.check_conf_contents([_conf(tmp_path, "OK")]) is None
 
 
 def test_missing_irs_is_reported_once_per_file(tmp_path):
@@ -674,7 +944,10 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
             *_smart_chain("Dolby_Warm")]
     monkeypatch.setattr(checks, "_pw_dump", lambda: dump)
     monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
-    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    # The probe rather than the renderer: one stub covers both readers
+    # of it, and an empty probe is the "nothing was asked" shape — which
+    # the LV2 plugins check must not turn into an all-clear.
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     silence_console(console)
@@ -708,7 +981,7 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
             *_smart_chain("Dolby_Warm")]
     monkeypatch.setattr(checks, "_pw_dump", lambda: dump)
     monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
-    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     # Stubbed rather than probed: the sequence is the assertion here, and the
@@ -746,7 +1019,7 @@ def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
                                          silence_console, capsys):
     monkeypatch.setattr(checks, "_pw_dump", lambda: None)
     monkeypatch.setattr(checks, "_wireplumber_version", lambda: None)
-    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     silence_console(console)
@@ -966,7 +1239,7 @@ def _pw_check_block(check, monkeypatch, tmp_path, capsys) -> list[str]:
                         lambda: ([check], [], [],
                                  {"wireplumber": None, "version": "0.0-test",
                                   "sinks": []}))
-    monkeypatch.setattr(checks, "_plugin_presence", lambda: [])
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
 
     assert checks.report_pw_doctor() == 0

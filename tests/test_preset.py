@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, doctor as doctor_module, ee_paths
+from lib import console, doctor as doctor_module, ee_paths, packages
 from lib.dax import parse
 from lib.doctor import (
     CheckResult,
@@ -44,6 +44,7 @@ from lib.doctor import (
 from lib.hardware import speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
+from lib.report import speaker as report_speaker
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
 from lib.preset.emit import save_wav_stereo
 from lib.report.profile import _report_parsed_profile
@@ -1597,6 +1598,100 @@ def test_ee_version_unparseable_is_unknown_not_fail():
     assert ee_version_status(None, found=True).status == DOCTOR_UNKNOWN
 
 
+def test_ee_version_7_keeps_the_install_command_out_of_the_prose():
+    """The remedy has to reach the check as `steps`, not as a sentence.
+
+    `emit_check` wraps a detail to the terminal width, and a command folded
+    across two lines stops being runnable — which is the whole reason the
+    caller builds the command and hands it over separately. The detail may
+    lead up to it ("Install EasyEffects 8:") and must not contain it.
+    """
+    steps = (("cta", "  sudo apt install easyeffects"),)
+    r = ee_version_status((7, 1, 5), found=True, install_steps=steps)
+    assert r.status == DOCTOR_FAIL
+    assert r.steps == steps
+    assert "sudo apt" not in r.detail
+    assert r.detail.rstrip().endswith("Install EasyEffects 8:")
+
+
+# --- which EasyEffects 8 to install, per machine ---------------------------
+#
+# The offer used to be a hand-written sentence naming the releases that still
+# shipped 7.x. These pin the thing that replaced it: ask the machine, and name
+# its package only when the answer is 8.
+
+def _distro_ships(monkeypatch, major, fam=None):
+    """Pin what this machine's package manager would answer, and who it is.
+
+    Both halves, or the assertions read the developer's own /etc/os-release
+    and package lists and the suite starts passing or failing on where it ran
+    — and on a Debian box it would shell out to `apt-cache` to do it.
+    """
+    monkeypatch.setattr(packages, "family",
+                        lambda *a, **k: packages.DEBIAN if fam is None else fam)
+    monkeypatch.setattr(doctor_run, "_distro_easyeffects_major",
+                        lambda _fam: major)
+
+
+# Every verb that would name a distribution's own package manager.
+_PACKAGE_MANAGERS = ("apt", "dnf", "pacman", "zypper", "apk", "emerge")
+
+# The one offer that is right on every machine, and the only line here that is
+# matched whole: the captions around it are copy, but this is a command.
+_FLATHUB_COMMAND = "flatpak install flathub com.github.wwmm.easyeffects"
+
+
+def _step_commands(steps):
+    """The offered lines, stripped of whatever margin the printer wants.
+
+    Matched on content rather than on the exact indent, because the indent is
+    the caller's to change — what these tests are about is which commands are
+    offered, and in what order.
+    """
+    return [text.strip() for _style, text in steps]
+
+
+def test_a_distro_that_still_ships_7_is_never_named(monkeypatch):
+    """Naming a package that installs 7.x is worse than naming none.
+
+    It installs cleanly, loads the preset, and leaves the speaker-correction
+    convolver doing nothing — the exact silent failure this check exists to
+    catch, now arrived at by following our own advice. So when the machine
+    says 7, only the remedy that doesn't depend on the distribution is
+    offered, and the reader is told why their package manager went unnamed.
+    """
+    _distro_ships(monkeypatch, 7)
+    steps = doctor_run.easyeffects_install_steps()
+    assert _FLATHUB_COMMAND in _step_commands(steps), steps
+    assert not any(m in t for _s, t in steps for m in _PACKAGE_MANAGERS), steps
+    assert any(s == "dim" and "older than 8" in t for s, t in steps), steps
+
+
+@pytest.mark.parametrize("fam,command", [
+    (packages.DEBIAN, "sudo apt install easyeffects"),
+    (packages.ARCH, "sudo pacman -S easyeffects"),
+])
+def test_a_distro_that_ships_8_is_offered_ahead_of_the_flatpak(
+        fam, command, monkeypatch):
+    """Both, never one — and in this order.
+
+    The distro package is the shorter path for a reader who has one, so it
+    leads; the Flathub line stays because it is the answer for a machine we
+    couldn't place or couldn't ask, and dropping it here would mean the offer
+    depended on a query that is allowed to fail. Nothing explains the Flatpak
+    away either: the note about a package manager going unnamed only makes
+    sense when one did.
+    """
+    _distro_ships(monkeypatch, 8, fam)
+    steps = doctor_run.easyeffects_install_steps()
+    offered = _step_commands(steps)
+    assert command in offered and _FLATHUB_COMMAND in offered, steps
+    assert offered.index(command) < offered.index(_FLATHUB_COMMAND), steps
+    # Nothing dimmed: the note explaining why no package manager was named
+    # belongs only to the run where none was.
+    assert not any(style == "dim" for style, _t in steps), steps
+
+
 @pytest.mark.parametrize("release,expected", [
     ("6.12.74+deb13+1-amd64", (6, 12)),   # Debian/LMDE style (#33 reporter)
     ("6.15.8-arch1-1", (6, 15)),          # Arch style
@@ -1902,6 +1997,69 @@ def test_firmware_gate_check_carries_the_command_that_switches_it_on():
     assert firmware_gate_status([on]).steps == ()
 
 
+# --- an empty gate list means two opposite things (amixer absent) ----------
+#
+# `[]` is both "this machine has no such control" and "nothing looked", and
+# the report rendered both as silence. Nothing in the PipeWire stack pulls
+# `alsa-utils` in — on Debian it arrives only as a Recommends of the desktop
+# task — so a minimal or container install genuinely has no amixer.
+
+def test_an_empty_gate_list_is_only_silence_when_something_looked(monkeypatch):
+    """Both halves, because they used to be the same `[]`.
+
+    Staying quiet is right when the scan ran and found no gate: most machines
+    have none, and a check about an absent control is noise. It is wrong when
+    amixer is missing, because the reader then gets a report that says "no
+    blocking problems" about the one thing most likely to explain silent or
+    thin speakers — a claim nothing checked.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    assert firmware_gate_status([], checked=True) is None
+
+    unchecked = firmware_gate_status([], checked=False)
+    assert unchecked.status == DOCTOR_UNKNOWN
+    assert "amixer" in unchecked.detail
+    # And it hands over the fix, unwrapped, like every other check that can.
+    assert ("cta", "sudo apt install alsa-utils") in unchecked.steps
+
+
+def test_a_gate_that_is_off_outranks_a_missing_amixer():
+    """A found gate is proof the scan ran, so the missing tool stops mattering.
+
+    Only the empty list is ambiguous. If `checked` ever started deciding the
+    verdict on its own, a real off gate — the thing that mutes the woofers
+    upstream of everything the preset does — would be reported as "couldn't
+    check", and the command that switches it on would go with it.
+    """
+    off = _gate(False)
+    check = firmware_gate_status([off], checked=False)
+    assert check.status == DOCTOR_WARN
+    assert check.steps == (("cta", speakers.amixer_enable_cmd(off)),)
+    assert "isn't installed" not in check.detail
+
+
+def test_amp_status_lines_say_why_the_gate_scan_found_nothing(monkeypatch):
+    """The hardware section has the same empty-list problem as the check.
+
+    It lists gates it found, so finding none printed nothing at all, which
+    reads as "your amplifiers are fine". On a machine without amixer that is a
+    claim nothing checked — and, unlike the check above, this section is what
+    `--speaker-info` prints, so it is the only place that reader hears about
+    it. Silent again the moment the scan actually ran, or every machine
+    without a smart amp gets a line about a tool it never needed.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+
+    info = speakers.SpeakerInfo()
+    info.firmware_gates_checked = False
+    lines = report_speaker._amp_status_lines(info)
+    assert any("not checked" in l and "amixer" in l for l in lines), lines
+    assert any("sudo apt install alsa-utils" in l for l in lines), lines
+
+    scanned = report_speaker._amp_status_lines(speakers.SpeakerInfo())
+    assert not any("amixer" in l for l in scanned), scanned
+
+
 def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     """TRAP: --doctor is the output the issue form asks people to paste when
     something is wrong. A gate that mutes the speakers upstream of the whole
@@ -2077,6 +2235,10 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
         environment.ee_version_status((7, 1, 5), found=True).detail)
     monkeypatch.setattr(doctor_run, "_probe_ee_version",
                         lambda: doctor_run.EEProbe((7, 1, 5), True, "test", False))
+    # The banner now ends on an install command built from what this machine's
+    # package manager would answer, so pin that too — otherwise this shells out
+    # to apt-cache on a Debian dev box and prints something else elsewhere.
+    _distro_ships(monkeypatch, None)
     doctor_run.warn_ee_environment(
         SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
                         irs_dir=ee_paths.DEFAULT_IRS_DIR))
@@ -2087,6 +2249,40 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     assert flat(environment.kernel_old_message()) in flat(environment.kernel_age_status(old).detail)
     environment.warn_old_kernel(old)
     assert flat(environment.kernel_old_message()) in flat(capsys.readouterr().out)
+
+
+def test_the_ee7_warning_names_no_distribution_release(monkeypatch,
+                                                       silence_console, capsys):
+    """It carried a list of which releases still shipped 7.x. That sentence was
+    true when it was written and had no way of staying true — a distribution
+    ships 8 the week after, and the tool goes on telling its users otherwise.
+
+    The machine's own package manager answers the same question and can't go
+    stale, so no release name may come back on any branch: not when the query
+    says 7, not when it says 8, not when there is no query to run.
+    """
+    from types import SimpleNamespace
+
+    silence_console(console)
+    monkeypatch.setattr(doctor_run, "_probe_ee_version",
+                        lambda: doctor_run.EEProbe((7, 1, 5), True, "test", False))
+    for major in (7, 8, None):
+        _distro_ships(monkeypatch, major)
+        doctor_run.warn_ee_environment(
+            SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
+                            irs_dir=ee_paths.DEFAULT_IRS_DIR, dry_run=False))
+        out = capsys.readouterr().out
+        # Proof we reached the block that used to carry the sentence.
+        assert "flatpak install flathub" in out, major
+        assert "trixie" not in out and "24.04" not in out, major
+
+    # Same for the --doctor half, which prints the offer through a CheckResult.
+    _distro_ships(monkeypatch, 7)
+    check = environment.ee_version_status(
+        (7, 1, 5), found=True,
+        install_steps=doctor_run.easyeffects_install_steps())
+    spoken = check.detail + " " + " ".join(t for _s, t in check.steps)
+    assert "trixie" not in spoken and "24.04" not in spoken, spoken
 
 
 def test_probe_ee_version_installed_but_headless(monkeypatch):
@@ -2138,6 +2334,130 @@ def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
 
     monkeypatch.setattr(doctor_run.subprocess, "run", boom)
     assert doctor_run.easyeffects_is_running() is False
+
+
+# What each package manager actually prints when asked what it *would*
+# install. Shapes, not versions: one parser reads all five, and no two of them
+# agree on where the number goes — Debian prints two of them and only the
+# second is the answer, `dnf --qf` prints the bare number with no label at
+# all, and apk gives the version a line of its own with a trailing colon.
+_AVAILABLE_VERSION_OUTPUT = {
+    packages.DEBIAN: "easyeffects:\n"
+                     "  Installed: 7.1.6\n"
+                     "  Candidate: 8.2.8+ds-1\n"
+                     "  Version table:\n",
+    packages.FEDORA: "8.2.8\n",
+    packages.SUSE: "Loading repository data...\n"
+                   "Reading installed packages...\n\n\n"
+                   "Information for package easyeffects:\n"
+                   "------------------------------------\n"
+                   "Repository     : Main Repository (OSS)\n"
+                   "Name           : easyeffects\n"
+                   "Version        : 8.2.8-1.2\n"
+                   "Arch           : x86_64\n",
+    packages.ARCH: "Repository      : extra\n"
+                   "Name            : easyeffects\n"
+                   "Version         : 8.2.8-1\n"
+                   "Description     : Audio effects for PipeWire applications\n",
+    packages.ALPINE: "easyeffects policy:\n"
+                     "  8.2.8-r0:\n"
+                     "    https://dl-cdn.alpinelinux.org/alpine/edge/community\n",
+}
+
+
+class _Ran:
+    """A finished `subprocess.run`, with the three attributes the code reads."""
+
+    def __init__(self, returncode, stdout=""):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, ""
+
+
+@pytest.mark.parametrize("fam", [
+    packages.DEBIAN,
+    packages.FEDORA,
+    packages.SUSE,
+    # Alpine is the one that made the parser more than a partition on ':'.
+    # `apk policy` heads each available version with the version itself, so
+    # "  8.2.8-r0:" arrives looking like a label whose name is the answer, and
+    # reading it as a label meant Alpine could never be offered its own
+    # package however new the one it ships.
+    packages.ARCH,
+    packages.ALPINE,
+])
+def test_the_available_version_query_reads_each_package_manager(fam, monkeypatch):
+    """Five layouts, one parser, and a wrong read here names a wrong package.
+
+    This is the whole point of asking the machine instead of tabulating which
+    release ships what: an answer we misread is an answer, and it decides
+    whether the reader is sent to a package that installs 8 or one that
+    installs 7 and silently does nothing.
+    """
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(list(cmd))
+        return _Ran(0, _AVAILABLE_VERSION_OUTPUT[fam])
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    assert doctor_run._distro_easyeffects_major(fam) == 8
+    # …asked through this family's own tool, and about the package name this
+    # family uses — the two must not drift apart.
+    assert seen == [packages.available_version_cmd(packages.EASYEFFECTS, fam)]
+    assert seen[0][-1] == packages.names([packages.EASYEFFECTS], fam)[0]
+
+
+def test_apt_policy_answers_with_the_candidate_not_the_installed_version(
+        monkeypatch):
+    """`apt-cache policy` prints both, and only one of them is this question.
+
+    `Installed:` is what the reader already has — on the machine this check
+    fires for, that is the 7.x we are trying to get them off. `Candidate:` is
+    what the command we are about to print would actually give them. Reading
+    the first would make the tool refuse to name a package precisely on the
+    machines where naming it is the fix.
+    """
+    monkeypatch.setattr(
+        doctor_run.subprocess, "run",
+        lambda *a, **k: _Ran(0, _AVAILABLE_VERSION_OUTPUT[packages.DEBIAN]))
+    assert doctor_run._distro_easyeffects_major(packages.DEBIAN) == 8
+
+
+def test_every_way_of_not_knowing_the_distro_version_is_none(monkeypatch):
+    """Five different failures, one answer, on purpose.
+
+    No query for the family, no tool to run it, a timeout, a non-zero exit, an
+    answer with no version in it — they collapse to None because the remedy
+    that doesn't depend on the distribution is right in every one of them, and
+    a caller that had to tell them apart would be inventing a difference that
+    changes nothing. What must never happen is any of them being mistaken for
+    a version: that is how a stale answer becomes a named package.
+    """
+    # Gentoo and NixOS have no cheap offline query, so the gate is that we
+    # return before shelling out at all — not that we discard the result.
+    _forbid_subprocess(monkeypatch)
+    for fam in (packages.GENTOO, packages.NIXOS):
+        assert packages.available_version_cmd(packages.EASYEFFECTS, fam) is None
+        assert doctor_run._distro_easyeffects_major(fam) is None
+
+    def raises(exc):
+        def run(*a, **k):
+            raise exc
+        return run
+
+    for failure in (OSError("no apt-cache"),                 # tool absent
+                    doctor_run.subprocess.TimeoutExpired(cmd="apt-cache",
+                                                         timeout=5)):
+        monkeypatch.setattr(doctor_run.subprocess, "run", raises(failure))
+        assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None
+
+    for proc in (_Ran(1, "  Candidate: 8.2.8+ds-1\n"),   # exit code wins
+                 _Ran(0, "N: Unable to locate package easyeffects\n"),
+                 _Ran(0, "easyeffects:\n"),
+                 _Ran(0, "")):
+        monkeypatch.setattr(doctor_run.subprocess, "run",
+                            lambda *a, _p=proc, **k: _p)
+        assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None, \
+            proc.stdout
 
 
 def _forbid_subprocess(monkeypatch):

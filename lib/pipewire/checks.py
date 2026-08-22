@@ -4,9 +4,10 @@ The EasyEffects doctor (``lib/report/environment.py``) checks the environment a
 preset lands in; this is the same idea one layer down, where there is more to
 get wrong and less to see. Probing and judging are kept apart — ``_pw_dump``,
 ``_wireplumber_version``, ``parse_conf`` and ``installed_confs`` read the
-system, and every ``check_*`` below is a pure function over what they returned,
-so states this machine cannot produce are still unit-testable
-(``tests/test_pw_doctor.py``).
+system — ``_probe_plugins`` too, which is why the plugin listing and the plugin
+check read one answer between them — and every ``check_*`` below is a pure
+function over what those returned, so states this machine cannot produce are
+still unit-testable (``tests/test_pw_doctor.py``).
 
 ``warn_if_stacked`` lives here rather than in ``install.py`` despite firing at
 write time: it is the stacked-chain diagnosis of ``check_stacked_chains``,
@@ -53,7 +54,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, version
+from lib import console, doctor, packages, version
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -120,6 +121,11 @@ class InstalledConf:
     pinned: str = ""         # playback target.object
     irs: list = field(default_factory=list)
     readable: bool = True    # False when spa-json-dump couldn't parse it
+    unreadable: str = ""     # and why not. "unreadable" on its own reads as a
+                             # damaged conf, while the commonest cause is a
+                             # tool this machine simply hasn't got — which the
+                             # converter's own path already names and this one
+                             # did not, two answers on one machine.
 
 
 @dataclass
@@ -166,6 +172,13 @@ def _wireplumber_version() -> tuple[int, ...] | None:
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
+# The one unreadable cause with a remedy, so the reason is a constant rather
+# than a phrase spelled twice: `check_conf_contents` keys off it to offer the
+# package, and the Environment line prints it. The other two causes have no
+# command behind them, so they are only ever text.
+NO_SPA_JSON_DUMP = "spa-json-dump not installed"
+
+
 def parse_conf(path: Path) -> InstalledConf:
     """Read back one of our confs. Values come from spa-json-dump rather than
     a hand-rolled parser (CLAUDE.md: wrap the existing tool); without it the
@@ -176,11 +189,13 @@ def parse_conf(path: Path) -> InstalledConf:
         head = path.read_text(errors="replace")
     except OSError:
         conf.readable = False
+        conf.unreadable = "couldn't open the file"
         return conf
     m = re.search(r"^# version:\s*(\S+)", head, re.MULTILINE)
     conf.version = m.group(1) if m else ""
     if shutil.which("spa-json-dump") is None:
         conf.readable = False
+        conf.unreadable = NO_SPA_JSON_DUMP
         return conf
     try:
         dumped = subprocess.run(["spa-json-dump", str(path)],
@@ -189,7 +204,10 @@ def parse_conf(path: Path) -> InstalledConf:
         args = data["context.modules"][0]["args"]
     except (subprocess.SubprocessError, OSError, json.JSONDecodeError,
             KeyError, IndexError, TypeError):
+        # Kept apart from the missing-tool case above: this one is a conf
+        # nothing can make sense of, and no package fixes it.
         conf.readable = False
+        conf.unreadable = "spa-json-dump couldn't parse it"
         return conf
     capture = args.get("capture.props", {})
     playback = args.get("playback.props", {})
@@ -418,7 +436,7 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
         "PipeWire runs them one after another instead of offering a choice — "
         f"every stage is applied that many times over. Keep one of {files} and "
         "delete the others, then restart PipeWire; the full paths are in the "
-        "block below.")
+        "Environment block above.")
 
 
 def check_unpinned_siblings(chains) -> CheckResult | None:
@@ -445,6 +463,9 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
     module-filter-chain drops the *whole file* when a plugin it names is
     missing, so one absent LSP or Calf package silently costs the entire
     chain. Nothing else reports this outside the seconds after an activation.
+
+    Only confs whose contents were readable can be judged: the node name is
+    what there is to look for, and without `spa-json-dump` there isn't one.
     """
     if not confs:
         return None
@@ -453,17 +474,59 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
                            "pw-dump didn't answer, so whether the confs "
                            "actually loaded couldn't be checked.")
     live = {f"effect_input.{c.name}" for c in chains}
-    missing = [c for c in confs if c.node_name and c.node_name not in live]
+    # A conf whose node name we never read cannot be looked for, and the
+    # filter below drops it silently — so with spa-json-dump absent every conf
+    # dropped out and this reported PASS, "all present in the graph", about
+    # files nothing had read. An answer nothing checked must not be the
+    # all-clear.
+    readable = [c for c in confs if c.node_name]
+    missing = [c for c in readable if c.node_name not in live]
+    if not readable:
+        return CheckResult(
+            DOCTOR_UNKNOWN, "Chains loaded",
+            f"none of the {len(confs)} conf(s) on disk could be read, so the "
+            "node each one would create isn't known and whether they loaded "
+            "couldn't be checked — see the conf-contents check above.")
     if not missing:
-        return CheckResult(DOCTOR_PASS, "Chains loaded",
-                           f"{len(confs)} conf(s), all present in the graph.")
+        unread = len(confs) - len(readable)
+        return CheckResult(
+            DOCTOR_PASS, "Chains loaded",
+            f"{len(readable)} conf(s), all present in the graph."
+            + (f" {unread} more couldn't be read and weren't checked."
+               if unread else ""))
     return CheckResult(
         DOCTOR_FAIL, "Chains loaded",
-        f"{len(missing)} of {len(confs)} conf(s) are on disk but absent from "
+        f"{len(missing)} of {len(readable)} conf(s) are on disk but absent from "
         f"the graph ({', '.join(str(c.path.name) for c in missing)}). Usually "
         "an LSP or Calf LV2 plugin is missing, which makes PipeWire drop the "
-        "whole file — see the README's plugin dependencies — or PipeWire "
-        "hasn't been restarted since the file was written.")
+        "whole file — the LV2 plugins check below says whether one is, and "
+        "names the package — or PipeWire hasn't been restarted since the file "
+        "was written.")
+
+
+def check_conf_contents(confs) -> CheckResult | None:
+    """Confs on disk that nothing here could read, for want of the reader.
+
+    `parse_conf` shells out to spa-json-dump rather than hand-rolling a
+    SPA-JSON parser, so without it a conf yields nothing past its version
+    header — not which sink it attaches to, not whether it is a smart filter,
+    not which impulse files it names. The converter path names the tool and
+    its package when validation can't run; this one marked the conf
+    `unreadable` and left the cause to the reader's imagination, which is the
+    same machine answering two ways.
+    """
+    blind = [c for c in confs if c.unreadable == NO_SPA_JSON_DUMP]
+    if not blind:
+        return None
+    return CheckResult(
+        DOCTOR_UNKNOWN, "Conf contents",
+        f"spa-json-dump isn't installed, so {len(blind)} of {len(confs)} "
+        "conf(s) on disk couldn't be read past their version header — this "
+        "report knows they exist and nothing more. Which sink they attach to "
+        "and which impulse files they name are what the checks below rest on. "
+        "PipeWire doesn't need the tool to load a conf; reading one back "
+        "needs it:",
+        steps=packages.install_steps([packages.SPA_TOOLS]))
 
 
 def check_irs_present(confs) -> CheckResult | None:
@@ -814,6 +877,140 @@ def check_conf_versions(confs, running: str) -> CheckResult | None:
         "itself.")
 
 
+# Every URI the converter can emit, with the label the report gives it.
+# Autogain and stereo tools were the two omissions: autogain is on by default
+# on SoundWire devices, so the doctor could report a full house while the one
+# plugin that run needs is the missing one.
+_PLUGIN_URIS = (
+    ("LSP PEQ", LSP_PEQ_URI),
+    ("LSP MBC", LSP_MBC_URI),
+    ("LSP limiter", LSP_LIM_URI),
+    ("LSP autogain", LSP_AUTOGAIN_URI),
+    ("Calf bass enhancer", CALF_BE_URI),
+    ("Calf stereo tools", CALF_ST_URI),
+    ("LSP filter (virtual-bass)", vbe.LSP_FILTER_URI),
+    ("Calf saturator (virtual-bass)", vbe.CALF_SATURATOR_URI),
+)
+
+
+@dataclass
+class PluginProbe:
+    """What ``lv2info`` was able to say about those URIs."""
+    has_lv2info: bool = True   # False when the tool itself isn't installed,
+                               # and then `entries` is empty — an unasked
+                               # question, which nothing may read as an answer
+    entries: tuple[tuple[str, str, bool], ...] = ()   # (label, uri, present)
+
+
+def _probe_plugins() -> PluginProbe:
+    """Ask lv2info about each URI in turn.
+
+    The probe half of the plugin question, kept apart from both its readers
+    for the reason the module docstring gives — and, here, because it is eight
+    subprocesses: the Environment block and `check_plugins_present` are two
+    readers of one answer, not two spawns.
+    """
+    if shutil.which("lv2info") is None:
+        return PluginProbe(has_lv2info=False)
+    entries = []
+    for label, uri in _PLUGIN_URIS:
+        try:
+            rc = subprocess.run(["lv2info", uri], capture_output=True,
+                                text=True, timeout=10).returncode
+        except (subprocess.SubprocessError, OSError):
+            # An lv2info that cannot run at all is not a plugin that is there.
+            rc = 1
+        entries.append((label, uri, rc == 0))
+    return PluginProbe(entries=tuple(entries))
+
+
+def _plugin_presence(probe: PluginProbe | None = None) -> list[str]:
+    """Which LV2 packages the chain needs are installed, as Environment facts.
+
+    Inventory, not diagnosis: this block is the listing a reader
+    cross-references, and the fix for a missing one lives in the check block
+    with the command that applies it (`.claude/rules/user-messages.md`).
+    Probes for itself only when handed nothing, so the report — which probes
+    once, in `gather_pw_doctor` — pays for one.
+    """
+    if probe is None:
+        probe = _probe_plugins()
+    if not probe.has_lv2info:
+        return ["lv2info not installed — LV2 plugin presence unknown"]
+    return [f"{label}: {'present' if present else 'MISSING'}"
+            for label, _uri, present in probe.entries]
+
+
+# Which vendor a plugin URI belongs to, and the `lib.packages` key naming the
+# package that carries its LV2 build. Keyed on the namespace rather than on
+# each URI: the eight above are two namespaces — the virtual-bass pair
+# included — so a plugin either vendor adds later needs no second edit here.
+# `ee_to_pipewire.py`'s `_PLUGIN_VENDORS` is the same table for the
+# converter's own hint, restated rather than shared because lib/ does not
+# import a root entry point.
+_PLUGIN_VENDORS = (
+    ("http://lsp-plug.in/", "LSP", packages.LSP_LV2),
+    ("http://calf.sourceforge.net/", "Calf", packages.CALF_LV2),
+)
+
+
+def check_plugins_present(probe) -> CheckResult | None:
+    """Whether the LV2 plugins a conf can name are installed.
+
+    module-filter-chain drops the *whole file* when one plugin in it won't
+    load, so an absent package is the commonest reason a conf on disk does
+    nothing at all — and the Environment block lists eight answers without
+    saying what to do about any of them.
+
+    Vendors, not URIs: what a reader installs is a package, and a chain
+    missing LSP is missing every LSP plugin in it. Eight URIs is a list nobody
+    can act on, and the one that is actually needed depends on the profile.
+    """
+    if not probe.has_lv2info:
+        return CheckResult(
+            DOCTOR_UNKNOWN, "LV2 plugins",
+            "lv2info isn't installed, so whether the LSP and Calf plugins a "
+            "conf names are there couldn't be checked — and a missing one is "
+            "the usual reason a conf loads nothing at all. PipeWire doesn't "
+            "need lv2info, it loads plugins through the lilv library; this "
+            "check needs it:",
+            steps=packages.install_steps([packages.LV2INFO]))
+    if not probe.entries:
+        # Nothing was asked, so there is nothing to report. A PASS here would
+        # say "all present" about an empty set — the shape a stubbed probe
+        # takes, and the one a report must not turn into an all-clear.
+        return None
+    missing = [(label, uri) for label, uri, present in probe.entries
+               if not present]
+    if not missing:
+        return CheckResult(
+            DOCTOR_PASS, "LV2 plugins",
+            f"all {len(probe.entries)} LSP and Calf plugins a conf can name "
+            "are installed, so a chain that doesn't load isn't missing one.")
+    vendors = [(name, key) for prefix, name, key in _PLUGIN_VENDORS
+               if any(uri.startswith(prefix) for _label, uri in missing)]
+    if not vendors:
+        # A URI from a namespace the table above doesn't know. Nothing emits
+        # one today; the fallback names the plugins themselves rather than
+        # printing a FAIL with no fix under it, so adding a third vendor
+        # degrades to a worse message instead of a silent gap.
+        return CheckResult(
+            DOCTOR_FAIL, "LV2 plugins",
+            f"{len(missing)} plugin(s) a conf can name aren't installed: "
+            f"{', '.join(label for label, _uri in missing)}. PipeWire drops "
+            "the whole file when one plugin in it won't load, so the chain "
+            "never appears in the graph and audio plays untreated.")
+    vendor_names = " and ".join(name for name, _key in vendors)
+    return CheckResult(
+        DOCTOR_FAIL, "LV2 plugins",
+        f"{len(missing)} of the {len(probe.entries)} LV2 plugins a conf can "
+        f"name aren't installed, all from {vendor_names}. PipeWire drops the "
+        "whole file when one plugin in it won't load, so the chain never "
+        "appears in the graph and audio plays untreated — the usual reason a "
+        "conf on disk does nothing. Install them:",
+        steps=packages.install_steps([key for _name, key in vendors]))
+
+
 def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict]:
     """Probe everything once, then judge. Returns (checks, confs, chains, facts)."""
     dump = _pw_dump()
@@ -827,11 +1024,22 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
     running = version.get_version()
     wireplumber = _wireplumber_version()
+    # Probed here for the reason the WirePlumber version is: the Environment
+    # block renders these facts and the check below judges them, and eight
+    # lv2info spawns is not a thing to pay for twice.
+    plugin_probe = _probe_plugins()
 
     checks = [c for c in (
+        # First: everything under it that reads a conf's *contents* is blind
+        # without it — no node name to look for in the graph, no target sink,
+        # no impulse file.
+        check_conf_contents(confs),
         check_stacked_chains(chains, confs),
         check_unpinned_siblings(chains),
         check_confs_loaded(confs, chains, dump),
+        # Directly under the check whose detail points at it: a conf that
+        # never loaded is usually a conf naming a plugin that isn't there.
+        check_plugins_present(plugin_probe),
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
         # After the target check, so the block reads in the order a reader
@@ -867,36 +1075,9 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         "default": defaults,
         "wireplumber": wireplumber,
         "version": running,
+        "plugins": plugin_probe,
     }
     return checks, confs, chains, facts
-
-
-def _plugin_presence() -> list[str]:
-    """Which LV2 packages the chain needs are installed — the usual reason a
-    conf loads nothing. Reported as facts, not judged: lv2info is the only
-    way to ask, and it isn't always installed."""
-    if shutil.which("lv2info") is None:
-        return ["lv2info not installed — LV2 plugin presence unknown"]
-    out = []
-    # Every URI the converter can emit. Autogain and stereo tools were the two
-    # omissions: autogain is on by default on SoundWire devices, so the doctor
-    # could report a full house while the one plugin that run needs is the
-    # missing one.
-    for label, uri in (("LSP PEQ", LSP_PEQ_URI), ("LSP MBC", LSP_MBC_URI),
-                       ("LSP limiter", LSP_LIM_URI),
-                       ("LSP autogain", LSP_AUTOGAIN_URI),
-                       ("Calf bass enhancer", CALF_BE_URI),
-                       ("Calf stereo tools", CALF_ST_URI),
-                       ("LSP filter (virtual-bass)", vbe.LSP_FILTER_URI),
-                       ("Calf saturator (virtual-bass)",
-                        vbe.CALF_SATURATOR_URI)):
-        try:
-            rc = subprocess.run(["lv2info", uri], capture_output=True,
-                                text=True, timeout=10).returncode
-        except (subprocess.SubprocessError, OSError):
-            rc = 1
-        out.append(f"{label}: {'present' if rc == 0 else 'MISSING'}")
-    return out
 
 
 def _environment_lines(confs, chains, facts) -> list[str]:
@@ -911,9 +1092,17 @@ def _environment_lines(confs, chains, facts) -> list[str]:
         f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
     ]
     for c in confs:
-        state = "unreadable" if not c.readable else (
-            f"smart→{c.target}" if c.smart
-            else (f"pinned→{c.pinned}" if c.pinned else "virtual sink, unpinned"))
+        if not c.readable:
+            # Why, not just that. A bare "unreadable" reads as a damaged file
+            # and sends the reader looking for one, where the usual answer is
+            # a missing spa-json-dump and a package away.
+            state = f"unreadable ({c.unreadable})" if c.unreadable else "unreadable"
+        elif c.smart:
+            state = f"smart→{c.target}"
+        elif c.pinned:
+            state = f"pinned→{c.pinned}"
+        else:
+            state = "virtual sink, unpinned"
         lines.append(f"                {doctor.tilde(c.path)} "
                      f"[{c.version or '?'}] {state}")
     lines.append(f"  Live chains:  {len(chains)}"
@@ -933,7 +1122,9 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     if default.configured and default.configured != default.effective:
         stale = "" if default.configured in facts["sinks"] else " (not in the graph)"
         lines.append(f"  Chosen sink:  {default.configured}{stale}")
-    lines += [f"  {line}" for line in _plugin_presence()]
+    # `.get` for the same reason `default` uses it: the run's own probe comes
+    # through `facts`, and a stubbed facts dict must render, not raise.
+    lines += [f"  {line}" for line in _plugin_presence(facts.get("plugins"))]
     # Once, over the whole block, rather than at each of the four sites that
     # interpolate a node name: this is the densest listing the tool prints, the
     # `Sinks:` lines are every sink in the graph, and a line added later would

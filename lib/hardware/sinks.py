@@ -21,10 +21,11 @@ it without paying for numpy.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 
-from lib import console, doctor
+from lib import console, doctor, packages
 
 
 # Speaker-sink detection for autoload / smart-filter targeting.
@@ -302,10 +303,25 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
     # tier == "none"
     all_sinks = sel["all_sinks"]
     if not all_sinks:
-        console.cprint("warn", "\nWarning: no Audio/Sink nodes found via pw-dump; "
-                       "cannot configure autoload.")
-        console.cprint("dim", "  Is PipeWire running? Run this from your logged-in "
-                      "desktop session.")
+        # Which of the two it is, because the remedies have nothing in common
+        # and the reader cannot tell them apart from an empty list. The same
+        # distinction lib/pipewire/install.py's `answered` flag draws for
+        # pw-cli: a tool that never ran is a check that could not happen, not
+        # a machine with no sinks.
+        if shutil.which("pw-dump") is None:
+            console.cprint("warn", "\nWarning: pw-dump isn't installed, so this "
+                           "run can't see your sinks; cannot configure autoload.")
+            console.cprint("cta", "  Install PipeWire's command-line tools:")
+            # Two levels in, not the hint's usual one: this whole block hangs
+            # under a "Warning:" line already indented by two.
+            for style, text in packages.install_steps([packages.PW_TOOLS],
+                                                      indent="    "):
+                console.cprint(style, text)
+        else:
+            console.cprint("warn", "\nWarning: no Audio/Sink nodes found via "
+                           "pw-dump; cannot configure autoload.")
+            console.cprint("dim", "  Is PipeWire running? Run this from your "
+                          "logged-in desktop session.")
     else:
         console.cprint("warn", "\nWarning: no internal-speaker sink found (none tagged "
                        "device.icon_name=audio-speakers, and no internal analog "

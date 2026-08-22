@@ -36,7 +36,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from lib import console, doctor
+from lib import console, doctor, packages
 from lib.data import kernel_releases
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -84,7 +84,9 @@ def ee_v7_message(vstr: str) -> str:
 
 
 def ee_version_status(version: tuple[int, int, int] | None,
-                      found: bool, silent: str | None = None) -> CheckResult:
+                      found: bool, silent: str | None = None,
+                      install_steps: tuple[tuple[str, str], ...] = ()
+                      ) -> CheckResult:
     """Verdict for the EasyEffects version. FAIL — the only loud error — is
     reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
     they're on 7. ``found`` distinguishes "no EE at all" (a valid
@@ -106,11 +108,14 @@ def ee_version_status(version: tuple[int, int, int] | None,
             "sure it's version 8 or newer.")
     vstr = ".".join(str(x) for x in version)
     if version[0] < 8:
+        # The prose stops at "install 8"; which command that is depends on
+        # what this machine's package manager would actually give, so the
+        # caller supplies it — and it rides in `steps`, where a command is
+        # printed as written instead of being wrapped into unusability.
         return CheckResult(DOCTOR_FAIL, "EasyEffects version",
             f"{vstr} detected — these presets need EasyEffects 8. "
-            + ee_v7_message(vstr) +
-            " Install EasyEffects 8 (the Flathub Flatpak, or your distro's "
-            "package if it ships 8.x).")
+            + ee_v7_message(vstr) + " Install EasyEffects 8:",
+            steps=install_steps)
     return CheckResult(DOCTOR_PASS, "EasyEffects version", f"{vstr} (compatible).")
 
 
@@ -358,7 +363,24 @@ def autostart_status(rc_data: dict) -> CheckResult:
         + " (" + "; ".join(why) + ").")
 
 
-def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | None:
+def _alsa_utils_step() -> tuple[tuple[str, str], ...]:
+    """One line, not the full per-family hint.
+
+    `alsa-utils` carries that name on every family the table knows bar
+    Gentoo's category prefix, so a reader this run could not place loses
+    almost nothing by being told the package instead of the command — where
+    the seven-command fallback would cost them seven lines inside a
+    diagnostic they are reading because something else is already wrong.
+    And there is no README section about `amixer` to point at.
+    """
+    command = packages.install_command([packages.ALSA_UTILS],
+                                       packages.family())
+    return (("cta", command if command
+             else "install your distribution's alsa-utils"),)
+
+
+def firmware_gate_status(gates: list[speakers.FirmwareGate],
+                        checked: bool = True) -> CheckResult | None:
     """Verdict line for the smart-amp firmware gates, or None when the machine
     exposes no such control (most don't — there is nothing to report either
     way, and a PASS for an absent control is noise).
@@ -376,9 +398,22 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate]) -> CheckResult | No
     section further down, which --speaker-info reaches and this check does
     not, so the repeat within a --doctor run is deliberate: the check is where
     a reader acts, the section is raw evidence.
+
+    ``checked`` is False when amixer is absent, and then an empty ``gates``
+    stops meaning "no such control". Returning None there would let the
+    report's verdict say "no blocking problems" about a control nothing
+    looked for — the one this section exists to catch.
     """
     if not gates:
-        return None
+        if checked:
+            return None
+        return CheckResult(
+            DOCTOR_UNKNOWN, "Speaker firmware gate",
+            "amixer isn't installed, so whether this machine has a smart-amp "
+            "firmware gate — and whether it is switched on — couldn't be "
+            "checked. Most machines have no such control; the ones that do "
+            "sound thin or silent until it is on.",
+            steps=_alsa_utils_step())
     off = [g for g in gates if not g.on]
     if not off:
         return CheckResult(DOCTOR_PASS, "Speaker firmware gate",

@@ -586,7 +586,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # machine. `needed` may be empty above while this is not — a
             # builtin-only chain still can't run the check.
             wanted = [key for tool, key in (("lv2info", packages.LV2INFO),
-                                            ("spa-json-dump", packages.PW_TOOLS))
+                                            ("spa-json-dump", packages.SPA_TOOLS))
                       if tool in report.missing_tools]
             if wanted and needed:
                 # "a later run", not "before the conf is written": the conf is

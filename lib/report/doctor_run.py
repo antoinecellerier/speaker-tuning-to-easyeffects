@@ -55,7 +55,7 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, version
+from lib import console, doctor, ee_paths, packages, version
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_WARN, CheckResult
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
@@ -299,6 +299,95 @@ class EEProbe:
     silent: str | None = None
 
 
+# A version anywhere on a package manager's answer, and the labels that mark
+# the line worth reading. `apt-cache policy` prints Installed *and* Candidate
+# and only the second says what an install would get; `pacman -Si` and
+# `zypper info` label theirs "Version". A `dnf repoquery --qf` prints the bare
+# number with no label at all, which is why an unlabelled line still counts.
+_VERSION_TOKEN = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+_CANDIDATE_LABELS = ("candidate", "version")
+# A whole line that *is* a version, allowing a packaging suffix: `apk policy`
+# lists each available version as its own heading, so "8.2.8-r0:" arrives
+# looking like a label whose name happens to be the answer. Anchored, not
+# searched, so a line merely mentioning a number is not mistaken for one.
+_VERSION_LINE = re.compile(r"[\d.]+(?:[-_+~][\w.]+)*")
+
+
+def _distro_easyeffects_major(fam: str) -> int | None:
+    """The major version this distribution would install, or None.
+
+    None for every way of not knowing — no query for this family, the tool
+    absent, a non-zero exit, a timeout, an answer we can't read — and callers
+    treat all of them the same way, because the remedy that doesn't depend on
+    the distribution is right in every one of them.
+
+    Asked rather than tabulated: which release ships EasyEffects 8 changes
+    every few months, and a stale table here names a package that installs
+    7.x, loads the preset and silently does almost nothing — exactly what the
+    check that calls this exists to catch.
+    """
+    argv = packages.available_version_cmd(packages.EASYEFFECTS, fam)
+    if not argv:
+        return None
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        label, sep, rest = line.partition(":")
+        if not sep:
+            # `dnf --qf` prints the bare number with no label at all.
+            answer = line
+        elif label.strip().lower() in _CANDIDATE_LABELS:
+            # apt's "Candidate", pacman's and zypper's "Version" — the label
+            # that means "what an install would get". apt prints "Installed"
+            # too, and taking that one would read a 7.x already on the machine
+            # as what the distribution ships.
+            answer = rest
+        elif _VERSION_LINE.fullmatch(label.strip()):
+            # apk's own heading for an available version.
+            answer = label
+        else:
+            continue
+        m = _VERSION_TOKEN.search(answer)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
+    """How to get EasyEffects 8, for this machine — the distro's own package
+    when the distro actually ships 8, and the Flatpak otherwise.
+
+    Both, never one: the Flatpak works everywhere and is the answer when we
+    cannot place the machine or cannot ask it, and a distro package that ships
+    7.x is worse than no suggestion at all — it installs cleanly, loads the
+    preset, and leaves the speaker-correction filter doing nothing.
+    """
+    fam = packages.family()
+    steps: list[tuple[str, str]] = []
+    if fam and (_distro_easyeffects_major(fam) or 0) >= 8:
+        command = packages.install_command([packages.EASYEFFECTS], fam)
+        if command:
+            steps.append(("cta", "  • from your distribution:"))
+            steps.append(("cta", f"      {command}"))
+    # Labelled rather than listed, so two commands read as a choice instead of
+    # a procedure — a bulleted caption above each keeps the command alone on
+    # its line, which is what makes it pasteable.
+    steps.append(("cta", "  • or the Flathub Flatpak, which works anywhere:"
+                         if steps else "  • the Flathub Flatpak:"))
+    steps.append(("cta", "      flatpak install flathub "
+                         "com.github.wwmm.easyeffects"))
+    if len(steps) == 2:
+        # Said only when the Flatpak is the sole offer, because that is when a
+        # reader wonders why their own package manager wasn't mentioned.
+        steps.append(("dim", "    (your distribution's own package is older "
+                             "than 8, or couldn't be checked)"))
+    return tuple(steps)
+
+
 def _probe_ee_version() -> EEProbe:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
     raises.
@@ -378,7 +467,13 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     ee_version, found, source, ee_is_flatpak = (
         probe.version, probe.found, probe.source, probe.is_flatpak)
     report.checks.append(
-        environment.ee_version_status(ee_version, found, probe.silent))
+        # Built only for the branch that prints it: the offer costs a
+        # package-manager query, and the version this run already read is
+        # enough to know whether anyone will read the answer.
+        environment.ee_version_status(
+            ee_version, found, probe.silent,
+            easyeffects_install_steps()
+            if ee_version and ee_version[0] < 8 else ()))
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
@@ -450,7 +545,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report.speaker_info = report_speaker._gather_speaker_info()
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
-    gate_check = environment.firmware_gate_status(report.speaker_info.firmware_gates)
+    gate_check = environment.firmware_gate_status(
+        report.speaker_info.firmware_gates,
+        report.speaker_info.firmware_gates_checked)
     if gate_check is not None:
         report.checks.append(gate_check)
 
@@ -675,10 +772,12 @@ def warn_ee_environment(args) -> None:
         console._cprint_wrapped("dim", environment.ee_v7_message(vstr))
         print()
         console.cprint("dim", "To fix, install EasyEffects 8:")
-        console.cprint("cta", "  • Easiest on any distro — the Flathub Flatpak:")
-        console.cprint("cta", "      flatpak install flathub com.github.wwmm.easyeffects")
-        console.cprint("dim", "  • Or your distro's own package if it already ships 8.x")
-        console.cprint("dim", "    (Debian trixie, Ubuntu 24.04+ and Fedora ≤43 still ship 7.x).")
+        # Was a hand-maintained list of which distros still shipped 7.x. That
+        # sentence was true when written and had no way of staying true; the
+        # machine's own package manager answers the same question and can't go
+        # stale.
+        for style, text in easyeffects_install_steps():
+            console.cprint(style, text)
         return
 
     if not found and probe.silent:

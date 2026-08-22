@@ -35,7 +35,7 @@ import textwrap
 from datetime import date
 from pathlib import Path
 
-from lib import console, version
+from lib import console, packages, version
 from lib.data import speaker_pin_quirks
 from lib.doctor import DOCTOR_WARN, CheckResult
 from lib.hardware import amps, codecs, speakers
@@ -447,6 +447,7 @@ def _gather_speaker_info() -> speakers.SpeakerInfo:
     # Bus-agnostic: a TI smart-amp firmware gate sits on the SOF/HDA card
     # regardless of how the speakers themselves are wired.
     info.firmware_gates = speakers.detect_speaker_firmware_gates()
+    info.firmware_gates_checked = speakers.amixer_present()
 
     # Merged amp-status evidence (firmware presence + kernel-log markers),
     # unless a demo override is requested for previewing the section.
@@ -495,6 +496,22 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
             # the only place either of them can hand over the fix. Its own
             # line, unwrapped, because it has to survive a copy-paste.
             lines.append(f"      turn it on:  {speakers.amixer_enable_cmd(g)}")
+
+    # Said only when nothing was found, because a gate in the list is proof
+    # enough that the scan ran. Its own line rather than silence: an empty
+    # result here reads as "your amps are fine", and on a machine without
+    # amixer that is a claim nothing checked.
+    if not info.firmware_gates and not info.firmware_gates_checked:
+        lines.append("  Firmware gate: not checked — amixer isn't installed")
+        # One line, not the full hint: this is the densest paste block the
+        # tool prints, and a machine os-release cannot place would otherwise
+        # get seven install commands inside an inventory listing. The package
+        # is called alsa-utils nearly everywhere, so naming it is enough where
+        # the command isn't known.
+        command = packages.install_command([packages.ALSA_UTILS],
+                                           packages.family())
+        lines.append(f"      {command}" if command
+                     else "      install your distribution's alsa-utils")
 
     # Driver-keyed firmware presence (only when a smart-amp driver is loaded).
     if info.amp_firmware:

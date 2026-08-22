@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -153,6 +154,10 @@ class SpeakerInfo:
     unconfigured_pins: list[UnconfiguredPin] = field(default_factory=list)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
     firmware_gates: list[FirmwareGate] = field(default_factory=list)
+    # False when amixer is absent, which is the difference between "this
+    # machine has no gate" and "nothing looked". An empty `firmware_gates`
+    # reads as the first either way, and the first is the reassuring one.
+    firmware_gates_checked: bool = True
     # Merged amp-status evidence (see "=== Speaker amplifier status ===")
     amp_status: list[AmpStatus] = field(default_factory=list)
     amp_firmware: list[str] = field(default_factory=list)     # firmware files present
@@ -560,13 +565,26 @@ def parse_firmware_gate_controls(
     return gates
 
 
+def amixer_present() -> bool:
+    """Whether the gate scan below could run at all.
+
+    Split from the scan because its empty result is ambiguous: no gate found
+    and no way to look are the same `[]`, and the report was rendering both
+    as silence. Nothing in the PipeWire stack pulls `alsa-utils` in — on
+    Debian it arrives as a Recommends of the desktop task — so a minimal or
+    container install genuinely has no amixer.
+    """
+    return shutil.which("amixer") is not None
+
+
 def detect_speaker_firmware_gates() -> list[FirmwareGate]:
     """Scan ALSA cards for smart-amp firmware-load gate controls.
 
     Reads each card's raw control list via ``amixer -c <N> contents`` (the
     same tool the SoundWire fallback already shells out to) and returns a
     FirmwareGate per matching control. Empty when amixer is absent or no
-    gate exists.
+    gate exists — which is why callers ask `amixer_present()` too, since
+    those two mean opposite things to the reader.
     """
     # Demo/preview hook (same ATMOS_* convention as the test corpus env vars):
     # inject a synthetic gate so the issue-#17 warning can be previewed on a

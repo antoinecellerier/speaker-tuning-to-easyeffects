@@ -210,12 +210,16 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   and write. Needs your distribution's `lv2info` to check — without it the run
   says so and names the package
   ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
-- Install instructions for the PipeWire chain's LV2 plugins now name the right
-  package for your distribution instead of Debian's. The README gained a
-  per-distribution list, and the scripts print the one line that matches your
-  `/etc/os-release` — the old advice pointed Fedora and Arch users at
-  `lsp-plugins`, which installs without the LV2 build the chain actually
-  loads.
+- Every message about a missing dependency now prints the install command for
+  your distribution instead of pointing at the README: the Python
+  dependencies, `lv2info`, the PipeWire command-line tools and `amixer` join
+  the LV2 plugins, and `--doctor` names a package when a plugin is missing or
+  a check couldn't run. Alpine, Gentoo and NixOS are recognised alongside the
+  four families already covered.
+- The upgrade hint for EasyEffects 7 now offers your distribution's own
+  package when that distribution actually ships EasyEffects 8, and the
+  Flathub Flatpak otherwise — it used to name a hand-maintained list of
+  releases that was already going stale.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
   conf when the schema self-check can't read `lv2info`'s output, or when
   `lv2info` never answers for one plugin. A limit the check cannot use is left

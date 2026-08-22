@@ -115,6 +115,13 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
 
     # tier == "none"
     if not all_sinks:
+        # Told apart, because the two have nothing in common to do about them
+        # and an empty sink list looks identical either way. This one returns
+        # its reason rather than printing, so the package name cannot ride
+        # along — naming the tool is what lets the caller's hint be right.
+        if shutil.which("pw-dump") is None:
+            return None, ["pw-dump isn't installed, so this run can't see any "
+                          "sinks"]
         return None, [
             "no Audio/Sink nodes found via pw-dump (no PipeWire daemon running?)"
         ]
@@ -327,6 +334,12 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     if shutil.which("pw-cli") is None:
         console.cprint("warn", "pw-cli not found — can't verify the sinks loaded; "
                        "check with: pw-cli ls Node | grep <name>")
+        # An offer, not a fix: the chain either loaded or it didn't, and the
+        # tool only says which. Phrased like the converter's own skipped
+        # self-check for that reason — nothing here is blocking the run.
+        console.cprint("cta", "To have a later run check for you, install "
+                       "PipeWire's command-line tools:")
+        packages.print_install_hint([packages.PW_TOOLS], console.cprint)
         return 0
     deadline = time.monotonic() + timeout
     missing = list(node_names)
