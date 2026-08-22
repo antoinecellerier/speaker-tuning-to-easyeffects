@@ -410,6 +410,13 @@ class Report:
     warnings: tuple[str, ...] = ()
     reason: str = ""
     unloadable: tuple[str, ...] = ()
+    # `lv2info`'s own words about each URI in `unloadable`, kept apart from
+    # `errors` because the two need different renderings: these explain one
+    # refusal the caller already summarises by package, while `errors` are
+    # separate defects the reader has to fix one by one. Folded together, a
+    # genuine out-of-range control reads as a footnote to the missing plugin
+    # and is discovered only on the re-run.
+    unloadable_notes: tuple[str, ...] = ()
     # Which CLIs were absent, for a `NO_TOOLING` caller whose remedy names a
     # package. Carried rather than re-probed: a message that asks `PATH` a
     # second time can name a different tool than the one that stopped the
@@ -465,9 +472,11 @@ def run(conf_text: str, *,
     goes unchecked, and `validate` names it. Anything else propagates.
 
     A URI `lv2info` *answers* for with a non-zero exit is the exception in the
-    other direction: it lands in `errors` and in `unloadable`, because the
-    filter-chain resolves plugins through the same lilv and will not load it
-    either. See the `unloadable` note in `run`.
+    other direction: it lands in `unloadable` (with `lv2info`'s wording in
+    `unloadable_notes`) and forces `ERRORS`, because the filter-chain resolves
+    plugins through the same lilv and will not load it either. It is kept out
+    of `errors`, which stays the list of separate defects the reader must fix
+    one by one. See the `unloadable` note in `run`.
     """
     # Named individually, and without package names: this line used to read
     # "(install lilv-utils and pipewire)" whichever of the two was missing,
@@ -493,7 +502,7 @@ def run(conf_text: str, *,
     # unchecked, and the two lines are about the same plugin. A URI it
     # answered *no* for takes the other list — see `unloadable` below.
     tool_warnings: list[str] = []
-    tool_errors: list[str] = []
+    unloadable_notes: list[str] = []
     unloadable: list[str] = []
     memo = {} if schemas is None else schemas
     port_schemas: dict[str, dict[str, Port]] = {}
@@ -538,13 +547,13 @@ def run(conf_text: str, *,
             # restarting their sound server. Re-emitted on every hit, not just
             # the exec that produced it.
             unloadable.append(uri)
-            tool_errors.append(note)
+            unloadable_notes.append(note)
         if schema is not None:
             port_schemas[uri] = schema
 
     errors, warnings = validate(nodes, port_schemas, frozenset(unloadable))
-    errors = tool_errors + errors
-    return Report(ERRORS if errors else CLEAN,
+    return Report(ERRORS if (errors or unloadable) else CLEAN,
                   errors=tuple(errors),
                   warnings=tuple(tool_warnings + warnings),
-                  unloadable=tuple(sorted(unloadable)))
+                  unloadable=tuple(sorted(unloadable)),
+                  unloadable_notes=tuple(sorted(unloadable_notes)))

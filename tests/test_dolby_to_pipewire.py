@@ -342,11 +342,17 @@ def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
 
 def test_routing_missing_sink_after_restart_is_an_error(recorders,
                                                         monkeypatch, capsys):
-    """Restart succeeds but the node never appears (classic cause: missing
-    LV2 plugins) — surface it instead of reporting success."""
+    """Restart succeeds, pw-cli answers, and our node isn't in the graph — the
+    classic missing-LV2-plugin case. Surface it instead of reporting success.
+
+    The listing has to be non-empty: an empty one is the *other* failure (see
+    below), and stubbing it empty here let this test pass while the diagnosis
+    it checks was being printed on a state that cannot support it.
+    """
     monkeypatch.setattr(
         install.subprocess, "run",
-        lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
+        lambda cmd, **kwargs: SimpleNamespace(
+            returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
     monkeypatch.setattr(install.time, "sleep", lambda s: None)
     assert wrapper_main([]) == 1
     out = capsys.readouterr().out
@@ -387,6 +393,25 @@ def test_undo_is_a_footnote_when_it_worked_and_a_step_when_it_did_not(
     undo = [s for s, t in styles if "To undo: rm" in t]
     assert undo == ["dim", "cta"], undo
     assert str(conf) in "".join(t for _, t in styles)
+
+
+def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
+        recorders, monkeypatch, capsys):
+    """`pw-cli` timing out marks every node missing, exactly like a chain that
+    didn't load — so the confident diagnosis must not fire on it.
+
+    Otherwise a loaded machine that lost one `pw-cli` call gets told its chain
+    isn't running and handed a two-package install for a transient read.
+    """
+    monkeypatch.setattr(
+        install.subprocess, "run",
+        lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
+    monkeypatch.setattr(install.time, "sleep", lambda s: None)
+    assert wrapper_main([]) == 1
+    out = capsys.readouterr().out
+    assert "couldn't run" in out
+    assert "isn't running" not in out, "diagnosed a chain we never looked at"
+    assert "install lsp-plugins-lv2" not in out
 
 
 def test_routing_step2_failure_fails_fast(recorders, monkeypatch):

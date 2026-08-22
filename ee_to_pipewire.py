@@ -169,9 +169,10 @@ def add_general_args(container, *, only=None):
              "checks the conf's control values against it — catching "
              "unknown port symbols and out-of-range values, and refusing to "
              "write a conf naming a plugin lv2info cannot load at all. "
-             "Without lv2info nothing is checked and this flag changes "
-             "nothing. Pass it to build a conf for a different machine, or "
-             "when the check is wrong about a plugin you know works.",
+             "Without lv2info nothing can be checked; this flag then only "
+             "silences the reminder saying so. Pass it to build a conf for a "
+             "different machine, or when the check is wrong about a plugin "
+             "you know works.",
     )
     add(
         "--dry-run",
@@ -264,12 +265,6 @@ _VALIDATE_NEXT_STEP = ("The conf was not written — re-run with --no-validate "
                        "to skip the schema self-check.")
 
 
-# Which package to name for a plugin PipeWire will not load. Keyed on the URI
-# namespace rather than the URI, so a plugin either vendor adds later is
-# covered without a second edit here. Debian names only: they are the ones
-# already asserted in the README, and this line is not the place to make a
-# claim about six other distributions — the README section named below carries
-# the cross-distribution detail.
 # Which vendor a plugin URI belongs to, and the `lib.packages` key naming the
 # package that carries its LV2 build. Keyed on the URI namespace rather than
 # the URI, so a plugin either vendor adds later is covered without a second
@@ -573,40 +568,36 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # correctly installed needs nothing more to run the chain.
             fam = packages.family()
             needed = _vendor_labels(_chain_vendors(chain.stages), fam)
-            console.cprint("warn", "[validate] nothing checked that the LV2 plugins "
-                           "this chain needs are installed: "
-                           f"{' and '.join(needed)}. If one is missing the "
-                           "chain won't load, and the first sign is a sink "
-                           "that never appears after the restart.")
-            # Only the tools that are actually absent, and all of them —
+            # A chain can be entirely builtin — a convolver-only preset has no
+            # LV2 node at all — and then there is nothing the missing check
+            # would have looked at. Saying "the plugins this chain needs:"
+            # followed by nothing is worse than silence.
+            if needed:
+                console.cprint("warn", "[validate] nothing checked that the LV2 "
+                               "plugins this chain needs are installed: "
+                               f"{' and '.join(needed)}. If one is missing the "
+                               "chain won't load, and the first sign is a sink "
+                               "that never appears after the restart.")
+            # Only the tools actually absent, all of them, in one command.
+            # Read off the report rather than probed again here, so the remedy
+            # and the skip cannot disagree about which tool is missing; and
             # telling someone whose PipeWire is plainly running to install
             # PipeWire reads as a message that has not looked at their
-            # machine, and naming one package when two tools are missing
-            # leaves the reader unable to tell whether it fixed anything.
-            # Read off the report rather than probed again, so the remedy and
-            # the skip cannot disagree about which tool is missing.
-            # One command covering every tool that is missing, not one step
-            # per tool: on Debian both live in packages `apt` takes together,
-            # and split across two lines the reader has to work out whether
-            # doing only the first fixes anything.
+            # machine. `needed` may be empty above while this is not — a
+            # builtin-only chain still can't run the check.
             wanted = [key for tool, key in (("lv2info", packages.LV2INFO),
                                             ("spa-json-dump", packages.PW_TOOLS))
                       if tool in report.missing_tools]
-            named = packages.names(wanted, fam) if fam else wanted
-            if named:
+            if wanted and needed:
                 # "a later run", not "before the conf is written": the conf is
                 # written a line later, and phrased as a precondition this
                 # read as a step to do first.
                 console.cprint("cta", "[validate] a later run can check this for "
                                "you:")
+                # A tool this family has no package for is spoken by the
+                # hint itself (packages.UNPACKAGED), so there is nothing to
+                # bolt on here.
                 packages.print_install_hint(wanted, console.cprint)
-            if ("spa-json-dump" in report.missing_tools
-                    and packages.PW_TOOLS not in
-                    [k for k in wanted if packages.names([k], fam)]):
-                # No package named for this family, so say where it comes from
-                # rather than leaving a tool the reader can't act on.
-                console.cprint("dim", "  (spa-json-dump ships with PipeWire's "
-                               "own command-line tools)")
         elif report.status == validate.UNCHECKED:
             # The check could not run at all — degraded gracefully, and the
             # conf is still written.
@@ -625,16 +616,20 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             for w in report.warnings:
                 console.cprint("warn", f"[validate] warning: {w}")
             if report.status == validate.ERRORS:
-                if not report.unloadable:
-                    for err in report.errors:
-                        console.cprint("err", f"[validate] error: {err}")
+                # Always: a schema error is a separate defect from a missing
+                # package, and a run can carry both. Rendering them together
+                # under the package header hid the second one until the
+                # reader had installed the package and re-run.
+                for err in report.errors:
+                    console.cprint("err", f"[validate] error: {err}")
                 if report.unloadable:
                     # Not a schema problem: lv2info resolves plugins through
                     # the same lilv the filter-chain does, so a URI it won't
                     # answer for is one the daemon won't load. The remedy is a
                     # package, not a value, and the lines above are lv2info's
                     # own words about a URI — neither names what to install.
-                    _print_missing_plugins(report.unloadable, report.errors)
+                    _print_missing_plugins(report.unloadable,
+                                           report.unloadable_notes)
                 else:
                     console.cprint("err", "error: schema validation failed; conf "
                                    "not written")

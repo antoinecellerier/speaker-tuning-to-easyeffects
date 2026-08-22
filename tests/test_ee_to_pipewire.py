@@ -1453,6 +1453,39 @@ def test_main_refuses_a_conf_naming_a_plugin_that_cannot_load(generated,
     )
 
 
+def test_a_schema_error_survives_a_missing_package_in_the_same_run(
+        generated, tmp_path, monkeypatch, capsys):
+    """Both defects have to reach the reader, or the second costs a round trip.
+
+    A run can carry a missing package *and* an out-of-range control. Rendered
+    together under the package header the second read as a footnote to the
+    first, so the reader installed the package, re-ran, and met a refusal
+    nobody had mentioned.
+    """
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.ERRORS,
+            errors=("mbc: attack-time 9999 above maximum 2000 for "
+                    "mb_compressor_stereo",),
+            unloadable=(LSP_PEQ_URI,),
+            unloadable_notes=(f"lv2info {LSP_PEQ_URI!r} failed: "
+                              "Plugin not found.",)))
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+
+    assert ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                       "--dry-run"]) == 1
+    out = capsys.readouterr().out
+    assert "[validate] error: mbc: attack-time" in out, (
+        "the schema error was swallowed by the missing-package block"
+    )
+    assert "lsp-plugins-lv2" in out
+
+
 def test_main_tells_a_warning_from_an_error_in_a_failing_run(generated,
                                                              tmp_path,
                                                              monkeypatch,

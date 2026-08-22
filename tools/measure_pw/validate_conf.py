@@ -71,8 +71,12 @@ def main() -> int:
     missing = [cli for cli in ("lv2info", "spa-json-dump")
                if not shutil.which(cli)]
     if missing:
-        print(f"error: {' and '.join(missing)} not in PATH "
-              f"(install lilv-utils and pipewire)", file=sys.stderr)
+        # Names the tools, not packages: `lv2info` and `spa-json-dump` ship
+        # separately and on different distributions under different names, so
+        # one hardcoded pair told half the readers to install something they
+        # already had. lib/packages.py carries the per-distribution table the
+        # user-facing scripts print.
+        print(f"error: {' and '.join(missing)} not in PATH", file=sys.stderr)
         return 2
 
     try:
@@ -88,15 +92,24 @@ def main() -> int:
         print("error: no filter nodes found in conf", file=sys.stderr)
         return 2
 
-    # Build schema cache
+    # Build schema cache. A non-zero `lv2info` exit is lilv refusing to
+    # resolve the plugin, and the filter-chain resolves through the same lilv,
+    # so it is a conf PipeWire cannot load — the same verdict `validate.run`
+    # reaches, and the same one `ee_to_pipewire.py` refuses to write on. An
+    # exec that never *answered* (`Lv2infoUnavailable`) says nothing about the
+    # plugin and stays a warning.
     uris = {n["plugin"] for n in nodes
             if n["type"] == "lv2" and n.get("plugin")}
     schemas: dict[str, dict[str, validate.Port]] = {}
-    for uri in uris:
+    unloadable: list[str] = []
+    for uri in sorted(uris):
         try:
             schemas[uri] = validate.lv2info_schema(uri)
-        except RuntimeError as e:
+        except validate.Lv2infoUnavailable as e:
             print(f"warning: {e}", file=sys.stderr)
+        except RuntimeError as e:
+            print(f"FAIL: {e}", file=sys.stderr)
+            unloadable.append(uri)
 
     if not args.quiet:
         print(f"parsed {len(nodes)} nodes:", file=sys.stderr)
@@ -106,14 +119,15 @@ def main() -> int:
             print(f"  - {n['name']} [{n['type']}/{ident}] "
                   f"({len(n['control'])} controls)", file=sys.stderr)
 
-    errors, warnings = validate.validate(nodes, schemas)
+    errors, warnings = validate.validate(nodes, schemas, frozenset(unloadable))
     for w in warnings:
         print(f"WARN: {w}", file=sys.stderr)
     for e in errors:
         print(f"FAIL: {e}", file=sys.stderr)
 
-    if errors:
-        print(f"{len(errors)} error(s)", file=sys.stderr)
+    if errors or unloadable:
+        total = len(errors) + len(unloadable)
+        print(f"{total} error(s)", file=sys.stderr)
         return 1
     if not args.quiet:
         suffix = " (with warnings)" if warnings else ""

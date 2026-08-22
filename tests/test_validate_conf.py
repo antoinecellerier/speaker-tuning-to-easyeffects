@@ -249,10 +249,14 @@ def test_a_nonzero_exit_is_memoized_and_refuses_the_conf(monkeypatch):
         report = validate.run("", schemas=memo)
         assert report.status == validate.ERRORS
         assert report.unloadable == (LSP_PEQ_URI,)
-        assert any("Plugin not found" in e and LSP_PEQ_URI in e
-                   for e in report.errors), (
+        assert any("Plugin not found" in n and LSP_PEQ_URI in n
+                   for n in report.unloadable_notes), (
             f"conf {i + 1}: the memoized failure stopped being reported: "
-            f"{report.errors}")
+            f"{report.unloadable_notes}")
+        # And it stays out of `errors`, which is the list of separate defects
+        # the reader fixes one by one — a real out-of-range control must not
+        # arrive as a footnote to a missing package.
+        assert report.errors == (), report.errors
         # The plugin has no schema either, but saying so as a warning next to
         # the refusal restates it in the milder of the two words.
         assert not report.warnings, (

@@ -330,6 +330,11 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         return 0
     deadline = time.monotonic() + timeout
     missing = list(node_names)
+    # Whether we ever got a graph back at all. `pw-cli` timing out or erroring
+    # leaves `listing` empty, which marks every node missing — indistinguishable
+    # from a chain that really didn't load, and the diagnosis below is only
+    # honest about the second.
+    answered = False
     while missing:
         try:
             listing = subprocess.run(["pw-cli", "ls", "Node"],
@@ -337,6 +342,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
                                      timeout=10).stdout
         except (subprocess.TimeoutExpired, OSError):
             listing = ""
+        answered = answered or bool(listing.strip())
         missing = [n for n in missing if n not in listing]
         if not missing or time.monotonic() >= deadline:
             break
@@ -354,6 +360,14 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         # chain PipeWire cannot load is skipped rather than aborting the
         # daemon, and before that this same message could equally have meant
         # the machine had no sound at all.
+        if not answered:
+            # We never read the graph, so we know nothing about the chain.
+            # Claiming it isn't running, and handing over a two-package
+            # remedy, would be a diagnosis of a failed `pw-cli` call.
+            console.cprint("warn", "pw-cli never returned a node list, so this "
+                          "is a check that couldn't run, not a chain that "
+                          "failed. Read it yourself with: pw-cli ls Node")
+            return 1
         console.cprint("warn", "So the filter chain this run generated isn't "
                       "running. PipeWire skips a chain it can't load rather "
                       "than refusing to start, so your speakers still work — "

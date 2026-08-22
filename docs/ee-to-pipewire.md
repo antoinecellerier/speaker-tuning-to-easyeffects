@@ -420,7 +420,9 @@ conf and validates the `control = { ... }` block against each port's
 `Symbol`/`Min`/`Max`/`Default`/`Properties`. Catches unknown port
 symbols, out-of-range values, and the `xm`-MUTE-inversion trap. The
 same check has a command-line front end at
-`tools/measure_pw/validate_conf.py`, for a conf already on disk.
+`tools/measure_pw/validate_conf.py`, for a conf already on disk — same
+verdicts, exit 1 on a conf naming a plugin `lv2info` will not resolve,
+exit 2 when the check could not run at all.
 
 The same pass decides whether the conf is written at all. `lv2info`
 and the filter-chain both resolve plugins through lilv, so a URI
