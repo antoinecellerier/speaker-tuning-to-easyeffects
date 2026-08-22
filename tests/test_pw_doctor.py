@@ -549,6 +549,19 @@ def _probe(**present) -> checks.PluginProbe:
                       for label, uri in checks._PLUGIN_URIS))
 
 
+def _conf_using(*labels, path=Path("/tmp/Dolby.conf")):
+    """A conf naming the plugins behind `labels`, or all of them if none given.
+
+    The check judges what the machine's own confs ask for, so a fixture that
+    supplies no conf is asking about nothing — which is a real answer (None)
+    and not the one most of these tests are about.
+    """
+    by_label = dict(checks._PLUGIN_URIS)
+    wanted = labels or tuple(by_label)
+    return checks.InstalledConf(path=path, node_name="effect_input.Dolby",
+                                plugins=[by_label[l] for l in wanted])
+
+
 def test_a_missing_calf_plugin_names_calfs_package_and_not_lsps(monkeypatch):
     """The reader installs a package, so the FAIL has to name the right one.
     Mapping the URI namespace to a vendor is what makes that possible — a
@@ -557,7 +570,8 @@ def test_a_missing_calf_plugin_names_calfs_package_and_not_lsps(monkeypatch):
     check that named both vendors would have them install LSP twice."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
     result = checks.check_plugins_present(
-        _probe(**{"Calf bass enhancer": False, "Calf stereo tools": False}))
+        _probe(**{"Calf bass enhancer": False, "Calf stereo tools": False}),
+        [_conf_using()])
 
     assert result.status == DOCTOR_FAIL
     assert "Calf" in result.detail
@@ -567,12 +581,56 @@ def test_a_missing_calf_plugin_names_calfs_package_and_not_lsps(monkeypatch):
     assert "lsp-plugins-lv2" not in steps
 
 
+def test_a_plugin_no_conf_asks_for_is_not_a_fault(monkeypatch):
+    """TRAP: the check scored the catalogue, not the machine.
+
+    It probed all eight URIs the converter is *able* to emit and FAILed on any
+    miss, so an LSP-only chain that loads and plays perfectly reported a FAIL
+    for want of Calf — and `print_verdict` closed on "Fix the FAIL lines above
+    first". openSUSE makes it permanent: Calf is not in its repositories, this
+    project's own README says to install LSP alone there, and the FAIL's steps
+    render as a note about Packman with no command under them. A reader who
+    followed our instructions exactly would have met a failure that was ours.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.SUSE)
+    lsp_only = _conf_using("LSP PEQ", "LSP MBC", "LSP limiter")
+    assert checks.check_plugins_present(
+        _probe(**{"Calf bass enhancer": False, "Calf stereo tools": False,
+                  "Calf saturator (virtual-bass)": False}),
+        [lsp_only]).status == DOCTOR_PASS
+
+    # And a plugin the conf *does* name still fails, or the narrowing would
+    # have thrown the check away rather than aimed it.
+    assert checks.check_plugins_present(
+        _probe(**{"LSP MBC": False}), [lsp_only]).status == DOCTOR_FAIL
+
+
+def test_nothing_to_judge_is_not_a_verdict(monkeypatch):
+    """No conf, an unreadable one, or a chain of builtins only.
+
+    Each leaves the check with no plugin anyone has asked for. A PASS would be
+    an all-clear over an empty set and a FAIL a fault nobody owns, so it says
+    nothing at all — the Environment block still carries what was found, which
+    is what a pasted report needs.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    probe = _probe(**{"Calf bass enhancer": False})
+    assert checks.check_plugins_present(probe, []) is None
+    unreadable = checks.InstalledConf(path=Path("/tmp/x.conf"), readable=False,
+                                      unreadable=checks.NO_SPA_JSON_DUMP)
+    assert checks.check_plugins_present(probe, [unreadable]) is None
+    builtin_only = checks.InstalledConf(path=Path("/tmp/y.conf"),
+                                        node_name="effect_input.y")
+    assert checks.check_plugins_present(probe, [builtin_only]) is None
+
+
 def test_missing_plugins_from_both_vendors_name_both(monkeypatch):
     """One conf can need both, and a command that installs half of what is
     missing loads no more of the chain than none of it."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
     result = checks.check_plugins_present(
-        _probe(**{"LSP PEQ": False, "Calf saturator (virtual-bass)": False}))
+        _probe(**{"LSP PEQ": False, "Calf saturator (virtual-bass)": False}),
+        [_conf_using()])
 
     assert result.status == DOCTOR_FAIL
     assert "LSP and Calf" in result.detail
@@ -585,7 +643,8 @@ def test_no_lv2info_is_unknown_and_offers_the_package(monkeypatch):
     — and not a silent skip either, because this is the check that would have
     named the commonest reason a conf loads nothing."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
-    result = checks.check_plugins_present(checks.PluginProbe(has_lv2info=False))
+    result = checks.check_plugins_present(checks.PluginProbe(has_lv2info=False),
+                                        [_conf_using()])
 
     assert result.status == DOCTOR_UNKNOWN
     assert "lv2info" in result.detail
@@ -597,7 +656,7 @@ def test_a_full_plugin_house_passes_with_nothing_to_do(monkeypatch):
     the commonest cause, so a reader whose chain still doesn't load knows to
     stop looking at packages. Nothing to do, so no steps to print."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
-    result = checks.check_plugins_present(_probe())
+    result = checks.check_plugins_present(_probe(), [_conf_using()])
 
     assert result.status == DOCTOR_PASS
     assert result.steps == ()
@@ -607,7 +666,8 @@ def test_an_empty_probe_is_not_an_all_clear():
     """"Nothing was asked" is not "all present". The stubbed shape every
     report test uses, and a PASS built from it would be an all-clear over an
     empty set."""
-    assert checks.check_plugins_present(checks.PluginProbe()) is None
+    assert checks.check_plugins_present(checks.PluginProbe(),
+                                       [_conf_using()]) is None
 
 
 def test_the_plugin_remedy_lands_in_steps_not_in_the_detail(monkeypatch):
@@ -616,9 +676,11 @@ def test_the_plugin_remedy_lands_in_steps_not_in_the_detail(monkeypatch):
     remedy written into the prose is a command that stops working on a narrow
     window."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
-    for result in (checks.check_plugins_present(_probe(**{"LSP PEQ": False})),
+    for result in (checks.check_plugins_present(_probe(**{"LSP PEQ": False}),
+                                               [_conf_using()]),
                    checks.check_plugins_present(
-                       checks.PluginProbe(has_lv2info=False))):
+                       checks.PluginProbe(has_lv2info=False),
+                       [_conf_using()])):
         assert "sudo " not in result.detail, result.detail
         assert any(text.startswith("sudo ") for _style, text in result.steps)
 
@@ -653,9 +715,8 @@ def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
 
-    results, _confs, _chains, facts = checks.gather_pw_doctor()
+    _results, _confs, _chains, facts = checks.gather_pw_doctor()
     assert len(calls) == 1
-    assert [c.status for c in results if c.label == "LV2 plugins"] == [DOCTOR_PASS]
     # ...and the same answer is what the Environment block renders.
     lines = checks._environment_lines([], [], facts)
     assert any("LSP PEQ: present" in line for line in lines)
@@ -764,9 +825,15 @@ def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
                             entries=(("LSP PEQ", "http://lsp-plug.in/x", True),)))
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
-    # A conf on disk, or "Chains loaded" has nothing to report and never
-    # reaches the list the direction is about.
-    _write_conf(tmp_path / "Dolby_Balanced.conf")
+    # A conf on disk that names that plugin: "Chains loaded" needs one to have
+    # anything to report, and the LV2 check now judges what the confs ask for,
+    # so a conf naming nothing would leave neither in the list this direction
+    # is about. Injected rather than written, so the test doesn't depend on
+    # spa-json-dump being installed wherever the suite runs.
+    conf = checks.InstalledConf(path=tmp_path / "Dolby_Balanced.conf",
+                                node_name="effect_input.Dolby_Balanced",
+                                plugins=["http://lsp-plug.in/x"])
+    monkeypatch.setattr(checks, "installed_confs", lambda *a, **k: [conf])
 
     labels = [c.label for c in checks.gather_pw_doctor()[0]]
     assert labels.index("Chains loaded") < labels.index("LV2 plugins")

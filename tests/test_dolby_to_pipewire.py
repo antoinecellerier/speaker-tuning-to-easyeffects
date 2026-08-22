@@ -402,15 +402,21 @@ def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
 
     Otherwise a loaded machine that lost one `pw-cli` call gets told its chain
     isn't running and handed a two-package install for a transient read.
+
+    Nor the per-sink "did not appear", which used to print above that
+    disclaimer and assert as fact the thing it then said was unknown; nor a
+    non-zero exit, which the wrapper renders by promoting "To undo: rm …" to
+    the loudest line on screen — over a chain that is probably running.
     """
     monkeypatch.setattr(
         install.subprocess, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
     monkeypatch.setattr(install.time, "sleep", lambda s: None)
-    assert wrapper_main([]) == 1
+    assert wrapper_main([]) == 0
     out = capsys.readouterr().out
-    assert "couldn't run" in out
+    assert "couldn't be checked" in out
     assert "isn't running" not in out, "diagnosed a chain we never looked at"
+    assert "did not appear" not in out, "asserted an absence it hadn't read"
     assert "install lsp-plugins-lv2" not in out
 
 

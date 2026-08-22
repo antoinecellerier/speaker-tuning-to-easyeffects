@@ -1291,6 +1291,41 @@ def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
     assert "before the conf is written" not in out
 
 
+def test_a_missing_pw_dump_names_its_package_here_too(generated, tmp_path,
+                                                      monkeypatch, capsys):
+    """One machine, one answer.
+
+    The autodetect helper returns reasons as plain strings, so the package
+    could not ride along with the one it raises for an absent `pw-dump` — and
+    this path printed the tool's name alone while the generator's autoload
+    path, for the identical condition, named the package. Fedora, openSUSE and
+    Alpine all ship the command-line tools apart from the daemon, so a reader
+    running PipeWire can be missing exactly this.
+    """
+    import ee_to_pipewire as ee2pw
+    from lib import packages
+    from lib.pipewire import install as pw_install
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.FEDORA)
+    monkeypatch.setattr(ee2pw.shutil, "which",
+                        lambda n, *a, **k: None if n == "pw-dump" else "/usr/bin/x")
+    monkeypatch.setattr(pw_install.shutil, "which",
+                        lambda n, *a, **k: None if n == "pw-dump" else "/usr/bin/x")
+    monkeypatch.setattr(pw_install.sinks, "select_speaker_sinks",
+                        lambda: {"tier": "none", "selected": [], "all_sinks": []})
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                "--dry-run"])
+
+    out = capsys.readouterr().out
+    assert "pw-dump isn't installed" in out
+    assert "pipewire-utils" in out, (
+        "named the tool that is missing but not the package that carries it"
+    )
+
+
 def test_main_hard_fails_when_validation_reports_errors(generated, tmp_path,
                                                         monkeypatch, capsys):
     """A self-check that reports real errors must abort the run and leave

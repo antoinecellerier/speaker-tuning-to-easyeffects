@@ -494,9 +494,12 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
                        and k in _NIXOS_SYSTEM and (k, gap_fam) in UNPACKAGED]
         if declarative:
             attrs = " and ".join(_NIXOS_SYSTEM[k] for k in declarative)
-            note(f"add {attrs} to environment.systemPackages and run "
-                 "nixos-rebuild switch — a nix-shell doesn't reach the "
-                 "PipeWire daemon", LABELS[gap_fam])
+            # Gated like the placed path above, and for the same reason:
+            # the daemon is why a nix-shell is no use for an LV2 plugin, and
+            # is not why EasyEffects wants to be in the environment.
+            note((_NIX_SYSTEM if any(k in _NIXOS_DAEMON_KEYS
+                                     for k in declarative)
+                  else _NIX_PLAIN).format(attrs), LABELS[gap_fam])
         for key in keys:
             if key in declarative:
                 continue

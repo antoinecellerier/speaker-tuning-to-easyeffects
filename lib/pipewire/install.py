@@ -368,6 +368,18 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         if name not in missing:
             console.cprint("ok", f"Sink loaded: {name}")
     if missing:
+        # Before the per-sink error, not after it: `missing` is every node we
+        # did not see, and a `pw-cli` that never answered leaves all of them
+        # in it. Printed first, "error: sink X did not appear" asserted as
+        # fact the very thing this branch exists to say we do not know — and
+        # the non-zero it returned had the wrapper promote "To undo: rm …" to
+        # the loudest line on screen, over a chain that is probably running.
+        if not answered:
+            console.cprint("warn", "pw-cli never returned a node list, so "
+                          "whether the chain loaded couldn't be checked — a "
+                          "check that didn't run, not a chain that failed. "
+                          "Read it yourself with: pw-cli ls Node")
+            return 0
         for name in missing:
             console.cprint("err", f"error: sink {name} did not appear after the "
                           "restart")
@@ -377,14 +389,6 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         # chain PipeWire cannot load is skipped rather than aborting the
         # daemon, and before that this same message could equally have meant
         # the machine had no sound at all.
-        if not answered:
-            # We never read the graph, so we know nothing about the chain.
-            # Claiming it isn't running, and handing over a two-package
-            # remedy, would be a diagnosis of a failed `pw-cli` call.
-            console.cprint("warn", "pw-cli never returned a node list, so this "
-                          "is a check that couldn't run, not a chain that "
-                          "failed. Read it yourself with: pw-cli ls Node")
-            return 1
         console.cprint("warn", "So the filter chain this run generated isn't "
                       "running. PipeWire skips a chain it can't load rather "
                       "than refusing to start, so your speakers still work — "

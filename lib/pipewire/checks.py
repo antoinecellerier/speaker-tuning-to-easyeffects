@@ -120,6 +120,10 @@ class InstalledConf:
     target: str = ""         # filter.smart.target node.name
     pinned: str = ""         # playback target.object
     irs: list = field(default_factory=list)
+    plugins: list = field(default_factory=list)   # the LV2 URIs it names, so
+                             # a check can judge the plugins this machine's
+                             # chain needs rather than every one the converter
+                             # is capable of emitting
     readable: bool = True    # False when spa-json-dump couldn't parse it
     unreadable: str = ""     # and why not. "unreadable" on its own reads as a
                              # damaged conf, while the commonest cause is a
@@ -215,12 +219,16 @@ def parse_conf(path: Path) -> InstalledConf:
     conf.smart = bool(capture.get("filter.smart"))
     conf.target = (capture.get("filter.smart.target") or {}).get("node.name", "")
     conf.pinned = playback.get("target.object", "")
+    nodes = [n for n in args.get("filter.graph", {}).get("nodes", [])
+             if isinstance(n, dict)]
     # Deduplicated: the stereo convolver is two nodes reading the same file,
     # so a missing IRS would otherwise be reported once per channel.
     conf.irs = list(dict.fromkeys(
         Path(n["config"]["filename"])
-        for n in args.get("filter.graph", {}).get("nodes", [])
-        if isinstance(n, dict) and "filename" in n.get("config", {})))
+        for n in nodes if "filename" in n.get("config", {})))
+    conf.plugins = list(dict.fromkeys(
+        n["plugin"] for n in nodes
+        if n.get("type") == "lv2" and n.get("plugin")))
     return conf
 
 
@@ -482,11 +490,20 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
     readable = [c for c in confs if c.node_name]
     missing = [c for c in readable if c.node_name not in live]
     if not readable:
+        # Only point at the conf-contents check when it will be there:
+        # it fires for a missing spa-json-dump and nothing else, so a conf
+        # that is truncated or unreadable on disk left this sending the
+        # reader to a block that was never printed. Those causes have no
+        # package behind them, so this line carries them itself.
+        causes = sorted({c.unreadable for c in confs if c.unreadable})
+        pointer = ("see the conf-contents check above"
+                   if NO_SPA_JSON_DUMP in causes
+                   else "; ".join(causes) or "no reason was recorded")
         return CheckResult(
             DOCTOR_UNKNOWN, "Chains loaded",
             f"none of the {len(confs)} conf(s) on disk could be read, so the "
             "node each one would create isn't known and whether they loaded "
-            "couldn't be checked — see the conf-contents check above.")
+            f"couldn't be checked — {pointer}.")
     if not missing:
         unread = len(confs) - len(readable)
         return CheckResult(
@@ -954,17 +971,30 @@ _PLUGIN_VENDORS = (
 )
 
 
-def check_plugins_present(probe) -> CheckResult | None:
-    """Whether the LV2 plugins a conf can name are installed.
+def check_plugins_present(probe, confs=()) -> CheckResult | None:
+    """Whether the LV2 plugins *this machine's confs* name are installed.
 
     module-filter-chain drops the *whole file* when one plugin in it won't
     load, so an absent package is the commonest reason a conf on disk does
     nothing at all — and the Environment block lists eight answers without
     saying what to do about any of them.
 
+    Judged against the confs, not against the eight URIs the converter is
+    *able* to emit. Which ones a chain uses depends on the profile and the
+    flags, and scoring the whole catalogue made a fault out of a plugin
+    nothing on the machine asks for: an LSP-only chain that loads and plays
+    perfectly FAILed for want of Calf — and openSUSE has no Calf package to
+    offer, so its readers, following this project's own instructions, would
+    have met a permanent FAIL with no command under it.
+
     Vendors, not URIs: what a reader installs is a package, and a chain
     missing LSP is missing every LSP plugin in it. Eight URIs is a list nobody
-    can act on, and the one that is actually needed depends on the profile.
+    can act on.
+
+    With no readable conf there is nothing to judge, and this returns None
+    rather than guess. The presence of all eight still reaches a pasted report
+    through the Environment block, which is inventory and says only what it
+    found.
     """
     if not probe.has_lv2info:
         return CheckResult(
@@ -980,13 +1010,23 @@ def check_plugins_present(probe) -> CheckResult | None:
         # say "all present" about an empty set — the shape a stubbed probe
         # takes, and the one a report must not turn into an all-clear.
         return None
-    missing = [(label, uri) for label, uri, present in probe.entries
-               if not present]
+    wanted = {uri for c in confs for uri in c.plugins}
+    if not wanted:
+        # No conf, or none readable. `check_conf_contents` and the
+        # installed-confs check each say so in their own words; a verdict here
+        # would be about plugins nothing has asked for yet.
+        return None
+    entries = [e for e in probe.entries if e[1] in wanted]
+    if not entries:
+        # A conf built entirely from module-filter-chain builtins — a
+        # convolver-only preset has no LV2 node at all.
+        return None
+    missing = [(label, uri) for label, uri, present in entries if not present]
     if not missing:
         return CheckResult(
             DOCTOR_PASS, "LV2 plugins",
-            f"all {len(probe.entries)} LSP and Calf plugins a conf can name "
-            "are installed, so a chain that doesn't load isn't missing one.")
+            f"all {len(entries)} LSP and Calf plugins your conf(s) name are "
+            "installed, so a chain that doesn't load isn't missing one.")
     vendors = [(name, key) for prefix, name, key in _PLUGIN_VENDORS
                if any(uri.startswith(prefix) for _label, uri in missing)]
     if not vendors:
@@ -996,15 +1036,15 @@ def check_plugins_present(probe) -> CheckResult | None:
         # degrades to a worse message instead of a silent gap.
         return CheckResult(
             DOCTOR_FAIL, "LV2 plugins",
-            f"{len(missing)} plugin(s) a conf can name aren't installed: "
+            f"{len(missing)} plugin(s) your conf(s) name aren't installed: "
             f"{', '.join(label for label, _uri in missing)}. PipeWire drops "
             "the whole file when one plugin in it won't load, so the chain "
             "never appears in the graph and audio plays untreated.")
     vendor_names = " and ".join(name for name, _key in vendors)
     return CheckResult(
         DOCTOR_FAIL, "LV2 plugins",
-        f"{len(missing)} of the {len(probe.entries)} LV2 plugins a conf can "
-        f"name aren't installed, all from {vendor_names}. PipeWire drops the "
+        f"{len(missing)} of the {len(entries)} LV2 plugins your conf(s) name "
+        f"aren't installed, all from {vendor_names}. PipeWire drops the "
         "whole file when one plugin in it won't load, so the chain never "
         "appears in the graph and audio plays untreated — the usual reason a "
         "conf on disk does nothing. Install them:",
@@ -1039,7 +1079,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_confs_loaded(confs, chains, dump),
         # Directly under the check whose detail points at it: a conf that
         # never loaded is usually a conf naming a plugin that isn't there.
-        check_plugins_present(plugin_probe),
+        check_plugins_present(plugin_probe, confs),
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
         # After the target check, so the block reads in the order a reader

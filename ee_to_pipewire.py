@@ -506,6 +506,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # *and* a warning explaining the fallback.
         for w in detect_warnings:
             console.cprint("warn", f"[smart-filter] {w}")
+        # The reason `_autodetect_speaker_sink` returns names the tool but
+        # cannot carry a package — it returns strings, not styled lines. Which
+        # left the same missing tool answered two ways on one machine: named
+        # with its package by the generator's autoload path, and named alone
+        # here. Fedora, openSUSE and Alpine all ship it apart from the daemon,
+        # so this is a package a reader can actually be missing.
+        if not target_sink and shutil.which("pw-dump") is None:
+            console.cprint("cta", "[smart-filter] install PipeWire's "
+                           "command-line tools and this run can find it:")
+            packages.print_install_hint([packages.PW_TOOLS], console.cprint)
         if target_sink:
             # Names the override (round 7): without it a reader whose
             # detection picked the wrong device assumed their only path
@@ -585,10 +595,16 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # PipeWire reads as a message that has not looked at their
             # machine. `needed` may be empty above while this is not — a
             # builtin-only chain still can't run the check.
-            wanted = [key for tool, key in (("lv2info", packages.LV2INFO),
-                                            ("spa-json-dump", packages.SPA_TOOLS))
-                      if tool in report.missing_tools]
-            if wanted and needed:
+            # `lv2info` is worth offering only to a chain that has LV2
+            # nodes for it to look at; `spa-json-dump` always is, because
+            # without it the conf is not parsed at all and *nothing* was
+            # checked — which is the case `needed` used to suppress, against
+            # what the comment above it promised.
+            wanted = [key for tool, key, useful in (
+                ("lv2info", packages.LV2INFO, bool(needed)),
+                ("spa-json-dump", packages.SPA_TOOLS, True))
+                if tool in report.missing_tools and useful]
+            if wanted:
                 # "a later run", not "before the conf is written": the conf is
                 # written a line later, and phrased as a precondition this
                 # read as a step to do first.
