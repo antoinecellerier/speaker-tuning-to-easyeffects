@@ -30,8 +30,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-DEBIAN, FEDORA, ARCH, SUSE = "debian", "fedora", "arch", "suse"
-ALPINE, GENTOO, NIXOS = "alpine", "gentoo", "nixos"
+DEBIAN = "debian"
+FEDORA = "fedora"
+SUSE = "suse"
+ARCH = "arch"
+ALPINE = "alpine"
+GENTOO = "gentoo"
+NIXOS = "nixos"
 
 # Ordered as the README lists them, so the two read alike.
 FAMILIES = (DEBIAN, FEDORA, SUSE, ARCH, ALPINE, GENTOO, NIXOS)
