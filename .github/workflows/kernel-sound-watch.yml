@@ -2,10 +2,18 @@ name: Kernel sound-tree watch
 
 # Weekly watcher for Takashi Iwai's sound.git pull tags (sound-X.Y-rcN,
 # sound-fix-X.Y-rcN, …). Each tag's annotation is the canonical pull-request
-# text Linus receives, so it's the highest-signal changelog for laptop audio
-# quirks. For every tag not seen before, this posts a comment on the
+# text Linus receives. On a sound-fix-* pull that text names the device quirks
+# it carries; on a merge-window -rc1 it is a prose highlights list, and the
+# ~900 commits behind it — every per-device quirk — appear nowhere in it. So
+# both are read: the annotation, and the commit range the tag adds over the
+# last one processed (tools/scan_sound_tag.py). sound-7.3-rc1 went past the
+# annotation-only watch reporting "no watchlist hits" while carrying two new
+# Lenovo speaker-pin quirks and a first-of-its-kind smart-amp driver.
+#
+# For every tag not seen before, this posts a comment on the
 # "kernel-sound-watch"-labeled tracking issue: watchlist grep hits
-# (.github/kernel-watchlist.txt) up top, full pull text folded below.
+# (.github/kernel-watchlist.txt) up top, then the commit scan, then the full
+# pull text folded below.
 # Judgment about whether a hit matters for an open issue stays with humans
 # (or a Claude session) reading the comment — nothing here needs an API key.
 # Triage verdicts are recorded by editing the hit comment itself (appended
@@ -137,20 +145,27 @@ jobs:
               | sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' > msg.txt
             [ -s msg.txt ] || echo "(no tag annotation)" > msg.txt
             hits=$(grep -i -F -f patterns.txt msg.txt || true)
+            # The commits the tag adds over the newest tag already processed.
+            # Never fatal: it prints its own "not scanned" section and exits 0,
+            # because a comment that omits the pull entirely is worse than one
+            # that says what it could not read.
+            python3 tools/scan_sound_tag.py "$tag" \
+              --seen seen-tags.txt --watchlist "$WATCHLIST" > commits.md
             {
               echo "## New sound-tree tag: [\`$tag\`]($SOUND_GIT/tag/?h=$tag)"
               echo
               echo "[Tag + pull text]($SOUND_GIT/tag/?h=$tag) · [commit log]($SOUND_GIT/log/?h=$tag) · [lore thread](https://lore.kernel.org/lkml/?q=$tag)"
               echo
               if [ -n "$hits" ]; then
-                echo '### :rotating_light: Watchlist hits'
+                echo '### :rotating_light: Watchlist hits in the pull text'
                 echo '```'
                 echo "$hits"
                 echo '```'
               else
-                echo '_No watchlist hits._'
+                echo '_No watchlist hits in the pull text._'
               fi
               echo
+              cat commits.md
               echo '<details><summary>Full pull-request text</summary>'
               echo
               echo '```'
@@ -162,6 +177,9 @@ jobs:
             } > comment.md
             gh issue comment "$ISSUE_NUMBER" --body-file comment.md
             echo "$tag" >> posted-tags.txt
+            # Also seen from here on, so the next tag in this run diffs against
+            # it rather than reaching back past it and re-reporting its commits.
+            echo "$tag" >> seen-tags.txt
           done < new-tags.txt
 
       # Runs every time, not just when tags landed: it refreshes "last checked"
