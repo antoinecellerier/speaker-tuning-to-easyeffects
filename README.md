@@ -154,7 +154,7 @@ When `--mode` or `--profile` is specified (or `--all-profiles` is used), the pre
 
 ### Troubleshooting: a preset that sounds like nothing
 
-If you generated a preset, loaded it in EasyEffects, and hear no difference versus bypass, the preset itself is usually fine — the cause is almost always something in the EasyEffects setup around it. Run:
+If you generated a preset, loaded it in EasyEffects, and hear no difference versus bypass, check the EasyEffects setup around it before suspecting the preset — each of the following makes a correct preset inaudible. Run:
 
 ```
 python3 dolby_to_easyeffects.py --doctor
