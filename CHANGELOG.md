@@ -49,7 +49,8 @@ grouped into the releases that would have been cut at the time.
 
 Notable changes to the converter. Entries tagged **[AUDIBLE]** change the
 sound of the generated preset — **re-run the script to regenerate your
-preset** (and reload it in EasyEffects / restart PipeWire) to pick them up.
+preset** (and reload it in EasyEffects / restart PipeWire) to pick them up;
+ones also marked (opt-in) change nothing until you pass the flag.
 Everything else is tooling, packaging, docs, or new-device support that
 doesn't alter existing devices' output.
 
@@ -60,27 +61,25 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- **[AUDIBLE]** (opt-in) New `--enable autogain` activates the volume leveler
-  for Windows-level loudness on HDA devices, where it ships bypassed — it
-  stays opt-in because the gain ride can audibly saturate quiet backgrounds.
-  The preset also ships the raised silence gate that fixes crackle on short
-  sounds after silence once the leveler is on, so enabling it in the
-  EasyEffects GUI is safe too; re-run to regenerate
+- **[AUDIBLE]** (opt-in) New `--enable autogain` turns on the volume leveler
+  for Windows-level loudness on HDA devices, where it ships bypassed; it
+  stays opt-in because the gain ride can saturate quiet backgrounds. The
+  preset carries the raised silence gate that fixes crackle after silence
+  with the leveler on, so enabling it by hand is safe too; re-run to
+  regenerate
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New experimental `--enable level-restore` flag gives
   back the level the impulse response was normalised by, so a tuning whose
   loudest band outruns its loudness boost stops playing quieter than the
   preset switched off. It costs limiter headroom — loud speech distorted on
-  the one device that has heard it — so it stays opt-in and default presets
-  are unchanged
+  the one device that has heard it — so it stays opt-in
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New experimental `--enable virtual-bass` adds Dolby's
   missing virtual-bass stage — harmonics that suggest bass small speakers
-  can't produce — to the PipeWire filter-chain on HDA tunings, built from the
-  XML's own virtual-bass fields (SoundWire tunings already ship a bass
-  enhancer). EasyEffects can't express the parallel stage, so the flag changes
+  can't produce — to the PipeWire filter-chain on HDA tunings, from the
+  XML's own fields (SoundWire tunings already ship a bass enhancer). EasyEffects can't express the parallel stage, so the flag changes
   nothing there; run `dolby_to_pipewire.py` to hear it
   ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
   measurements in `docs/design-notes.md`).
@@ -88,9 +87,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   AW88399 on Lenovo Legion, Qualcomm WSA on Snapdragon laptops, and TI TAC5XX2
   — so a missing driver or firmware shows up as evidence instead of no
   amplifier at all (`docs/design-notes.md` "What counts as a smart amp").
-- The PipeWire converter now warns when EasyEffects is running as a chain conf
-  is written — the two would process your audio in series — and prints the
-  switch-back steps (docs/ee-to-pipewire.md "Not alongside EasyEffects").
+- The PipeWire converter now warns when the chain it writes would process your
+  audio in series with something else on the same speakers — a running
+  EasyEffects, or a second chain aimed at the same sink, the state a second
+  voicing or profile leaves you in — and prints the way back
+  ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md) "Not alongside
+  EasyEffects").
 - **[AUDIBLE]** (opt-out) New `--disable autogain` flag switches the volume
   leveler off on SoundWire devices, where it runs by default — the escape
   hatch if loudness pumps between quiet and loud passages. Default presets are
@@ -100,7 +102,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   upstream Linux ships a fix, the run prints the `hda_model=` procedure that
   forces it, and `--speaker-info` flags pins the kernel left unconfigured
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
-  mechanism and the manufacturer-spec cross-check in `docs/design-notes.md`).
+  mechanism, the manufacturer-spec cross-check and the quirk-table parse rules
+  in `docs/design-notes.md`).
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
   filter-chain sink in one command, staging the preset in a throwaway
   directory — no EasyEffects files installed. `--variant` picks the Balanced
@@ -117,23 +120,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   by hand. Bypass on is a failure — nothing generated here reaches your
   speakers — and the closing block stops asking you to verify it once it has
   read it.
-- On the PipeWire path, `--doctor` now reports which output is selected: the
-  filter chain, where its volume control and your speakers' both apply; a
-  virtual-sink chain nothing is playing through; or a remembered choice
-  pointing at a chain that is gone, which takes over again as soon as a chain
-  of that name comes back
+- On the PipeWire path, `--doctor` now reports which output is selected — the
+  filter chain, a virtual-sink chain nothing plays through, or a remembered
+  choice pointing at a chain that is gone — and any level no sound-settings
+  slider shows: a chain turned down on its own volume control, or the sink a
+  selected chain feeds
   ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
   measurements in `docs/design-notes.md`).
-- `--doctor` also reports a filter chain left turned down on its own volume
-  control. It attenuates everything the chain processes even when your speakers
-  are the selected output, and no sound-settings slider shows it
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63);
-  measured in `docs/design-notes.md`).
-- When a chain is your selected output, `--doctor` names the volume of the sink
-  it feeds — the level that applies to everything and that your slider no
-  longer shows — and a `--target-sink ''` run names your speakers' level as it
-  writes the conf
-  ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
 - Running any of the three commands as root now stops with an explanation
   instead of writing a preset into root's home, where your session never looks
   — or into yours owned by root, where your next run can no longer replace it.
@@ -148,10 +141,6 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   and the script always builds the endpoint's first. Rebuild with
   `--profile <name>` to match Windows; presets are otherwise unchanged
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
-- A conversion now warns when the chain it just wrote joins another aimed at
-  the same speakers — the state you land in by trying a second voicing or
-  profile, which PipeWire runs in series rather than as alternatives
-  ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - The per-preset frequency tables and raw parameter arrays now hide behind
   a new `--verbose`/`-v` flag; a normal run keeps one summary line per
   stage (deepest cuts, band counts, thresholds) and one correction-check
@@ -159,9 +148,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   a sound problem — the issue form asks for it.
 - All three scripts now tab-complete in bash and zsh — flag names, the
   `--disable` / `--enable` / `--variant` value lists, paths, and your live
-  PipeWire sink names — via the optional `argcomplete` package. Add one
-  `eval` line to your shell rc to enable it (README "Shell tab-completion");
-  without the package the scripts are unchanged.
+  PipeWire sink names, where the script has them — via the optional
+  `argcomplete` package. Add one `eval` line to your shell rc to enable it
+  (README "Shell tab-completion"); without the package the scripts are
+  unchanged.
 - Mark additional tested devices: ThinkPad T14 Gen 7
   ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
   ThinkPad T14 Gen 1 AMD
@@ -193,45 +183,28 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged everywhere else and not yet heard on affected hardware; re-run to
   regenerate ([docs/cross-device-findings.md](docs/cross-device-findings.md)
   "Curves shipped with the optimizer switched off").
-- The hidden-speaker-pin warning no longer names a kernel version that never
-  carried the fix for your machine, or goes silent on a machine upstream fixed
-  by wrapping its speaker fixup in another one. Both came from reading
-  upstream's quirk table too literally
-  ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
-  the two parse rules in `docs/design-notes.md`).
 - On the EasyEffects path, `--doctor` no longer reports a preset, output sink
   or bypass state hours out of date: it now asks the running EasyEffects and
   PipeWire rather than a config file EasyEffects writes only on quit. It could
   name the silent bypass preset, or a disconnected Bluetooth headset, while a
   Dolby preset played.
-- `--doctor` no longer reports "No blocking problems detected" beside a
-  warning: the verdict was computed from the EasyEffects-side checks only, so
-  a smart-amp firmware gate that mutes the speakers never reached it. Any
-  warning now suppresses the all-clear, and `--doctor` / `--speaker-info`
-  print the one-line `amixer` command that switches the gate on.
-- A `--doctor` run that fails now ends on a verdict again — every closing
-  branch was guarded on nothing having failed, so the state most needing an
-  instruction printed none. The verdict also points at the `[WARN]` lines it
-  prints, rather than a `⚠` symbol neither report contains.
-- A filter chain that can't load no longer stops PipeWire from starting. The
-  conf marks its module `nofail`, so a missing LV2 plugin costs you the chain
-  instead of all your audio; the activation step and `--doctor` both report it
-  ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
-- A conf naming an LV2 plugin your system can't load is no longer written at
-  all: the run names the package to install and stops, where it used to warn
-  and write. Needs your distribution's `lv2info` to check — without it the run
-  says so and names the package
+- `--doctor`'s verdict no longer contradicts its report: a warning, or a check
+  that couldn't run, now cancels the all-clear (a speaker-muting firmware
+  gate used to sit under it), a failing run still ends on a verdict, and it
+  names the `[WARN]` lines it prints. The
+  closing block also stops asking you to confirm an output sink it can see is
+  selected.
+- A conf naming an LV2 plugin your system can't load is no longer written: it
+  names the package to install and stops (without `lv2info` to check, it says
+  so). A chain that still
+  fails to load no longer stops PipeWire from starting — the conf marks its
+  module `nofail`, so a missing plugin costs you the chain, not all your audio
   ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
 - Every message about a missing dependency now prints the install command for
-  your distribution instead of pointing at the README: the Python
-  dependencies, `lv2info`, the PipeWire command-line tools and `amixer` join
-  the LV2 plugins, and `--doctor` names a package when a plugin is missing or
-  a check couldn't run. Alpine, Gentoo and NixOS are recognised alongside the
-  four families already covered.
-- The upgrade hint for EasyEffects 7 now offers your distribution's own
-  package when that distribution actually ships EasyEffects 8, and the
-  Flathub Flatpak otherwise — it used to name a hand-maintained list of
-  releases that was already going stale.
+  your distribution — the Python packages, `lv2info`, the PipeWire
+  command-line tools and `amixer` join the LV2 plugins — and the EasyEffects 7 upgrade hint offers your distribution's own
+  package where it ships EasyEffects 8, the Flathub Flatpak otherwise. Alpine,
+  Gentoo and NixOS join the four families already covered.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
   conf when the schema self-check can't read `lv2info`'s output, or when
   `lv2info` never answers for one plugin. A limit the check cannot use is left
@@ -253,35 +226,23 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   display to answer, and any failure to answer was read as "not found";
   the script now says the version couldn't be checked and why
   ([#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46)).
-- A run that can't succeed no longer leaves directories behind in your
-  EasyEffects tree, and a missing NumPy or SciPy now says which one to install
-  instead of printing a traceback — the output directories are created only
-  once every check that can stop the run has passed.
+- A run that can't succeed now ends the same way on all three commands: one
+  line saying what went wrong and what to do next, no Python traceback, no
+  directories left behind in your EasyEffects tree, and a missing NumPy or
+  SciPy names the one to install.
 - A run blocked by a root-owned file an earlier `sudo` run left behind now
   names that file and the `chown` that takes it back, instead of ending on a
   bare permission error and a pointer to `--help`.
-- `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer print a Python
-  traceback when a run fails. All three commands now end a failed run the same
-  way the generator already did: one line saying what went wrong, and what to
-  do next.
 - The report-back link at the end of a run is clickable again. It is longer
   than a standard terminal is wide, and coloured output reflowed it mid-URL —
   as did the four "unusual XML field" notes, which carried their own copy of a
   link inside wrapped prose. There is now one link and nothing wraps it.
-- Reports no longer print a connected Bluetooth device's address. Its node name
-  carries the MAC, and the sink listings in `--doctor` and in a `--autoload` run
-  name every output on the machine — blocks the issue form asks you to paste
-  whole. The device is still reported, just without the address
+- A run's output now pastes into a public issue as-is: every path it reports
+  renders your home as `~/…` (the undo and re-run commands keep the absolute
+  path, since a shell expands neither inside quotes), and reports no longer
+  print a connected Bluetooth device's address — the device is still named,
+  just without it
   ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)).
-- A run no longer prints your username: every path it reports — presets
-  written, PipeWire files, the tuning XML it matched, error messages — renders
-  your home as `~/…`, so the log pastes into a public issue report as-is. The
-  undo and re-run commands keep the absolute path, since a shell expands
-  neither inside quotes.
-- `--doctor` stops asking you to confirm what it just read: the output-sink
-  bullet drops out when it can see your speakers are selected, as the bypass
-  one already does. Its preset counts now say presets *share* impulse files
-  and that the bypass preset isn't among those checked, so they add up.
 - The PipeWire converter now writes the multiband compressor's
   compression-mode and boost settings explicitly instead of inheriting
   plugin defaults (same output today, but no longer tied to
@@ -309,7 +270,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   asks, and the warnings that used to print mid-run are no longer buried
   under the per-band tables.
 - On the PipeWire path, a smart-filter chain now calls itself
-  "<preset> (speaker filter)" in sound settings, and the run says to leave your
+  `<preset> (speaker filter)` in sound settings, and the run says to leave your
   speakers selected — the chain is inserted into them automatically, and
   picking it instead stacks a second volume control in front. A
   `--target-sink ''` run says the opposite; re-run to regenerate
@@ -332,23 +293,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   and `dolby_to_pipewire.py`: the DSP libraries that dominate start-up are
   loaded only once a run reaches the conversion itself. Shell tab-completion
   was already exempt and stays so.
-- The smart-amp section no longer ends on steps you can't take: missing
-  firmware says to update `linux-firmware` and report the log line naming the
-  file; the `amixer` line says what to do when it can't find your card; and
-  the persistence fallback asks you to get in touch instead of naming a
-  systemd unit it never showed you.
-- The voicing-strength line no longer gives a percentage and then says Windows
-  applies none in the same breath: where the profile switches voicing off it
-  now leads with that, and says the percentage is ours and what it buys. The
-  correction check names the curve it matched — your tuning file's — instead
-  of an undefined "target".
-- `dolby_to_pipewire.py` now prints the whole "if something doesn't sound
-  right" flag menu after the activation steps, alongside the report asks,
-  instead of mid-run during preset staging — and the staged throwaway files
-  say "Staged", not "Wrote", so they aren't mistaken for installed output.
-- The rest of the terminal output was reworked end to end against
-  first-time-reader reviews: every stage now carries a plain-language gloss,
-  and every warning ends in a symptom-matched flag or a concrete report ask.
+- The rest of the terminal output was reworked against first-time-reader
+  reviews: every stage carries a plain-language gloss, every warning ends in
+  a symptom-matched flag or a concrete report ask, the smart-amp section no
+  longer ends on steps you can't take, the voicing-strength line leads with
+  whether Windows applies any, and `--help` groups its options by task.
 
 ### Docs
 
