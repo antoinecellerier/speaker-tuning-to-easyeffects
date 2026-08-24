@@ -835,6 +835,57 @@ def _no_amixer(monkeypatch):
     monkeypatch.setattr(speakers.subprocess, "run", fake_run)
 
 
+def _amixer(monkeypatch, *controls):
+    """Stand in for `amixer -c0 scontrols` with the given control lines."""
+    class R:
+        stdout = "\n".join(f"Simple mixer control '{c}',0" for c in controls)
+    monkeypatch.setattr(speakers.subprocess, "run", lambda *a, **k: R())
+
+
+@pytest.mark.parametrize("control,is_amp", [
+    ("wsa884x DAC", True),      # Qualcomm, the family this fallback never had
+    ("cs35l56 DAC", True),
+    ("tas2781 DAC", True),      # was missing from the hand-kept pattern
+    ("aw88399 DAC", True),      # ditto
+    ("rt711 DAC", False),       # jack codec — the old bare `rt\d+` caught it
+    ("max98090 DAC", False),    # jack codec — the old bare `max98` caught it
+])
+def test_mixer_fallback_uses_the_same_amp_registry_as_sysfs(
+        tmp_path, monkeypatch, control, is_amp):
+    """The fallback appends a SpeakerPin just like the sysfs path, so a part it
+    misjudges reaches the speaker count. Its pattern was hand-kept and drifted
+    both ways at once — looser than the registry on jack codecs, and blind to
+    tas2/aw88/wsa88 — which nothing caught because every other detector test
+    neutralises this branch."""
+    monkeypatch.setattr(codecs, "SDW_BUS", _sdw_bus(tmp_path))
+    _amixer(monkeypatch, control)
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    name = control.split()[0]
+    if is_amp:
+        assert [s.control_name for s in info.speakers] == [name]
+        assert info.sdw_amplifiers == [f"{name} (from ALSA mixer)"]
+    else:
+        assert info.speakers == []
+        assert info.sdw_amplifiers == []
+
+
+def test_mixer_fallback_only_runs_when_sysfs_found_nothing(tmp_path, monkeypatch):
+    """It is a fallback: a machine whose bus already answered must not have
+    mixer controls added on top, which would double-count its speakers."""
+    node = "sdw:0:1:0217:0204:00:0"
+    monkeypatch.setattr(codecs, "SDW_BUS",
+                        _sdw_bus(tmp_path, (node, "wsa884x", None)))
+    _amixer(monkeypatch, "wsa884x DAC")
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_soundwire_speakers(info)
+
+    assert [s.node for s in info.speakers] == [node]  # not the mixer entry too
+
+
 def test_detector_counts_six_mono_cs35l56_as_six(tmp_path, monkeypatch):
     """Issue #27's machine, reached through the walk rather than typed in: six
     enumerated slaves, each one mono amp, reported as six speakers not twelve.

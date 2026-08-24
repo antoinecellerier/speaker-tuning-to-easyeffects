@@ -527,7 +527,8 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
 
     # Self-check grep derived from the keywords we actually scanned, so the
     # printed command can't contradict what the report found.
-    grep = info.amp_log_grep or "cs35l|tas2|cirrus"
+    grep = info.amp_log_grep or "|".join(
+        sorted({k for _t, _g, kws, _m in amps._AMP_FAMILIES for k in kws}))
     grep_hint = f"journalctl -k -b | grep -iE '{grep}'"
 
     # Kernel-log evidence: show the lines, flag only unambiguous errors.

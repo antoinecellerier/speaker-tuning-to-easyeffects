@@ -148,7 +148,7 @@ def watchlist_hits(commits: list[dict], terms: list[str]) -> list[dict]:
 # is how a device family we do not watch yet first shows up. Kept to the
 # subject line: matching bodies here would pull in most of the tree.
 _SPEAKER_SUBJECT_RE = re.compile(
-    r"hda/realtek|hda/conexant|hda/scodec|hda/tas2781|hda/cs35l"
+    r"hda/realtek|hda/conexant|hda/scodec|hda/tas2781|hda/cs35l|hda/aw88"
     r"|speaker|woofer|tweeter", re.I)
 
 # The reader is scrolling a GitHub comment, so the list is capped — but never

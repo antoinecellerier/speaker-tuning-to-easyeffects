@@ -265,14 +265,22 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
     if info.speakers:
         return
 
-    # Fallback: check ALSA mixer for amp controls when sysfs gives nothing
+    # Fallback: check ALSA mixer for amp controls when sysfs gives nothing.
+    # The part names come from the same registry as everything else — hand-kept
+    # here, this list drifted *looser* than the tokens (a bare `max98` catches
+    # the max98090 jack codec, a bare `rt\d+` catches rt711, both of which the
+    # registry refuses) while missing tas2, aw88 and wsa88 entirely. Since a
+    # match here appends a SpeakerPin exactly like the sysfs path, that drift
+    # reached the speaker count.
+    amp_alt = "|".join(re.escape(t) for t in amps._AMP_DRIVER_TOKENS)
+    amp_control_re = re.compile(rf"'((?:{amp_alt})[^']*)\s+DAC'", re.I)
     try:
         result = subprocess.run(
             ["amixer", "-c0", "scontrols"],
             capture_output=True, text=True, timeout=5,
         )
         for line in result.stdout.splitlines():
-            m = re.search(r"'(rt\d+[^']*|max98[^']*|cs35[^']*)\s+DAC'", line, re.I)
+            m = amp_control_re.search(line)
             if m:
                 name = m.group(1)
                 info.sdw_amplifiers.append(f"{name} (from ALSA mixer)")
