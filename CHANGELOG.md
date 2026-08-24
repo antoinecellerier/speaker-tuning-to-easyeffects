@@ -100,9 +100,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   to do about each and a block to paste into an issue
   ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - Warns when your firmware hides a speaker pin, so Linux never drives those
-  speakers — usually the woofers — and the preset shapes the rest alone. Where
-  upstream Linux ships a fix, the run prints the `hda_model=` procedure that
-  forces it, and `--speaker-info` flags pins the kernel left unconfigured
+  speakers — the preset then shapes only what does play. Where the fixup has a
+  model name the run prints the `hda_model=` procedure that forces it, and
+  elsewhere it names the kernel that carries the fix; `--speaker-info` flags
+  pins the kernel left unconfigured
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
   mechanism, the manufacturer-spec cross-check and the quirk-table parse rules
   in `docs/design-notes.md`).
@@ -151,8 +152,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged.
 - `--speaker-info` now recognises three more smart-amplifier families — Awinic
   AW88399 on Lenovo Legion, Qualcomm WSA on Snapdragon laptops, and TI TAC5XX2
-  — so a missing driver or firmware shows up as evidence instead of no
-  amplifier at all (`docs/design-notes.md` "What counts as a smart amp").
+  — so a loaded amp driver is named, and for Awinic and TAC5XX2 a missing
+  firmware blob shows up as evidence, instead of no amplifier at all
+  (`docs/design-notes.md` "What counts as a smart amp").
 - Mark additional tested devices: ThinkPad T14 Gen 7 Intel
   ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
   ThinkPad T14 Gen 1 AMD
@@ -185,11 +187,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   old behaviour — re-run to regenerate
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
   why in `docs/design-notes.md`).
-- The end of a run now confirms success and states its guaranteed differences
-  from Windows: whether the volume leveler ships off, and which sound mode
-  was built. It then separates fixes you can apply from the project's one-line
-  asks, and the warnings that used to print mid-run are no longer buried
-  under the per-band tables.
+- The end of a run now confirms success and states its differences from
+  Windows: whether the volume leveler ships off (where it does), and which
+  sound mode was built. It then separates fixes you can apply from the
+  project's one-line asks, and the warnings that used to print mid-run are no
+  longer buried under the per-band tables.
 - On the PipeWire path, a smart-filter chain now calls itself
   `<preset> (speaker filter)` in sound settings, and the run says to leave your
   speakers selected — the chain is inserted into them automatically, and
@@ -202,10 +204,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   smart-amp `amixer` line — rather than pointing at them, and the PipeWire
   side gained the report link
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53)).
-- `--dry-run` no longer prints the generated conf to stdout — it reports where
-  the conf and impulse response would be written, and nothing else. To get a
-  conf without installing it, pass `ee_to_pipewire.py --output PATH` (or
-  `dolby_to_pipewire.py --output-dir DIR --no-activate`).
+- `--dry-run` no longer prints the generated conf to stdout — on
+  `ee_to_pipewire.py` it reports where the conf and impulse response would be
+  written, and nothing else, while `dolby_to_pipewire.py` prints its full
+  generation report first. To get a conf without installing it, pass
+  `ee_to_pipewire.py --output PATH` (or `dolby_to_pipewire.py --output-dir DIR
+  --no-activate`).
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` now print everything you read
   on stdout instead of stderr, matching `dolby_to_easyeffects.py`: a run pipes
   into a file or a pager whole, and `2>/dev/null` no longer hides it.
