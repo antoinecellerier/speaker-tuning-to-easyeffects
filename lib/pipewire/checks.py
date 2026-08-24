@@ -456,8 +456,8 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
         f"{len(names)} chains ({', '.join(names)}) attach to the same sink, so "
         "PipeWire runs them one after another instead of offering a choice — "
         f"every stage is applied that many times over. Keep one of {files} and "
-        "delete the others, then restart PipeWire; the full paths are in the "
-        "Environment block above.")
+        "delete the others, then restart PipeWire; the Environment block above "
+        "gives the full path of each conf this tool installed.")
 
 
 def check_unpinned_siblings(chains) -> CheckResult | None:
@@ -1115,16 +1115,24 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     ) if c is not None]
 
     if not confs:
+        # Both routes, because either script's --doctor lands here: naming
+        # only the wrapper told an ee_to_pipewire.py reader to run something
+        # else. And the directory is the whole of what was looked at — a conf
+        # someone put elsewhere with --output is not absent, just unread.
         checks.insert(0, CheckResult(
             DOCTOR_WARN, "Installed confs",
             f"no filter-chain conf from this tool in "
             f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run dolby_to_pipewire.py on your "
-            "tuning XML first."))
+            "tuning XML (or ee_to_pipewire.py on a preset) first; confs "
+            "written elsewhere with --output aren't checked."))
     if dump is None:
         checks.append(CheckResult(
             DOCTOR_UNKNOWN, "PipeWire",
-            "pw-dump didn't answer — is the PipeWire daemon running? Most of "
-            "the checks above need the live graph."))
+            # Not "the checks above": a check that needed the graph returned
+            # None and is absent from the block, so there is nothing above for
+            # the reader to go back and re-read.
+            "pw-dump didn't answer — is the PipeWire daemon running? Several "
+            "checks need the live graph and were skipped."))
 
     facts = {
         "confs": confs,
