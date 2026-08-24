@@ -265,7 +265,10 @@ def add_filter_tweak_args(container, *, only=None):
         default=[],
         choices=list(messages.ENABLEABLE_FILTERS),
         metavar="NAME",
-        help="activate a filter that ships present but inactive "
+        # Only autogain ships a stage the preset leaves bypassed;
+        # level-restore and virtual-bass add nothing EasyEffects can see, so
+        # "ships present but inactive" was true of one name in three.
+        help="switch on an optional stage the preset leaves off "
              f"(repeatable). Valid names: {', '.join(messages.ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
              "than Windows (issue #25), or --enable level-restore "

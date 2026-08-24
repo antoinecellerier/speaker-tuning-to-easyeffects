@@ -139,7 +139,7 @@ pip install -r requirements.txt
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `coupled-bands`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`, `virtual-bass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
+- `--enable NAME` — switch on an optional stage the preset leaves off (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`, `virtual-bass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
@@ -357,7 +357,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated chain (repeatable); same names as `dolby_to_easyeffects.py`
-- `--enable NAME` — activate a filter that ships present but inactive (repeatable), e.g. `autogain`
+- `--enable NAME` — switch on an optional stage the chain leaves off (repeatable), e.g. `autogain`
 - `--volmax-slot {input-gain,output-gain}` — which regulator gain slot carries the static volmax boost (default: `input-gain`)
 
 **General**

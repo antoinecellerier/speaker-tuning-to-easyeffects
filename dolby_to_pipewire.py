@@ -63,7 +63,8 @@ _WRAPPER_HELP = {
     "prefix": "prefix for the generated sink and conf names "
               "(default: Dolby → Dolby_Balanced, etc.)",
     "disable": (("from the generated preset", "from the generated chain"),),
-    "enable": (("if the preset sounds right", "if the chain sounds right"),
+    "enable": (("the preset leaves off", "the chain leaves off"),
+               ("if the preset sounds right", "if the chain sounds right"),
                ("if the preset is quieter", "if the chain is quieter")),
 }
 
