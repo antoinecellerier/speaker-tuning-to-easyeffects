@@ -889,11 +889,25 @@ def main(argv: list[str] | None = None,
     if ("coupled-bands" in disabled
             and "coupled-bands-dropped" not in tally.filters_by_profile):
         print()
-        console._cprint_wrapped("warn", "--disable coupled-bands had no effect: this "
-                                "tuning's regulator has no 0 dBFS zone whose "
-                                "bands are all marked non-isolated "
-                                "(isolated_band), so there was nothing to "
-                                "drop. The preset is unchanged.")
+        # Three ways to get here, and only the last is about the tuning.
+        # Blaming the XML for the reader's own second flag is the mistake
+        # `disabled_by_flag` avoids on the leveler gap below.
+        if "regulator" in args.disable:
+            console._cprint_wrapped("warn", "--disable coupled-bands had no "
+                                    "effect: --disable regulator already "
+                                    "dropped the limiter it extends.")
+        elif "regulator" not in tally.filters_by_profile:
+            console._cprint_wrapped("warn", "--disable coupled-bands had no "
+                                    "effect: this tuning has no regulator to "
+                                    "extend.")
+        else:
+            # "full-scale", not "0 dBFS": the eligibility predicate is
+            # >= 0, so a zone above full scale qualifies too.
+            console._cprint_wrapped("warn", "--disable coupled-bands had no effect: this "
+                                    "tuning's regulator has no full-scale zone "
+                                    "whose bands are all marked non-isolated "
+                                    "(isolated_band), so there was nothing to "
+                                    "drop. The preset is unchanged.")
 
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there

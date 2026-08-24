@@ -470,10 +470,14 @@ def _print_regulator(tuning, disabled, verbose):
             # false, and sat one line above "Added a limit to 20 more
             # bands" (round 12).
             print()
+            # "we have it step in", not "it steps in": the coupled-bands
+            # mapping is our unvalidated reading of isolated_band
+            # (reference.md), so the sentence must not present it as
+            # something the tuning asked for.
             console._cprint_wrapped("", "Regulator (per-band limiter): your "
-                                "tuning sets no limit of its own, so it "
-                                "steps in only where a band would reach "
-                                "full volume"
+                                "tuning sets no limit of its own, so we "
+                                "have it step in only where a band would "
+                                "reach full volume"
                                 + ("" if verbose
                                    else "  (full tables with -v)"),
                             indent="  ")

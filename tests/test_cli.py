@@ -353,6 +353,30 @@ def test_disable_coupled_bands_marks_when_it_actually_dropped_zones():
     assert "coupled-bands-active" in default
 
 
+def test_disable_coupled_bands_blames_the_regulator_flag_not_the_tuning(
+        tmp_path, silence_console, capsys):
+    """--disable regulator drops the limiter coupled-bands extends, so the
+    pairing always lands in the "had no effect" branch — where the old
+    sentence told the reader their tuning had no full-scale zone, about a
+    regulator their own flag had removed."""
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--disable", "coupled-bands",
+                               "--disable", "regulator"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("--disable coupled-bands had no effect: --disable regulator "
+            "already dropped the limiter it extends." in out)
+    assert "full-scale zone" not in out
+
+    # Without the second flag the synthetic tuning's zone is eligible, so
+    # the warning has nothing to say at all.
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--disable", "coupled-bands"])
+    assert "--disable coupled-bands had no effect" not in capsys.readouterr().out
+
+
 def test_experimental_markers_exclude_coupled_bands_activation():
     """coupled-bands-active is NOT an EXPERIMENTAL_MARKERS key. It was one
     while the mapping was opt-in; once it became the default (2026-08-11)
