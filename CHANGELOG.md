@@ -187,6 +187,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged everywhere else and not yet heard on affected hardware; re-run to
   regenerate ([docs/cross-device-findings.md](docs/cross-device-findings.md)
   "Curves shipped with the optimizer switched off").
+- The hidden-speaker-pin warning no longer names a kernel version that never
+  carried the fix for your machine, or goes silent on a machine upstream fixed
+  by wrapping its speaker fixup in another one. Both came from reading
+  upstream's quirk table too literally
+  ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
+  the two parse rules in `docs/design-notes.md`).
 - On the EasyEffects path, `--doctor` no longer reports a preset, output sink
   or bypass state hours out of date: it now asks the running EasyEffects and
   PipeWire rather than a config file EasyEffects writes only on quit. It could

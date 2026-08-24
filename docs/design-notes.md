@@ -2570,6 +2570,35 @@ Design choices:
   `HDA_FIXUP_FUNC` fixups run C the parser can't read, so their target pins
   are listed explicitly in the generator, each verified against the helper; an
   unlisted helper is simply uncovered, which is the safe direction.
+- **A fixup delivers its whole chain.** `snd_hda_apply_fixup` walks
+  `.chain_id`, and upstream extends a machine by wrapping its speaker fixup
+  rather than editing it. Reading each fixup's own body alone lost those
+  wrappers: when `42597bb78a34` moved `17aa:390d` (Yoga Pro 7 14ASP10) onto
+  `ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN_HEADSET` — a headset step chaining to
+  the pin fixup — the machine dropped out of the table while every kernel
+  carrying it went on setting `0x17`. Following the chain restored it and added
+  28 further machines, mostly Dell and Acer, that reach `ALC289_FIXUP_DELL_SPK1`
+  / `_SPK2` or `ALC255_FIXUP_PREDATOR_SUBWOOFER` one hop away. Each link is
+  still filtered on its own terms, so a headset link's mic pins contribute
+  nothing. The wrapper usually has no name in the models table, so such a row
+  correctly loses its `hda_model=` — forcing the inner fixup by hand would give
+  the user the pin and skip the wrapper's own step.
+- **A quirk that changes match kind is re-dated, not carried.** `since` is
+  carried forward because what a released kernel contains cannot change — but
+  an entry re-keyed from `SND_PCI_QUIRK` to `HDA_CODEC_QUIRK` starts reaching
+  the machine through a different id, so a date recorded against the old kind
+  describes a fix that never applied. Upstream `75dc2eda659f` (7.3,
+  `Cc: stable`) found exactly that on the Yoga Slim 7 14AKP10: its PCI SSID is
+  `17aa:38b4`, shared with the Legion Slim 7 16IRH8 whose PCI quirk matched
+  first, so the `17aa:391a` entry added for it had been dead since it landed.
+  Carried forward, our table would have gone on telling a 14AKP10 owner on 7.2
+  that "Linux 7.0 carries this fix … something on this machine is stopping it".
+  **The residual limitation:** we mirror `snd_hda_pick_fixup`'s matching but not
+  its *ordering*, so another machine's earlier PCI entry shadowing this
+  machine's codec entry stays invisible — and that shadowing is what made
+  `391a` dead. Modelling it needs the whole ordered table, including the
+  entries that add no pins; upstream fixes these one machine at a time, so the
+  cheap guard is that a re-keying re-dates the row.
 - **The matching codec must own the pins.** A PCI-keyed entry identifies the
   *machine*, not a codec, so lending that id to whichever codec is being
   iterated let an HDMI codec with one spare output pin raise a warning naming

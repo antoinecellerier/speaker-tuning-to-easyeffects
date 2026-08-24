@@ -172,6 +172,102 @@ def test_pin_adding_fixups_ignores_whole_machine_pin_maps():
     assert pin_adding_fixups(src)["ALC290_FIXUP_SUBWOOFER"] == ("0x17",)
 
 
+def test_a_fixup_delivers_the_pins_its_chain_adds():
+    """Upstream extends a machine by wrapping its speaker fixup, not editing
+    it: 17aa:390d moved to ..._BASS_SPK_PIN_HEADSET, which adds a headset jack
+    and chains to the pin fixup. Reading only a fixup's own body drops that
+    machine from the table while every kernel carrying it still sets pin 0x17.
+    The wrapper also has no name in the models table, so the row correctly
+    loses its hda_model= — forcing the inner fixup by hand would skip the
+    headset step."""
+    src = FIXUP_DEFS + """\
+\t[ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN_HEADSET] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc_fixup_headset_jack,
+\t\t.chained = true,
+\t\t.chain_id = ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN,
+\t},
+""" + MODELS + """\
+\tSND_PCI_QUIRK(0x17aa, 0x390d, "Lenovo Yoga Pro 7 14ASP10", ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN_HEADSET),
+"""
+    model, pins, _codec_only = parse_quirks(src)[(0x17AA, 0x390D)]
+    assert pins == "0x17"
+    assert model == ""
+
+
+def test_a_chain_link_that_is_not_a_speaker_fixup_contributes_nothing():
+    """Each link is filtered on its own terms. A headset-mic pin table is not
+    a speaker pin table, so wrapping a speaker fixup in one must add 0x17 and
+    nothing else — pulling in 0x19 would tell a user their mic pin is a
+    missing speaker."""
+    from tools.update_speaker_pin_quirks import pin_adding_fixups
+    src = FIXUP_DEFS + """\
+\t[ALC287_FIXUP_HEADSET_THEN_BASS] = {
+\t\t.type = HDA_FIXUP_PINS,
+\t\t.v.pins = (const struct hda_pintbl[]) {
+\t\t\t{ 0x19, 0x03a11050 },
+\t\t\t{ }
+\t\t},
+\t\t.chained = true,
+\t\t.chain_id = ALC290_FIXUP_SUBWOOFER,
+\t},
+"""
+    assert pin_adding_fixups(src)["ALC287_FIXUP_HEADSET_THEN_BASS"] == ("0x17",)
+
+
+def test_a_chained_before_wrapper_delivers_its_target_pins():
+    """__snd_hda_apply_fixup recurses into chain_id *before* applying a
+    `.chained_before` fixup, so the target's pins land either way. Reading only
+    `.chained` would drop such a machine the moment upstream wraps a speaker
+    fixup that way — the silent drop this whole rule exists to stop."""
+    from tools.update_speaker_pin_quirks import pin_adding_fixups
+    src = FIXUP_DEFS + """\
+\t[ALC287_FIXUP_BEFORE_BASS] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc_fixup_headset_jack,
+\t\t.chained_before = true,
+\t\t.chain_id = ALC290_FIXUP_SUBWOOFER,
+\t},
+"""
+    assert pin_adding_fixups(src)["ALC287_FIXUP_BEFORE_BASS"] == ("0x17",)
+
+
+def test_an_inert_chain_id_is_not_followed():
+    """``.chain_id`` without ``.chained = true`` is dead source the kernel
+    never walks, so neither may we."""
+    from tools.update_speaker_pin_quirks import pin_adding_fixups
+    src = FIXUP_DEFS + """\
+\t[ALC287_FIXUP_NOT_CHAINED] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc_fixup_headset_jack,
+\t\t.chain_id = ALC290_FIXUP_SUBWOOFER,
+\t},
+"""
+    assert "ALC287_FIXUP_NOT_CHAINED" not in pin_adding_fixups(src)
+
+
+def test_a_chain_that_loops_terminates():
+    """A malformed source must fail the size rails, not hang the weekly run."""
+    from tools.update_speaker_pin_quirks import pin_adding_fixups
+    src = FIXUP_DEFS + """\
+\t[ALC287_FIXUP_LOOP_A] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc_fixup_headset_jack,
+\t\t.chained = true,
+\t\t.chain_id = ALC287_FIXUP_LOOP_B,
+\t},
+\t[ALC287_FIXUP_LOOP_B] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc_fixup_headset_jack,
+\t\t.chained = true,
+\t\t.chain_id = ALC287_FIXUP_LOOP_A,
+\t},
+"""
+    found = pin_adding_fixups(src)
+    assert "ALC287_FIXUP_LOOP_A" not in found
+    assert found["ALC290_FIXUP_SUBWOOFER"] == ("0x17",)
+
+
 def test_parse_quirks_first_match_wins():
     """The kernel walks its table in order, so a duplicate id must resolve the
     same way here."""
@@ -271,6 +367,33 @@ def test_an_entry_new_to_the_table_is_dated_from_the_releases():
     del current[(0x17AA, 0x386A)]
     entries = build_entries(QUIRK_SOURCE, [("v7.2", QUIRK_SOURCE)], current)
     assert entries[(0x17AA, 0x386A)][2] == "7.2"
+
+
+def test_a_row_that_changes_match_kind_is_re_dated_not_carried():
+    """Upstream re-keying an entry from SND_PCI_QUIRK to HDA_CODEC_QUIRK means
+    the PCI-keyed one had never matched — 75dc2eda659f found exactly that on
+    the Yoga Slim 7 14AKP10, whose PCI id belongs to another machine. Carrying
+    the old date would tell that owner the fix reached them releases ago and
+    something local is blocking it, when nothing ever reached them."""
+    recoded = QUIRK_SOURCE.replace(
+        '\tSND_PCI_QUIRK(0x17aa, 0x3801, "Lenovo Yoga9 14IAP7", ',
+        '\tHDA_CODEC_QUIRK(0x17aa, 0x3801, "Lenovo Yoga9 14IAP7", ')
+    entries = build_entries(recoded, [("v7.2", QUIRK_SOURCE),
+                                      ("v7.1", QUIRK_SOURCE)], _dated("6.5"))
+    assert entries[(0x17AA, 0x3801)][3] is True
+    assert entries[(0x17AA, 0x3801)][2] == ""   # no release carries it this way
+    assert entries[(0x17AA, 0x386A)][2] == "6.5"  # kind unchanged, still carried
+
+
+def test_re_dating_a_flipped_row_finds_the_release_carrying_the_new_kind():
+    """The other half: once a release ships the re-keyed entry, that release is
+    the answer — not the older ones that carried the dead PCI-keyed one."""
+    recoded = QUIRK_SOURCE.replace(
+        '\tSND_PCI_QUIRK(0x17aa, 0x3801, "Lenovo Yoga9 14IAP7", ',
+        '\tHDA_CODEC_QUIRK(0x17aa, 0x3801, "Lenovo Yoga9 14IAP7", ')
+    entries = build_entries(recoded, [("v7.3", recoded),
+                                      ("v7.2", QUIRK_SOURCE)], _dated("6.5"))
+    assert entries[(0x17AA, 0x3801)][2] == "7.3"
 
 
 def test_a_recorded_value_newer_than_the_releases_is_still_carried():

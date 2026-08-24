@@ -121,6 +121,16 @@ def fetch_source(ref: str) -> str:
 _FIXUP_BLOCK_RE = re.compile(r"^\t\[(\w+)\] = \{$", re.M)
 _PINTBL_RE = re.compile(r"\{\s*(0x[0-9a-f]{2}),\s*(0x[0-9a-f]{8})\s*\}")
 _FUNC_RE = re.compile(r"\.v\.func = (\w+)")
+# A fixup that adds no pins itself can still deliver them by chaining to one
+# that does — how upstream adds a headset or amp step to an existing speaker
+# fixup without touching it (ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN_HEADSET).
+# ``.chain_id`` is inert without a ``.chained``/``.chained_before`` flag, so
+# both parts are required. ``chained_before`` delivers the same pins by the
+# other order — __snd_hda_apply_fixup recurses into chain_id first, then
+# applies the wrapper — so for "which pins end up declared" the two are one
+# case.
+_CHAINED_RE = re.compile(r"\.chained(?:_before)? = true\b")
+_CHAIN_ID_RE = re.compile(r"\.chain_id = (\w+)")
 _MODEL_NAME_RE = re.compile(r'\{\.id = (\w+), \.name = "([^"]+)"\}')
 
 
@@ -131,6 +141,16 @@ def pin_adding_fixups(src: str,
     Two shapes: an ``HDA_FIXUP_PINS`` table we read directly, and an
     ``HDA_FIXUP_FUNC`` whose helper is in ``_FUNC_FIXUP_PINS``.
 
+    Both are then resolved through ``.chain_id``, because a fixup delivers its
+    whole chain — ``snd_hda_apply_fixup`` walks it — and upstream extends a
+    machine by wrapping its speaker fixup in a new one rather than editing it.
+    Reading a fixup's own body alone loses those: 17aa:390d (Yoga Pro 7 14ASP10)
+    moved to ``..._BASS_SPK_PIN_HEADSET``, which adds a headset jack and chains
+    to the pin fixup, and the machine dropped out of the table while still
+    getting pin 0x17 from every kernel that carries it. Each link is filtered on
+    its own — a headset link's mic pins are not speaker pins and contribute
+    nothing — and the surviving pins are unioned in chain order.
+
     ``require_helpers`` asserts every hand-listed helper is still present, and
     belongs only to the *mainline* parse. The historical release sources are
     read with it off: a helper legitimately does not exist in releases older
@@ -138,21 +158,39 @@ def pin_adding_fixups(src: str,
     first appears in 6.15), and treating that as a rename would abort every
     run.
     """
-    found: dict[str, tuple[str, ...]] = {}
+    own: dict[str, tuple[str, ...]] = {}
+    chain: dict[str, str] = {}
     seen_helpers: set[str] = set()
     starts = [(m.group(1), m.start()) for m in _FIXUP_BLOCK_RE.finditer(src)]
     for i, (name, start) in enumerate(starts):
         end = starts[i + 1][1] if i + 1 < len(starts) else len(src)
         body = src[start:end]
+        target = _CHAIN_ID_RE.search(body)
+        if target and _CHAINED_RE.search(body):
+            chain[name] = target.group(1)
         func = _FUNC_RE.search(body)
         if func and func.group(1) in _FUNC_FIXUP_PINS:
-            found[name] = _FUNC_FIXUP_PINS[func.group(1)]
+            own[name] = _FUNC_FIXUP_PINS[func.group(1)]
             seen_helpers.add(func.group(1))
             continue
         pins = _PINTBL_RE.findall(body)
         if (pins and len(pins) <= _MAX_PINS
                 and all(_SPEAKER_PINCFG.match(cfg) for _, cfg in pins)):
-            found[name] = tuple(node for node, _ in pins)
+            own[name] = tuple(node for node, _ in pins)
+
+    def through_chain(name: str) -> tuple[str, ...]:
+        """*name*'s pins plus every pin its chain goes on to add."""
+        nodes: list[str] = []
+        walked: set[str] = set()
+        while name and name not in walked:
+            walked.add(name)
+            nodes += [n for n in own.get(name, ()) if n not in nodes]
+            name = chain.get(name, "")
+        return tuple(nodes)
+
+    found = {name: nodes
+             for name in set(own) | set(chain)
+             if (nodes := through_chain(name))}
 
     # A hand-listed helper that no longer appears is the one failure the
     # whole-table size rails cannot see: renaming
@@ -294,6 +332,14 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
     release yet) and ones appearing here for the first time. Pass ``None`` to
     re-derive every value from scratch, which is what ``--rescan`` is for.
 
+    Match kind counts as part of an entry's identity. One that flips from
+    ``SND_PCI_QUIRK`` to ``HDA_CODEC_QUIRK`` starts reaching the machine through
+    a different id, so a date recorded against the old kind describes a fix the
+    user was never getting: such a row is re-dated, and a release only counts as
+    carrying it if it carries it the same way. Upstream reads the flip the same
+    way — ``75dc2eda659f`` re-keyed the Yoga Slim 7 14AKP10 with a ``Cc: stable``
+    because its PCI-keyed entry had been shadowed, and dead, since it landed.
+
     Carrying it is what keeps the weekly diff honest. Re-deriving reaches the
     same answer for most rows, but an entry older than the oldest release we
     reach can only be recorded as *that* release — so each time the window slid
@@ -311,9 +357,10 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
                          "parse bug or a renamed fixup")
 
     since = {key: recorded
-             for key, (_model, _pins, recorded, _codec_only)
+             for key, (_model, _pins, recorded, codec_only)
              in (current or {}).items()
-             if recorded and key in mainline}
+             if recorded and key in mainline
+             and codec_only == mainline[key][2]}
     undated = set(mainline) - set(since)
 
     # Walking newest→oldest, each release the entry survives in overwrites the
@@ -329,7 +376,8 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
             present = parse_quirks(src)
             scanned += 1
             for key in sorted(undated):
-                if key in present:
+                match = present.get(key)
+                if match and match[2] == mainline[key][2]:
                     since[key] = tag.lstrip("v")
                 else:
                     undated.discard(key)
