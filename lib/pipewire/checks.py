@@ -549,9 +549,12 @@ def check_conf_contents(confs) -> CheckResult | None:
 def check_irs_present(confs) -> CheckResult | None:
     """An impulse response a conf names but that isn't on disk.
 
-    The convolver then loads nothing and the speaker correction — the part
-    that makes this device-specific at all — is simply absent, with the rest
-    of the chain still running so it doesn't sound broken enough to notice.
+    A convolver whose file can't be read fails to instantiate, which fails the
+    graph — and the conf carries `nofail`, so PipeWire skips the whole file
+    rather than refusing to start. The loss is therefore the entire tuning,
+    not just the speaker correction: static analysis of module-filter-chain,
+    not something heard on a machine, which is why the sentence stops at what
+    PipeWire does with the conf.
     """
     missing = {irs.name: c.path.name for c in confs for irs in c.irs
                if not irs.exists()}
@@ -562,9 +565,10 @@ def check_irs_present(confs) -> CheckResult | None:
     return CheckResult(
         DOCTOR_FAIL, "Impulse response missing",
         f"{len(missing)} impulse file(s) named by a conf aren't there: "
-        f"{shown}{more}. The speaker correction is silently doing nothing — "
-        "the rest of the chain still runs, so it won't sound broken enough to "
-        "notice. Re-run the converter to copy it back beside the conf.")
+        f"{shown}{more}. A convolver with no file stops the whole conf "
+        "loading, so none of the tuning runs (PipeWire keeps playing "
+        "unprocessed). Re-run the converter to copy it back beside the conf — "
+        "with --no-copy-irs, restore the original .irs instead.")
 
 
 def check_targets_exist(chains, sinks, dump) -> CheckResult | None:
