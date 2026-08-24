@@ -301,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
             console.cprint("err", "error: couldn't tell which sink drives your "
                           "speakers, so the chains can't be kept apart. Name "
                           "it with --target-object <node.name> (pw-cli ls "
-                          "Node lists them), or install one at a time")
+                          "Node lists them), or install just one voicing (a "
+                          "single chain needs no pin)")
             return 1
 
     node_names: list[str] = []
@@ -385,11 +386,16 @@ def main(argv: list[str] | None = None) -> int:
                 console.cprint("dim", f"      (each plays into {pin_target} — pinned "
                               "so choosing one doesn't route the others "
                               "through it)")
-        if args.variant != "all" and not args.all_profiles:
+        if args.variant != "all":
             others = [v for v in VARIANT_STEMS if v != args.variant]
+            # --all-profiles used to suppress this, on the run that needs it
+            # most: 27 presets staged, 9 converted, and the two voicings left
+            # behind were the least visible thing on a screen full of names.
+            scope = " for any profile" if args.all_profiles else ""
+            each = " of each profile" if args.all_profiles else ""
             # Prose gets the capitalized names; the Pass sentence keeps
             # the lowercase flag values (round 10).
-            console.cprint("dim", "      The other voicings are not converted: "
+            console.cprint("dim", f"      The other voicings are not converted{scope}: "
                           + ", ".join(o.capitalize() for o in others) + ".")
             # Says what --variant all gets the user ("a sink each" named an
             # internal object; what they see is another output to switch to
@@ -400,8 +406,8 @@ def main(argv: list[str] | None = None) -> int:
             # explanation above uses (round 10: a reader would guess
             # --voicing next week).
             console.cprint("dim", f"      Pass {alts} to convert another voicing, or "
-                          "--variant all --target-sink '' to get all three as "
-                          "outputs you can switch between in your sound "
+                          f"--variant all --target-sink '' to get all three{each} "
+                          "as outputs you can switch between in your sound "
                           "settings.")
         step2_common = (rebuild_argv(step2_actions, args)
                         + ["--irs-dir", tmp, "--skip-next-steps"])

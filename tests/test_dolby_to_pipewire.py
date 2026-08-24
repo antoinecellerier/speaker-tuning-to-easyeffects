@@ -246,6 +246,17 @@ def test_routing_variant_selects_stems(recorders):
                      "Dolby-Warm.json"]
 
 
+def test_all_profiles_still_names_the_voicings_it_dropped(recorders, capsys):
+    """--all-profiles is the run that stages every profile of every voicing
+    and converts one voicing's worth, so the two it left behind are the least
+    visible thing on screen — and were the only run that never said so."""
+    assert wrapper_main(["--all-profiles", "--target-sink", "",
+                         "--no-activate"]) == 0
+    out = capsys.readouterr().out
+    assert "The other voicings are not converted for any profile:" in out
+    assert "Detailed" in out and "Warm" in out
+
+
 # --- One chain per target ---------------------------------------------------
 #
 # Chains sharing a filter.smart.target are run in SERIES by WirePlumber, not
