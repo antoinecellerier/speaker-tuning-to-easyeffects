@@ -5,8 +5,9 @@
 trigger value never occurs in the corpus has no example to show — and stays
 unread. Three of the generator's twelve findings are in that position:
 `regulator-overdrive` is 0 on every corpus row, `regulator-relaxation-amount`
-is 96 on every row, and every device selects `ieq_balanced`. The very
-universality those messages assert is what makes them unreachable.
+is 96 on every row, and all but one device (two files) select
+`ieq_balanced`. The very universality those messages assert is what makes
+them unreachable.
 
 This patches one field of a real XML to an off-default value and runs the
 generator on the result, so the copy is read in the surroundings it would

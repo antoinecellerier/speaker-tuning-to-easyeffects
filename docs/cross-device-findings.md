@@ -595,12 +595,16 @@ Current-cohort IEQ=10 share (when `ieq_enable=1`):
 | game        | 100%   | —         |
 | voice       | 100%   | —         |
 
-No device selects any preset other than `ieq_balanced` — but "all devices use it"
-overstates the data: of the 4131 IEQ-enabled rows, **3817 name `ieq_balanced` and
-314 declare no `ieq-bands-set` at all**, falling back to the same curve by default
-rather than choosing it. The IEQ amount scales the intelligent EQ curve (room
-correction); music profiles occasionally reduce it. The near-universal IEQ=10
-means the full curve should be applied in most cases.
+All but one device selects `ieq_balanced` — the two issue-#21 Apple Boot Camp
+XMLs name `ieq_detailed` on the `music` profile (re-derived 2026-08-24 through
+the parser's own lookup; their `PCI_`-spelled filenames are among the spellings
+the pre-2026-08-09 sweep skipped, so the row counts below don't include them).
+Even so, "all devices use it" overstates the data: of the 4131 IEQ-enabled rows,
+**3817 name `ieq_balanced` and 314 declare no `ieq-bands-set` at all**, falling
+back to the same curve by default rather than choosing it. The IEQ amount
+scales the intelligent EQ curve (room correction); music profiles occasionally
+reduce it. The near-universal IEQ=10 means the full curve should be applied in
+most cases.
 
 ---
 

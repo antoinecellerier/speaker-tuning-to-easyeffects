@@ -820,11 +820,14 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//ieq-bands-set", "ieq-preset",
         lambda el: (el.get("preset") or "ieq_balanced") != "ieq_balanced",
+        # "almost every", not "every": re-derived through resolve_xml_value
+        # on 2026-08-24, two corpus files (the issue #21 Apple Boot Camp
+        # XMLs) select ieq_detailed on internal_speaker/normal/music.
         lambda el: (
             f"ieq-bands-set preset={el.get('preset')!r} — this XML names a "
-            "non-balanced curve as the profile default, but every device in "
-            "our corpus uses 'ieq_balanced'. We still emit the usual "
-            "Balanced/Detailed/Warm presets."),
+            "non-balanced curve as the profile default, but almost every "
+            "device in our corpus uses 'ieq_balanced'. We still emit the "
+            "usual Balanced/Detailed/Warm presets."),
         lambda el: ("Your tuning defaults to a non-balanced voicing — which "
                     "of the three presets sounds closest?")),
     _UnmodeledFeature(
