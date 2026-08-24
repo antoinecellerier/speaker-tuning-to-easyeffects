@@ -2044,6 +2044,21 @@ def test_next_steps_tell_a_smart_filter_user_to_leave_it_alone(
         "selecting the chain is the mistake in this mode, not the instruction"
 
 
+def test_the_way_out_of_v1_is_offered_only_to_an_unpinned_chain(
+        generated, tmp_path, capsys):
+    """"Drop the flag" is advice dolby_to_pipewire.py refuses on the run that
+    pins each playback side, and it printed once per variant there."""
+    _run_main(generated, tmp_path, "--target-sink", "")
+    out = capsys.readouterr().out
+    assert "without --target-sink ''" in out
+    _run_main(generated, tmp_path, "--target-sink", "", "--force",
+              "--target-object", "alsa_output.stub__Speaker__sink")
+    pinned = capsys.readouterr().out
+    assert "without --target-sink ''" not in pinned
+    # The consequence of the mode is not conditional — only the way out is.
+    assert "volume control of its own" in pinned
+
+
 def test_detection_failure_still_says_the_chain_is_inert(
         generated, tmp_path, capsys, monkeypatch):
     """The fallback nobody asked for: detection failed, so a v1 conf is written

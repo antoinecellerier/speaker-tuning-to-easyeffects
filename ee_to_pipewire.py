@@ -472,10 +472,18 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # Detail at the detection site, where the flag that caused it is still
         # in view: this is the mode where the reader has to pick the chain as
         # their output, which is what puts two volume controls in the path.
+        # The way out of the mode, but only for a chain nobody pinned: a
+        # pinned playback side is how dolby_to_pipewire.py installs several at
+        # once, and there dropping the flag is refused outright, so on that run
+        # this is advice the tool turns down — printed once per variant.
+        # "the only control you touch", not "one volume control": the chain
+        # sink keeps a volume in smart-filter mode too, and it still
+        # attenuates. What changes is that nothing puts you on that slider.
+        undo = ("; without --target-sink '' it attaches to your speakers "
+                "instead — nothing to select, and the speaker's is then the "
+                "only control you touch" if args.target_object is None else "")
         console._cprint_wrapped(
-            "dim", f"  ({install.V1_SECOND_VOLUME_HINT}; drop --target-sink '' "
-            "to attach it to your speakers instead, with nothing to select and "
-            "one volume control)", indent="   ")
+            "dim", f"  ({install.V1_SECOND_VOLUME_HINT}{undo})", indent="   ")
         # The reading, where the flag that causes it is still in view. Advice
         # ("leave them at 100%") is not the same as a diagnosis ("they are at
         # 40%"), and once this sink is selected the speaker's own level is
