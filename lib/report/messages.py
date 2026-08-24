@@ -128,8 +128,8 @@ ENABLEABLE_FILTERS = {
     # claim pinned to one device — nothing has been auditioned anywhere else
     # — but state it as something that happened, not something that might.
     "level-restore": ("it sounds quieter than with the preset switched off",
-                      "experimental; loud speech distorted on the one "
-                      "device tested (issue #50)"),
+                      "experimental; loud speech picked up artifacts on the "
+                      "one device we listened to (issue #50)"),
     # The caveat names the path restriction, not a sound risk: the stage is
     # a parallel graph EasyEffects cannot express, so a standalone EE run
     # gains nothing audible from the flag — only the PipeWire conf does.

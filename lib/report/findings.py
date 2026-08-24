@@ -272,10 +272,15 @@ def _level_restore_finding() -> Finding:
     """
     return Finding(
         slug="level-restore", kind="ask",
-        detail="Restored level is on: the correction curve is handed back "
-               "as gain, so every band plays louder and the final limiter "
-               "has more to hold back. On the one device it has been "
-               "listened to, loud speech picked up audible artifacts.",
+        # What comes back is the scalar peak make_fir normalised the curve
+        # by, not the curve — and "louder" holds because that peak is
+        # positive on every tuning we hold (build.py only gates on != 0;
+        # 0 of 3419 corpus XMLs trim by a negative peak, 2026-08-24).
+        detail="Restored level is on: the level the correction curve was "
+               "trimmed by is handed back as gain, so every band plays "
+               "louder and the final limiter has more to hold back. On the "
+               "one device it has been listened to, loud speech picked up "
+               "audible artifacts.",
         # No --disable volmax here: the boost-unlimited/loudness-untamed ask
         # owns that remedy's wording, and two phrasings for one fix read as
         # two different fixes.
