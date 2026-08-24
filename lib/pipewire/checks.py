@@ -740,7 +740,8 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
             f"{names} {'are plain virtual sinks' if plural else 'is a plain virtual sink'}, "
             f"so {'each' if plural else 'it'} only processes what is played to "
             f"{'them' if plural else 'it'} — and {where}, so nothing is going "
-            f"through {'any of them' if plural else 'it'}. Pick "
+            f"through {'any of them' if plural else 'it'} unless an app was "
+            f"pointed at {'one' if plural else 'it'} directly. Pick "
             f"{'one' if plural else 'it'} in your sound settings.")
         if not plural:
             # Only for a single chain: the converter refuses smart-filter
