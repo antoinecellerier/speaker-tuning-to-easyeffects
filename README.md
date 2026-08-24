@@ -257,7 +257,7 @@ The default converts the **Balanced** voicing — Dolby's default voicing. `--va
 
 The conf lands in `~/.config/pipewire/pipewire.conf.d/` and attaches transparently to your internal-speaker sink — apps keep targeting the speaker, while HDMI / Bluetooth / USB outputs bypass it automatically. Stereo only. It covers the convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus `bass_enhancer` / `stereo_tools`; an active volume leveler (`autogain`) is translated too, and only 4-channel upmix isn't (see [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps)).
 
-- **Already run EasyEffects?** Quit it — or remove its autoload for this device — before activating, or both chains process the audio at once. Restarting PipeWire stops it for the session anyway, so whatever it was applying stops too.
+- **Already run EasyEffects?** Quit it and stop it starting again (its Background Service and autostart, or remove its autoload) before activating, or both chains process the audio at once. Restarting PipeWire stops it for the session anyway, so whatever it was applying stops too.
 - **No sound, or it doesn't sound right?** `python3 dolby_to_pipewire.py --doctor` reports what's installed, what PipeWire is doing with it, and the command to fix each problem it finds.
 - **To remove the filter:** delete `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` (and the `.irs` beside it), then restart pipewire.
 
