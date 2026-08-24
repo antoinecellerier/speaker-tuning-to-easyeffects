@@ -220,8 +220,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # the one admission that the flag's audible half is elsewhere printed
     # mid-run, so a closing-block reader installs the presets, hears no
     # bass change, and has no idea why.
-    vbass_note = ("  The virtual-bass fix you enabled is not in these "
-                  "presets — EasyEffects can't play it; "
+    # "not in these presets" was false of the values: the _vbe block IS
+    # written, for the converter to read — it is the audible stage EE can't
+    # express. And it is a stage, not a "fix".
+    vbass_note = ("  The virtual-bass stage you enabled is one EasyEffects "
+                  "can't play — these presets only record its values; "
                   "dolby_to_pipewire.py builds it into a PipeWire chain "
                   "instead.")
     # The mismatch echo mirrors the autogain-note pattern (round 10): the

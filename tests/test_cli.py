@@ -248,7 +248,8 @@ def test_virtual_bass_reaches_the_closing_block(tmp_path, silence_console,
                                "--enable", "virtual-bass"])
     out = " ".join(capsys.readouterr().out.split())
     assert "would carry it for dolby_to_pipewire.py" in out
-    assert "The virtual-bass fix you enabled is not in these presets" in out
+    assert ("The virtual-bass stage you enabled is one EasyEffects can't play"
+            in out)
     assert "recorded" not in out
 
 

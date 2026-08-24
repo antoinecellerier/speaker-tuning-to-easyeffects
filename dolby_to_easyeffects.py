@@ -876,11 +876,25 @@ def main(argv: list[str] | None = None,
                                         "dolby_to_pipewire.py to hear it.")
         else:
             print()
-            if is_soundwire:
+            if is_soundwire and "bass-enhancer" in args.disable:
                 console._cprint_wrapped("warn", "--enable virtual-bass had no "
-                                        "effect: SoundWire tunings already "
-                                        "ship a bass-enhancer stage covering "
-                                        "this gap. The preset is unchanged.")
+                                        "effect: it isn't built for SoundWire "
+                                        "tunings (their bass-enhancer "
+                                        "stand-in was dropped by --disable "
+                                        "bass-enhancer). The preset is "
+                                        "unchanged.")
+            elif is_soundwire:
+                # "our stage", not the tuning's: bass_enh_enable is 0 on
+                # every corpus row, so the XML never asks for one. Load-
+                # bearing — "SoundWire tunings ship a bass-enhancer" credited
+                # Dolby with a stage this converter invents from the PEQ.
+                console._cprint_wrapped("warn", "--enable virtual-bass had no "
+                                        "effect: it isn't built for SoundWire "
+                                        "tunings — their presets already "
+                                        "carry our bass-enhancer stage "
+                                        "standing in for it (an "
+                                        "approximation, not the Dolby one). "
+                                        "The preset is unchanged.")
             else:
                 console._cprint_wrapped("warn", "--enable virtual-bass had no "
                                         "effect: this XML has no usable "
