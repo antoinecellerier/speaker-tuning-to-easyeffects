@@ -100,6 +100,18 @@ _AMP_FAMILIES = (
     # (max98390.c err path), so we collect its log lines but flag nothing.
     (("max98373", "max98390", "max98363", "max98396"),
      (), ("max98",), ""),
+    # TI TAC5XX2, a SoundWire smart amp on recent Intel laptops — it sits in
+    # the Meteor Lake ACPI match table (soc-acpi-intel-mtl-match.c) with real
+    # ADR entries, though no named model has been reported here yet. Listed
+    # anyway because `tac5` matches nothing else in the tree, so the row either
+    # finds a real amp or stays silent. Firmware is named per machine —
+    # "<part>-<pci-subsys>-<link>-<unique>.bin", else a "tac5xx2"/"tas2883"
+    # prefix — so the glob catches the prefixed form only; the SSID form has no
+    # distinguishing prefix to match on. Markers from tac5xx2-sdw.c: l.1547,
+    # l.1555, l.1595, l.1661.
+    (("tac5",), ("tac5*.bin", "tas2883*.bin"), ("tac5",),
+     r"firmware size mismatch|firmware with no files"
+     r"|fw file: .* is empty or invalid|firmware download failed"),
     # Qualcomm WSA smart speaker amps — the whole Snapdragon-laptop speaker
     # path: ThinkPad X13s ships a WSA8830 (wsa883x), while the T14s, Yoga Slim
     # 7x, ThinkBook 16, ASUS Zenbook A14 and HP OmniBook X14 ship WSA8845

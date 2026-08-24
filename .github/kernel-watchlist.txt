@@ -40,13 +40,12 @@ samsung
 aw88399
 awinic
 
-# watch: standing — TI TAC5XX2, a SoundWire smart amp we can see coming but
-# cannot yet detect. It loads firmware and sits in Intel's Meteor Lake ACPI
-# match table (soc-acpi-intel-mtl-match.c, tac5572_0_adr / tac5672_0_adr), so
-# current-generation Intel laptops can bind it — but no named model ships it
-# yet, and a row in _AMP_FAMILIES would assert an amp nobody has reported.
-# Watch until a machine turns up, then add the family (`tac5` is collision-free
-# against every existing token).
+# watch: standing — TI TAC5XX2, a SoundWire smart amp in Intel's Meteor Lake
+# ACPI match table (soc-acpi-intel-mtl-match.c, tac5572_0_adr / tac5672_0_adr).
+# amps.py carries the family already, so this is not waiting on the driver: it
+# watches for the first *named machine*, which is what would let us put a model
+# in the tested table and check the firmware-name guess in the row's globs
+# against a real one.
 tac5xx2
 
 # watch: #39 ROG Xbox Ally X — ALC294 HDA + TAS2781 smart amp; UEFI-calibration

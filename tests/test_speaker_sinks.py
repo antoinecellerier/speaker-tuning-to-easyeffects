@@ -944,6 +944,7 @@ def test_detector_probes_channels_from_the_sink_ports(tmp_path, monkeypatch,
     ("snd_soc_max98357a", False),  # dumb I2S Class-D, no DSP
     ("snd_soc_wsa884x", True),    # Qualcomm WSA on a Snapdragon laptop
     ("wcd938x", False),           # ...and the jack codec sharing its bus
+    ("snd_soc_tac5xx2_sdw", True),
 ])
 def test_detector_keeps_non_amps_out_of_the_speaker_count(tmp_path, monkeypatch,
                                                           driver, is_amp):
@@ -1057,6 +1058,8 @@ def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
     # Qualcomm WSA on Snapdragon laptops: VISENSE protection, no blob to find.
     ("snd_soc_wsa884x", False, "wsa88"),
     ("wsa883x", False, "wsa88"),
+    # TI TAC5XX2: SoundWire, Meteor Lake, and it *does* ship a blob.
+    ("snd_soc_tac5xx2_sdw", True, "tac5"),
 ])
 def test_amp_firmware_profile_known(driver, has_globs, kw):
     globs, keywords = amps._amp_firmware_profile(driver)
@@ -1086,6 +1089,7 @@ def test_amp_families_failure_markers():
     # Qualcomm loads no blob, so like Maxim it carries no honest tell — and an
     # empty marker must not reach the OR-join below.
     assert markers["wsa88"] == ""
+    assert markers["tac5"]
     assert markers["max98373"] == ""
     # The compiled union must be exactly the non-empty family markers, OR-joined.
     assert amps._AMP_LOG_ERROR_RE.pattern == "|".join(
@@ -1110,6 +1114,13 @@ def test_amp_families_failure_markers():
     # file, which is what keeps them off the success line below.
     ("aw88399-hda i2c-AWDZ8399:00: request [aw88399_acf.bin] failed!", True),
     ("aw88395 5-0034: load [aw88395_acf.bin] failed!", True),
+    # TAC5XX2 — its firmware name is built per machine, so the markers key on
+    # the driver's own wording rather than any filename.
+    ("tac5xx2-sdw sdw:0:1:0102:5572:01: firmware with no files", True),
+    ("tac5xx2-sdw sdw:0:1:0102:5572:01: Firmware download failed: -2", True),
+    ("tac5xx2-sdw sdw:0:1:0102:5572:01: fw file: tac5572-0-1.bin is empty "
+     "or invalid", True),
+    ("tac5xx2-sdw sdw:0:1:0102:5572:01: firmware ready, 3 files", False),
     # The driver names the same file on the way *in*; matching the filename
     # alone would call a healthy load a failure.
     ("snd_hda_scodec_aw88399: loaded aw88399_acf.bin - size: 91234", False),

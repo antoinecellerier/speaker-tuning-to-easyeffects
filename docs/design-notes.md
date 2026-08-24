@@ -3397,6 +3397,16 @@ row carries no globs and no failure marker; a failure here shows up as an
 unbound peripheral, which the enumerator already reports as its one hard
 verdict. The single token `wsa88` also covers the wsa885x that arrived in 7.3.
 
+**TI TAC5XX2** (added 2026-08-24). A SoundWire smart amp sitting in Intel's
+Meteor Lake ACPI match table (`soc-acpi-intel-mtl-match.c`, `tac5572_0_adr` /
+`tac5672_0_adr`), so recent Intel laptops can bind it — though no named model
+has been reported to us. Included anyway on the grounds that `tac5` matches
+nothing else in the kernel tree, so the row either finds a real amp or stays
+silent; there is no third outcome to weigh it against. The one thing it asserts
+that we have not seen is the firmware-name guess in its globs: the driver builds
+the name per machine, and only the prefixed form is greppable. The watchlist
+entry now waits on a machine, not on the driver.
+
 ### Swept and rejected
 
 From a sweep of every codec driver in mainline against the criterion above.
@@ -3412,7 +3422,6 @@ Recorded so the next audit starts here rather than re-deriving it:
 | AW87390 | Loads firmware, and `aw88` does *not* catch it (aw**87**) — but nothing binds it on Intel, AMD, a Qualcomm DT or HDA. |
 | TAS675x, TAS5805M, RTQ9124, fs-amp-lib | No laptop binding of any kind. |
 | CS42L43, RT712/721/722, ES9356 | Combo jack-plus-amp codecs. Counting them would inflate the speaker count; CS42L43 is the Zenbook S14's jack codec (issue #29) and is excluded on purpose. |
-| TAC5XX2 | Genuinely a SoundWire smart amp, and Intel's Meteor Lake match table can bind it — but no named machine ships it, and a row would assert an amp nobody has reported. Watch-listed instead (`.github/kernel-watchlist.txt`). |
 
 The HDA side-codec set is complete: `sound/hda/codecs/side-codecs/` holds only
 cs35l41, cs35l56, tas2781 and aw88399, all covered.

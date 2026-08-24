@@ -82,6 +82,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   stage, so the flag changes nothing there; run `dolby_to_pipewire.py` to hear
   it ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
   measurements in `docs/design-notes.md`).
+- `--speaker-info` also recognises the TI TAC5XX2 SoundWire amplifier, which
+  recent Intel laptops can carry, so a firmware failure on one shows up as
+  evidence rather than silence (`docs/design-notes.md` "What counts as a smart
+  amp").
 - `--speaker-info` now recognises the Qualcomm WSA speaker amplifiers on
   Snapdragon laptops (ThinkPad X13s and T14s, Yoga Slim 7x, ThinkBook 16, ASUS
   Zenbook A14, HP OmniBook X14), which previously showed no amplifier at all
