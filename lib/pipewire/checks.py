@@ -527,9 +527,9 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
     return CheckResult(
         DOCTOR_FAIL, "Chains loaded",
         f"{len(missing)} of {len(readable)} conf(s) are on disk but absent from "
-        f"the graph ({', '.join(str(c.path.name) for c in missing)}). Usually "
-        "an LSP or Calf LV2 plugin is missing, which makes PipeWire drop the "
-        "whole file — the LV2 plugins check below says whether one is, and "
+        f"the graph ({', '.join(str(c.path.name) for c in missing)}). A missing "
+        "LSP or Calf LV2 plugin (or impulse file) stops the whole conf loading "
+        "— the LV2 plugins check below says whether a plugin is missing, and "
         "names the package — or PipeWire hasn't been restarted since the file "
         "was written.")
 
@@ -1014,16 +1014,25 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
     can act on.
 
     With no readable conf there is nothing to judge, and this returns None
-    rather than guess. The presence of all eight still reaches a pasted report
-    through the Environment block, which is inventory and says only what it
-    found.
+    rather than guess — before the missing-lv2info branch, not after it: on a
+    machine with nothing installed, an UNKNOWN about the plugins "a conf
+    names" is a question asked of no conf, and it offered a package to a
+    reader whose report already says the directory is empty. The presence of
+    all eight still reaches a pasted report through the Environment block,
+    which is inventory and says only what it found.
     """
+    wanted = {uri for c in confs for uri in c.plugins}
+    if not wanted:
+        # No conf, or none readable. `check_conf_contents` and the
+        # installed-confs check each say so in their own words; a verdict here
+        # would be about plugins nothing has asked for yet.
+        return None
     if not probe.has_lv2info:
         return CheckResult(
             DOCTOR_UNKNOWN, "LV2 plugins",
             "lv2info isn't installed, so whether the LSP and Calf plugins a "
-            "conf names are there couldn't be checked — and a missing one is "
-            "the usual reason a conf loads nothing at all. PipeWire doesn't "
+            "conf names are there couldn't be checked — and a missing plugin "
+            "(or impulse file) stops the whole conf loading. PipeWire doesn't "
             "need lv2info, it loads plugins through the lilv library; this "
             "check needs it:",
             steps=packages.install_steps([packages.LV2INFO]))
@@ -1031,12 +1040,6 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
         # Nothing was asked, so there is nothing to report. A PASS here would
         # say "all present" about an empty set — the shape a stubbed probe
         # takes, and the one a report must not turn into an all-clear.
-        return None
-    wanted = {uri for c in confs for uri in c.plugins}
-    if not wanted:
-        # No conf, or none readable. `check_conf_contents` and the
-        # installed-confs check each say so in their own words; a verdict here
-        # would be about plugins nothing has asked for yet.
         return None
     entries = [e for e in probe.entries if e[1] in wanted]
     if not entries:
@@ -1068,8 +1071,7 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
         f"{len(missing)} of the {len(entries)} LV2 plugins your conf(s) name "
         f"aren't installed, all from {vendor_names}. PipeWire drops the "
         "whole file when one plugin in it won't load, so the chain never "
-        "appears in the graph and audio plays untreated — the usual reason a "
-        "conf on disk does nothing. Install them:",
+        "appears in the graph and audio plays untreated. Install them:",
         steps=packages.install_steps([key for _name, key in vendors]))
 
 

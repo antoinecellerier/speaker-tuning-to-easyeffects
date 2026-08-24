@@ -179,8 +179,8 @@ def _grep_expectation(tail: str = "") -> str:
     """
     once = f" — {tail}" if tail else ""
     return ('     (it should print a line, showing node.name = "..."; '
-            "nothing usually means one of the LV2 plugins it needs isn't "
-            f"installed, so the whole file failed to load{once})")
+            "nothing means the whole file failed to load — an LV2 plugin it "
+            f"needs, or its impulse file, isn't there{once})")
 
 
 def _print_next_steps(node_name: str,
@@ -399,9 +399,10 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         # diagnosis, and contradicts a run that named only one — and why it
         # cannot, because a run that names two plugins elsewhere and shrugs
         # here reads as one of them holding something back.
-        console.cprint("cta", "The usual cause is a missing LV2 plugin. All "
-                      "this step sees is a node that isn't there, so install "
-                      "both — or run --doctor, which checks them one by one:")
+        console.cprint("cta", "A missing LV2 plugin stops the whole conf "
+                      "loading. All this step sees is a node that isn't "
+                      "there, so install both — or run --doctor, which checks "
+                      "them one by one:")
         packages.print_install_hint([packages.LSP_LV2, packages.CALF_LV2],
                                     console.cprint)
         console.cprint("cta", f"Then retry: {PIPEWIRE_RESTART_CMD}")

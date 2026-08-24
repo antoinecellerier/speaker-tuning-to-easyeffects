@@ -651,6 +651,18 @@ def test_no_lv2info_is_unknown_and_offers_the_package(monkeypatch):
     assert any("lilv-utils" in text for _style, text in result.steps)
 
 
+def test_no_lv2info_and_no_conf_is_not_a_question_about_nothing(monkeypatch):
+    """The UNKNOWN is about "the plugins a conf names", so it needs a conf.
+    Printed on a machine with an empty directory it offered a package to a
+    reader whose own report says there is nothing installed to check."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    no_lv2info = checks.PluginProbe(has_lv2info=False)
+    assert checks.check_plugins_present(no_lv2info, []) is None
+    unreadable = checks.InstalledConf(path=Path("/tmp/x.conf"), readable=False,
+                                      unreadable=checks.NO_SPA_JSON_DUMP)
+    assert checks.check_plugins_present(no_lv2info, [unreadable]) is None
+
+
 def test_a_full_plugin_house_passes_with_nothing_to_do(monkeypatch):
     """The one PASS worth printing for something that is *there*: it rules out
     the commonest cause, so a reader whose chain still doesn't load knows to
@@ -803,15 +815,17 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
     """The reader is in a terminal, mid-report, and the fix is now four lines
     below: the LV2 plugins check both names which vendor is missing and prints
     the install command. Sending them to the README instead was a detour away
-    from the answer — and the hedge has to survive it, because this check
+    from the answer — and both causes have to survive it, because this check
     fires just as often for a PipeWire that hasn't been restarted."""
     result = checks.check_confs_loaded([_conf(tmp_path, "Dolby_Balanced")],
                                        [], dump=[])
     assert "README" not in result.detail
     assert "LV2 plugins check" in result.detail
-    # Not a diagnosis of a missing plugin — both causes stay on the line.
-    assert "Usually" in result.detail
+    # Not a diagnosis of a missing plugin — both causes stay on the line, and
+    # neither is ranked: nothing here has counted how often either happens.
+    assert "stops the whole conf loading" in result.detail
     assert "restarted" in result.detail
+    assert "Usually" not in result.detail
 
 
 def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
