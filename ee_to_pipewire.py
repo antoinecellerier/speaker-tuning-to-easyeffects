@@ -178,8 +178,8 @@ def add_general_args(container, *, only=None):
         "--dry-run",
         action="store_true",
         help="report where the conf and impulse response would be written "
-             "without writing them; missing IRS files become warnings "
-             "rather than errors. To get the conf itself without "
+             "without writing them; a missing impulse file is reported "
+             "instead of stopping the run. To get the conf itself without "
              "installing it, run without this flag and point --output at a "
              "path of your own",
     )
@@ -428,6 +428,22 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("err", "error: no stages emitted (preset is empty or every "
                       "plugin was skipped)")
         return 1
+
+    # The chain above was built with must_exist=False under --dry-run, so an
+    # .irs that isn't where --irs-dir says travels all the way to "Would copy
+    # impulse response", naming a file nothing found. Said here, where the
+    # path was resolved, and said as what it is: the same run without the flag
+    # stops on this file. Deduplicated because the stereo convolver is two
+    # nodes reading one file.
+    if args.dry_run:
+        for irs in dict.fromkeys(
+                Path(node["config"]["filename"])
+                for stage in chain.stages for node in stage.nodes
+                if node.get("label") == "convolver"):
+            if not irs.is_file():
+                console.cprint("warn", "[warn] impulse file not found: "
+                               f"{doctor.tilde(irs)} — a real run stops here "
+                               "(pass --irs-dir)")
 
     # The generator's --enable virtual-bass records its values as a `_vbe`
     # block; the branch itself only exists here — EasyEffects' serial

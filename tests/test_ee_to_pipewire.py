@@ -1790,6 +1790,30 @@ def test_main_dry_run_reports_would_write_paths(generated, tmp_path, capsys):
         assert "filter.graph" not in stream
 
 
+def test_main_dry_run_says_a_missing_impulse_file_stops_a_real_run(
+        generated, tmp_path, capsys):
+    """--dry-run resolves the .irs without requiring it, so an --irs-dir that
+    points nowhere still printed "Would copy impulse response" for a file that
+    does not exist. The same command without the flag stops on it."""
+    preset, _irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    argv = [
+        str(preset_path),
+        "--irs-dir", str(tmp_path / "empty"),
+        "--node-name", "TestChain",
+        "--output", str(tmp_path / "out" / "TestChain.conf"),
+        "--no-validate",
+    ]
+    assert ee2pw_main(argv + ["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "impulse file not found" in out
+    assert "a real run stops here" in out
+    # Once, not once per convolver channel.
+    assert out.count("impulse file not found") == 1
+    assert ee2pw_main(argv) == 2
+
+
 def test_main_real_write_reports_results_and_next_steps(generated, tmp_path,
                                                         capsys):
     """A real write reports the destinations (Wrote/Copied) and a numbered
