@@ -164,15 +164,15 @@ def add_general_args(container, *, only=None):
         "--no-validate",
         action="store_true",
         help="skip the schema self-check against lv2info port metadata. "
-             "By default, when lv2info is installed, ee_to_pipewire reads "
-             "the port metadata of every LV2 plugin the conf names and "
-             "checks the conf's control values against it — catching "
-             "unknown port symbols and out-of-range values, and refusing to "
-             "write a conf naming a plugin lv2info cannot load at all. "
-             "Without lv2info nothing can be checked; this flag then only "
-             "silences the reminder saying so. Pass it to build a conf for a "
-             "different machine, or when the check is wrong about a plugin "
-             "you know works.",
+             "By default, when lv2info and spa-json-dump are installed, "
+             "ee_to_pipewire reads the port metadata of the LV2 plugins the "
+             "conf names (within a time budget) and checks the conf's control "
+             "values against it — catching unknown port symbols and "
+             "out-of-range values, and refusing to write a conf naming a "
+             "plugin lv2info cannot load at all. Without both tools nothing "
+             "can be checked; this flag then only silences the reminder "
+             "saying so. Pass it to build a conf for a different machine, or "
+             "when the check is wrong about a plugin you know works.",
     )
     add(
         "--dry-run",
