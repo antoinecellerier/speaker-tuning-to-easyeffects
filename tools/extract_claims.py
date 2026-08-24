@@ -6,7 +6,7 @@ The input to a factual-verification sweep of the terminal copy (the
 reviewers off the raw diff and off the source tree: they read a slice of one
 file instead, and cite a stable id back.
 
-    python3 tools/extract_claims.py --since v2026.07
+    python3 tools/extract_claims.py --since v2026.08
     python3 tools/extract_claims.py --since HEAD~20 --out-dir /tmp/audit
 
 Writes ``claims.md`` (everything, one line per string) plus the per-reviewer

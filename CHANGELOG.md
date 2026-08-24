@@ -59,6 +59,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+## v2026.08 — 2026-08-24
+
 ### Added
 
 - **[AUDIBLE]** (opt-in) New `--enable autogain` turns on the volume leveler
