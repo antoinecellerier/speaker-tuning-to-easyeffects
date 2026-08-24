@@ -411,8 +411,8 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate],
             DOCTOR_UNKNOWN, "Speaker firmware gate",
             "amixer isn't installed, so whether this machine has a smart-amp "
             "firmware gate — and whether it is switched on — couldn't be "
-            "checked. Most machines have no such control; the ones that do "
-            "sound thin or silent until it is on.",
+            "checked. Only some smart-amp machines have such a control; "
+            "those may sound thin or silent until it is on.",
             steps=_alsa_utils_step())
     off = [g for g in gates if not g.on]
     if not off:
@@ -421,7 +421,7 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate],
     names = ", ".join(g.name for g in off)
     return CheckResult(
         DOCTOR_WARN, "Speaker firmware gate",
-        f"{names} is off, so the amplifier runs untuned ahead of the preset "
+        f"{names} is off, so the amplifier runs untuned after the preset "
         "and your speakers may be silent, thin or crackly whatever the preset "
         "does. Switch it on:",
         steps=tuple(("cta", speakers.amixer_enable_cmd(g)) for g in off))

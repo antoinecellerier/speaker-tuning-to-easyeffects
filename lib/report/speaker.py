@@ -62,11 +62,15 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     console.cprint("warn", f"\n{'=' * 60}")
     console.cprint("warn", "⚠  [firmware-gate] Smart-amp firmware gate is OFF — your speakers")
     console.cprint("warn", "   may be silent, thin or crackly even though the preset is correct.")
-    console.cprint("dim", "Many devices drive their speakers through a TI TAS2563/2781 smart")
+    # "Some" / "the devices we have seen": both frequency words are what we
+    # can back — the amp is one of several this tool recognises, and the
+    # woofer-only symptom comes from the reports we hold, not a survey.
+    console.cprint("dim", "Some devices drive their speakers through a TI TAS2563/2781 smart")
     console.cprint("dim", "amplifier whose firmware does not auto-load; until this ALSA control")
-    console.cprint("dim", "is switched on the amp runs untuned upstream of the preset. On most")
-    console.cprint("dim", "devices that mutes the woofers; where the amp drives every speaker,")
-    console.cprint("dim", "it can instead make everything thin, quiet or prone to dropouts.")
+    console.cprint("dim", "is switched on the amp runs untuned after the preset. On the devices")
+    console.cprint("dim", "we have seen that mutes the woofers; where the amp drives every")
+    console.cprint("dim", "speaker, it can instead make everything thin, quiet or prone to")
+    console.cprint("dim", "dropouts.")
     print()
     # Enable now: no root needed — the active logind session already holds an
     # ACL on /dev/snd/control*. Persist with `alsactl store`, which saves the
