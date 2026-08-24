@@ -893,10 +893,13 @@ def check_easyeffects_conflict(sinks, chains, dump) -> CheckResult | None:
         return None
     return CheckResult(
         DOCTOR_WARN, "EasyEffects also running",
-        "EasyEffects is running, and anything routed through it is processed "
-        "twice — once by its own chain, once by this one. Quit it and stop it "
-        "starting again (its Background Service and autostart, or remove its "
-        "autoload).")
+        # "can be", as the install-time twin says: the gate is a live chain of
+        # ours plus an EasyEffects sink, which a v1 chain nobody has selected
+        # satisfies without anything reaching it.
+        "EasyEffects is running, and anything routed through it can be "
+        "processed twice — once by its own chain, once by this one. Quit it "
+        "and stop it starting again (its Background Service and autostart, or "
+        "remove its autoload).")
 
 
 def check_conf_versions(confs, running: str) -> CheckResult | None:
