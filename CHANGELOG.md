@@ -152,7 +152,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   AW88399 on Lenovo Legion, Qualcomm WSA on Snapdragon laptops, and TI TAC5XX2
   — so a missing driver or firmware shows up as evidence instead of no
   amplifier at all (`docs/design-notes.md` "What counts as a smart amp").
-- Mark additional tested devices: ThinkPad T14 Gen 7
+- Mark additional tested devices: ThinkPad T14 Gen 7 Intel
   ([#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42)),
   ThinkPad T14 Gen 1 AMD
   ([#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45)),
