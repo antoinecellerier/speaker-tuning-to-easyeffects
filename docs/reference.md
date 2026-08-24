@@ -203,8 +203,9 @@ mismatch and suggests `--profile <name>` (issue #46). `<setting>
 <geq_maximum_range>` (the widest per-band gain the file expresses, 192 = 12 dB,
 assumed when absent) is likewise read for diagnostics only: a run warns when the
 tuning's largest boost both reaches that range and lands on a band the regulator
-leaves at a 0 dB threshold, since the boost and `volmax-boost` then reach the
-brickwall with no per-band limiting.
+leaves at a 0 dB threshold (with `--disable coupled-bands`; the default couples
+such bands), since the boost and `volmax-boost` then reach the brickwall with
+no per-band limiting.
 
 ## EasyEffects 8.x specifics
 
