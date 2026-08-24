@@ -83,8 +83,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - **[AUDIBLE]** (opt-in) New experimental `--enable virtual-bass` adds Dolby's
   missing virtual-bass stage — harmonics that suggest bass small speakers
   can't produce — to the PipeWire filter-chain on HDA tunings, from the
-  XML's own fields (SoundWire tunings already ship a bass enhancer). EasyEffects can't express the parallel stage, so the flag changes
-  nothing there; run `dolby_to_pipewire.py` to hear it
+  XML's own fields (SoundWire tunings already ship a bass enhancer).
+  EasyEffects can't express the parallel stage, so the flag changes nothing
+  there; run `dolby_to_pipewire.py` to hear it
   ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
   measurements in `docs/design-notes.md`).
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
@@ -235,20 +236,20 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - `--doctor`'s verdict no longer contradicts its report: a warning, or a check
   that couldn't run, now cancels the all-clear (a speaker-muting firmware
   gate used to sit under it), a failing run still ends on a verdict, and it
-  names the `[WARN]` lines it prints. The
-  closing block also stops asking you to confirm an output sink it can see is
-  selected.
+  names the `[WARN]` lines it prints. The closing block also stops asking you
+  to confirm an output sink it can see is selected.
 - A conf naming an LV2 plugin your system can't load is no longer written: it
   names the package to install and stops (without `lv2info` to check, it says
-  so). A chain that still
-  fails to load no longer stops PipeWire from starting — the conf marks its
-  module `nofail`, so a missing plugin costs you the chain, not all your audio
+  so). A chain that still fails to load no longer stops PipeWire from starting
+  — the conf marks its module `nofail`, so a missing plugin costs you the
+  chain, not all your audio
   ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
 - Every message about a missing dependency now prints the install command for
   your distribution — the Python packages, `lv2info`, the PipeWire
-  command-line tools and `amixer` join the LV2 plugins — and the EasyEffects 7 upgrade hint offers your distribution's own
-  package where it ships EasyEffects 8, the Flathub Flatpak otherwise. Alpine,
-  Gentoo and NixOS join the four families already covered.
+  command-line tools and `amixer` join the LV2 plugins — and the EasyEffects 7
+  upgrade hint offers your distribution's own package where it ships
+  EasyEffects 8, the Flathub Flatpak otherwise. Alpine, Gentoo and NixOS join
+  the four families already covered.
 - `ee_to_pipewire.py` and `dolby_to_pipewire.py` no longer refuse to write your
   conf when the schema self-check can't read `lv2info`'s output, or when
   `lv2info` never answers for one plugin. A limit the check cannot use is left
