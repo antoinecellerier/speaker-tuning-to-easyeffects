@@ -423,14 +423,23 @@ def downstream_sink(dump, chain_name: str) -> str:
 
 
 def _conf_for(chain_name: str, confs) -> str:
-    """The conf file a live chain came from — the remedy is deleting one, and
-    the file name is the part a reader can't derive from a node name. The
-    basename only: check detail is wrapped, and a folded absolute path is
-    worse than useless."""
+    """The conf file a live chain came from, or "" when none of ours matches.
+
+    The remedy is deleting a file, and the file name is the part a reader
+    can't derive from a node name. The basename only: check detail is wrapped,
+    and a folded absolute path is worse than useless.
+
+    Empty rather than a guessed ``<name>.conf``: ``live_chains`` matches any
+    node called ``effect_input.*``, which is what module-filter-chain names
+    every chain — the stock PipeWire examples included — while ``confs`` holds
+    only files this tool wrote into one directory. So a smart filter someone
+    else installed reaches here, and the guess told a reader to delete a file
+    that does not exist under a name we invented for it.
+    """
     for c in confs:
         if c.node_name == f"effect_input.{chain_name}":
             return c.path.name
-    return f"{chain_name}.conf"
+    return ""
 
 
 def check_stacked_chains(chains, confs) -> CheckResult | None:
@@ -450,14 +459,29 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
     if not stacked:
         return None
     names = sorted(n for group in stacked.values() for n in group)
-    files = ", ".join(_conf_for(n, confs) for n in names)
-    return CheckResult(
-        DOCTOR_FAIL, "Stacked filter chains",
+    ours = {n: _conf_for(n, confs) for n in names}
+    files = ", ".join(f for f in (ours[n] for n in names) if f)
+    foreign = [n for n in names if not ours[n]]
+    detail = (
         f"{len(names)} chains ({', '.join(names)}) attach to the same sink, so "
         "PipeWire runs them one after another instead of offering a choice — "
-        f"every stage is applied that many times over. Keep one of {files} and "
-        "delete the others, then restart PipeWire; the Environment block above "
-        "gives the full path of each conf this tool installed.")
+        "every stage is applied that many times over. ")
+    if files:
+        detail += (f"Keep one of {files} and delete the others, then restart "
+                   "PipeWire; the Environment block above gives the full path "
+                   "of each conf this tool installed.")
+    else:
+        # Every one of them is somebody else's. There is no file of ours to
+        # name, and telling a reader to delete one would name a file we made
+        # up — so the check reports the state and stops there.
+        detail += ("None of them is a conf this tool installed, so there is "
+                   "nothing of ours to delete; whatever put them on that sink "
+                   "has to take one off.")
+    if foreign and files:
+        detail += (f" The count includes {len(foreign)} other smart filter(s) "
+                   f"on the same speakers ({', '.join(foreign)}) that this "
+                   "tool didn't install and can't name a file for.")
+    return CheckResult(DOCTOR_FAIL, "Stacked filter chains", detail)
 
 
 def check_unpinned_siblings(chains) -> CheckResult | None:
@@ -1259,12 +1283,16 @@ def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
                    "speakers:")
     for name in others:
         console.cprint("warn", f"     {name}")
+    # "that many times over", not "twice": `others` is every other conf on the
+    # same target, so a third one makes it three — the count the doctor's own
+    # stacked-chains check already words this way.
     console.cprint("dim", "   PipeWire runs them one after another, not as "
                   "alternatives — every")
-    console.cprint("dim", "   stage applies twice. If you were trying a different "
-                  "voicing or profile,")
-    console.cprint("dim", "   delete the one you don't want (and its .irs), then "
-                  "restart PipeWire.")
+    console.cprint("dim", "   stage applies that many times over. If you were "
+                  "trying a different")
+    console.cprint("dim", "   voicing or profile, delete the one you don't want "
+                  "(and its .irs), then")
+    console.cprint("dim", "   restart PipeWire.")
     console.cprint("dim", "   --doctor lists what is installed and what it does.")
 
 

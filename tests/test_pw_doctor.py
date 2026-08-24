@@ -335,15 +335,51 @@ def test_unreadable_confs_are_not_reported_as_all_present(tmp_path):
     assert "1 more couldn't be read" in result.detail
 
 
+def _installed(tmp_path, name):
+    """A conf of ours on disk, as `installed_confs` would have read it back."""
+    return checks.InstalledConf(path=tmp_path / f"{name}.conf",
+                                node_name=f"effect_input.{name}",
+                                smart=True, target=SPEAKER)
+
+
 def test_stacked_chains_point_at_the_block_that_exists(tmp_path):
     """The Environment block moved *above* the checks when inventory-leads
     landed (`.claude/rules/user-messages.md`), and this detail still sent the
     reader to "the block below" — where the report's closing advice is, not
     the conf paths it means."""
     dump = [_speaker_sink(), *_smart_chain("A"), *_smart_chain("B")]
-    result = checks.check_stacked_chains(checks.live_chains(dump), [])
+    result = checks.check_stacked_chains(
+        checks.live_chains(dump),
+        [_installed(tmp_path, "A"), _installed(tmp_path, "B")])
     assert "block below" not in result.detail, result.detail
     assert "Environment block above" in result.detail
+
+
+def test_delete_the_others_never_names_a_filter_we_did_not_install(tmp_path):
+    """`live_chains` sees every effect_input.* node, which is what
+    module-filter-chain calls any chain — so a smart filter from elsewhere on
+    the same speakers lands in this group. It used to be handed to the reader
+    as "<node>.conf", a filename nothing on disk answers to."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced"),
+            *_smart_chain("someone_elses_eq")]
+    result = checks.check_stacked_chains(
+        checks.live_chains(dump), [_installed(tmp_path, "Dolby_Balanced")])
+    assert result.status == DOCTOR_FAIL
+    assert "someone_elses_eq.conf" not in result.detail
+    assert "Keep one of Dolby_Balanced.conf" in result.detail
+    assert "other smart filter(s) on the same speakers" in result.detail
+    assert "someone_elses_eq" in result.detail
+
+
+def test_a_stack_of_nothing_of_ours_offers_no_file_to_delete():
+    """Two foreign smart filters on one sink is still the fault, but there is
+    no conf of ours to name — and inventing one is what this replaced."""
+    dump = [_speaker_sink(), *_smart_chain("theirs_a"), *_smart_chain("theirs_b")]
+    result = checks.check_stacked_chains(checks.live_chains(dump), [])
+    assert result.status == DOCTOR_FAIL
+    assert "Keep one of" not in result.detail
+    assert "nothing of ours to delete" in result.detail
+    assert ".conf" not in result.detail
 
 
 def test_selected_smart_filter_outranks_an_unselected_virtual_one():
