@@ -202,7 +202,8 @@ def add_autoload_args(container, *, only=None):
              "picks the wrong output or finds none — e.g. a device whose "
              "internal speaker is mis-tagged (no audio-speakers device icon). "
              "Find the name with 'pw-dump | grep node.name', or run with "
-             "--autoload to print the candidate list. Mirrors "
+             "--autoload, which names the sink it picked (and lists the "
+             "candidates when it isn't sure). Mirrors "
              "ee_to_pipewire.py's --target-sink.",
     )
     add(
@@ -211,8 +212,8 @@ def add_autoload_args(container, *, only=None):
         action="store_false",
         help=f"with --autoload, do not write a '{autoload.BYPASS_PRESET_NAME}' bypass "
              "preset or enable EasyEffects' global Fallback Preset. Use if "
-             "you manage the fallback yourself. Existing user setups are "
-             "preserved even without this flag.",
+             "you manage the fallback yourself. An already-enabled fallback "
+             "preset is left alone even without this flag.",
     )
     return added
 
