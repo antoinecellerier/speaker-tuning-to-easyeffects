@@ -338,7 +338,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 - `--endpoint TYPE` — endpoint type from the XML (default: `internal_speaker`)
 - `--mode MODE` — endpoint operating mode (default: `normal`)
 - `--profile TYPE` — profile type, e.g. `dynamic`, `music`, `voice` (default: first profile)
-- `--all-profiles` — convert every profile in the selected endpoint/mode, each as its own sink (needs `--target-sink ''`)
+- `--all-profiles` — convert every profile except `off` in the selected endpoint/mode, each as its own sink (needs `--target-sink ''`)
 
 **Variant**
 - `--variant {balanced,detailed,warm,all}` — which IEQ voicing to convert (default: `balanced`, Dolby's default voicing); `all` creates one sink per variant for A/B from sound settings (needs `--target-sink ''`)
