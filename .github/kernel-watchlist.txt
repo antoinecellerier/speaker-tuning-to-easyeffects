@@ -40,6 +40,15 @@ samsung
 aw88399
 awinic
 
+# watch: standing — TI TAC5XX2, a SoundWire smart amp we can see coming but
+# cannot yet detect. It loads firmware and sits in Intel's Meteor Lake ACPI
+# match table (soc-acpi-intel-mtl-match.c, tac5572_0_adr / tac5672_0_adr), so
+# current-generation Intel laptops can bind it — but no named model ships it
+# yet, and a row in _AMP_FAMILIES would assert an amp nobody has reported.
+# Watch until a machine turns up, then add the family (`tac5` is collision-free
+# against every existing token).
+tac5xx2
+
 # watch: #39 ROG Xbox Ally X — ALC294 HDA + TAS2781 smart amp; UEFI-calibration
 # dropout quirk (b7e26c8bdae70832d7c4b31ec2995b1812a60169; still in vanilla
 # 6.18-stable) superseded in mainline by TI SineGainI fix (05ac3846ffe5),

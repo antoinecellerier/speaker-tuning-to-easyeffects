@@ -3364,6 +3364,64 @@ PipeWire restart — identical to the pinned conf in all four states. A single
 unpinned chain does not follow the default anywhere, so there is nothing to
 fix. (Bluetooth was not connected for this; the HDMI switch is the proxy.)
 
+## What counts as a smart amp, and which ones we watch for
+
+`_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family
+identity: it decides which loaded modules and which SoundWire peripherals count
+as amplifiers. Membership has a bar, and it is **not** "ships a firmware blob" —
+two rows have no blob at all. The criterion is **an on-chip DSP doing voicing or
+protection**: the thing whose absence leaves the speakers playing but quiet,
+flat and unprotected. A jack codec, a mic codec, or a dumb Class-D amp is out
+however similar its driver name looks.
+
+That bar is load-bearing rather than tidy-minded. A match on the SoundWire path
+appends a `SpeakerPin`, so a wrongly-included part inflates the reported speaker
+count and the layout line — the issue-#27 "six mono amps read as twelve
+speakers" failure reached by another route.
+
+**Awinic AW88399** (added 2026-08-24). The first Awinic part on a laptop HDA
+path: an HDA side codec landed in 7.3 for the woofer amps on eight Lenovo Legion
+codec SSIDs (Pro 7i 16IAX10H / Y9000P IAX10, R9000P ADR10(H), Pro 7 16AFR10H).
+Upstream's framing is the familiar one — "without a driver for these amplifiers,
+only the tweeters produce sound, resulting in quiet and tinny audio" — but the
+cause is a missing driver, not a hidden pin: `alc287_fixup_legion_16iax10h_aw88399`
+writes no pin config, only a DAC reroute and a stereo cap. So it needed a family
+row, and the speaker-pin table correctly ignores it.
+
+**Qualcomm WSA88xx** (added 2026-08-24). A whole laptop class we saw no amp on:
+the ThinkPad X13s ships a WSA8830 (`wsa883x`), while the ThinkPad T14s, Yoga
+Slim 7x, ThinkBook 16, ASUS Zenbook A14 and HP OmniBook X14 ship WSA8845
+(`wsa884x`), the Slim 7x driving separate woofers and tweeters. They are
+register-configured — VISENSE feedback and on-chip temperature, no blob — so the
+row carries no globs and no failure marker; a failure here shows up as an
+unbound peripheral, which the enumerator already reports as its one hard
+verdict. The single token `wsa88` also covers the wsa885x that arrived in 7.3.
+
+### Swept and rejected
+
+From a sweep of every codec driver in mainline against the criterion above.
+Recorded so the next audit starts here rather than re-deriving it:
+
+| Part | Why not |
+|---|---|
+| MAX98388 | Smart, but its only machine binding is AMD Van Gogh, whose DMI quirks are `Valve/Jupiter` and `Valve/Galileo` — the Steam Deck, which ships no Dolby tuning. |
+| MAX98927 | Kaby Lake match table and AVS legacy boards (2017-era). |
+| SSM4567 | AVS legacy boards only (Skylake-era). |
+| RT1011 | Comet Lake and `sof_rt5682` boards — a Chromebook pairing. |
+| RT1019, RT1015 | No firmware, no sense controls, one analog protect register. Dumb Class-D — which is why `rt13` is narrow enough to skip them. |
+| AW87390 | Loads firmware, and `aw88` does *not* catch it (aw**87**) — but nothing binds it on Intel, AMD, a Qualcomm DT or HDA. |
+| TAS675x, TAS5805M, RTQ9124, fs-amp-lib | No laptop binding of any kind. |
+| CS42L43, RT712/721/722, ES9356 | Combo jack-plus-amp codecs. Counting them would inflate the speaker count; CS42L43 is the Zenbook S14's jack codec (issue #29) and is excluded on purpose. |
+| TAC5XX2 | Genuinely a SoundWire smart amp, and Intel's Meteor Lake match table can bind it — but no named machine ships it, and a row would assert an amp nobody has reported. Watch-listed instead (`.github/kernel-watchlist.txt`). |
+
+The HDA side-codec set is complete: `sound/hda/codecs/side-codecs/` holds only
+cs35l41, cs35l56, tas2781 and aw88399, all covered.
+
+One artefact the sweep found and fixed: `max98512` had been in the token list
+since the Maxim row was written and appears **nowhere** in the kernel tree, so
+it had never matched anything. Dropped rather than corrected to `max98520` —
+no laptop board binds that part either.
+
 ## Rejected approaches
 
 Things that were investigated and explicitly declined, recorded so they don't get

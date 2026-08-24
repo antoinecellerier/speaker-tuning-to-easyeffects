@@ -891,6 +891,8 @@ def test_detector_probes_channels_from_the_sink_ports(tmp_path, monkeypatch,
     ("rt711", False),             # SoundWire jack codec: "rt13" must not catch it
     ("snd_soc_max98090", False),  # Maxim jack CODEC, not a smart amp
     ("snd_soc_max98357a", False),  # dumb I2S Class-D, no DSP
+    ("snd_soc_wsa884x", True),    # Qualcomm WSA on a Snapdragon laptop
+    ("wcd938x", False),           # ...and the jack codec sharing its bus
 ])
 def test_detector_keeps_non_amps_out_of_the_speaker_count(tmp_path, monkeypatch,
                                                           driver, is_amp):
@@ -908,7 +910,7 @@ def test_detector_keeps_non_amps_out_of_the_speaker_count(tmp_path, monkeypatch,
     info = speakers.SpeakerInfo()
     speakers._detect_soundwire_speakers(info)
 
-    # The same three drivers are pinned against _amp_firmware_profile below;
+    # Every driver here is also pinned against _amp_firmware_profile below;
     # both readings must agree, or one report contradicts the other.
     assert (amps._amp_firmware_profile(driver) is not None) is is_amp
     if is_amp:
@@ -1001,6 +1003,9 @@ def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
     # Awinic AW88399 woofer amp, HDA side codec on 2025 Lenovo Legion (7.3).
     ("snd_hda_scodec_aw88399", True, "aw88"),
     ("snd_soc_aw88395", True, "aw88"),    # ASoC sibling, same aw88NNN_acf.bin
+    # Qualcomm WSA on Snapdragon laptops: VISENSE protection, no blob to find.
+    ("snd_soc_wsa884x", False, "wsa88"),
+    ("wsa883x", False, "wsa88"),
 ])
 def test_amp_firmware_profile_known(driver, has_globs, kw):
     globs, keywords = amps._amp_firmware_profile(driver)
@@ -1012,6 +1017,8 @@ def test_amp_firmware_profile_known(driver, has_globs, kw):
     "snd_hda_codec_realtek",
     "snd_soc_max98090",   # Maxim jack CODEC, not a smart amp
     "snd_soc_max98357a",  # dumb I2S Class-D amp, no DSP firmware
+    "wcd938x",            # Qualcomm jack codec — shares the bus with the WSA amps
+    "lpass_wsamacro",     # the WSA *DAI block*, not an amplifier
 ])
 def test_amp_firmware_profile_unknown(driver):
     # 'max98' must not be a bare substring match (it would catch these).
@@ -1025,6 +1032,9 @@ def test_amp_families_failure_markers():
     markers = {fam[0][0]: fam[3] for fam in amps._AMP_FAMILIES}
     assert (markers["cs35l"] and markers["tas2"] and markers["rt13"]
             and markers["aw88"])
+    # Qualcomm loads no blob, so like Maxim it carries no honest tell — and an
+    # empty marker must not reach the OR-join below.
+    assert markers["wsa88"] == ""
     assert markers["max98373"] == ""
     # The compiled union must be exactly the non-empty family markers, OR-joined.
     assert amps._AMP_LOG_ERROR_RE.pattern == "|".join(

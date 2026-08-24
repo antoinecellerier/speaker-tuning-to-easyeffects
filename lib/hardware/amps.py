@@ -98,8 +98,20 @@ _AMP_FAMILIES = (
     # Maxim DSM smart amps — no honest firmware-missing tell: only max98390 loads
     # a DSM calibration param, and a missing file falls through silently
     # (max98390.c err path), so we collect its log lines but flag nothing.
-    (("max98373", "max98390", "max98363", "max98396", "max98512"),
+    (("max98373", "max98390", "max98363", "max98396"),
      (), ("max98",), ""),
+    # Qualcomm WSA smart speaker amps — the whole Snapdragon-laptop speaker
+    # path: ThinkPad X13s ships a WSA8830 (wsa883x), while the T14s, Yoga Slim
+    # 7x, ThinkBook 16, ASUS Zenbook A14 and HP OmniBook X14 ship WSA8845
+    # (wsa884x), the Slim 7x driving separate woofers and tweeters. One token
+    # covers wsa881x/883x/884x and the wsa885x that arrived in 7.3.
+    # Register-configured with VISENSE feedback and on-chip temperature, so
+    # there is no blob and no honest firmware tell: a failure here surfaces as
+    # an unbound peripheral, which the enumerator already reports.
+    # `wsa88` cannot reach the parts these sit beside — Qualcomm's jack codec
+    # is wcd93xx and the DAI block is lpass_wsamacro, neither of which contains
+    # it, and it does not overlap `aw88` in either direction.
+    (("wsa88",), (), ("wsa88",), ""),
 )
 
 _AMP_DRIVER_TOKENS = tuple(tok for fam in _AMP_FAMILIES for tok in fam[0])
