@@ -944,13 +944,35 @@ def test_target_sink_that_no_longer_exists(tmp_path):
 # --- Environment checks -----------------------------------------------------
 
 @pytest.mark.parametrize("version,status", [
-    (None,   DOCTOR_UNKNOWN),
-    ((0, 4), DOCTOR_FAIL),      # no smart-filter support at all
-    ((0, 5), DOCTOR_PASS),
-    ((1, 0), DOCTOR_PASS),
+    (None,       DOCTOR_UNKNOWN),
+    ((0, 4),     DOCTOR_FAIL),      # no smart-filter support at all
+    ((0, 4, 15), DOCTOR_FAIL),      # a patch level doesn't reach 0.5
+    ((0, 5),     DOCTOR_PASS),
+    ((0, 5, 15), DOCTOR_PASS),
+    ((1, 0),     DOCTOR_PASS),
 ])
 def test_wireplumber_version(version, status):
     assert checks.check_wireplumber(version).status == status
+
+
+@pytest.mark.parametrize("answer,expected", [
+    ("wireplumber 0.5.15\n", (0, 5, 15)),
+    ("wireplumber 0.4\n", (0, 4)),
+    ("no idea\n", None),
+])
+def test_wireplumber_version_keeps_the_patch_level(monkeypatch, answer,
+                                                   expected):
+    """The version is pasted into issues as well as compared, and 0.5 reads
+    as 0.5.0 — a different build from the 0.5.15 that answered."""
+    monkeypatch.setattr(checks.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout=answer))
+    assert checks._wireplumber_version() == expected
+
+
+def test_the_wireplumber_line_prints_every_number_it_was_given():
+    facts = {"wireplumber": (0, 5, 15), "version": "0.0.0", "sinks": []}
+    lines = checks._environment_lines([], [], facts)
+    assert any("WirePlumber:  0.5.15" in line for line in lines)
 
 
 def test_easyeffects_conflict():

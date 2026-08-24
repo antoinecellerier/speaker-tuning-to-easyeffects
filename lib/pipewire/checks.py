@@ -170,14 +170,23 @@ def _pw_dump() -> list | None:
 
 
 def _wireplumber_version() -> tuple[int, ...] | None:
-    """(major, minor) of the running WirePlumber, or None if it won't say."""
+    """The running WirePlumber's version, or None if it won't say.
+
+    Every number the binary gives, not the two the comparisons need: this
+    value is printed as well as judged, and "WirePlumber: 0.5" in a pasted
+    report reads as 0.5.0 — a build four years and fifteen patch releases
+    away from the 0.5.15 that answered. Tuple ordering does the rest, so the
+    ``< (0, 5)`` gate below is unchanged by the third element.
+    """
     try:
         out = subprocess.run(["wireplumber", "--version"], capture_output=True,
                              text=True, timeout=5).stdout
     except (subprocess.SubprocessError, OSError):
         return None
-    m = re.search(r"(\d+)\.(\d+)", out or "")
-    return (int(m.group(1)), int(m.group(2))) if m else None
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out or "")
+    if not m:
+        return None
+    return tuple(int(g) for g in m.groups() if g is not None)
 
 
 # The one unreadable cause with a remedy, so the reason is a constant rather
