@@ -82,18 +82,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   stage, so the flag changes nothing there; run `dolby_to_pipewire.py` to hear
   it ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
   measurements in `docs/design-notes.md`).
-- `--speaker-info` also recognises the TI TAC5XX2 SoundWire amplifier, which
-  recent Intel laptops can carry, so a firmware failure on one shows up as
-  evidence rather than silence (`docs/design-notes.md` "What counts as a smart
-  amp").
-- `--speaker-info` now recognises the Qualcomm WSA speaker amplifiers on
-  Snapdragon laptops (ThinkPad X13s and T14s, Yoga Slim 7x, ThinkBook 16, ASUS
-  Zenbook A14, HP OmniBook X14), which previously showed no amplifier at all
-  (`docs/design-notes.md` "What counts as a smart amp").
-- `--speaker-info` now recognises Awinic AW88399 woofer amplifiers, the smart
-  amp on 2025 Lenovo Legion laptops, so a missing driver or firmware shows up
-  as evidence instead of no amp at all — until it binds, only the tweeters play
-  (`docs/design-notes.md`).
+- `--speaker-info` now recognises three more smart-amplifier families — Awinic
+  AW88399 on Lenovo Legion, Qualcomm WSA on Snapdragon laptops, and TI TAC5XX2
+  — so a missing driver or firmware shows up as evidence instead of no
+  amplifier at all (`docs/design-notes.md` "What counts as a smart amp").
 - The PipeWire converter now warns when EasyEffects is running as a chain conf
   is written — the two would process your audio in series — and prints the
   switch-back steps (docs/ee-to-pipewire.md "Not alongside EasyEffects").
