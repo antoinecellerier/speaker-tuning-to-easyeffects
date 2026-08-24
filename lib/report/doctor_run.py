@@ -56,7 +56,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib import console, doctor, ee_paths, packages, version
-from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_WARN, CheckResult
+from lib.doctor import (
+    DOCTOR_FAIL,
+    DOCTOR_PASS,
+    DOCTOR_UNKNOWN,
+    DOCTOR_WARN,
+    CheckResult,
+)
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
 from lib.report import environment
@@ -498,7 +504,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
-        report.checks.append(CheckResult(DOCTOR_PASS, "Install location",
+        # UNKNOWN, not PASS: the run skipped the location checks, and a green
+        # box said the location was fine when nothing had looked at it.
+        report.checks.append(CheckResult(DOCTOR_UNKNOWN, "Install location",
             f"custom output dir ({doctor.tilde(output_dir)}) — skipping EasyEffects "
             "location checks."))
     else:
@@ -517,9 +525,15 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         preset_paths = []
     generated_names = [p.stem for p in preset_paths]
     dolby_presets = [p for p in preset_paths if p.stem != autoload.BYPASS_PRESET_NAME]
+    bypass_present = any(p.stem == autoload.BYPASS_PRESET_NAME
+                         for p in preset_paths)
     if not dolby_presets:
+        # The bypass preset is one this tool wrote, so "no presets found" in a
+        # folder holding it reads as the doctor missing a file it can see.
+        found = ("no presets other than the bypass preset found in"
+                 if bypass_present else "no presets found in")
         report.checks.append(CheckResult(DOCTOR_WARN, "Generated presets",
-            f"no presets found in {doctor.tilde(output_dir)} — run the script on your "
+            f"{found} {doctor.tilde(output_dir)} — run the script on your "
             "tuning XML first."))
     else:
         for p in dolby_presets:
@@ -590,6 +604,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "output_dir": doctor.tilde(output_dir),
         "irs_dir": doctor.tilde(irs_dir),
         "preset_count": len(generated_names),
+        "bypass_preset_present": bypass_present,
         "irs_count": len(irs_stems),
         "rc_path": doctor.tilde(rc_path),
         "rc_present": bool(rc_text),
@@ -630,12 +645,12 @@ def _environment_lines(f: dict) -> list[str]:
         f"  EasyEffects:  {f.get('ee_version', '?')}; "
         f"running: {'yes' if running else 'no'}",
         f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})",
-        # "sharing" because presets outnumber impulse files and readers read
-        # that as breakage: profiles with the same speaker correction point at
-        # one file (here 69 presets to 63 distinct kernels). Saying so costs a
-        # word and removes a "can this tool even count?" reading.
-        f"  Presets/IRs:  {f.get('preset_count', 0)} presets sharing "
-        f"{f.get('irs_count', 0)} impulse files",
+        # Both numbers are what the folders hold — the bypass preset, presets
+        # the user put there and stray .irs files included — so neither is
+        # derived from the other. "Presets sharing impulse files" explained
+        # the gap with a relationship these counts don't establish.
+        f"  Presets/IRs:  {f.get('preset_count', 0)} preset files and "
+        f"{f.get('irs_count', 0)} impulse files in the folders",
         f"  Config:       {f.get('rc_path')} "
         f"({'present' if f.get('rc_present') else 'absent'})",
     ]
@@ -684,7 +699,8 @@ def _environment_lines(f: dict) -> list[str]:
     return lines
 
 
-def _collapse_preset_checks(checks: list[CheckResult]) -> list[CheckResult]:
+def _collapse_preset_checks(checks: list[CheckResult], *,
+                           bypass_present: bool = False) -> list[CheckResult]:
     """Fold a run of passing per-preset checks into one line.
 
     A machine can have dozens of profiles, and a screenful of identical PASS
@@ -713,12 +729,19 @@ def _collapse_preset_checks(checks: list[CheckResult]) -> list[CheckResult]:
                 # above (the bypass preset carries no filters, so there is
                 # nothing to check), and the summary's PASS total is mostly
                 # these, counted individually but shown as one line.
+                #
+                # "checked out", not "load their impulse file": a preset can
+                # fail this check for reasons that have nothing to do with an
+                # impulse file — including having no convolver at all.
+                detail = f"{passing} checks on one line."
+                if bypass_present:
+                    detail += (f" The '{autoload.BYPASS_PRESET_NAME}' bypass "
+                               "preset isn't among them — it has no filters "
+                               "by design.")
                 shown.append(CheckResult(
                     DOCTOR_PASS,
-                    f"Presets ({passing}/{len(presets)} load their impulse file)",
-                    f"{passing} checks on one line. The '"
-                    f"{autoload.BYPASS_PRESET_NAME}' bypass preset isn't among "
-                    "them — it has no filters by design."))
+                    f"Presets ({passing}/{len(presets)} checked out)",
+                    detail))
             shown += problems
     return shown
 
@@ -730,7 +753,10 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
         report_speaker._print_speaker_info(report.speaker_info)
     layout.print_environment(_environment_lines(report.facts))
     layout.print_check_block("=== EasyEffects doctor ===",
-                             _collapse_preset_checks(report.checks),
+                             _collapse_preset_checks(
+                                 report.checks,
+                                 bypass_present=report.facts.get(
+                                     "bypass_preset_present", False)),
                              counted=report.checks)
     # What the doctor can't see — guide the user through the manual checks.
     # The bypass line drops out once we have asked the daemon and it said off:

@@ -2719,26 +2719,35 @@ def test_environment_lines_mark_the_source_even_with_no_daemon():
     assert "(from saved config)" in rows["Active chain"]
 
 
-def test_environment_lines_say_presets_share_impulse_files():
-    """TRAP: presets outnumber impulse files because profiles with the same
-    speaker correction point at one file. Stated bare, three reviewers read
-    the mismatched counts as the tool failing to count."""
+def test_environment_lines_count_the_files_in_the_folders():
+    """TRAP: stated bare, the mismatched counts read as the tool failing to
+    count — but "presets sharing impulse files" fixed that by asserting a
+    relationship neither count establishes: both are folder contents, bypass
+    preset, hand-made presets and stray .irs files included. So the line says
+    what it counted, and claims nothing about why the two differ."""
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
          "preset_count": 69, "irs_count": 64}
     line = [ln for ln in doctor_run._environment_lines(f) if "Presets" in ln][0]
-    assert "69 presets sharing 64 impulse files" in line
+    assert "69 preset files and 64 impulse files in the folders" in line
+    assert "sharing" not in line
 
 
 def test_collapsed_preset_check_reconciles_the_two_counts():
     """TRAP: the folded line's denominator is one short of the preset count in
     the inventory (the bypass preset has nothing to check), and the summary's
     PASS total is mostly these checks, counted individually but shown as one
-    line. Both gaps were read as the numbers not adding up."""
+    line. Both gaps were read as the numbers not adding up. The bypass
+    sentence only reconciles them where that file exists — on a folder
+    without one it explained a gap that wasn't there."""
     checks = [CheckResult(DOCTOR_PASS, f"Preset P{i}", "") for i in range(3)]
-    collapsed = doctor_run._collapse_preset_checks(checks)
+    collapsed = doctor_run._collapse_preset_checks(checks,
+                                                   bypass_present=True)
     assert len(collapsed) == 1
     assert "3 checks on one line" in collapsed[0].detail
     assert BYPASS_PRESET_NAME in collapsed[0].detail
+
+    no_bypass = doctor_run._collapse_preset_checks(checks)
+    assert BYPASS_PRESET_NAME not in no_bypass[0].detail
 
 
 def test_environment_lines_wrap_the_chain_without_splitting_the_marker():

@@ -307,11 +307,16 @@ def ee_unanswered_status(names) -> CheckResult:
     point: the alternative is falling back to its config file in silence and
     reporting hours-old values as current for as long as nobody notices. The
     values are still shown, marked as coming from that file."""
+    # "a usable answer": a reply we can't parse lands here too, and that is
+    # not silence. And only the rows this list names fall back — the sink row
+    # is read from PipeWire, so "Values below" called the whole block stale.
+    joined = " and ".join(names)
+    tail = "values below come" if len(names) > 1 else "value below comes"
     return CheckResult(DOCTOR_UNKNOWN, "EasyEffects state",
-        f"EasyEffects is running but didn't answer when asked its "
-        f"{' and '.join(names)} — this tool may be out of step with your "
-        "EasyEffects version. Values below come from its config file, which "
-        "it rewrites only on quit or while its window is open.")
+        f"EasyEffects is running but didn't give a usable answer when asked "
+        f"its {joined} — this tool may be out of step with your EasyEffects "
+        f"version. The {joined} {tail} from its config file, which it "
+        "rewrites only on quit or while its window is open.")
 
 
 def global_bypass_status() -> CheckResult:
