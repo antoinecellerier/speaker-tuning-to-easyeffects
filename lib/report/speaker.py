@@ -234,8 +234,13 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
         # that isn't the one running: this row is keyed to a codec id, and its
         # upstream entry reads "Yoga 7 16IAP7" while the name says yoga9. A
         # reader who spots that in a line they are about to sudo stops there.
+        # And the matching happened here, not at boot: hda_model= forces the
+        # fixup by name with no hardware check of its own, so "it is matched
+        # to your machine by hardware id" read as a safety the option has not
+        # got.
         *prose("   That name is the kernel's label for the fix, not your "
-               "model — it is matched to your machine by hardware id.",
+               "model — the kernel's own quirk table pairs it with your "
+               "hardware id, which is how this run found it.",
                hang="   "),
         ("", ""),
         # Two independent confirmations, and the audible one leads because it
