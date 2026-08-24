@@ -82,6 +82,19 @@ _AMP_FAMILIES = (
     (("rt13", "rt_amp"), (), ("rt13",),
      r"failed to load .* firmware|fw file doesn't match to device"
      r"|can't find proper fw file name"),
+    # Awinic AW88399, the woofer amp on 2025 Lenovo Legion laptops (upstream
+    # 7.3, ALC287 + AWDZ8399 over I2C). Its HDA side codec arrived with the
+    # symptom this project already knows from issue #53 — "only the tweeters
+    # produce sound", in the driver's own words — but the cause is the missing
+    # driver, not a hidden pin, so nothing in the speaker-pin table catches it.
+    # The whole family loads one aw88NNN_acf.bin; markers from aw88399-lib.c
+    # "request [%s] failed!" (l.1292, no file) and "load [%s] failed!" (l.1309,
+    # bad ACF), the same pair the ASoC siblings print. Not "dev init failed"
+    # (l.1317): too generic to attribute. Derived from upstream source — no
+    # device has been reported on yet.
+    (("aw88",), ("aw88*_acf.bin",), ("aw88",),
+     r"request \[aw88[0-9]*_acf\.bin\] failed"
+     r"|load \[aw88[0-9]*_acf\.bin\] failed"),
     # Maxim DSM smart amps — no honest firmware-missing tell: only max98390 loads
     # a DSM calibration param, and a missing file falls through silently
     # (max98390.c err path), so we collect its log lines but flag nothing.

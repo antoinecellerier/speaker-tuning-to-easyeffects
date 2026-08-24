@@ -998,6 +998,9 @@ def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
     ("snd_soc_tas2781", True, "tas2"),    # TI smart amp (issue #17 family)
     ("max98373", False, "max98"),         # Maxim DSM — no separate fw blob
     ("rt1318", False, "rt13"),            # Realtek SoundWire — no separate fw blob
+    # Awinic AW88399 woofer amp, HDA side codec on 2025 Lenovo Legion (7.3).
+    ("snd_hda_scodec_aw88399", True, "aw88"),
+    ("snd_soc_aw88395", True, "aw88"),    # ASoC sibling, same aw88NNN_acf.bin
 ])
 def test_amp_firmware_profile_known(driver, has_globs, kw):
     globs, keywords = amps._amp_firmware_profile(driver)
@@ -1020,7 +1023,8 @@ def test_amp_families_failure_markers():
     # source-verified tell, and Maxim deliberately carries none (its missing DSM
     # param is silent/non-fatal — we must not invent a marker for it).
     markers = {fam[0][0]: fam[3] for fam in amps._AMP_FAMILIES}
-    assert markers["cs35l"] and markers["tas2"] and markers["rt13"]
+    assert (markers["cs35l"] and markers["tas2"] and markers["rt13"]
+            and markers["aw88"])
     assert markers["max98373"] == ""
     # The compiled union must be exactly the non-empty family markers, OR-joined.
     assert amps._AMP_LOG_ERROR_RE.pattern == "|".join(
@@ -1041,6 +1045,16 @@ def test_amp_families_failure_markers():
     ("tas2781 i2c-TXNW2781:00: FW download failed = -2", True),
     ("tas2781 i2c-TXNW2781:00: Request firmware tas2781_RCA1.bin failed", True),
     ("rt1320 sdw:0:0:025d:1320:00: Failed to load rt1320 firmware", True),
+    # Awinic: the two prints that mean no ACF and a rejected ACF. Both name the
+    # file, which is what keeps them off the success line below.
+    ("aw88399-hda i2c-AWDZ8399:00: request [aw88399_acf.bin] failed!", True),
+    ("aw88395 5-0034: load [aw88395_acf.bin] failed!", True),
+    # The driver names the same file on the way *in*; matching the filename
+    # alone would call a healthy load a failure.
+    ("snd_hda_scodec_aw88399: loaded aw88399_acf.bin - size: 91234", False),
+    # "dev init failed" is the driver's catch-all after a successful load —
+    # too generic to attribute to firmware, so deliberately not a marker.
+    ("aw88399-hda i2c-AWDZ8399:00: dev init failed", False),
     # benign / nuanced lines are NOT flagged — shown verbatim, never a verdict.
     # patched=0 in particular is not a failure marker (and was never a success one);
     # the DSP1/Firmware:/regulator lines are normal bring-up chatter from #27.

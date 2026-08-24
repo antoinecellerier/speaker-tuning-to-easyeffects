@@ -29,6 +29,17 @@ ideapad
 galaxy book
 samsung
 
+# watch: standing — Awinic AW88399 woofer amps on Lenovo Legion. Its HDA side
+# codec landed in 7.3 (de7027c9149f + 494978ae8243) on eight codec SSIDs across
+# the Legion Pro 7i 16IAX10H / Y9000P IAX10, R9000P ADR10(H) and Pro 7 16AFR10H;
+# before it binds "only the tweeters produce sound". Watched because a Legion is
+# already in the tested table (Y540-15IRH) and this is the first Awinic part
+# on a laptop HDA path, so its quirks — and any second vendor adopting it —
+# are ours to see. `legion` is deliberately not a term: alc287 already hits
+# these commits and a second one would double every hit comment.
+aw88399
+awinic
+
 # watch: #39 ROG Xbox Ally X — ALC294 HDA + TAS2781 smart amp; UEFI-calibration
 # dropout quirk (b7e26c8bdae70832d7c4b31ec2995b1812a60169; still in vanilla
 # 6.18-stable) superseded in mainline by TI SineGainI fix (05ac3846ffe5),
@@ -75,7 +86,12 @@ um3405
 # S990-16 Pro IMH YC Quad"). Harmless today — the machine has no smart amp and
 # PSREF gives it "Stereo speakers, 2W x2", so its one speaker pin is correct
 # and this is NOT a #53 hidden-woofer case. Watching in case an entry keyed to
-# 3941 lands, or the 38d5 keying changes under it. Terms are the ids only:
+# 3941 lands, or the 38d5 keying changes under it. Re-checked at sound-7.3-rc1:
+# both 38d5 entries unchanged, still nothing keyed to 3941. That cycle did land
+# the canonical remedy for this exact collision shape — 75dc2eda659f moved the
+# Yoga Slim 7 14AKP10's codec-SSID quirk ahead of the PCI-SSID entry shadowing
+# it, with a comment saying why — so a fix here has a pattern to follow.
+# Terms are the ids only:
 # alc287/tas2781/bass-spk-pin are already watched above and repeating them
 # would double every hit comment.
 3941
