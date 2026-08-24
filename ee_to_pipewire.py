@@ -454,7 +454,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         chain.stages, vbe_links = vbe.wrap_chain(chain.stages, vbe_meta)
         console.cprint("ok", f"[virtual-bass] experimental: deep bass "
                       f"({vbe_meta['src_lo_hz']:g}-{vbe_meta['mix_lo_hz']:g} Hz) "
-                      f"your speakers can't physically play is filled in with "
+                      f"small speakers can't play is filled in with "
                       f"quieter higher tones ({vbe_meta['mix_lo_hz']:g}-"
                       f"{vbe_meta['mix_hi_hz']:g} Hz) your ear reads as bass "
                       f"(issue #14)")
