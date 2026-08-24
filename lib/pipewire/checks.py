@@ -597,12 +597,20 @@ def check_targets_exist(chains, sinks, dump) -> CheckResult | None:
                       if c.smart and c.target and c.target not in sinks})
     if not orphans:
         return None
+    # Several chains can name several missing sinks — a conf per voicing copied
+    # from another machine is the ordinary way to get there — and the singular
+    # then reads as one chain with a list of targets.
+    plural = len(orphans) > 1
+    names = doctor.no_bt_address(", ".join(orphans))
+    subject = "chains are" if plural else "the chain is"
+    among = "are not" if plural else "is not"
+    joins = "they never join" if plural else "it never joins"
     return CheckResult(
         DOCTOR_FAIL, "Target sink missing",
-        f"the chain is attached to {doctor.no_bt_address(', '.join(orphans))}, which isn't among "
-        "this machine's sinks, so it never joins the audio path. Re-run the "
-        "converter to pick up the current speaker sink, or pass "
-        "--target-sink with the right node.name.")
+        f"{subject} attached to {names}, which {among} among this machine's "
+        f"sinks, so {joins} the audio path. Re-run the converter to pick up "
+        "the current speaker sink, or pass --target-sink with the right "
+        "node.name.")
 
 
 def _runnable(name: str) -> bool:

@@ -955,6 +955,20 @@ def test_target_sink_that_no_longer_exists(tmp_path):
                                       checks.sink_names(dump), dump) is None
 
 
+def test_several_missing_targets_are_not_described_as_one_chain(tmp_path):
+    """A conf per voicing copied from another machine names several sinks that
+    are all gone, and the singular read as one chain with a list of targets."""
+    dump = [_speaker_sink(),
+            *_smart_chain("A", target="alsa_output.gone_one"),
+            *_smart_chain("B", target="alsa_output.gone_two")]
+    result = checks.check_targets_exist(checks.live_chains(dump),
+                                        checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_FAIL
+    assert "chains are attached to" in result.detail
+    assert "the chain is" not in result.detail
+    assert "they never join" in result.detail
+
+
 # --- Environment checks -----------------------------------------------------
 
 @pytest.mark.parametrize("version,status", [
