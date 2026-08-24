@@ -96,8 +96,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   PipeWire restart ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - New `--doctor` on both PipeWire scripts reports the state of an installed
   filter chain — chains stacked on one sink, a conf that didn't load, a
-  missing impulse response, a target sink that no longer exists — with the
-  command to fix each and a block to paste into an issue
+  missing impulse response, a target sink that no longer exists — with what
+  to do about each and a block to paste into an issue
   ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - Warns when your firmware hides a speaker pin, so Linux never drives those
   speakers — usually the woofers — and the preset shapes the rest alone. Where
