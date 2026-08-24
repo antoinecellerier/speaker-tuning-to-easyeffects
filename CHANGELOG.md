@@ -230,9 +230,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   "Curves shipped with the optimizer switched off").
 - On the EasyEffects path, `--doctor` no longer reports a preset, output sink
   or bypass state hours out of date: it now asks the running EasyEffects and
-  PipeWire rather than a config file EasyEffects writes only on quit. It could
-  name the silent bypass preset, or a disconnected Bluetooth headset, while a
-  Dolby preset played.
+  PipeWire rather than a config file EasyEffects rewrites on quit and on an
+  autosave timer. It could name the silent bypass preset, or a disconnected
+  Bluetooth headset, while a Dolby preset played.
 - `--doctor`'s verdict no longer contradicts its report: a warning, or a check
   that couldn't run, now cancels the all-clear (a speaker-muting firmware
   gate used to sit under it), a failing run still ends on a verdict, and it
