@@ -63,8 +63,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - **[AUDIBLE]** (opt-in) New `--enable autogain` activates the volume leveler
   for Windows-level loudness on HDA devices, where it ships bypassed — it
   stays opt-in because the gain ride can audibly saturate quiet backgrounds.
-  Enabling it, by flag or in the EasyEffects GUI, also raises the silence gate
-  that fixes crackle on short sounds after silence; re-run to regenerate
+  The preset also ships the raised silence gate that fixes crackle on short
+  sounds after silence once the leveler is on, so enabling it in the
+  EasyEffects GUI is safe too; re-run to regenerate
   ([#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25);
   measurements in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New experimental `--enable level-restore` flag gives
@@ -76,11 +77,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50);
   captures in `docs/design-notes.md`).
 - **[AUDIBLE]** (opt-in) New experimental `--enable virtual-bass` adds Dolby's
-  missing virtual-bass stage — synthesized harmonics that suggest bass small
-  speakers can't physically produce — to the PipeWire filter-chain, built from
-  the XML's own virtual-bass fields. EasyEffects can't express the parallel
-  stage, so the flag changes nothing there; run `dolby_to_pipewire.py` to hear
-  it ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
+  missing virtual-bass stage — harmonics that suggest bass small speakers
+  can't produce — to the PipeWire filter-chain on HDA tunings, built from the
+  XML's own virtual-bass fields (SoundWire tunings already ship a bass
+  enhancer). EasyEffects can't express the parallel stage, so the flag changes
+  nothing there; run `dolby_to_pipewire.py` to hear it
+  ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14);
   measurements in `docs/design-notes.md`).
 - `--speaker-info` now recognises three more smart-amplifier families — Awinic
   AW88399 on Lenovo Legion, Qualcomm WSA on Snapdragon laptops, and TI TAC5XX2
@@ -95,15 +97,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   unchanged (README "Disabling and enabling filters").
 - Warns when your firmware hides a speaker pin, so Linux never drives those
   speakers — usually the woofers — and the preset shapes the rest alone. Where
-  upstream Linux ships a fix, the run prints the one-line `hda_model=` command
-  that forces it, and `--speaker-info` flags pins the kernel left unconfigured
+  upstream Linux ships a fix, the run prints the `hda_model=` procedure that
+  forces it, and `--speaker-info` flags pins the kernel left unconfigured
   ([#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53);
   mechanism and the manufacturer-spec cross-check in `docs/design-notes.md`).
 - New `dolby_to_pipewire.py` turns the tuning XML into an active PipeWire
   filter-chain sink in one command, staging the preset in a throwaway
   directory — no EasyEffects files installed. `--variant` picks the Balanced
-  (default) / Detailed / Warm voicing, or `all` (which requires
-  `--target-sink ''`) for one sink per voicing; `--no-activate` skips the
+  (default) / Detailed / Warm voicing, or `all` for one sink per voicing (it
+  and `--all-profiles` require `--target-sink ''`); `--no-activate` skips the
   PipeWire restart ([docs/ee-to-pipewire.md](docs/ee-to-pipewire.md)).
 - New `--doctor` on both PipeWire scripts reports the state of an installed
   filter chain — chains stacked on one sink, a conf that didn't load, a
@@ -176,7 +178,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#57](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/57)),
   Lenovo Yoga Slim 7 14ILL10
   ([#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59)),
-  ThinkPad L14 Gen 6
+  ThinkPad L14 Gen 6 AMD
   ([#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61)),
   ThinkPad X1 Carbon Gen 9
   ([#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63)),
@@ -302,8 +304,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
   why in `docs/design-notes.md`).
 - The end of a run now confirms success and states its guaranteed differences
-  from Windows: the leveler is off by default, and which sound mode was
-  built. It then separates fixes you can apply from the project's one-line
+  from Windows: whether the volume leveler ships off, and which sound mode
+  was built. It then separates fixes you can apply from the project's one-line
   asks, and the warnings that used to print mid-run are no longer buried
   under the per-band tables.
 - On the PipeWire path, a smart-filter chain now calls itself
