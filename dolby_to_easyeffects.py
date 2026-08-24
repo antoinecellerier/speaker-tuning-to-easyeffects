@@ -252,12 +252,14 @@ def add_filter_tweak_args(container, *, only=None):
         default=[],
         choices=list(messages.DISABLEABLE_FILTERS),
         metavar="NAME",
+        # #44 is NOT a coupled-bands case — measured inert there
+        # (design-notes 2026-08-22); don't re-add the pointer here. Its fix
+        # was --volmax-slot output-gain, which E-022 below names.
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud / saturated, "
              "--disable mbc if you dislike the compressor character, or "
-             "--disable coupled-bands if loud passages sound held back "
-             "(issue #44).",
+             "--disable coupled-bands if the loudest moments feel clamped.",
     )
     add(
         "--enable",
@@ -286,7 +288,9 @@ def add_filter_tweak_args(container, *, only=None):
              "older placement (issue #23). 'output-gain' opts back into "
              "post-band-limiting placement (the full loudness makeup straight "
              "into the brickwall); use it for A/B comparison, or if input-gain "
-             "costs too much loudness on a device with an aggressive regulator. "
+             "costs too much loudness on a device with an aggressive regulator "
+             "(issue #44 measured it as the fix for bass the default placement "
+             "loses). "
              "Neither placement is Dolby-documented; no effect when the regulator "
              "is disabled/absent (the boost then lands on limiter#0 input-gain).",
     )
