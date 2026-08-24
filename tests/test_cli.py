@@ -2388,6 +2388,43 @@ def test_fir_verdict_prints_and_tables_hide_without_verbose(tmp_path,
     assert "frequency tables hidden" not in out
 
 
+def test_correction_check_grades_the_right_channel_too(tmp_path, monkeypatch,
+                                                       silence_console,
+                                                       capsys):
+    """The check read the left channel only, so a right-channel fault passed
+    silently — and the right channel carries its own audio-optimizer curve,
+    which is exactly where a one-sided fault would live."""
+    import numpy as np
+
+    from lib.preset import fir as preset_fir
+
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+
+    real_make_fir = preset_fir.make_fir
+    calls = {"n": 0}
+
+    def tilt_the_right_channel(freqs, curve, **kwargs):
+        # Left then right, per preset: bend the second call's target so the
+        # built filter no longer has the shape it was asked for.
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:
+            curve = np.asarray(curve, dtype=float) + np.linspace(
+                0.0, 12.0, len(curve))
+        return real_make_fir(freqs, curve, **kwargs)
+
+    monkeypatch.setattr(preset_fir, "make_fir", tilt_the_right_channel)
+
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--verbose"])
+    out = capsys.readouterr().out
+    assert "Correction check passed" not in out
+    assert "away from the shape of the curve" in out
+    # Only the left channel's rows print, so the verdict is the one place
+    # the right channel's error is readable — it has to carry the figure.
+    assert re.search(r"right \d+\.\d\d\)", out)
+
+
 def test_tag_convention_prints_once_with_the_first_finding(monkeypatch,
                                                            silence_console,
                                                            capsys):

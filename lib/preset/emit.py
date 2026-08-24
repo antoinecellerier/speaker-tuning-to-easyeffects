@@ -60,6 +60,33 @@ def save_wav_stereo(path: Path, fir_left: np.ndarray,
 FIR_VERIFY_OK_DB = 0.5
 
 
+def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
+                       rows: bool) -> float:
+    """Worst |deviation| in dB between one built channel and the curve it was
+    asked for, at the XML's own band frequencies.
+
+    Both sides are peak-normalised, so this grades the SHAPE only — the
+    absolute level is short by the curve's peak by design (make_fir
+    normalises, and level-restore hands that back downstream). Saying
+    "matches the curve" without "the shape of" would claim a level match the
+    check never makes.
+    """
+    H = np.fft.rfft(taps, n=fir.FIR_LENGTH)
+    mag_db = 20.0 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
+    peak = np.max(combined)
+    worst = 0.0
+    for i, f in enumerate(freqs):
+        idx = np.argmin(np.abs(fft_freqs - f))
+        target = combined[i] - peak + offset_db
+        err = mag_db[idx] - target
+        worst = max(worst, abs(err))
+        if rows:
+            console.cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
+                           f"actual: {mag_db[idx]:+6.1f}  "
+                           f"error: {err:+5.2f}")
+    return worst
+
+
 def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
                       warned: bool = False):
@@ -140,10 +167,12 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # channel; the correction check below re-references by the same
         # amount so it keeps grading the filter rather than the re-reference.
         left_offset_db = 0.0
+        right_offset_db = 0.0
         if "level-restore" in args.enable:
             left_offset_db = peak_left_db - fir_peak_db
+            right_offset_db = peak_right_db - fir_peak_db
             fir_left *= 10.0 ** (left_offset_db / 20.0)
-            fir_right *= 10.0 ** ((peak_right_db - fir_peak_db) / 20.0)
+            fir_right *= 10.0 ** (right_offset_db / 20.0)
 
         # Save stereo impulse response
         irs_path = args.irs_dir / f"{preset_name}.irs"
@@ -199,23 +228,21 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
 
         # Verify FIR frequency response — the math runs either way; -v only
         # decides whether the per-frequency rows print.
-        H = np.fft.rfft(fir_left, n=fir.FIR_LENGTH)
         fft_freqs = np.fft.rfftfreq(fir.FIR_LENGTH, d=1.0 / fir.SAMPLE_RATE)
-        mag_db = 20.0 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
         if args.verbose:
             console.cprint("dim", "\n  FIR verification (left, normalized to "
                           "peak=0):")
-        worst = 0.0
-        for i, f in enumerate(freqs):
-            idx = np.argmin(np.abs(fft_freqs - f))
-            target = (combined_left[i] - np.max(combined_left)
-                      + left_offset_db)
-            err = mag_db[idx] - target
-            worst = max(worst, abs(err))
-            if args.verbose:
-                console.cprint("dim", f"  {f:>7} Hz  target: {target:+6.1f}  "
-                      f"actual: {mag_db[idx]:+6.1f}  "
-                      f"error: {err:+5.2f}")
+        worst_left = _worst_shape_error(fir_left, combined_left,
+                                        left_offset_db, freqs, fft_freqs,
+                                        rows=args.verbose)
+        # The right channel carries its own audio-optimizer curve, so a fault
+        # can live there alone — grade it too. The rows stay left-only (the
+        # table is already sixty lines); the verbose verdict names both
+        # figures, so neither side is graded behind the reader's back.
+        worst_right = _worst_shape_error(fir_right, combined_right,
+                                         right_offset_db, freqs, fft_freqs,
+                                         rows=False)
+        worst = max(worst_left, worst_right)
         # A table of sixty "error" rows with no verdict reads as a slow
         # drift going wrong; nobody outside this file knows 0.03 dB is a
         # pass. The threshold is far above the minimum-phase design's
@@ -235,12 +262,16 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             # whole value of the line is which side it certifies.
             if worst <= FIR_VERIFY_OK_DB:
                 console.cprint("ok", f"  Correction check passed: the built filter "
-                             f"matches the curve your tuning file asks for, "
-                             f"within {worst:.2f} dB")
+                             f"matches the shape of the curve your tuning "
+                             f"file asks for, within {worst:.2f} dB "
+                             f"(left {worst_left:.2f}, "
+                             f"right {worst_right:.2f})")
             else:
                 console.cprint("warn", f"  Correction check: {worst:.2f} dB away from "
-                               "the curve your tuning file asks for, at worst "
-                               "— unexpected, please report this run")
+                               "the shape of the curve your tuning file asks "
+                               f"for, at worst (left {worst_left:.2f}, "
+                               f"right {worst_right:.2f}) — unexpected, "
+                               "please report this run")
         print()
 
     fails = [(n, w) for n, w in check_results if w > FIR_VERIFY_OK_DB]
@@ -252,11 +283,12 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             # rendering) — the check only covers curve accuracy.
             console.cprint("dim" if warned else "ok",
                    f"  Correction check passed: all "
-                   f"{len(check_results)} filters match the curve your tuning "
-                   f"file asks for, within {worst_all:.2f} dB")
+                   f"{len(check_results)} filters match the shape of the curve "
+                   f"your tuning file asks for, within {worst_all:.2f} dB")
         else:
             for name, w in fails:
                 console.cprint("warn", f"  Correction check ({name}): {w:.2f} dB away "
-                               "from the curve your tuning file asks for, at "
-                               "worst — unexpected, please report this run")
+                               "from the shape of the curve your tuning file "
+                               "asks for, at worst — unexpected, please "
+                               "report this run")
         print()
