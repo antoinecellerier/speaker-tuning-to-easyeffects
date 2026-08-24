@@ -130,6 +130,23 @@ def test_shared_choices_cannot_drift():
         list(messages.ENABLEABLE_FILTERS)
 
 
+def test_inherited_help_describes_this_surface():
+    """The shared builders word their help for the script that owns them.
+    --doctor runs the PipeWire doctor here, --all-profiles carries a rule only
+    this wrapper enforces, and nothing this run produces is an EasyEffects
+    preset — so the borrowed sentences must not say otherwise."""
+    by_dest = {a.dest: a for g in dolby_to_pipewire.build_parser([])._action_groups
+               for a in g._group_actions}
+    doctor_help = by_dest["doctor"].help
+    assert "PipeWire filter chain" in doctor_help
+    assert "EasyEffects" not in doctor_help
+    assert "--target-sink ''" in by_dest["all_profiles"].help
+    # The phrase-patching rules silently no-op if the owner rewords the
+    # sentence they match, so the rendered result is what is trapped.
+    for dest in ("all_profiles", "prefix", "disable", "enable"):
+        assert "preset" not in by_dest[dest].help, dest
+
+
 # ---------------------------------------------------------------------------
 # Flag routing units (recorders in place of the two converters)
 # ---------------------------------------------------------------------------

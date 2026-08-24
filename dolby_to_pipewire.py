@@ -43,6 +43,44 @@ from lib.report import messages
 VARIANT_STEMS = {label.lower(): label for label in messages.VOICING_CURVES}
 
 
+# Inherited help that describes the *other* script's surface. Both converters
+# own these declarations and word them for themselves: --doctor runs the
+# EasyEffects doctor there and the PipeWire one here, --all-profiles carries a
+# rule only this script enforces, and what the generator calls a preset is a
+# conf and a sink by the time this wrapper is done with it. A string replaces
+# the sentence outright; a tuple of (phrase, replacement) pairs patches only
+# what is wrong here and lets the rest of the owner's wording arrive as it is
+# written, so a sentence they reword still reaches this surface.
+# tests/test_dolby_to_pipewire.py traps the rendered result, which is what
+# catches a pair whose phrase the owner has since edited away.
+_WRAPPER_HELP = {
+    "doctor": "report the state of the installed PipeWire filter chain — "
+              "confs, live chains, plugins, impulse files, routing, "
+              "WirePlumber — and exit; paste the output into an issue",
+    "all_profiles": "convert every profile in the selected endpoint/mode, "
+                    "each as its own sink (needs --target-sink ''); the "
+                    "profile name is part of each sink name",
+    "prefix": "prefix for the generated sink and conf names "
+              "(default: Dolby → Dolby_Balanced, etc.)",
+    "disable": (("from the generated preset", "from the generated chain"),),
+    "enable": (("if the preset sounds right", "if the chain sounds right"),
+               ("if the preset is quieter", "if the chain is quieter")),
+}
+
+
+def _reword_for_this_surface(actions) -> None:
+    """Apply ``_WRAPPER_HELP`` to the actions the shared builders handed back."""
+    for action in actions:
+        rule = _WRAPPER_HELP.get(action.dest)
+        if rule is None:
+            continue
+        if isinstance(rule, str):
+            action.help = rule
+            continue
+        for phrase, replacement in rule:
+            action.help = action.help.replace(phrase, replacement)
+
+
 def _compose_parser(argv=None):
     """Build the wrapper parser from the two converters' shared argument
     builders. Returns (parser, step1_actions, step2_actions) — the action
@@ -127,6 +165,7 @@ def _compose_parser(argv=None):
     # Straight onto the group, not through a recorder: these two are the
     # wrapper's own, and rebuild_argv must never see them.
     console.add_color_and_version_args(group.add_argument)
+    _reword_for_this_surface(step1_actions + step2_actions)
     return parser, step1_actions, step2_actions
 
 
