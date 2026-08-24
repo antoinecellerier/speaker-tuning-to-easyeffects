@@ -82,7 +82,7 @@ If you test it on other hardware, please [open a device report](https://github.c
 
 ## Install
 
-The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by the PipeWire scripts on every run. It ships in the same package as the daemon on Debian, Ubuntu and Arch, but Fedora, openSUSE and Alpine split the command-line tools into their own package; the scripts name it for your distribution if it turns out to be missing. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
+The script needs Python 3, [NumPy](https://numpy.org/), and [SciPy](https://scipy.org/). PipeWire's `pw-dump` is also required — by `--autoload` here, and by the PipeWire scripts whenever they auto-detect your speaker sink (every run without `--target-sink`). It ships in the same package as the daemon on Debian, Ubuntu and Arch, but Fedora, openSUSE and Alpine split the command-line tools into their own package; the scripts name it for your distribution if it turns out to be missing. [Rich](https://github.com/Textualize/rich) and [rich-argparse](https://github.com/hamdanal/rich-argparse) are optional — with them the script renders its output and `--help` with semantic colors; without them everything still works in plain monochrome. [argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for [shell tab-completion](#shell-tab-completion).
 
 <details>
 <summary>Install commands for your distro</summary>
@@ -289,7 +289,7 @@ pw-cli ls Node | grep Dolby_Balanced
 <details>
 <summary>Plugin dependencies and validation</summary>
 
-The chain loads LV2 plugins from your system: **LSP** for the PEQ / MBC / regulator / limiter and the virtual-bass filters, and **Calf** for the `bass_enhancer` / `stereo_tools` stages and the virtual-bass saturator when the preset uses them. Both are typical EasyEffects dependencies, so they're already present if you've used EE — but if they're missing the chain won't load in PipeWire. Install the **LV2 builds** — the base `lsp-plugins` / `calf` packages don't all ship the `.lv2` bundle PipeWire loads:
+The chain loads LV2 plugins from your system: **LSP** for the PEQ / MBC / regulator / limiter and the virtual-bass filters, and **Calf** for the `bass_enhancer` / `stereo_tools` stages and the virtual-bass saturator when the preset uses them. On Debian-family systems EasyEffects pulls in LSP but not Calf (Calf is listed as an alternative); elsewhere check both — if they're missing the chain won't load in PipeWire. The converter names the missing package for your distribution. Install the **LV2 builds** — the base `lsp-plugins` / `calf` packages don't all ship the `.lv2` bundle PipeWire loads:
 
 - **Debian/Ubuntu/Mint/Pop!_OS:** `sudo apt install lsp-plugins-lv2 calf-plugins`
 - **Fedora/RHEL/Rocky/Alma:** `sudo dnf install lsp-plugins-lv2 lv2-calf-plugins`
@@ -313,7 +313,7 @@ The converter prints whichever of these matches your `/etc/os-release`, derivati
 
 Before writing the conf the converter runs `lv2info` to validate it against installed plugin metadata. A plugin `lv2info` can't load is the daemon's answer too — both resolve plugins through the same library — so the run **refuses to write the conf** and names the package to install. `lv2info` itself is optional: PipeWire needs the lilv *library*, not the command, so a machine with LSP and Calf installed runs the chain without it. Without it, though, nothing checks the plugin set before the conf is written, and a missing package shows up only as a sink that never appears after the restart — the run says so and names the package that would have caught it. Pass `--no-validate` to skip the check entirely.
 
-The run also uses `spa-json-dump` to read the conf back, and `pw-cli` / `pw-dump` to find your speaker sink and confirm the chain loaded. These ship with PipeWire on most distributions; openSUSE and Alpine split them into `pipewire-tools` (`pw-cli`, `pw-dump`) and `pipewire-spa-tools` (`spa-json-dump`). The run names whichever is missing.
+The run also uses `spa-json-dump` to read the conf back, and `pw-cli` / `pw-dump` to find your speaker sink and confirm the chain loaded. These ship in the same package as the daemon on Debian, Ubuntu and Arch; Fedora splits them into `pipewire-utils`, and openSUSE and Alpine into `pipewire-tools` (`pw-cli`, `pw-dump`) and `pipewire-spa-tools` (`spa-json-dump`). The run names whichever is missing.
 
 A chain that can't load no longer stops PipeWire from starting: the conf marks its module `nofail`, so PipeWire skips it and your audio keeps working unprocessed ([#71](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/71)).
 
