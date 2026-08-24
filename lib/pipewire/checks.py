@@ -98,10 +98,14 @@ DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/pipewire.conf.d"
 # WirePlumber, a missing plugin, a target sink that vanished) are still
 # testable.
 
-# Both directories a conf can end up in. Only the first is loaded: the stock
-# pipewire.conf auto-includes pipewire.conf.d/, while filter-chain.conf.d/ is
-# for the standalone `pipewire -c filter-chain.conf` invocation and is never
-# scanned by the running daemon (see DEFAULT_OUTPUT_DIR).
+# Both directories a conf can end up in. Only the first is loaded by the
+# daemon: the stock pipewire.conf auto-includes pipewire.conf.d/, while
+# filter-chain.conf.d/ is for the standalone `pipewire -c filter-chain.conf`
+# invocation and is never scanned by the running daemon (see
+# DEFAULT_OUTPUT_DIR). It is not dead either way — the stock
+# filter-chain.service runs that standalone invocation and does read it, so a
+# conf there is live for anyone running that unit, which is why the check
+# below offers moving it rather than declaring it inert.
 _UNSCANNED_CONF_DIR = Path.home() / ".config/pipewire/filter-chain.conf.d"
 
 # effect_input.X and effect_output.X are the two halves of chain X. In
@@ -841,9 +845,10 @@ def check_conf_directory() -> CheckResult | None:
     return CheckResult(
         DOCTOR_WARN, "Conf in an unread directory",
         f"{len(strays)} conf(s) are in {doctor.tilde(_UNSCANNED_CONF_DIR)}, which "
-        "PipeWire's stock config does not load — only pipewire.conf.d/ is "
-        f"auto-included. Move them to {doctor.tilde(DEFAULT_OUTPUT_DIR)} and "
-        "restart PipeWire.")
+        "the PipeWire daemon itself doesn't read (only the optional "
+        "filter-chain.service does). This tool installs into "
+        f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — move them there and restart "
+        "PipeWire, or leave them if you run filter-chain.service on purpose.")
 
 
 def check_wireplumber(version) -> CheckResult:
