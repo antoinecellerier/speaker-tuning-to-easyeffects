@@ -37,6 +37,13 @@ name: Mark confirmed device as tested
 # with — charset-gated and flagged in the PR body, not the free-text title
 # the earlier hardening moved away from.
 #
+# The prompt also says outright that the push and the PR need no
+# confirmation. The first run under those rules (#73) derived the name,
+# committed both files, and then stopped to "confirm" the push because it is
+# hard to reverse — in an unattended job that is a failed run, and the local
+# commit died with the runner. Neither step is a risk here: the branch is the
+# run's own and the PR is maintainer-reviewed before merge.
+#
 # NEVER add `gh api`, `gh pr review` or a broad `gh pr` rule to the allowlist
 # below. This workflow reads issue text written by anyone, and the repo now has
 # "Allow GitHub Actions to create and approve pull requests" enabled (needed so
@@ -240,6 +247,16 @@ jobs:
               git commit -m 'Mark <device name> as tested (#${{ github.event.issue.number }})'
               git push -u origin ${{ steps.branch.outputs.branch_name }}
               gh pr create --title 'Mark <device name> as tested (#${{ github.event.issue.number }})' --body '...'
+
+            Push and open the PR without pausing for confirmation. This run is
+            unattended: nobody can answer a question, and stopping to ask is
+            the same as failing the run. The maintainer's label is the
+            go-ahead — pushing this branch and opening the PR are the two
+            actions they asked for, and neither is hard to reverse: the branch
+            is this run's own, and the PR merges only after the maintainer
+            reviews it. Report `blocked` for a real obstacle (a denied
+            command, missing information, an ambiguity), never out of caution
+            about these two steps.
 
             In the PR body, include "Closes #${{ github.event.issue.number }}" so
             that merging the PR automatically closes the device-report issue.
