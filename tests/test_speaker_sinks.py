@@ -666,6 +666,39 @@ def test_demo_speaker_pin_reaches_the_speaker_report(monkeypatch):
     assert speakers.find_hidden_speaker_pin(info)
 
 
+def test_speaker_info_reads_dmi_vendor(monkeypatch, tmp_path):
+    """The OEM's name reaches the report from sys_vendor. Framework's DMI
+    Family/Product ("Laptop" / "Laptop 13 Pro (…)") never spell it, and the
+    device-confirmed workflow builds the tested-table row from these lines
+    (issue #73)."""
+    for name, text in [("sys_vendor", "Framework\n"),
+                       ("product_name", "Laptop 13 Pro (Intel Core Ultra Series 3)\n"),
+                       ("product_family", "Laptop\n")]:
+        (tmp_path / name).write_text(text)
+    monkeypatch.setattr(report_speaker, "_DMI_DIR", tmp_path)
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", list)
+    monkeypatch.setattr(amps, "_gather_amp_evidence", lambda info: None)
+    info = report_speaker._gather_speaker_info()
+    assert (info.vendor, info.family) == ("Framework", "Laptop")
+    assert info.product == "Laptop 13 Pro (Intel Core Ultra Series 3)"
+
+
+def test_speaker_info_prints_vendor_line_first(silence_console, capsys):
+    """Vendor leads the System block — it is the sort key of the tested-devices
+    table — and stays out of it on a host whose DMI has none."""
+    silence_console(console)
+    info = speakers.SpeakerInfo(vendor="Framework", product="Laptop 13 Pro",
+                                family="Laptop", kernel="7.2.0")
+    report_speaker._print_speaker_info(info)
+    out = capsys.readouterr().out
+    assert out.index("Vendor:  Framework") < out.index("Product: Laptop 13 Pro")
+    info.vendor = ""
+    report_speaker._print_speaker_info(info)
+    assert "Vendor:" not in capsys.readouterr().out
+
+
 def _gate(on):
     return speakers.FirmwareGate(
         card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",

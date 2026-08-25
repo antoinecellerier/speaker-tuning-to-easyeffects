@@ -136,6 +136,7 @@ class AmpStatus:
 @dataclass
 class SpeakerInfo:
     """Collected audio hardware information for --speaker-info."""
+    vendor: str = ""     # DMI sys_vendor — the only line that names the OEM
     product: str = ""
     family: str = ""
     kernel: str = ""

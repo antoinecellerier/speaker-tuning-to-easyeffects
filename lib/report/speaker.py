@@ -413,14 +413,22 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
     return info
 
 
+# Vendor rides along because nothing else in the report names the OEM: Lenovo
+# and ASUS spell it into Family/Product, but Framework's DMI reads "Laptop" /
+# "Laptop 13 Pro (…)" (issue #73) — and the device-confirmed workflow builds
+# the tested-table row from these three lines.
+_DMI_DIR = Path("/sys/class/dmi/id")
+_DMI_FIELDS = (("vendor", "sys_vendor"), ("product", "product_name"),
+               ("family", "product_family"))
+
+
 def _gather_speaker_info() -> speakers.SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
     info = speakers.SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
 
     # System identity
-    for attr, path in [("product", "/sys/class/dmi/id/product_name"),
-                       ("family", "/sys/class/dmi/id/product_family")]:
-        p = Path(path)
+    for attr, name in _DMI_FIELDS:
+        p = _DMI_DIR / name
         if p.exists():
             setattr(info, attr, p.read_text().strip())
 
@@ -571,6 +579,8 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
 
     # System
     lines = []
+    if info.vendor:
+        lines.append(f"  Vendor:  {info.vendor}")
     if info.product:
         lines.append(f"  Product: {info.product}")
     if info.family:
