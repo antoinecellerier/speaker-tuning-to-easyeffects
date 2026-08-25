@@ -41,9 +41,16 @@ jobs:
             exit 1
           }
 
-      - name: Extract changelog notes
-        run: python3 tools/changelog_section.py "${GITHUB_REF_NAME}" > NOTES.md
+      - name: Extract changelog notes and title
+        id: changelog
+        run: |
+          python3 tools/changelog_section.py "${GITHUB_REF_NAME}" > NOTES.md
+          # Bare assignment, not `echo "title=$(...)"`: only the former lets a
+          # non-zero exit from the extractor fail the step under bash -e.
+          TITLE=$(python3 tools/changelog_section.py "${GITHUB_REF_NAME}" --title)
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file NOTES.md
+          RELEASE_TITLE: ${{ steps.changelog.outputs.title }}
+        run: gh release create "${GITHUB_REF_NAME}" --title "${RELEASE_TITLE}" --notes-file NOTES.md
