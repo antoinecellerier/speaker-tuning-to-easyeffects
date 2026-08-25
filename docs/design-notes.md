@@ -2114,9 +2114,10 @@ regulator" as the exception. **Not a default-flip signal on its own** — that
 needs the bar in `.claude/rules/xml-derivability.md`, and this is one device
 measured on one stimulus.
 
-**What would settle it.** No DAX capture of `stimulus_bass_burst` existed from
-any device at the time (answered in round 4, below); every capture in the archive
-is −18 dBFS, which is too quiet to engage a protection limiter. So whether Windows also strips ~10 dB off loud bass
+**What would settle it.** A DAX capture of `stimulus_bass_burst` from this device.
+(Round 3 wrote here that none existed from any device and that every archive
+capture was −18 dBFS. That was wrong: the dev X1 Yoga's −5 dBFS Dynamic capture
+from 2026-05-06 is Finding 8's VBE reference. Round 4 below uses both.) So whether Windows also strips ~10 dB off loud bass
 is unmeasured, and that is the difference between "our staging is wrong" and
 "the tuning asks for this and Windows sounds the same". Asked of the reporter in
 round 3; the stimulus file already ships in `tools/measure_dax/`.
@@ -2138,8 +2139,9 @@ stays a hypothesis until a third device lands on one side or the other.
 
 The same comment attached the Windows `stimulus_bass_burst` captures asked for
 above (Dolby off + Dynamic, 48 kHz, `capture_dax.py`; the reporter's stimulus
-file is byte-identical to ours) — the first loud-stimulus DAX capture in the
-archive. Analysed 2026-08-25 with an ad-hoc band-RMS pass (`analyze.py` has no
+file is byte-identical to ours) — the first loud-stimulus DAX capture with an
+`off` counterpart, and the first from a second device (the dev X1 Yoga's is
+Finding 8's reference; it is compared at the end of this round). Analysed 2026-08-25 with an ad-hoc band-RMS pass (`analyze.py` has no
 `bass_burst` handler — adding one is the tooling follow-up), on the same
 stimulus and alongside the round-3 EE captures so every column is the same
 arithmetic (mono mean of L/R; DAX's L−R is ≤ 0.01 dB throughout; the round-3
@@ -2186,6 +2188,10 @@ How DAX gets there is more informative than the totals:
   transient. Our regulator (`attack 1.0 ms`, entry 11) clamps the same onset
   instantly: the EE variants show no overshoot at all (output-gain −11.2 →
   −11.4). That is the "punch" difference the reporter described, measured.
+  On the dev X1 Yoga's capture the ride is slower still and leveler-like — the
+  120 and 180 Hz bursts drift down a further ~3.5 dB between 0.3 s and the
+  steady window — so ~150 ms is one device's number, and part of it may be
+  the leveler rather than the regulator.
 - *The steady-state ceilings track the decoded thresholds plus the makeup.*
   DAX settles at −10.8 / −10.2 / −8.2 / −8.2 dBFS RMS on the 50 / 80 / 120 /
   180 Hz tones. The XML's `threshold_high` is −18.375 dBFS for the 47 Hz band
@@ -2213,12 +2219,28 @@ two devices, and this is one — the first DAX loud-bass ground truth anywhere
 in the project — while #23's evidence for `input-gain` is a listener verdict
 with no DAX capture behind it. What it does settle is the round-3 dichotomy:
 "our staging is wrong on this tuning" wins over "the tuning asks for this and
-Windows sounds the same". **The next measurement is cheap and decisive:** a
-Windows `stimulus_bass_burst` capture on the dev X1 Yoga (four bands,
-−10 dBFS — the shallow end of the same axis). If DAX there also sits near
-`output-gain`, the placement is DAX-faithful across the axis and the flip
-clears the bar; if it sits near `input-gain`, the slot is genuinely
-tuning-dependent and the XML-derivable predictor above becomes the fix.
+Windows sounds the same". **The dev X1 Yoga cannot serve as the second device on this stimulus** —
+checked 2026-08-25 against its own 2026-05-06 DAX capture (Dynamic only; `off`
+is a verified bypass on that device from the pink/stepped batteries): DAX lands
+−0.37 dB below the input below 300 Hz (per tone −25.2 / −2.3 / +0.2 / +2.8 dB
+at 50 / 80 / 120 / 180 Hz — the 50 Hz fundamental is replaced by VBE
+harmonics, Finding 8), while the EE default, `output-gain` and the 2026-08-11
+default chain all land −4.2…−4.6 dB and within 0.5 dB of *each other*: that
+tuning's 100 Hz PEQ high-pass takes 50–120 Hz below the regulator's thresholds
+before the slot can matter. What the dev capture does show is a static low-end
+gap — EE −43 / −20.9 / −7.8 / +0.9 dB against DAX's numbers above, i.e.
+18.6 dB at 80 Hz and 8 dB at 120 Hz, and the −25 dBFS quiet burst shows the
+same shape under the leveler's +21.7 dB makeup — the HP-slope / LF-leveler
+deviation already recorded at "The 47 Hz deviation" above, now with numbers
+at 80 and 120 Hz. **The second device for the slot question therefore needs a
+burst stimulus inside the dev regulator's active zone** (its four active bands
+are 47 / 141 / 234 / 328 Hz at −10 / −9 / −8 / −5 dBFS; tones at 180 / 234 /
+280 / 328 Hz at −5 dBFS peak clear the high-pass and sit above threshold with
+the +6 dB boost). `make_bass_burst` already takes `tone_freqs_hz`, so that is
+a generator entry, one Windows capture pair and one EE A/B. If DAX there sits
+near `output-gain`, the placement is DAX-faithful across the axis and the flip
+clears the bar; near `input-gain`, the slot is tuning-dependent and the
+XML-derivable predictor above becomes the fix.
 
 The reporter also observed that Windows is far louder with Dolby on than off
 while the Linux preset barely changes level — that is the leveler's +8.2 dB
