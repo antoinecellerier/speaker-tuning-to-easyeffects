@@ -171,6 +171,18 @@ default flipped to `input-gain` after a second, aggressive-regulator device
 (ThinkPad X13 Gen 6, issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)) confirmed it stays clean and loud; see
 design-notes.
 
+The opt-out has its own field confirmation: issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)'s Yoga Slim 7
+14ARE05 runs an eleven-band regulator whose deepest threshold is −30.9 dBFS, and
+there `output-gain` measured +6.8 dB more bass below 300 Hz than the default —
+with less out-of-band energy, since the bands no longer see the boost — and the
+reporter found the result on par with Windows. The reporter's Windows capture
+of the same loud-bass stimulus (2026-08-24) then put Dolby itself 0.2–2.8 dB
+below bypass on sustained bass — within 0.6–3.3 dB of `output-gain`, 7–9 dB
+above the default — so on this tuning the opt-out is the DAX-faithful order,
+not merely the louder one. Two field devices thus prefer opposite slots; the
+default stays `input-gain`, and no XML-derived rule picks the slot yet
+(design-notes "Why bypass has more bass than the preset").
+
 **Regulator → per-band limiter.** A second MBC instance configured as a
 limiter (Peak sidechain, 1 ms attack) from `regulator-tuning` `threshold_high`
 (1/16 dB per band). The 20 Dolby bands are grouped into ≤8 zones of identical

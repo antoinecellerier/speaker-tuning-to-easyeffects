@@ -63,7 +63,20 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
-  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),
+  Lenovo Yoga Slim 7 14ARE05
+  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
+
+### Docs
+
+- On a device whose speaker-protection limiter is aggressive,
+  `--volmax-slot output-gain` brings back the bass the default placement takes
+  away — confirmed by ear as on par with Windows, and by the reporter's Windows
+  measurement, where Dolby keeps loud bass near bypass while the default
+  placement drops it sharply. The default stays `input-gain`, which another
+  reported device needs to stay clean
+  ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
+  measurements in `docs/design-notes.md`).
 
 ## v2026.08 — 2026-08-24
 

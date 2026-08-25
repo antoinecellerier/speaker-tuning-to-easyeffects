@@ -65,6 +65,7 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | Lenovo Yoga Pro 7 14APH8 (82Y8) | Realtek ALC287, 17AA:38C6 | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
 | Lenovo Yoga Pro 7 14ASP9 (83HN) | Realtek ALC287, 17AA:38A7 | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
 | Lenovo Yoga Pro 9i 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
+| Lenovo Yoga Slim 7 14ARE05 (82A2) | Realtek ALC287, 17AA:380D | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
 | Lenovo Yoga Slim 7 14ILL10 (83JX) | Soundwire 17AA:3838 | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
 | ThinkPad E14 Gen 2 AMD (20T6) | Realtek ALC257, 17AA:507F | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
 | ThinkPad L14 Gen 6 AMD (21S8) | Realtek ALC257, 17AA:50FF | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
@@ -141,7 +142,7 @@ pip install -r requirements.txt
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid names: `volmax`, `mbc`, `regulator`, `coupled-bands`, `autogain`, `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
 - `--enable NAME` — switch on an optional stage the preset leaves off (repeatable, mirroring `--disable`). Valid names: `autogain`, `level-restore`, `virtual-bass`. See [Disabling and enabling filters](#disabling-and-enabling-filters) below.
-- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B or to recover loudness). See [Disabling and enabling filters](#disabling-and-enabling-filters).
+- `--volmax-slot {input-gain,output-gain}` — where the `volmax-boost` loudness gain is injected. Default `input-gain` runs it through the per-band regulator so loud bass doesn't distort (issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)); `output-gain` is the older placement (opt-out for A/B, or to bring back bass and loudness an aggressive regulator takes away — issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)). See [Disabling and enabling filters](#disabling-and-enabling-filters).
 
 **General**
 - `--verbose` (alias `-v`) — print the full frequency tables (hidden by default); include a `-v` log when reporting a sound problem
@@ -187,7 +188,7 @@ If the preset sounds right but quieter than Windows, part of the gap is expected
 - **Allow volume above 100%** in your desktop environment: GNOME — `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`; KDE Plasma — volume applet settings → *Raise maximum volume*; any environment — `wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.25`, or pavucontrol. Over-amplification is digital gain applied after the preset's limiter, so extreme values can clip.
 - **Check mixer levels** — in `alsamixer`, Master/PCM/Speaker at 100%.
 - **On the PipeWire path, check which output is selected** — if sound settings show the filter chain itself (`Dolby-… (speaker filter)`) instead of your speakers, its volume and your speakers' both apply; pick your speakers, since the chain is inserted into them automatically. `python3 dolby_to_pipewire.py --doctor` reports which is selected.
-- On a device whose regulator is aggressive, `--volmax-slot output-gain` can recover some loudness — see [Disabling and enabling filters](#disabling-and-enabling-filters).
+- On a device whose regulator is aggressive, `--volmax-slot output-gain` can bring back bass (and a little loudness) the per-band limiter takes away — confirmed by ear on one device ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)); see [Disabling and enabling filters](#disabling-and-enabling-filters).
 - **Speakers thin and quiet even with EasyEffects off** — run `--speaker-info`: a flagged amplifier-firmware error means your distro lacks this machine's speaker firmware, which no preset can fix ([background](docs/cross-device-findings.md); [issue #27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27) links a worked, device-specific example of extracting it from the Windows driver).
 
 ### Disabling and enabling filters
@@ -196,7 +197,7 @@ If the generated preset has audible artifacts on your hardware (saturation, pump
 
 | Name | What to try if you hear... |
 |------|----------------------------|
-| `volmax` | Loud parts distort or sound crushed. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if that costs loudness, try `--volmax-slot output-gain`.* |
+| `volmax` | Loud parts distort or sound crushed. Drops the static `volmax-boost` loudness gain (~+6 dB). *Distortion on loud **low** frequencies is already handled by the default `--volmax-slot input-gain`; if the preset instead sounds bass-light — switching it off has more bass — try `--volmax-slot output-gain`, confirmed by ear on one device ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).* |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor (1–4 bands depending on profile). |
 | `regulator` | The volume audibly wobbles or surges on its own. Drops the per-band limiter; `volmax` (if enabled) falls back to the brickwall limiter's input-gain. |
 | `coupled-bands` | The loudest moments feel clamped or lose impact. Drops the zones the tuning leaves at full scale but marks non-isolated, which the per-band limiter covers by default. **Not yet validated by ear** — the engaged path has been neither captured nor heard ([docs/reference.md](docs/reference.md)). |

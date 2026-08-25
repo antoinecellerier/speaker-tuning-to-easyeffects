@@ -289,8 +289,8 @@ def add_filter_tweak_args(container, *, only=None):
              "post-band-limiting placement (the full loudness makeup straight "
              "into the brickwall); use it for A/B comparison, or if input-gain "
              "costs too much loudness on a device with an aggressive regulator "
-             "(issue #44 measured it as the fix for bass the default placement "
-             "loses). "
+             "(issue #44 measured it, and the reporter confirmed by ear, as the "
+             "fix for bass the default placement loses). "
              "Neither placement is Dolby-documented; no effect when the regulator "
              "is disabled/absent (the boost then lands on limiter#0 input-gain).",
     )
