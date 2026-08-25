@@ -1,11 +1,26 @@
 <!--
 Maintainers — to cut a release:
-  1. Move the Unreleased entries into a new "## vYYYY.MM — DATE" heading
-     at the top of the version list (use the current year.month; add a
-     .1/.2 suffix if there's already a release this month).
-  2. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
-  3. .github/workflows/release.yml publishes the GitHub Release, pulling
-     the notes from this file's matching section.
+  1. Move the Unreleased entries into a new "## vYYYY.MM" heading at the
+     top of the version list (use the current year.month; add a .1/.2
+     suffix if there's already a release this month). No date in the
+     heading — it lives on the tag and the GitHub Release.
+  2. Draft the tagline and summary (below) unless the release has no theme,
+     and have the maintainer validate both before tagging.
+  3. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
+  4. .github/workflows/release.yml publishes the GitHub Release, pulling
+     the title and notes from this file's matching section.
+
+Release tagline & summary — both or neither; omit both when the release
+has no theme:
+  - Heading "## vYYYY.MM — <tagline>": <= 8 words naming what the release
+    changes in scope or intent ("Treble Restored and a PipeWire Path") —
+    not a feature list, not a slogan. It becomes the GitHub Release title.
+  - Summary: one or two sentences directly under the heading, before the
+    first ###, naming the intent and the main areas touched; it opens the
+    release notes. Exempt from the entry shape below, but it may only
+    restate what those entries say — /copy-audit reads the Unreleased
+    section only, so prose added at cut time is never fact-checked.
+
 Keep entries reverse-chronological (newest at the top). Within each ### section,
 order most-impactful first — [AUDIBLE] and user-facing changes above minor or
 internal ones. Section order follows the same idea: lead with the section

@@ -14,8 +14,8 @@ surfacing. Skip everything else: refactors, tests, research-log notes, and
 plain docs edits (including other supported-devices-table wording tweaks).
 New entries — and any edits, including wording cleanup/retrofits — go under
 `## Unreleased` only, in the matching `### Changed/Added/Fixed/Docs` section.
-The dated `## vYYYY.MM` sections are frozen release history: never reword them
-(their text shipped in a GitHub Release).
+The released `## vYYYY.MM` sections are frozen release history: never reword
+them (their text shipped in a GitHub Release).
 
 Word them per the spec in the comment at the top of `CHANGELOG.md` — it is
 objective; follow it literally, don't approximate. The shape: WHAT changed
@@ -28,7 +28,13 @@ the link. The comment carries a worked too-long-vs-tight example; match the
 tight one. If an entry needs more than three sentences, that's the signal the
 surplus belongs in design-notes, not here.
 
-Cutting a release — moving Unreleased entries into a dated `## vYYYY.MM`
-heading, then tagging and pushing — is maintainer-initiated; don't do it unless
+Cutting a release — moving Unreleased entries into a `## vYYYY.MM` heading,
+then tagging and pushing — is maintainer-initiated; don't do it unless
 explicitly asked (same gate as "Never push without explicit per-push
 permission"). The steps are in that same top comment.
+
+At a cut, draft the tagline and summary per the top comment's "Release
+tagline & summary" block — the one edit that sits outside `## Unreleased` —
+and stop for the maintainer to validate both before anything is tagged: they
+ship as the release title and its opening line, and /copy-audit never sees
+them.
