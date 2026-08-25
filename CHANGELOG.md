@@ -59,6 +59,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
+  Series 3)
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
+
 ## v2026.08 — 2026-08-24
 
 ### Added
