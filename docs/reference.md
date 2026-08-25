@@ -120,6 +120,19 @@ biquad fit: design-notes "Rejected approaches → Parametric-EQ approximation"
 (with the peak/RMS error table). The `.irs` files are RIFF/WAVE (IEEE
 float32, stereo, 48 kHz, 4096 samples).
 
+The voicing is the **only** thing that differs between the Balanced /
+Detailed / Warm presets — the `.json` files are identical apart from
+`kernel-name` (every other stage is derived from profile fields the voicing
+doesn't touch; `--enable level-restore` is the one exception, since it folds
+the per-voicing FIR peak into a gain). And because the whole 20-band target is
+weighted by `ieq-amount/100`, the three voicings end up at most ~1 dB apart at
+the corpus-universal `ieq-amount=10`: Detailed vs Warm is a broad
++0.6…0.9 dB tilt across 800 Hz–6 kHz (0.96 dB spread), Detailed vs Balanced
+≤0.5 dB, Warm vs Balanced ≤0.7 dB (arithmetic on the Dolby-global curves,
+matched by FFT of the generated kernels, 2026-08-25). A subtle difference
+between the three presets is expected, not a defect (issue
+[#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
+
 **Volume leveler → Autogain.** Maps to EE's EBU R 128 autogain. On HDA it
 ships **bypassed** (`--enable autogain` opts in): without Dolby's MI (Media
 Intelligence) content steering it boosts legitimate quiet content and loud

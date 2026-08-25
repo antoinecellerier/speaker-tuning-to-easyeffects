@@ -298,9 +298,13 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # 26-line window, scrolling the green "Done" off the last screen.
     console._cprint_wrapped("dim", "    " + ", ".join(preset_names), indent="    ")
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
-    # curves (Dolby-global): detailed ≈ +4 dB treble, warm ≈ −2.5 dB
-    # treble. Round 5: the closing named a starting preset but never said
-    # what the other two are for, so nobody would try them.
+    # curves (Dolby-global) BEFORE the ieq-amount weight: detailed ≈ +4 dB
+    # treble, warm ≈ −2.5 dB treble. After the corpus-universal amount=10
+    # (/100, Finding 9) that is ≈ +0.4 / −0.25 dB — the direction holds,
+    # which is all the sentence claims; the magnitude is subtle (#73), and
+    # docs/reference.md "IEQ curve → FIR" says so. Round 5: the closing
+    # named a starting preset but never said what the other two are for,
+    # so nobody would try them.
     console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
                            f"pick '{preset_names[0]}' from the Presets menu — "
                            f"that's the one to start with{voicing_hint}. "

@@ -1952,6 +1952,22 @@ the percentage interpretation; until then `/100` is a hypothesis that fits
 all current evidence, per the standing principle that the XML→parameter
 mappings are empirically falsifiable.
 
+A second, cheaper falsifier surfaced in issue
+[#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)
+(2026-08-25): the voicings. Under the `amount/100` reading the whole 20-band
+target — voicing shape included — is weighted 0.10, so the generated
+Detailed / Balanced / Warm kernels sit at most ~1 dB apart (Detailed−Warm
+0.96 dB spread, a broad 800 Hz–6 kHz tilt; arithmetic on the Dolby-global
+curves, confirmed by FFT of the shipped dev-device kernels), and the #73
+reporter duly found the three "subtle to non-existent". Every DAX capture in
+the archive was taken with Dolby Access left on Balanced, so DAX's own
+Detailed−Warm delta is unmeasured. A pink/multitone capture with the voicing
+set to Detailed, then Warm, on the dev device settles it: ≤ ~1 dB confirms
+that the weight applies to the whole target; a several-dB delta would mean
+DAX applies the voicing *shape* at more than the steady-state weight (e.g.
+`ieq-amount` scaling only the MI-steered part), and the converter's variants
+are under-differentiated.
+
 ### Finding 10: simplified-schema AO units confirmed on a second device (issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44))
 
 The issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) reporter (Yoga Slim 7 14ARE05, Realtek ALC287,
