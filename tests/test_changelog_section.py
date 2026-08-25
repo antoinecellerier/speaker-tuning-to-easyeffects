@@ -5,17 +5,19 @@ when a section is missing or a heading is malformed, so the release
 workflow fails instead of publishing empty or misnamed notes.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from tools.changelog_section import (extract_section, parse_heading, reflow,
-                                     release_title)
+from tools.changelog_section import (DATE_TAGLINE, extract_section, parse_heading,
+                                     reflow, release_title)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools" / "changelog_section.py"
+REAL_CHANGELOG = ROOT / "CHANGELOG.md"
 
 SAMPLE = """# Changelog
 
@@ -174,3 +176,29 @@ def test_cli_title_exits_nonzero_for_a_date_shaped_heading(tmp_path):
     result = run_cli(changelog, "v2026.01", "--title")
     assert result.returncode == 1
     assert "date" in result.stderr
+
+
+RELEASE_HEADING = re.compile(r"^## v\S+( — .+)?$")
+
+
+def test_every_release_heading_in_the_real_changelog_titles_a_release():
+    """The file the workflow reads, not a sample: a heading the title parser
+    rejects fails the release job on a pushed tag, where CI runs no tests —
+    this is the only check between a cut and the release job."""
+    text = REAL_CHANGELOG.read_text()
+    lines = text.splitlines()
+    headings = [(i, line) for i, line in enumerate(lines) if line.startswith("## v")]
+    assert headings, "CHANGELOG.md has no release sections"
+    for i, line in headings:
+        assert RELEASE_HEADING.match(line), f"malformed release heading: {line!r}"
+        version, tagline = parse_heading(line)
+        assert not (tagline and DATE_TAGLINE.match(tagline)), (
+            f"{line!r}: the date belongs on the tag; the heading takes a tagline")
+        assert release_title(text, version) == line.removeprefix("## ")
+        if tagline:
+            assert len(tagline.split()) <= 8, f"{line!r}: tagline over 8 words"
+            # A tagline never comes alone: the rule pairs it with a summary
+            # paragraph directly under the heading, ahead of the first ###.
+            following = next(l for l in lines[i + 1:] if l.strip())
+            assert not following.startswith("#"), (
+                f"{line!r} has a tagline but no summary paragraph under it")

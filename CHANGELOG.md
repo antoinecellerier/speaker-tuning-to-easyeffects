@@ -93,7 +93,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
   measurements in `docs/design-notes.md`).
 
-## v2026.08 — 2026-08-24
+## v2026.08 — Clearer Runs and a Standalone PipeWire Path
+
+The run's output was reworked around what a first-time reader can act on —
+every warning ends in a flag or a report ask, the closing block states the
+differences from Windows, and `--doctor` reads EasyEffects' live state.
+`dolby_to_pipewire.py` builds and activates the filter chain in one command
+with no EasyEffects involved, and three opt-in flags — volume leveler,
+virtual bass, level restore — add what the default preset leaves out.
 
 ### Added
 
@@ -357,7 +364,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39);
   details in `docs/ee-to-pipewire.md`).
 
-## v2026.07 — 2026-07-21
+## v2026.07 — Matching the Right Tuning to the Device
+
+Fixes device matching where two tunings shared a codec-subsystem id, on
+dual-controller AMD laptops, and on Cirrus SoundWire machines, and adds
+`--best-guess` for hardware that matches nothing exactly. SoundWire presets
+are quieter with two legacy boosts removed, and `--speaker-info` gains an
+amplifier-status section.
 
 ### Fixed
 
@@ -441,7 +454,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23);
   evidence in `docs/design-notes.md`).
 
-## v2026.06 — 2026-06-22
+## v2026.06 — Voicing Corrections and Self-Diagnosis
+
+Two corrections to how a preset is voiced: the loudness boost now runs
+through the per-band regulator, and the artificial stereo widening is gone.
+Adds `--doctor` for "it loads but sounds like nothing", autoload fixes for
+cards it silently missed, and support for simplified-schema tunings.
 
 ### Changed
 
@@ -543,7 +561,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   `docs/design-notes.md` is now explicitly the research log. No change to
   generated output.
 
-## v2026.05 — 2026-05-28
+## v2026.05 — Treble Restored and a PipeWire Path
+
+Reads the speaker voicing as the percentage it is, so presets stop rolling
+the highs off far harder than Dolby intends. Adds `ee_to_pipewire.py` for
+running a generated preset as a PipeWire filter chain instead, `--version`
+with a provenance stamp, and this changelog.
 
 ### Changed
 
@@ -589,7 +612,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14),
   [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13))
 
-## v2026.04.3 — 2026-04-29
+## v2026.04.3 — Filter Slopes and the Measurement Harness
+
+Corrects high-pass and low-pass filters that were built twice as steep as
+the tuning specifies, and adds the tooling that checks such work: DAX
+capture on Windows, EasyEffects capture on Linux, their comparison, and a
+pytest suite in CI.
 
 ### Changed
 
@@ -622,7 +650,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#11](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/11),
   [#12](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/12))
 
-## v2026.04.2 — 2026-04-22
+## v2026.04.2 — Loudness Makeup and Wider Tuning Coverage
+
+Applies Dolby's loudness makeup, so a preset no longer plays quieter than
+the same laptop under Dolby on Windows, and covers tunings with other band
+counts or with high-shelf and low-pass filters. Adds `--dry-run`, coloured
+output, and autoprobing of the Dolby source.
 
 ### Changed
 
@@ -665,7 +698,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 - Expand the cross-device findings to a 1050-XML cohort.
 
-## v2026.04.1 — 2026-04-17
+## v2026.04.1 — SoundWire Speakers and Hardware Reporting
+
+First support for SoundWire laptop speakers — presets designed around their
+small full-range drivers, and auto-detection of those codecs. Adds
+`--speaker-info` for the audio hardware found, and finds a Flatpak
+EasyEffects install.
 
 ### Added
 
@@ -687,9 +725,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   front-loads user-facing docs. PR #7 review feedback (ThinkPad X1 Carbon
   Gen 13). ([PR #7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7))
 
-## v2026.02 — 2026-02-28
+## v2026.02 — First Release
 
-Initial release.
+First release of the converter: turns a Dolby DAX3 tuning XML into
+EasyEffects 8.x presets — convolver, speaker PEQ, dynamics and a safety
+limiter — with endpoint and profile selection, `--all-profiles` and optional
+autoload.
 
 ### Added
 
