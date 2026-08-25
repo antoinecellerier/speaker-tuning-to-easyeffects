@@ -47,21 +47,21 @@ cannot drift apart.
 
 | | |
 |---|---|
-| Tuning XMLs | 3638 |
-| Distinct tunings by content | 895 |
-| Distinct filenames | 1045 |
-| Distinct `SUBSYS` device ids | 858 |
-| Profile rows (endpoint × operating mode × profile) | 54025 |
+| Tuning XMLs | 3640 |
+| Distinct tunings by content | 897 |
+| Distinct filenames | 1047 |
+| Distinct `SUBSYS` device ids | 860 |
+| Profile rows (endpoint × operating mode × profile) | 54045 |
 | Codec ids | 20 |
-| Driver packages | 15 |
+| Driver packages | 16 |
 
 Per-codec counts and everything downstream of them are in
 [cross-device-findings.md](cross-device-findings.md); this page does not repeat
 them.
 
-The gap between 3638 files and 895 distinct tunings is the shape of the data:
+The gap between 3640 files and 897 distinct tunings is the shape of the data:
 one tuning ships to every SKU it fits, in every package that supports that SKU.
-The most-repeated tuning appears 66 times, and only 241 files are the sole copy
+The most-repeated tuning appears 66 times, and only 243 files are the sole copy
 of their content. Counting files therefore overstates coverage by roughly 4×,
 which is why the findings doc counts files, rows and devices separately rather
 than quoting one number for a prevalence.
@@ -72,11 +72,11 @@ Every file has one of three origins:
 
 | Source | Files | Distinct tunings |
 |---|---|---|
-| A publicly downloadable driver package | 3413 | 891 |
+| A publicly downloadable driver package | 3415 | 893 |
 | The development machine's Windows partition | 219 | 202 |
 | Attached to a GitHub issue | 6 | 6 |
 
-The rows are disjoint and sum to the 3638 above; a file attached to an issue is
+The rows are disjoint and sum to the 3640 above; a file attached to an issue is
 counted only there, never also as a package file.
 
 Only the middle row is something nobody else can fetch — and it contributes
@@ -88,7 +88,8 @@ reproducible by anyone willing to pull the same packages.
 ### Publicly downloadable driver packages
 
 Each was downloaded as a self-extracting installer from the vendor's support
-site and unpacked with [`innoextract`](https://constexpr.org/innoextract/install).
+site and unpacked with [`innoextract`](https://constexpr.org/innoextract/install)
+— except Framework's, a 7-Zip SFX that `7z x` opens.
 The layout inside varies (`Source/Dolby/…`, `Source/ThirdParty/…`, `Dolby/…`,
 and Samsung's `APO/Dolby/` with the `.inf` flat beside the tunings), so there is
 no fixed path to them. The last column records **which download the package came
@@ -105,13 +106,14 @@ from**, not a claim about that model.
 | `ext_lenovo_AIO_rtk_22h2_24h2_25h2_v10.1029.1430.37` | 696 | `kkau100fq18jlle0.exe` | IdeaPad 5x 2-in-1 14 |
 | `ext_lenovo_AIO_rtk_22h2_24h2_v10.725.730.25` | 655 | `14yo037flhg44zg0.exe` | Yoga 7 2-in-1 16AKP10 |
 | `ext_qc_lenovo_thinkpad` | 2 | `n3ha810w.exe` | ThinkPad X13s Gen 1 (Qualcomm Aqstic) |
+| `ext_realtek_framework` | 2 | `Framework_Laptop_13_Intel_Core_Ultra_Series3_driver_bundle_W11_v101_2026_06_05.exe` | Framework Laptop 13 Pro (Intel Core Ultra Series 3) |
 | `ext_realtek_lenovo_ideapad` | 60 | `mwy506af40hk90.exe` | Legion Y540-15IRH |
 | `ext_thinkpad_AIO_rtk_19h1_20h1_v6.108.104.39` | 68 | `n2wa126w.exe` | ThinkPad X1 Carbon Gen 8 |
 | `ext_thinkpad_AIO_rtk_20h1_22h2_24h2_v9.1127.1236.0` | 219 | `r2nao09w.exe` | ThinkPad T14s Gen 6 |
 | `ext_thinkpad_AIO_rtk_22h2_24h2_25h2_v10.1022.826.17` | 243 | `n4kao13w.exe` | ThinkPad X13 Gen 6 |
 | `ext_thinkpad_AIO_rtk_rs5_19h1_v5.204.651.25` | 57 | `r12ar18w.exe` | ThinkPad T495 |
 
-The table sums to 3344. The other 69 files of this source are duplicate copies
+The table sums to 3346. The other 69 files of this source are duplicate copies
 held elsewhere in the working tree — a re-organised copy of the X1 Carbon
 package, and staged copies left by a test harness — not additional tunings.
 
@@ -148,16 +150,17 @@ whose driver this project has no download for.
 
 ## What it is skewed towards
 
-- **One vendor.** 849 of the 858 device ids carry Lenovo's `17AA`. The other
-  nine are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), one
-  ASUS (`1043`), and one Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
+- **One vendor.** 849 of the 860 device ids carry Lenovo's `17AA`. The other
+  eleven are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
+  Framework (`F111`, the only non-Lenovo *package*), one ASUS (`1043`), and one
+  Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
   holds across the corpus is a finding that holds across *Lenovo's* tuning
   practice; it is evidence about the DAX3 schema, and much weaker evidence about
   what other OEMs do with it.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.
-- **Breadth by accident, not design.** Fourteen downloads yield 858 device ids
+- **Breadth by accident, not design.** Fifteen downloads yield 860 device ids
   because a Lenovo audio package carries the tunings for every SKU it supports,
   not just the machine you downloaded it for. Coverage is therefore wide across
   SKUs and narrow across vendors, kernels, and codec generations.
