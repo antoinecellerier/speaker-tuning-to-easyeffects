@@ -1,5 +1,7 @@
 ---
 name: copy-audit
+context: fork
+agent: general-purpose
 description: >-
   Audits the user-facing terminal copy changed over a git range for factual
   truth rather than readability, by fanning out reviewers partitioned by
@@ -13,6 +15,29 @@ description: >-
 ---
 
 # copy-audit
+
+## Running as a subagent
+
+This skill runs in a fresh subagent (`context: fork`): nothing from the
+conversation reaches it, so everything it needs is stated here or in its
+arguments, and it returns one thing — the triaged report of step 4. It does
+**not** fix anything: step 5 is the maintainer's choice, made in the main
+conversation from that report.
+
+- **Range:** the argument, if one names a revision or `a..b`; otherwise
+  `origin/master..HEAD` (the unpushed work). Step 2's `--since` is the
+  range's base.
+- **Evidence dir:** `localresearch/copy_audit/<YYYY-MM-DD>/` (gitignored),
+  unless the argument names a directory that already holds the step-1
+  files — then reuse them, regenerating only what is missing.
+- Use absolute paths in every shell command: a `cd` that fails leaves the
+  shell elsewhere for every later call.
+- Run reviewers as subagents (`model: opus` — this is truth-checking, not
+  comprehension) with one slice and one evidence source each, as §3 says.
+- Return the step-4 report verbatim as your final message: ranked, every
+  finding with severity, the true statement and its evidence, the
+  discarded findings with why, the known limits, and the patterns that
+  went unrendered.
 
 `/user-review` grades comprehension. A false sentence can score perfectly
 there — and historically has: that loop's own fixes were the biggest single
