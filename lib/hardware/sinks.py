@@ -196,6 +196,32 @@ def select_speaker_sinks() -> dict:
     return {"tier": "none", "selected": [], "all_sinks": all_sinks}
 
 
+def live_default_sink() -> str:
+    """node.name of the sink PipeWire is sending output to now, or "".
+
+    Imported inside the function so the EasyEffects path doesn't drag in the
+    PipeWire checks module (which imports back into lib/report/) on the runs
+    that never need it.
+    """
+    from lib.pipewire import checks
+    return checks.default_sinks(checks._pw_dump()).effective
+
+
+def is_internal_speaker(name: str) -> bool:
+    """Does PipeWire call this sink one of the machine's own speakers?
+
+    The same classifier `--autoload` uses rather than a match on the node
+    name, so every caller agrees about what a speaker is — including the
+    relaxed tier for laptops whose UCM2 profile omits the speaker icon
+    (issue #18). Any failure answers "don't know" (False).
+    """
+    try:
+        return any(s.get("name") == name
+                   for s in select_speaker_sinks()["selected"])
+    except (OSError, KeyError, TypeError):
+        return False
+
+
 def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
     """One-line diagnostic: the sink's node.name (what --autoload-sink/
     --target-sink take) plus icon/bus detail, and optionally a human

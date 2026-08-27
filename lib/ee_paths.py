@@ -26,7 +26,7 @@ __all__ = ["FLATPAK_APP_ID", "FLATPAK_BASE", "NATIVE_BASE",
            "prefer_flatpak", "easyeffects_base",
            "USE_FLATPAK", "EASYEFFECTS_BASE",
            "DEFAULT_OUTPUT_DIR", "DEFAULT_IRS_DIR", "DEFAULT_AUTOLOAD_DIR",
-           "DEFAULT_EASYEFFECTS_RC"]
+           "DEFAULT_EASYEFFECTS_RC", "uses_custom_dirs"]
 
 FLATPAK_APP_ID = "com.github.wwmm.easyeffects"
 FLATPAK_BASE = (Path.home() / ".var" / "app" / FLATPAK_APP_ID
@@ -75,4 +75,18 @@ DEFAULT_AUTOLOAD_DIR = EASYEFFECTS_BASE / "autoload" / "output"
 # under XDG_DATA_HOME for presets/IRs); this one is under XDG_CONFIG_HOME.
 _FLATPAK_RC = Path.home() / ".var" / "app" / FLATPAK_APP_ID / "config" / "easyeffects" / "db" / "easyeffectsrc"
 _NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
+
+
+def uses_custom_dirs(output_dir: Path, irs_dir: Path) -> bool:
+    """Did a run write somewhere other than EasyEffects' own tree?
+
+    *Either* dir moved counts, so every check that keys on this agrees about
+    what "custom" means: --doctor skips the EE-location and selected-preset
+    verdicts on it, and the end-of-run install-mismatch warning fires only on
+    its negation. Written once because the two read as De Morgan duals and
+    an inverted hand-written copy would be silent.
+    """
+    return output_dir != DEFAULT_OUTPUT_DIR or irs_dir != DEFAULT_IRS_DIR
+
+
 DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if USE_FLATPAK else _NATIVE_RC

@@ -61,6 +61,7 @@ from lib.doctor import (
     DOCTOR_WARN,
     CheckResult,
 )
+from lib.hardware import sinks
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
 from lib.report import environment
@@ -108,34 +109,6 @@ def easyeffects_is_running() -> bool:
         # OSError covers FileNotFoundError (no pgrep) and PermissionError
         # (sandboxed/SELinux hosts) — never crash a caller that only wants a
         # best-effort "is EE up?" (e.g. --doctor's fact-gathering).
-        return False
-
-
-def _live_default_sink() -> str:
-    """node.name of the sink PipeWire is sending output to now, or "".
-
-    Imported inside the function so the EasyEffects path doesn't drag in the
-    PipeWire checks module (which imports back into lib/report/) on the runs
-    that never need it.
-    """
-    from lib.pipewire import checks
-    return checks.default_sinks(checks._pw_dump()).effective
-
-
-def _sink_is_internal_speaker(name: str) -> bool:
-    """Does PipeWire call this sink one of the machine's own speakers?
-
-    Reuses the generator's own classifier rather than matching on the node
-    name, so the doctor and `--autoload` agree about what a speaker is —
-    including the relaxed tier for laptops whose UCM2 profile omits the
-    speaker icon (issue #18). Only asked to decide whether to keep a closing
-    bullet, so any failure answers "don't know" and the bullet stays.
-    """
-    from lib.hardware import sinks
-    try:
-        return any(s.get("name") == name
-                   for s in sinks.select_speaker_sinks()["selected"])
-    except (OSError, KeyError, TypeError):
         return False
 
 
@@ -233,10 +206,10 @@ def _resolve_live_state(rc: dict) -> LiveState:
     # opposite: only the GUI writes that key, so the rc is then the truth and
     # the live default sink is the wrong answer.
     if rc.get("use_default_output_device", True):
-        live_sink = _live_default_sink()
+        live_sink = sinks.live_default_sink()
         if live_sink:
             state.sink, state.sink_source = live_sink, "live"
-            state.sink_is_speaker = _sink_is_internal_speaker(live_sink)
+            state.sink_is_speaker = sinks.is_internal_speaker(live_sink)
         else:
             state.sink, state.sink_source = rc.get("output_device", ""), "saved"
     else:
@@ -749,24 +722,12 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     layout.print_closing(tuple(closing))
 
 
-def _uses_custom_ee_dirs(args) -> bool:
-    """Did the run write somewhere other than EasyEffects' own tree?
-
-    *Either* dir moved counts, so every check that keys on this agrees about
-    what "custom" means: --doctor skips the EE-location and selected-preset
-    verdicts here, and the end-of-run install-mismatch warning fires only on
-    its negation. Written once because the two read as De Morgan duals and
-    an inverted hand-written copy would be silent.
-    """
-    return (args.output_dir != ee_paths.DEFAULT_OUTPUT_DIR
-            or args.irs_dir != ee_paths.DEFAULT_IRS_DIR)
-
-
 def report_doctor(args) -> None:
     """--doctor entry point: run environment self-diagnostics and print them."""
     report = _gather_doctor_report(args.output_dir, args.irs_dir,
                                    ee_paths.DEFAULT_EASYEFFECTS_RC,
-                                   custom_dirs=_uses_custom_ee_dirs(args))
+                                   custom_dirs=ee_paths.uses_custom_dirs(
+                                       args.output_dir, args.irs_dir))
     _print_doctor_report(report)
 
 
@@ -813,7 +774,7 @@ def warn_ee_environment(args) -> None:
     # Install-location mismatch (only meaningful for the default EE dirs): the
     # detected EE build differs from where we wrote. Warn so the user can point
     # --output-dir/--irs-dir at the install they actually run.
-    if (not _uses_custom_ee_dirs(args)
+    if (not ee_paths.uses_custom_dirs(args.output_dir, args.irs_dir)
             and ee_is_flatpak is not None and ee_is_flatpak != ee_paths.USE_FLATPAK):
         run_where = "Flatpak" if ee_is_flatpak else "native"
         where = "Flatpak" if ee_paths.USE_FLATPAK else "native"

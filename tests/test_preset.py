@@ -43,7 +43,7 @@ from lib.doctor import (
     print_verdict,
     summarize,
 )
-from lib.hardware import speakers
+from lib.hardware import sinks, speakers
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report import speaker as report_speaker
@@ -2905,7 +2905,7 @@ def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
     as such, with an UNKNOWN check naming what went unanswered."""
     monkeypatch.setattr(doctor_run, "_ee_query",
                         lambda r: ee_socket.EEReply(reached=True))
-    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: "alsa_output.spk")
     s = doctor_run._resolve_live_state(
         {"last_output_preset": "Saved", "bypass": False,
          "use_default_output_device": True})
@@ -2917,7 +2917,7 @@ def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
 def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
     """TRAP: EE not running is the ordinary case and must stay quiet."""
     monkeypatch.setattr(doctor_run, "_ee_query", lambda r: ee_socket.EEReply())
-    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: "alsa_output.spk")
     s = doctor_run._resolve_live_state({"last_output_preset": "Saved"})
     assert s.unanswered == []
 
@@ -2928,7 +2928,7 @@ def _resolve(monkeypatch, rc, *, preset="", bypass="", sink=""):
         lambda r: ee_socket.EEReply(
             value=preset if r == ee_socket.PRESET_REQUEST else bypass,
             reached=True, answered=True))
-    monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: sink)
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: sink)
     return doctor_run._resolve_live_state(rc)
 
 
