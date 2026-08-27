@@ -24,7 +24,6 @@ Output chain:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -58,29 +57,6 @@ except ImportError:
 # under the names the rest of this file already uses.
 Finding = report_findings.Finding
 _print_finding_detail = report_findings._print_finding_detail
-
-
-# Colorize the --disable/--enable NAME values inside --help prose with the
-# same style the left column uses for metavar placeholders, so
-# "--enable autogain" in a help sentence reads like "--enable NAME" does.
-# rich-argparse applies each `highlights` regex to the rendered help text
-# and styles a named group <g> as "argparse.<g>" — "metavar" is dark_cyan.
-# The lookarounds exclude hyphen-adjacent hits so `volmax` never matches
-# inside `volmax-boost` or `--volmax-slot`. Appended once at import time
-# (the parser factory may run more than once under tests).
-if console._HelpFormatter is not argparse.HelpFormatter:
-    _FILTER_NAME_ALTERNATION = "|".join(
-        re.escape(name)
-        for name in sorted({*messages.DISABLEABLE_FILTERS, *messages.ENABLEABLE_FILTERS},
-                           key=len, reverse=True))
-    console._HelpFormatter.highlights = [
-        *console._HelpFormatter.highlights,
-        # "--disable volmax" / "--enable autogain" usage examples
-        rf"--(?:disable|enable)\s+(?P<metavar>{_FILTER_NAME_ALTERNATION})",
-        # the "Valid names: a, b, c." enumerations — each name sits between
-        # ": "/", " and ","/"." there, which prose mentions never do
-        rf"(?<=[:,] )(?P<metavar>{_FILTER_NAME_ALTERNATION})(?=[,.])",
-    ]
 
 
 TUNING_INPUT_DESCRIPTION = (

@@ -16,6 +16,7 @@ filesystem writes; they are exercised by the corpus tests
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -582,6 +583,72 @@ def test_help_exits_cleanly():
     result = _run_script("--help")
     assert result.returncode == 0
     assert "Convert Dolby DAX3" in result.stdout
+
+
+def _style_at(script: Path, context: str, token: str):
+    """The rich style `token` is printed in, located through `context` — a
+    regex matching its plain-text surroundings exactly once — in `script`'s
+    coloured `--help`. Styles are compared, not escape codes, so the palette
+    stays the theme's; `\\s+` in a context crosses a wrapped line, since the
+    colour is applied before wrapping and the wrap point is not the test's."""
+    from rich.console import Console
+    from rich.text import Text
+    env = {**os.environ, "FORCE_COLOR": "1", "TERM": "xterm-256color"}
+    env.pop("NO_COLOR", None)
+    result = subprocess.run([sys.executable, str(script), "--help"],
+                            capture_output=True, text=True, env=env,
+                            check=True)
+    text = Text.from_ansi(result.stdout)
+    hits = list(re.finditer(context, text.plain))
+    assert len(hits) == 1, context
+    return text.get_style_at_offset(
+        Console(), hits[0].start() + hits[0].group().index(token))
+
+
+METAVAR_COLUMN = r"\n  --enable NAME"   # the NAME of the invocation column
+
+
+@pytest.mark.skipif(console._HelpFormatter is argparse.HelpFormatter,
+                    reason="rich-argparse not installed")
+@pytest.mark.parametrize("script,context,token,ref_context,ref_token", [
+    # An --option is an option wherever it stands: after "/" as much as after
+    # a space. rich-argparse's own rule wants whitespace before it, which left
+    # the second of "--output-dir/--irs-dir" plain next to a coloured first.
+    (SCRIPT, r"--output-dir/--irs-dir", "--irs-dir",
+     r"--output-dir/--irs-dir", "--output-dir"),
+    # A choices= value named as a value takes the metavar colour of the NAME
+    # it stands for — quoted, after its flag, or in the "Valid names:" list.
+    (SCRIPT, r"'input-gain'", "input-gain", METAVAR_COLUMN, "NAME"),
+    (SCRIPT, r"'output-gain'", "output-gain", METAVAR_COLUMN, "NAME"),
+    (SCRIPT, r"--disable\s+volmax\s+if", "volmax", METAVAR_COLUMN, "NAME"),
+    (SCRIPT, r"names: autogain,\s+level-restore,", "level-restore",
+     METAVAR_COLUMN, "NAME"),
+    # The wrapper's own choices= option, on the parser it builds itself; the
+    # default is named after a colon, like a list entry, with no comma after.
+    (SCRIPT.parent / "dolby_to_pipewire.py", r"'all'\s+converts", "all",
+     METAVAR_COLUMN, "NAME"),
+    (SCRIPT.parent / "dolby_to_pipewire.py", r"default:\s+balanced", "balanced",
+     METAVAR_COLUMN, "NAME"),
+])
+def test_help_colours_values_like_the_metavar_they_stand_for(
+        script, context, token, ref_context, ref_token):
+    """Same role, same colour: a flag reads as a flag and a value as a value
+    anywhere in the prose — a coloured "--output-dir" beside a plain
+    "--irs-dir" reads as one flag and one typo."""
+    style = _style_at(script, context, token)
+    assert style == _style_at(script, ref_context, ref_token)
+    assert style.color is not None and not style.color.is_default
+
+
+@pytest.mark.skipif(console._HelpFormatter is argparse.HelpFormatter,
+                    reason="rich-argparse not installed")
+def test_help_leaves_a_prose_mention_of_a_value_plain():
+    """The other half of the rule: "volmax-boost" is a thing the regulator
+    carries, not a value of --disable, and colouring its first half would
+    say otherwise."""
+    style = _style_at(SCRIPT, r"static\s+volmax-boost", "volmax")
+    assert style == _style_at(SCRIPT, r"static\s+volmax-boost", "static")
+    assert style.color is None or style.color.is_default
 
 
 # Anything a user pastes into a public issue — the `--help` listing, and the

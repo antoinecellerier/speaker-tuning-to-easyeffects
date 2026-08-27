@@ -55,6 +55,7 @@ on when nothing more specific is known.
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import textwrap
@@ -102,6 +103,15 @@ try:
     from rich_argparse import RichHelpFormatter as _HelpFormatter
 except ImportError:
     _HelpFormatter = argparse.HelpFormatter
+else:
+    # rich-argparse styles an --option only at line start or after whitespace,
+    # so of "--output-dir/--irs-dir" the first is cyan and the second plain —
+    # which reads as one flag and one typo. Its default pattern, with the
+    # boundary restated as what an option is: a hyphen run not continuing a
+    # word or another hyphen run ("re-wrapped", "volmax-boost" stay plain).
+    _HelpFormatter.highlights = [
+        r"`(?P<syntax>[^`]*)`|(?<![\w-])(?P<args>-{1,2}[\w]+[\w-]*)",
+    ]
 
 _MISSING_COLOR_DEPS = []
 if _CONSOLE is None:
@@ -136,6 +146,52 @@ class _HelpHintParser(argparse.ArgumentParser):
     def error(self, message):
         self.print_usage(sys.stderr)
         self.exit(2, f"{self.prog}: error: {message}\n{_HELP_HINT}\n")
+
+    def _get_formatter(self):
+        """argparse's formatter, plus a highlight per ``choices=`` option.
+
+        Built here, and per instance, because rich-argparse colours each
+        argument's help as it is added: a rule that names an option's values
+        must exist before the first help string is rendered, and the parser
+        is the only thing that knows every option's ``choices`` by then. The
+        class-level ``highlights`` list stays untouched, so one parser's rules
+        never leak into another built in the same process (the tests build
+        all three).
+        """
+        formatter = super()._get_formatter()
+        if (_HelpFormatter is not argparse.HelpFormatter
+                and isinstance(formatter, _HelpFormatter)):
+            formatter.highlights = [*formatter.highlights,
+                                    *_choice_highlights(self._actions)]
+        return formatter
+
+
+def _choice_highlights(actions) -> list[str]:
+    """rich-argparse patterns styling a ``choices=`` option's values as the
+    metavar they are — the colour of ``NAME`` in ``--enable NAME`` — wherever
+    the help prose names one *as a value*: after its flag ("--enable
+    autogain"), in quotes ("'output-gain' opts back into"), or after list
+    punctuation ("Valid names: a, b, c.", "(default: balanced —"). A prose
+    mention of the same word stays plain ("the regulator's per-band
+    compression" is not a value), which the three anchors give for free: each
+    needs the flag, the quotes or the list punctuation around the name, and
+    none accepts a hyphen-glued tail, so ``volmax`` never lights up inside
+    ``volmax-boost``. Longest name first, so ``bass-enhancer`` is never read
+    as ``bass`` plus a tail.
+    """
+    patterns = []
+    for action in actions:
+        if not action.choices or not action.option_strings:
+            continue
+        names = "|".join(re.escape(str(c)) for c in
+                         sorted(action.choices, key=len, reverse=True))
+        flags = "|".join(re.escape(f) for f in action.option_strings)
+        patterns += [
+            rf"(?:{flags})\s+(?P<metavar>{names})(?![\w-])",
+            rf"'(?P<metavar>{names})'",
+            rf"(?<=[:,] )(?P<metavar>{names})(?![\w-])",
+        ]
+    return patterns
 
 
 # What a user can cause, as against what only we can. Everything listed is an
