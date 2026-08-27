@@ -104,8 +104,10 @@ Earlier versions added a Calf Stereo Tools widener here; see design-notes
 "unvalidated-scaling entry 2".
 
 Output files:
-- `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}.irs` —
-  stereo FIR impulse responses.
+- `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}-<8 hex>.irs` —
+  stereo FIR impulse responses. The suffix is a hash of the impulse's own
+  samples, so a regenerated FIR gets a new name (EasyEffects re-reads an
+  `.irs` only when the kernel name changes — see "EasyEffects 8.x specifics").
 - `~/.local/share/easyeffects/output/Dolby-{Balanced,Detailed,Warm}.json` —
   EasyEffects presets.
 
@@ -239,6 +241,14 @@ no per-band limiting.
   extension (not `.wav`).
 - The convolver uses `"kernel-name"` (filename stem), not the deprecated
   `"kernel-path"`.
+- The convolver re-reads its `.irs` only when `kernel-name` *changes*; a
+  same-name rewrite keeps the old impulse in memory through a preset reload
+  or a GUI re-pick. The generator therefore names each impulse after a hash
+  of its samples and removes the impulses earlier runs of the same preset
+  left behind — unless another preset, a `--no-copy-irs` PipeWire conf, or
+  EasyEffects' own saved settings (it restores the convolver's kernel name
+  from its config db on start) still name one, which is then kept and
+  reported.
 - The equalizer has no graphic-EQ mode — parametric only (LSP plugin).
 
 EE 7 uses an incompatible preset format; on EE 7 the speaker-correction

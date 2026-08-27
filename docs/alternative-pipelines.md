@@ -196,18 +196,21 @@ context.modules = [
             media.name       = "Dolby Speaker Processing"
             filter.graph = {
                 nodes = [
-                    # FIR convolver (IEQ + audio-optimizer)
+                    # FIR convolver (IEQ + audio-optimizer). The generator names
+                    # each impulse after its contents (Dolby-Balanced-<8 hex>.irs)
+                    # and removes the previous one — point at the file it wrote,
+                    # and re-point after a regeneration that changed the sound.
                     {
                         type   = builtin
                         name   = convL
                         label  = convolver
-                        config = { filename = "~/.local/share/easyeffects/irs/Dolby-Balanced.irs" channel = 0 }
+                        config = { filename = "~/.local/share/easyeffects/irs/Dolby-Balanced-<hash>.irs" channel = 0 }
                     }
                     {
                         type   = builtin
                         name   = convR
                         label  = convolver
-                        config = { filename = "~/.local/share/easyeffects/irs/Dolby-Balanced.irs" channel = 1 }
+                        config = { filename = "~/.local/share/easyeffects/irs/Dolby-Balanced-<hash>.irs" channel = 1 }
                     }
                     # High-pass filter (speaker protection)
                     { type = builtin name = hpL label = bq_highpass control = { "Freq" = 100.0 "Q" = 0.707 } }

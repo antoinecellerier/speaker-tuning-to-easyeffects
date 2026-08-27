@@ -108,6 +108,15 @@ DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/pipewire.conf.d"
 # below offers moving it rather than declaring it inert.
 _UNSCANNED_CONF_DIR = Path.home() / ".config/pipewire/filter-chain.conf.d"
 
+
+def live_conf_dirs() -> tuple[Path, Path]:
+    """Every directory a conf can be live from: the daemon's, and the one
+    filter-chain.service reads. For a writer about to remove a file a conf
+    names — a convolver whose file is gone stops the whole conf loading,
+    whichever unit was loading it. A function so a test can repoint either
+    directory."""
+    return (DEFAULT_OUTPUT_DIR, _UNSCANNED_CONF_DIR)
+
 # effect_input.X and effect_output.X are the two halves of chain X. In
 # smart-filter mode node.link-group joins them; the v1 virtual-sink conf sets
 # no link group, so the name is the only thing that does.
@@ -604,8 +613,9 @@ def check_irs_present(confs) -> CheckResult | None:
         f"{len(missing)} impulse file(s) named by a conf aren't there: "
         f"{shown}{more}. A convolver with no file stops the whole conf "
         "loading, so none of the tuning runs (PipeWire keeps playing "
-        "unprocessed). Re-run the converter to copy it back beside the conf — "
-        "with --no-copy-irs, restore the original .irs instead.")
+        "unprocessed). Re-run the converter: it copies the impulse back "
+        "beside the conf (or, with --no-copy-irs, points the conf at the "
+        "current one).")
 
 
 def check_targets_exist(chains, sinks, dump) -> CheckResult | None:

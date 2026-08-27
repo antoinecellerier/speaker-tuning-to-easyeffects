@@ -46,8 +46,12 @@ When auditing whether EE is applying the current preset:
   effect (e.g. confirm a removed stage is gone).
 - **EE doesn't watch preset files.** After re-running the converter, the
   running service keeps the *old* in-memory chain until you reload —
-  `easyeffects -l <PresetName>` (no mic-indicator pop). The `_generator`
-  stamp inside each preset JSON tells you which converter version wrote it.
+  `easyeffects -l <PresetName>` (no mic-indicator pop). Since 2026-08 the
+  impulse's kernel name carries a content hash, so that reload also picks
+  up a regenerated FIR (before, EE kept the cached kernel under an unchanged
+  name and only a restart or a new preset prefix replaced it). The
+  `_generator` stamp inside each preset JSON tells you which converter
+  version wrote it.
 
 ## Files
 

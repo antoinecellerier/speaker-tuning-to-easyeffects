@@ -74,6 +74,20 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Changed
+
+- A regenerated preset's speaker-correction impulse now takes effect when
+  EasyEffects reloads or re-picks the preset — the rest always did, the
+  impulse stayed as first loaded. Impulse files are named after their
+  contents, so a changed one is read afresh; earlier ones of the same preset
+  are removed unless something still uses them. (why in
+  docs/design-notes.md)
+- A conf written with `ee_to_pipewire.py --no-copy-irs` no longer picks up a
+  regenerated preset by itself: it points at one impulse file by name, and a
+  regeneration that changed the sound writes a new name — re-run the
+  converter after one, as the default copy always needed. (why in
+  docs/design-notes.md)
+
 ### Added
 
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra

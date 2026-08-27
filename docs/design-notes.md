@@ -1158,7 +1158,10 @@ plus a converter patched to re-introduce the four flags. Use unique per-variant
 preset prefixes (`DolbyFG1…DolbyFG8`) to defeat EasyEffects' convolver
 IRS-cache by kernel name — without unique kernel names, EE silently
 reuses the previous variant's cached IR even after the .irs file is
-overwritten on disk.)
+overwritten on disk.) *Historical since 2026-08: the converter now names
+each impulse after a hash of its samples, so a regenerated FIR gets a new
+kernel name by itself and unique prefixes are no longer needed — see
+"Rejected approaches → Rewriting `{preset}.irs` in place".*
 
 **A note on metrics.** Two residuals are reported in the
 `summarise_variants.py` output: `vsDAX` (against the captured
@@ -3747,9 +3750,44 @@ re-proposed:
   pins both request strings. On 8.0.0–8.0.8 the socket sits in `/tmp`, so
   `--doctor` reads those as "not running" and falls back to the config file —
   the intended degradation.
+- **Rewriting `{preset}.irs` in place and reloading.** The obvious way to
+  make a regenerated FIR audible — overwrite the impulse under its old name
+  and load the preset again (over the socket, `easyeffects -l`, or a GUI
+  re-pick) — does nothing to the sound. EasyEffects' preset loader sets the
+  convolver's kernel name only when it differs from the current one
+  ([convolver_preset.cpp][ee-conv-preset]), the generated KConfig setter
+  short-circuits on an equal value again, and `kernelNameChanged` is the
+  only thing that makes the convolver re-read the file
+  ([convolver.cpp][ee-conv-reload]) — so the in-memory kernel survives until
+  the process restarts. The measurement harness had already met this (the
+  unique per-variant prefixes above), and every FIR-changing release
+  (v2026.05's `ieq-amount`, v2026.07's boosts, v2026.08's
+  `audio-optimizer-enable`), `--enable level-restore`, `--endpoint` and a
+  swapped XML all rewrite the same name. Since 2026-08 the generator names
+  each impulse `{preset}-{8 hex of its samples}` instead: the name changes
+  exactly when the sound does, a plain preset load picks it up everywhere —
+  Flatpak and pre-8.0.9 installs included, where no socket is reachable —
+  and an unchanged FIR keeps its name, so nothing reloads for nothing.
+  *Rejected instead:* bouncing `set_property:output:convolver:0:kernelName`
+  through a stub before the load. It does trigger the re-read, but only on
+  the socket path (a GUI re-pick stays stale), it is a mutating request on
+  an interface whose shape has changed twice, it races the load, and it
+  leaves a bogus-kernel warning in EasyEffects' log per run. Stale impulses
+  of the same preset are removed once the JSON is rewritten — except when
+  another preset (one saved from the GUI keeps its parent's kernel name), a
+  `--no-copy-irs` PipeWire conf, or EasyEffects' own `convolverrc` still
+  names the file: EasyEffects would load the first as silence, PipeWire the
+  second as a conf that fails to load, and the third is what a *fresh*
+  EasyEffects plays — it restores the kernel name from its db on start, not
+  from the preset JSON, and the dev machine's log showed exactly that
+  ("Kernel 'Dolby-Balanced' not found … Entering passthrough mode") after
+  the legacy file went. Until a load names the new impulse, the old one
+  stays.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp
 [ee-local-server]: https://wwmm.github.io/easyeffects/user_interface/local_server.html
 [ee-server-tags]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/tags_local_server.hpp
 [ee-hide-on-failure]: https://github.com/wwmm/easyeffects/commit/8942fbc391440daa706bfd80e7d6887c523d363d
+[ee-conv-preset]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/convolver_preset.cpp
+[ee-conv-reload]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/convolver.cpp

@@ -110,7 +110,8 @@ Ruled out in prior sessions; `smoke.py` already encodes the working fix:
   reroutes to the mic. And `easyeffects_sink:monitor` is the *pre*-processing
   port anyway. Only `--target 0` + a manual `pw-link` works.
 - For repeated preset switches use `easyeffects -l <name>` (no mic-indicator
-  pop); only a `--service-mode` restart pops.
+  pop); only a `--service-mode` restart pops. A regenerated FIR is picked up
+  by that reload too — the kernel name carries a content hash.
 
 (A bullet here used to rule out `lv2apply`/`module-filter-chain` as LV2 hosts —
 refuted 2026-08-19: both host the LSP/Calf plugins this project uses;

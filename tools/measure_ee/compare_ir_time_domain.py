@@ -10,8 +10,9 @@ IR" type questions: most often the captured IR's tail is below
 
 Inputs (any combination, all optional but at least one):
 
-    --converter-irs <path>   the .irs the converter writes (e.g.
-                             ~/.local/share/easyeffects/irs/Dolby-Balanced.irs)
+    --converter-irs <path>   the .irs the converter writes, named after its
+                             contents (e.g. ~/.local/share/easyeffects/irs/
+                             Dolby-Balanced-<hash>.irs)
     --ee-ir <path>           an EE-captured IR from analyze.py
                              (e.g. ir_sweep_<label>_L.wav)
     --dax-ir <path>          a DAX-captured IR from analyze.py
@@ -25,7 +26,7 @@ Output:
 Example:
 
     python tools/measure_ee/compare_ir_time_domain.py \\
-        --converter-irs ~/.local/share/easyeffects/irs/Dolby-Balanced.irs \\
+        --converter-irs ~/.local/share/easyeffects/irs/Dolby-Balanced-<hash>.irs \\
         --ee-ir ~/dax-measure/ee_captures/ir_sweep_ee_dynamic_balanced_L.wav \\
         --dax-ir ~/dax-measure/captures/ir_sweep_dynamic_L.wav \\
         --out ~/dax-measure/three_way/compare_ir_time_domain_L.png

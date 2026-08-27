@@ -150,9 +150,10 @@ def add_impulse_response_args(container, *, only=None):
              "into the conf's directory and rewrites the convolver "
              "filename, so the PipeWire chain has no runtime dependency "
              "on the EasyEffects path layout. Pass this flag to keep the "
-             "conf pointing at the original EE-side .irs (which lets EE "
-             "preset regenerations propagate automatically, at the cost "
-             "of a brittle cross-tree dependency).",
+             "conf pointing at the original EE-side .irs — the conf then "
+             "pins that one file, so re-run this converter after "
+             "regenerating a preset whose sound changed (its impulse "
+             "gets a new name).",
     )
     return added
 

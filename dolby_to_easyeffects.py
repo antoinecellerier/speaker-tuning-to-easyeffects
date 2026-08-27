@@ -547,6 +547,9 @@ class RunTally:
     # Preset names in emission order. --autoload with no name takes the first
     # (see _configure_autoload), so the order is part of the contract.
     all_preset_names: list[str] = field(default_factory=list)
+    # preset name → the stem of the impulse it references (the name carries a
+    # content hash, so it is only known once the FIR is built).
+    kernel_by_preset: dict[str, str] = field(default_factory=dict)
     # filter name → set of profile labels that emitted it. Lets the
     # end-of-run --disable hint say *which* profiles each suggestion
     # actually touches, so a user autoloading one preset isn't misled
@@ -814,7 +817,7 @@ def main(argv: list[str] | None = None,
 
         emit._emit_ieq_presets(tuning, name_base, is_soundwire, disabled,
                                args, profile_label, tally.all_preset_names,
-                               tally.filters_by_profile,
+                               tally.filters_by_profile, tally.kernel_by_preset,
                                # ⚠ hints print warn-styled above; the check
                                # verdict goes dim on those runs so green never
                                # reads as cancelling a warning (round 9).

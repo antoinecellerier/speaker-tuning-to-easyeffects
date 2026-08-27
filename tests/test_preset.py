@@ -20,8 +20,10 @@ The split between "structural" and "trap" is editorial only; both
 classes of test run on the same fixture and live in the same file.
 """
 
+import hashlib
 import json
 import math
+import re
 from datetime import date
 from pathlib import Path
 
@@ -46,7 +48,7 @@ from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report import speaker as report_speaker
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
-from lib.preset.emit import save_wav_stereo
+from lib.preset.emit import save_wav_stereo, stereo_taps
 from lib.report.profile import _report_parsed_profile
 from lib.preset.autoload import (
     BYPASS_PRESET_NAME,
@@ -225,6 +227,201 @@ def test_kernel_name_matches_irs_stem(generated):
     """
     preset, irs = generated
     assert preset["output"]["convolver#0"]["kernel-name"] == irs.stem
+
+
+# --- LOCK-IN: the impulse's name carries a hash of its samples ---
+# EasyEffects re-reads an .irs only when the convolver's kernel name changes
+# (its preset loader skips the setter on an equal name), so a same-name
+# rewrite left the old FIR playing through any reload. The name now follows
+# the content. Why: docs/design-notes.md "Rejected approaches".
+
+_HASHED = re.compile(r"\ADolby-Balanced-[0-9a-f]{8}\Z")
+
+
+def _generate(xml, out, irs, *extra):
+    """One in-process run into the given dirs; returns Dolby-Balanced's kernel-name."""
+    rc = dolby_to_easyeffects.main(
+        [str(xml), "--output-dir", str(out), "--irs-dir", str(irs),
+         "--skip-ee-check", "--no-color", *extra])
+    assert not rc, rc
+    preset = json.loads((out / "Dolby-Balanced.json").read_text())
+    return preset["output"]["convolver#0"]["kernel-name"]
+
+
+def test_kernel_name_carries_a_content_hash(tmp_path):
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    name = _generate(xml, out, irs)
+    assert _HASHED.match(name), name
+    assert (irs / f"{name}.irs").exists()
+
+
+def test_kernel_hash_is_over_the_taps_written(tmp_path):
+    """The suffix is sha256 of the float32 stereo samples on disk — recomputed
+    from the file, never a literal: the FIR's last bits move with the
+    numpy/BLAS build (see test_golden_preset.py), so a pinned digest would
+    fail on the next machine while proving nothing here."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    name = _generate(xml, out, irs)
+    _, _, _, left, right = read_irs_file(irs / f"{name}.irs")
+    digest = hashlib.sha256(stereo_taps(np.asarray(left), np.asarray(right))
+                            .tobytes()).hexdigest()[:8]
+    assert name == f"Dolby-Balanced-{digest}"
+
+
+def test_a_changed_curve_changes_the_kernel_name(tmp_path):
+    """Same tuning → same name (nothing to reload); a different audio-optimizer
+    curve → different name, which is what makes EasyEffects re-read the file."""
+    same = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    (tmp_path / "other").mkdir()
+    other = write_synthetic_tuning_xml(
+        tmp_path / "other" / "DEV_SYNTH_SUBSYS_TEST.xml",
+        ao_right=",".join(str(16 * (i % 3)) for i in range(20)))
+    a = _generate(same, tmp_path / "o1", tmp_path / "i1")
+    b = _generate(same, tmp_path / "o2", tmp_path / "i2")
+    c = _generate(other, tmp_path / "o3", tmp_path / "i3")
+    assert a == b
+    assert a != c
+
+
+def _plant(irs, *names):
+    irs.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (irs / name).write_bytes(b"RIFF")
+
+
+@pytest.fixture
+def hermetic_referrers(tmp_path, monkeypatch):
+    """The stale-impulse cleanup reads four things outside the run's dirs —
+    both PipeWire conf dirs, EasyEffects' own preset dir and its convolverrc
+    — so point every one at tmp, or the dev machine's real files decide
+    what a test keeps."""
+    from lib.pipewire import checks
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "pw")
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "pw_fc")
+    monkeypatch.setattr(ee_paths, "DEFAULT_OUTPUT_DIR", tmp_path / "live_out")
+    monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC", tmp_path / "db" / "easyeffectsrc")
+    return tmp_path
+
+
+def test_stale_hashed_impulses_are_dropped_but_foreign_files_survive(
+        hermetic_referrers, tmp_path, capsys):
+    """Ours only: an earlier hash of the same preset and the legacy unhashed
+    name go; a user's own file and another preset's stay."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced-deadbeef.irs", "Dolby-Balanced.irs",
+           "Dolby-Balanced-mytest.irs", "Other-Balanced-12345678.irs")
+    name = _generate(xml, out, irs)
+    left = {p.name for p in irs.glob("*.irs")}
+    assert "Dolby-Balanced-deadbeef.irs" not in left
+    assert "Dolby-Balanced.irs" not in left
+    assert {"Dolby-Balanced-mytest.irs", "Other-Balanced-12345678.irs"} <= left
+    assert [n for n in left if _HASHED.match(n[:-4])] == [f"{name}.irs"]
+    out_text = capsys.readouterr().out
+    assert "Removed" in out_text and "Dolby-Balanced-deadbeef.irs" in out_text
+
+
+def test_referenced_legacy_impulse_is_kept(hermetic_referrers, tmp_path, capsys):
+    """A preset saved from EasyEffects' GUI keeps its parent's kernel name.
+    Deleting that impulse would leave it convolving nothing — and EE loads a
+    missing kernel silently — so a file another preset names stays, and the
+    run says which preset now plays the older impulse."""
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced.irs")
+    out.mkdir()
+    (out / "Dolby-RegV2.json").write_text(json.dumps(
+        {"output": {"convolver#0": {"kernel-name": "Dolby-Balanced"}}}))
+    _generate(xml, out, irs)
+    assert (irs / "Dolby-Balanced.irs").exists()
+    out_text = capsys.readouterr().out
+    assert "Kept" in out_text and "Dolby-RegV2" in out_text
+
+
+def test_impulse_named_by_a_pipewire_conf_is_kept(hermetic_referrers, tmp_path, capsys):
+    """`ee_to_pipewire.py --no-copy-irs` pins the EE-side path in the conf, and
+    a missing impulse there stops the whole conf loading."""
+    pw = tmp_path / "pw"
+    pw.mkdir()
+    (pw / "dolby.conf").write_text('filename = "/x/irs/Dolby-Balanced.irs"\n')
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced.irs")
+    _generate(xml, out, irs)
+    assert (irs / "Dolby-Balanced.irs").exists()
+    assert "dolby.conf" in capsys.readouterr().out
+
+
+def test_impulse_named_by_a_filter_chain_service_conf_is_kept(
+        hermetic_referrers, tmp_path, capsys):
+    """TRAP (code review 2026-08-27): filter-chain.conf.d/ is read by
+    filter-chain.service, not the daemon, and docs/alternative-pipelines.md
+    hands out a skeleton for exactly that directory naming the EE-side
+    impulse. Live for whoever runs that unit — scan it too."""
+    from lib.pipewire import checks
+    fc = checks._UNSCANNED_CONF_DIR
+    fc.mkdir()
+    (fc / "dolby-speaker.conf").write_text(
+        'config = { filename = "~/.local/share/easyeffects/irs/Dolby-Balanced.irs" }\n')
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced.irs")
+    _generate(xml, out, irs)
+    assert (irs / "Dolby-Balanced.irs").exists()
+    assert "dolby-speaker.conf" in capsys.readouterr().out
+
+
+def test_live_tree_presets_keep_their_impulse_under_a_custom_output_dir(
+        hermetic_referrers, tmp_path, capsys):
+    """TRAP (code review 2026-08-27): --output-dir alone leaves --irs-dir at
+    EasyEffects' own tree, so the file this run calls stale is the one the
+    LIVE presets name — and this run never rewrote those. Scanning only the
+    directory this run wrote deleted it and put every live preset into
+    convolver passthrough."""
+    live_out = ee_paths.DEFAULT_OUTPUT_DIR
+    live_out.mkdir()
+    (live_out / "Dolby-Balanced.json").write_text(json.dumps(
+        {"output": {"convolver#0": {"kernel-name": "Dolby-Balanced"}}}))
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced.irs")
+    _generate(xml, out, irs)
+    assert (irs / "Dolby-Balanced.irs").exists()
+    out_text = capsys.readouterr().out
+    assert "Kept" in out_text and "Dolby-Balanced in" in out_text
+
+
+def test_impulse_named_by_easyeffects_saved_settings_is_kept(
+        hermetic_referrers, tmp_path, capsys):
+    """TRAP: EasyEffects restores the convolver's kernel NAME from its own
+    convolverrc on start, not from the preset JSON. Remove the file that
+    name points at and a fresh EasyEffects comes up in passthrough — "Kernel
+    'Dolby-Balanced' not found" on the dev machine, 2026-08-27 — silent until
+    something loads a preset, which without autoload is never."""
+    db = tmp_path / "db"
+    db.mkdir()
+    (db / "convolverrc").write_text("[convolver#0]\nkernelName=Dolby-Balanced\n")
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced.irs", "Dolby-Balanced-deadbeef.irs")
+    _generate(xml, out, irs)
+    assert (irs / "Dolby-Balanced.irs").exists()
+    assert not (irs / "Dolby-Balanced-deadbeef.irs").exists()
+    assert "EasyEffects' saved settings" in capsys.readouterr().out
+
+
+def test_dry_run_deletes_no_impulse_file(hermetic_referrers, tmp_path):
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    out, irs = tmp_path / "out", tmp_path / "irs"
+    _plant(irs, "Dolby-Balanced-deadbeef.irs", "Dolby-Balanced.irs")
+    rc = dolby_to_easyeffects.main(
+        [str(xml), "--output-dir", str(out), "--irs-dir", str(irs),
+         "--skip-ee-check", "--no-color", "--dry-run"])
+    assert not rc
+    assert {p.name for p in irs.glob("*.irs")} == {
+        "Dolby-Balanced-deadbeef.irs", "Dolby-Balanced.irs"}
 
 
 # --- TRAP: enum parameters as integer indices (commit 91423b8) ---
@@ -1376,7 +1573,10 @@ def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
              "--irs-dir", str(irs), "--skip-ee-check", "--no-color", *extra],
             capture_output=True, text=True, timeout=120)
         assert r.returncode == 0, r.stderr
-        _, _, _, left, right = read_irs_file(irs / "Dolby-Balanced.irs")
+        # Resolve the impulse through the preset: its name carries a hash.
+        name = json.loads((out / "Dolby-Balanced.json").read_text()
+                          )["output"]["convolver#0"]["kernel-name"]
+        _, _, _, left, right = read_irs_file(irs / f"{name}.irs")
         # make_fir normalises the frequency response, not the time-domain
         # impulse, so the peak that matters is |H| — the time-domain sample
         # peak of a minimum-phase IR is unrelated.

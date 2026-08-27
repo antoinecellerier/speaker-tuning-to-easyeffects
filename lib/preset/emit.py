@@ -34,24 +34,152 @@ choices sit in a root script, not a package at all. That is the only edge from
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
 
-from lib import console, doctor
+from lib import console, doctor, ee_paths
 from lib.dax import parse
 from lib.preset import autoload, build, fir
 from lib.report import messages
 
 
+def stereo_taps(fir_left: np.ndarray, fir_right: np.ndarray) -> np.ndarray:
+    """The exact float32 interleaved array save_wav_stereo writes — what
+    kernel_name() hashes, so the name follows the bytes on disk and nothing
+    else."""
+    return np.column_stack([fir_left, fir_right]).astype(np.float32)
+
+
 def save_wav_stereo(path: Path, fir_left: np.ndarray,
                     fir_right: np.ndarray) -> None:
     """Save stereo impulse response as 32-bit float WAV."""
-    stereo = np.column_stack([fir_left, fir_right]).astype(np.float32)
     with autoload._atomic_write(path) as tmp:
-        wavfile.write(str(tmp), fir.SAMPLE_RATE, stereo)
+        wavfile.write(str(tmp), fir.SAMPLE_RATE, stereo_taps(fir_left, fir_right))
+
+
+def kernel_name(preset_name: str, taps: np.ndarray) -> str:
+    """`{preset}-{8 hex}`: the impulse's name carries a hash of its samples.
+
+    EasyEffects re-reads an .irs only when the convolver's kernel name
+    *changes* — its preset loader skips the setter on an equal name, and the
+    generated KConfig setter short-circuits again — so a same-name rewrite
+    left the old FIR playing after a reload, `easyeffects -l` or a GUI
+    re-pick until EasyEffects restarted. A name that follows the content
+    changes exactly when the sound does. Eight hex digits (git-short-SHA
+    odds). The samples' last bits can differ between numpy/BLAS builds, so
+    the name is stable on one machine, not across machines. Why, and the
+    rejected alternative: docs/design-notes.md "Rejected approaches".
+    """
+    return f"{preset_name}-{hashlib.sha256(taps.tobytes()).hexdigest()[:8]}"
+
+
+def _impulse_referrers(stem: str, output_dir: Path) -> list[str]:
+    """Presets, PipeWire confs and EasyEffects' own saved settings still
+    naming `{stem}.irs`.
+
+    A preset saved from EasyEffects' GUI keeps the kernel name of the preset
+    it was derived from, so a file this run would call stale can be the only
+    impulse another preset has — and EasyEffects loads a missing kernel
+    without a word, leaving that preset convolving nothing. A conf written
+    with `ee_to_pipewire.py --no-copy-irs` pins the EE-side path the same
+    way, and there a missing file stops the whole conf loading. And
+    EasyEffects restores the convolver's kernel *name* from its config db on
+    start, not from the preset JSON: with that file gone, a fresh instance
+    logged "Kernel 'Dolby-Balanced' not found … Entering passthrough mode"
+    (dev machine, 2026-08-27) — silent until the next preset load, which
+    without autoload is never. Until a load names the new impulse, the one
+    the db names is what the next start plays.
+
+    Reads EasyEffects' own preset directory as well as this run's, and both
+    PipeWire conf directories — why, beside each scan.
+    """
+    users: list[str] = []
+    try:
+        db = (ee_paths.DEFAULT_EASYEFFECTS_RC.parent / "convolverrc").read_text()
+        if re.search(rf"^kernelName={re.escape(stem)}\s*$", db, re.M):
+            users.append("EasyEffects' saved settings")
+    except OSError:
+        pass
+    # This run's tree and EasyEffects' own — not the same directory when
+    # --output-dir alone was passed: --irs-dir then still means the live
+    # tree, and the presets naming a file there are the live ones, which
+    # this run never rewrote. A directory too many only ever keeps a file.
+    preset_dirs = [output_dir]
+    if ee_paths.DEFAULT_OUTPUT_DIR.resolve() != output_dir.resolve():
+        preset_dirs.append(ee_paths.DEFAULT_OUTPUT_DIR)
+    for preset_dir in preset_dirs:
+        try:
+            presets = sorted(preset_dir.glob("*.json"))
+        except OSError:
+            continue
+        for path in presets:
+            try:
+                data = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            out = data.get("output") if isinstance(data, dict) else None
+            if not isinstance(out, dict):
+                continue
+            if any(key.startswith("convolver") and isinstance(block, dict)
+                   and block.get("kernel-name") == stem
+                   for key, block in out.items()):
+                users.append(path.stem if preset_dir is output_dir
+                             else f"{path.stem} in {doctor.tilde(preset_dir)}")
+    # Lazy and one-way: nothing under lib/pipewire imports lib/preset, and
+    # this is the one place the EasyEffects writer needs to know where the
+    # PipeWire confs live. Both directories a conf is live from — the
+    # daemon's and filter-chain.service's; docs/alternative-pipelines.md
+    # hands out a skeleton for the second.
+    from lib.pipewire import checks
+    for conf_dir in checks.live_conf_dirs():
+        try:
+            confs = sorted(conf_dir.glob("*.conf"))
+        except OSError:
+            continue
+        for conf in confs:
+            try:
+                if f"{stem}.irs" in conf.read_text():
+                    users.append(conf.name)
+            except OSError:
+                continue
+    return users
+
+
+def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
+                         output_dir: Path) -> None:
+    """Delete the .irs files earlier runs of *this* preset left behind.
+
+    Ours only: `{preset_name}-<8 hex>` (an earlier build of the same preset)
+    and the legacy unhashed `{preset_name}.irs`. The voicing is always the
+    last name part, so nothing else this tool writes can match. A file some
+    preset or conf still names is kept, and the run says which — the reader
+    may want to know that preset now plays an older impulse. Never reached
+    under --dry-run: the caller gates it, beside the write it pairs with, and
+    only after the preset JSON is on disk (until then that JSON itself still
+    named the old impulse).
+    """
+    ours = re.compile(rf"\A{re.escape(preset_name)}(-[0-9a-f]{{8}})?\Z")
+    try:
+        stale = sorted(p for p in irs_dir.glob(f"{preset_name}*.irs")
+                       if p != keep and ours.match(p.stem))
+    except OSError:
+        return
+    for path in stale:
+        users = _impulse_referrers(path.stem, output_dir)
+        if users:
+            console.cprint("dim", f"  Kept {doctor.tilde(path)} — still used by "
+                           f"{', '.join(users)}; those keep that older impulse")
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        console.cprint("dim", f"  Removed {doctor.tilde(path)} (superseded)")
 
 
 # Verdict gate for the printed FIR verification: far above the minimum-phase
@@ -89,11 +217,12 @@ def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
 
 def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
-                      warned: bool = False):
+                      kernel_by_preset, warned: bool = False):
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile:
     build each combined FIR, write the .irs + .json, print the verification
-    table, and record emitted filters. Mutates ``all_preset_names`` and
-    ``filters_by_profile`` in place — main() passes two fields of its
+    table, and record emitted filters. Mutates ``all_preset_names``,
+    ``filters_by_profile`` and ``kernel_by_preset`` (preset name → the
+    impulse's stem) in place — main() passes three fields of its
     ``RunTally`` and reads them back off it after the loop."""
     curves = tuning.curves
     peq_filters = tuning.peq_filters
@@ -174,13 +303,15 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             fir_left *= 10.0 ** (left_offset_db / 20.0)
             fir_right *= 10.0 ** (right_offset_db / 20.0)
 
-        # Save stereo impulse response
-        irs_path = args.irs_dir / f"{preset_name}.irs"
+        # Save stereo impulse response, named after its own samples so a
+        # changed FIR gets a new kernel name — see kernel_name().
+        irs_stem = kernel_name(preset_name, stereo_taps(fir_left, fir_right))
+        irs_path = args.irs_dir / f"{irs_stem}.irs"
         if not args.dry_run:
             save_wav_stereo(irs_path, fir_left, fir_right)
 
         # Create preset (kernel-name is the WAV filename stem)
-        preset, emitted = build.make_preset(preset_name, peq_filters, vol_leveler,
+        preset, emitted = build.make_preset(irs_stem, peq_filters, vol_leveler,
                                       dialog_enhancer, mb_comp, regulator,
                                       freqs, is_soundwire=is_soundwire,
                                       volmax_boost=volmax_boost,
@@ -196,6 +327,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             autoload._atomic_write_text(out_path, json.dumps(preset, indent=4) + "\n")
 
         all_preset_names.append(preset_name)
+        kernel_by_preset[preset_name] = irs_stem
 
         # "Staged", dimmed, when a wrapper is writing into a tempdir it
         # will delete: round-4's wrapper reviewer saw the same green
@@ -211,6 +343,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # lines above, and ~ is not a path any of that would expand.
         console.cprint(style, f"{verb} {doctor.tilde(irs_path)}")
         console.cprint(style, f"{verb} {doctor.tilde(out_path)}")
+        if not args.dry_run:
+            _drop_stale_impulses(args.irs_dir, preset_name, irs_path, args.output_dir)
         # The tables are behind -v: even marked skippable they were the
         # bulk of the output, burying the findings between them, and their
         # only reader is someone diagnosing a wrong-sounding preset — who

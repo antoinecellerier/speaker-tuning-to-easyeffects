@@ -390,7 +390,7 @@ Inherited flags behave exactly as in the script that owns them — the wrapper s
 
 **Impulse response**
 - `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's convolver (default: the EasyEffects `irs` directory, Flatpak or native)
-- `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf (lets EE preset regenerations propagate, at the cost of a cross-tree dependency)
+- `--no-copy-irs` — leave the conf pointing at the original EE-side `.irs` instead of copying it beside the conf; the conf then pins that one file, so re-run this converter after regenerating a preset whose sound changed (its impulse gets a new name)
 
 **General**
 - `--no-validate` — skip the `lv2info` schema self-check (it also refuses a conf naming a plugin `lv2info` can't load)

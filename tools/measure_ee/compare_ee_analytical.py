@@ -9,7 +9,8 @@ Inputs:
         contains 'eq_gain_db' which is the EE chain's recovered EQ shape
         relative to flat input)
     --preset Dolby-Balanced.json                      (EE output preset)
-    --irs Dolby-Balanced.irs                          (the matching FIR)
+    --irs Dolby-Balanced-<hash>.irs                   (the matching FIR — the
+        hashed name the generator wrote beside the preset)
 
 Outputs:
 
@@ -31,7 +32,7 @@ Usage:
     python tools/measure_ee/compare_ee_analytical.py \\
         --capture /tmp/ee_battery_test/spectrum_pink_ee_dolby_balanced_L.npz \\
         --preset ~/.local/share/easyeffects/output/Dolby-Balanced.json \\
-        --irs ~/.local/share/easyeffects/irs/Dolby-Balanced.irs
+        --irs ~/.local/share/easyeffects/irs/Dolby-Balanced-<hash>.irs
 """
 from __future__ import annotations
 

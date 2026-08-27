@@ -71,9 +71,13 @@ load it.
 The IRS is copied in by default (not symlinked or referenced
 in-place) so the chain has no runtime dependency on the EasyEffects
 directory layout once converted — uninstalling EasyEffects, moving
-its `irs/` tree, or regenerating presets won't break the PW chain.
-`--no-copy-irs` reverts to a cross-tree absolute reference for users
-who want EE preset regenerations to propagate automatically.
+its `irs/` tree, or regenerating presets won't break the PW chain. Nor
+does the chain follow a regeneration: the conf carries the impulse as of
+its conversion, so re-run this converter after regenerating a preset whose
+sound changed. `--no-copy-irs` keeps a cross-tree absolute reference
+instead — to one impulse file by name, and a regenerated preset whose FIR
+changed gets a new name (the generator hashes the samples into it), so the
+same re-run applies.
 
 ## Smart-filter routing (the load-bearing UX choice)
 
