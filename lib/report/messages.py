@@ -182,7 +182,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    autogain_off: bool = False,
                    menu_printed: bool = False,
                    declared_default: str | None = None,
-                   virtual_bass_pw: bool = False) -> None:
+                   declared_default_preset: str = "",
+                   virtual_bass_pw: bool = False,
+                   reloaded: str = "",
+                   loaded: str = "",
+                   reload_slug: str = "",
+                   start_with: str = "") -> None:
     """Say the run worked and how to start using it.
 
     ``profile_used``/``n_modes`` let the closing say the presets voice one
@@ -204,10 +209,24 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
 
     Silent under --autoload, which already wired the preset to the speakers
     and printed its own confirmation: repeating "go and select it" there
-    would be wrong.
+    would be wrong. Silent there even after a reload: the reload site printed
+    what is playing, and this block would only repeat it.
+
+    ``reloaded`` names the preset a running EasyEffects is audibly playing
+    after this run loaded it (lib/preset/reload.py); ``loaded`` the one it
+    holds when global bypass keeps that silent — "pick it" would then
+    describe a step already taken; ``reload_slug`` the finding raised when
+    a running EasyEffects refused or ignored the load — "pick it from the
+    menu" then contradicts an ask that just routed to --doctor (copy audit
+    2026-08-27). ``start_with`` is the preset the run points at everywhere
+    (autoload.starting_preset); ``declared_default_preset`` the declared
+    default profile's preset when --all-profiles built it, so the note that
+    a single-profile run makes with ``profile_used`` can name it instead of
+    a rebuild.
     """
     if not preset_names or autoloaded:
         return
+    first = start_with or preset_names[0]
     # One wording for both branches. The swell/duck caveat rides the
     # suggestion (round 7): alone on the last screen, "add --enable
     # autogain" read as a no-downside fix while its known side effect sat
@@ -237,6 +256,15 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                          f"'{declared_default}'; these voice "
                          f"'{profile_used}' — --profile "
                          f"{declared_default} rebuilds.")
+    elif (declared_default and declared_default_preset
+          and declared_default_preset != first):
+        # --all-profiles built it too, so nothing to rebuild: name it. The
+        # start-with pointer stays on the first profile, as in a bare run
+        # (maintainer decision 2026-08-27: <default_profile> is reported,
+        # not acted on — docs/reference.md).
+        mismatch_note = (f"  Windows ships this device on "
+                         f"'{declared_default}' — that's "
+                         f"{declared_default_preset} here.")
     # Derived from what was actually built (round 7, user catch): a
     # tuning lacking a voicing curve skips that preset, so the hint must
     # not describe a preset that doesn't exist.
@@ -264,11 +292,18 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # case), so "pick one yourself" is true here — and naming --autoload
         # gives the reader the self-loading default before the re-run, not
         # after it.
+        # "when it can": running is necessary, not sufficient — a Flatpak
+        # or pre-8.0.9 EasyEffects has no reachable socket, and the run
+        # declines onto a non-speaker output or the bypass preset. The
+        # steps clause is what holds in every one of those cases (copy
+        # audit 2026-08-27).
         console._cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
-                               f"start with {preset_names[0]}"
-                               f"{voicing_hint}; the real run "
-                               "prints the exact steps. (Or add --autoload "
-                               "and it loads itself for your speakers.)",
+                               f"start with {first}"
+                               f"{voicing_hint}; the real run loads it into "
+                               "EasyEffects for you when it can (--no-reload "
+                               "skips that), and says what to pick when it "
+                               "doesn't. (Or add --autoload and it loads "
+                               "itself for your speakers.)",
                         indent="  ")
         if profile_used and n_modes > 1:
             caveat = (" (we assume it is your Windows default)"
@@ -305,12 +340,27 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # docs/reference.md "IEQ curve → FIR" says so. Round 5: the closing
     # named a starting preset but never said what the other two are for,
     # so nobody would try them.
-    console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
-                           f"pick '{preset_names[0]}' from the Presets menu — "
-                           f"that's the one to start with{voicing_hint}. "
-                           "Or re-run with "
-                           "--autoload to have it load itself for your "
-                           "speakers.", indent="  ")
+    if reloaded or loaded:
+        # Only voicings that were built get named (voicing_hint is derived
+        # from the list), and only when there is more than one.
+        others = (f" — the other voicings{voicing_hint} are in its Presets menu"
+                  if len(preset_names) > 1 else "")
+        state = (f"is playing '{reloaded}' now" if reloaded
+                 else f"has '{loaded}' loaded")
+        console._cprint_wrapped("dim", f"  EasyEffects {state}{others}. "
+                               "Re-run with --autoload to have it load itself "
+                               "for your speakers.", indent="  ")
+    elif reload_slug:
+        console._cprint_wrapped("dim", f"  EasyEffects did not load '{first}' "
+                               f"this run — the [{reload_slug}] line above "
+                               "says what to do.", indent="  ")
+    else:
+        console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
+                               f"pick '{first}' from the Presets menu — "
+                               f"that's the one to start with{voicing_hint}. "
+                               "Or re-run with "
+                               "--autoload to have it load itself for your "
+                               "speakers.", indent="  ")
     if profile_used and n_modes > 1:
         caveat = (" (we assume it is your Windows default)"
                   if default_unknown else "")
@@ -368,7 +418,8 @@ def print_troubleshooting(findings: list[Finding],
                           filters_by_profile: dict[str, set[str]],
                           installs_presets: bool = True,
                           enabled_by_flag: frozenset[str] = frozenset(),
-                          dry_run: bool = False) -> bool:
+                          dry_run: bool = False,
+                          auto_reload: bool = False) -> bool:
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
@@ -476,8 +527,16 @@ def print_troubleshooting(findings: list[Finding],
         # precisely because they don't run EasyEffects — so the sentence that
         # tells them how to apply a fix ended in something they can't do. The
         # wrapper's own [3/3] steps cover applying it there.
+        # And not when this run just loaded the preset into a running
+        # EasyEffects: the re-run will too. `auto_reload` means it *did*, not
+        # that the gate would pass — the socket's availability is the one
+        # thing that can change before the re-run, and a promise we might
+        # not keep is worse than a redundant instruction. Not under
+        # --dry-run either: the closing block four lines down says what the
+        # real run does about loading, and this line contradicted it (copy
+        # audit 2026-08-27).
         tail = (" Then reload the preset in EasyEffects to hear the change."
-                if installs_presets else "")
+                if installs_presets and not auto_reload and not dry_run else "")
         # Under --dry-run, "the same command you ran" would rebuild nothing —
         # the reader is four lines from being told nothing was written, and
         # telling them to reload a preset that doesn't exist read as the two

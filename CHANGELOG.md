@@ -63,8 +63,9 @@ grouped into the releases that would have been cut at the time.
 # Changelog
 
 Notable changes to the converter. Entries tagged **[AUDIBLE]** change the
-sound of the generated preset — **re-run the script to regenerate your
-preset** (and reload it in EasyEffects / restart PipeWire) to pick them up;
+sound of the generated preset — **re-run the script to regenerate and
+reload your preset** (restart PipeWire if you use the filter-chain conf) to
+pick them up;
 ones also marked (opt-in) change nothing until you pass the flag.
 Everything else is tooling, packaging, docs, or new-device support that
 doesn't alter existing devices' output.
@@ -76,6 +77,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- A run now loads the preset into a running EasyEffects, so a first install
+  or a re-run is audible without picking anything in its menu. It reloads
+  the preset EasyEffects is playing, or loads the starting one.
+  `--no-reload` opts out. (why in docs/design-notes.md)
 - A regenerated preset's speaker-correction impulse now takes effect when
   EasyEffects reloads or re-picks the preset — the rest always did, the
   impulse stayed as first loaded. Impulse files are named after their

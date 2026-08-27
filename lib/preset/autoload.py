@@ -12,7 +12,9 @@ edits.
 
 `BYPASS_PRESET_NAME` rides along for the same reason — the empty preset this
 module writes is the one the doctor recognises, and one spelling has to be
-authoritative.
+authoritative. So does `starting_preset`: the rule a bare `--autoload`
+follows is the rule the end-of-run reload and the closing copy must follow
+too, and one function is how they can't disagree.
 
 Stdlib-only, deliberately: nothing here is DSP, and `--doctor` reaches it.
 """
@@ -29,6 +31,27 @@ from lib import version
 
 
 BYPASS_PRESET_NAME = "Nothing"
+
+
+def starting_preset(autoload_arg, preset_names: list[str]) -> str:
+    """The one preset a run points at.
+
+    The single source for three readers that must agree: what a bare
+    ``--autoload`` wires to the speakers, what the end-of-run reload loads
+    when nothing of ours is playing (``lib/preset/reload.py``), and what
+    the closing copy says to start with. ``--autoload <name>`` names it
+    outright; otherwise the first preset built — under ``--all-profiles``
+    that is the endpoint's first profile, the one a run without
+    ``--profile`` builds, so the two runs point at the same voicing.
+    ``<setting><default_profile>`` is reported, never acted on
+    (docs/reference.md); if that ever changes, it changes here and in the
+    bare run's profile pick together. The entry script resolves it once
+    and hands the name to all three, so a change here reaches every
+    reader. Empty when nothing was built.
+    """
+    if isinstance(autoload_arg, str):
+        return autoload_arg
+    return preset_names[0] if preset_names else ""
 
 
 @contextlib.contextmanager

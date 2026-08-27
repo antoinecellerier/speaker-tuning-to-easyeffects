@@ -3783,6 +3783,27 @@ re-proposed:
   ("Kernel 'Dolby-Balanced' not found … Entering passthrough mode") after
   the legacy file went. Until a load names the new impulse, the old one
   stays.
+  With the name doing the work, the run's last step is one `load_preset`
+  over the socket (`lib/preset/reload.py`): refresh whatever of ours is
+  playing, else load the starting preset — declined when EasyEffects is on
+  the `Nothing` bypass preset (that is `--autoload`'s non-speaker fallback
+  state) or its default sink is visibly not an internal speaker, since a
+  speaker tuning on a headset would be harm the run caused; an unknown sink
+  loads. The starting preset is one rule for bare `--autoload`, this load
+  and the closing copy (`autoload.starting_preset`): `--autoload <name>`,
+  else the first preset built — the profile a bare run builds, so
+  `--all-profiles` points where a bare run does; `<default_profile>` stays
+  reported, not acted on (the closing names its preset under
+  `--all-profiles`). A review caught bare `--autoload` and this load
+  following different rules there, wiring one preset and loading another.
+  The receipt is `get_last_loaded_preset` plus the convolver's
+  `kernelName` pipelined into the same write; a listening daemon that
+  answers nothing is reported as drift, and a load is never sent onto a
+  state it could not read. Cost: the convolver re-reads the impulse and
+  runs its FFT under the mutex the RT thread shares, in the main thread —
+  a possible click, the same one picking a preset in the GUI risks. Global
+  bypass makes "is playing" false, so it is read too and the copy demoted
+  to "loaded" with a hint.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp

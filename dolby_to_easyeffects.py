@@ -36,7 +36,7 @@ from lib.hardware import speakers
 # result, which would shadow the module for every later line that reads
 # through it.
 from lib.hardware import sinks as hardware_sinks
-from lib.preset import autoload
+from lib.preset import autoload, reload
 # Aliased: `findings` is what main()'s RunTally calls the same collection, so
 # an unqualified `findings.` in this file would read as that, not the module.
 from lib.report import findings as report_findings
@@ -316,6 +316,14 @@ def add_general_args(container, *, only=None):
              "useful for debugging script execution and output",
     )
     add(
+        "--no-reload",
+        action="store_true",
+        help="don't ask a running EasyEffects to load the preset when the run "
+             "finishes; presets are still written (no effect with --dry-run, "
+             "or when --output-dir/--irs-dir point outside EasyEffects' own "
+             "folders)",
+    )
+    add(
         "--skip-ee-check",
         action="store_true",
         help="skip the end-of-run EasyEffects environment check (version and "
@@ -402,16 +410,19 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
             action.completer = completer
 
 
-def _configure_autoload(args, all_preset_names) -> None:
+def _configure_autoload(args, autoload_preset: str) -> None:
     """Write the autoload entries, the bypass fallback, and the
     persistence tip — the whole of what --autoload sets up.
 
-    No-op unless --autoload was passed and something was generated, so
-    main() calls it unconditionally and the guard lives with the work.
+    ``autoload_preset`` is the run's starting preset, resolved once by
+    main() (autoload.starting_preset) and shared with the end-of-run
+    reload — never re-derived here, so the two can't name different
+    presets. No-op unless --autoload was passed and something was
+    generated (the name is empty then), so main() calls it unconditionally
+    and the guard lives with the work.
     """
     # Autoload configuration
-    if args.autoload and all_preset_names:
-        autoload_preset = args.autoload if isinstance(args.autoload, str) else all_preset_names[0]
+    if args.autoload and autoload_preset:
         sinks = hardware_sinks._resolve_autoload_sinks(args.autoload_sink, args.dry_run)
         if sinks:
             console.cprint("head", f"\nConfiguring autoload → '{autoload_preset}':")
@@ -544,12 +555,17 @@ class RunTally:
     thing with five faces, and naming them as one is what keeps the loop's
     inputs readable at its head."""
 
-    # Preset names in emission order. --autoload with no name takes the first
-    # (see _configure_autoload), so the order is part of the contract.
+    # Preset names in emission order. The starting preset falls back to the
+    # first (autoload.starting_preset), so the order is part of the contract.
     all_preset_names: list[str] = field(default_factory=list)
     # preset name → the stem of the impulse it references (the name carries a
     # content hash, so it is only known once the FIR is built).
     kernel_by_preset: dict[str, str] = field(default_factory=dict)
+    # The declared default profile's first preset when several profiles were
+    # built — for the closing's "Windows ships this device on" note only,
+    # never the starting preset: <default_profile> is reported, not acted on
+    # (docs/reference.md), under --all-profiles as in a bare run.
+    declared_default_preset: str = ""
     # filter name → set of profile labels that emitted it. Lets the
     # end-of-run --disable hint say *which* profiles each suggestion
     # actually touches, so a user autoloading one preset isn't misled
@@ -815,6 +831,7 @@ def main(argv: list[str] | None = None,
             tally.raised_in.setdefault(finding.slug, []).append(profile_label)
         tally.leveler_substages.update(dict.fromkeys(tuning.leveler_substages))
 
+        built_before = len(tally.all_preset_names)
         emit._emit_ieq_presets(tuning, name_base, is_soundwire, disabled,
                                args, profile_label, tally.all_preset_names,
                                tally.filters_by_profile, tally.kernel_by_preset,
@@ -838,8 +855,25 @@ def main(argv: list[str] | None = None,
         # document root, not the profile, so every iteration parses the same
         # value out of the same file.
         default_profile = tuning.default_profile
+        if (profile_type and profile_type == default_profile
+                and not tally.declared_default_preset
+                and len(tally.all_preset_names) > built_before):
+            tally.declared_default_preset = tally.all_preset_names[built_before]
 
-    _configure_autoload(args, tally.all_preset_names)
+    # Resolved once: bare --autoload, the reload below and the closing copy
+    # all point at this preset, and must keep pointing at the same one.
+    start = autoload.starting_preset(args.autoload, tally.all_preset_names)
+    _configure_autoload(args, start)
+
+    # Make it audible without asking: EasyEffects doesn't watch preset files,
+    # and until now the run ended on "then reload it". Beside autoload
+    # because both are things this run *did*, not things it noticed. Prints
+    # its own line; returns a finding only when the reader has to act.
+    reloaded = reload.reload_generated_preset(
+        args, tally.all_preset_names, tally.kernel_by_preset, starting=start)
+    if reloaded.finding is not None:
+        tally.findings.setdefault(reloaded.finding.slug, reloaded.finding)
+        _print_finding_detail(tally.findings[reloaded.finding.slug])
 
     # A requested --enable that never produced an active stage is silent
     # otherwise: make_autogain returns None when the XML's volume leveler is
@@ -1025,7 +1059,8 @@ def main(argv: list[str] | None = None,
             scoped, tally.filters_by_profile,
             installs_presets=not args.skip_closing,
             enabled_by_flag=frozenset(args.enable),
-            dry_run=args.dry_run)
+            dry_run=args.dry_run,
+            auto_reload=bool(reloaded.loaded))
     # After the troubleshooting, not before it. Printed first, the success
     # line and "how to use them" scrolled off the top of a 24-line terminal
     # and the last thing on screen was troubleshooting advice and a
@@ -1057,8 +1092,15 @@ def main(argv: list[str] | None = None,
                        menu_printed=menu_printed,
                        declared_default=(default_profile
                                          if args.profile is None else None),
+                       declared_default_preset=tally.declared_default_preset,
                        virtual_bass_pw=("virtual-bass-active"
-                                        in tally.filters_by_profile))
+                                        in tally.filters_by_profile),
+                       reloaded=reloaded.playing,
+                       loaded=reloaded.loaded,
+                       reload_slug=(reloaded.finding.slug
+                                    if reloaded.finding and not reloaded.loaded
+                                    else ""),
+                       start_with=start)
 
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own

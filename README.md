@@ -43,7 +43,7 @@ The `--autoload` option wires EasyEffects to apply the Dolby correction on your 
 
 Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md), and each version is published as a [GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases). To be notified when a new version ships, click **Watch → Custom → Releases** at the top of the GitHub page.
 
-Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate your preset** (then reload it in EasyEffects, or restart PipeWire if you use the filter-chain conf) to pick up the improvement. Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
+Entries tagged **[AUDIBLE]** change the *sound* of the generated preset — when you see one, pull the latest and **re-run the script to regenerate and reload your preset** to pick up the improvement (the run loads it into a running EasyEffects when it can, and says what to pick otherwise; filter-chain users re-run `ee_to_pipewire.py` too, since a conf carries the impulse as of its conversion). Other entries are tooling, packaging, docs, or new-device support that doesn't alter existing devices' output, so there's nothing to regenerate.
 
 Each generated preset and `.conf` is stamped with the version that produced it (a `_generator` field in the preset JSON, a `# version:` line in the conf; `--version` prints it), so you can always tell what made a given file when reporting an issue.
 
@@ -147,6 +147,7 @@ pip install -r requirements.txt
 **General**
 - `--verbose` (alias `-v`) — print the full frequency tables (hidden by default); include a `-v` log when reporting a sound problem
 - `--dry-run` — run without writing any files to disk (presets, IRs, autoload); useful for debugging script execution and output
+- `--no-reload` — don't ask a running EasyEffects to load the preset when the run finishes; presets are still written (no effect under `--dry-run`, or when `--output-dir`/`--irs-dir` point outside EasyEffects' own folders)
 - `--skip-ee-check` — skip the end-of-run EasyEffects environment check; for workflows that don't target an EasyEffects install (`dolby_to_pipewire.py` passes it automatically)
 - `--skip-closing` — skip the end-of-run closing blocks (what was written and how to use it, plus the report-back block); for wrappers that install elsewhere and present their own
 - `--no-color` — disable colored terminal output
@@ -231,7 +232,7 @@ python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows \
     --all-profiles --autoload Dolby-Dynamic-Balanced
 ```
 
-It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffects/autoload/output/`, detects the speaker sink via `pw-dump`, and also installs an empty `Nothing` bypass preset so non-speaker outputs (HDMI, Bluetooth, USB) don't keep processing the speaker tuning. Run it from a desktop session with PipeWire running; restart EasyEffects afterward if it was already running. For the autoload to take effect on every login, also enable Background Service + Autostart on login in EasyEffects' preferences (see [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing)) so EasyEffects is actually running when the speaker becomes active. Pass `--autoload-sink NODE_NAME` to bind a sink yourself, or `--no-autoload-bypass` to skip the bypass.
+It writes a `{node.name}:{route}.json` autoload file to `~/.local/share/easyeffects/autoload/output/`, detects the speaker sink via `pw-dump`, and also installs an empty `Nothing` bypass preset so non-speaker outputs (HDMI, Bluetooth, USB) don't keep processing the speaker tuning. Run it from a desktop session with PipeWire running. A running native EasyEffects (8.0.9+) gets the preset loaded into it right away; when the run can't reach it (Flatpak keeps the socket inside its sandbox) or leaves it alone (it says so: a non-speaker output, or the `Nothing` bypass preset already active), restarting EasyEffects lets the autoload pick it up — and restart it anyway for the fallback setting to take effect. For the autoload to take effect on every login, also enable Background Service + Autostart on login in EasyEffects' preferences (see [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing)) so EasyEffects is actually running when the speaker becomes active. Pass `--autoload-sink NODE_NAME` to bind a sink yourself, or `--no-autoload-bypass` to skip the bypass.
 
 ![EasyEffects autoload: Dolby-Balanced bound to the speaker output, with Nothing as the global fallback preset](docs/images/ee-autoload.jpg)
 

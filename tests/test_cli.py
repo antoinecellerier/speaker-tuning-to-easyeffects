@@ -2102,6 +2102,10 @@ def _every_finding():
         report_findings._experimental_finding("type-3 high-shelf",
                                                    ["high-shelf"]),
         report_findings._level_restore_finding(),
+        # One slug, three detail wordings (one site); the ask is shared.
+        report_findings._reload_refused_finding("Dolby-Balanced", "Podcast", True),
+        report_findings._reload_unanswered_finding("Dolby-Balanced"),
+        report_findings._ee_bypassed_finding(),
     ]
     return [f for f in found if f is not None]
 
@@ -2251,6 +2255,42 @@ def test_regulator_stays_on_the_menu_without_the_inert_hint(silence_console,
     by_profile = {"regulator": {"default"}, "mbc": {"default"}}
     messages.print_troubleshooting([], by_profile)
     assert "--disable regulator" in capsys.readouterr().out
+
+
+def test_apply_hint_drops_the_reload_line_when_the_rerun_reloads(silence_console, capsys):
+    """Once this run loaded the preset into a running EasyEffects, telling
+    the reader to reload it after the re-run describes a step the re-run
+    does itself."""
+    silence_console(console)
+    by_profile = {"mbc": {"default"}}
+    messages.print_troubleshooting([], by_profile, auto_reload=True)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "reload the preset in EasyEffects" not in out
+    assert "they combine" in out and "--disable mbc" in out
+
+
+def test_closing_names_what_is_playing_after_a_reload(silence_console, capsys):
+    silence_console(console)
+    names = ["Dolby-Balanced", "Dolby-Detailed", "Dolby-Warm"]
+    messages.print_what_now(names, False, False, reloaded="Dolby-Balanced")
+    out = " ".join(capsys.readouterr().out.split())
+    assert "EasyEffects is playing 'Dolby-Balanced' now" in out
+    assert "other voicings (Detailed is brighter, Warm softer)" in out
+    assert "To use them: open EasyEffects" not in out
+    # One voicing built: nothing to point at besides what is playing.
+    messages.print_what_now(["Dolby-Balanced"], False, False, reloaded="Dolby-Balanced")
+    assert "other voicings" not in capsys.readouterr().out
+    # No reload: today's copy, with the declared default's preset up front.
+    messages.print_what_now(names, False, False, start_with="Dolby-Warm")
+    assert "pick 'Dolby-Warm' from the Presets menu" in " ".join(capsys.readouterr().out.split())
+    # Loaded but bypassed: not "playing", and not "pick it" either.
+    messages.print_what_now(names, False, False, loaded="Dolby-Balanced")
+    out = " ".join(capsys.readouterr().out.split())
+    assert "EasyEffects has 'Dolby-Balanced' loaded" in out
+    assert "is playing" not in out and "To use them" not in out
+    # --autoload stays silent even after a reload: the reload site said it.
+    messages.print_what_now(names, True, False, reloaded="Dolby-Balanced")
+    assert capsys.readouterr().out == ""
 
 
 def test_apply_hint_skips_easyeffects_for_a_wrapper(silence_console, capsys):

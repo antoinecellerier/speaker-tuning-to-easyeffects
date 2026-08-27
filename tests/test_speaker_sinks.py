@@ -119,6 +119,42 @@ def _patch_sinks(monkeypatch, sinks):
     monkeypatch.setattr(hw_sinks, "_enumerate_audio_sinks", lambda: list(sinks))
 
 
+VIRTUAL_SINK = {
+    "name": "easyeffects_sink",
+    "description": "EasyEffects Sink",
+    "profile": "",
+    "icon_name": "",
+    "bus": "",
+    "api": "",
+}
+
+
+def test_sink_kind_separates_a_confident_no_from_dont_know(monkeypatch):
+    """The end-of-run reload declines only on 'other' (lib/preset/reload.py):
+    an ALSA or Bluetooth node the speaker classifier excluded. A virtual
+    sink, a name the enumeration lacks, or a failed probe is 'unknown' — it
+    says nothing about where the audio comes out."""
+    bt = {"name": "bluez_output.AA_BB.1", "description": "Buds", "profile": "",
+          "icon_name": "audio-headset-bluetooth", "bus": "bluetooth", "api": "bluez5"}
+    _patch_sinks(monkeypatch, [STRICT_SPEAKER, HDMI_SINK, bt, VIRTUAL_SINK])
+    assert hw_sinks.sink_kind(STRICT_SPEAKER["name"]) == "speaker"
+    assert hw_sinks.sink_kind(HDMI_SINK["name"]) == "other"
+    assert hw_sinks.sink_kind(bt["name"]) == "other"
+    assert hw_sinks.sink_kind(VIRTUAL_SINK["name"]) == "unknown"
+    assert hw_sinks.sink_kind("alsa_output.not-enumerated") == "unknown"
+    _patch_sinks(monkeypatch, [])
+    assert hw_sinks.sink_kind(STRICT_SPEAKER["name"]) == "unknown"
+
+
+def test_sink_kind_relaxed_tier_is_a_speaker_too(monkeypatch):
+    """Issue #18: no tagged speaker → the relaxed analog output is the
+    speaker, for the reload as for --autoload."""
+    _patch_sinks(monkeypatch, [IDEAPAD_ANALOG, HDMI_SINK])
+    assert hw_sinks.sink_kind(IDEAPAD_ANALOG["name"]) == "speaker"
+    assert hw_sinks.is_internal_speaker(IDEAPAD_ANALOG["name"])
+    assert not hw_sinks.is_internal_speaker(VIRTUAL_SINK["name"])
+
+
 def _set_tty(monkeypatch, *, stdin=True, stdout=True):
     """Force stdin/stdout isatty() — a prompt requires both to be TTYs."""
     monkeypatch.setattr(hw_sinks.sys.stdin, "isatty", lambda: stdin)

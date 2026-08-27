@@ -48,6 +48,7 @@ from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report import speaker as report_speaker
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
+from lib.preset import autoload
 from lib.preset.emit import save_wav_stereo, stereo_taps
 from lib.report.profile import _report_parsed_profile
 from lib.preset.autoload import (
@@ -2751,7 +2752,8 @@ def test_ee_query_absent_socket_is_not_reached(monkeypatch, tmp_path):
     sandbox): nothing to connect to, so fall back to the config file quietly.
     Must NOT look like protocol drift — that would cry wolf on every machine
     where EE simply isn't up."""
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(ee_socket, "_socket_path",
+                        lambda: tmp_path / "EasyEffectsServer")
     reply = doctor_run._ee_query(ee_socket.BYPASS_REQUEST)
     assert (reply.reached, reply.answered, reply.value) == (False, False, "")
 
@@ -2790,6 +2792,9 @@ def _fake_socket(monkeypatch, *, reply=None, connect_error=None, timeout=False):
             return reply
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/test")
+    # The autouse fixture pins the path to None; a socket test puts it back.
+    monkeypatch.setattr(ee_socket, "_socket_path",
+                        lambda: Path("/run/user/test/EasyEffectsServer"))
     monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
     return sent
 
@@ -2898,6 +2903,398 @@ def test_ee_query_empty_preset_reply_is_a_real_answer(monkeypatch):
 def test_ee_query_reads_a_normal_reply(monkeypatch):
     _fake_socket(monkeypatch, reply=b"Dolby-Balanced\n")
     assert doctor_run._ee_query(ee_socket.PRESET_REQUEST).value == "Dolby-Balanced"
+
+
+# --- LOCK-IN: the end-of-run load into a running EasyEffects ---
+# lib/preset/reload.py. A stand-in daemon answers the three requests the way
+# upstream does — one synchronous pass per write, load_preset silent, the
+# kernel name read from the preset on disk — so the receipt is exercised for
+# real rather than against a pre-computed hash.
+
+from types import SimpleNamespace
+
+
+class _FakeDaemon:
+    def __init__(self, out_dir, *, loaded="Podcast", bypass="2", mode="ok"):
+        self.out_dir, self.loaded, self.bypass, self.mode = Path(out_dir), loaded, bypass, mode
+        self.sent = []
+
+    def _kernel(self, name):
+        path = self.out_dir / f"{name}.json"
+        if self.mode == "stale-kernel" or not path.exists():
+            return "Stale-00000000" if path.exists() else "error_plugin_not_found"
+        return json.loads(path.read_text())["output"]["convolver#0"]["kernel-name"]
+
+    def handle(self, data: bytes) -> bytes:
+        self.sent.append(data)
+        out = b""
+        for line in data.decode().split("\n")[:-1]:
+            if line.startswith("load_preset:output:"):
+                name = line.split(":", 2)[2]
+                if self.mode == "parse-fail":
+                    self.loaded = ""
+                elif self.mode != "wrong-preset" and (self.out_dir / f"{name}.json").exists():
+                    self.loaded = name
+            elif line == "get_last_loaded_preset:output":
+                if self.mode == "silent":
+                    return b""
+                out += self.loaded.encode() + b"\n"
+            elif line.startswith("get_property:output:convolver:0:kernelName"):
+                out += self._kernel(self.loaded).encode() + b"\n"
+            elif line == "get_global_bypass":
+                out += self.bypass.encode()      # unframed, as upstream
+        return out
+
+
+def _serve(monkeypatch, daemon):
+    class FakeSock:
+        pending = b""
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, _t): pass
+        def connect(self, _p): pass
+        def sendall(self, d): self.pending = daemon.handle(d)
+        def recv(self, _n):
+            if not self.pending:
+                raise TimeoutError()
+            out, self.pending = self.pending, b""
+            return out
+
+    monkeypatch.setattr(ee_socket, "_socket_path",
+                        lambda: Path("/run/user/test/EasyEffectsServer"))
+    monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
+    return daemon
+
+
+@pytest.fixture
+def live_ee_tree(tmp_path, monkeypatch):
+    """Point EasyEffects' own directories at tmp so a run with no
+    --output-dir/--irs-dir counts as writing the live tree."""
+    out, irs = tmp_path / "output", tmp_path / "irs"
+    monkeypatch.setattr(ee_paths, "DEFAULT_OUTPUT_DIR", out)
+    monkeypatch.setattr(ee_paths, "DEFAULT_IRS_DIR", irs)
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: "")
+    return out, irs
+
+
+def _run_live(tmp_path, *extra):
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    return dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--no-color", *extra])
+
+
+def _kernel_of(out, name):
+    return json.loads((out / f"{name}.json").read_text())["output"]["convolver#0"]["kernel-name"]
+
+
+def test_reload_pipelines_the_load_and_its_receipt(live_ee_tree, monkeypatch, capsys):
+    """ONE write carries the load and its two reads; the kernel read back is
+    the hashed name this very run wrote, which is what proves the convolver
+    re-read the impulse."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent)
+    loads = [s for s in daemon.sent if s.startswith(b"load_preset:")]
+    assert loads == [b"load_preset:output:Dolby-Balanced\n"
+                     b"get_last_loaded_preset:output\n"
+                     b"get_property:output:convolver:0:kernelName\n"]
+    out_text = capsys.readouterr().out
+    assert "EasyEffects is now playing 'Dolby-Balanced' — it was on 'Podcast'." in out_text
+    collapsed = " ".join(out_text.split())
+    assert "is playing 'Dolby-Balanced' now" in collapsed
+    assert "reload the preset in EasyEffects" not in out_text
+    assert "reload-refused" not in out_text
+
+
+def test_reload_refreshes_the_preset_already_playing(live_ee_tree, monkeypatch, capsys):
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out, loaded="Dolby-Warm"))
+    assert not _run_live(out.parent)
+    assert any(s.startswith(b"load_preset:output:Dolby-Warm\n") for s in daemon.sent)
+    assert "EasyEffects is playing 'Dolby-Warm' again" in capsys.readouterr().out
+
+
+def test_reload_leaves_the_bypass_preset_alone(live_ee_tree, monkeypatch, capsys):
+    """`Nothing` is --autoload's fallback for a non-speaker output: loading a
+    speaker tuning over it would put speaker EQ on a headset."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out, loaded="Nothing"))
+    assert not _run_live(out.parent)
+    assert not any(s.startswith(b"load_preset:") for s in daemon.sent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    # Said, not silent: under --autoload the closing is suppressed, and this
+    # line is then the only sign the run left it alone.
+    assert "EasyEffects is on 'Nothing', the bypass preset for non-speaker outputs" in out_text
+    assert "To use them: open EasyEffects" in out_text
+
+
+_BT_HEADSET = {"name": "bluez_output.AA.1", "description": "Buds", "profile": "",
+               "icon_name": "audio-headset-bluetooth", "bus": "bluetooth", "api": "bluez5"}
+_EE_SINK = {"name": "easyeffects_sink", "description": "EasyEffects Sink", "profile": "",
+            "icon_name": "", "bus": "", "api": ""}
+
+
+def test_reload_declines_a_non_speaker_default_sink(live_ee_tree, monkeypatch, capsys):
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: _BT_HEADSET["name"])
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: [_BT_HEADSET])
+    assert not _run_live(out.parent)
+    assert not any(s.startswith(b"load_preset:") for s in daemon.sent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    # PipeWire's default sink is the user's, not EasyEffects' device.
+    assert "Your default output is 'bluez_output.AA.1' — not loading a speaker tuning onto it" in out_text
+
+
+@pytest.mark.parametrize("enumerated", [[_EE_SINK], []],
+                         ids=["virtual-sink", "probe-failed"])
+def test_reload_loads_when_the_default_sink_is_unknown(
+        live_ee_tree, monkeypatch, capsys, enumerated):
+    """TRAP (code review 2026-08-27): the speaker classifier answers False
+    for "don't know", and the gate read that as "not a speaker" — declining
+    on EasyEffects' own virtual sink, or when the second pw-dump failed,
+    and naming a sink the user never chose. Unknown loads."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: _EE_SINK["name"])
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: enumerated)
+    assert not _run_live(out.parent)
+    assert any(s.startswith(b"load_preset:") for s in daemon.sent)
+    assert "not loading a speaker tuning" not in capsys.readouterr().out
+
+
+def test_starting_preset_is_one_rule():
+    """--autoload <name> wins; else the first built; empty when nothing was.
+    Never the declared default profile's: <default_profile> is reported,
+    not acted on, and --all-profiles must point where a bare run does
+    (maintainer decision 2026-08-27)."""
+    names = ["Dolby-Balanced", "Dolby-Detailed", "Dolby-Warm"]
+    assert autoload.starting_preset("Dolby-Warm", names) == "Dolby-Warm"
+    assert autoload.starting_preset(True, names) == "Dolby-Balanced"
+    assert autoload.starting_preset(None, names) == "Dolby-Balanced"
+    assert autoload.starting_preset(True, []) == ""
+
+
+def _two_profile_xml(path, default_profile="music"):
+    """The synthetic XML with its `dynamic` profile duplicated as `music`,
+    and the declared default set — the case where "first in the file" and
+    "declared default" name different presets."""
+    xml = write_synthetic_tuning_xml(path, default_profile=default_profile)
+    text = xml.read_text()
+    block = text[text.index('    <profile type="dynamic">'):text.index("  </endpoint>")]
+    xml.write_text(text.replace(
+        block, block + block.replace('type="dynamic"', 'type="music"')))
+    return xml
+
+
+def test_autoload_and_the_reload_name_the_same_preset(live_ee_tree, monkeypatch):
+    """TRAP (code review 2026-08-27): a bare --autoload wired the first
+    profile in the file while the reload loaded the declared default's —
+    two adjacent lines naming different presets, and the next sink
+    re-activation flipping the user to the other one. One rule
+    (autoload.starting_preset) feeds both, and it is the bare run's: the
+    first profile, not the declared default (reported, not acted on)."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    xml = _two_profile_xml(out.parent / "DEV_SYNTH_SUBSYS_TEST.xml")
+    speaker = {"name": "alsa_output.pci-0000_00_1f.3.analog-stereo",
+               "description": "Built-in Audio Analog Stereo", "route": "Speaker"}
+    monkeypatch.setattr(sinks, "_resolve_autoload_sinks", lambda *_: [speaker])
+    autoload_dir = out.parent / "autoload"
+    rc = dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--no-color", "--all-profiles",
+         "--autoload", "--autoload-dir", str(autoload_dir)])
+    assert not rc
+    wired = {json.loads(p.read_text())["preset-name"] for p in autoload_dir.glob("*.json")}
+    loaded = [s.split(b"\n")[0].split(b":")[2].decode()
+              for s in daemon.sent if s.startswith(b"load_preset:")]
+    assert wired == {"Dolby-Dynamic-Balanced"}
+    assert loaded == ["Dolby-Dynamic-Balanced"]
+
+
+@pytest.mark.parametrize("declared, note", [("music", True), ("dynamic", False)],
+                         ids=["declared-differs", "declared-is-first"])
+def test_all_profiles_closing_names_the_declared_default(tmp_path, capsys, declared, note):
+    """A bare run says "Windows ships this device on 'music'; these voice
+    'dynamic' — --profile music rebuilds". --all-profiles built it, so its
+    closing names the preset instead — and still points at the first
+    profile, as the bare run does. Silent when the declared default IS the
+    first profile."""
+    xml = _two_profile_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml", declared)
+    rc = dolby_to_easyeffects.main(
+        [str(xml), "--output-dir", str(tmp_path / "out"), "--irs-dir",
+         str(tmp_path / "irs"), "--skip-ee-check", "--no-color", "--all-profiles"])
+    assert not rc
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "pick 'Dolby-Dynamic-Balanced' from the Presets menu" in out_text
+    assert ("Windows ships this device on 'music' — that's Dolby-Music-Balanced here."
+            in out_text) is note
+
+
+def test_reload_is_gated_off_by_dry_run(live_ee_tree, monkeypatch):
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent, "--dry-run")
+    assert daemon.sent == []
+
+
+@pytest.mark.parametrize("loaded, autoload, phrase, restart", [
+    ("Podcast", False, "keeps playing 'Podcast' — pick 'Dolby-Balanced' in its Presets menu", False),
+    ("Podcast", True, "keeps playing 'Podcast' — pick 'Dolby-Balanced' in its Presets menu", True),
+    ("", False, "is running — pick 'Dolby-Balanced'", False),
+    ("Dolby-Warm", False, "keeps playing 'Dolby-Warm' as it was before this run — pick it again", False),
+    ("Dolby-Warm", True, "keeps playing 'Dolby-Warm' as it was before this run — pick it again", True),
+])
+def test_no_reload_says_what_to_pick_but_never_loads(
+        live_ee_tree, monkeypatch, capsys, loaded, autoload, phrase, restart):
+    """The opt-out still owes the reader the state it leaves — under
+    --autoload the closing block is silent, so without this line a
+    --autoload --no-reload run said nothing about how to hear the change.
+    A restart is offered only where something will load ours: autoload. On
+    its own EasyEffects rebuilds from its settings db, not the preset file,
+    and comes back as it was — even on the preset it was already playing
+    (copy audit 2026-08-27; this test used to pin the opposite)."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out, loaded=loaded))
+    extra = ["--no-reload"] + (["--autoload", "--autoload-sink", "alsa_output.spk"] if autoload else [])
+    if autoload:
+        monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC", out.parent / "easyeffectsrc")
+        monkeypatch.setattr(ee_paths, "DEFAULT_AUTOLOAD_DIR", out.parent / "autoload")
+    assert not _run_live(out.parent, *extra)
+    assert not any(s.startswith(b"load_preset:") for s in daemon.sent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "--no-reload: EasyEffects " + phrase in out_text
+    assert ("or restart it" in out_text) is restart
+
+
+def test_no_reload_prints_nothing_when_easyeffects_is_not_running(live_ee_tree, capsys):
+    out, _ = live_ee_tree
+    assert not _run_live(out.parent, "--no-reload")
+    assert "--no-reload:" not in capsys.readouterr().out
+
+
+def test_reload_is_gated_off_by_custom_dirs(tmp_path, monkeypatch):
+    """Presets written anywhere but EasyEffects' own tree are invisible to it."""
+    daemon = _serve(monkeypatch, _FakeDaemon(tmp_path / "out"))
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    assert not dolby_to_easyeffects.main(
+        [str(xml), "--output-dir", str(tmp_path / "out"), "--irs-dir",
+         str(tmp_path / "irs"), "--skip-ee-check", "--no-color"])
+    assert daemon.sent == []
+
+
+def test_reload_is_gated_off_for_a_staged_run(live_ee_tree, monkeypatch):
+    """The wrapper's staged presets are deleted when it returns."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    xml = write_synthetic_tuning_xml(out.parent / "DEV_SYNTH_SUBSYS_TEST.xml")
+    assert not dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--no-color"], staged=True)
+    assert daemon.sent == []
+
+
+@pytest.mark.parametrize("mode, phrase", [
+    ("wrong-preset", "still reports 'Podcast'"),
+    ("parse-fail", "reports no preset loaded"),
+    ("stale-kernel", "reports a different speaker-correction impulse"),
+])
+def test_reload_mismatch_raises_a_hint_and_the_run_still_succeeds(
+        live_ee_tree, monkeypatch, capsys, mode, phrase):
+    """Each refused cause carries a detail that fits it and an ask the
+    reader can act on — "pick it from the menu" under a detail saying
+    EasyEffects looks in another folder asked the impossible (review round
+    2026-08-27), and "restart it" asked for a no-op: EasyEffects rebuilds
+    from its settings db on start, not from the preset file (copy audit
+    2026-08-27). The closing block must not re-offer the menu either."""
+    out, _ = live_ee_tree
+    _serve(monkeypatch, _FakeDaemon(out, mode=mode))
+    assert not _run_live(out.parent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "[reload-refused]" in out_text and phrase in out_text
+    assert "Run this script with --doctor" in out_text
+    assert "Restart EasyEffects" not in out_text and "restart it" not in out_text
+    assert "is now playing" not in out_text
+    assert ("EasyEffects did not load 'Dolby-Balanced' this run — the "
+            "[reload-refused] line above says what to do.") in out_text
+    assert "To use them: open EasyEffects" not in out_text
+
+
+def test_reload_silence_sends_no_load(live_ee_tree, monkeypatch, capsys):
+    """A listening daemon that won't say what is playing gets no load — a
+    load onto an unknown state is not a refresh — and the hint says why."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out, mode="silent"))
+    assert not _run_live(out.parent)
+    assert not any(s.startswith(b"load_preset:") for s in daemon.sent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "[reload-unanswered]" in out_text and "did not answer" in out_text
+    # The unanswered question was "what is playing" — no load went out, and
+    # the detail must not claim one did (copy audit 2026-08-27).
+    assert "did not try to load 'Dolby-Balanced'" in out_text
+    assert "asked to load" not in out_text
+    assert "[reload-refused]" not in out_text
+    assert "the [reload-unanswered] line above says what to do" in out_text
+
+
+def test_reload_under_global_bypass_says_loaded_not_playing(live_ee_tree, monkeypatch, capsys):
+    out, _ = live_ee_tree
+    _serve(monkeypatch, _FakeDaemon(out, bypass="1"))
+    assert not _run_live(out.parent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "EasyEffects loaded 'Dolby-Balanced'." in out_text
+    assert "is playing" not in out_text and "is now playing" not in out_text
+    assert "EasyEffects has 'Dolby-Balanced' loaded" in out_text
+    assert "To use them: open EasyEffects" not in out_text
+    assert "[ee-bypassed]" in out_text
+
+
+def test_reload_with_no_bypass_answer_says_loaded_not_playing(live_ee_tree, monkeypatch, capsys):
+    """get_global_bypass exists only since EasyEffects 8.1.3; an 8.0.9–8.1.2
+    daemon loads fine and answers nothing to it. Unknown is not "off":
+    "playing" would hide a bypass this run cannot see (copy audit
+    2026-08-27)."""
+    out, _ = live_ee_tree
+    _serve(monkeypatch, _FakeDaemon(out, bypass=""))
+    assert not _run_live(out.parent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert ("EasyEffects loaded 'Dolby-Balanced' (this EasyEffects can't say "
+            "whether its effects are switched on).") in out_text
+    assert "is playing" not in out_text and "is now playing" not in out_text
+    assert "[ee-bypassed]" not in out_text
+    assert "EasyEffects has 'Dolby-Balanced' loaded" in out_text
+
+
+def test_reload_not_reached_prints_nothing_and_keeps_the_manual_step(live_ee_tree, capsys):
+    """No socket (EE down, Flatpak, EE < 8.0.9): today's copy, untouched."""
+    out, _ = live_ee_tree
+    assert not _run_live(out.parent)
+    out_text = " ".join(capsys.readouterr().out.split())
+    assert "EasyEffects is" not in out_text.replace("EasyEffects is currently", "")
+    assert "To use them: open EasyEffects" in out_text
+    assert "reload-refused" not in out_text
+
+
+def test_demo_hook_never_opens_a_socket(live_ee_tree, monkeypatch, capsys):
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    monkeypatch.setenv("DEMO_EE_RELOAD", "refreshed")
+    assert not _run_live(out.parent)
+    assert daemon.sent == []
+    assert "EasyEffects is playing 'Dolby-Balanced' again" in capsys.readouterr().out
+
+
+def test_a_misspelt_demo_hook_fails_closed(tmp_path, monkeypatch, capsys):
+    """TRAP (code review 2026-08-27): any non-empty DEMO_EE_RELOAD waived the
+    live-tree gate and fabricated a success — a real run printing "now
+    playing" having sent nothing. A value the hook doesn't know is no hook:
+    here the custom dirs gate the reload as they would without it."""
+    monkeypatch.setenv("DEMO_EE_RELOAD", "refreshd")
+    daemon = _serve(monkeypatch, _FakeDaemon(tmp_path / "out"))
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    _generate(xml, tmp_path / "out", tmp_path / "irs")
+    assert daemon.sent == []
+    assert "EasyEffects is" not in capsys.readouterr().out.replace(
+        "EasyEffects is currently", "")
 
 
 def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):

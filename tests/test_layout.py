@@ -958,3 +958,11 @@ def test_the_validator_cli_separates_setup_failure_from_a_bad_conf(tmp_path):
         f"{broken.returncode}, which its own docstring reads as a bad "
         f"conf:\n{broken.stderr.strip()}"
     )
+
+
+def test_the_doctor_never_sends_a_mutating_socket_request():
+    """--doctor's socket use is two reads behind an allowlist; the load lives
+    in lib/preset/reload.py. Kept apart by name, so a convenience import can't
+    quietly hand the diagnostic a request that changes the app it inspects."""
+    source = (ROOT / "lib" / "report" / "doctor_run.py").read_text()
+    assert "load_output_preset" not in source

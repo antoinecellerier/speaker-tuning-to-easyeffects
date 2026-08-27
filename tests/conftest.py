@@ -96,6 +96,17 @@ def no_live_easyeffects_probe(monkeypatch):
     monkeypatch.setattr(checks, "easyeffects_running", lambda: False)
 
 
+@pytest.fixture(autouse=True)
+def no_live_easyeffects_socket(monkeypatch):
+    """The generator now *loads* a preset into a running EasyEffects at the
+    end of a real run (lib/preset/reload.py). On a dev machine that is the
+    maintainer's own session, so every CLI test here would swap what he is
+    listening to. Pinned to "no socket" — the ordinary not-running case;
+    tests of the socket itself put one back with `_fake_socket`."""
+    from lib import ee_socket
+    monkeypatch.setattr(ee_socket, "_socket_path", lambda: None)
+
+
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own
 # `band_20_freq` element; this is a typical log-spaced set in the same
 # range, used purely as a non-proprietary stand-in.

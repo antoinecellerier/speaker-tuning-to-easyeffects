@@ -207,19 +207,47 @@ def live_default_sink() -> str:
     return checks.default_sinks(checks._pw_dump()).effective
 
 
-def is_internal_speaker(name: str) -> bool:
-    """Does PipeWire call this sink one of the machine's own speakers?
+def sink_kind(name: str) -> str:
+    """'speaker', 'other' or 'unknown': what PipeWire's description of sink
+    ``name`` settles about where its audio comes out.
 
-    The same classifier `--autoload` uses rather than a match on the node
-    name, so every caller agrees about what a speaker is — including the
-    relaxed tier for laptops whose UCM2 profile omits the speaker icon
-    (issue #18). Any failure answers "don't know" (False).
+    'speaker' is the classifier `--autoload` uses rather than a match on the
+    node name, so every caller agrees about what a speaker is — including
+    the relaxed tier for laptops whose UCM2 profile omits the speaker icon
+    (issue #18). 'other' is a confident no: an ALSA or Bluetooth node that
+    classifier excluded — HDMI, a headset, a Bluetooth speaker. Everything
+    else is 'unknown' — a failed probe, a sink the enumeration didn't list,
+    or a virtual one (EasyEffects' own sink, a combine sink), which says
+    nothing about the physical output — and a caller that would act on a
+    "no" treats it as no answer.
     """
     try:
-        return any(s.get("name") == name
-                   for s in select_speaker_sinks()["selected"])
+        sel = select_speaker_sinks()
+        if any(s.get("name") == name for s in sel["selected"]):
+            return "speaker"
+        sink = next((s for s in sel["all_sinks"] if s.get("name") == name), None)
     except (OSError, KeyError, TypeError):
-        return False
+        return "unknown"
+    if sink is None or not _is_physical_output(sink):
+        return "unknown"
+    return "other"
+
+
+def _is_physical_output(sink: dict) -> bool:
+    """An ALSA or Bluetooth node: one whose classification says where the
+    audio actually comes out. `_classify_sink` excludes the rest too, but
+    as "not a speaker to autoload onto", which is not the same as "not a
+    speaker"."""
+    name_l = sink.get("name", "").lower()
+    return (name_l.startswith("alsa_output") or sink.get("api") == "bluez5"
+            or "bluez" in name_l)
+
+
+def is_internal_speaker(name: str) -> bool:
+    """Does PipeWire call this sink one of the machine's own speakers?
+    `sink_kind` with "don't know" folded into False — right for a
+    diagnostic bullet, wrong for anything that would act on a no."""
+    return sink_kind(name) == "speaker"
 
 
 def _sink_diag_line(sink: dict, with_description: bool = True) -> str:

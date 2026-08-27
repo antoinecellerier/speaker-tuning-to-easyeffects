@@ -233,6 +233,35 @@ def test_routing_staging_and_skip_flags(recorders):
         assert not any(a.startswith("--autoload") for a in argv)
 
 
+def test_the_wrapper_path_can_never_reload_easyeffects(tmp_path, monkeypatch):
+    """The generator's end-of-run load into a running EasyEffects must not
+    fire for staged presets (deleted when the wrapper returns) — proven on
+    the real generator, since the recorder above stubs it out. Even with
+    EasyEffects' own dirs pointed at the staging dir, `staged` alone gates
+    it; the wrapper's custom dirs gate it a second time."""
+    from lib import ee_paths, ee_socket
+    from lib.hardware import sinks
+    sent = []
+
+    class FakeSock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, _t): pass
+        def connect(self, _p): pass
+        def sendall(self, d): sent.append(d)
+        def recv(self, _n): return b"Podcast\n"
+
+    monkeypatch.setattr(ee_socket, "_socket_path", lambda: tmp_path / "sock")
+    monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
+    monkeypatch.setattr(ee_paths, "DEFAULT_OUTPUT_DIR", tmp_path / "out")
+    monkeypatch.setattr(ee_paths, "DEFAULT_IRS_DIR", tmp_path / "irs")
+    monkeypatch.setattr(sinks, "live_default_sink", lambda: "")
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    assert not dolby_to_easyeffects.main(
+        [str(xml), "--skip-ee-check", "--skip-closing", "--no-color"], staged=True)
+    assert sent == []
+
+
 def test_routing_variant_selects_stems(recorders):
     assert wrapper_main(["--variant", "detailed", "--no-activate"]) == 0
     (step2,) = recorders.step2

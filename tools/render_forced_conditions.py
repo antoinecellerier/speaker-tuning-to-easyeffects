@@ -25,6 +25,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -49,7 +50,20 @@ CASES = {
 # gate is an ALSA control, and the speaker pin is a subsystem-id match against
 # upstream's quirk table (17AA386A = issue #53's Yoga 7 16IAH7).
 ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"},
-             "speaker-pin": {"DEMO_SPEAKER_PIN": "17AA386A"}}
+             "speaker-pin": {"DEMO_SPEAKER_PIN": "17AA386A"},
+             # The end-of-run load into a running EasyEffects, every outcome
+             # (lib/preset/reload.py). These run into a tempdir instead of
+             # --dry-run, which gates the load off; the hook waives only the
+             # live-tree gate and never opens a socket.
+             "ee-reloaded": {"DEMO_EE_RELOAD": "refreshed"},
+             "ee-loaded": {"DEMO_EE_RELOAD": "loaded"},
+             "ee-bypassed": {"DEMO_EE_RELOAD": "bypassed"},
+             "reload-refused": {"DEMO_EE_RELOAD": "mismatch"},
+             "reload-unanswered": {"DEMO_EE_RELOAD": "silent"}}
+# A case is "fired" when its tag prints. The two reload successes carry no
+# tag — a success has no action — so they are recognised by their line.
+FIRED_MARKERS = {"ee-reloaded": "EasyEffects is playing",
+                 "ee-loaded": "EasyEffects is now playing"}
 
 GENERATOR_ARGS = ["--dry-run", "--skip-ee-check", "--no-color"]
 
@@ -65,13 +79,18 @@ def _pick_xml() -> Path | None:
 
 def _run(xml: Path, out: Path, label: str, env_extra: dict) -> bool:
     env = {**os.environ, "COLUMNS": "80", **env_extra}
-    proc = subprocess.run(
-        [sys.executable, "dolby_to_easyeffects.py", str(xml), *GENERATOR_ARGS],
-        cwd=REPO, env=env, capture_output=True, text=True)
+    gen_args = list(GENERATOR_ARGS)
+    with tempfile.TemporaryDirectory(prefix="render_forced-") as tmp:
+        if "DEMO_EE_RELOAD" in env_extra:
+            gen_args = [a for a in gen_args if a != "--dry-run"] + [
+                "--output-dir", tmp, "--irs-dir", tmp]
+        proc = subprocess.run(
+            [sys.executable, "dolby_to_easyeffects.py", str(xml), *gen_args],
+            cwd=REPO, env=env, capture_output=True, text=True)
     dest = out / f"forced_{label}.txt"
     dest.write_text(f"# forced: {label}\n# exit={proc.returncode}\n\n"
                     f"{proc.stdout}{proc.stderr}")
-    fired = f"[{label}]" in proc.stdout
+    fired = FIRED_MARKERS.get(label, f"[{label}]") in proc.stdout
     print(f"{label:24s} exit={proc.returncode} fired={fired}  -> {dest.name}")
     return fired and proc.returncode == 0
 

@@ -249,6 +249,16 @@ no per-band limiting.
   EasyEffects' own saved settings (it restores the convolver's kernel name
   from its config db on start) still name one, which is then kept and
   reported.
+- A run that finds EasyEffects listening on `$XDG_RUNTIME_DIR/EasyEffectsServer`
+  (native installs since 8.0.9) loads the preset into it over that socket:
+  the one it is already playing if that is one of this run's; otherwise the
+  starting preset, unless EasyEffects is on the `Nothing` bypass preset or
+  the default output isn't an internal speaker, which it then leaves as
+  they are and says so. It reads back the loaded preset and the
+  convolver's kernel name as the receipt, and says what it did or what to
+  do. Flatpak (socket inside the sandbox) and older installs get the manual
+  step instead. `--no-reload` opts out; the run then says what EasyEffects
+  keeps playing and which preset to pick.
 - The equalizer has no graphic-EQ mode — parametric only (LSP plugin).
 
 EE 7 uses an incompatible preset format; on EE 7 the speaker-correction

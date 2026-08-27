@@ -288,6 +288,96 @@ def _level_restore_finding() -> Finding:
             "flag (issue #50)?")
 
 
+def _reload_unanswered_finding(target: str, asked_to_load: bool = True) -> Finding:
+    """EasyEffects is listening but did not answer what this run asked.
+
+    Its own slug (review round 2026-08-27): a refusal the tool confirmed and
+    a silence it could not read are different situations, and the tag is
+    what a reporter quotes. The ask names the cause's fix — a socket that
+    stopped answering is the two programs drifting apart, which picking the
+    preset by hand works around but does not cure.
+
+    ``asked_to_load`` False: the unanswered question was which preset is
+    playing, and the run then sent no load on purpose — a detail claiming
+    one was sent described a request that never went out (copy audit
+    2026-08-27).
+    """
+    if asked_to_load:
+        detail = (f"EasyEffects is running but did not answer when asked to load "
+                  f"'{target}', so this run cannot tell whether the change took — "
+                  "this tool may be out of step with your EasyEffects version.")
+    else:
+        detail = ("EasyEffects is running but did not answer when asked which "
+                  f"preset it is playing, so this run did not try to load "
+                  f"'{target}' — this tool may be out of step with your "
+                  "EasyEffects version.")
+    return Finding(
+        slug="reload-unanswered", kind="hint", detail=detail,
+        ask=(f"Pick '{target}' in EasyEffects' Presets menu; if that keeps "
+             "being needed, update EasyEffects and this tool"))
+
+
+def _reload_refused_finding(target: str, loaded: str,
+                            kernel_ok: bool) -> Finding:
+    """EasyEffects answered, but this run could not get it onto ``target``.
+
+    ``loaded`` is what it reports after the load. "" is a file it found but
+    could not parse (it clears its key) — or one it never found while
+    nothing was loaded before (it leaves the key alone; upstream
+    presets_manager.cpp loadLocalPresetFile). Another name is a file it
+    never found with that name still loaded. ``kernel_ok`` False with the
+    right preset loaded: its convolver reports an impulse other than the
+    one this run wrote — reached only that way, since both right is the
+    "loaded" outcome.
+
+    A restart is never the ask: EasyEffects rebuilds from its own settings
+    db on start, not from the preset file, and comes back exactly as it
+    was (copy audit 2026-08-27; the db fact is in docs/design-notes.md).
+    """
+    # Each cause gets the ask that fits it (review round 2026-08-27: "pick
+    # it from the menu" under a detail saying EasyEffects looks in another
+    # folder asked the impossible). All three end at --doctor: the one
+    # documented way EasyEffects and this run see different files is a
+    # Flatpak and a native install keeping separate trees
+    # (lib/ee_paths.py), and --doctor's install checks name which one this
+    # run wrote for.
+    doctor = "Run this script with --doctor: it shows which EasyEffects install the files went to"
+    if loaded == "":
+        detail = (f"EasyEffects is running but reports no preset loaded after "
+                  f"being asked for '{target}' — it could not read the file "
+                  "this run just wrote, or never found it (a Flatpak and a "
+                  "native EasyEffects keep separate folders).")
+        ask = doctor + "; if that is the right one, report it"
+    elif loaded != target:
+        detail = (f"EasyEffects is running but did not switch to '{target}' — "
+                  f"it still reports '{loaded}' as loaded, so it did not see "
+                  "the files this run wrote (a Flatpak and a native "
+                  "EasyEffects keep separate folders).")
+        ask = doctor
+    else:
+        detail = (f"EasyEffects loaded '{target}' but its convolver reports a "
+                  "different speaker-correction impulse than this run wrote, "
+                  "so the correction playing is not this run's.")
+        ask = doctor
+    return Finding(slug="reload-refused", kind="hint", detail=detail, ask=ask)
+
+
+def _ee_bypassed_finding() -> Finding:
+    """The preset is selected but EasyEffects' effects are switched off.
+
+    "Effects" is the control's name where a user looks for it — the header
+    button, tooltip "Turn effects on/off" (upstream Main.qml); "global
+    bypass" is what the socket and the Shortcuts sheet call the same state,
+    and a user hunting the UI for it finds the wrong switch (copy audit
+    2026-08-27)."""
+    return Finding(
+        slug="ee-bypassed", kind="hint",
+        detail="EasyEffects has its effects switched off (its global bypass), "
+               "so nothing it loads reaches your audio — the preset is "
+               "selected but silent.",
+        ask="Turn effects back on in EasyEffects (the Effects button in its header) to hear the preset it just loaded")
+
+
 def _firmware_gate_finding() -> Finding:
     """Whether toggling the smart-amp gate actually restored the bass."""
     return Finding(
