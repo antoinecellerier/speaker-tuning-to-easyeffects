@@ -2,6 +2,7 @@
 name: copy-audit
 context: fork
 agent: general-purpose
+model: opus
 description: >-
   Audits the user-facing terminal copy changed over a git range for factual
   truth rather than readability, by fanning out reviewers partitioned by
