@@ -1,5 +1,8 @@
 ---
 name: claude-md-audit
+context: fork
+agent: general-purpose
+model: opus
 description: >-
   Audits CLAUDE.md for accuracy and bloat, and proposes a concrete edit list.
   Run this BEFORE committing any change to CLAUDE.md (the file's own house
