@@ -65,10 +65,19 @@ FAKE_XML_DIR = f"{FAKE_HOME}/dax3-tuning"
 _STAGE_REL = "localresearch/user_review/.stage"
 
 
+# A user namespace that keeps the real uid. `unshare -rm` maps the user to
+# root inside, and lib/console.refuse_root then declines the run (2026-08-17)
+# — correctly, on its own terms: uid 0 is what it refuses. --map-user keeps
+# the uid, and --keep-caps carries the namespace's capabilities across the
+# exec so the tmpfs and bind mounts below still work. util-linux ≥ 2.38.
+_UNSHARE = ["unshare", "--user", f"--map-user={os.getuid()}",
+            f"--map-group={os.getgid()}", "--keep-caps", "-m"]
+
+
 def _sandbox_available() -> bool:
     probe = subprocess.run(
-        ["unshare", "-rm", "sh", "-c",
-         "mount -t tmpfs tmpfs /home && mkdir /home/user"],
+        [*_UNSHARE, "sh", "-c",
+         "mount -t tmpfs tmpfs /home && mkdir /home/user && test \"$(id -u)\" != 0"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return probe.returncode == 0
 
@@ -113,12 +122,15 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
     reorders it against stderr, which a terminal does not do, and the whole
     point of the capture is the order a user sees.
 
-    With ``sandbox=True`` the whole thing runs inside `unshare -rm` with the
+    With ``sandbox=True`` the whole thing runs inside a uid-preserving user namespace (`_UNSHARE`) with the
     fake-home world assembled first (see FAKE_HOME above); ``stage`` names
     real XML files that must appear in FAKE_XML_DIR before cmd runs, and cmd
     should reference them by their FAKE_XML_DIR paths. The staging copies
     are made under the repo (``_STAGE_REL``) so the bind mount carries them in.
     """
+    # The environment stays intact: the fallback branch runs --dry-run, which
+    # gates the end-of-run load into a running EasyEffects off by itself, and
+    # the sandbox hides that socket below without touching PipeWire's.
     env = dict(os.environ, COLUMNS=str(width))
     shell_cmd = " ".join(shlex.quote(c) for c in cmd)
     if not sandbox:
@@ -147,10 +159,17 @@ def _pty_capture(cmd: list[str], width: int, sandbox: bool = False,
         "umount /tmp/.user_review_repo; "
         f"cp {FAKE_REPO}/{_STAGE_REL}/*.xml {FAKE_XML_DIR}/ 2>/dev/null"
         " || true; "
+        # /run/user/<uid> is not under the tmpfs, so a real run here would
+        # load its preset into the maintainer's live EasyEffects
+        # (lib/preset/reload.py). Cover just that socket — blanking
+        # XDG_RUNTIME_DIR would hide PipeWire's too, and the wrapper's sink
+        # detection with it.
+        'if [ -S "$XDG_RUNTIME_DIR/EasyEffectsServer" ]; then '
+        'mount --bind /dev/null "$XDG_RUNTIME_DIR/EasyEffectsServer"; fi; '
         f"export HOME={FAKE_HOME}; cd {FAKE_REPO}; "
         f"exec script -qec {shlex.quote(shell_cmd)} /dev/null"
     )
-    proc = subprocess.run(["unshare", "-rm", "sh", "-c", setup],
+    proc = subprocess.run([*_UNSHARE, "sh", "-c", setup],
                           cwd=REPO_ROOT, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return proc.stdout.decode("utf-8", errors="replace"), proc.returncode
