@@ -3737,8 +3737,8 @@ re-proposed:
   the *primary* instance and starts a second EasyEffects, a branch chosen
   purely by a lock file that a Flatpak keeps inside its sandbox. The CLI is
   itself only a client of EE's [local socket server][ee-local-server], so
-  `lib/report/doctor_run.py` speaks to that socket directly and sends nothing
-  but its two read requests. The socket is a documented interface, not an
+  `lib/ee_socket.py` speaks to that socket directly — typed calls, never a
+  caller's string — and `--doctor` sends nothing over it but its two reads. The socket is a documented interface, not an
   internal one — the page has sat in EE's user-interface docs since 8.0.7 —
   but it states no compatibility promise, its shape has already changed twice
   (8.0.7: `load_preset`'s pipeline argument became `input|output`; 8.0.9: the

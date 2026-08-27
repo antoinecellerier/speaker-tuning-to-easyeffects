@@ -2743,7 +2743,7 @@ def test_ee_query_never_spawns_a_process(monkeypatch):
     EasyEffects — new virtual sink, possibly a moved default sink."""
     _forbid_subprocess(monkeypatch)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    assert doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST).answered is False
+    assert doctor_run._ee_query(ee_socket.PRESET_REQUEST).answered is False
 
 
 def test_ee_query_absent_socket_is_not_reached(monkeypatch, tmp_path):
@@ -2752,7 +2752,7 @@ def test_ee_query_absent_socket_is_not_reached(monkeypatch, tmp_path):
     Must NOT look like protocol drift — that would cry wolf on every machine
     where EE simply isn't up."""
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    reply = doctor_run._ee_query(doctor_run._EE_BYPASS_REQUEST)
+    reply = doctor_run._ee_query(ee_socket.BYPASS_REQUEST)
     assert (reply.reached, reply.answered, reply.value) == (False, False, "")
 
 
@@ -2764,14 +2764,18 @@ def test_ee_query_contract_pins_the_request_strings():
     it is meant to be noticed: the request must keep matching
     `tags::local_server` (get_last_loaded_preset:(input|output)\\n and
     get_global_bypass\\n), and both must stay newline-terminated."""
-    assert doctor_run._EE_PRESET_REQUEST == "get_last_loaded_preset:output\n"
-    assert doctor_run._EE_BYPASS_REQUEST == "get_global_bypass\n"
-    assert doctor_run._EE_READ_REQUESTS == {doctor_run._EE_PRESET_REQUEST,
-                                            doctor_run._EE_BYPASS_REQUEST}
+    assert ee_socket.PRESET_REQUEST == "get_last_loaded_preset:output\n"
+    assert ee_socket.BYPASS_REQUEST == "get_global_bypass\n"
+    assert doctor_run._EE_READ_REQUESTS == {ee_socket.PRESET_REQUEST,
+                                            ee_socket.BYPASS_REQUEST}
 
 
 def _fake_socket(monkeypatch, *, reply=None, connect_error=None, timeout=False):
-    """Stand in for the daemon: reply bytes, a refused connect, or silence."""
+    """Stand in for the daemon: reply bytes, a refused connect, or silence.
+    Returns the socket's ``sent`` list, so a test can assert what went on the
+    wire — the read-only guarantee now lives at the wire, not in a wrapper."""
+    sent = []
+
     class FakeSock:
         def __enter__(self): return self
         def __exit__(self, *a): return False
@@ -2779,14 +2783,96 @@ def _fake_socket(monkeypatch, *, reply=None, connect_error=None, timeout=False):
         def connect(self, _p):
             if connect_error:
                 raise connect_error
-        def sendall(self, _d): pass
+        def sendall(self, d): sent.append(d)
         def recv(self, _n):
-            if timeout:
+            if timeout or reply is None:
                 raise TimeoutError()
             return reply
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/test")
     monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
+    return sent
+
+
+def test_read_helpers_send_only_their_own_request(monkeypatch):
+    """The transport takes typed calls, never a caller's string; each read
+    puts exactly its own request on the wire and nothing else."""
+    sent = _fake_socket(monkeypatch, reply=b"Dolby-Balanced\n")
+    assert ee_socket.last_loaded_output_preset().value == "Dolby-Balanced"
+    assert sent == [b"get_last_loaded_preset:output\n"]
+    sent = _fake_socket(monkeypatch, reply=b"2")   # unframed, by design
+    assert ee_socket.global_bypass().value == "2"
+    assert sent == [b"get_global_bypass\n"]
+
+
+def test_load_preset_refuses_a_name_the_daemon_would_drop(monkeypatch):
+    """Upstream's regex is ^load_preset:(input|output):([^\\n]{1,100})\\n$, run
+    as std::regex over the raw bytes — so 100 UTF-8 bytes, not characters —
+    and a miss is dropped silently, which would reach the user as drift."""
+    sent = _fake_socket(monkeypatch, reply=b"x\n")
+    for bad in ("a\nb", "", "x" * 101, "é" * 60):
+        with pytest.raises(ValueError):
+            ee_socket.load_output_preset(bad)
+    assert sent == []
+    ee_socket.load_output_preset("é" * 50)    # exactly 100 bytes: accepted
+    assert sent
+
+
+def test_load_preset_pipelines_the_load_and_its_receipt(monkeypatch):
+    """ONE write: load, then the two reads that are the only receipt (the
+    daemon drains a write's complete lines in one synchronous pass, and
+    load_preset itself answers nothing)."""
+    sent = _fake_socket(monkeypatch, reply=b"Dolby-Balanced\nDolby-Balanced-0123abcd\n")
+    result = ee_socket.load_output_preset("Dolby-Balanced", "Dolby-Balanced-0123abcd")
+    assert sent == [b"load_preset:output:Dolby-Balanced\n"
+                    b"get_last_loaded_preset:output\n"
+                    b"get_property:output:convolver:0:kernelName\n"]
+    assert (result.outcome, result.loaded, result.kernel) == (
+        "loaded", "Dolby-Balanced", "Dolby-Balanced-0123abcd")
+
+
+@pytest.mark.parametrize("reply, kwargs, outcome", [
+    # EE still reports the previous preset: it could not find the file.
+    (b"Other\nOther-1234abcd\n", {}, "mismatch"),
+    # Empty name back: the JSON existed but failed to parse.
+    (b"\n\n", {}, "mismatch"),
+    # Right preset, stale kernel: the JSON applied but not the impulse.
+    (b"Dolby-Balanced\nDolby-Balanced-deadbeef\n", {}, "mismatch"),
+    # A listening daemon that answers nothing is drift, not absence.
+    (None, {"timeout": True}, "silent"),
+    (None, {"connect_error": ConnectionRefusedError()}, "unreachable"),
+])
+def test_load_preset_outcomes(monkeypatch, reply, kwargs, outcome):
+    _fake_socket(monkeypatch, reply=reply, **kwargs)
+    result = ee_socket.load_output_preset("Dolby-Balanced", "Dolby-Balanced-0123abcd")
+    assert result.outcome == outcome
+
+
+def test_load_preset_cut_off_mid_receipt_is_silent_not_mismatch(monkeypatch):
+    """TRAP (code review 2026-08-27): the daemon closing after the first of
+    two replies left buf=b"Dolby-Balanced\\n"; split() yielded a trailing ""
+    that counted as the kernel line, and the run told the user EasyEffects
+    "kept its previous impulse" about a load it never read."""
+    replies = iter([b"Dolby-Balanced\n", b""])
+
+    class FakeSock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, _t): pass
+        def connect(self, _p): pass
+        def sendall(self, _d): pass
+        def recv(self, _n): return next(replies)
+
+    monkeypatch.setattr(ee_socket, "_socket_path", lambda: Path("/run/user/test/EasyEffectsServer"))
+    monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
+    result = ee_socket.load_output_preset("Dolby-Balanced", "Dolby-Balanced-0123abcd")
+    assert result.outcome == "silent"
+
+
+def test_load_preset_without_a_kernel_reads_one_line(monkeypatch):
+    sent = _fake_socket(monkeypatch, reply=b"Dolby-Balanced\n")
+    assert ee_socket.load_output_preset("Dolby-Balanced").outcome == "loaded"
+    assert sent[0].count(b"\n") == 2
 
 
 def test_ee_query_silence_from_a_live_daemon_is_drift(monkeypatch):
@@ -2795,7 +2881,7 @@ def test_ee_query_silence_from_a_live_daemon_is_drift(monkeypatch):
     timeout means EasyEffects is there but no longer understands us, which
     must be distinguishable from EE simply not running."""
     _fake_socket(monkeypatch, timeout=True)
-    reply = doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST)
+    reply = doctor_run._ee_query(ee_socket.PRESET_REQUEST)
     assert (reply.reached, reply.answered) == (True, False)
 
 
@@ -2805,13 +2891,13 @@ def test_ee_query_empty_preset_reply_is_a_real_answer(monkeypatch):
     string "None" here; the socket does not.) Treating it as a failure would
     resurrect the stale config value this change exists to replace."""
     _fake_socket(monkeypatch, reply=b"\n")
-    reply = doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST)
+    reply = doctor_run._ee_query(ee_socket.PRESET_REQUEST)
     assert (reply.reached, reply.answered, reply.value) == (True, True, "")
 
 
 def test_ee_query_reads_a_normal_reply(monkeypatch):
     _fake_socket(monkeypatch, reply=b"Dolby-Balanced\n")
-    assert doctor_run._ee_query(doctor_run._EE_PRESET_REQUEST).value == "Dolby-Balanced"
+    assert doctor_run._ee_query(ee_socket.PRESET_REQUEST).value == "Dolby-Balanced"
 
 
 def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
@@ -2840,7 +2926,7 @@ def _resolve(monkeypatch, rc, *, preset="", bypass="", sink=""):
     monkeypatch.setattr(
         doctor_run, "_ee_query",
         lambda r: ee_socket.EEReply(
-            value=preset if r == doctor_run._EE_PRESET_REQUEST else bypass,
+            value=preset if r == ee_socket.PRESET_REQUEST else bypass,
             reached=True, answered=True))
     monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: sink)
     return doctor_run._resolve_live_state(rc)

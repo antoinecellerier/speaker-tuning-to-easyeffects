@@ -151,9 +151,7 @@ def _sink_is_internal_speaker(name: str) -> bool:
 # cannot reach a mutating request by passing a different string. Why the
 # socket and not the CLI, and the version history: docs/design-notes.md,
 # "Rejected approaches".
-_EE_PRESET_REQUEST = "get_last_loaded_preset:output\n"
-_EE_BYPASS_REQUEST = "get_global_bypass\n"
-_EE_READ_REQUESTS = frozenset({_EE_PRESET_REQUEST, _EE_BYPASS_REQUEST})
+_EE_READ_REQUESTS = frozenset({ee_socket.PRESET_REQUEST, ee_socket.BYPASS_REQUEST})
 
 
 def _ee_query(request: str) -> ee_socket.EEReply:
@@ -184,7 +182,9 @@ def _ee_query(request: str) -> ee_socket.EEReply:
     """
     if request not in _EE_READ_REQUESTS:
         raise ValueError(f"refusing to send a non-read-only request: {request!r}")
-    return ee_socket.query(request)
+    if request == ee_socket.PRESET_REQUEST:
+        return ee_socket.last_loaded_output_preset()
+    return ee_socket.global_bypass()
 
 
 @dataclass
@@ -220,7 +220,7 @@ def _resolve_live_state(rc: dict) -> LiveState:
     # An answered request wins even when the name is empty: that is EasyEffects
     # saying nothing is loaded, which its config file cannot distinguish from
     # never-written.
-    reply = _ee_query(_EE_PRESET_REQUEST)
+    reply = _ee_query(ee_socket.PRESET_REQUEST)
     if reply.answered:
         state.preset, state.preset_is_live = reply.value, True
     else:
@@ -246,7 +246,7 @@ def _resolve_live_state(rc: dict) -> LiveState:
     # changed reply format degrades to the config copy instead of being read
     # as a confident "off" — and, since we got *an* answer, counts as drift.
     # The rc copy is only ever a display fallback, never a verdict.
-    bypass_reply = _ee_query(_EE_BYPASS_REQUEST)
+    bypass_reply = _ee_query(ee_socket.BYPASS_REQUEST)
     if bypass_reply.value in ("1", "2"):
         state.bypass, state.bypass_is_live = bypass_reply.value == "1", True
     else:
