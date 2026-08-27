@@ -167,8 +167,9 @@ def read_ee_rc(rc_text: str) -> dict:
         "use_default_output_device": g("StreamOutputs", "useDefaultOutputDevice",
                                        "true").lower() == "true",
         # [EffectsPipelines] bypass, default false. Only a fallback for the
-        # live `easyeffects -b 3` query — a stale copy of this must never
-        # raise a confident "your audio is bypassed" verdict.
+        # live get_global_bypass request over EE's local socket
+        # (doctor_run._ee_query) — a stale copy of this must never raise a
+        # confident "your audio is bypassed" verdict.
         "bypass": g("EffectsPipelines", "bypass", "false").lower() == "true",
     }
 
@@ -179,8 +180,10 @@ def set_autoload_fallback(rc_path: Path, preset_name: str,
 
     EasyEffects 8.x stores the toggle as two keys under the [Window] section
     (they're bound to QML properties attached to the main window object —
-    quirky location, but matches EE's config binding). No EE CLI or D-Bus
-    interface exists for this setting, so direct file edit is the only option.
+    quirky location, but matches EE's config binding). No EE CLI, D-Bus or
+    local-socket command reaches this setting — the socket's set_property
+    only addresses per-plugin databases (plugin#instance), not [Window] keys
+    — so direct file edit is the only option.
 
     Returns (status, existing_preset) where status is one of:
       - "already-configured": both keys set and fallback enabled; file untouched.

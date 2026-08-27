@@ -2529,8 +2529,9 @@ def test_ee_query_refuses_a_request_that_is_not_read_only():
     """TRAP: the same socket accepts quit_app, hide_window and
     toggle_global_bypass. A diagnostic sending one of those would change the
     app it is diagnosing — which is exactly what the `easyeffects` CLI does
-    (its parser emits onHideWindow for these very queries, hiding the running
-    window), and why we speak to the socket ourselves instead."""
+    (through EE 8.2.8 its parser emits onHideWindow for these very queries,
+    hiding the running window; `-b 3` still does after upstream 8942fbc39),
+    and why we speak to the socket ourselves instead."""
     for forbidden in ("quit_app\n", "hide_window\n", "toggle_global_bypass\n"):
         with pytest.raises(ValueError):
             doctor_run._ee_query(forbidden)
@@ -2556,9 +2557,11 @@ def test_ee_query_absent_socket_is_not_reached(monkeypatch, tmp_path):
 
 
 def test_ee_query_contract_pins_the_request_strings():
-    """The wire protocol we depend on, spelled out. EasyEffects' local socket
-    is internal with no stability promise, so if upstream renames a tag this
-    test is where it is meant to be noticed — the request must keep matching
+    """The wire protocol we depend on, spelled out. EasyEffects documents its
+    local socket (since 8.0.7) but promises nothing about compatibility, and
+    get_global_bypass is not even on that page — only in upstream's
+    tags_local_server.hpp — so if upstream renames a tag this test is where
+    it is meant to be noticed: the request must keep matching
     `tags::local_server` (get_last_loaded_preset:(input|output)\\n and
     get_global_bypass\\n), and both must stay newline-terminated."""
     assert doctor_run._EE_PRESET_REQUEST == "get_last_loaded_preset:output\n"

@@ -3721,6 +3721,35 @@ re-proposed:
     remains of the per-XML cost mostly *is* the out-of-range and toggled-port
     checks — the entire remaining signal. Deduplicating confs by shape would
     trade the check itself for a handful of CPU-seconds.
+- **The `easyeffects` CLI for `--doctor`'s live state.** `--doctor` wants the
+  preset and bypass state EasyEffects is *using*; its config file only says
+  what it last *saved* (on quit, or on a 30 s autosave that runs while the
+  window is open — `lib/preset/autoload.py`), so in service mode the file can
+  be hours stale. The obvious live source is EE's own CLI (`easyeffects -a
+  output`, `-b 3`), declined for two side effects a diagnostic must not have:
+  through 8.2.8 its parser emits `onHideWindow` for every query, closing the
+  running window out from under whoever is reading it (upstream
+  [8942fbc39][ee-hide-on-failure], after 8.2.8, narrows that to `-a`'s failure
+  branch — `-b 3` still hides), and with no daemon running the binary becomes
+  the *primary* instance and starts a second EasyEffects, a branch chosen
+  purely by a lock file that a Flatpak keeps inside its sandbox. The CLI is
+  itself only a client of EE's [local socket server][ee-local-server], so
+  `lib/report/doctor_run.py` speaks to that socket directly and sends nothing
+  but its two read requests. The socket is a documented interface, not an
+  internal one — the page has sat in EE's user-interface docs since 8.0.7 —
+  but it states no compatibility promise, its shape has already changed twice
+  (8.0.7: `load_preset`'s pipeline argument became `input|output`; 8.0.9: the
+  socket moved from `/tmp` to `$XDG_RUNTIME_DIR/EasyEffectsServer`, Flatpak
+  builds keeping the temp location), and `get_global_bypass` exists only in
+  the source tags ([tags_local_server.hpp][ee-server-tags]), not on the page.
+  That is why a daemon that connects but does not answer is reported as drift
+  rather than absorbed, and why `test_ee_query_contract_pins_the_request_strings`
+  pins both request strings. On 8.0.0–8.0.8 the socket sits in `/tmp`, so
+  `--doctor` reads those as "not running" and falls back to the config file —
+  the intended degradation.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp
+[ee-local-server]: https://wwmm.github.io/easyeffects/user_interface/local_server.html
+[ee-server-tags]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/tags_local_server.hpp
+[ee-hide-on-failure]: https://github.com/wwmm/easyeffects/commit/8942fbc391440daa706bfd80e7d6887c523d363d

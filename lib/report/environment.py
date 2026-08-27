@@ -302,11 +302,16 @@ def loaded_preset_status(rc_data: dict, generated_names,
 def ee_unanswered_status(names) -> CheckResult:
     """EasyEffects is listening but didn't answer what we asked it.
 
-    Its local socket is an internal protocol with no stability promise, so a
-    request it stops recognising is a real possibility. Saying so is the whole
-    point: the alternative is falling back to its config file in silence and
-    reporting hours-old values as current for as long as nobody notices. The
-    values are still shown, marked as coming from that file."""
+    Its local socket is a documented interface (upstream's "Local Server"
+    page), but the page promises nothing about compatibility, the shape has
+    already changed twice (the pipeline argument in 8.0.7, the socket path
+    in 8.0.9), and one of our two requests — get_global_bypass — is only in
+    EE's source, not on the page. So a request it stops recognising is a real
+    possibility. Saying so is the whole point: the alternative is falling back
+    to its config file in silence and reporting hours-old values as current
+    for as long as nobody notices. The values are still shown, marked as
+    coming from that file. Provenance: docs/design-notes.md, "Rejected
+    approaches"."""
     # "a usable answer": a reply we can't parse lands here too, and that is
     # not silence. And only the rows this list names fall back — the sink row
     # is read from PipeWire, so "Values below" called the whole block stale.

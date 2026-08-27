@@ -142,11 +142,17 @@ def _sink_is_internal_speaker(name: str) -> bool:
 
 
 # EasyEffects' daemon listens on a QLocalServer of this name and answers
-# newline-terminated ASCII requests (`tags::local_server`). Only these two are
+# newline-terminated ASCII requests — its documented "Local Server"
+# (https://wwmm.github.io/easyeffects/user_interface/local_server.html, since
+# EE 8.0.7; the tags are upstream's src/tags_local_server.hpp). Of our two
+# requests get_last_loaded_preset is on that page; get_global_bypass is
+# source-only — it is what `easyeffects -b 3` itself sends. Only these two are
 # ever sent: the same socket also takes quit_app, hide_window, show_window,
-# load_preset and toggle_global_bypass, none of which a diagnostic may send.
-# Naming the allowed set means a later edit cannot reach a mutating request by
-# passing a different string.
+# load_preset, global_bypass, toggle_global_bypass and set_property, none of
+# which a diagnostic may send. Naming the allowed set means a later edit
+# cannot reach a mutating request by passing a different string. Why the
+# socket and not the CLI, and the version history: docs/design-notes.md,
+# "Rejected approaches".
 _EE_PRESET_REQUEST = "get_last_loaded_preset:output\n"
 _EE_BYPASS_REQUEST = "get_global_bypass\n"
 _EE_READ_REQUESTS = frozenset({_EE_PRESET_REQUEST, _EE_BYPASS_REQUEST})
@@ -181,10 +187,12 @@ def _ee_query(request: str) -> EEReply:
     Deliberately NOT the `easyeffects` CLI, which looks like the obvious way
     to ask and has two side effects a diagnostic must not have:
 
-    * It **hides the running instance's window.** Its argument parser emits
-      `onHideWindow()` for these very queries, which the secondary instance
-      forwards to the daemon as a `hide_window` message. Asking what preset is
-      loaded would close the window out from under whoever is reading it.
+    * It **hides the running instance's window.** Through EE 8.2.8 its
+      argument parser emits `onHideWindow()` for these very queries, which
+      the secondary instance forwards to the daemon as a `hide_window`
+      message — asking what preset is loaded would close the window out from
+      under whoever is reading it. Upstream 8942fbc39 (after 8.2.8) keeps
+      that to `-a`'s failure branch, but `-b 3` still hides unconditionally.
     * With no daemon it becomes the *primary* instance and starts a whole
       second EasyEffects — upstream picks that branch purely on whether a lock
       file is held, and under Flatpak that lock lives in the sandbox's temp
