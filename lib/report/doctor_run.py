@@ -46,16 +46,14 @@ drift. What is left here is this side's own two builders and its probes.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
-import socket
 import subprocess
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, packages, version
+from lib import console, doctor, ee_paths, ee_socket, packages, version
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -158,31 +156,11 @@ _EE_BYPASS_REQUEST = "get_global_bypass\n"
 _EE_READ_REQUESTS = frozenset({_EE_PRESET_REQUEST, _EE_BYPASS_REQUEST})
 
 
-@dataclass
-class EEReply:
-    """What the daemon said, and how far we got asking.
-
-    Three states, because two of them must look different in the report.
-    ``reached`` False is no socket — EasyEffects isn't running, which is
-    ordinary, and falling back to its config file quietly is right.
-    ``reached`` with ``answered`` False means the daemon is listening but did
-    not reply to this request: its protocol moved under us. That must be
-    visible, because the alternative is serving a stale config value as
-    though it were current for as long as nobody notices.
-
-    ``answered`` with an empty ``value`` is a real answer — over the socket EE
-    sends the raw preset name, so "" means no preset is loaded. (Its CLI
-    substitutes the string "None" there; the socket does not.)
-    """
-    value: str = ""
-    reached: bool = False
-    answered: bool = False
-
-
-def _ee_query(request: str) -> EEReply:
+def _ee_query(request: str) -> ee_socket.EEReply:
     """Ask the running EasyEffects daemon over its local socket.
 
-    The seam tests monkeypatch, mirroring `lib/pipewire/checks._pw_dump`.
+    The allowlist is the point of this wrapper: the transport itself is
+    `lib/ee_socket.py`, and this is the one place a diagnostic reaches it.
 
     Deliberately NOT the `easyeffects` CLI, which looks like the obvious way
     to ask and has two side effects a diagnostic must not have:
@@ -206,25 +184,7 @@ def _ee_query(request: str) -> EEReply:
     """
     if request not in _EE_READ_REQUESTS:
         raise ValueError(f"refusing to send a non-read-only request: {request!r}")
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    if not runtime_dir:
-        return EEReply()
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(2)
-            sock.connect(str(Path(runtime_dir) / "EasyEffectsServer"))
-            sock.sendall(request.encode())
-            # The daemon writes a reply only from the branch matching the
-            # request tag; an unrecognised one falls through and writes
-            # nothing, so a read that times out is the drift signal. Waiting
-            # out the timeout is the point — not a slow path to avoid.
-            reply = sock.recv(4096)
-    except (socket.timeout, TimeoutError):
-        return EEReply(reached=True)
-    except OSError:
-        return EEReply()
-    return EEReply(value=reply.decode("utf-8", errors="replace").strip(),
-                   reached=True, answered=True)
+    return ee_socket.query(request)
 
 
 @dataclass

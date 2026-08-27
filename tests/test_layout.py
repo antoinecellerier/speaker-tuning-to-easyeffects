@@ -80,6 +80,9 @@ STDLIB_ONLY = (
     # imported by both PipeWire scripts, and it is exactly the kind of table
     # that grows a convenience import nobody prices.
     "lib.packages",
+    # The socket transport to a running EasyEffects, reached from --doctor and
+    # from the end of a generator run; its own docstring promises stdlib-only.
+    "lib.ee_socket",
     "lib.data.kernel_releases",
     "lib.data.speaker_pin_quirks",
     "lib.hardware.codecs",

@@ -31,7 +31,7 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, doctor as doctor_module, ee_paths, packages
+from lib import console, doctor as doctor_module, ee_paths, ee_socket, packages
 from lib.dax import parse
 from lib.doctor import (
     CheckResult,
@@ -2786,7 +2786,7 @@ def _fake_socket(monkeypatch, *, reply=None, connect_error=None, timeout=False):
             return reply
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/test")
-    monkeypatch.setattr(doctor_run.socket, "socket", lambda *a, **k: FakeSock())
+    monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
 
 
 def test_ee_query_silence_from_a_live_daemon_is_drift(monkeypatch):
@@ -2818,7 +2818,7 @@ def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
     """Drift must be loud AND non-fatal: the config values still print, marked
     as such, with an UNKNOWN check naming what went unanswered."""
     monkeypatch.setattr(doctor_run, "_ee_query",
-                        lambda r: doctor_run.EEReply(reached=True))
+                        lambda r: ee_socket.EEReply(reached=True))
     monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
     s = doctor_run._resolve_live_state(
         {"last_output_preset": "Saved", "bypass": False,
@@ -2830,7 +2830,7 @@ def test_resolve_live_state_reports_drift_but_still_shows_values(monkeypatch):
 
 def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
     """TRAP: EE not running is the ordinary case and must stay quiet."""
-    monkeypatch.setattr(doctor_run, "_ee_query", lambda r: doctor_run.EEReply())
+    monkeypatch.setattr(doctor_run, "_ee_query", lambda r: ee_socket.EEReply())
     monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: "alsa_output.spk")
     s = doctor_run._resolve_live_state({"last_output_preset": "Saved"})
     assert s.unanswered == []
@@ -2839,7 +2839,7 @@ def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
 def _resolve(monkeypatch, rc, *, preset="", bypass="", sink=""):
     monkeypatch.setattr(
         doctor_run, "_ee_query",
-        lambda r: doctor_run.EEReply(
+        lambda r: ee_socket.EEReply(
             value=preset if r == doctor_run._EE_PRESET_REQUEST else bypass,
             reached=True, answered=True))
     monkeypatch.setattr(doctor_run, "_live_default_sink", lambda: sink)
