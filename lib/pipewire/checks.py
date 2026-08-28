@@ -562,10 +562,11 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
         f"{len(missing)} of {len(readable)} conf(s) are on disk but absent from "
         f"the graph ({', '.join(str(c.path.name) for c in missing)}). A missing "
         "LSP or Calf LV2 plugin (or impulse file) stops the whole conf loading "
-        "— the LV2 plugins check below says whether a plugin is missing, and "
-        "names the package — or PipeWire hasn't been restarted since the file "
-        "was written.",
-        steps=(("dim", "To try loading it, restart PipeWire:"),
+        "— the LV2 plugins and impulse response checks below say whether one "
+        "is missing — or PipeWire hasn't been restarted since the file was "
+        "written.",
+        steps=(("dim", "To try loading it, restart PipeWire "
+                       "(re-run --doctor to confirm):"),
                ("cta", f"  {PIPEWIRE_RESTART_CMD}")))
 
 
@@ -595,7 +596,7 @@ def check_conf_contents(confs) -> CheckResult | None:
 
 
 def check_irs_present(confs) -> CheckResult | None:
-    """An impulse response a conf names but that isn't on disk.
+    """Whether the impulse responses the confs name are on disk.
 
     A convolver whose file can't be read fails to instantiate, which fails the
     graph — and the conf carries `nofail`, so PipeWire skips the whole file
@@ -603,15 +604,28 @@ def check_irs_present(confs) -> CheckResult | None:
     not just the speaker correction: static analysis of module-filter-chain,
     not something heard on a machine, which is why the sentence stops at what
     PipeWire does with the conf.
+
+    Judged only when a conf names one: a convolver-less conf (or no conf)
+    leaves nothing to check, and None over a PASS keeps "all present" from
+    being said about an empty set. The healthy case prints — the chains-loaded
+    FAIL sends its reader here to rule this cause out, and a check that says
+    nothing when satisfied reads as a check that never ran.
     """
-    missing = {irs.name: c.path.name for c in confs for irs in c.irs
+    named = list(dict.fromkeys(irs for c in confs for irs in c.irs))
+    if not named:
+        return None
+    missing = {irs: c.path.name for c in confs for irs in c.irs
                if not irs.exists()}
     if not missing:
-        return None
-    shown = ", ".join(sorted(missing)[:2])
-    more = f" (+{len(missing) - 2} more)" if len(missing) > 2 else ""
+        return CheckResult(
+            DOCTOR_PASS, "Impulse responses",
+            f"all {len(named)} impulse file(s) your conf(s) name are on "
+            "disk.")
+    names = sorted({irs.name for irs in missing})
+    shown = ", ".join(names[:2])
+    more = f" (+{len(names) - 2} more)" if len(names) > 2 else ""
     return CheckResult(
-        DOCTOR_FAIL, "Impulse response missing",
+        DOCTOR_FAIL, "Impulse responses",
         f"{len(missing)} impulse file(s) named by a conf aren't there: "
         f"{shown}{more}. A convolver with no file stops the whole conf "
         "loading, so none of the tuning runs (PipeWire keeps playing "

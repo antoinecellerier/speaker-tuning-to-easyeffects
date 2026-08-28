@@ -877,7 +877,7 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
     result = checks.check_confs_loaded([_conf(tmp_path, "Dolby_Balanced")],
                                        [], dump=[])
     assert "README" not in result.detail
-    assert "LV2 plugins check" in result.detail
+    assert "LV2 plugins and impulse response checks" in result.detail
     # Not a diagnosis of a missing plugin — both causes stay on the line, and
     # neither is ranked: nothing here has counted how often either happens.
     assert "stops the whole conf loading" in result.detail
@@ -894,8 +894,9 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
 
 def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
                                                               monkeypatch):
-    """"the LV2 plugins check below" is a direction, and the order of the
-    check list is what makes it true."""
+    """"the LV2 plugins and impulse response checks below" is a direction,
+    and the order of the check list is what makes it true — for both names
+    the chains-loaded FAIL sends its reader to."""
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
     monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
     monkeypatch.setattr(checks, "_probe_plugins",
@@ -910,11 +911,14 @@ def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
     # spa-json-dump being installed wherever the suite runs.
     conf = checks.InstalledConf(path=tmp_path / "Dolby_Balanced.conf",
                                 node_name="effect_input.Dolby_Balanced",
-                                plugins=["http://lsp-plug.in/x"])
+                                plugins=["http://lsp-plug.in/x"],
+                                irs=[tmp_path / "Dolby_Balanced.irs"])
     monkeypatch.setattr(checks, "installed_confs", lambda *a, **k: [conf])
 
     labels = [c.label for c in checks.gather_pw_doctor()[0]]
-    assert labels.index("Chains loaded") < labels.index("LV2 plugins")
+    assert (labels.index("Chains loaded")
+            < labels.index("LV2 plugins")
+            < labels.index("Impulse responses"))
 
 
 # --- A conf we could not read says why --------------------------------------
@@ -999,12 +1003,24 @@ def test_missing_irs_is_reported_once_per_file(tmp_path):
 def test_missing_irs_is_a_failure(tmp_path):
     present, absent = tmp_path / "here.irs", tmp_path / "gone.irs"
     present.write_bytes(b"")
-    assert checks.check_irs_present(
-        [_conf(tmp_path, "A", irs=[present])]) is None
+    # Healthy prints: the chains-loaded FAIL sends its reader here to rule
+    # this cause out, and until 2026-08 a satisfied check said nothing — the
+    # #78-round reviewer concluded impulse files were "never checked".
+    result = checks.check_irs_present([_conf(tmp_path, "A", irs=[present])])
+    assert result.status == DOCTOR_PASS
+    assert result.label == "Impulse responses"
+    assert "all 1 impulse file" in result.detail
     result = checks.check_irs_present(
         [_conf(tmp_path, "B", irs=[present, absent])])
     assert result.status == DOCTOR_FAIL
     assert "gone.irs" in result.detail
+
+
+def test_no_named_irs_is_not_a_verdict(tmp_path):
+    """A convolver-less conf (or no conf) leaves nothing to check — a PASS
+    would say "all present" about an empty set."""
+    assert checks.check_irs_present([]) is None
+    assert checks.check_irs_present([_conf(tmp_path, "A", irs=[])]) is None
 
 
 def test_target_sink_that_no_longer_exists(tmp_path):
