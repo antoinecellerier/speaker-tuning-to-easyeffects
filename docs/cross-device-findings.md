@@ -1230,6 +1230,21 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    dynamics; music profile better than dynamic) drove the 2026-07-03 removal of
    two vestigial SoundWire boosts (design-notes unvalidated-scaling entries
    1/3) and are the pending A/B for the bass-enhancer default (entry 9 / issue
-   #14) and a candidate second-device loud capture for entries 6/11. Pending
-   from the reporter: generation stdout, the tuning XML, kernel log, A/B
-   results.
+   #14) and a candidate second-device loud capture for entries 6/11.
+   **XML received 2026-08-27** (pasted inline on the issue; security key
+   `SOUNDWIRE\SDCA_06&MAN_01FA&FUNC_3556&…&SUBSYS_1E131043&AGGREGATEDSPEAKER=…`,
+   `xml_version 3.7.1`, tuned 2024-12-10). It confirms the §15 datapoint:
+   `FUNC_3556` **equals** the cs35l56 part id here, unlike the Galaxy Book6
+   (`FUNC_3556` vs part `3557`), so `FUNC` matches the part on some Cirrus
+   packages and not others — the preferred-not-required tier stays right.
+   The endpoint is 2-channel (`total_count=2`) behind four amps, so the
+   woofer/tweeter split lives in the per-amp Cirrus firmware, not the XML.
+   What the XML changes about the open A/B: the profile the reporter calls
+   bad (`dynamic`) is the one where the tuning enables the volume leveler
+   (amount 5, DRC on) and every `mi-*-steering` switch, and our SoundWire
+   path runs that leveler by default with no steering — the failure mode
+   that made the HDA leveler opt-in (issue #25). `--disable autogain`
+   (008b4d6, v2026.08) did not exist when the reporter tested, so the
+   `dynamic` A/B with it off is the pending ask; the DAX capture still
+   decides the bass-enhancer default (entry 9). Still pending from the
+   reporter: that A/B, the capture, the generation stdout.

@@ -138,7 +138,9 @@ having it — Lenovo's downloadable packages carry all 202 of these tunings.
 
 Six files, six distinct tunings, four of which appear in no package here. These
 arrive when someone reports a device whose vendor doesn't publish the tuning, or
-whose driver this project has no download for.
+whose driver this project has no download for. The last row arrived after the
+2026-08-22 run the figures above are from (a seventh file, in no package —
+ASUS's downloads for that model carry no DAX3 XML); it is not counted in them.
 
 | Device | Key | Issue |
 |---|---|---|
@@ -147,6 +149,7 @@ whose driver this project has no download for.
 | Lenovo on Qualcomm Aqstic | `AUCD_DEV_0C29`, `IDEA4002` | [#4](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/4) |
 | ThinkPad E14 | `DEV_0257`, `17AA507F` | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) |
 | Lenovo XiaoXin Pro 14GT 2026 | `DEV_0287`, `17AA3941` | [#67](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/67) |
+| ASUS Zenbook S14 UX5406SA (SoundWire, Cirrus) | `SOUNDWIRE_MAN_01FA_FUNC_3556`, `1E131043` | [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29) |
 
 ## What it is skewed towards
 
