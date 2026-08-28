@@ -702,7 +702,11 @@ def test_no_lv2info_and_no_conf_is_not_a_question_about_nothing(monkeypatch):
 def test_a_full_plugin_house_passes_with_nothing_to_do(monkeypatch):
     """The one PASS worth printing for something that is *there*: it rules out
     the commonest cause, so a reader whose chain still doesn't load knows to
-    stop looking at packages. Nothing to do, so no steps to print."""
+    stop looking at packages. Nothing to do, so no steps to print.
+
+    That elimination reaches the failing reader through the chains-loaded
+    FAIL's cross-reference to this check — not spelled into the PASS as a
+    hypothetical, which green reports (#78) read as a live failure path."""
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
     result = checks.check_plugins_present(_probe(), [_conf_using()])
 

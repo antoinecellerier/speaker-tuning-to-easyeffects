@@ -1093,7 +1093,7 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
         return CheckResult(
             DOCTOR_PASS, "LV2 plugins",
             f"all {len(entries)} LSP and Calf plugins your conf(s) name are "
-            "installed, so a chain that doesn't load isn't missing one.")
+            "installed.")
     vendors = [(name, key) for prefix, name, key in _PLUGIN_VENDORS
                if any(uri.startswith(prefix) for _label, uri in missing)]
     if not vendors:
