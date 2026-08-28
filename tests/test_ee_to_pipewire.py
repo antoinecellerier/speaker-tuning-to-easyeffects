@@ -1715,6 +1715,34 @@ def test_main_copies_irs_next_to_conf(generated, tmp_path):
     assert str(src_irs) not in conf_text
 
 
+def test_a_relative_output_bakes_an_absolute_irs_path(generated, tmp_path,
+                                                      monkeypatch):
+    """--output ./x.conf used to embed the IRS `filename` relative too, and
+    PipeWire resolves a convolver filename against its own CWD — not the
+    conf's directory — so `nofail` dropped the whole conf on every start,
+    and the doctor's existence check missed against its own CWD the same
+    way. dolby_to_pipewire.py resolves its --output-dir for this reason;
+    the direct entry point has to match."""
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    monkeypatch.chdir(tmp_path)
+
+    rc = ee2pw_main([
+        str(preset_path),
+        "--irs-dir", str(irs_path.parent),
+        "--node-name", "TestChain",
+        "--output", "TestChain.conf",
+        "--no-validate",
+    ])
+    assert rc == 0
+    conf_text = (tmp_path / "TestChain.conf").read_text()
+    for m in re.finditer(r'filename\s*=\s*"([^"]+)"', conf_text):
+        assert Path(m.group(1)).is_absolute(), m.group(1)
+    assert 'filename = "/' in conf_text
+    assert (tmp_path / "TestChain.irs").is_file()
+
+
 def test_main_no_copy_irs_keeps_source_path(generated, tmp_path):
     """With `--no-copy-irs`, no copy happens and the conf references the
     original EE-side path (the v1 behaviour).

@@ -411,7 +411,9 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     if args.dry_run:
         output_path = None
     elif args.output is not None:
-        output_path = args.output.expanduser()
+        # Resolved, or a relative --output bakes a relative IRS filename into
+        # the conf, which PipeWire resolves against its own CWD and misses.
+        output_path = args.output.expanduser().resolve()
     else:
         output_path = default_conf
 

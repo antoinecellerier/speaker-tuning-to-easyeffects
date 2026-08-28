@@ -105,6 +105,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad X1 Yoga Gen 6
   ([#78](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/78)).
 
+### Fixed
+
+- `ee_to_pipewire.py --output` with a relative path baked that relative path
+  into the conf's impulse-file reference, which PipeWire resolves against its
+  own working directory — the whole conf was then silently skipped. Re-run
+  the converter to regenerate an affected conf.
+
 ### Docs
 
 - On a device whose speaker-protection limiter is aggressive,
