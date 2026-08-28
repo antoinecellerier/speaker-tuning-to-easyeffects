@@ -564,7 +564,9 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
         "LSP or Calf LV2 plugin (or impulse file) stops the whole conf loading "
         "— the LV2 plugins check below says whether a plugin is missing, and "
         "names the package — or PipeWire hasn't been restarted since the file "
-        "was written.")
+        "was written.",
+        steps=(("dim", "To try loading it, restart PipeWire:"),
+               ("cta", f"  {PIPEWIRE_RESTART_CMD}")))
 
 
 def check_conf_contents(confs) -> CheckResult | None:
@@ -1229,16 +1231,24 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     lines += [f"                {s}"
               + ("   ← default" if s == default.effective else "")
               for s in facts["sinks"]]
-    # The remembered pick is why a chain someone deleted can still be steering
-    # their audio, and it appears nowhere else in a pasted report — least of all
-    # when it names a node that no longer exists, which is exactly when it
-    # matters. Only worth a line when it differs from where audio actually goes.
-    if default.configured and default.configured != default.effective:
-        stale = "" if default.configured in facts["sinks"] else " (not in the graph)"
-        lines.append(f"  Chosen sink:  {default.configured}{stale}")
+    # The remembered pick is the report's one forward-looking routing fact:
+    # WirePlumber re-applies it the moment a node of that name exists again,
+    # so a dead name here is a same-name chain reinstall grabbing the output,
+    # or an absent device the default will snap back to. Only worth a line
+    # when the name is missing from the graph — a remembered pick that is
+    # present but not effective predicts nothing anyone can act on.
+    if default.configured and default.configured not in facts["sinks"]:
+        lines.append(f"  Remembered:   {default.configured} (not in the graph)")
     # `.get` for the same reason `default` uses it: the run's own probe comes
     # through `facts`, and a stubbed facts dict must render, not raise.
-    lines += [f"  {line}" for line in _plugin_presence(facts.get("plugins"))]
+    # A labelled hanging list like Confs and Sinks: unlabelled, the eight rows
+    # read as what a conf needs, and the LV2 check's "3 your conf(s) name"
+    # below then looks like a count that lost five.
+    plugin_rows = _plugin_presence(facts.get("plugins"))
+    if plugin_rows:
+        lines.append("  Plugins:      every LV2 plugin this tool can use; "
+                     "a conf may need fewer")
+        lines += [f"                {row}" for row in plugin_rows]
     # Once, over the whole block, rather than at each of the four sites that
     # interpolate a node name: this is the densest listing the tool prints, the
     # `Sinks:` lines are every sink in the graph, and a line added later would

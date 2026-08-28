@@ -202,7 +202,8 @@ The part that outlives the mistake is WirePlumber's memory of it.
   chain at position *i* only beats the speaker at *j* when `j − i > 1000`.
 
 `--doctor`'s "Default output" check reports all three states, and the
-environment block names the remembered pick — nothing else can show it.
+environment block's `Remembered:` line names a remembered pick the graph
+lacks — nothing else can show it.
 
 ### A chain can still be turned down
 

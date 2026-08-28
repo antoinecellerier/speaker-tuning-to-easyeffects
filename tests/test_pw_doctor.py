@@ -755,6 +755,23 @@ def test_the_environment_lines_are_unchanged_by_the_split():
                    for line in checks._plugin_presence(probe))
 
 
+def test_the_plugin_list_says_it_is_the_catalogue_not_the_confs_needs():
+    """Unlabelled, the eight `present` rows read as what a conf needs, and the
+    LV2 check's "all 3 your conf(s) name" below then looks like a count that
+    lost five — both #78-round reviewers called the mismatch a fault. The
+    label makes the two numbers answer different questions on the page."""
+    facts = {"version": "v", "wireplumber": (0, 5), "sinks": [],
+             "plugins": _probe(**{"Calf stereo tools": False})}
+    lines = checks._environment_lines([], [], facts)
+    assert ("  Plugins:      every LV2 plugin this tool can use; "
+            "a conf may need fewer") in lines
+    assert "                Calf stereo tools: MISSING" in lines
+    # An empty probe hangs no rows, so it earns no header either.
+    facts["plugins"] = checks.PluginProbe()
+    assert not any("Plugins:" in l
+                   for l in checks._environment_lines([], [], facts))
+
+
 def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
     """Two readers of one answer, not two spawns: the Environment listing and
     the LV2 plugins check. Probing per reader is eight subprocesses paid
@@ -866,6 +883,13 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
     assert "stops the whole conf loading" in result.detail
     assert "restarted" in result.detail
     assert "Usually" not in result.detail
+    # The restart is the FAIL's own fix, not just a cause it names — before it
+    # carried steps, the only command in a failing report was the closing
+    # block's "To remove a chain", and a #78-round reviewer read that as the
+    # remedy. Command in steps, never in the wrapping prose.
+    assert "systemctl" not in result.detail
+    assert any(style == "cta" and text.strip() == conf.PIPEWIRE_RESTART_CMD
+               for style, text in result.steps)
 
 
 def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
@@ -1041,6 +1065,30 @@ def test_the_wireplumber_line_prints_every_number_it_was_given():
     facts = {"wireplumber": (0, 5, 15), "version": "0.0.0", "sinks": []}
     lines = checks._environment_lines([], [], facts)
     assert any("WirePlumber:  0.5.15" in line for line in lines)
+
+
+def test_the_remembered_line_prints_only_for_a_name_the_graph_lacks():
+    """The remembered pick is worth a line only as a forward-looking fact — a
+    dead or absent name WirePlumber will re-apply if it returns. Printed
+    whenever it merely differed from the effective default, it sat under the
+    ← default arrow contradicting it with no cue that it was a memory: the
+    #78-round reviewer read it as the tool rerouting audio to HDMI."""
+    hdmi = "alsa_output.hdmi"
+
+    def env(configured):
+        facts = {"wireplumber": (0, 5), "version": "0.0.0",
+                 "sinks": [SPEAKER, hdmi], "plugins": checks.PluginProbe(),
+                 "default": checks.DefaultSink(effective=SPEAKER,
+                                               configured=configured)}
+        return checks._environment_lines([], [], facts)
+
+    assert not any("Remembered:" in l for l in env(""))
+    assert not any("Remembered:" in l for l in env(SPEAKER))
+    # In the graph but not effective: anomalous, predicts nothing — no line.
+    assert not any("Remembered:" in l for l in env(hdmi))
+    line = [l for l in env("effect_input.Gone") if "Remembered:" in l]
+    assert line == [
+        "  Remembered:   effect_input.Gone (not in the graph)"]
 
 
 def test_easyeffects_conflict():
