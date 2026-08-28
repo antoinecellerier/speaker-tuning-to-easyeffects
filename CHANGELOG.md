@@ -101,7 +101,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo Yoga Slim 7 14ARE05
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)),
   Lenovo ThinkBook 16p G5 IRX (21N5)
-  ([#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76)).
+  ([#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76)),
+  ThinkPad X1 Yoga Gen 6
+  ([#78](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/78)).
 
 ### Docs
 
