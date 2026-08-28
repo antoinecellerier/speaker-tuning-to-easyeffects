@@ -32,9 +32,7 @@ import pytest
 
 from lib.preset.emit import save_wav_stereo
 from lib.dax.discover import (
-    _ntfs_family_mountpoints,
-    _resolve_driver_store,
-    _walk_for_dolby_xml_dirs,
+    autoprobe_all_dolby_xmls,
     is_dolby_tuning_filename as _is_dax3_xml,
     is_soundwire_xml,
 )
@@ -65,60 +63,11 @@ def _is_simplified_schema(xml_path: Path) -> bool:
                for ao in root.iter("audio-optimizer-bands"))
 
 
-def _xmls_under(directory: Path) -> list[Path]:
-    """All DAX3-shaped XMLs directly under ``directory``."""
-    out: list[Path] = []
-    try:
-        for entry in directory.iterdir():
-            if entry.is_file() and _is_dax3_xml(entry.name):
-                out.append(entry)
-    except OSError:
-        pass
-    return out
-
-
-def _autoprobe_corpus() -> list[Path]:
-    """Union of every Dolby XML location the main script would consider.
-
-    Mirrors the logic in ``autoprobe_dolby_source`` but, instead of
-    picking a single winner, returns *every* XML found across all probed
-    locations. Read-only; bounded by ``_walk_for_dolby_xml_dirs``'s depth.
-    """
-    seen: set[Path] = set()
-    found: list[Path] = []
-
-    def _add(p: Path) -> None:
-        ap = p.resolve()
-        if ap in seen:
-            return
-        seen.add(ap)
-        found.append(ap)
-
-    # 1. Mount-probe: every NTFS mountpoint whose DriverStore exists,
-    #    walked the same way find_tuning_xml would walk it (dax3_ext_*
-    #    wrappers, plus the driver-store dir itself for hand-extracted
-    #    layouts).
-    for mp in _ntfs_family_mountpoints():
-        ds = _resolve_driver_store(mp)
-        if ds is None:
-            continue
-        for wrapper in sorted(ds.glob("dax3_ext_*.inf_*")):
-            for x in _xmls_under(wrapper):
-                _add(x)
-        for x in _xmls_under(ds):
-            _add(x)
-
-    # 2. CWD-probe: every directory under cwd (bounded depth, hidden
-    #    pruned) that directly contains a Dolby XML.
-    for d in _walk_for_dolby_xml_dirs(Path.cwd()):
-        for x in _xmls_under(d):
-            _add(x)
-
-    return found
-
-
 def _discover_corpus() -> list[Path]:
-    """Resolve the corpus: explicit env var first, else auto-probe."""
+    """Resolve the corpus: explicit env var first, else the converter's own
+    union probe (``lib.dax.discover.autoprobe_all_dolby_xmls`` — NTFS-family
+    mounts plus the cwd, hidden dirs pruned), shared with
+    ``tools/corpus_audit.py`` so the two tiers count the same files."""
     raw = os.environ.get("ATMOS_CORPUS_DIR")
     if raw:
         root = Path(raw).expanduser()
@@ -127,7 +76,7 @@ def _discover_corpus() -> list[Path]:
         return [
             p for p in sorted(root.rglob("*.xml")) if _is_dax3_xml(p.name)
         ]
-    return _autoprobe_corpus()
+    return autoprobe_all_dolby_xmls()
 
 
 CORPUS = _discover_corpus()

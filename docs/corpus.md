@@ -15,7 +15,7 @@ guide to obtaining tuning XMLs — the [README](../README.md#extracting-the-xml)
 covers extracting the one for your own device.
 
 > **Figures below are from a `tools/corpus_audit.py --composition` run on
-> 2026-08-22**, and are re-derived on their own date. They will not match
+> 2026-08-28**, and are re-derived on their own date. They will not match
 > [cross-device-findings.md](cross-device-findings.md), which freezes its
 > per-parameter figures against a dated cohort — see "Reconciling the counts".
 
@@ -47,11 +47,11 @@ cannot drift apart.
 
 | | |
 |---|---|
-| Tuning XMLs | 3640 |
-| Distinct tunings by content | 897 |
-| Distinct filenames | 1047 |
-| Distinct `SUBSYS` device ids | 860 |
-| Profile rows (endpoint × operating mode × profile) | 54045 |
+| Tuning XMLs | 3641 |
+| Distinct tunings by content | 898 |
+| Distinct filenames | 1048 |
+| Distinct `SUBSYS` device ids | 861 |
+| Profile rows (endpoint × operating mode × profile) | 54055 |
 | Codec ids | 20 |
 | Driver packages | 16 |
 
@@ -59,9 +59,9 @@ Per-codec counts and everything downstream of them are in
 [cross-device-findings.md](cross-device-findings.md); this page does not repeat
 them.
 
-The gap between 3640 files and 897 distinct tunings is the shape of the data:
+The gap between 3641 files and 898 distinct tunings is the shape of the data:
 one tuning ships to every SKU it fits, in every package that supports that SKU.
-The most-repeated tuning appears 66 times, and only 243 files are the sole copy
+The most-repeated tuning appears 66 times, and only 244 files are the sole copy
 of their content. Counting files therefore overstates coverage by roughly 4×,
 which is why the findings doc counts files, rows and devices separately rather
 than quoting one number for a prevalence.
@@ -74,14 +74,14 @@ Every file has one of three origins:
 |---|---|---|
 | A publicly downloadable driver package | 3415 | 893 |
 | The development machine's Windows partition | 219 | 202 |
-| Attached to a GitHub issue | 6 | 6 |
+| Attached to a GitHub issue | 7 | 7 |
 
-The rows are disjoint and sum to the 3640 above; a file attached to an issue is
+The rows are disjoint and sum to the 3641 above; a file attached to an issue is
 counted only there, never also as a package file.
 
 Only the middle row is something nobody else can fetch — and it contributes
 nothing that isn't fetchable anyway: **all 202 of its tunings also ship in one of
-the public packages below.** What no download yields is four tunings, each
+the public packages below.** What no download yields is five tunings, each
 attached to an issue by the person reporting the device. Everything else here is
 reproducible by anyone willing to pull the same packages.
 
@@ -136,11 +136,9 @@ having it — Lenovo's downloadable packages carry all 202 of these tunings.
 
 ### Attached to a GitHub issue
 
-Six files, six distinct tunings, four of which appear in no package here. These
-arrive when someone reports a device whose vendor doesn't publish the tuning, or
-whose driver this project has no download for. The last row arrived after the
-2026-08-22 run the figures above are from (a seventh file, in no package —
-ASUS's downloads for that model carry no DAX3 XML); it is not counted in them.
+Seven files, seven distinct tunings, five of which appear in no package here.
+These arrive when someone reports a device whose vendor doesn't publish the
+tuning, or whose driver this project has no download for.
 
 | Device | Key | Issue |
 |---|---|---|
@@ -153,9 +151,9 @@ ASUS's downloads for that model carry no DAX3 XML); it is not counted in them.
 
 ## What it is skewed towards
 
-- **One vendor.** 849 of the 860 device ids carry Lenovo's `17AA`. The other
-  eleven are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
-  Framework (`F111`, the only non-Lenovo *package*), one ASUS (`1043`), and one
+- **One vendor.** 849 of the 861 device ids carry Lenovo's `17AA`. The other
+  twelve are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
+  Framework (`F111`, the only non-Lenovo *package*), two ASUS (`1043`), and one
   Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
   holds across the corpus is a finding that holds across *Lenovo's* tuning
   practice; it is evidence about the DAX3 schema, and much weaker evidence about
@@ -163,7 +161,7 @@ ASUS's downloads for that model carry no DAX3 XML); it is not counted in them.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.
-- **Breadth by accident, not design.** Fifteen downloads yield 860 device ids
+- **Breadth by accident, not design.** Fifteen downloads yield 861 device ids
   because a Lenovo audio package carries the tunings for every SKU it supports,
   not just the machine you downloaded it for. Coverage is therefore wide across
   SKUs and narrow across vendors, kernels, and codec generations.
@@ -195,9 +193,12 @@ knowing before comparing any two of them:
    Figures carry the date they were derived; the findings doc freezes a cohort
    and states which one.
 2. **They may include the development machine's mounted Windows partition.**
-   Both the sweep tool and `tests/corpus/` walk whatever roots they are given or
-   auto-discover, and that partition holds an installed DAX3 package of its own.
-   The figures on this page include it.
+   Both the sweep tool and `tests/corpus/` walk whatever roots they are given,
+   and with none they run the converter's own probe — every mounted Windows
+   partition's DriverStore plus the working directory, hidden directories
+   pruned — and that partition holds an installed DAX3 package of its own.
+   The figures on this page include it; a run with the partition unmounted
+   comes out 219 files short.
 3. **The filter was wrong until 2026-08-09.** The sweep tool tested for a
    `DEV_`/`SOUNDWIRE`/`SDW` filename prefix of its own rather than the
    converter's definition. That counted the `_dmic`/`_amic` microphone

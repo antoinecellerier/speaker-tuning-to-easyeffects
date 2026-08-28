@@ -12,6 +12,9 @@ user input, walking `/proc/mounts` and then the working directory;
 the hardware, and falling back to each XML's own `<security-key>` when no
 filename matches. Everything else here is a helper to those two.
 
+`autoprobe_all_dolby_xmls` is the union form of the first question — every
+XML the same probes can see — for the corpus tier and `tools/corpus_audit.py`.
+
 `main()` reaches a third name, `is_soundwire_xml`, and it is the thing to know
 before editing: the bus is recorded nowhere inside the XML, only in its
 filename, and several emitted parameters key off that answer.
@@ -265,6 +268,69 @@ def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) 
                 results.append(current)
                 break
     return results
+
+
+def _xmls_directly_under(directory: Path) -> list[Path]:
+    """DAX3-shaped XML files directly under ``directory`` — no recursion,
+    and the same name filter as every other probe here."""
+    out: list[Path] = []
+    try:
+        for entry in sorted(directory.iterdir()):
+            if entry.is_file() and is_dolby_tuning_filename(entry.name):
+                out.append(entry)
+    except OSError:
+        pass
+    return out
+
+
+def autoprobe_all_dolby_xmls() -> list[Path]:
+    """Every Dolby tuning XML the probes in ``autoprobe_dolby_source`` can
+    reach — as a union, not a single winner.
+
+    ``autoprobe_dolby_source`` answers "which one source is this machine's";
+    the corpus tier (``tests/corpus/``) and ``tools/corpus_audit.py`` want
+    everything the same probes can see. They share this function so the two
+    walks cannot drift apart (each used to mirror the other's):
+
+    1. **Mount probe** — every NTFS-family mountpoint whose DriverStore
+       resolves, walked the way ``find_tuning_xml`` walks it: the
+       ``dax3_ext_*.inf_*`` wrappers, then the store directory itself
+       (hand-extracted layouts keep the XMLs flat).
+    2. **CWD probe** — every directory under the current directory (bounded
+       depth, hidden directories pruned) that directly contains a Dolby XML.
+
+    Both probes always run: unlike the single-source pick, a mounted Windows
+    partition does not hide a collection under the working directory.
+    Resolved paths, de-duplicated, in probe order. Read-only.
+    """
+    seen: set[Path] = set()
+    found: list[Path] = []
+
+    def _add(xml: Path) -> None:
+        resolved = xml.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            found.append(resolved)
+
+    for mountpoint in _ntfs_family_mountpoints():
+        driver_store = _resolve_driver_store(mountpoint)
+        if driver_store is None:
+            continue
+        try:
+            wrappers = sorted(driver_store.glob(_INF_WRAPPER_GLOB))
+        except OSError:
+            wrappers = []
+        for wrapper in wrappers:
+            for xml in _xmls_directly_under(wrapper):
+                _add(xml)
+        for xml in _xmls_directly_under(driver_store):
+            _add(xml)
+
+    for directory in _walk_for_dolby_xml_dirs(Path.cwd()):
+        for xml in _xmls_directly_under(directory):
+            _add(xml)
+
+    return found
 
 
 def autoprobe_dolby_source() -> Path:

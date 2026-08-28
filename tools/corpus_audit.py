@@ -15,10 +15,12 @@ so the output is safe to paste into issues or commits.
 Corpus discovery (first match wins):
   1. directories passed on the command line
   2. ``ATMOS_CORPUS_DIR`` environment variable
-  3. the current directory (walked recursively)
+  3. the converter's own probe: every mounted Windows partition's DriverStore
+     plus the current directory (walked recursively, hidden directories
+     pruned) — the same union ``tests/corpus/`` walks
 
 Point it at a mounted Windows DriverStore, an extracted driver tree, or any
-folder of collected XMLs:
+folder of collected XMLs, or let it find them the way the converter does:
 
     python3 tools/corpus_audit.py
     python3 tools/corpus_audit.py /mnt/c/Windows/System32/DriverStore
@@ -43,13 +45,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.dax.discover import is_dolby_tuning_filename as is_dax3_xml  # noqa: E402
+from lib.dax.discover import (  # noqa: E402
+    autoprobe_all_dolby_xmls,
+    is_dolby_tuning_filename as is_dax3_xml,
+)
 
 
 def find_xmls(roots):
+    """Every DAX3 XML under the given roots.
+
+    Hidden directories are pruned, as the converter's own walk prunes them:
+    a ``.stage/`` left by a review harness held eight tuning copies on
+    2026-08-27, and counting them put the makeup block eight files past
+    ``docs/corpus.md`` for no real reason.
+    """
     xmls = []
     for root in roots:
-        for dp, _, fns in os.walk(root):
+        for dp, dns, fns in os.walk(root):
+            dns[:] = [d for d in dns if not d.startswith(".")]
             for fn in fns:
                 if is_dax3_xml(fn):
                     xmls.append(os.path.join(dp, fn))
@@ -57,13 +70,27 @@ def find_xmls(roots):
 
 
 def discover_roots(cli_dirs):
-    """CLI dirs → ATMOS_CORPUS_DIR → current directory."""
+    """CLI dirs → ATMOS_CORPUS_DIR → ``[]``, meaning "auto-probe"."""
     if cli_dirs:
         return cli_dirs
     env = os.environ.get("ATMOS_CORPUS_DIR")
     if env:
         return [os.path.expanduser(env)]
-    return ["."]
+    return []
+
+
+def discover_xmls(roots):
+    """Walk explicit roots as given; with none, run the converter's probe —
+    every mounted Windows partition's DriverStore plus the current directory.
+
+    Why not just ``"."``: the development machine's installed DAX3 package
+    lives on its Windows partition, and ``docs/corpus.md`` counts it. Walking
+    only the cwd silently dropped those 219 files whenever nobody remembered
+    to pass the mount, and the figures came out 200-odd short.
+    """
+    if roots:
+        return find_xmls(roots)
+    return [str(p) for p in autoprobe_all_dolby_xmls()]
 
 
 # The codec id sits behind a bus prefix naming the Windows hardware-ID
@@ -770,7 +797,8 @@ def main(argv=None):
     ap.add_argument(
         "corpus_dirs", nargs="*",
         help="directories to walk for DAX3 XMLs (default: $ATMOS_CORPUS_DIR, "
-             "else the current directory)",
+             "else every mounted Windows partition's DriverStore plus the "
+             "current directory — the converter's own probe)",
     )
     ap.add_argument(
         "--composition", action="store_true",
@@ -782,10 +810,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     roots = discover_roots(args.corpus_dirs)
-    xmls = find_xmls(roots)
+    xmls = discover_xmls(roots)
     if not xmls:
+        where = (", ".join(roots) if roots
+                 else "any mounted Windows partition or the current directory")
         print(
-            f"No Dolby DAX3 XMLs found under: {', '.join(roots)}\n"
+            f"No Dolby DAX3 XMLs found under: {where}\n"
             "Pass a directory, set ATMOS_CORPUS_DIR, or run from a folder "
             "containing DEV_*/SOUNDWIRE*/SDW* tuning XMLs.",
             file=sys.stderr,

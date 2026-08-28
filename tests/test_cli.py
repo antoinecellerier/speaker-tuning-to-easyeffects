@@ -1943,6 +1943,37 @@ def test_best_guess_off_by_default_stays_strict(monkeypatch, tmp_path):
     assert str(xml) in str(exc.value)  # listed as the positional path to use
 
 
+def test_autoprobe_all_dolby_xmls_unions_mounts_and_cwd(monkeypatch, tmp_path):
+    """lib/dax/discover.py's autoprobe_all_dolby_xmls is the one walk behind
+    tests/corpus/ and tools/corpus_audit.py: every mount's wrappers, then the
+    store itself, then the cwd — hidden dirs pruned, companions filtered,
+    de-duplicated by resolved path (the same mount listed twice counts once).
+    """
+    store = tmp_path / "store"
+    wrapper = store / "dax3_ext_rtk.inf_amd64_0123456789abcdef"
+    wrapper.mkdir(parents=True)
+    (wrapper / "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml").write_text("<device_data/>")
+    (wrapper / "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA_settings.xml").write_text("<x/>")
+    (store / "SDW_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml").write_text("<device_data/>")
+    cwd = tmp_path / "cwd"
+    (cwd / "collection").mkdir(parents=True)
+    (cwd / "collection" / "DEV_0257_SUBSYS_17AA507F_PCI_SUBSYS_507F17AA.xml").write_text("<device_data/>")
+    (cwd / ".stage").mkdir()
+    (cwd / ".stage" / "DEV_0257_SUBSYS_17AA3860_PCI_SUBSYS_382117AA.xml").write_text("<device_data/>")
+    monkeypatch.setattr(
+        discover, "_ntfs_family_mountpoints", lambda: [tmp_path / "mnt", tmp_path / "mnt"]
+    )
+    monkeypatch.setattr(discover, "_resolve_driver_store", lambda _p: store)
+    monkeypatch.chdir(cwd)
+    found = discover.autoprobe_all_dolby_xmls()
+    assert [p.name for p in found] == [
+        "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml",
+        "SDW_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml",
+        "DEV_0257_SUBSYS_17AA507F_PCI_SUBSYS_507F17AA.xml",
+    ]
+    assert all(p.is_absolute() for p in found)
+
+
 def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     """No NTFS mounts and an empty CWD → FileNotFoundError in
     lib/dax/discover.py's autoprobe_dolby_source. Pins the "no candidates"

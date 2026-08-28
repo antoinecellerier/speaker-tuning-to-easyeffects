@@ -134,7 +134,34 @@ def test_discover_roots_precedence(monkeypatch):
     assert corpus_audit.discover_roots(["/cli/a", "/cli/b"]) == ["/cli/a", "/cli/b"]
     assert corpus_audit.discover_roots([]) == ["/env/path"]
     monkeypatch.delenv("ATMOS_CORPUS_DIR", raising=False)
-    assert corpus_audit.discover_roots([]) == ["."]
+    # No roots means "auto-probe", not "the cwd": tools/corpus_audit.py's
+    # discover_xmls hands [] to the converter's own probe.
+    assert corpus_audit.discover_roots([]) == []
+
+
+def test_discover_xmls_autoprobes_only_when_no_roots(monkeypatch, tmp_path):
+    """tools/corpus_audit.py's discover_xmls: explicit roots are walked as
+    given; none means lib.dax.discover.autoprobe_all_dolby_xmls (mounted
+    Windows partitions + cwd), so the makeup block counts the development
+    machine's installed package without anyone passing the mount."""
+    (tmp_path / "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml").write_text("<device_data/>")
+    probed = [tmp_path / "mnt" / "SDW_MAN_025D_FUNC_1318_SUBSYS_233917AA.xml"]
+    monkeypatch.setattr(corpus_audit, "autoprobe_all_dolby_xmls", lambda: probed)
+    assert corpus_audit.discover_xmls([str(tmp_path)]) == [
+        str(tmp_path / "DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml")]
+    assert corpus_audit.discover_xmls([]) == [str(probed[0])]
+
+
+def test_find_xmls_prunes_hidden_dirs(tmp_path):
+    """tools/corpus_audit.py's find_xmls skips hidden directories, as the
+    converter's walk does — a review harness's `.stage/` copies inflated the
+    file count by eight on 2026-08-27."""
+    (tmp_path / "kept").mkdir()
+    (tmp_path / "kept" / "DEV_0257_SUBSYS_17AA507F_PCI_SUBSYS_507F17AA.xml").write_text("<device_data/>")
+    (tmp_path / ".stage").mkdir()
+    (tmp_path / ".stage" / "DEV_0257_SUBSYS_17AA3860_PCI_SUBSYS_382117AA.xml").write_text("<device_data/>")
+    found = corpus_audit.find_xmls([str(tmp_path)])
+    assert [Path(f).name for f in found] == ["DEV_0257_SUBSYS_17AA507F_PCI_SUBSYS_507F17AA.xml"]
 
 
 def test_subsys_of():
