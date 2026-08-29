@@ -134,6 +134,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   written by another version of this tool, as it already did for PipeWire
   confs — re-run the script on your tuning XML so they match the version
   you run.
+- Fetch a Lenovo laptop's DAX3 tuning XML without a Windows partition —
+  resolves the driver package from Lenovo's update catalog, verifies and
+  unpacks it.
+  ([#81](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/81))
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),

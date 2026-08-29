@@ -1,11 +1,12 @@
 # tools/ — the scripts that keep everything else correct
 
-Nothing in here ships to a user, and nothing here is part of the conversion.
-Each script exists to keep something *else* right: a generated data table in
-`lib/data/`, a figure in `docs/`, the release notes, the copy a run prints, or
-the converter's own output. They are listed below with what they keep correct
-and who runs them, because that — not the filename — is how you find the one
-you need.
+Almost nothing in here ships to a user, and nothing here is part of the
+conversion. Each script exists to keep something *else* right: a generated
+data table in `lib/data/`, a figure in `docs/`, the release notes, the copy a
+run prints, or the converter's own output. They are listed below with what
+they keep correct and who runs them, because that — not the filename — is how
+you find the one you need. (The two exceptions — `ab_sink.sh` and
+`fetch_driver/` — get their own sections below.)
 
 One near-exception to "nothing here is part of the conversion":
 [`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) runs the same
@@ -27,6 +28,7 @@ audio and no PipeWire daemon.)
 | script | what it keeps correct | who runs it, and when |
 |---|---|---|
 | [`_wavio.py`](_wavio.py) | Every WAV read in the measurement tree. `pw-record` writes a `PEAK` chunk that `scipy.io.wavfile` doesn't recognise and warns about on each read; this strips it | Nobody directly — it has no CLI. Nine scripts across `measure_dax/`, `measure_ee/` and `measure_pw/` `sys.path`-insert this directory and `from _wavio import read`. See below for why it lives here |
+| [`ab_sink.sh`](ab_sink.sh) | Nothing — a listening aid. Flips the default sink between the generated Dolby voicing sinks and the raw speaker with `wpctl`, moving playing streams over immediately, so `--variant all --target-sink ''` can be A/B'd by ear | You, while choosing a voicing. Independent of the converters — lists whatever `Audio/Sink` nodes exist |
 | [`changelog_section.py`](changelog_section.py) | The GitHub Release — slices `CHANGELOG.md` down to one version's section for the notes, and (`--title`) lifts the heading's tagline into the release title | `.github/workflows/release.yml`, on a pushed `vYYYY.MM` tag. Exits non-zero on a missing section, or on a heading still carrying a date instead of a tagline, so the job fails loudly instead of publishing empty or misnamed notes. Guarded by `tests/test_changelog_section.py`, which also holds every `## v` heading in the real file to the shape — CI runs no tests on a tag push |
 | [`check_move_purity.py`](check_move_purity.py) | `git blame -C -C` history across an extraction: it proves a commit is *pure code motion* — every line it adds under `lib/` was already there, byte-for-byte, in a line it removed | You, by hand, against one commit, before pushing an extraction. Wired to nothing; the rule it enforces is in `docs/code-organisation.md`, "Splitting the single-file scripts" |
 | [`corpus_audit.py`](corpus_audit.py) | Every cross-device figure in `docs/cross-device-findings.md` and `docs/design-notes.md`. Those numbers are meant to be re-derived from this, never carried forward | You, after pulling new driver packages; and the **/copy-audit** skill, which captures its output as the evidence reviewers check numbers against. Also imported as a library — see below. Guarded by `tests/test_corpus_audit.py` |
@@ -49,6 +51,18 @@ only which question the directory answers.
 | [`measure_ee/`](measure_ee/) | Whether the generated preset, running live in EasyEffects, matches that ground truth — plus the variant sweeps that narrow a candidate change before it is adopted | You, through **/audio-validate**. EE-side captures go stale after any FIR or scaling change; regenerate before comparing |
 | [`measure_perf/`](measure_perf/) | The README's "which should I use?" guidance: CPU cycles and memory for the same preset through EasyEffects vs the PipeWire filter-chain | You, when that cost claim needs re-measuring on a device |
 | [`measure_pw/`](measure_pw/) | That the PipeWire `filter-chain` conf is equivalent to the EasyEffects chain in both frequency and time domain — and, through `validate_conf.py`, that it is schema-valid at all | The comparisons: you, through the handoff. `validate_conf.py`: you, against a conf already on disk — `ee_to_pipewire.py` runs the same check in process on every run |
+
+## fetch_driver/ — a staging area, not a new category
+
+[`fetch_driver/get_lenovo_dax_xml.py`](fetch_driver/get_lenovo_dax_xml.py) is
+the one thing here an end user runs directly: on a Lenovo laptop with no
+Windows partition it resolves the audio-driver package from Lenovo's update
+catalog, verifies and unpacks it, and prints the extracted-XML directory to
+hand to a converter. It does **not** run a converter — that step is meant to
+move inside `dolby_to_easyeffects.py` (a "no XML found, fetch it?" prompt),
+and this directory is where that capability is being staged until it lands,
+not a permanent "user-facing tools" bucket. Full usage:
+[`fetch_driver/README.md`](fetch_driver/README.md).
 
 ## Three files that look misplaced
 

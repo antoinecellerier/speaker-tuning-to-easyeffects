@@ -1986,7 +1986,7 @@ def test_autoprobe_raises_when_no_candidates_anywhere(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(discover, "_ntfs_family_mountpoints", lambda: [])
     monkeypatch.setattr(
-        discover, "_walk_for_dolby_xml_dirs", lambda _root: []
+        discover, "walk_for_dolby_xml_dirs", lambda _root: []
     )
     monkeypatch.chdir(tmp_path)
     with pytest.raises(
