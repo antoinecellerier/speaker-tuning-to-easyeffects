@@ -62,6 +62,17 @@ _INSTALL = {
     NIXOS: "",
 }
 
+def install_verb(fam: str) -> str:
+    """The install-command prefix for `fam`, or "" when it has none.
+
+    "" covers NixOS (no imperative install verb — see `_nixos_command`) and an
+    unrecognised family. Exposed so a caller with its own out-of-tree package
+    (`tools/fetch_driver`'s `innoextract`) reuses the per-family verb instead
+    of copying this table and drifting from it.
+    """
+    return _INSTALL.get(fam, "")
+
+
 # The families whose install idiom really is "<prefix> <names>". NixOS is the
 # one that isn't, and every invariant below that assumes a pasteable command
 # is checked against this rather than `FAMILIES`.

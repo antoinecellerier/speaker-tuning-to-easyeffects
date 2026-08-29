@@ -248,12 +248,15 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
     return False
 
 
-def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -> list[Path]:
+def walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -> list[Path]:
     """Return directories under ``root`` that directly contain a Dolby XML.
 
     Walks with ``followlinks=False`` and a depth cap (depth 0 = ``root``
     itself). Hidden subdirectories (``.git``, ``.venv``, etc.) are pruned
     in-place so they never enter the walk.
+
+    Public so ``tools/fetch_driver`` locates its freshly-extracted XMLs the
+    same way the autoprobe does, rather than re-deriving the name filter.
     """
     root_parts_len = len(root.parts)
     results: list[Path] = []
@@ -270,9 +273,12 @@ def _walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) 
     return results
 
 
-def _xmls_directly_under(directory: Path) -> list[Path]:
+def xmls_directly_under(directory: Path) -> list[Path]:
     """DAX3-shaped XML files directly under ``directory`` — no recursion,
-    and the same name filter as every other probe here."""
+    and the same name filter as every other probe here.
+
+    Public for the same reason as ``walk_for_dolby_xml_dirs``.
+    """
     out: list[Path] = []
     try:
         for entry in sorted(directory.iterdir()):
@@ -321,13 +327,13 @@ def autoprobe_all_dolby_xmls() -> list[Path]:
         except OSError:
             wrappers = []
         for wrapper in wrappers:
-            for xml in _xmls_directly_under(wrapper):
+            for xml in xmls_directly_under(wrapper):
                 _add(xml)
-        for xml in _xmls_directly_under(driver_store):
+        for xml in xmls_directly_under(driver_store):
             _add(xml)
 
-    for directory in _walk_for_dolby_xml_dirs(Path.cwd()):
-        for xml in _xmls_directly_under(directory):
+    for directory in walk_for_dolby_xml_dirs(Path.cwd()):
+        for xml in xmls_directly_under(directory):
             _add(xml)
 
     return found
@@ -367,7 +373,7 @@ def autoprobe_dolby_source() -> Path:
     cwd = Path.cwd()
     if not mount_candidates:
         seen: set[Path] = set()
-        for cand in _walk_for_dolby_xml_dirs(cwd):
+        for cand in walk_for_dolby_xml_dirs(cwd):
             # Cosmetic lift: a directly-matched ``dax3_ext_*.inf_*`` wrapper
             # is reported as its parent (the extraction root), matching the
             # path the user would otherwise pass as ``--windows DIR``.

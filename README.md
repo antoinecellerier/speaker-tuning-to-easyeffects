@@ -423,6 +423,14 @@ Those CPU/RAM figures are device-specific; reproduce them on your own hardware w
 
 The easiest way is to use `--windows` to auto-discover the XML from a mounted Windows partition. The script reads your audio codec's device and subsystem IDs from `/proc/asound` and matches them against the XMLs in the DriverStore.
 
+**No Windows partition, on a Lenovo laptop?** `tools/fetch_driver/get_lenovo_dax_xml.py` resolves the audio-driver package from Lenovo's update catalog for your machine type, downloads and checksum-verifies it, and extracts the DAX3 tuning XML (needs [`innoextract`](https://constexpr.org/innoextract/install)). It then prints the directory to pass to either converter:
+
+```bash
+python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run   # show what it resolved
+python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch, verify, unpack
+python3 dolby_to_easyeffects.py --windows ./driver-cache/extract/...   # then run a converter
+```
+
 <details>
 <summary>Manual extraction, or from a Lenovo driver EXE (no Windows partition)</summary>
 
