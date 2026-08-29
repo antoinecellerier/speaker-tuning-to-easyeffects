@@ -77,6 +77,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- `--doctor`'s environment block is easier to read: it names your output
+  device rather than only its PipeWire node id, and labels the
+  `Selected preset:` and `Global bypass:` rows for what they are. Bluetooth
+  devices show a fixed label instead of their own name.
 - A run now loads the preset into a running EasyEffects, so a first install
   or a re-run is audible without picking anything in its menu. It reloads
   the preset EasyEffects is playing, or loads the starting one.

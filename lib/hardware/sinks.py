@@ -140,7 +140,7 @@ def _classify_sink(sink: dict) -> str:
     if not name_l.startswith("alsa_output"):
         return "excluded"
     # Not Bluetooth.
-    if sink.get("api") == "bluez5" or "bluez" in name_l:
+    if _is_bluetooth(sink):
         return "excluded"
     # Not HDMI / DisplayPort / SPDIF (digital passthrough). Match on node.name
     # and icon, and also on the profile description ("Digital Stereo (HDMI)",
@@ -156,6 +156,19 @@ def _classify_sink(sink: dict) -> str:
     if "headphone" in name_l or "headset" in name_l:
         return "excluded"
     return "relaxed"
+
+
+def _is_bluetooth(sink: dict) -> bool:
+    """A Bluetooth node, by either tell PipeWire gives us.
+
+    `device.api` is the reliable one; the node-name prefix catches a sink
+    whose device node the dump didn't carry. Three callers need the same
+    answer — the classifier excludes these, `_is_physical_output` counts
+    them, and `_sink_label` refuses to print their description — so the
+    test lives here rather than being spelled out at each.
+    """
+    return (sink.get("api") == "bluez5"
+            or "bluez" in sink.get("name", "").lower())
 
 
 def _relaxed_sort_key(sink: dict) -> tuple:
@@ -207,6 +220,52 @@ def live_default_sink() -> str:
     return checks.default_sinks(checks._pw_dump()).effective
 
 
+def _is_physical_output(sink: dict) -> bool:
+    """An ALSA or Bluetooth node: one whose classification says where the
+    audio actually comes out. `_classify_sink` excludes the rest too, but
+    as "not a speaker to autoload onto", which is not the same as "not a
+    speaker"."""
+    return (sink.get("name", "").lower().startswith("alsa_output")
+            or _is_bluetooth(sink))
+
+
+# Every Bluetooth sink renders under one label. The description is user-set
+# and routinely carries a person's name — "<Name>'s AirPods" is the stock
+# spelling — and it reaches blocks the issue form asks people to paste whole.
+# The model behind it has some triage value, but a name has none and cannot
+# be un-pasted, so the same reasoning that strips the address strips this.
+BT_SINK_LABEL = "Bluetooth output"
+
+
+def _sink_label(sink: dict | None) -> str:
+    """A human name for a sink, or "" when there is none to give."""
+    if sink is None:
+        return ""
+    if _is_bluetooth(sink):
+        return BT_SINK_LABEL
+    return sink.get("description") or ""
+
+
+def sink_kind_and_label(name: str) -> tuple[str, str]:
+    """`sink_kind` and a display label for one sink, from a single probe.
+
+    Both answers come off the same enumeration because both callers are the
+    same report line: asking twice would run `pw-dump` twice and could even
+    disagree, if a device came or went between the two.
+    """
+    try:
+        sel = select_speaker_sinks()
+    except (OSError, KeyError, TypeError):
+        return "unknown", ""
+    sink = next((s for s in sel["all_sinks"] if s.get("name") == name), None)
+    label = _sink_label(sink)
+    if any(s.get("name") == name for s in sel["selected"]):
+        return "speaker", label
+    if sink is None or not _is_physical_output(sink):
+        return "unknown", label
+    return "other", label
+
+
 def sink_kind(name: str) -> str:
     """'speaker', 'other' or 'unknown': what PipeWire's description of sink
     ``name`` settles about where its audio comes out.
@@ -221,26 +280,7 @@ def sink_kind(name: str) -> str:
     nothing about the physical output — and a caller that would act on a
     "no" treats it as no answer.
     """
-    try:
-        sel = select_speaker_sinks()
-        if any(s.get("name") == name for s in sel["selected"]):
-            return "speaker"
-        sink = next((s for s in sel["all_sinks"] if s.get("name") == name), None)
-    except (OSError, KeyError, TypeError):
-        return "unknown"
-    if sink is None or not _is_physical_output(sink):
-        return "unknown"
-    return "other"
-
-
-def _is_physical_output(sink: dict) -> bool:
-    """An ALSA or Bluetooth node: one whose classification says where the
-    audio actually comes out. `_classify_sink` excludes the rest too, but
-    as "not a speaker to autoload onto", which is not the same as "not a
-    speaker"."""
-    name_l = sink.get("name", "").lower()
-    return (name_l.startswith("alsa_output") or sink.get("api") == "bluez5"
-            or "bluez" in name_l)
+    return sink_kind_and_label(name)[0]
 
 
 def is_internal_speaker(name: str) -> bool:

@@ -3849,6 +3849,24 @@ re-proposed:
   is HDMI — the case that needs it most. The bullet asks about the system's
   output; a pinned sink answers about EasyEffects', so that fact is now a
   named property that takes live readings only.
+  The same report's `Output sink:` row showed a node name and nothing else
+  — `alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__HDMI1__sink`,
+  or a redacted `bluez_output.<mac>.1` — which answers the tool's question
+  (what `--autoload-sink` takes, what a report is triaged on) and not the
+  reader's (what is my sound coming out of). PipeWire already carries a
+  description for every sink, so the row now leads with it and keeps the
+  node name after; only the description wraps, because a node name split
+  across lines stops being greppable and stops being pasteable into the
+  flag. Bluetooth is the exception: that description is user-set and
+  routinely carries a person's name ("<Name>'s AirPods" is the stock
+  spelling), and this block is what the issue form asks people to paste
+  whole. The model behind it has some triage value, but a name has none and
+  cannot be un-pasted, so the same reasoning that strips the address
+  (`doctor.no_bt_address`) replaces the description with one fixed label.
+  The refusal lives at the resolver, not the renderer, so no caller can
+  reach the name. Parked, if anyone asks: a flag to opt out of the
+  redactions wholesale, for a reporter who would rather send the real
+  names.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp

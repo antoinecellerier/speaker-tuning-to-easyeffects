@@ -3665,25 +3665,25 @@ def test_environment_lines_mark_only_the_rows_that_fell_back():
          "output_plugins": ["convolver#0"],
          "bypass": False, "bypass_is_live": False}
     lines = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
-    assert "saved config" not in lines["Selected"]
+    assert "saved config" not in lines["Selected preset"]
     assert "saved config" not in lines["Output sink"]
     # No live source exists for the chain, and bypass fell back here.
     assert "saved config" in lines["Active chain"]
-    assert "saved config" in lines["Bypass"]
+    assert "saved config" in lines["Global bypass"]
 
 
 def test_environment_lines_mark_the_source_even_with_no_daemon():
     """TRAP: a value that wasn't confirmed must say so on its own row, whether
     or not EasyEffects is running. Stating it once at the top instead left
-    `Bypass:` reading identically live and stale — while the closing block
+    `Global bypass:` reading identically live and stale — while the closing
     drops its bypass reminder only on a live reading, which then looked
     arbitrary."""
     f = {"ee_running": False, "rc_present": True, "rc_path": "~/rc",
          "selected_preset": "Dolby-Balanced", "selected_is_live": False,
          "output_plugins": ["convolver#0"], "bypass": False}
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
-    assert "(from saved config)" in rows["Selected"]
-    assert "(from saved config)" in rows["Bypass"]
+    assert "(from saved config)" in rows["Selected preset"]
+    assert "(from saved config)" in rows["Global bypass"]
     assert "(from saved config)" in rows["Active chain"]
 
 
@@ -3733,19 +3733,23 @@ def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
     assert any("(from saved config)" in ln for ln in chain), "marker kept whole"
 
 
-def test_environment_lines_keep_the_16_column_gutter():
-    """Values line up only if every label pads to 16 — `Global bypass:` would
-    not fit, which is why the row is labelled `Bypass:`."""
+def test_environment_lines_keep_the_gutter():
+    """Values line up only if every label fits the gutter and every row pads
+    to it. Driven by `_GUTTER` rather than a literal, so a label that outgrows
+    it fails here instead of quietly stepping one column right."""
+    gutter = doctor_run._GUTTER
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
          "selected_preset": "P", "selected_is_live": True,
          "output_device": "s", "output_device_source": "live",
+         "output_label": "Speaker",
          "output_plugins": ["c"], "bypass": False, "bypass_is_live": True}
     for line in doctor_run._environment_lines(f):
-        if line.startswith(" " * 16):
+        if line.startswith(" " * gutter):
             continue  # a continuation line, already on the gutter
         label, _, _rest = line.partition(":")
-        assert len(label) + 1 <= 16, line
-        assert line[16] != " ", line
+        assert len(label) + 1 <= gutter - 1, line   # room for one space after
+        assert line[gutter] != " ", line
+        assert line[gutter - 1] == " ", line
 
 
 def test_environment_lines_redact_a_bluetooth_default_sink():
@@ -3756,6 +3760,104 @@ def test_environment_lines_redact_a_bluetooth_default_sink():
          "output_device_source": "live"}
     line = [ln for ln in doctor_run._environment_lines(f) if "Output sink" in ln][0]
     assert "80_99_E7_E0_8A_23" not in line
+
+
+def test_environment_lines_name_the_bypass_preset_as_a_preset():
+    """TRAP (/user-review 2026-08-29): bare, the row read "Selected: Nothing"
+    — which reads as "nothing is selected", not as the name of a preset, and
+    gave no hint it was about an EasyEffects preset at all. Quoted like every
+    other mention in the report, and the one name that doesn't explain itself
+    says what it is. What to do about it stays with the check."""
+    def row(preset):
+        f = {"ee_running": True, "rc_present": True,
+             "selected_preset": preset, "selected_is_live": True}
+        return [ln for ln in doctor_run._environment_lines(f)
+                if ln.startswith("  Selected preset:")][0]
+
+    assert row(BYPASS_PRESET_NAME) == (
+        f"  Selected preset: '{BYPASS_PRESET_NAME}'")
+    assert row("Dolby-Balanced") == "  Selected preset: 'Dolby-Balanced'"
+    # Not "the bypass preset": that word belongs to the `Global bypass:` row,
+    # EasyEffects' own toggle, and the same word for two things reads as a
+    # contradiction ("the bypass preset is selected" / "bypass: off").
+    assert "bypass" not in row(BYPASS_PRESET_NAME).lower()
+
+
+def _sink_lines(f) -> list[str]:
+    """The Output-sink row and any continuation lines under it."""
+    lines = doctor_run._environment_lines(f)
+    i = next(n for n, ln in enumerate(lines) if "Output sink" in ln)
+    out = [lines[i]]
+    for ln in lines[i + 1:]:
+        if not ln.startswith(" " * 16):
+            break
+        out.append(ln)
+    return out
+
+
+def test_environment_lines_never_print_a_bluetooth_devices_name():
+    """TRAP: a Bluetooth description is user-set and routinely carries a
+    person's name — "<Name>'s AirPods" is the stock spelling — and this block
+    is what the issue form asks people to paste whole. The address is
+    stripped for that reason; a name is worse, so every Bluetooth sink
+    renders under one fixed label instead."""
+    f = {"ee_running": True, "rc_present": True,
+         "output_device": "bluez_output.80_99_E7_E0_8A_23.1",
+         "output_device_source": "live",
+         # What sink_kind_and_label refuses to hand over; here to prove the
+         # renderer wouldn't print it even if something upstream did.
+         "output_label": sinks.BT_SINK_LABEL}
+    line = " ".join(_sink_lines(f))
+    assert "80_99_E7_E0_8A_23" not in line
+    assert sinks.BT_SINK_LABEL in line
+
+
+def test_sink_label_is_the_description_but_never_a_bluetooth_one(monkeypatch):
+    """The refusal lives at the resolver, so no caller can reach the name."""
+    bt = dict(_BT_HEADSET, description="Someone's AirPods")
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks",
+                        lambda: [_SPEAKER_SINK, bt])
+    assert sinks.sink_kind_and_label(_SPEAKER_SINK["name"]) == (
+        "speaker", _SPEAKER_SINK["description"])
+    assert sinks.sink_kind_and_label(bt["name"]) == (
+        "other", sinks.BT_SINK_LABEL)
+    # A sink the enumeration doesn't hold settles neither answer.
+    assert sinks.sink_kind_and_label("alsa_output.gone") == ("unknown", "")
+
+
+def test_environment_lines_lead_with_the_description_and_keep_the_node_name():
+    """The description answers "what is my sound coming out of"; the node
+    name is what --autoload-sink takes and what a report is triaged on, so
+    losing either would cost something."""
+    f = {"ee_running": True, "rc_present": True,
+         "output_device": "alsa_output.spk", "output_device_source": "live",
+         "output_label": "Built-in Audio Speaker"}
+    line = " ".join(_sink_lines(f))
+    assert line.index("Built-in Audio Speaker") < line.index("alsa_output.spk")
+
+
+def test_environment_lines_never_split_a_long_node_name():
+    """TRAP: a node name broken across lines stops being greppable and stops
+    being copy-pasteable into --autoload-sink — the two things it is there
+    for. Only the description wraps; the name overflows instead."""
+    node = ("alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic"
+            ".HiFi__Speaker__sink")
+    f = {"ee_running": True, "rc_present": True,
+         "output_device": node, "output_device_source": "live",
+         "output_label": "Alder Lake PCH-P High Definition Audio Controller "
+                         "HDMI / DisplayPort 1 Output"}
+    lines = _sink_lines(f)
+    assert any(node in ln for ln in lines), lines
+    assert len(lines) > 1                      # the description did wrap
+    assert all(ln.startswith(" " * 16) for ln in lines[1:])
+
+
+def test_environment_lines_without_a_label_are_unchanged():
+    """A probe that settled nothing must not cost the row its node name."""
+    f = {"ee_running": True, "rc_present": True,
+         "output_device": "alsa_output.spk", "output_device_source": "live",
+         "output_label": ""}
+    assert _sink_lines(f) == ["  Output sink:     alsa_output.spk"]
 
 
 def test_easyeffects_is_running_degrades_on_permission_error(monkeypatch):

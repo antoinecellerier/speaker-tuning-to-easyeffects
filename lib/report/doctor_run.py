@@ -182,6 +182,11 @@ class LiveState:
     # selected-preset check softens only on a confident "other". Folding
     # "unknown" into either would make one of them wrong.
     sink_kind: str = "unknown"
+    # A human name for `sink` — the sink's own description, except on
+    # Bluetooth, which renders under one fixed label (lib.hardware.sinks).
+    # Empty when the probe settled nothing, and the report then shows the
+    # node name alone, as it always did.
+    sink_label: str = ""
     # Requests a listening daemon did not answer. Non-empty means EasyEffects'
     # socket protocol changed, not that it is absent — reported rather than
     # absorbed, so this stops reporting stale values as current the moment it
@@ -225,7 +230,8 @@ def _resolve_live_state(rc: dict) -> LiveState:
         live_sink = sinks.live_default_sink()
         if live_sink:
             state.sink, state.sink_source = live_sink, "live"
-            state.sink_kind = sinks.sink_kind(live_sink)
+            state.sink_kind, state.sink_label = \
+                sinks.sink_kind_and_label(live_sink)
         else:
             state.sink, state.sink_source = rc.get("output_device", ""), "saved"
     else:
@@ -236,7 +242,9 @@ def _resolve_live_state(rc: dict) -> LiveState:
         # "unknown", which is the right answer rather than a stale one. The
         # `saved` arm above gets no classification on purpose — that name is
         # EasyEffects' cache of a default it may have followed hours ago.
-        state.sink_kind = sinks.sink_kind(state.sink) if state.sink else "unknown"
+        if state.sink:
+            state.sink_kind, state.sink_label = \
+                sinks.sink_kind_and_label(state.sink)
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
@@ -624,6 +632,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "output_device": live.sink,
         "output_device_source": live.sink_source,
         "output_is_speaker": live.system_output_is_speaker,
+        "output_label": live.sink_label,
         "output_plugins": rc.get("output_plugins", []),
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
@@ -631,10 +640,23 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
+# Every row's value starts at this column, and wrapped continuations indent
+# to it, so a value that folds still reads as one column. Sized to the
+# longest label — `Selected preset:` — plus a space. A label that outgrows it
+# widens the block rather than breaking the alignment silently, which is what
+# `_row` and the gutter test between them enforce.
+_GUTTER = 19
+
+
+def _row(label: str, value: str) -> str:
+    """One `label: value` row, padded to the block's gutter."""
+    return f"  {label + ':':<{_GUTTER - 2}}{value}"
+
+
 def _environment_lines(f: dict) -> list[str]:
     """The `=== Environment ===` body: where this tool wrote, and what
-    EasyEffects is doing with it. Labels pad to a 16-column gutter so the
-    values line up. The last three rows appear only once there is one."""
+    EasyEffects is doing with it. Labels pad to `_GUTTER` so the values line
+    up. The last three rows appear only once there is one."""
     # Rows below come from whichever source is authoritative for that value,
     # so a row EasyEffects could have answered live but didn't says where it
     # came from instead. Only worth saying while EE is running: with no daemon
@@ -644,30 +666,44 @@ def _environment_lines(f: dict) -> list[str]:
     # from — including when EE isn't running at all. Stating it once up top
     # instead was worse: the rows then read identically whether or not the
     # value was confirmed, and the closing block's bypass reminder (which is
-    # dropped only on a live reading) looked arbitrary next to a `Bypass:` line
+    # dropped only on a live reading) looked arbitrary next to a bypass line
     # that looked equally sure of itself either way.
     saved = " (from saved config)"
     running = f.get("ee_running")
     lines = [
-        f"  Tool:         speaker-tuning-to-easyeffects {version.get_version()}",
-        f"  EasyEffects:  {f.get('ee_version', '?')}; "
-        f"running: {'yes' if running else 'no'}",
-        f"  Install:      {f.get('install')} (writes to {f.get('output_dir')})",
+        _row("Tool", f"speaker-tuning-to-easyeffects {version.get_version()}"),
+        _row("EasyEffects", f"{f.get('ee_version', '?')}; "
+                            f"running: {'yes' if running else 'no'}"),
+        _row("Install", f"{f.get('install')} "
+                        f"(writes to {f.get('output_dir')})"),
         # Both numbers are what the folders hold — the bypass preset, presets
         # the user put there and stray .irs files included — so neither is
         # derived from the other. "Presets sharing impulse files" explained
         # the gap with a relationship these counts don't establish.
-        f"  Presets/IRs:  {f.get('preset_count', 0)} preset files and "
-        f"{f.get('irs_count', 0)} impulse files in the folders",
-        f"  Config:       {f.get('rc_path')} "
-        f"({'present' if f.get('rc_present') else 'absent'})",
+        _row("Presets/IRs", f"{f.get('preset_count', 0)} preset files and "
+                            f"{f.get('irs_count', 0)} impulse files in the "
+                            "folders"),
+        _row("Config", f"{f.get('rc_path')} "
+                       f"({'present' if f.get('rc_present') else 'absent'})"),
     ]
     lines.append(
-        f"  Background:   service mode "
-        f"{'on' if f.get('service_mode') else 'off'}, autostart "
-        f"{'on' if f.get('autostart_on_login') else 'off'}")
+        _row("Background",
+             f"service mode {'on' if f.get('service_mode') else 'off'}, "
+             f"autostart {'on' if f.get('autostart_on_login') else 'off'}"))
     if f.get("selected_preset"):
-        lines.append(f"  Selected:     {f['selected_preset']}"
+        # `Selected preset:`, not `Selected:`, and the name quoted as every
+        # other mention of one in this report is. Bare, the bypass preset
+        # rendered as "Selected: Nothing", which reads as "nothing is
+        # selected" and gave no hint the row was about an EasyEffects preset
+        # at all. The label is what carries that — it is the widest in the
+        # block, and `_GUTTER` is sized for it.
+        #
+        # The row says what the thing *is*; whether it should be loaded is
+        # the check's to say. In particular not "the bypass preset" here:
+        # that word belongs to `Global bypass:` below, EasyEffects' own
+        # toggle, and spending it on a preset name is what made the two rows
+        # read as if they contradicted each other.
+        lines.append(_row("Selected preset", f"'{f['selected_preset']}'")
                      + ("" if f.get("selected_is_live") else saved))
     if f.get("output_device"):
         # Whichever sink this names can be a Bluetooth one — the live default
@@ -676,12 +712,30 @@ def _environment_lines(f: dict) -> list[str]:
         # for whole.
         source = {"live": "", "pinned": " (pinned in EasyEffects)"}.get(
             f.get("output_device_source", "saved"), saved)
-        lines.append("  Output sink:  "
-                     + doctor.no_bt_address(f['output_device']) + source)
+        node = doctor.no_bt_address(f["output_device"])
+        # The description leads because it answers the reader's question —
+        # what is my sound coming out of — and the node name trails because
+        # it answers the tool's: it is what --autoload-sink takes and what a
+        # bug report is triaged on. Node names run past 70 columns, so the
+        # two share a line only when they fit; the name is never wrapped,
+        # for the reason the chain below isn't, and just overflows.
+        label = f.get("output_label", "")
+        width = console._wrap_width()
+        one_line = _row("Output sink", f"{label} — {node}{source}")
+        if not label:
+            lines.append(_row("Output sink", node + source))
+        elif len(one_line) <= width:
+            lines.append(one_line)
+        else:
+            lines += textwrap.wrap(
+                label, width=width, break_on_hyphens=False,
+                initial_indent=_row("Output sink", ""),
+                subsequent_indent=" " * _GUTTER)
+            lines.append(" " * _GUTTER + node + source)
     # No live source exists for the chain, so it is always the saved copy —
     # worth marking next to rows that aren't. Wrapped because a full chain is
     # seven plugin names and ran to ~145 columns on one line; continuations
-    # land on the same 16-column gutter as the values above. break_on_hyphens
+    # land on the same gutter as the values above. break_on_hyphens
     # is off for the same reason `_cprint_wrapped` turns it off — a plugin name
     # split across lines stops being greppable.
     if f.get("output_plugins"):
@@ -689,20 +743,25 @@ def _environment_lines(f: dict) -> list[str]:
         chain = textwrap.wrap(
             ", ".join(f["output_plugins"]),
             width=width, break_on_hyphens=False,
-            initial_indent="  Active chain: ", subsequent_indent=" " * 16)
+            initial_indent=_row("Active chain", ""),
+            subsequent_indent=" " * _GUTTER)
         # The marker is appended after wrapping, not wrapped with the list:
         # split across lines it reads as part of the last plugin name
         # ("limiter#0 (from" / "saved config)").
         if len(chain[-1]) + len(saved) <= width:
             chain[-1] += saved
         else:
-            chain.append(" " * 16 + saved.strip())
+            chain.append(" " * _GUTTER + saved.strip())
         lines += chain
     # Prints even when off: "is it bypassed?" is the first question behind
-    # "I hear no difference", and a positive "off" answers it. Label is
-    # `Bypass:` so the value still lands on the 16-column gutter.
+    # "I hear no difference", and a positive "off" answers it. `Global
+    # bypass:`, not `Bypass:` — this is EasyEffects' one power-button toggle,
+    # and the short label collided with the bypass *preset* two rows up, so a
+    # reader met the same word for two things and had to work out that
+    # "'Nothing' is the expected bypass" and "Bypass: off" were not
+    # contradicting. It is also what the closing block already calls it.
     if f.get("bypass_is_live") or f.get("rc_present"):
-        lines.append(f"  Bypass:       {'on' if f.get('bypass') else 'off'}"
+        lines.append(_row("Global bypass", "on" if f.get("bypass") else "off")
                      + ("" if f.get("bypass_is_live") else saved))
     return lines
 
