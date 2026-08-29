@@ -17,6 +17,9 @@ Writes into --out-dir:
     cap_pw_full.txt           full dolby_to_pipewire.py run (--dry-run)
     slice_ee_tail26.txt       last 26 lines of the EE run — one terminal screen
     slice_preview_blocks.txt  every finding pattern's closing block, redacted
+    slice_doctor_blocks.txt   every --doctor scenario's report, redacted —
+                              states this machine isn't in (see
+                              tools/preview_doctor.py --list)
     *.color.txt               the same captures with the terminal's colors
                               kept as ⟦color⟧…⟦/⟧ markers naming what the
                               screen shows (⟦yellow⟧, ⟦faint⟧, ⟦bold-cyan⟧…),
@@ -110,6 +113,8 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 # 80x26-ish window stops scrolling.
 TAIL_LINES = 26
 
+DOCTOR_HEADER = ("===== DIAGNOSTIC REPORT #{n} (captured on a different "
+                 "laptop) =====")
 REDACTED_HEADER = ("===== RUN ENDING #{n} (captured on a different laptop "
                    "model) =====")
 
@@ -221,13 +226,17 @@ def _annotate(raw: str) -> str:
 
 
 def _redact_preview(text: str, mirror: str | None = None,
+                    header: str = REDACTED_HEADER,
                     ) -> tuple[str, str | None, list[str], list[str]]:
     """Strip harness framing from preview_output text.
 
     Returns (redacted text, redacted mirror, per-block headers for meta.txt,
     patterns with no corpus match). The `### slug — file.xml` headers become
-    anonymous RUN ENDING separators; the scan-progress and no-match lines
+    anonymous `header` separators; the scan-progress and no-match lines
     disappear — a user sees none of that, and the slug names are answers.
+    `preview_doctor.py` prints the same rule/header/rule shape, so its
+    scenario blocks are redacted here too — under their own `header` label,
+    because those are whole diagnostic reports, not run endings.
 
     All decisions come from `text` (the plain rendering); `mirror` is the
     annotated rendering of the same capture, redacted line-for-line by the
@@ -257,10 +266,10 @@ def _redact_preview(text: str, mirror: str | None = None,
                 and lines[i + 1].startswith("### ")):
             headers.append(lines[i + 1][4:].strip())
             out.append("")
-            out.append(REDACTED_HEADER.format(n=len(headers)))
+            out.append(header.format(n=len(headers)))
             if mlines is not None:
                 mout.append("")
-                mout.append(REDACTED_HEADER.format(n=len(headers)))
+                mout.append(header.format(n=len(headers)))
             i += 3
             continue
         out.append(line)
@@ -370,6 +379,28 @@ def main(argv=None) -> int:
         failed.append("annotated preview blocks misaligned with plain — "
                       ".color.txt variant not written")
 
+    # Run outside the sandbox on purpose: --doctor reports the machine it is
+    # on, and the fake home has no EasyEffects install, so a sandboxed
+    # capture would review "nothing is set up here" instead of the checks.
+    # Paths go through `doctor.tilde` and Bluetooth names through
+    # `doctor.no_bt_address`, but the blocks still carry this machine's
+    # hardware inventory — which is the point (it is a diagnostic) and is
+    # why they stay in gitignored localresearch/.
+    raw_doc, rc = _pty_capture(
+        [py, "tools/preview_doctor.py", "--width", str(args.width)],
+        args.width)
+    if rc != 0:
+        failed.append(f"preview_doctor.py exited {rc}")
+    doc, doc_ann, doc_headers, _ = _redact_preview(
+        _plain(raw_doc), _annotate(raw_doc), header=DOCTOR_HEADER)
+    written.append(_write(out_dir / "slice_doctor_blocks.txt", doc))
+    if doc_ann is not None:
+        written.append(_write(out_dir / "slice_doctor_blocks.color.txt",
+                              doc_ann))
+    else:
+        failed.append("annotated doctor blocks misaligned with plain — "
+                      ".color.txt variant not written")
+
     mode = ("sandbox: fake-home namespace (paths read /home/user/…; EE run "
             "is REAL, wrapper used --no-activate, preview blocks remain "
             "--dry-run by design)" if sandbox else
@@ -382,6 +413,11 @@ def main(argv=None) -> int:
             "",
             "slice_preview_blocks.txt block map:"]
     meta += [f"  RUN ENDING #{n}: {h}" for n, h in enumerate(headers, 1)]
+    meta += ["",
+             "slice_doctor_blocks.txt block map (captured OUTSIDE the "
+             "sandbox — --doctor reports the machine it runs on):"]
+    meta += [f"  DIAGNOSTIC REPORT #{n}: {h}"
+             for n, h in enumerate(doc_headers, 1)]
     meta += ["",
              "patterns with no corpus match (NOT reviewed this round — list "
              "them in the report):"]

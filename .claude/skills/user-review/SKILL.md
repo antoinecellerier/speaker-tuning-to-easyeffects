@@ -51,6 +51,21 @@ no path disclosures:
   finds a corpus XML for each finding pattern and prints the resulting
   closing block. It drives `dolby_to_easyeffects.py` only; nothing but its
   full run covers the wrapper.
+- `slice_doctor_blocks.txt` — the same idea for `--doctor`, from
+  `tools/preview_doctor.py`: one whole report per scenario, since what a
+  diagnostic says is decided by the machine it runs on and the states worth
+  reviewing are the ones this laptop can't be in. Scenarios stub the probes
+  only — the checks, wording, summary and verdict are the shipped ones — so
+  a new doctor check earns a scenario there rather than a hand-made sample.
+  `tools/preview_doctor.py --list` prints them. Captured **outside** the
+  sandbox on purpose: the fake home has no EasyEffects install, so a
+  sandboxed report would review "nothing is set up here" instead of the
+  checks. Paths and Bluetooth identifiers are redacted on the way out
+  (`doctor.tilde`, `doctor.no_bt_address`), but the blocks do carry the
+  capture machine's own hardware inventory — DMI product, kernel, sound
+  cards, attached USB devices. That is the maintainer's, it stays in
+  gitignored `localresearch/`, and it is not what a reviewer is being asked
+  about; don't paste these blocks anywhere else.
 - `<name>.color.txt` — each capture with the terminal's colors kept as
   `⟦color⟧…⟦/⟧` markers naming what the screen shows (`⟦yellow⟧`, `⟦faint⟧`,
   `⟦bold-cyan⟧`…), never what we mean by it — the meaning would be
@@ -89,11 +104,12 @@ reaches a reviewer.
 Exception: name flags the harness passed that a user would not (`--dry-run`
 forced by the capture), so they don't report those as faults.
 
-## 3. Dispatch three reviewers
+## 3. Dispatch the reviewers
 
 Three reviewers in parallel, one slice each, prompts below verbatim — fill in
 absolute paths and `<N>` (the block count, from the helper's summary or
-meta.txt). Run them at `model: sonnet`: a less capable reader is a more
+meta.txt). A fourth, reviewer D, joins them for a round that touched
+`--doctor`. Run them at `model: sonnet`: a less capable reader is a more
 faithful proxy for a first-time user, and far cheaper; revert to the session
 model only if finding quality drops. Fixes come later, one at a time.
 
@@ -238,6 +254,40 @@ an EasyEffects user — you are not, you picked this script to avoid that.
 ```
 
 then FORMAT.
+
+### Reviewer D — the `--doctor` scenario reports
+
+Dispatch only when the round changed `--doctor` copy; skip it otherwise.
+PERSONA (EE) plus the COLOR NOTE, then:
+
+```
+Some time after your first run, you ran a second command the README mentions
+for when something seems wrong. The file below contains <N> of its reports,
+separated by "===== DIAGNOSTIC REPORT #N =====" lines our tooling inserted
+(don't report those separator lines as faults). What this command prints
+depends on the laptop and how it is set up, and these were captured on one
+laptop set up <N> different ways. For each report in turn, imagine YOUR
+laptop is that one and this is what you are looking at.
+
+Harness note (do not report these as faults): because it is one machine, the
+hardware sections are identical in every report — only the parts that describe
+how it is set up differ, and those are what to judge.
+
+Read:
+<abs path>/slice_doctor_blocks.color.txt
+
+Judge as the user, for each report: do you understand what it is telling you,
+do you know whether anything is wrong, do you know what to do about it, would
+you bother. Also compare across the reports — if two reports say nearly the
+same thing in different words, or contradict each other about the same thing,
+that's a finding.
+```
+
+then FORMAT, with "no grouping" extended to "no grouping (note which
+DIAGNOSTIC REPORT # each came from)".
+
+Name no check, no status tag and no scenario — which state each report is in
+is exactly what the reviewer is measuring. `meta.txt` holds the map.
 
 ### Reviewer C — the per-pattern closing blocks
 
