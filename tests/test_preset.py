@@ -55,6 +55,7 @@ from lib.preset.autoload import (
     BYPASS_PRESET_NAME,
     _atomic_write,
     _atomic_write_text,
+    read_autoload_entries,
     read_ee_rc,
     set_autoload_fallback,
     write_autoload,
@@ -1709,6 +1710,38 @@ def test_write_autoload_filename_and_payload(tmp_path):
     }
 
 
+def test_read_autoload_entries_round_trips_what_write_autoload_wrote(tmp_path):
+    """The reader and the writer share the four key names; a round trip is
+    what keeps them from drifting apart."""
+    write_autoload(tmp_path, device_name="alsa_output.spk",
+                   device_description="Speaker",
+                   device_profile="Speaker", preset_name="Dolby-Balanced")
+    assert read_autoload_entries(tmp_path) == [{
+        "device": "alsa_output.spk",
+        "device-description": "Speaker",
+        "device-profile": "Speaker",
+        "preset-name": "Dolby-Balanced",
+    }]
+
+
+def test_read_autoload_entries_skips_what_it_cannot_parse(tmp_path):
+    """A diagnostic must not crash on a file EasyEffects itself tolerates.
+    Malformed JSON, a non-object payload and a non-.json file are all
+    'no mapping', and the good entry beside them still comes back."""
+    (tmp_path / "broken.json").write_text("{not json")
+    (tmp_path / "array.json").write_text("[1, 2]")
+    (tmp_path / "notes.txt").write_text("ignored")
+    write_autoload(tmp_path, device_name="alsa_output.spk",
+                   device_description="Speaker", device_profile="Speaker",
+                   preset_name="Dolby-Balanced")
+    entries = read_autoload_entries(tmp_path)
+    assert [e.get("device") for e in entries] == ["alsa_output.spk"]
+
+
+def test_read_autoload_entries_missing_dir_is_empty_not_an_error(tmp_path):
+    assert read_autoload_entries(tmp_path / "nope") == []
+
+
 def test_write_bypass_preset_kept_when_existing(tmp_path):
     """A user's hand-built preset of the same name must never be
     clobbered — status 'kept', content untouched."""
@@ -2129,14 +2162,98 @@ def test_loaded_preset_non_generated_warns():
     assert loaded_preset_status(rc, ["Dolby-Balanced"]).status == DOCTOR_WARN
 
 
-def test_loaded_preset_bypass_selected_warns():
+@pytest.mark.parametrize("kind", ["unknown", "speaker"],
+                         ids=["no-answer", "on-the-speakers"])
+def test_loaded_preset_bypass_selected_warns(kind):
     """TRAP: the silent 'Nothing' bypass preset is in the generated set but is
-    itself a 'sounds like nothing' state — it must WARN, not PASS."""
+    itself a 'sounds like nothing' state — it must WARN, not PASS.
+
+    Both halves are load-bearing now that a confident non-speaker output
+    softens this (see below). 'speaker' is the case the WARN exists for;
+    'unknown' is the default, and covers a failed probe, a disconnected sink
+    and EasyEffects' own virtual one — none of which are evidence the
+    speakers are fine."""
     rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
           "uses_fallback": False}
-    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME])
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind=kind)
     assert r.status == DOCTOR_WARN
     assert BYPASS_PRESET_NAME in r.detail
+
+
+def test_loaded_preset_bypass_off_the_speakers_passes_naming_the_autoload():
+    """'Nothing' on a non-speaker output is what --autoload deliberately
+    installs, so it is not a fault — and the reader's real question is what
+    happens when they switch back, which the autoload entry answers."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other",
+                             speaker_preset="Dolby-Balanced")
+    assert r.status == DOCTOR_PASS
+    assert "Dolby-Balanced" in r.detail
+    # No instruction to load a speaker tuning: the run itself refuses to put
+    # one on a non-speaker output, so the doctor must not ask for it either.
+    assert "Load a Dolby-* preset" not in r.detail
+
+
+def test_loaded_preset_bypass_off_the_speakers_without_autoload_is_unknown():
+    """Nothing points the speakers anywhere, so the check could not be made.
+    UNKNOWN, not PASS: a green line would claim the speakers are fine when
+    nothing looked."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other", speaker_preset="")
+    assert r.status == DOCTOR_UNKNOWN
+
+
+def test_loaded_preset_unknown_never_opens_a_sentence_with_the_preset_name():
+    """TRAP (/user-review 2026-08-29): the detail said "Nothing autoloads a
+    Dolby-* preset on the speakers" three words after quoting the 'Nothing'
+    preset, and a first-time reader parsed it as a claim about that preset
+    rather than as "no preset does". Any sentence here starting with the bare
+    word is the same trap — it is a proper noun in this report."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    detail = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                                  output_kind="other",
+                                  speaker_preset="").detail
+    sentences = [t.strip() for t in re.split(r"(?<=[.?!])\s+", detail)]
+    assert not any(t.startswith(f"{BYPASS_PRESET_NAME} ") for t in sentences), \
+        sentences
+    # The reader is told what to do about it, not just that it failed.
+    assert "--autoload" in detail
+
+
+def test_loaded_preset_bypass_off_the_speakers_ignores_a_foreign_autoload():
+    """TRAP: the autoload entry is EasyEffects', not ours — it can name a
+    preset this script never generated. That is not a verified speaker
+    tuning, so it must not buy a PASS."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other",
+                             speaker_preset="SomebodyElses")
+    assert r.status == DOCTOR_UNKNOWN
+    assert "SomebodyElses" not in r.detail
+
+
+@pytest.mark.parametrize("kind", ["unknown", "speaker", "other"])
+def test_loaded_preset_other_branches_ignore_the_output_kind(kind):
+    """The softening is scoped to the bypass preset. A Dolby preset still
+    passes and a foreign one still warns wherever the audio is going."""
+    good = {"last_output_preset": "Dolby-Balanced", "fallback_preset": "",
+            "uses_fallback": False}
+    bad = {"last_output_preset": "SomethingElse", "fallback_preset": "",
+           "uses_fallback": False}
+    names = ["Dolby-Balanced", BYPASS_PRESET_NAME]
+    assert loaded_preset_status(
+        good, names, output_kind=kind,
+        speaker_preset="Dolby-Balanced").status == DOCTOR_PASS
+    assert loaded_preset_status(
+        bad, names, output_kind=kind,
+        speaker_preset="Dolby-Balanced").status == DOCTOR_WARN
 
 
 def test_loaded_preset_names_the_matched_fallback_not_the_loaded():
@@ -2317,6 +2434,46 @@ def test_doctor_off_gate_is_never_summarised_as_clean(silence_console, capsys):
     out = capsys.readouterr().out
     assert "No blocking problems detected." not in out
     assert "1 WARN" in out
+
+
+def test_doctor_bypass_off_the_speakers_reads_as_clean(silence_console, capsys):
+    """The whole point of the change: on a non-speaker output the report must
+    stop pulling the 'what to fix first' verdict for a state --autoload
+    installed on purpose."""
+    silence_console(console)
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    report = DoctorReport(checks=[
+        CheckResult(DOCTOR_PASS, "EasyEffects version", "8.2.8"),
+        loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other",
+                             speaker_preset="Dolby-Balanced"),
+    ])
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+    assert "[WARN]" not in out
+    assert "0 FAIL, 0 WARN, 2 PASS" in out
+    assert "No blocking problems detected." in out
+    assert "Dolby-Balanced" in out
+
+
+def test_doctor_unverified_speaker_preset_ends_on_the_unknown_verdict(
+        silence_console, capsys):
+    """An UNKNOWN must not be summarised as clean either — it is a check that
+    could not run, and the verdict says so rather than claiming an all-clear."""
+    silence_console(console)
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    report = DoctorReport(checks=[
+        CheckResult(DOCTOR_PASS, "EasyEffects version", "8.2.8"),
+        loaded_preset_status(rc, ["Dolby-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="other", speaker_preset=""),
+    ])
+    _print_doctor_report(report)
+    out = capsys.readouterr().out
+    assert "No blocking problems detected." not in out
+    assert "1 UNKNOWN" in out
+    assert "couldn't be verified" in out
 
 
 @pytest.mark.parametrize("is_speaker, wants_sink_check", [(True, False),
@@ -3028,10 +3185,14 @@ def test_reload_leaves_the_bypass_preset_alone(live_ee_tree, monkeypatch, capsys
     assert "To use them: open EasyEffects" in out_text
 
 
-_BT_HEADSET = {"name": "bluez_output.AA.1", "description": "Buds", "profile": "",
+_BT_HEADSET = {"name": "bluez_output.AA.1", "description": "Buds",
+               "profile": "", "route": "a2dp",
                "icon_name": "audio-headset-bluetooth", "bus": "bluetooth", "api": "bluez5"}
 _EE_SINK = {"name": "easyeffects_sink", "description": "EasyEffects Sink", "profile": "",
             "icon_name": "", "bus": "", "api": ""}
+_SPEAKER_SINK = {"name": "alsa_output.spk", "description": "Speaker",
+                 "profile": "", "route": "Speaker",
+                 "icon_name": "audio-speakers", "bus": "pci", "api": "alsa"}
 
 
 def test_reload_declines_a_non_speaker_default_sink(live_ee_tree, monkeypatch, capsys):
@@ -3319,13 +3480,17 @@ def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
     assert s.unanswered == []
 
 
-def _resolve(monkeypatch, rc, *, preset="", bypass="", sink=""):
+def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=()):
     monkeypatch.setattr(
         doctor_run, "_ee_query",
         lambda r: ee_socket.EEReply(
             value=preset if r == ee_socket.PRESET_REQUEST else bypass,
             reached=True, answered=True))
     monkeypatch.setattr(sinks, "live_default_sink", lambda: sink)
+    # Classifying a sink reaches the graph, so stub the one pw-dump boundary:
+    # unpatched these would answer from the developer machine's own audio.
+    # The default empty graph classifies everything "unknown".
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: list(enumerated))
     return doctor_run._resolve_live_state(rc)
 
 
@@ -3374,6 +3539,123 @@ def test_resolve_live_state_falls_back_when_pipewire_is_silent(monkeypatch):
     rc = {"output_device": "alsa_output.saved", "use_default_output_device": True}
     s = _resolve(monkeypatch, rc, sink="")
     assert (s.sink, s.sink_source) == ("alsa_output.saved", "saved")
+    # Never classified: this name is EasyEffects' cache of a default it may
+    # have followed hours ago, so it earns no answer about today's output.
+    assert s.sink_kind == "unknown"
+
+
+def test_resolve_live_state_classifies_the_pinned_sink_too(monkeypatch):
+    """A pinned name is the truth (only the GUI writes that key), so it gets
+    classified the same way the live one does — otherwise a user pinned to a
+    headset keeps the bypass-preset warning this gate exists to drop."""
+    rc = {"output_device": _BT_HEADSET["name"], "use_default_output_device": False}
+    s = _resolve(monkeypatch, rc, sink="alsa_output.spk",
+                 enumerated=[_BT_HEADSET, _SPEAKER_SINK])
+    assert (s.sink_source, s.sink_kind) == ("pinned", "other")
+
+
+def test_resolve_live_state_pinned_sink_that_left_the_graph_is_unknown(monkeypatch):
+    """TRAP: the pinned name outlives the device. A headset that has since
+    disconnected isn't evidence of anything, so it must not read as a
+    confident non-speaker and soften a check."""
+    rc = {"output_device": _BT_HEADSET["name"], "use_default_output_device": False}
+    s = _resolve(monkeypatch, rc, enumerated=[_SPEAKER_SINK])
+    assert (s.sink_source, s.sink_kind) == ("pinned", "unknown")
+
+
+def test_speaker_autoload_preset_matches_only_a_speaker_sink(tmp_path, monkeypatch):
+    """The directory can hold an entry per device. Only the one pointing at a
+    sink the classifier calls a speaker answers "what plays on the speakers?" —
+    picking the headset's entry would report the bypass preset as the speaker
+    tuning."""
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks",
+                        lambda: [_SPEAKER_SINK, _BT_HEADSET])
+    write_autoload(tmp_path, device_name=_BT_HEADSET["name"],
+                   device_description="Buds",
+                   device_profile=_BT_HEADSET["route"],
+                   preset_name=BYPASS_PRESET_NAME)
+    write_autoload(tmp_path, device_name=_SPEAKER_SINK["name"],
+                   device_description="Speaker",
+                   device_profile=_SPEAKER_SINK["route"],
+                   preset_name="Dolby-Balanced")
+    assert doctor_run._speaker_autoload_preset(tmp_path) == "Dolby-Balanced"
+
+
+def test_speaker_autoload_preset_ignores_an_entry_for_a_stale_route(
+        tmp_path, monkeypatch):
+    """TRAP (code review 2026-08-29): EasyEffects keys an autoload file on
+    node.name *and* the active output route, so an entry written for a route
+    the sink no longer has is inert. Matching on the name alone reported it
+    as what the speakers autoload — a green line for a machine that has no
+    working mapping at all."""
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks",
+                        lambda: [_SPEAKER_SINK])
+    write_autoload(tmp_path, device_name=_SPEAKER_SINK["name"],
+                   device_description="Speaker", device_profile="Analog Stereo",
+                   preset_name="Dolby-Balanced")
+    assert doctor_run._speaker_autoload_preset(tmp_path) == ""
+
+
+def test_speaker_autoload_preset_looks_past_an_entry_naming_nothing(
+        tmp_path, monkeypatch):
+    """TRAP (code review 2026-08-29): returning on the first device match
+    let one speaker sink mapped to nothing hide another's real mapping —
+    glob order decided whether the report found the preset."""
+    second = dict(_SPEAKER_SINK, name="alsa_output.spk2")
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks",
+                        lambda: [_SPEAKER_SINK, second])
+    write_autoload(tmp_path, device_name=_SPEAKER_SINK["name"],
+                   device_description="Speaker",
+                   device_profile=_SPEAKER_SINK["route"], preset_name="")
+    write_autoload(tmp_path, device_name=second["name"],
+                   device_description="Speaker",
+                   device_profile=second["route"], preset_name="Dolby-Balanced")
+    assert doctor_run._speaker_autoload_preset(tmp_path) == "Dolby-Balanced"
+
+
+def test_speaker_autoload_preset_is_empty_when_nothing_settles_it(tmp_path,
+                                                                  monkeypatch):
+    """No directory, no entry for a speaker, and no speaker sink to match
+    against are all "couldn't check" — never a stray preset name."""
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks",
+                        lambda: [_SPEAKER_SINK, _BT_HEADSET])
+    assert doctor_run._speaker_autoload_preset(None) == ""
+    assert doctor_run._speaker_autoload_preset(tmp_path / "nope") == ""
+    write_autoload(tmp_path, device_name=_BT_HEADSET["name"],
+                   device_description="Buds",
+                   device_profile=_BT_HEADSET["route"],
+                   preset_name="Dolby-Balanced")
+    assert doctor_run._speaker_autoload_preset(tmp_path) == ""
+    # A speaker entry with no speaker in the graph settles nothing either.
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: [_BT_HEADSET])
+    write_autoload(tmp_path, device_name=_SPEAKER_SINK["name"],
+                   device_description="Speaker",
+                   device_profile=_SPEAKER_SINK["route"],
+                   preset_name="Dolby-Balanced")
+    assert doctor_run._speaker_autoload_preset(tmp_path) == ""
+
+
+def test_pinned_speaker_still_asks_about_the_system_output():
+    """TRAP (code review 2026-08-29): making the pinned branch classify its
+    sink turned `output_is_speaker` true for a pinned speaker, dropping the
+    closing block's "confirm system output is the speaker sink" bullet. That
+    is the case that needs it most — EasyEffects pinned to the speakers while
+    the system default is HDMI means nothing you hear goes through the chain
+    at all. The bullet is about the *system's* output; a pinned sink isn't."""
+    speaker = doctor_run.LiveState(sink_kind="speaker", sink_source="live")
+    pinned = doctor_run.LiveState(sink_kind="speaker", sink_source="pinned")
+    assert speaker.system_output_is_speaker
+    assert not pinned.system_output_is_speaker
+    # The preset check still gets its answer for a pinned sink — the two read
+    # `sink_kind` for different questions.
+    assert pinned.sink_kind == "speaker"
+
+
+def test_resolve_live_state_classifies_a_live_speaker(monkeypatch):
+    rc = {"use_default_output_device": True}
+    s = _resolve(monkeypatch, rc, sink=_SPEAKER_SINK["name"],
+                 enumerated=[_SPEAKER_SINK, _BT_HEADSET])
+    assert (s.sink_source, s.sink_kind) == ("live", "speaker")
 
 
 def test_environment_lines_mark_only_the_rows_that_fell_back():

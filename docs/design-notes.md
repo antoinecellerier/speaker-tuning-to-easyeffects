@@ -3804,6 +3804,51 @@ re-proposed:
   a possible click, the same one picking a preset in the GUI risks. Global
   bypass makes "is playing" false, so it is read too and the copy demoted
   to "loaded" with a hint.
+  `--doctor` was the last place still treating that same state as a fault.
+  Its selected-preset check warned "the silent 'Nothing' bypass preset is
+  selected" whenever EasyEffects sat on the bypass — including on a
+  Bluetooth headset, where `--autoload` puts it deliberately. The reader
+  then got a WARN, the "what to fix first" verdict, and an instruction to
+  load a speaker tuning onto a headset: the one action the reload path
+  above refuses to take. The fix reuses `sinks.sink_kind`, which the
+  doctor already called for a closing bullet, and answers the question
+  actually behind the check — not "is a tuning loaded now?" (it correctly
+  is not) but "will the speakers still be right?" — by matching the
+  autoload entries against the speaker sinks. Three states, because the
+  honest answer differs: PASS naming the preset when an entry maps a
+  speaker sink to one this script generated, UNKNOWN when nothing does,
+  and the original WARN on the speakers or on an output that could not be
+  classified.
+  Rejected: *keeping the WARN and rewording it* — it still spends the
+  verdict line and the summary's WARN count on a healthy machine, which is
+  what made the line misleading rather than merely wordy. *A plain PASS
+  without reading the autoload entries* — that asserts the speakers are
+  fine when nothing looked, the same over-claim the UNKNOWN install-location
+  case exists to avoid. *A new N/A status* — `UNKNOWN` already renders as
+  "checks that couldn't run" and a fifth level would have to be threaded
+  through `summarize`, `print_summary` and `print_verdict` for one caller.
+  *Softening the other branches too* (a foreign preset selected on a
+  headset is equally "expected") — no report has shown that misfiring, and
+  each branch widened is a case where a real fault goes quiet.
+  The gate is `== "other"`, never `not is_internal_speaker(...)`: that
+  helper folds "don't know" into False, so a failed `pw-dump`, a
+  disconnected pinned sink or EasyEffects' own virtual sink would all have
+  read as "not a speaker" and dropped the warning on machines that needed
+  it. The same reasoning had already been learned once, on the reload gate
+  (code review 2026-08-27).
+  Two false all-clears a review caught in the first cut, both worth
+  remembering because both looked right: the autoload lookup matched an
+  entry on `node.name` alone, but EasyEffects keys those files on the name
+  *and* the active output route (issue #18), so an entry left behind by a
+  route change reported a mapping EasyEffects will never act on as what the
+  speakers autoload; and it returned on the first device match, letting one
+  speaker sink mapped to nothing hide another's real mapping in glob order.
+  A third: classifying the pinned sink made `output_is_speaker` true for it,
+  which dropped the closing block's "confirm system output is the speaker
+  sink" bullet for someone pinned to the speakers while the system default
+  is HDMI — the case that needs it most. The bullet asks about the system's
+  output; a pinned sink answers about EasyEffects', so that fact is now a
+  named property that takes live readings only.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp

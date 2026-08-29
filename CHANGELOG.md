@@ -109,6 +109,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` no longer warns that the silent `Nothing` preset is selected when
+  your output is a headset, HDMI or Bluetooth — that is the bypass fallback
+  `--autoload` installs on purpose. It now reports which preset your speakers
+  autoload instead, and still warns when `Nothing` is selected on the speakers.
 - `ee_to_pipewire.py --output` with a relative path baked that relative path
   into the conf's impulse-file reference, which PipeWire resolves against its
   own working directory — the whole conf was then silently skipped. Re-run

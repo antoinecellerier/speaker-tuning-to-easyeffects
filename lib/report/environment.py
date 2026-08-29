@@ -260,7 +260,9 @@ def check_preset_kernel(preset_json: dict, irs_stems: set,
 
 
 def loaded_preset_status(rc_data: dict, generated_names,
-                         live_preset: str | None = None) -> CheckResult:
+                         live_preset: str | None = None,
+                         output_kind: str = "unknown",
+                         speaker_preset: str = "") -> CheckResult:
     """Whether EasyEffects' selected output preset is one this script generated.
     Reports last-loaded / fallback without over-claiming which is *active*
     (per-device autoloading lives elsewhere in EE's config). The empty
@@ -271,7 +273,13 @@ def loaded_preset_status(rc_data: dict, generated_names,
     then it is authoritative: the fallback key is skipped, because what EE
     reports *is* the outcome autoloading already arrived at. Without it this
     check reads a file EE may not have written for hours — which is how it
-    came to report the silent bypass preset while a Dolby one was loaded."""
+    came to report the silent bypass preset while a Dolby one was loaded.
+
+    ``output_kind`` is `lib.hardware.sinks.sink_kind` on the output EasyEffects
+    is using, and ``speaker_preset`` the preset an autoload entry maps the
+    internal speakers to (both resolved by the caller, so this stays a pure
+    verdict). Together they separate the one case where the bypass preset is
+    the *designed* state from the one where it is the fault it looks like."""
     dolby = {n for n in generated_names if n != BYPASS_PRESET_NAME}
     loaded = rc_data.get("last_output_preset", "") if live_preset is None \
         else live_preset
@@ -282,6 +290,36 @@ def loaded_preset_status(rc_data: dict, generated_names,
             "EasyEffects has no output preset recorded yet — open it and load a "
             "Dolby-* preset for the speakers.")
     if loaded == BYPASS_PRESET_NAME:
+        # On a non-speaker output this is the state --autoload deliberately
+        # installs: it writes this empty preset and points EasyEffects' global
+        # fallback at it so HDMI/Bluetooth/USB stop applying a speaker tuning.
+        # Warning there would flag our own design as a fault and send the
+        # reader to put a speaker tuning on their headset — which the run
+        # itself refuses to do (lib/preset/reload.py).
+        #
+        # `== "other"`, not `!= "speaker"`: only a *confident* non-speaker
+        # softens this. sink_kind's "unknown" covers a failed probe, a
+        # disconnected sink and a virtual one, and none of those are evidence
+        # the speakers are fine. The qualifier is load-bearing — widening it
+        # to "not a speaker" is how this check would go quiet on the very
+        # machines it exists for.
+        if output_kind == "other":
+            if speaker_preset in dolby:
+                return CheckResult(DOCTOR_PASS, "Selected preset",
+                    f"'{BYPASS_PRESET_NAME}' is the expected bypass while the "
+                    "output isn't the internal speakers. The speakers autoload "
+                    f"'{speaker_preset}'.")
+            # Never open a sentence with the bare word "Nothing" here: it is
+            # this project's preset name, quoted three words earlier, and a
+            # first-time reader parsed "Nothing autoloads a Dolby-* preset"
+            # as a claim about that preset (/user-review 2026-08-29).
+            return CheckResult(DOCTOR_UNKNOWN, "Selected preset",
+                "the output isn't the internal speakers, so the silent "
+                f"'{BYPASS_PRESET_NAME}' bypass preset is expected here. No "
+                "Dolby-* preset is set to load on the speakers either "
+                "(--autoload sets that up), so what they would play couldn't "
+                "be checked — switch the system output back to the speakers "
+                "and re-run this to check it.")
         return CheckResult(DOCTOR_WARN, "Selected preset",
             f"the silent '{BYPASS_PRESET_NAME}' bypass preset is selected — that's "
             "no processing by design. Load a Dolby-* preset in EasyEffects.")

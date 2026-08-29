@@ -171,7 +171,7 @@ It checks the common causes and prints a pasteable report:
 - **EasyEffects 7** — version 8 changed the preset format, so on EasyEffects 7 the speaker-correction filter loads nothing and the preset is effectively bypassed. This repo targets EasyEffects 8.x (see the note at the top — install the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects) if your distro still ships 7).
 - **Wrong install location** — presets written to the Flatpak path while you run the native package (or vice-versa), so EasyEffects never sees them.
 - **A missing impulse file** — the convolver references a `.irs` that isn't in the irs directory, so the speaker correction is silent.
-- **No Dolby preset selected**, or EasyEffects' global bypass is on — the highlighted top-left toggle below.
+- **No Dolby preset selected**, or EasyEffects' global bypass is on — the highlighted top-left toggle below. If your output is a headset, HDMI or Bluetooth, `Nothing` being selected is the expected [bypass fallback](#autoload) rather than a fault, and `--doctor` says so — it reports which preset your speakers autoload instead.
 - **EasyEffects not running in the background** — the preset only processes audio while EasyEffects is active, so it can vanish after you close the window or reboot. In EasyEffects → Preferences → Background Service (below), enable *Enable service mode* and *Autostart on login*. `--doctor` reports whether both are set.
 
 ![EasyEffects' global on/off toggle (top-left, highlighted) — if it's off, every preset is bypassed](docs/images/ee-global-bypass.jpg)

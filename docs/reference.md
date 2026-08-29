@@ -259,6 +259,15 @@ no per-band limiting.
   do. Flatpak (socket inside the sandbox) and older installs get the manual
   step instead. `--no-reload` opts out; the run then says what EasyEffects
   keeps playing and which preset to pick.
+- `--doctor` applies the same rule to its selected-preset check. The
+  `Nothing` bypass preset is a WARN on the speakers and on an output it
+  cannot classify, but on a *confidently* non-speaker one it is the state
+  `--autoload` installs on purpose, so the check reports what the speakers
+  autoload instead: PASS naming that preset when an autoload entry maps a
+  speaker sink to one this script generated, UNKNOWN when nothing settles
+  it. The gate is `sinks.sink_kind(...) == "other"` — never `not
+  is_internal_speaker(...)`, which folds "don't know" into "not a speaker"
+  and would drop the warning on a failed probe.
 - The equalizer has no graphic-EQ mode — parametric only (LSP plugin).
 
 EE 7 uses an incompatible preset format; on EE 7 the speaker-correction

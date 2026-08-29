@@ -102,6 +102,34 @@ def write_autoload(autoload_dir: Path, device_name: str, device_description: str
     return path
 
 
+def read_autoload_entries(autoload_dir: Path) -> list[dict]:
+    """Every autoload mapping EasyEffects would act on, as written above.
+
+    The reader for `write_autoload`'s format, kept beside it so the four key
+    names have one owner. `--doctor` is the caller: it needs to answer "what
+    loads on the speakers?" while the current output is something else.
+
+    Never raises. A missing directory, an unreadable file and a stray
+    non-JSON one all come back as "no mapping" — a diagnostic that crashes on
+    a file EasyEffects tolerates is worse than one that reports nothing.
+    """
+    entries: list[dict] = []
+    try:
+        paths = sorted(autoload_dir.glob("*.json"))
+    except OSError:
+        return entries
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        # EasyEffects reads these as objects; a JSON array or scalar in the
+        # directory is somebody else's file, not a mapping we can act on.
+        if isinstance(data, dict):
+            entries.append(data)
+    return entries
+
+
 def write_bypass_preset(output_dir: Path, preset_name: str,
                         dry_run: bool = False) -> tuple[Path, str]:
     """Write an empty bypass preset used as EasyEffects' global fallback.

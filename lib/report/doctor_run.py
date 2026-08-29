@@ -175,15 +175,31 @@ class LiveState:
     sink_source: str = "saved"   # "live" | "pinned" | "saved"
     bypass: bool = False
     bypass_is_live: bool = False
-    # Whether `sink` is one PipeWire calls an internal speaker. Only ever set
-    # from a live reading, and only used to drop a closing bullet asking the
-    # reader to confirm what we just printed.
-    sink_is_speaker: bool = False
+    # What PipeWire's description of `sink` settles about where its audio
+    # comes out: "speaker", "other" or "unknown" (lib.hardware.sinks.sink_kind).
+    # Three states, not a bool, because two checks act on it in opposite
+    # directions — the closing block drops a bullet on "speaker", and the
+    # selected-preset check softens only on a confident "other". Folding
+    # "unknown" into either would make one of them wrong.
+    sink_kind: str = "unknown"
     # Requests a listening daemon did not answer. Non-empty means EasyEffects'
     # socket protocol changed, not that it is absent — reported rather than
     # absorbed, so this stops reporting stale values as current the moment it
     # happens instead of whenever someone next reads the source.
     unanswered: list[str] = field(default_factory=list)
+
+    @property
+    def system_output_is_speaker(self) -> bool:
+        """Is the *system's* output one of this machine's own speakers?
+
+        Live readings only. A pinned sink answers a different question —
+        EasyEffects' own device — and the one caller asks the reader to
+        confirm the system output. Someone pinned to the speakers while the
+        system default is HDMI needs that prompt most: nothing they are
+        listening to goes through the chain. Spending a pinned "speaker" on
+        it would drop the line exactly there.
+        """
+        return self.sink_kind == "speaker" and self.sink_source == "live"
 
 
 def _resolve_live_state(rc: dict) -> LiveState:
@@ -209,11 +225,18 @@ def _resolve_live_state(rc: dict) -> LiveState:
         live_sink = sinks.live_default_sink()
         if live_sink:
             state.sink, state.sink_source = live_sink, "live"
-            state.sink_is_speaker = sinks.is_internal_speaker(live_sink)
+            state.sink_kind = sinks.sink_kind(live_sink)
         else:
             state.sink, state.sink_source = rc.get("output_device", ""), "saved"
     else:
         state.sink, state.sink_source = rc.get("output_device", ""), "pinned"
+        # Classified too: the pinned name is the truth (only the GUI writes
+        # that key), so it earns an answer the same way the live one does. A
+        # sink that has since left the graph isn't found and comes back
+        # "unknown", which is the right answer rather than a stale one. The
+        # `saved` arm above gets no classification on purpose — that name is
+        # EasyEffects' cache of a default it may have followed hours ago.
+        state.sink_kind = sinks.sink_kind(state.sink) if state.sink else "unknown"
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
@@ -420,8 +443,46 @@ def _probe_ee_version() -> EEProbe:
     return fallback
 
 
+def _speaker_autoload_preset(autoload_dir: Path | None) -> str:
+    """The preset EasyEffects would autoload on this machine's own speakers.
+
+    Answers the question behind "the bypass preset is selected" once the
+    output is something else: not "is a tuning loaded now?" (it correctly
+    isn't) but "will the speakers still be right?". Empty when nothing
+    settles it — no directory, no entry for a speaker sink, or no speaker
+    sink to match against — and the caller then reports a check it couldn't
+    make rather than a pass.
+    """
+    if autoload_dir is None:
+        return ""
+    entries = autoload.read_autoload_entries(autoload_dir)
+    if not entries:
+        return ""
+    try:
+        selected = sinks.select_speaker_sinks()["selected"]
+    except (OSError, KeyError, TypeError):
+        return ""
+    # Matched on node.name *and* the active output route, because that pair is
+    # what EasyEffects keys an autoload file on — not the name alone (issue
+    # #18, and `write_autoload`'s filename convention). An entry left behind
+    # when the route changed still names the right device, and matching on the
+    # name would report a mapping EasyEffects will never act on as the preset
+    # the speakers autoload: a green line for a machine that has none.
+    wanted = {(s.get("name"), s.get("route")) for s in selected
+              if s.get("name") and s.get("route")}
+    for entry in entries:
+        # Past an entry that names no preset, not stopping at it: one speaker
+        # sink mapped to nothing must not hide another's real mapping.
+        if ((entry.get("device"), entry.get("device-profile")) in wanted
+                and entry.get("preset-name")):
+            return entry["preset-name"]
+    return ""
+
+
 def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
-                          custom_dirs: bool = False) -> environment.DoctorReport:
+                          custom_dirs: bool = False,
+                          autoload_dir: Path | None = None
+                          ) -> environment.DoctorReport:
     """Run every probe and assemble a DoctorReport. All I/O is wrapped so a
     missing binary / unreadable file degrades to a soft line, never a crash."""
     report = environment.DoctorReport()
@@ -499,9 +560,15 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # A live answer runs the check even with no rc at all — the daemon knows
     # what it loaded whether or not it has got round to writing it down.
     if (rc_text or live.preset_is_live) and not custom_dirs:
+        # Resolved only when the check is about to soften: this costs a
+        # pw-dump and a directory read, and on the common path (output *is*
+        # the speakers) the answer is never looked at.
+        speaker_preset = (_speaker_autoload_preset(autoload_dir)
+                          if live.sink_kind == "other" else "")
         report.checks.append(environment.loaded_preset_status(
             rc, generated_names,
-            live_preset=live.preset if live.preset_is_live else None))
+            live_preset=live.preset if live.preset_is_live else None,
+            output_kind=live.sink_kind, speaker_preset=speaker_preset))
     # Global bypass silences the whole chain, and it is the first thing to
     # suspect behind "I hear no difference". Only a live reading may raise it:
     # the rc copy predates any GUI toggle since EE last saved.
@@ -556,7 +623,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "service_mode": rc.get("service_mode", True),
         "output_device": live.sink,
         "output_device_source": live.sink_source,
-        "output_is_speaker": live.sink_is_speaker,
+        "output_is_speaker": live.system_output_is_speaker,
         "output_plugins": rc.get("output_plugins", []),
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
@@ -727,7 +794,8 @@ def report_doctor(args) -> None:
     report = _gather_doctor_report(args.output_dir, args.irs_dir,
                                    ee_paths.DEFAULT_EASYEFFECTS_RC,
                                    custom_dirs=ee_paths.uses_custom_dirs(
-                                       args.output_dir, args.irs_dir))
+                                       args.output_dir, args.irs_dir),
+                                   autoload_dir=args.autoload_dir)
     _print_doctor_report(report)
 
 
