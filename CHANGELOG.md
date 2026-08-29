@@ -32,7 +32,12 @@ Each entry has a FIXED SHAPE, in this order, and stops there:
      fixed symptom.
   2. (optional) ONE clause of mechanism — the "how", never the "why".
   3. (optional) the user knob — flag name / how to opt out / "re-run to regenerate".
-  4. a link — issue/PR number, plus docs/design-notes.md for the full why.
+  4. (optional) a link — issue/PR number, plus docs/design-notes.md for the
+     full why. Include one when a report prompted the change, or when the
+     ceiling below forced something a reader would want out of the entry.
+     Skip it when the change is obvious and nothing was reported: a link to
+     a page that only restates the entry costs a click and teaches readers
+     the links aren't worth following.
 Hard ceiling: <= 3 sentences (~50 words). If it won't fit, the overflow IS the
 "deep why" — move it to docs/design-notes.md and link; do not inline it.
 

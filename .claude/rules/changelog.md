@@ -20,8 +20,10 @@ them (their text shipped in a GitHub Release).
 Word them per the spec in the comment at the top of `CHANGELOG.md` — it is
 objective; follow it literally, don't approximate. The shape: WHAT changed
 (user-facing) → optional one-clause mechanism → optional flag/"re-run to
-regenerate" → link; `<= 3` sentences / ~50 words; most-impactful-first within
-each section; `[AUDIBLE]` honesty (claim an impression only if heard on-device).
+regenerate" → optional link; `<= 3` sentences / ~50 words; most-impactful-first
+within each section; `[AUDIBLE]` honesty (claim an impression only if heard
+on-device). The link is for a change a report prompted, or one whose why the
+ceiling pushed out of the entry — an obvious, unreported change needs none.
 Measurement numbers, device IDs, corpus stats, plugin internals, and provenance
 do **not** go inline — they live in `docs/design-notes.md`/`reference.md` behind
 the link. The comment carries a worked too-long-vs-tight example; match the
