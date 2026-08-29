@@ -14,7 +14,9 @@ directly and would have passed while the blocks showed something else
 entirely (code review 2026-08-29).
 """
 import importlib.util
+import json
 import re
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -52,7 +54,7 @@ def test_registry_and_expectations_agree():
 def test_each_scenario_reaches_the_state_its_slug_promises(slug):
     kind, has_preset, _ = _EXPECTED[slug]
     spec = preview_doctor.SCENARIOS[slug]
-    with preview_doctor._scenario(slug) as autoload_dir:
+    with preview_doctor._scenario(slug) as (_out, _irs, autoload_dir):
         assert sinks.sink_kind(spec["default"]) == kind
         found = doctor_run._speaker_autoload_preset(autoload_dir)
         assert bool(found) is has_preset, found
@@ -72,6 +74,27 @@ def test_each_scenario_stubs_easyeffects_own_state(slug):
     assert (live.sink, live.sink_source) == (spec["default"], "live")
 
 
+def test_scenario_stages_the_presets_the_report_globs():
+    """TRAP (CI 2026-08-29): the report reads the presets and impulse files
+    off disk, and those were still the real install's. On a machine without
+    EasyEffects the folder is empty, so the generated-preset set was empty
+    too and every "is the loaded preset one of ours?" branch answered no —
+    two scenarios rendered the wrong status under the right slug, and it
+    passed on the one laptop that happened to have presets."""
+    with preview_doctor._scenario("output-speakers") as (out, irs, _autoload):
+        stems = {p.stem for p in out.glob("*.json")}
+        assert stems == set(preview_doctor._PRESETS) | {BYPASS_PRESET_NAME}
+        # Each preset's convolver must find its impulse, or the per-preset
+        # checks FAIL and the block stops looking like a healthy install.
+        assert {p.stem for p in irs.glob("*.irs")}
+        for preset in out.glob("*.json"):
+            if preset.stem == BYPASS_PRESET_NAME:
+                continue
+            data = json.loads(preset.read_text())
+            kernel = data["output"]["convolver#0"]["kernel-name"]
+            assert (irs / f"{kernel}.irs").exists(), kernel
+
+
 @pytest.mark.parametrize("slug", list(_EXPECTED))
 def test_rendered_block_shows_the_status_the_scenario_is_for(slug, capsys,
                                                              monkeypatch):
@@ -84,6 +107,18 @@ def test_rendered_block_shows_the_status_the_scenario_is_for(slug, capsys,
     line = next(ln for ln in out.splitlines()
                 if re.match(r"\s*\[.+\]\s+Selected preset", ln))
     assert tag(_EXPECTED[slug][2]) in line, line
+
+
+@pytest.mark.parametrize("slug", list(_EXPECTED))
+def test_rendered_block_never_names_the_staging_tree(slug, capsys, monkeypatch):
+    """The presets are staged in a temp tree because a preview must not write
+    into the reader's own install — but a reviewer seeing "writes to /tmp/…"
+    reports it as a fault, and it is ours, not the tool's."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render(slug)
+    out = capsys.readouterr().out
+    assert tempfile.gettempdir() not in out
+    assert "/tmp" not in out
 
 
 def test_scenarios_cover_every_selected_preset_branch():

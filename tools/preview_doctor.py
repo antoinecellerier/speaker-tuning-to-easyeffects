@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import sys
 import tempfile
@@ -31,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lib import ee_paths, ee_socket                    # noqa: E402
+from lib import doctor, ee_paths, ee_socket            # noqa: E402
 from lib.hardware import sinks                         # noqa: E402
 from lib.preset import autoload                        # noqa: E402
 from lib.report import doctor_run                      # noqa: E402
@@ -57,6 +58,30 @@ _VIRTUAL = {"name": "easyeffects_sink", "description": "EasyEffects Sink",
 
 _SPEAKER_AUTOLOAD = {_SPEAKER["name"]: (_SPEAKER["route"], "Dolby-Balanced")}
 _BYPASS = "Nothing"          # lib.preset.autoload.BYPASS_PRESET_NAME
+
+# The presets a run would have written. Staged for real, in a temp tree the
+# scenario owns, because the report globs them off disk and reads each one:
+# on a machine with no EasyEffects install (CI, or a reviewer's laptop) the
+# real folder is empty, the generated-preset set comes back empty with it,
+# and every check that asks "is the loaded preset one of ours?" answers no —
+# which silently rendered the wrong branch under the right slug.
+_PRESETS = ("Dolby-Balanced", "Dolby-Detailed")
+
+
+def _stage_install(root: Path) -> tuple[Path, Path]:
+    """Write the preset + impulse tree a finished run leaves behind."""
+    out, irs = root / "output", root / "irs"
+    out.mkdir(parents=True, exist_ok=True)
+    irs.mkdir(parents=True, exist_ok=True)
+    for name in _PRESETS:
+        kernel = f"{name}-impulse"
+        (irs / f"{kernel}.irs").write_bytes(b"")
+        (out / f"{name}.json").write_text(json.dumps({
+            "output": {"convolver#0": {"kernel-name": kernel, "bypass": False},
+                       "blocklist": [], "plugins_order": ["convolver#0"]},
+        }, indent=4) + "\n")
+    autoload.write_bypass_preset(out, _BYPASS)
+    return out, irs
 
 
 # A scenario says what EasyEffects is doing as well as what the graph looks
@@ -98,11 +123,15 @@ SCENARIOS: dict[str, dict] = {
 def _scenario(slug: str):
     """Stub the probes one scenario needs, and restore every one after.
 
-    Four levers, because the report reads four things: the sink graph, the
-    default sink, the autoload directory, and what EasyEffects says it has
-    loaded. They are restored on the way out — all scenarios run in one
-    process, and a leak would let one decide the next one's answer while the
-    block map still claimed otherwise.
+    Five levers, because the report reads five things: the sink graph, the
+    default sink, the autoload directory, the presets and impulse files on
+    disk, and what EasyEffects says it has loaded. Every one of them is
+    machine state, and any left real makes the rendered block depend on the
+    laptop rather than on the scenario. The stubs are restored on the way
+    out — all scenarios run in one process, and a leak would let one decide
+    the next one's answer while the block map still claimed otherwise.
+
+    Yields the staged install as (output_dir, irs_dir, autoload_dir).
     """
     spec = SCENARIOS[slug]
     saved = {
@@ -135,12 +164,16 @@ def _scenario(slug: str):
     doctor_run._ee_query = query
     autoload.read_ee_rc = read_rc
     with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        out_dir, irs_dir = _stage_install(root)
+        autoload_dir = root / "autoload"
+        autoload_dir.mkdir()
         for device, (route, preset) in spec["autoload"].items():
-            autoload.write_autoload(Path(tmp), device_name=device,
+            autoload.write_autoload(autoload_dir, device_name=device,
                                     device_description="", device_profile=route,
                                     preset_name=preset)
         try:
-            yield Path(tmp)
+            yield out_dir, irs_dir, autoload_dir
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]
             sinks.live_default_sink = saved["default"]
@@ -150,11 +183,21 @@ def _scenario(slug: str):
 
 def render(slug: str) -> None:
     """Print one scenario's report, exactly as `--doctor` would print it."""
-    with _scenario(slug) as autoload_dir:
+    with _scenario(slug) as (out_dir, irs_dir, autoload_dir):
+        # custom_dirs=False on purpose: these *are* temp dirs, but the run
+        # being portrayed wrote to the default ones, and passing True would
+        # swap the install check for the "skipping location checks" UNKNOWN
+        # a real reader never sees.
         report = doctor_run._gather_doctor_report(
-            ee_paths.DEFAULT_OUTPUT_DIR, ee_paths.DEFAULT_IRS_DIR,
-            ee_paths.DEFAULT_EASYEFFECTS_RC, custom_dirs=False,
-            autoload_dir=autoload_dir)
+            out_dir, irs_dir, ee_paths.DEFAULT_EASYEFFECTS_RC,
+            custom_dirs=False, autoload_dir=autoload_dir)
+        # The two rows that would otherwise name the staging tree. The run
+        # being portrayed wrote to the default install; the temp tree exists
+        # only because a preview must not touch the reader's own. Corrected
+        # on the facts, not by rewriting rendered text, so a check that names
+        # a path still says whatever the code made it say.
+        report.facts["output_dir"] = doctor.tilde(ee_paths.DEFAULT_OUTPUT_DIR)
+        report.facts["irs_dir"] = doctor.tilde(ee_paths.DEFAULT_IRS_DIR)
         doctor_run._print_doctor_report(report)
 
 
