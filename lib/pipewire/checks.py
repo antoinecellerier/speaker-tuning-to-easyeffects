@@ -160,6 +160,17 @@ class DefaultSink:
     """Which sink audio follows, and which one the user chose by hand."""
     effective: str = ""      # default.audio.sink — where streams go now
     configured: str = ""     # default.configured.audio.sink — the explicit pick
+    # Why there is no name, when there isn't: empty means the graph answered
+    # (an empty `effective` is then a real "no default output"), set means
+    # nothing could be read — the difference between "none" and "not read",
+    # which a pasted report must keep.
+    reason: str = ""
+
+
+# The one sentence for "the graph could not be read", shared by the check
+# that reports it and every row that inherits it, so the same condition
+# never prints two diagnoses.
+NO_DUMP_REASON = f"pw-dump didn't answer — {layout.DAEMON_HINT}"
 
 
 def _pw_dump() -> list | None:
@@ -331,7 +342,11 @@ _DEFAULT_SINK_KEYS = {"default.audio.sink": "effective",
 
 
 def default_sinks(dump) -> DefaultSink:
-    """The default-sink metadata out of a pw-dump, empty when it isn't there."""
+    """The default-sink metadata out of a pw-dump; carries the why when the
+    dump itself is missing ([] is a daemon answering with an empty graph —
+    that is "none", not "not read")."""
+    if dump is None:
+        return DefaultSink(reason=NO_DUMP_REASON)
     found = DefaultSink()
     for obj in dump or []:
         if not str(obj.get("type", "")).endswith("Metadata"):
@@ -1177,8 +1192,8 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
             # Not "the checks above": a check that needed the graph returned
             # None and is absent from the block, so there is nothing above for
             # the reader to go back and re-read.
-            "pw-dump didn't answer — is the PipeWire daemon running? Several "
-            "checks need the live graph and were skipped."))
+            f"{NO_DUMP_REASON} Several checks need the live graph and were "
+            "skipped."))
 
     facts = {
         "confs": confs,
@@ -1292,9 +1307,9 @@ def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
     lines = []
     if pipewire is not None and wireplumber is not None:
         lines += layout.version_rows(pipewire, wireplumber, layout.GUTTER)
-    if default.effective:
-        lines += layout.output_sink_rows(
-            label, doctor.no_bt_address(default.effective), "", layout.GUTTER)
+    lines += layout.output_sink_rows(
+        label, doctor.no_bt_address(default.effective), "", layout.GUTTER,
+        reason=default.reason)
     lines += layout.clock_rows(settings, dropouts, layout.GUTTER)
     lines += layout.dropouts_rows(dropouts, pw_age, None, layout.GUTTER,
                                   app="the filter chain",

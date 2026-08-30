@@ -133,6 +133,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` now prints the `Output sink:` row even when it can't name one,
+  saying whether PipeWire couldn't be read or simply has no default output
+  selected. Both doctors used to drop the row, while the `Dropouts:` line
+  below went on talking about "the output sink"
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 - `--doctor` no longer runs its speaker-correction checks on presets it
   didn't write. Your other EasyEffects presets in the same folder — a
   headphone preset, say — were reported as missing that filter and the

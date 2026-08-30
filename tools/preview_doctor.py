@@ -34,6 +34,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from lib import doctor, ee_paths, ee_socket            # noqa: E402
 from lib.hardware import sinks                         # noqa: E402
+from lib.pipewire import checks, session               # noqa: E402
 from lib.preset import autoload                        # noqa: E402
 from lib.report import doctor_run                      # noqa: E402
 
@@ -120,6 +121,11 @@ SCENARIOS: dict[str, dict] = {
                "nothing about where the audio physically comes out",
         "sinks": [_VIRTUAL], "default": _VIRTUAL["name"],
         "autoload": {}, "preset": _BYPASS},
+    "no-pipewire": {
+        "why": "PipeWire isn't answering — the section that describes it has "
+               "to say so rather than print nothing",
+        "sinks": [], "default": "", "no_pipewire": True,
+        "clear_saved_sink": True, "autoload": {}, "preset": _BYPASS},
 }
 
 
@@ -140,12 +146,28 @@ def _scenario(slug: str):
     spec = SCENARIOS[slug]
     saved = {
         "enum": sinks._enumerate_audio_sinks,
-        "default": sinks.live_default_sink,
+        "default": sinks.live_default,
         "query": doctor_run._ee_query,
         "read_rc": autoload.read_ee_rc,
+        "session": (session.read_settings, session.read_xruns,
+                    session.process_age, session.pipewire_version),
     }
     sinks._enumerate_audio_sinks = lambda: list(spec["sinks"])
-    sinks.live_default_sink = lambda: spec["default"]
+    sinks.live_default = lambda: (
+        checks.DefaultSink(reason=checks.NO_DUMP_REASON)
+        if spec.get("no_pipewire")
+        else checks.DefaultSink(effective=spec["default"]))
+    # A daemon that isn't answering must not answer anything: the clock, the
+    # dropout window, the uptimes and the daemon version all show their
+    # unread forms, which is the whole point of that scenario.
+    if spec.get("no_pipewire"):
+        session.read_settings = lambda: session.ClockSettings(
+            reason="no answer from pw-metadata")
+        session.read_xruns = lambda *a, **kw: session.Dropouts(
+            reason="pw-top didn't answer")
+        session.process_age = lambda name: None
+        session.pipewire_version = lambda: session.Version(
+            reason="no answer from pw-cli")
 
     # A running daemon is the authoritative source for the loaded preset, so
     # the scenario has to answer as one or the real EasyEffects on the capture
@@ -163,6 +185,10 @@ def _scenario(slug: str):
     def read_rc(rc_text):
         rc = saved["read_rc"](rc_text)
         rc["use_default_output_device"] = True
+        # With no graph to follow, the rc's cached sink would fill the row
+        # with the capture machine's device and hide the unread form.
+        if spec.get("clear_saved_sink"):
+            rc["output_device"] = ""
         return rc
 
     doctor_run._ee_query = query
@@ -180,9 +206,11 @@ def _scenario(slug: str):
             yield out_dir, irs_dir, autoload_dir
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]
-            sinks.live_default_sink = saved["default"]
+            sinks.live_default = saved["default"]
             doctor_run._ee_query = saved["query"]
             autoload.read_ee_rc = saved["read_rc"]
+            (session.read_settings, session.read_xruns,
+             session.process_age, session.pipewire_version) = saved["session"]
 
 
 def render(slug: str) -> None:

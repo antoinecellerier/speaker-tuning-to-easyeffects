@@ -217,15 +217,21 @@ def select_speaker_sinks() -> dict:
     return {"tier": "none", "selected": [], "all_sinks": all_sinks}
 
 
-def live_default_sink() -> str:
-    """node.name of the sink PipeWire is sending output to now, or "".
+def live_default():
+    """PipeWire's default output as a `checks.DefaultSink`: the node name
+    when the graph answered, the reason when it couldn't be read.
 
     Imported inside the function so the EasyEffects path doesn't drag in the
     PipeWire checks module (which imports back into lib/report/) on the runs
     that never need it.
     """
     from lib.pipewire import checks
-    return checks.default_sinks(checks._pw_dump()).effective
+    return checks.default_sinks(checks._pw_dump())
+
+
+def live_default_sink() -> str:
+    """node.name of the sink PipeWire is sending output to now, or ""."""
+    return live_default().effective
 
 
 def _is_physical_output(sink: dict) -> bool:

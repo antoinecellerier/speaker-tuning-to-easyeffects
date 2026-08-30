@@ -133,8 +133,8 @@ def version_rows(pipewire: session.Version, wireplumber: session.Version,
                        gutter)
 
 
-def output_sink_rows(label: str, node: str, suffix: str, gutter: int
-                     ) -> list[str]:
+def output_sink_rows(label: str, node: str, suffix: str, gutter: int,
+                     *, reason: str = "") -> list[str]:
     """The `Output sink:` row both doctors print: *label* (the sink's
     description, or "" when the probe settled nothing) leading, *node* (its
     node.name, already redacted) trailing, *suffix* (" (from saved config)"
@@ -145,7 +145,17 @@ def output_sink_rows(label: str, node: str, suffix: str, gutter: int
     tool's: it is what --autoload-sink takes and what a bug report is triaged
     on. Node names run past 70 columns, so the two share a line only when
     they fit; the name is never wrapped — a name broken across lines stops
-    being greppable and stops being copy-pasteable — and just overflows."""
+    being greppable and stops being copy-pasteable — and just overflows.
+
+    With no *node* the row still prints — `dropouts_rows` below calls it
+    "the output sink", and in a paste an absent row and a zero read alike —
+    saying either why it wasn't read (*reason*) or that PipeWire genuinely
+    has no default; *suffix* still applies, so a caller can add its own
+    context ("…and EasyEffects' saved config names none")."""
+    if not node:
+        text = (f"not read ({reason})" if reason
+                else "none — PipeWire has no default output selected")
+        return wrapped_row("Output sink", text + suffix, gutter)
     if not label:
         return [row("Output sink", node + suffix, gutter)]
     width = console._wrap_width()

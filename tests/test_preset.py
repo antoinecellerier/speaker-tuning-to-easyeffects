@@ -3492,7 +3492,9 @@ def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=()):
         lambda r: ee_socket.EEReply(
             value=preset if r == ee_socket.PRESET_REQUEST else bypass,
             reached=True, answered=True))
-    monkeypatch.setattr(sinks, "live_default_sink", lambda: sink)
+    from lib.pipewire import checks as pw_checks
+    monkeypatch.setattr(sinks, "live_default",
+                        lambda: pw_checks.DefaultSink(effective=sink))
     # Classifying a sink reaches the graph, so stub the one pw-dump boundary:
     # unpatched these would answer from the developer machine's own audio.
     # The default empty graph classifies everything "unknown".
@@ -4078,6 +4080,33 @@ def test_environment_lines_never_split_a_long_node_name():
     assert any(node in ln for ln in lines), lines
     assert len(lines) > 1                      # the description did wrap
     assert all(ln.startswith(" " * doctor_layout.GUTTER) for ln in lines[1:])
+
+
+def test_the_output_sink_row_survives_a_silent_pipewire(monkeypatch):
+    """TRAP: with no name from either source the row used to vanish — and in
+    a paste an absent row and a zero read alike, while the Dropouts row kept
+    referring to "the output sink". Each of the three ways of having no name
+    prints its own why."""
+    monkeypatch.setenv("COLUMNS", "80")
+    def text(f):
+        f = {"ee_running": True, "rc_present": True, **f}
+        return " ".join(ln.strip() for ln in _sink_lines(f))
+
+    assert text({"output_device": "", "output_device_source": "saved",
+                 "output_reason": ("pw-dump didn't answer — is the PipeWire "
+                                   "daemon running?")}) == (
+        "Output sink:     not read (pw-dump didn't answer — is the PipeWire "
+        "daemon running?), and EasyEffects' saved config names none")
+    assert text({"output_device": "", "output_device_source": "saved"}) == (
+        "Output sink:     none — PipeWire has no default output selected, "
+        "and EasyEffects' saved config names none")
+    assert text({"output_device": "", "output_device_source": "pinned",
+                 "output_reason": ("EasyEffects' config pins an output but "
+                                   "doesn't name it")}) == (
+        "Output sink:     not read (EasyEffects' config pins an output but "
+        "doesn't name it)")
+    # Even a facts dict that never mentions the sink renders the row.
+    assert "Output sink:" in text({})
 
 
 def test_environment_lines_without_a_label_are_unchanged():

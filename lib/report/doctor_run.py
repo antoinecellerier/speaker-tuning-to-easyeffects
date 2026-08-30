@@ -167,6 +167,10 @@ class LiveState:
     # Empty when the probe settled nothing, and the report then shows the
     # node name alone, as it always did.
     sink_label: str = ""
+    # Why `sink` is empty, when it is: the graph couldn't be read, or the rc
+    # pins an output without naming one. Empty with an empty `sink` means
+    # both sources answered and there is genuinely no default.
+    sink_reason: str = ""
     # Requests a listening daemon did not answer. Non-empty means EasyEffects'
     # socket protocol changed, not that it is absent — reported rather than
     # absorbed, so this stops reporting stale values as current the moment it
@@ -207,13 +211,17 @@ def _resolve_live_state(rc: dict) -> LiveState:
     # opposite: only the GUI writes that key, so the rc is then the truth and
     # the live default sink is the wrong answer.
     if rc.get("use_default_output_device", True):
-        live_sink = sinks.live_default_sink()
-        if live_sink:
-            state.sink, state.sink_source = live_sink, "live"
+        d = sinks.live_default()
+        if d.effective:
+            state.sink, state.sink_source = d.effective, "live"
             state.sink_kind, state.sink_label = \
-                sinks.sink_kind_and_label(live_sink)
+                sinks.sink_kind_and_label(d.effective)
         else:
             state.sink, state.sink_source = rc.get("output_device", ""), "saved"
+            if not state.sink:
+                # Keep the live probe's why (or its "" = genuinely none):
+                # with the rc empty too, this is all the row has to print.
+                state.sink_reason = d.reason
     else:
         state.sink, state.sink_source = rc.get("output_device", ""), "pinned"
         # Classified too: the pinned name is the truth (only the GUI writes
@@ -225,6 +233,9 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if state.sink:
             state.sink_kind, state.sink_label = \
                 sinks.sink_kind_and_label(state.sink)
+        else:
+            state.sink_reason = ("EasyEffects' config pins an output but "
+                                 "doesn't name it")
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
@@ -692,6 +703,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "autostart_on_login": rc.get("autostart_on_login", False),
         "service_mode": rc.get("service_mode", True),
         "output_device": live.sink,
+        "output_reason": live.sink_reason,
         "output_device_source": live.sink_source,
         "output_is_speaker": live.system_output_is_speaker,
         "output_label": live.sink_label,
@@ -706,6 +718,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "ee_age": ee_age,
     }
     return report
+
+
+_NO_SINK_TAIL = ", and EasyEffects' saved config names none"
 
 
 def _pipewire_lines(f: dict) -> list[str]:
@@ -728,6 +743,14 @@ def _pipewire_lines(f: dict) -> list[str]:
         lines += layout.output_sink_rows(
             f.get("output_label", ""), doctor.no_bt_address(f["output_device"]),
             source, layout.GUTTER)
+    else:
+        # No name from either source — the row survives and says why. The
+        # tail is this path's context: unless EasyEffects is pinned, the rc
+        # was the fallback and it named nothing.
+        tail = ("" if f.get("output_device_source") == "pinned"
+                else _NO_SINK_TAIL)
+        lines += layout.output_sink_rows("", "", tail, layout.GUTTER,
+                                         reason=f.get("output_reason", ""))
     # Both rows come straight from PipeWire's own tools (`pw-metadata -n
     # settings`, `pw-top -b -n 7`), rendered by the frame both doctors share.
     if f.get("pw_clock") is not None:

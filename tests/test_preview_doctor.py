@@ -41,6 +41,7 @@ _EXPECTED = {
     "output-other-autoloaded": ("other", True, DOCTOR_PASS),
     "output-other-no-autoload": ("other", False, DOCTOR_UNKNOWN),
     "output-unknown": ("unknown", False, DOCTOR_WARN),
+    "no-pipewire": ("unknown", False, DOCTOR_WARN),
 }
 
 
@@ -71,7 +72,9 @@ def test_each_scenario_stubs_easyeffects_own_state(slug):
         from lib.preset import autoload
         live = doctor_run._resolve_live_state(autoload.read_ee_rc(""))
     assert (live.preset, live.preset_is_live) == (spec["preset"], True)
-    assert (live.sink, live.sink_source) == (spec["default"], "live")
+    # A scenario with no default sink resolves through the (cleared) rc.
+    source = "live" if spec["default"] else "saved"
+    assert (live.sink, live.sink_source) == (spec["default"], source)
 
 
 def test_scenario_stages_the_presets_the_report_globs():
@@ -145,21 +148,21 @@ def test_scenario_restores_every_probe_it_stubbed():
     """They all run in one process, so a leak would let one scenario decide
     the next one's answer — and the block map would still look right."""
     from lib.preset import autoload
-    before = (sinks._enumerate_audio_sinks, sinks.live_default_sink,
+    before = (sinks._enumerate_audio_sinks, sinks.live_default,
               doctor_run._ee_query, autoload.read_ee_rc)
     with preview_doctor._scenario("output-other-autoloaded"):
         assert sinks._enumerate_audio_sinks is not before[0]
         assert doctor_run._ee_query is not before[2]
-    assert (sinks._enumerate_audio_sinks, sinks.live_default_sink,
+    assert (sinks._enumerate_audio_sinks, sinks.live_default,
             doctor_run._ee_query, autoload.read_ee_rc) == before
 
 
 def test_scenario_restores_the_probes_even_when_the_body_raises():
     from lib.preset import autoload
-    before = (sinks._enumerate_audio_sinks, sinks.live_default_sink,
+    before = (sinks._enumerate_audio_sinks, sinks.live_default,
               doctor_run._ee_query, autoload.read_ee_rc)
     with pytest.raises(RuntimeError):
         with preview_doctor._scenario("output-speakers"):
             raise RuntimeError("boom")
-    assert (sinks._enumerate_audio_sinks, sinks.live_default_sink,
+    assert (sinks._enumerate_audio_sinks, sinks.live_default,
             doctor_run._ee_query, autoload.read_ee_rc) == before

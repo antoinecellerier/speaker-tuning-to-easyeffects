@@ -217,7 +217,11 @@ def test_default_sinks_ignores_other_metadata_objects():
 
 
 def test_default_sinks_tolerates_no_daemon():
-    assert checks.default_sinks(None) == checks.DefaultSink()
+    """None (nothing answered) carries the why; [] is a daemon answering
+    with an empty graph — "none", not "not read"."""
+    assert checks.default_sinks(None) == checks.DefaultSink(
+        reason=checks.NO_DUMP_REASON)
+    assert checks.default_sinks([]) == checks.DefaultSink()
 
 
 def test_selected_smart_filter_warns_about_the_second_volume():
@@ -1853,6 +1857,26 @@ def test_the_two_doctors_print_one_output_sink_row():
     value = lambda lines: next(ln for ln in lines if "Output sink" in ln
                                ).split(":", 1)[1].strip()
     assert value(pw) == value(ee) == f"{label} — {node}"
+
+
+def test_both_doctors_say_which_kind_of_no_sink_it_was(monkeypatch):
+    """TRAP: both doctors used to drop the row when they had no name, while
+    the Dropouts row below kept referring to "the output sink". Now it
+    prints, and "couldn't be read" never wears the words for "there is
+    genuinely none"."""
+    monkeypatch.setenv("COLUMNS", "80")
+    settings = session.ClockSettings(reason="pw-metadata not found")
+    d = session.Dropouts(reason="pw-top not found")
+
+    def pw(default):
+        return " ".join(ln.strip() for ln in checks._pipewire_lines(
+            default, settings, d, None))
+
+    assert ("Output sink:     not read (pw-dump didn't answer — is the "
+            "PipeWire daemon running?)") in pw(
+        checks.DefaultSink(reason=checks.NO_DUMP_REASON))
+    assert ("Output sink:     none — PipeWire has no default output "
+            "selected") in pw(checks.DefaultSink())
 
 
 def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):
