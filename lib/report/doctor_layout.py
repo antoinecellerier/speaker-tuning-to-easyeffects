@@ -255,10 +255,14 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
     else:
         parts = []
         if has_sink:
-            parts.append(f"{d.sink} xruns on the output sink"
-                         + (" (it drives the clock, so any node's dropout "
-                            "counts there)" if d.sink_is_driver else ""))
-        if has_chain:
+            part = f"{d.sink} xruns on the output sink"
+            if d.sink_is_chain_node:
+                part += f" ({d.chain_node} — itself the busiest of {nodes})"
+            if d.sink_is_driver:
+                part += (" (it drives the clock, so any node's dropout "
+                         "counts there)")
+            parts.append(part)
+        if has_chain and not d.sink_is_chain_node:
             unit = "" if parts else " xruns"
             parts.append(f"none{unit} on {nodes}" if d.chain == 0 else
                          f"{d.chain}{unit} on {busiest} ({d.chain_node})")
@@ -278,7 +282,8 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
         got = []
         if d.sink_recent is not None:
             got.append(f"{d.sink_recent} on the sink")
-        if d.chain_recent is not None:
+        if d.chain_recent is not None and not (
+                d.sink_is_chain_node and d.chain_recent == d.sink_recent):
             got.append(f"{d.chain_recent} on {nodes}")
         now = f"{', '.join(got)} in {d.window_s:.0f} s"
     heard = ("a playback stream was running" if d.playing

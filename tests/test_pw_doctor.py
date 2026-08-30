@@ -1798,6 +1798,8 @@ def test_read_xruns_says_why_when_it_cannot(monkeypatch):
         if not ln.split()[-1].startswith(session.EASYEFFECTS_NODE_PREFIXES))
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: no_ee)
     assert session.read_xruns().reason == "none of the chain's nodes are in the graph"
+    assert session.read_xruns(sink="missing").reason == (
+        "neither the output sink nor any of the chain's nodes is in the graph")
 
 
 def test_process_age_is_read_off_proc_stat_past_the_comm_field():
@@ -1880,6 +1882,24 @@ def test_the_two_doctors_print_one_output_sink_row():
     value = lambda lines: next(ln for ln in lines if "Output sink" in ln
                                ).split(":", 1)[1].strip()
     assert value(pw) == value(ee) == f"{label} — {node}"
+
+
+def test_the_dropouts_row_counts_a_self_sink_once(monkeypatch):
+    """TRAP (/user-review 2026-08-30): with EasyEffects' own sink as the
+    default output, "4 xruns on the output sink, 4 on the busiest
+    EasyEffects node (easyeffects_sink)" hung two labels on one node and
+    read as 8 glitches."""
+    monkeypatch.setenv("COLUMNS", "80")
+    d = session.Dropouts(sink=4, chain=4, chain_node="easyeffects_sink",
+                         sink_recent=3, chain_recent=3, window_s=5.0,
+                         playing=True, sink_is_driver=True,
+                         sink_is_chain_node=True)
+    text = " ".join(ln.strip()
+                    for ln in doctor_layout.dropouts_rows(d, None, None, 19))
+    assert ("4 xruns on the output sink (easyeffects_sink — itself the "
+            "busiest of EasyEffects' nodes)") in text
+    assert "4 on the busiest" not in text
+    assert "3 on the sink in 5 s" in text and "3 on EasyEffects" not in text
 
 
 def test_both_doctors_say_which_kind_of_no_sink_it_was(monkeypatch):

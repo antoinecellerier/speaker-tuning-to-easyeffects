@@ -102,6 +102,10 @@ class Dropouts:
     chain_node: str = ""
     sink_recent: int | None = None
     chain_recent: int | None = None
+    # True when the busiest chain node IS the sink (EasyEffects' own sink as
+    # the default output): one node, one count — the renderer must not hang
+    # two labels on it, which reads as twice the dropouts.
+    sink_is_chain_node: bool = False
     window_s: float = 0.0
     playing: bool = False
     sink_is_driver: bool = False
@@ -297,7 +301,11 @@ def read_xruns(sink: str = "",
                    if (prefixes and n.startswith(prefixes)) or n in names]
     sinks = [n for n in last if n == sink] if sink else []
     if not chain_nodes and not sinks:
-        return Dropouts(reason="none of the chain's nodes are in the graph")
+        # Name every miss: with a sink requested, "the chain's nodes" alone
+        # blames the wrong half when the sink was the absentee.
+        return Dropouts(reason=("neither the output sink nor any of the "
+                                "chain's nodes is in the graph") if sink
+                        else "none of the chain's nodes are in the graph")
 
     def growth(name: str) -> int:
         before = first.get(name)
@@ -327,6 +335,7 @@ def read_xruns(sink: str = "",
         sink=last[sink].err if sinks else None,
         chain=last[chain_node].err if chain_node else None,
         chain_node=chain_node,
+        sink_is_chain_node=bool(sink and chain_node == sink),
         sink_recent=growth(sink) if sinks else None,
         chain_recent=max(growth(n) for n in chain_nodes) if chain_nodes else None,
         window_s=round(window, 1),
