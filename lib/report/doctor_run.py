@@ -607,6 +607,21 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     else:
         for p, data in dolby_presets:
             report.checks.append(environment.check_preset_kernel(data, irs_stems, p.stem))
+    # 3b. Presets written by an older build — the same artefact class the
+    #     PipeWire doctor's conf check covers, in the same sentence
+    #     (lib.doctor). A preset without a stamp (an EasyEffects GUI re-save
+    #     drops it) reads as unknown, never stale. The bypass preset stays
+    #     out by construction (`data is None` above): a re-run keeps an
+    #     existing bypass file, so the remedy could never clear it. The
+    #     label must not start with "Preset " or the per-preset fold in
+    #     `_collapse_preset_checks` would sweep it up.
+    stale = doctor.another_version_check(
+        "Presets from another version", "preset",
+        [autoload.generator_version(data) for _p, data in dolby_presets],
+        version.get_version(),
+        "re-run dolby_to_easyeffects.py on your tuning XML")
+    if stale is not None:
+        report.checks.append(stale)
 
     # 4. EasyEffects runtime state (loaded preset, sink, chain)
     try:

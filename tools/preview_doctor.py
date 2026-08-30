@@ -69,8 +69,10 @@ _BYPASS = "Nothing"          # lib.preset.autoload.BYPASS_PRESET_NAME
 _PRESETS = ("Dolby-Balanced", "Dolby-Detailed")
 
 
-def _stage_install(root: Path) -> tuple[Path, Path]:
-    """Write the preset + impulse tree a finished run leaves behind."""
+def _stage_install(root: Path, stamp: str | None = None) -> tuple[Path, Path]:
+    """Write the preset + impulse tree a finished run leaves behind. *stamp*
+    overrides the `_generator` value, for the stale-version scenario — the
+    default is the running build's, exactly as the writers stamp it."""
     out, irs = root / "output", root / "irs"
     out.mkdir(parents=True, exist_ok=True)
     irs.mkdir(parents=True, exist_ok=True)
@@ -81,7 +83,7 @@ def _stage_install(root: Path) -> tuple[Path, Path]:
         # presets it recognises as its own, so an unstamped stage would
         # render the "nothing here is ours" branch under every slug.
         (out / f"{name}.json").write_text(json.dumps({
-            "_generator": autoload.generator_stamp(),
+            "_generator": stamp or autoload.generator_stamp(),
             "output": {"convolver#0": {"kernel-name": kernel, "bypass": False},
                        "blocklist": [], "plugins_order": ["convolver#0"]},
         }, indent=4) + "\n")
@@ -121,6 +123,12 @@ SCENARIOS: dict[str, dict] = {
                "nothing about where the audio physically comes out",
         "sinks": [_VIRTUAL], "default": _VIRTUAL["name"],
         "autoload": {}, "preset": _BYPASS},
+    "presets-from-another-version": {
+        "why": "the presets on disk were written by an older build of this "
+               "tool — the report has to send the reader back to re-run it",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "stamp": f"{autoload.GENERATOR_PREFIX} v2026.01"},
     "no-pipewire": {
         "why": "PipeWire isn't answering — the section that describes it has "
                "to say so rather than print nothing",
@@ -195,7 +203,7 @@ def _scenario(slug: str):
     autoload.read_ee_rc = read_rc
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        out_dir, irs_dir = _stage_install(root)
+        out_dir, irs_dir = _stage_install(root, spec.get("stamp"))
         autoload_dir = root / "autoload"
         autoload_dir.mkdir()
         for device, (route, preset) in spec["autoload"].items():

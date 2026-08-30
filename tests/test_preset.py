@@ -3825,6 +3825,45 @@ def test_read_presets_partitions_ours_from_the_users(tmp_path):
     assert "2 other preset files" in folded[0].detail
 
 
+def test_presets_from_another_version_are_reported_once():
+    """Two stale stamps fold into one sorted WARN with the counts; no stamp
+    (a GUI re-save) is unknown, never stale; and the aggregate label's
+    near-miss with "Preset " must stay out of the per-preset fold."""
+    check = doctor_module.another_version_check(
+        "Presets from another version", "preset",
+        ["v1", "", "v0", "v2", "v1"], "v2",
+        "re-run dolby_to_easyeffects.py on your tuning XML")
+    assert check.status == DOCTOR_WARN
+    assert check.detail.startswith(
+        "3 of 5 presets were written by v0, v1 and this is v2.")
+    assert check.detail.endswith(
+        "a preset is a snapshot, it doesn't update itself.")
+    assert doctor_module.another_version_check(
+        "Presets from another version", "preset",
+        ["", "v2"], "v2", "x") is None
+    one = doctor_module.another_version_check(
+        "Presets from another version", "preset", ["v1", "v2"], "v2", "x")
+    assert "1 of 2 presets was written by v1" in one.detail
+    collapsed = doctor_run._collapse_preset_checks(
+        [one], bypass_present=False, foreign=0)
+    assert collapsed == [one]
+
+
+def test_generator_version_reads_only_our_own_stamp():
+    """"" for anything that isn't this tool's stamp — and the stamp the
+    writers produce round-trips to the running version, so the check
+    compares like with like."""
+    from lib import version as version_module
+    assert autoload.generator_version(
+        {"_generator": "dolby_to_easyeffects.py v1.2"}) == "v1.2"
+    assert autoload.generator_version({"_generator": "someone-else 1.0"}) == ""
+    assert autoload.generator_version({}) == ""
+    assert autoload.generator_version([]) == ""
+    assert autoload.generator_version({"_generator": 3}) == ""
+    assert autoload.generator_version(
+        {"_generator": autoload.generator_stamp()}) == version_module.get_version()
+
+
 def test_no_presets_found_names_what_it_can_see():
     assert doctor_run._no_presets_found("~/o", 0, False) == (
         "no presets found in ~/o — run the script on your tuning XML first.")

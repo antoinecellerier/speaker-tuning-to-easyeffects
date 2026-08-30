@@ -27,6 +27,7 @@ from pathlib import Path
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
            "tag", "tilde", "dollar_user", "no_bt_address",
            "CheckResult", "summarize", "emit_check",
+           "another_version_check",
            "print_summary",
            "print_verdict"]
 
@@ -204,6 +205,35 @@ class CheckResult:
                          # one string because a procedure interleaves prose and
                          # commands, and the same list is what the caller's own
                          # end-of-run block prints — one builder, no drift.
+
+
+def another_version_check(label: str, noun: str, versions,
+                          running: str, remedy: str) -> "CheckResult | None":
+    """WARN when what is installed was written by a different build.
+
+    One sentence shape for both doctors: a conf and a preset are the same
+    kind of artefact — a snapshot of what this tool believed when it ran —
+    and a reader just told to update the tool must not have to work out that
+    the file did not update with it. An empty version is not drift: an
+    EasyEffects GUI save rebuilds a preset's JSON from scratch and drops the
+    stamp (upstream ``savePresetFile``), and an unreadable conf header is
+    not a mismatch either — "" means unknown, never stale. No folder in the
+    sentence: the inventory block above already names it, and a path here is
+    what leaked the preview harness's staging tree into a rendered block.
+    """
+    versions = list(versions)
+    stale = sorted({v for v in versions if v and v != running})
+    if not stale:
+        return None
+    n = sum(1 for v in versions if v in stale)
+    total = len(versions)
+    return CheckResult(
+        DOCTOR_WARN, label,
+        f"{n} of {total} {noun}{'s' if total != 1 else ''} "
+        f"{'was' if n == 1 else 'were'} written by {', '.join(stale)} and "
+        f"this is {running}. If a fix since then was meant to reach your "
+        f"audio, {remedy} — a {noun} is a snapshot, it doesn't update "
+        "itself.")
 
 
 def summarize(checks) -> tuple[int, int, int, int]:

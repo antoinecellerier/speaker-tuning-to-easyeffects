@@ -1222,6 +1222,8 @@ def test_conf_version_drift(tmp_path):
     assert checks.check_conf_versions(same, "v1") is None
     result = checks.check_conf_versions(same, "v2")
     assert result.status == DOCTOR_WARN and "v1" in result.detail
+    assert result.detail.startswith("1 of 1 conf was written by v1 and "
+                                    "this is v2.")
     # An unreadable header is not drift.
     assert checks.check_conf_versions([_conf(tmp_path, "A")], "v2") is None
 

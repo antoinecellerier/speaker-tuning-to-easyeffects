@@ -115,6 +115,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   has been counting, and whether any happened during the check — the
   numbers a crackling report needs
   ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
+- `--doctor` now warns when the EasyEffects presets in your folder were
+  written by an older version of this tool, as it already did for PipeWire
+  confs — re-run the script on your tuning XML to bring them up to date.
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),

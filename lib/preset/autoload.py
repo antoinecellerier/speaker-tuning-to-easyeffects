@@ -45,6 +45,18 @@ def generator_stamp() -> str:
     return f"{GENERATOR_PREFIX} {version.get_version()}"
 
 
+def generator_version(preset_json) -> str:
+    """The tool version stamped into a preset we wrote, "" when there is no
+    stamp of ours to read — a foreign preset, or an EasyEffects GUI re-save,
+    which rebuilds the JSON and drops unknown top-level keys."""
+    if not isinstance(preset_json, dict):
+        return ""
+    stamp = str(preset_json.get("_generator", ""))
+    if not stamp.startswith(GENERATOR_PREFIX + " "):
+        return ""
+    return stamp[len(GENERATOR_PREFIX) + 1:].strip()
+
+
 def kernel_belongs_to(preset_name: str, stem: str) -> bool:
     """Whether an impulse-file stem is one this tool writes for *preset_name*:
     ``{preset_name}-<8 hex>`` (`lib.preset.emit.kernel_name`) or the legacy

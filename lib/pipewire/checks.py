@@ -958,16 +958,11 @@ def check_easyeffects_conflict(sinks, chains, dump) -> CheckResult | None:
 
 
 def check_conf_versions(confs, running: str) -> CheckResult | None:
-    """A conf written by a different build than the one being run."""
-    stale = sorted({c.version for c in confs if c.version and c.version != running})
-    if not stale:
-        return None
-    return CheckResult(
-        DOCTOR_WARN, "Conf from another version",
-        f"the installed conf(s) were written by {', '.join(stale)} and this "
-        f"is {running}. If a fix since then was meant to reach your audio, "
-        "re-run the converter — a conf is a snapshot, it doesn't update "
-        "itself.")
+    """A conf written by a different build than the one being run — the
+    sentence the EasyEffects doctor says about its presets (lib.doctor)."""
+    return doctor.another_version_check(
+        "Conf from another version", "conf", [c.version for c in confs],
+        running, "re-run the converter")
 
 
 # Every URI the converter can emit, with the label the report gives it.

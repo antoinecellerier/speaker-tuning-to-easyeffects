@@ -41,8 +41,24 @@ _EXPECTED = {
     "output-other-autoloaded": ("other", True, DOCTOR_PASS),
     "output-other-no-autoload": ("other", False, DOCTOR_UNKNOWN),
     "output-unknown": ("unknown", False, DOCTOR_WARN),
+    "presets-from-another-version": ("speaker", True, DOCTOR_PASS),
     "no-pipewire": ("unknown", False, DOCTOR_WARN),
 }
+
+
+def test_the_stale_version_scenario_renders_the_warn(capsys, monkeypatch):
+    """The scenario exists so /user-review can put the new WARN in front of
+    a reviewer; the healthy baseline must not carry it."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render("presets-from-another-version")
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines()
+                if "Presets from another version" in ln)
+    assert tag(DOCTOR_WARN) in line, line
+    joined = " ".join(ln.strip() for ln in out.splitlines())
+    assert "written by v2026.01" in joined
+    preview_doctor.render("output-speakers")
+    assert "another version" not in capsys.readouterr().out
 
 
 def test_registry_and_expectations_agree():
