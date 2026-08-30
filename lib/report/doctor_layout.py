@@ -116,18 +116,19 @@ def version_rows(pipewire: session.Version, wireplumber: session.Version,
                  gutter: int) -> list[str]:
     """`Versions:` — which audio server the rest of the section describes.
 
-    First row of `=== PipeWire ===` in both reports. PipeWire's is the
-    *running daemon*'s (`pw-cli info 0`); WirePlumber has no equivalent
-    query, so its number is the installed binary's (`wireplumber
-    --version`) — the two can differ after an upgrade nobody restarted,
-    and the (running)/(installed) tags say which claim each number makes.
+    First row of `=== PipeWire ===` in both reports. Each number carries
+    its own claim (`Version.claim`): "running" when read from the live
+    daemon (`pw-cli info 0`; WirePlumber's Client object in the
+    filter-chain doctor's dump), "installed" when only the binary answered
+    (`wireplumber --version`) — the two can differ after an upgrade nobody
+    restarted, and the tag says which one the reader is looking at.
     """
-    def half(name: str, v: session.Version, tag: str) -> str:
+    def half(name: str, v: session.Version, fallback: str) -> str:
         # Bare reasons: the daemon question is asked once, by the doctors'
         # own PipeWire check — three rows each asking it read as an echo.
         if not v.ok:
             return f"{name} not read ({v.reason})"
-        return f"{name} {v.text} ({tag})"
+        return f"{name} {v.text} ({v.claim or fallback})"
     return wrapped_row("Versions",
                        f"{half('PipeWire', pipewire, 'running')}, "
                        f"{half('WirePlumber', wireplumber, 'installed')}",

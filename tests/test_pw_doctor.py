@@ -1395,6 +1395,24 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     assert checks.check_conf_directory().status == DOCTOR_WARN
 
 
+def test_wireplumber_running_version_comes_off_the_dump():
+    """The daemon's own number outranks the installed binary's: after an
+    upgrade nobody restarted, the binary PASSes 0.5 while a 0.4 daemon
+    ignores filter.smart — the exact failure the check's FAIL describes."""
+    daemon = {"type": "PipeWire:Interface:Client",
+              "info": {"props": {"application.name": "WirePlumber",
+                                 "wireplumber.daemon": True,
+                                 "application.version": "0.5.15"}}}
+    script = {"type": "PipeWire:Interface:Client",
+              "info": {"props": {"application.name": "WirePlumber",
+                                 "application.version": "9.9"}}}
+    v = checks.wireplumber_running_version([script, daemon])
+    assert (v.text, v.parts, v.claim) == ("0.5.15", (0, 5, 15), "running")
+    assert checks.wireplumber_running_version([script]) is None
+    assert checks.wireplumber_running_version([]) is None
+    assert checks.wireplumber_running_version(None) is None
+
+
 def test_the_versions_are_probed_once_per_run(tmp_path, monkeypatch):
     """"Probe everything once, then judge" — each version probe is a
     subprocess, and the check and the facts dict are two readers of one

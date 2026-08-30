@@ -155,19 +155,24 @@ class Version:
     text: str = ""
     parts: tuple[int, ...] = ()
     reason: str = ""
+    # Which claim the number makes — "running" (read from the live daemon)
+    # or "installed" (the binary that answered) — printed beside it, because
+    # the two can differ after an upgrade nobody restarted.
+    claim: str = ""
 
     @property
     def ok(self) -> bool:
         return not self.reason
 
 
-def _version(out: str | None, no_answer: str) -> Version:
+def _version(out: str | None, no_answer: str, claim: str = "") -> Version:
     """A Version parsed off a tool's stdout, or the *no_answer* reason."""
     m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out or "")
     if not m:
         return Version(reason=no_answer)
     parts = tuple(int(g) for g in m.groups() if g is not None)
-    return Version(text=".".join(str(v) for v in parts), parts=parts)
+    return Version(text=".".join(str(v) for v in parts), parts=parts,
+                   claim=claim)
 
 
 def pipewire_version() -> Version:
@@ -181,17 +186,20 @@ def pipewire_version() -> Version:
         return Version(reason="pw-cli not found")
     out = _run(["pw-cli", "info", "0"])
     m = re.search(r'^\s*version:\s*"([^"]+)"', out or "", re.MULTILINE)
-    return _version(m.group(1) if m else "", "no answer from pw-cli")
+    return _version(m.group(1) if m else "", "no answer from pw-cli",
+                    claim="running")
 
 
 def wireplumber_version() -> Version:
-    """The installed WirePlumber binary's version — the running daemon's
-    isn't queryable, so this is the build that answered, and the row that
-    prints it says "installed"."""
+    """The installed WirePlumber binary's version — the fallback when the
+    running daemon's own number (its Client object in a pw-dump, read by
+    the filter-chain doctor) isn't in hand, and the row says "installed"
+    because that is all this probe can claim."""
     if shutil.which("wireplumber") is None:
         return Version(reason="wireplumber not found")
     return _version(_run(["wireplumber", "--version"]),
-                    "no answer from wireplumber --version")
+                    "no answer from wireplumber --version",
+                    claim="installed")
 
 
 def read_settings() -> ClockSettings:

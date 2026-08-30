@@ -302,6 +302,24 @@ def live_chains(dump) -> list[LiveChain]:
     return list(chains.values())
 
 
+def wireplumber_running_version(dump) -> "session.Version | None":
+    """The RUNNING WirePlumber's version, off its Client object in the dump
+    (`application.version`; `wireplumber.daemon` marks the daemon among its
+    scripting clients). None when the dump or the client is absent — the
+    binary probe is then the only number left, and its row claims only
+    "installed". This is what lets check_wireplumber judge the daemon that
+    actually routes, not the binary an upgrade replaced under it."""
+    for obj in dump or []:
+        if not str(obj.get("type", "")).endswith("Client"):
+            continue
+        props = (obj.get("info") or {}).get("props") or {}
+        if props.get("wireplumber.daemon") and props.get("application.version"):
+            v = session._version(str(props["application.version"]), "x",
+                                 claim="running")
+            return v if v.ok else None
+    return None
+
+
 def sink_names(dump) -> set[str]:
     """node.name of every Audio/Sink in a pw-dump."""
     names = set()
@@ -1141,7 +1159,8 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # loaded" pass for a file that had loaded for nobody.
     confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
     running = version.get_version()
-    wireplumber = session.wireplumber_version()
+    wireplumber = (wireplumber_running_version(dump)
+                   or session.wireplumber_version())
     pipewire = session.pipewire_version()
     # Probed here for the reason the WirePlumber version is: the Environment
     # block renders these facts and the check below judges them, and eight
