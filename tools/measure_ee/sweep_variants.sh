@@ -27,6 +27,8 @@
 # Required env / defaults:
 #   STIM_DIR        : stimulus directory (default: localresearch/measure_dax)
 #   TARGET          : pw-record target (default: ee_capture.monitor)
+#   STIMULI         : optional space-separated subset of stimulus filenames,
+#                     passed to capture_battery.py --stimuli (default: its full battery)
 #
 # Outputs:
 #   $out_base/$label/loopback_*_<label>.{wav,json}
@@ -44,6 +46,7 @@ REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &> /dev/null && pwd)"
 OUT_BASE="${2:-$REPO/localresearch/measure_ee/variants}"
 STIM_DIR="${STIM_DIR:-$REPO/localresearch/measure_dax}"
 TARGET="${TARGET:-ee_capture.monitor}"
+STIMULI="${STIMULI:-}"
 
 if [[ ! -f "$SPEC_FILE" ]]; then
     echo "ERROR: spec file not found: $SPEC_FILE" >&2
@@ -88,6 +91,7 @@ while IFS=$'\t' read -r label build_cmd preset; do
         --label "$label" \
         --target "$TARGET" \
         --out-dir "$out_dir" \
+        ${STIMULI:+--stimuli $STIMULI} \
         $SMOKE_FLAG
 
     SMOKE_FLAG="--skip-smoke"

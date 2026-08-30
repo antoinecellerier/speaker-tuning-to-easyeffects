@@ -2267,6 +2267,57 @@ loud / +21.8 dB quiet makeup measured in Finding 10, i.e. `--enable autogain`
 / `--enable level-restore` territory, not this subsection's; raised with the
 reporter in the same thread.
 
+#### Second deep-threshold tuning: issue [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)'s Yoga Slim 7 Pro 14ACH5 (2026-08-30)
+
+A "constant crackle on every preset" report on a Yoga Slim 7 Pro 14ACH5
+(82MS, ALC287 `17AA384F`, full schema, no Dolby MBC in the XML). Its
+regulator is the #44 class — nine active bands 47–1313 Hz, deepest
+−29.8 dB at 469 Hz, `distortion-slope` 1.0 → 100:1, with volmax +5.1 dB on
+the input — so before the reporter's own A/B came back, the same EE →
+null-sink route as the #44 sweep above was run on this XML (built with
+`--prefix` beside the dev machine's presets; `tools/measure_ee/sweep_variants.sh`
+now takes a `STIMULI` subset so the battery was `bass_burst`, `multitone`,
+`speech`, `pink`). Three variants: `default`, `--disable regulator --disable
+volmax` (the two flags remove the per-band regulator and the static volmax
+boost; the brickwall `limiter#0` stays, idle on this content — peak −6.9 dBFS
+— so this is the linear reference; `--disable regulator` alone moves the
+boost into the brickwall, the confounded shape the #44 table shows), and
+`--volmax-slot output-gain`.
+
+| readout (channel L) | default | no dynamics | `output-gain` |
+| --- | --- | --- | --- |
+| `bass_burst` <300 Hz RMS / crest | −18.1 dBFS / 16.2 dB | −13.3 / 6.3 | −13.2 / 11.4 |
+| `bass_burst` Δ3 at 50 / 80 / 120 / 180 Hz | −33 / −36 / −39 / −49 dB | (none: −155) | −33 / −40 / −43 / −53 |
+| `multitone` (−18 dBFS) out-of-band vs tones | 37.9 dB down | 125.7 dB down | 42.1 dB down |
+| `pink` residual vs XML, RMS / max | 0.88 / 4.73 dB | 0.79 / 2.93 | 0.75 / 3.14 |
+
+So on this tuning the regulator is engaged at ordinary level (the #44
+finding again: 4.8 dB off a −5 dBFS bass burst, and a 4.7 dB pink excursion
+where the linear build has 2.9) — and the burst's shape says how: its body
+is held 4–6 dB down while its onset passes about 5 dB *above* the linear
+build (peak −1.8 vs −6.9 dBFS), which is why the crest factor rises from 6
+to 16 dB rather than falling. An unclamped onset is the better crackle
+candidate of the two. It is the chain's only nonlinearity: odd-order
+products 33–49 dB below the fundamental on the four bass tones (2.2 % at
+50 Hz, 1.1 % at 120 Hz), intermodulation ~38 dB below a multitone (1.3 %).
+That is 1–2 % — grit on paper, not crackle — and `output-gain` is 4 dB
+cleaner on the multitone while restoring the bass level, consistent with
+#44. The `speech` capture yielded no usable distortion number: a
+whole-signal residual against the linear build is dominated by the
+regulator's band-selective, time-varying gain, which a static gain match
+cannot remove; a per-band envelope comparison would be needed. Listening to
+the captures is the gate that has not run.
+
+What this can and cannot say: it bounds what our DSP adds on this XML; it
+cannot reproduce a graph-level crackle (xruns, quantum) on the reporter's
+machine, which the doctor could not see either — hence the `PipeWire:` and
+`Dropouts:` rows the same day. A three-rung split (EasyEffects bypass → quit
+EasyEffects → the linear rebuild), each with a GUI and a terminal route, is
+drafted for the reporter; if the linear build is what clears it, that is a
+second listener saying our regulator is audible — not yet the second DAX
+attack curve the regulator attack-time question (entry 11) is parked on,
+since the two flags also remove the thresholds, ratio and boost.
+
 ### Unvalidated converter scaling factors (the `ieq-amount` class)
 
 Finding 9 corrected a scaling *interpretation*, not an arithmetic slip:

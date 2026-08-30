@@ -229,8 +229,8 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, default=Path.cwd(),
                     help="Output directory (default cwd)")
     ap.add_argument("--stimuli", nargs="*",
-                    help="Subset of stimulus filenames "
-                         "(default all 5 in stimulus-dir)")
+                    help="Subset of stimulus filenames (default: the full "
+                         "battery, STIMULUS_NAMES, in stimulus-dir)")
     ap.add_argument("--skip-smoke", action="store_true",
                     help="Don't run a Nothing-preset smoke check first")
     ap.add_argument("-v", "--verbose", action="store_true")
