@@ -65,6 +65,7 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | Lenovo Yoga Pro 7 14APH8 (82Y8) | Realtek ALC287, 17AA:38C6 | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
 | Lenovo Yoga Pro 7 14ASP9 (83HN) | Realtek ALC287, 17AA:38A7 | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
+| Lenovo Yoga Pro 7 14IMH9 (83E2) | Realtek ALC287, 17AA:38CF | [#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83) |
 | Lenovo Yoga Pro 9i 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
 | Lenovo Yoga Slim 7 14ARE05 (82A2) | Realtek ALC287, 17AA:380D | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
 | Lenovo Yoga Slim 7 14ILL10 (83JX) | Soundwire 17AA:3838 | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
