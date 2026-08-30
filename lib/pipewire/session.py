@@ -1,4 +1,4 @@
-"""PipeWire's session clock and per-node dropout counts, read for `--doctor`.
+"""PipeWire's session as `--doctor` reads it: clock and per-node dropouts.
 
 Read-only wrappers around PipeWire's own tools — `pw-metadata -n settings`
 for the clock (rate, quantum, its bounds, anything forced) and `pw-top -b`

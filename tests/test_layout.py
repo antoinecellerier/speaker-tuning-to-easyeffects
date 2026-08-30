@@ -114,9 +114,10 @@ STDLIB_ONLY = (
     "lib.pipewire.plugins",
     "lib.pipewire.conf",
     "lib.pipewire.vbe",
-    # The PipeWire clock / xrun reader both doctors print from; its own
-    # docstring promises stdlib-only, and lib.report.doctor_layout reaches it.
-    "lib.pipewire.clock",
+    # The PipeWire session reader (clock, xruns, uptime) both doctors print
+    # from; its own docstring promises stdlib-only, and
+    # lib.report.doctor_layout reaches it.
+    "lib.pipewire.session",
     # The schema self-check the converter runs over that output — listed for
     # the other half of FORBIDDEN rather than for startup cost, which
     # test_converter_startup_pulls_in_no_dsp already covers transitively and

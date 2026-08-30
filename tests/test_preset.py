@@ -47,7 +47,7 @@ from lib.doctor import (
     summarize,
 )
 from lib.hardware import sinks, speakers
-from lib.pipewire import clock
+from lib.pipewire import session
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_layout
 from lib.report import doctor_run
@@ -3845,9 +3845,9 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     """Issue #84: a crackling report whose paste could not say what quantum
     the chain ran at or whether the graph dropped buffers. Rows, not checks —
     no quantum is known to be too small and the xrun counter is cumulative."""
-    ok = clock.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
+    ok = session.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
                              max_quantum="2048", force_quantum="0", force_rate="0")
-    quiet = clock.Dropouts(sink=0, chain=0, chain_node="easyeffects_sink",
+    quiet = session.Dropouts(sink=0, chain=0, chain_node="easyeffects_sink",
                            sink_recent=0, chain_recent=0, window_s=5.0, playing=False,
                            sink_is_driver=True, running_quantum=0)
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
@@ -3874,11 +3874,11 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     order = [ln.split(":")[0].strip() for ln in lines]
     assert order.index("Clock") < order.index("EasyEffects")
 
-    forced = clock.ClockSettings(rate="48000", quantum="256", min_quantum="32",
+    forced = session.ClockSettings(rate="48000", quantum="256", min_quantum="32",
                                  max_quantum="2048", force_quantum="256",
                                  force_rate="44100")
     f["pw_clock"] = forced
-    f["pw_xruns"] = clock.Dropouts(sink=42, chain=14, chain_node="ee_soe_convolver",
+    f["pw_xruns"] = session.Dropouts(sink=42, chain=14, chain_node="ee_soe_convolver",
                                    sink_recent=3, chain_recent=0, window_s=5.0,
                                    playing=True, sink_is_driver=True,
                                    running_quantum=256, running_rate=48000)
@@ -3906,7 +3906,7 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     assert order.index("Output sink") < order.index("Clock") < order.index("Dropouts")
     # No age known, EasyEffects' nodes clean, only the sink counting, and the
     # sink following another driver.
-    f["pw_xruns"] = clock.Dropouts(sink=42, chain=0, chain_node="easyeffects_source",
+    f["pw_xruns"] = session.Dropouts(sink=42, chain=0, chain_node="easyeffects_source",
                                    sink_recent=0, chain_recent=0, window_s=5.0)
     f.pop("pw_age"); f.pop("ee_age")
     text = " ".join(ln.strip() for ln in doctor_run._environment_lines(f))
@@ -3919,12 +3919,12 @@ def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
     """TRAP: an unread value must not vanish — in a pasted report an absent
     row and a zero are indistinguishable, and the reassuring one wins."""
     f = {"ee_running": False, "rc_present": True, "rc_path": "~/rc",
-         "pw_clock": clock.ClockSettings(reason="pw-metadata not found"),
-         "pw_xruns": clock.Dropouts(reason="pw-top didn't answer")}
+         "pw_clock": session.ClockSettings(reason="pw-metadata not found"),
+         "pw_xruns": session.Dropouts(reason="pw-top didn't answer")}
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
     assert rows["Clock"].endswith("pw-metadata not found — clock settings not read")
     assert rows["Dropouts"].endswith("not read (pw-top didn't answer)")
-    f["pw_clock"] = clock.ClockSettings(reason="no answer from pw-metadata")
+    f["pw_clock"] = session.ClockSettings(reason="no answer from pw-metadata")
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
     assert rows["Clock"].endswith("no answer from pw-metadata — is the PipeWire "
                                   "daemon running?")
@@ -3957,8 +3957,8 @@ def test_environment_lines_keep_the_gutter():
          "output_device": "s", "output_device_source": "live",
          "output_label": "Speaker",
          "output_plugins": ["c"], "bypass": False, "bypass_is_live": True,
-         "pw_clock": clock.ClockSettings(rate="48000", quantum="1024"),
-         "pw_xruns": clock.Dropouts(sink=3, chain=1, chain_node="ee_soe_convolver",
+         "pw_clock": session.ClockSettings(rate="48000", quantum="1024"),
+         "pw_xruns": session.Dropouts(sink=3, chain=1, chain_node="ee_soe_convolver",
                                     sink_recent=0, chain_recent=0, window_s=5.0)}
     assert_rows_line_up(doctor_run._environment_lines(f), doctor_layout.GUTTER)
 

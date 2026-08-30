@@ -62,7 +62,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.hardware import sinks
-from lib.pipewire import clock
+from lib.pipewire import session
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
 from lib.report import environment
@@ -646,10 +646,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     #     fault and send the reader to change a session setting. What issue
     #     #84's paste lacked was the numbers, and a remote reader can weigh
     #     them.
-    pw_clock = clock.read_settings()
-    pw_xruns = clock.read_xruns(sink=live.sink or "")
-    pw_age = clock.process_age("pipewire")
-    ee_age = clock.process_age("easyeffects")
+    pw_clock = session.read_settings()
+    pw_xruns = session.read_xruns(sink=live.sink or "")
+    pw_age = session.process_age("pipewire")
+    ee_age = session.process_age("easyeffects")
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
     gate_check = environment.firmware_gate_status(

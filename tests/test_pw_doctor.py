@@ -18,17 +18,17 @@ import pytest
 
 import ee_to_pipewire
 from lib import console, packages
-from lib.pipewire import checks, clock, conf
+from lib.pipewire import checks, conf, session
 
 
 @pytest.fixture(autouse=True)
 def _no_live_pipewire_window(monkeypatch):
     """The report's `=== PipeWire ===` section reads pw-top over a five-second
     window; no test here should pay that, nor depend on this machine's
-    graph. The parser tests below stub `clock._run` themselves."""
+    graph. The parser tests below stub `session._run` themselves."""
     monkeypatch.setattr(checks, "_probe_pipewire", lambda chains, default: (
-        clock.ClockSettings(reason="pw-metadata not found"),
-        clock.Dropouts(reason="pw-top not found"), None))
+        session.ClockSettings(reason="pw-metadata not found"),
+        session.Dropouts(reason="pw-top not found"), None))
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
 from lib import ee_socket
@@ -1558,7 +1558,7 @@ def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,
             == _ee_check_block(check, monkeypatch, capsys))
 
 
-# --- PipeWire clock / dropouts (lib.pipewire.clock) ------------------------
+# --- PipeWire clock / dropouts (lib.pipewire.session) ------------------------
 #
 # Issue #84: a crackling report whose pasted --doctor output could not say
 # what quantum the chain ran at or whether the graph dropped buffers. The
@@ -1606,19 +1606,19 @@ _SPEAKER_NODE = ("alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic"
 
 
 def test_parse_settings_reads_the_clock_keys_past_the_preamble():
-    values = clock.parse_settings(PW_METADATA_SETTINGS)
+    values = session.parse_settings(PW_METADATA_SETTINGS)
     assert values["clock.rate"] == "48000"
     assert values["clock.quantum"] == "1024"
     assert values["clock.min-quantum"] == "32"
     assert values["clock.max-quantum"] == "2048"
     assert values["clock.force-quantum"] == "0"
     assert values["clock.force-rate"] == "0"
-    assert clock.parse_settings("") == {}
-    assert clock.parse_settings("Found \"settings\" metadata 32\n") == {}
+    assert session.parse_settings("") == {}
+    assert session.parse_settings("Found \"settings\" metadata 32\n") == {}
 
 
 def test_parse_pwtop_splits_snapshots_and_reads_the_columns_by_position():
-    snaps = clock.parse_pwtop(PW_TOP_BATCH)
+    snaps = session.parse_pwtop(PW_TOP_BATCH)
     assert len(snaps) == 3
     assert snaps[0]["easyeffects_sink"][:2] == ("C", 0)            # the placeholder
     assert snaps[1]["easyeffects_sink"][:2] == ("R", 26)
@@ -1634,13 +1634,13 @@ def test_parse_pwtop_splits_snapshots_and_reads_the_columns_by_position():
     assert snaps[1][mic].driver == mic
     assert snaps[1][_SPEAKER_NODE].driver == mic and snaps[1][_SPEAKER_NODE].quant == 0
     assert snaps[1]["Firefox"].driver == mic
-    assert clock.parse_pwtop("") == []
+    assert session.parse_pwtop("") == []
 
 
 def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatch):
-    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_TOP_BATCH)
-    d = clock.read_xruns(sink=_SPEAKER_NODE)
+    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: PW_TOP_BATCH)
+    d = session.read_xruns(sink=_SPEAKER_NODE)
     assert d.ok
     assert (d.sink, d.chain, d.chain_node) == (42, 27, "easyeffects_sink")
     # Growth is measured from the second snapshot: against the placeholder
@@ -1656,16 +1656,16 @@ def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatc
     driving = PW_TOP_BATCH.replace("   42    S32LE 2 48000  + alsa_output",
                                    "   42    S32LE 2 48000 alsa_output") \
                           .replace("R   91      0      0", "R   91    256  48000")
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: driving)
-    d = clock.read_xruns(sink=_SPEAKER_NODE)
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: driving)
+    d = session.read_xruns(sink=_SPEAKER_NODE)
     assert d.sink_is_driver and (d.running_quantum, d.running_rate) == (256, 48000)
     # Without the sink named, only EasyEffects' side is reported.
-    d = clock.read_xruns()
+    d = session.read_xruns()
     assert (d.sink, d.sink_recent, d.chain) == (None, None, 27)
     # A filter chain names its nodes exactly instead of by prefix.
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_TOP_BATCH.replace(
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: PW_TOP_BATCH.replace(
         "+ ee_soe_multiband_compressor", "+ effect_output.Dolby_Balanced"))
-    d = clock.read_xruns(sink=_SPEAKER_NODE, chain_prefixes=(),
+    d = session.read_xruns(sink=_SPEAKER_NODE, chain_prefixes=(),
                          chain_names=["effect_input.Dolby_Balanced",
                                       "effect_output.Dolby_Balanced"])
     assert (d.chain, d.chain_node) == (14, "effect_output.Dolby_Balanced")
@@ -1673,23 +1673,23 @@ def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatc
     # beside a running sink is "nothing was playing".
     idle = PW_TOP_BATCH.replace("R  119", "S  119").replace("R  140", "S  140") \
                        .replace("R  331", "S  331")
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: idle)
-    assert not clock.read_xruns(sink=_SPEAKER_NODE).playing
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: idle)
+    assert not session.read_xruns(sink=_SPEAKER_NODE).playing
 
 
 def test_read_xruns_says_why_when_it_cannot(monkeypatch):
     """TRAP: an unreadable count must never render as zero — in a pasted
     report the two are indistinguishable, and the reassuring one wins."""
-    monkeypatch.setattr(clock.shutil, "which", lambda name: None)
-    assert clock.read_xruns().reason == "pw-top not found"
-    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: None)
-    assert clock.read_xruns().reason == "pw-top didn't answer"
+    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    assert session.read_xruns().reason == "pw-top not found"
+    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: None)
+    assert session.read_xruns().reason == "pw-top didn't answer"
     no_ee = "\n".join(
         ln for ln in PW_TOP_BATCH.splitlines()
-        if not ln.split()[-1].startswith(clock.EASYEFFECTS_NODE_PREFIXES))
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: no_ee)
-    assert clock.read_xruns().reason == "none of the chain's nodes are in the graph"
+        if not ln.split()[-1].startswith(session.EASYEFFECTS_NODE_PREFIXES))
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: no_ee)
+    assert session.read_xruns().reason == "none of the chain's nodes are in the graph"
 
 
 def test_process_age_is_read_off_proc_stat_past_the_comm_field():
@@ -1698,28 +1698,28 @@ def test_process_age_is_read_off_proc_stat_past_the_comm_field():
     stat = ("4628 (pipe wire (x)) S 1 4628 4628 0 -1 4194560 12 0 0 0 5 3 0 0 "
             "20 0 3 0 3900 1000000 500 18446744073709551615 1 1 0 0 0 0 0 0 0 "
             "0 0 0 17 3 0 0 0 0 0 0 0 0 0 0 0 0 0")
-    assert clock.age_from_stat(stat, uptime_s=114442.0, clk_tck=100) == 114403.0
-    assert clock.age_from_stat("garbage", 10.0, 100) is None
-    assert clock.age_from_stat(stat, uptime_s=1.0, clk_tck=100) == 0.0   # never negative
+    assert session.age_from_stat(stat, uptime_s=114442.0, clk_tck=100) == 114403.0
+    assert session.age_from_stat("garbage", 10.0, 100) is None
+    assert session.age_from_stat(stat, uptime_s=1.0, clk_tck=100) == 0.0   # never negative
 
 
 def test_format_age_uses_the_two_largest_units():
-    assert clock.format_age(114403) == "1 d 7 h"
-    assert clock.format_age(3 * 86400) == "3 d"
-    assert clock.format_age(2 * 3600 + 5 * 60 + 9) == "2 h 5 min"
-    assert clock.format_age(3600) == "1 h"
-    assert clock.format_age(33 * 60 + 40) == "33 min"
-    assert clock.format_age(48) == "48 s"
+    assert session.format_age(114403) == "1 d 7 h"
+    assert session.format_age(3 * 86400) == "3 d"
+    assert session.format_age(2 * 3600 + 5 * 60 + 9) == "2 h 5 min"
+    assert session.format_age(3600) == "1 h"
+    assert session.format_age(33 * 60 + 40) == "33 min"
+    assert session.format_age(48) == "48 s"
 
 
 def test_read_settings_soft_fails_in_the_reports_own_words(monkeypatch):
-    monkeypatch.setattr(clock.shutil, "which", lambda name: None)
-    assert clock.read_settings().reason == "pw-metadata not found"
-    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: "")
-    assert clock.read_settings().reason == "no answer from pw-metadata"
-    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_METADATA_SETTINGS)
-    settings = clock.read_settings()
+    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    assert session.read_settings().reason == "pw-metadata not found"
+    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: "")
+    assert session.read_settings().reason == "no answer from pw-metadata"
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: PW_METADATA_SETTINGS)
+    settings = session.read_settings()
     assert settings.ok
     assert (settings.rate, settings.quantum, settings.min_quantum,
             settings.max_quantum, settings.force_quantum, settings.force_rate
@@ -1730,10 +1730,10 @@ def test_pipewire_section_is_worded_for_a_filter_chain():
     """The section both doctors print: on this path the chain lives inside
     PipeWire, so there is no app uptime to bound the counters, its nodes are
     "the chain's", and the default sink is what "the output sink" means."""
-    settings = clock.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
+    settings = session.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
                                    max_quantum="2048", force_quantum="0",
                                    force_rate="0")
-    d = clock.Dropouts(sink=3, chain=1, chain_node="effect_output.Dolby_Balanced",
+    d = session.Dropouts(sink=3, chain=1, chain_node="effect_output.Dolby_Balanced",
                        sink_recent=0, chain_recent=0, window_s=5.0, playing=False,
                        sink_is_driver=True, running_quantum=1024, running_rate=48000)
     lines = checks._pipewire_lines(checks.DefaultSink(effective="alsa_output.spk"),
@@ -1750,7 +1750,7 @@ def test_pipewire_section_is_worded_for_a_filter_chain():
     # A Bluetooth default is redacted like every node name in the report.
     lines = checks._pipewire_lines(
         checks.DefaultSink(effective="bluez_output.80_99_E7_E0_8A_23.1"),
-        settings, clock.Dropouts(reason="pw-top not found"), None)
+        settings, session.Dropouts(reason="pw-top not found"), None)
     assert "80_99" not in " ".join(lines)
     assert any("not read (pw-top not found)" in ln for ln in lines)
 
@@ -1764,8 +1764,8 @@ def test_the_two_doctors_print_one_output_sink_row():
     label, node = "Built-in Audio Speaker", "alsa_output.spk"
     pw = checks._pipewire_lines(
         checks.DefaultSink(effective=node),
-        clock.ClockSettings(reason="pw-metadata not found"),
-        clock.Dropouts(reason="pw-top not found"), None, label=label)
+        session.ClockSettings(reason="pw-metadata not found"),
+        session.Dropouts(reason="pw-top not found"), None, label=label)
     ee = doctor_run._environment_lines(
         {"ee_running": True, "rc_present": True, "output_device": node,
          "output_device_source": "live", "output_label": label})

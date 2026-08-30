@@ -370,8 +370,8 @@ future extraction has to respect, and each is checked rather than remembered:
   from `lib/preset/` into `lib/report/` (`messages.VOICING_CURVES`), and it is
   one-way.
 - **`lib/pipewire/` layers `plugins ← conf ← {install, checks}`**, with no edge
-  between the top two; `clock.py` sits beside them as a stdlib-only leaf
-  (the PipeWire clock and xrun reader), which is what lets
+  between the top two; `session.py` sits beside them as a stdlib-only leaf
+  (the PipeWire session reader: clock, xruns, uptime), which is what lets
   `lib/report/doctor_layout.py` — the frame both doctors print into — import
   it without dragging the chain in.
   `lib/report/doctor_run.py` sits strictly above

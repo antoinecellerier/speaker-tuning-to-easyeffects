@@ -64,7 +64,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
-from lib.pipewire import clock, vbe
+from lib.pipewire import session, vbe
 from lib.pipewire.plugins import (
     CALF_BE_URI,
     CALF_ST_URI,
@@ -1289,20 +1289,20 @@ def _environment_lines(confs, chains, facts) -> list[str]:
 
 
 def _probe_pipewire(chains, default: DefaultSink
-                    ) -> tuple[clock.ClockSettings, clock.Dropouts, float | None]:
+                    ) -> tuple[session.ClockSettings, session.Dropouts, float | None]:
     """The `=== PipeWire ===` facts: the clock, the dropout counters on the
     default sink and the live chains' own nodes, and PipeWire's uptime. One
     function so tests can stand in for the five-second pw-top window."""
     names = [f"effect_{half}.{c.name}" for c in chains
              for half in ("input", "output")]
-    return (clock.read_settings(),
-            clock.read_xruns(sink=default.effective, chain_prefixes=(),
+    return (session.read_settings(),
+            session.read_xruns(sink=default.effective, chain_prefixes=(),
                              chain_names=names),
-            clock.process_age("pipewire"))
+            session.process_age("pipewire"))
 
 
-def _pipewire_lines(default: DefaultSink, settings: clock.ClockSettings,
-                    dropouts: clock.Dropouts, pw_age: float | None,
+def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
+                    dropouts: session.Dropouts, pw_age: float | None,
                     label: str = "") -> list[str]:
     """The `=== PipeWire ===` body for this path: the default sink, the clock,
     the dropouts — rendered by the frame both doctors share, worded for a

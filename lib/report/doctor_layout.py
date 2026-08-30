@@ -38,7 +38,7 @@ from collections.abc import Sequence
 
 from lib import console, doctor
 from lib.doctor import CheckResult
-from lib.pipewire import clock
+from lib.pipewire import session
 from lib.report import findings as report_findings
 
 
@@ -131,7 +131,7 @@ def output_sink_rows(label: str, node: str, suffix: str, gutter: int
         + [" " * gutter + node + suffix]
 
 
-def clock_rows(settings: clock.ClockSettings, d: clock.Dropouts | None,
+def clock_rows(settings: session.ClockSettings, d: session.Dropouts | None,
                gutter: int) -> list[str]:
     """`Clock:` — the session's clock settings, then on a second line the
     cycle the output actually ran at during the check, or why unknown.
@@ -175,7 +175,7 @@ def clock_rows(settings: clock.ClockSettings, d: clock.Dropouts | None,
     return rows
 
 
-def dropouts_rows(d: clock.Dropouts, pw_age: float | None, app_age: float | None,
+def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | None,
                   gutter: int, *, app: str = "EasyEffects",
                   nodes: str = "EasyEffects' nodes",
                   busiest: str = "the busiest EasyEffects node",
@@ -225,10 +225,10 @@ def dropouts_rows(d: clock.Dropouts, pw_age: float | None, app_age: float | None
         lead = ", ".join(parts)
     ages = []
     if pw_age is not None:
-        ages.append(f"PipeWire's {clock.format_age(pw_age)}")
+        ages.append(f"PipeWire's {session.format_age(pw_age)}")
     if app_age is not None:
-        ages.append(f"{app}' {clock.format_age(app_age)}"
-                    if app.endswith("s") else f"{app}'s {clock.format_age(app_age)}")
+        ages.append(f"{app}' {session.format_age(app_age)}"
+                    if app.endswith("s") else f"{app}'s {session.format_age(app_age)}")
     since = " — since each node was created" + (
         f", at most {' / '.join(ages)} uptime" if ages else "")
     rows = wrapped_row("Dropouts", lead + since, gutter)
