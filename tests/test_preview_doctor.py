@@ -164,21 +164,21 @@ def test_scenario_restores_every_probe_it_stubbed():
     """They all run in one process, so a leak would let one scenario decide
     the next one's answer — and the block map would still look right."""
     from lib.preset import autoload
-    before = (sinks._enumerate_audio_sinks, sinks.live_default,
+    before = (sinks._enumerate_audio_sinks, sinks.live_session,
               doctor_run._ee_query, autoload.read_ee_rc)
     with preview_doctor._scenario("output-other-autoloaded"):
         assert sinks._enumerate_audio_sinks is not before[0]
         assert doctor_run._ee_query is not before[2]
-    assert (sinks._enumerate_audio_sinks, sinks.live_default,
+    assert (sinks._enumerate_audio_sinks, sinks.live_session,
             doctor_run._ee_query, autoload.read_ee_rc) == before
 
 
 def test_scenario_restores_the_probes_even_when_the_body_raises():
     from lib.preset import autoload
-    before = (sinks._enumerate_audio_sinks, sinks.live_default,
+    before = (sinks._enumerate_audio_sinks, sinks.live_session,
               doctor_run._ee_query, autoload.read_ee_rc)
     with pytest.raises(RuntimeError):
         with preview_doctor._scenario("output-speakers"):
             raise RuntimeError("boom")
-    assert (sinks._enumerate_audio_sinks, sinks.live_default,
+    assert (sinks._enumerate_audio_sinks, sinks.live_session,
             doctor_run._ee_query, autoload.read_ee_rc) == before

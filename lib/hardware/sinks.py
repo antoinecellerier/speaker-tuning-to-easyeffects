@@ -217,16 +217,29 @@ def select_speaker_sinks() -> dict:
     return {"tier": "none", "selected": [], "all_sinks": all_sinks}
 
 
-def live_default():
-    """PipeWire's default output as a `checks.DefaultSink`: the node name
-    when the graph answered, the reason when it couldn't be read.
+def live_session() -> tuple:
+    """What one `pw-dump` says about the running session: `(default sink,
+    WirePlumber's running version or None)`.
+
+    Both come off the same dump because the doctor prints them a few rows
+    apart, and a second dump could answer for a graph that has since changed.
+    The version is None when the daemon didn't answer or isn't in the graph;
+    the caller falls back to the installed binary, which is a different fact
+    and says so.
 
     Imported inside the function so the EasyEffects path doesn't drag in the
     PipeWire checks module (which imports back into lib/report/) on the runs
     that never need it.
     """
     from lib.pipewire import checks
-    return checks.default_sinks(checks._pw_dump())
+    dump = checks._pw_dump()
+    return checks.default_sinks(dump), checks.wireplumber_running_version(dump)
+
+
+def live_default():
+    """PipeWire's default output as a `checks.DefaultSink`: the node name
+    when the graph answered, the reason when it couldn't be read."""
+    return live_session()[0]
 
 
 def live_default_sink() -> str:

@@ -3493,8 +3493,10 @@ def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=()):
             value=preset if r == ee_socket.PRESET_REQUEST else bypass,
             reached=True, answered=True))
     from lib.pipewire import checks as pw_checks
-    monkeypatch.setattr(sinks, "live_default",
-                        lambda: pw_checks.DefaultSink(effective=sink))
+    monkeypatch.setattr(
+        sinks, "live_session",
+        lambda: (pw_checks.DefaultSink(effective=sink),
+                 session.Version("0.5.15", (0, 5, 15), claim="running")))
     # Classifying a sink reaches the graph, so stub the one pw-dump boundary:
     # unpatched these would answer from the developer machine's own audio.
     # The default empty graph classifies everything "unknown".
@@ -3972,6 +3974,30 @@ def test_environment_lines_lead_with_the_daemon_versions(monkeypatch):
     bare = doctor_run._environment_lines({"ee_running": True,
                                           "rc_present": True})
     assert not any("Versions:" in ln for ln in bare)
+
+
+def test_the_wireplumber_row_prefers_the_daemon_the_graph_names(monkeypatch):
+    """TRAP: both doctors answer this from the same probe. The EasyEffects one
+    reads no pw-dump of its own, so it used to print the installed binary's
+    version while a newer daemon was running — a version row that says
+    "(running)" on one report and "(installed)" on the other, for one machine.
+    """
+    from lib.pipewire import checks as pw_checks
+    running = session.Version("0.5.15", (0, 5, 15), claim="running")
+    monkeypatch.setattr(
+        sinks, "live_session",
+        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), running))
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: [])
+    monkeypatch.setattr(doctor_run, "_ee_query",
+                        lambda r: ee_socket.EEReply(reached=False))
+    assert doctor_run._resolve_live_state({}).wireplumber is running
+
+    # Nothing in the graph to read it off — the installed binary answers, and
+    # the tag says which fact it is.
+    monkeypatch.setattr(
+        sinks, "live_session",
+        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), None))
+    assert doctor_run._resolve_live_state({}).wireplumber is None
 
 
 def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():

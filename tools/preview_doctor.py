@@ -154,17 +154,21 @@ def _scenario(slug: str):
     spec = SCENARIOS[slug]
     saved = {
         "enum": sinks._enumerate_audio_sinks,
-        "default": sinks.live_default,
+        "default": sinks.live_session,
         "query": doctor_run._ee_query,
         "read_rc": autoload.read_ee_rc,
         "session": (session.read_settings, session.read_xruns,
-                    session.process_age, session.pipewire_version),
+                    session.process_age, session.pipewire_version,
+                    session.wireplumber_version),
     }
     sinks._enumerate_audio_sinks = lambda: list(spec["sinks"])
-    sinks.live_default = lambda: (
-        checks.DefaultSink(reason=checks.NO_DUMP_REASON)
+    # (default sink, running WirePlumber) — the version rides the same probe,
+    # so a scenario with no daemon shows both in their unread forms.
+    sinks.live_session = lambda: (
+        (checks.DefaultSink(reason=checks.NO_DUMP_REASON), None)
         if spec.get("no_pipewire")
-        else checks.DefaultSink(effective=spec["default"]))
+        else (checks.DefaultSink(effective=spec["default"]),
+              session.Version("0.5.15", (0, 5, 15), claim="running")))
     # A daemon that isn't answering must not answer anything: the clock, the
     # dropout window, the uptimes and the daemon version all show their
     # unread forms, which is the whole point of that scenario.
@@ -176,6 +180,10 @@ def _scenario(slug: str):
         session.process_age = lambda name: None
         session.pipewire_version = lambda: session.Version(
             reason="no answer from pw-cli")
+        # The graph named no WirePlumber either, so the row falls back to the
+        # installed binary — which this scenario's machine cannot run.
+        session.wireplumber_version = lambda: session.Version(
+            reason="wireplumber not found")
 
     # A running daemon is the authoritative source for the loaded preset, so
     # the scenario has to answer as one or the real EasyEffects on the capture
@@ -214,11 +222,12 @@ def _scenario(slug: str):
             yield out_dir, irs_dir, autoload_dir
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]
-            sinks.live_default = saved["default"]
+            sinks.live_session = saved["default"]
             doctor_run._ee_query = saved["query"]
             autoload.read_ee_rc = saved["read_rc"]
             (session.read_settings, session.read_xruns,
-             session.process_age, session.pipewire_version) = saved["session"]
+             session.process_age, session.pipewire_version,
+             session.wireplumber_version) = saved["session"]
 
 
 def render(slug: str) -> None:

@@ -176,6 +176,9 @@ class LiveState:
     # absorbed, so this stops reporting stale values as current the moment it
     # happens instead of whenever someone next reads the source.
     unanswered: list[str] = field(default_factory=list)
+    # WirePlumber's version as the graph reports it, off the same pw-dump the
+    # sink came from; None when it wasn't there to read.
+    wireplumber: "session.Version | None" = None
 
     @property
     def system_output_is_speaker(self) -> bool:
@@ -206,12 +209,15 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if reply.reached:
             state.unanswered.append("loaded preset")
 
+    # One pw-dump answers two rows of the report — which sink PipeWire is
+    # sending to, and which WirePlumber is running — so it is read even for a
+    # pinned output, whose sink comes from the rc.
+    d, state.wireplumber = sinks.live_session()
     # useDefaultOutputDevice defaults ON, in which case EE just follows the
     # system default sink and the rc holds a stale copy of it. Pinned is the
     # opposite: only the GUI writes that key, so the rc is then the truth and
     # the live default sink is the wrong answer.
     if rc.get("use_default_output_device", True):
-        d = sinks.live_default()
         if d.effective:
             state.sink, state.sink_source = d.effective, "live"
             state.sink_kind, state.sink_label = \
@@ -676,7 +682,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     ee_age = session.process_age("easyeffects")
     # Which server those numbers describe — probed once here, beside them.
     pw_version = session.pipewire_version()
-    wp_version = session.wireplumber_version()
+    # The running daemon when the graph named it, the installed binary
+    # otherwise — same order as the filter-chain doctor, same probe.
+    wp_version = live.wireplumber or session.wireplumber_version()
     unread = _pipewire_unread_check(pw_clock, pw_xruns)
     if unread is not None:
         report.checks.append(unread)
