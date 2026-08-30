@@ -9,12 +9,15 @@ and the text around the findings live here rather than in each of them.
 something is already wrong, and the report is longer than a terminal: printed
 inventory-last, the checks and the fix command scrolled off a 26-line window
 and a PCI listing was the last thing on screen. So the widest context goes
-first (hardware, the same block `--speaker-info` prints), then the tool's own
-state, then what is wrong with it, then what to do about it. The `===
-Environment ===` block sits directly above the checks because the check details
-name those confs, sinks and presets — the facts a reader cross-references stay
-on the same screen. `.claude/rules/user-messages.md` states the contract;
-`tests/test_pw_doctor.py` and `tests/test_preset.py` each trap the order.
+first (hardware, the same block `--speaker-info` prints), then the audio
+server (`=== PipeWire ===`: where the sound goes, the clock, dropped buffers),
+then the tool's own state (`=== EasyEffects setup ===`, or the PipeWire path's
+`=== PipeWire filter-chain setup ===`), then what is wrong with it, then what
+to do about it. The setup block sits directly above the checks because the
+check details name those confs, sinks and presets — the facts a reader
+cross-references stay on the same screen. `.claude/rules/user-messages.md`
+states the contract; `tests/test_pw_doctor.py` and `tests/test_preset.py`
+each trap the order.
 
 The hardware block is *not* printed from here. Both reports show it in the same
 slot, but the PipeWire side probes at print time and the EasyEffects side at
@@ -48,17 +51,21 @@ def print_report_header(running_version: str) -> None:
     print()
 
 
-def print_environment(lines: Sequence[str]) -> None:
-    """The tool's own state — raw probed facts, always shown.
+def print_environment(lines: Sequence[str], title: str) -> None:
+    """An inventory block — raw probed facts, always shown, under *title*.
 
     Shown whatever the checks concluded: a verdict can be wrong or UNKNOWN and
     the report still has to be diagnosable by someone reading it remotely.
+    Sections are named by what they list (`=== PipeWire ===`, `=== EasyEffects
+    setup ===`), like every other section of the report — not "Environment",
+    which named nothing a reader could find.
 
     ``lines`` are rendered strings, printed verbatim through bare ``print``.
     Unstyled is deliberate — this is a paste block, and each report pads its
-    labels to a 16-column gutter so the values line up.
+    labels to a gutter so the values line up. An empty string is a group
+    break within the block.
     """
-    console.cprint("head", "=== Environment ===")
+    console.cprint("head", title)
     for line in lines:
         print(line)
     print()

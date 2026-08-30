@@ -746,21 +746,33 @@ def _wrapped_row(label: str, value: str) -> list[str]:
                          subsequent_indent=" " * _GUTTER)
 
 
-def _pipewire_rows(settings: "clock.ClockSettings",
-                   d: "clock.Dropouts | None" = None) -> list[str]:
-    """`PipeWire:` — the session's clock settings, and the clock the output
-    actually ran at during the check, or why they're unknown.
+def _continuation(text: str) -> list[str]:
+    """A second line of a row, hung on the gutter: the standing state above,
+    what the check itself observed below, so the two never read as one."""
+    return textwrap.wrap(text, width=console._wrap_width(),
+                         break_on_hyphens=False,
+                         initial_indent=" " * _GUTTER,
+                         subsequent_indent=" " * _GUTTER)
+
+
+def _clock_rows(settings: "clock.ClockSettings",
+                d: "clock.Dropouts | None" = None) -> list[str]:
+    """`Clock:` — the session's clock settings, then on a second line the
+    cycle the output actually ran at during the check, or why unknown.
 
     "session defaults" and "session-wide" are load-bearing: `clock.quantum`
     is what a client gets when it asks for nothing (`man pipewire.conf`), a
     driver runs at the lowest quantum any follower asks for (`man pw-top`),
     and a per-node `node.force-quantum` rule pins a graph without touching
-    these keys. The running clock comes from the driver row in `pw-top`.
+    these keys. The running cycle comes from the driver row in `pw-top`.
+    "quantum" is PipeWire's word for the samples processed per graph cycle
+    — a buffer size, not a clock — and the row says so once; the cycle
+    length in ms is what a reader can weigh against a crackle.
     """
     if not settings.ok:
         hint = {"pw-metadata not found": "clock settings not read",
                 "no answer from pw-metadata": "is the PipeWire daemon running?"}
-        return _wrapped_row("PipeWire", f"{settings.reason} — "
+        return _wrapped_row("Clock", f"{settings.reason} — "
                             f"{hint.get(settings.reason, 'clock settings not read')}")
     forced = []
     if settings.force_quantum not in ("", "0"):
@@ -771,54 +783,54 @@ def _pipewire_rows(settings: "clock.ClockSettings",
               if settings.min_quantum and settings.max_quantum else "")
     tail = (f"; forced session-wide: {', '.join(forced)}" if forced
             else ", no session-wide override")
-    # "quantum" is PipeWire's word for the samples processed per graph
-    # cycle — a buffer size, not a clock — and the row says so once; the
-    # cycle length in ms is what a reader can weigh against a crackle.
-    value = (f"{settings.rate} Hz, quantum {settings.quantum} (samples per "
-             f"cycle; session defaults{bounds}){tail}")
+    rows = _wrapped_row("Clock", f"{settings.rate} Hz, quantum {settings.quantum} "
+                        f"samples per cycle (session defaults{bounds}){tail}")
     if d is not None and d.ok and d.sink is not None:
         if d.running_quantum and d.running_rate:
             ms = 1000.0 * d.running_quantum / d.running_rate
-            value += (f"; during the check the output ran at {d.running_rate} Hz "
-                      f"in cycles of {d.running_quantum} samples ({ms:.1f} ms)")
+            rows += _continuation(
+                f"during the check: {d.running_rate} Hz, "
+                f"{d.running_quantum}-sample cycles ({ms:.1f} ms)")
         else:
-            value += "; the output was idle during the check"
-    return _wrapped_row("PipeWire", value)
+            rows += _continuation("during the check: the output was idle")
+    return rows
 
 
 def _dropouts_rows(d: "clock.Dropouts", pw_age: float | None = None,
                    ee_age: float | None = None) -> list[str]:
-    """`Dropouts:` — pw-top's xrun counters on the sink EasyEffects plays into
-    and on its own nodes, with the two things that make a count readable.
+    """`Dropouts:` — pw-top's xrun counters on the output sink and on
+    EasyEffects' own nodes, then on a second line what happened during the
+    check.
 
     The counters are cumulative from node creation — nothing rebases them;
     pw-top's `c` key clears only its own display — so a total means nothing
-    without an age. The ages of the PipeWire and EasyEffects processes are
-    the bound a paste can carry: a node is at most that old, and
-    EasyEffects recreates its filter nodes on every pipeline restart,
-    including the preset reload this tool performs, so its counter can be
-    much younger. The growth during the doctor's own five-second window is
-    the only "is it happening now"; a zero there with no stream running says
-    nothing, and the row says which it was — "running", not "audible": any
+    without an age. The PipeWire and EasyEffects process uptimes are the
+    bound a paste can carry: a node is at most that old, and EasyEffects
+    recreates its filter nodes on every pipeline restart, including the
+    preset reload this tool performs, so its counter can be much younger.
+    The growth during the doctor's own five-second window is the only "is
+    it happening now"; a zero there with no stream running says nothing,
+    and the row says which it was — "running", not "audible": any
     application's active playback stream keeps the graph running, silent or
     not. On a driver node, which the output sink usually is, ERR counts
     every cycle the whole graph missed, and the row says so. A count that
     could not be read says so rather than printing nothing: in a pasted
     report an absent row and a zero look alike, and the reassuring reading
-    wins. The sink is not named — the `Output sink:` row below carries its
-    name, redacted.
+    wins. "the output sink" is the `Output sink:` row above.
     """
+    label = "Dropouts"
     if not d.ok:
-        return _wrapped_row("Dropouts", f"not read ({d.reason})")
-    # The plain word leads: "0 xruns" read as alarming until the reader
-    # worked out that 0 is the good number. "xruns" stays — it is pw-top's
-    # column, the thing a maintainer greps a paste for.
+        return _wrapped_row(label, f"not read ({d.reason})")
+    # The plain word leads and the unit follows it: "0 xruns" alone read as
+    # alarming to a reviewer until they worked out that 0 is the good number;
+    # "xruns" stays because it is pw-top's column, what a maintainer greps a
+    # paste for.
     has_sink, has_ee = d.sink is not None, d.ee is not None
     if not any(c for c in (d.sink, d.ee) if c):
         where = {(True, True): "the output sink or any EasyEffects node",
                  (True, False): "the output sink",
                  (False, True): "any EasyEffects node"}[(has_sink, has_ee)]
-        lead = f"no dropouts (0 xruns) on {where}"
+        lead = f"none (0 xruns) on {where}"
     else:
         parts = []
         if has_sink:
@@ -832,87 +844,33 @@ def _dropouts_rows(d: "clock.Dropouts", pw_age: float | None = None,
         lead = ", ".join(parts)
     ages = []
     if pw_age is not None:
-        ages.append(f"PipeWire ({clock.format_age(pw_age)})")
+        ages.append(f"PipeWire's {clock.format_age(pw_age)}")
     if ee_age is not None:
-        ages.append(f"EasyEffects ({clock.format_age(ee_age)})")
-    since = " — counted since each node was created" + (
-        f", at most as long as {' and '.join(ages)} "
-        f"{'have' if len(ages) > 1 else 'has'} been up" if ages else "")
+        ages.append(f"EasyEffects' {clock.format_age(ee_age)}")
+    since = " — since each node was created" + (
+        f", at most {' / '.join(ages)} uptime" if ages else "")
+    rows = _wrapped_row(label, lead + since)
     if not any(c for c in (d.sink_recent, d.ee_recent) if c):
-        now = f"none in the {d.window_s:.0f} s this ran"
+        now = f"none in {d.window_s:.0f} s"
     else:
         got = []
         if d.sink_recent is not None:
             got.append(f"{d.sink_recent} on the sink")
         if d.ee_recent is not None:
             got.append(f"{d.ee_recent} on EasyEffects' nodes")
-        now = f"in the {d.window_s:.0f} s this ran: " + ", ".join(got)
-    heard = ("a playback stream was running, silent or not" if d.playing
+        now = f"{', '.join(got)} in {d.window_s:.0f} s"
+    heard = ("a playback stream was running" if d.playing
              else "nothing was playing into EasyEffects")
-    return _wrapped_row("Dropouts", f"{lead}{since}; {now} ({heard})")
+    return rows + _continuation(f"during the check: {now}, {heard}")
 
 
-def _environment_lines(f: dict) -> list[str]:
-    """The `=== Environment ===` body: where this tool wrote, and what
-    EasyEffects is doing with it. Labels pad to `_GUTTER` so the values line
-    up. The last three rows appear only once there is one."""
-    # Rows below come from whichever source is authoritative for that value,
-    # so a row EasyEffects could have answered live but didn't says where it
-    # came from instead. Only worth saying while EE is running: with no daemon
-    # every row is necessarily the last save, and the Config: line says so
-    # once rather than repeating it down the block.
-    # A row EasyEffects could have answered live but didn't says where it came
-    # from — including when EE isn't running at all. Stating it once up top
-    # instead was worse: the rows then read identically whether or not the
-    # value was confirmed, and the closing block's bypass reminder (which is
-    # dropped only on a live reading) looked arbitrary next to a bypass line
-    # that looked equally sure of itself either way.
+def _pipewire_lines(f: dict) -> list[str]:
+    """The `=== PipeWire ===` body: where the sound goes, the clock it runs
+    on, and whether the graph drops buffers — the audio server's side, above
+    EasyEffects' because a check's detail names the sink and a crackle report
+    needs the clock and the dropouts beside it (issue #84)."""
     saved = " (from saved config)"
-    running = f.get("ee_running")
-    lines = [
-        _row("Tool", f"speaker-tuning-to-easyeffects {version.get_version()}"),
-    ]
-    # Widest context first: the audio server the chain runs in, then the app
-    # on it, then this tool's files. Both rows come straight from PipeWire's
-    # own tools (`pw-metadata -n settings`, `pw-top -b -n 2`).
-    if f.get("pw_clock") is not None:
-        lines += _pipewire_rows(f["pw_clock"], f.get("pw_xruns"))
-    if f.get("pw_xruns") is not None:
-        lines += _dropouts_rows(f["pw_xruns"], f.get("pw_age"), f.get("ee_age"))
-    lines += [
-        _row("EasyEffects", f"{f.get('ee_version', '?')}; "
-                            f"running: {'yes' if running else 'no'}"),
-        _row("Install", f"{f.get('install')} "
-                        f"(writes to {f.get('output_dir')})"),
-        # Both numbers are what the folders hold — the bypass preset, presets
-        # the user put there and stray .irs files included — so neither is
-        # derived from the other. "Presets sharing impulse files" explained
-        # the gap with a relationship these counts don't establish.
-        _row("Presets/IRs", f"{f.get('preset_count', 0)} preset files and "
-                            f"{f.get('irs_count', 0)} impulse files in the "
-                            "folders"),
-        _row("Config", f"{f.get('rc_path')} "
-                       f"({'present' if f.get('rc_present') else 'absent'})"),
-    ]
-    lines.append(
-        _row("Background",
-             f"service mode {'on' if f.get('service_mode') else 'off'}, "
-             f"autostart {'on' if f.get('autostart_on_login') else 'off'}"))
-    if f.get("selected_preset"):
-        # `Selected preset:`, not `Selected:`, and the name quoted as every
-        # other mention of one in this report is. Bare, the bypass preset
-        # rendered as "Selected: Nothing", which reads as "nothing is
-        # selected" and gave no hint the row was about an EasyEffects preset
-        # at all. The label is what carries that — it is the widest in the
-        # block, and `_GUTTER` is sized for it.
-        #
-        # The row says what the thing *is*; whether it should be loaded is
-        # the check's to say. In particular not "the bypass preset" here:
-        # that word belongs to `Global bypass:` below, EasyEffects' own
-        # toggle, and spending it on a preset name is what made the two rows
-        # read as if they contradicted each other.
-        lines.append(_row("Selected preset", f"'{f['selected_preset']}'")
-                     + ("" if f.get("selected_is_live") else saved))
+    lines: list[str] = []
     if f.get("output_device"):
         # Whichever sink this names can be a Bluetooth one — the live default
         # follows the headset on connect exactly as EE's own record did — so
@@ -940,6 +898,61 @@ def _environment_lines(f: dict) -> list[str]:
                 initial_indent=_row("Output sink", ""),
                 subsequent_indent=" " * _GUTTER)
             lines.append(" " * _GUTTER + node + source)
+    # Both rows come straight from PipeWire's own tools (`pw-metadata -n
+    # settings`, `pw-top -b -n 7`).
+    if f.get("pw_clock") is not None:
+        lines += _clock_rows(f["pw_clock"], f.get("pw_xruns"))
+    if f.get("pw_xruns") is not None:
+        lines += _dropouts_rows(f["pw_xruns"], f.get("pw_age"), f.get("ee_age"))
+    return lines
+
+
+def _setup_lines(f: dict) -> list[str]:
+    """The `=== EasyEffects setup ===` body: the install this tool wrote
+    into, then — after a group break — what EasyEffects is doing with it now.
+    Labels pad to `_GUTTER` so the values line up. No `Tool:` row: the
+    report's first line already carries the version."""
+    # Rows below come from whichever source is authoritative for that value,
+    # so a row EasyEffects could have answered live but didn't says where it
+    # came from — including when EE isn't running at all. Stating it once up
+    # top instead was worse: the rows then read identically whether or not
+    # the value was confirmed, and the closing block's bypass reminder (which
+    # is dropped only on a live reading) looked arbitrary next to a bypass
+    # line that looked equally sure of itself either way.
+    saved = " (from saved config)"
+    running = f.get("ee_running")
+    lines = _wrapped_row(
+        "EasyEffects",
+        f"{f.get('ee_version', '?')}; running: {'yes' if running else 'no'}; "
+        f"service mode {'on' if f.get('service_mode') else 'off'}, "
+        f"autostart {'on' if f.get('autostart_on_login') else 'off'}")
+    # Both counts are what the folders hold — the bypass preset, presets the
+    # user put there and stray .irs files included — so neither is derived
+    # from the other. "Presets sharing impulse files" explained the gap with
+    # a relationship these counts don't establish.
+    lines += _wrapped_row(
+        "Install",
+        f"{f.get('install')} — writes to {f.get('output_dir')}; "
+        f"{f.get('preset_count', 0)} preset files and "
+        f"{f.get('irs_count', 0)} impulse files in the folders")
+    lines.append(_row("Config", f"{f.get('rc_path')} "
+                                f"({'present' if f.get('rc_present') else 'absent'})"))
+    live: list[str] = []
+    if f.get("selected_preset"):
+        # `Selected preset:`, not `Selected:`, and the name quoted as every
+        # other mention of one in this report is. Bare, the bypass preset
+        # rendered as "Selected: Nothing", which reads as "nothing is
+        # selected" and gave no hint the row was about an EasyEffects preset
+        # at all. The label is what carries that — it is the widest in the
+        # block, and `_GUTTER` is sized for it.
+        #
+        # The row says what the thing *is*; whether it should be loaded is
+        # the check's to say. In particular not "the bypass preset" here:
+        # that word belongs to `Global bypass:` below, EasyEffects' own
+        # toggle, and spending it on a preset name is what made the two rows
+        # read as if they contradicted each other.
+        live.append(_row("Selected preset", f"'{f['selected_preset']}'")
+                    + ("" if f.get("selected_is_live") else saved))
     # No live source exists for the chain, so it is always the saved copy —
     # worth marking next to rows that aren't. Wrapped because a full chain is
     # seven plugin names and ran to ~145 columns on one line; continuations
@@ -960,7 +973,7 @@ def _environment_lines(f: dict) -> list[str]:
             chain[-1] += saved
         else:
             chain.append(" " * _GUTTER + saved.strip())
-        lines += chain
+        live += chain
     # Prints even when off: "is it bypassed?" is the first question behind
     # "I hear no difference", and a positive "off" answers it. `Global
     # bypass:`, not `Bypass:` — this is EasyEffects' one power-button toggle,
@@ -969,9 +982,18 @@ def _environment_lines(f: dict) -> list[str]:
     # "'Nothing' is the expected bypass" and "Bypass: off" were not
     # contradicting. It is also what the closing block already calls it.
     if f.get("bypass_is_live") or f.get("rc_present"):
-        lines.append(_row("Global bypass", "on" if f.get("bypass") else "off")
-                     + ("" if f.get("bypass_is_live") else saved))
+        live.append(_row("Global bypass", "on" if f.get("bypass") else "off")
+                    + ("" if f.get("bypass_is_live") else saved))
+    if live:
+        lines += [""] + live   # the group break: install above, live state below
     return lines
+
+
+def _environment_lines(f: dict) -> list[str]:
+    """Both inventory blocks in print order — the PipeWire rows, then the
+    EasyEffects setup — as one list, for tests and for anyone who wants the
+    whole inventory at once. The report prints them as two sections."""
+    return _pipewire_lines(f) + _setup_lines(f)
 
 
 def _collapse_preset_checks(checks: list[CheckResult], *,
@@ -1041,7 +1063,10 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     layout.print_report_header(version.get_version())
     if report.speaker_info is not None:
         report_speaker._print_speaker_info(report.speaker_info)
-    layout.print_environment(_environment_lines(report.facts))
+    pipewire = _pipewire_lines(report.facts)
+    if pipewire:
+        layout.print_environment(pipewire, "=== PipeWire ===")
+    layout.print_environment(_setup_lines(report.facts), "=== EasyEffects setup ===")
     layout.print_check_block("=== EasyEffects doctor ===",
                              _collapse_preset_checks(
                                  report.checks,

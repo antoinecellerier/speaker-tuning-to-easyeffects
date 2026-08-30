@@ -1180,7 +1180,7 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     assert "No blocking problems detected." not in out
     assert "systemctl --user restart pipewire" in out
     # The paste block is the point of running this before filing an issue.
-    assert "=== Environment ===" in out
+    assert "=== PipeWire filter-chain setup ===" in out
     assert "Paste everything above into an issue" in out
     # ...and `--doctor > report.txt` has to capture all of it. The console and
     # the bare prints here both target stdout, so the report arrives whole with
@@ -1216,10 +1216,10 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
     out = capsys.readouterr().out
 
     # Widest context first, then this tool's state, then what is wrong with it.
-    # Environment sits directly above the checks because the check details name
-    # those confs and sinks.
+    # The setup block sits directly above the checks because the check details
+    # name those confs and sinks.
     assert (out.index("=== HARDWARE STUB ===")
-            < out.index("=== Environment ===")
+            < out.index("=== PipeWire filter-chain setup ===")
             < out.index("=== PipeWire filter-chain doctor ===")
             < out.index("Stacked filter chains")
             < out.index("Summary:")

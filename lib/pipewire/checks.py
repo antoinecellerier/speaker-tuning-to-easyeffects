@@ -1211,13 +1211,13 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
 
 
 def _environment_lines(confs, chains, facts) -> list[str]:
-    """The `=== Environment ===` body: what this tool has installed and what
-    PipeWire is doing with it. Labels pad to a 16-column gutter so the values
-    line up, and the per-conf and per-sink lines hang under that gutter."""
+    """The `=== PipeWire filter-chain setup ===` body: what this tool has
+    installed and what PipeWire is doing with it. Labels pad to a 16-column
+    gutter so the values line up, and the per-conf and per-sink lines hang
+    under that gutter. No `Tool:` row: the report's first line already
+    carries the version."""
     wp = facts["wireplumber"]
     lines = [
-        f"  Tool:         speaker-tuning-to-easyeffects {facts['version']}"
-        " (PipeWire path)",
         f"  WirePlumber:  {'.'.join(map(str, wp)) if wp else 'unknown'}",
         f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
     ]
@@ -1284,7 +1284,8 @@ def report_pw_doctor() -> int:
     # Probed here rather than in gather_pw_doctor: nothing judges this block,
     # so it costs a ~2.5 s probe only on the path that prints it.
     gen._print_speaker_info(gen._gather_speaker_info())
-    layout.print_environment(_environment_lines(confs, chains, facts))
+    layout.print_environment(_environment_lines(confs, chains, facts),
+                             "=== PipeWire filter-chain setup ===")
     layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
     layout.print_closing((
         ("dim", "To remove a chain: delete its .conf (and matching .irs), "

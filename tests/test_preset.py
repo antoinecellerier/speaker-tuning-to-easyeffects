@@ -2552,7 +2552,7 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(monkeypatch,
     out = capsys.readouterr().out
 
     assert (out.index("=== HARDWARE STUB ===")
-            < out.index("=== Environment ===")
+            < out.index("=== EasyEffects setup ===")
             < out.index("=== EasyEffects doctor ===")
             < out.index("Background service")
             < out.index("Summary:")
@@ -3696,9 +3696,11 @@ def test_environment_lines_count_the_files_in_the_folders():
     what it counted, and claims nothing about why the two differ."""
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
          "preset_count": 69, "irs_count": 64}
-    line = [ln for ln in doctor_run._environment_lines(f) if "Presets" in ln][0]
-    assert "69 preset files and 64 impulse files in the folders" in line
-    assert "sharing" not in line
+    lines = doctor_run._environment_lines(f)
+    i = next(n for n, ln in enumerate(lines) if ln.startswith("  Install:"))
+    row = " ".join(ln.strip() for ln in lines[i:i + 2])   # wraps at 80 columns
+    assert "69 preset files and 64 impulse files in the folders" in row
+    assert "sharing" not in row
 
 
 def test_collapsed_preset_check_reconciles_the_two_counts():
@@ -3848,20 +3850,24 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     lines = doctor_run._environment_lines(f)
     text = " ".join(ln.strip() for ln in lines)   # the rows wrap at 80 columns
     # Session defaults are named as such (a client can pull the graph lower
-    # without touching them) and the clock the output ran at is separate.
-    assert ("48000 Hz, quantum 1024 (samples per cycle; session defaults, min 32, "
-            "max 2048), no session-wide override; the output was idle during the "
-            "check") in text
+    # without touching them); what the output ran at during the check is its
+    # own line, hung on the gutter, so standing state and observation never
+    # read as one.
+    assert ("48000 Hz, quantum 1024 samples per cycle (session defaults, min 32, "
+            "max 2048), no session-wide override during the check: the output "
+            "was idle") in text
+    assert any(ln.startswith(" " * doctor_run._GUTTER + "during the check:")
+               for ln in lines)
     # Totals, their age (a bound — nodes are recreated), and the live window
     # — the three things that make a cumulative counter readable — with the
     # plain word leading.
-    assert ("no dropouts (0 xruns) on the output sink or any EasyEffects node — "
-            "counted since each node was created, at most as long as PipeWire "
-            "(1 d 7 h) and EasyEffects (33 min) have been up; none in the 5 s "
-            "this ran (nothing was playing into EasyEffects)") in text
-    # The server row sits above the app that runs on it.
-    order = [ln.split(":")[0].strip() for ln in doctor_run._environment_lines(f)]
-    assert order.index("PipeWire") < order.index("EasyEffects")
+    assert ("none (0 xruns) on the output sink or any EasyEffects node "
+            "— since each node was created, at most PipeWire's 1 d 7 h / "
+            "EasyEffects' 33 min uptime during the check: none in 5 s, nothing "
+            "was playing into EasyEffects") in text
+    # The server rows sit above the app that runs on them.
+    order = [ln.split(":")[0].strip() for ln in lines]
+    assert order.index("Clock") < order.index("EasyEffects")
 
     forced = clock.ClockSettings(rate="48000", quantum="256", min_quantum="32",
                                  max_quantum="2048", force_quantum="256",
@@ -3875,30 +3881,33 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     f["output_device_source"] = "live"
     lines = doctor_run._environment_lines(f)
     text = " ".join(ln.strip() for ln in lines)
-    assert ("quantum 256 (samples per cycle; session defaults, min 32, max 2048); "
-            "forced session-wide: quantum 256, rate 44100; during the check the "
-            "output ran at 48000 Hz in cycles of 256 samples (5.3 ms)") in text
+    assert ("quantum 256 samples per cycle (session defaults, min 32, max 2048); "
+            "forced session-wide: quantum 256, rate 44100 during the check: "
+            "48000 Hz, 256-sample cycles (5.3 ms)") in text
     # Two counts, not a maximum over a set the reader has to reconstruct; a
     # driver's ERR is the whole graph's and says so; the sink is not named
-    # twice — the Output sink row below carries its (redacted) name; and
+    # twice — the Output sink row above carries its (redacted) name; and
     # "running", not "audible": a silent stream keeps the graph running.
-    assert ("42 xruns on the output sink (it drives the clock, so any node's "
-            "dropout counts there), 14 on the busiest EasyEffects node "
-            "(ee_soe_convolver) — counted since each node was created, at most as "
-            "long as PipeWire (1 d 7 h) and EasyEffects (33 min) have been up; in "
-            "the 5 s this ran: 3 on the sink, 0 on EasyEffects' nodes (a playback "
-            "stream was running, silent or not)") in text
+    assert ("42 xruns on the output sink (it drives the clock, so any "
+            "node's dropout counts there), 14 on the busiest EasyEffects node "
+            "(ee_soe_convolver) — since each node was created, at most PipeWire's "
+            "1 d 7 h / EasyEffects' 33 min uptime during the check: 3 on the sink, "
+            "0 on EasyEffects' nodes in 5 s, a playback stream was running") in text
     assert "80_99" not in text
     assert all(len(ln) <= console._wrap_width() for ln in lines)
+    # The sink row leads the PipeWire block, so "the output sink" two rows
+    # down points at something on the same screen.
+    order = [ln.split(":")[0].strip() for ln in lines]
+    assert order.index("Output sink") < order.index("Clock") < order.index("Dropouts")
     # No age known, EasyEffects' nodes clean, only the sink counting, and the
     # sink following another driver.
     f["pw_xruns"] = clock.Dropouts(sink=42, ee=0, ee_node="easyeffects_source",
                                    sink_recent=0, ee_recent=0, window_s=5.0)
     f.pop("pw_age"); f.pop("ee_age")
     text = " ".join(ln.strip() for ln in doctor_run._environment_lines(f))
-    assert ("42 xruns on the output sink, none on EasyEffects' nodes — counted "
-            "since each node was created; none in the 5 s this ran (nothing was "
-            "playing into EasyEffects)") in text
+    assert ("42 xruns on the output sink, none on EasyEffects' nodes — since each "
+            "node was created during the check: none in 5 s, nothing was playing "
+            "into EasyEffects") in text
 
 
 def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
@@ -3908,12 +3917,12 @@ def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
          "pw_clock": clock.ClockSettings(reason="pw-metadata not found"),
          "pw_xruns": clock.Dropouts(reason="pw-top didn't answer")}
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
-    assert rows["PipeWire"].endswith("pw-metadata not found — clock settings not read")
+    assert rows["Clock"].endswith("pw-metadata not found — clock settings not read")
     assert rows["Dropouts"].endswith("not read (pw-top didn't answer)")
     f["pw_clock"] = clock.ClockSettings(reason="no answer from pw-metadata")
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
-    assert rows["PipeWire"].endswith("no answer from pw-metadata — is the PipeWire "
-                                     "daemon running?")
+    assert rows["Clock"].endswith("no answer from pw-metadata — is the PipeWire "
+                                  "daemon running?")
 
 
 def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
@@ -3945,8 +3954,8 @@ def test_environment_lines_keep_the_gutter():
          "pw_xruns": clock.Dropouts(sink=3, ee=1, ee_node="ee_soe_convolver",
                                     sink_recent=0, ee_recent=0, window_s=5.0)}
     for line in doctor_run._environment_lines(f):
-        if line.startswith(" " * gutter):
-            continue  # a continuation line, already on the gutter
+        if not line or line.startswith(" " * gutter):
+            continue  # a group break, or a continuation already on the gutter
         label, _, _rest = line.partition(":")
         assert len(label) + 1 <= gutter - 1, line   # room for one space after
         assert line[gutter] != " ", line

@@ -2310,8 +2310,8 @@ the captures is the gate that has not run.
 
 What this can and cannot say: it bounds what our DSP adds on this XML; it
 cannot reproduce a graph-level crackle (xruns, quantum) on the reporter's
-machine, which the doctor could not see either — hence the `PipeWire:` and
-`Dropouts:` rows the same day. A three-rung split (EasyEffects bypass → quit
+machine, which the doctor could not see either — hence the `=== PipeWire ===`
+section (output sink, clock, dropouts) the same day. A three-rung split (EasyEffects bypass → quit
 EasyEffects → the linear rebuild), each with a GUI and a terminal route, is
 drafted for the reporter; if the linear build is what clears it, that is a
 second listener saying our regulator is audible — not yet the second DAX

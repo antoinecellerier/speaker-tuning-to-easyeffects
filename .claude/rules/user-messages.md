@@ -56,8 +56,11 @@ enough to need folding must ask** via `_cprint_wrapped` / `_print_flag_hint`.
 ## `--doctor`: inventory leads, diagnosis trails
 
 Both doctors (`lib/pipewire/checks.py`, `lib/report/doctor_run.py`) print
-version → hardware → `=== Environment ===` → checks → summary → verdict → fix
-→ link. **That order and the text around it live in
+version → hardware → the audio server (`=== PipeWire ===`: output sink,
+clock, dropouts) → the tool's own setup (`=== EasyEffects setup ===` /
+`=== PipeWire filter-chain setup ===`) → checks → summary → verdict → fix
+→ link. Sections are named by what they list, never "Environment". **That
+order and the text around it live in
 `lib/report/doctor_layout.py`** — edit the frame there, not in either doctor,
 which supply only their own facts lines, checks and remedy. Same reason as
 above, sharpened: the report is longer than a terminal and the reader is there
