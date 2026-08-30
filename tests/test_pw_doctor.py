@@ -1897,8 +1897,8 @@ def test_both_doctors_say_which_kind_of_no_sink_it_was(monkeypatch):
 
     assert ("Output sink:     not read (pw-dump didn't answer)") in pw(
         checks.DefaultSink(reason=checks.NO_DUMP_REASON))
-    assert ("Output sink:     none — PipeWire has no default output "
-            "selected") in pw(checks.DefaultSink())
+    assert ("Output sink:     none — PipeWire has no default output right "
+            "now") in pw(checks.DefaultSink())
 
 
 def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):

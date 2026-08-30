@@ -136,7 +136,9 @@ def version_rows(pipewire: session.Version, wireplumber: session.Version,
 
 
 def output_sink_rows(label: str, node: str, suffix: str, gutter: int,
-                     *, reason: str = "") -> list[str]:
+                     *, reason: str = "",
+                     none: str = "PipeWire has no default output right now"
+                     ) -> list[str]:
     """The `Output sink:` row both doctors print: *label* (the sink's
     description, or "" when the probe settled nothing) leading, *node* (its
     node.name, already redacted) trailing, *suffix* (" (from saved config)"
@@ -151,12 +153,12 @@ def output_sink_rows(label: str, node: str, suffix: str, gutter: int,
 
     With no *node* the row still prints — `dropouts_rows` below calls it
     "the output sink", and in a paste an absent row and a zero read alike —
-    saying either why it wasn't read (*reason*) or that PipeWire genuinely
-    has no default; *suffix* still applies, so a caller can add its own
-    context ("…and EasyEffects' saved config names none")."""
+    saying either why it wasn't read (*reason*) or that there genuinely is
+    none (*none* — the caller's sentence, because "none" means different
+    things: no default in the graph, or a config that pins no device);
+    *suffix* still applies for extra context."""
     if not node:
-        text = (f"not read ({reason})" if reason
-                else "none — PipeWire has no default output selected")
+        text = f"not read ({reason})" if reason else f"none — {none}"
         return wrapped_row("Output sink", text + suffix, gutter)
     if not label:
         return [row("Output sink", node + suffix, gutter)]

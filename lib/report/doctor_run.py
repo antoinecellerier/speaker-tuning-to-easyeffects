@@ -233,9 +233,6 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if state.sink:
             state.sink_kind, state.sink_label = \
                 sinks.sink_kind_and_label(state.sink)
-        else:
-            state.sink_reason = ("EasyEffects' config pins an output but "
-                                 "doesn't name it")
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
@@ -738,7 +735,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
-_NO_SINK_TAIL = ", and EasyEffects' saved config names none"
+_NO_SINK_TAIL = ", and EasyEffects has no saved output to fall back on"
 
 
 def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:
@@ -777,13 +774,18 @@ def _pipewire_lines(f: dict) -> list[str]:
         lines += layout.output_sink_rows(
             f.get("output_label", ""), doctor.no_bt_address(f["output_device"]),
             source, layout.GUTTER)
+    elif f.get("output_device_source") == "pinned":
+        # A parsed rc that pins no device is a "none", not a failed probe:
+        # nothing here went unread, and "not read" would send a triager
+        # hunting a dead probe that never died (/copy-audit 2026-08-30).
+        lines += layout.output_sink_rows(
+            "", "", "", layout.GUTTER,
+            none="EasyEffects is pinned to an output but its config names "
+                 "no device")
     else:
-        # No name from either source — the row survives and says why. The
-        # tail is this path's context: unless EasyEffects is pinned, the rc
-        # was the fallback and it named nothing.
-        tail = ("" if f.get("output_device_source") == "pinned"
-                else _NO_SINK_TAIL)
-        lines += layout.output_sink_rows("", "", tail, layout.GUTTER,
+        # No name from either source — the row survives and says why, with
+        # this path's context: the rc was the fallback and named nothing.
+        lines += layout.output_sink_rows("", "", _NO_SINK_TAIL, layout.GUTTER,
                                          reason=f.get("output_reason", ""))
     # Both rows come straight from PipeWire's own tools (`pw-metadata -n
     # settings`, `pw-top -b -n 7`), rendered by the frame both doctors share.

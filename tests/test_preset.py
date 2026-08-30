@@ -4149,16 +4149,15 @@ def test_the_output_sink_row_survives_a_silent_pipewire(monkeypatch):
 
     assert text({"output_device": "", "output_device_source": "saved",
                  "output_reason": "pw-dump didn't answer"}) == (
-        "Output sink:     not read (pw-dump didn't answer), and EasyEffects' "
-        "saved config names none")
+        "Output sink:     not read (pw-dump didn't answer), and EasyEffects "
+        "has no saved output to fall back on")
     assert text({"output_device": "", "output_device_source": "saved"}) == (
-        "Output sink:     none — PipeWire has no default output selected, "
-        "and EasyEffects' saved config names none")
-    assert text({"output_device": "", "output_device_source": "pinned",
-                 "output_reason": ("EasyEffects' config pins an output but "
-                                   "doesn't name it")}) == (
-        "Output sink:     not read (EasyEffects' config pins an output but "
-        "doesn't name it)")
+        "Output sink:     none — PipeWire has no default output right now, "
+        "and EasyEffects has no saved output to fall back on")
+    # A parsed rc pinning no device is a none, not a failed probe.
+    assert text({"output_device": "", "output_device_source": "pinned"}) == (
+        "Output sink:     none — EasyEffects is pinned to an output but its "
+        "config names no device")
     # Even a facts dict that never mentions the sink renders the row.
     assert "Output sink:" in text({})
 
