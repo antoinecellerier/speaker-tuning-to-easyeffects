@@ -106,3 +106,13 @@ um3405
 38d5
 xiaoxin
 agp11
+
+# watch: #84 Yoga Slim 7 Pro 14ACH5 (82MS) — ALC287 codec SSID 17aa:384f, PCI
+# SSID 17aa:3835; neither has an entry upstream and none is expected: PSREF
+# gives the model "Stereo speakers, 2W x2", so its single speaker pin is
+# correct (not a #53 hidden-woofer case). Watched because the device has an
+# open crackle report: an entry keyed to either id would change the speaker
+# path under it. alc287 is already a standing term; not repeated here.
+384f
+3835
+14ach5
