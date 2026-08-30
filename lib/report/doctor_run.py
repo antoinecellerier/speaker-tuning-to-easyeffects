@@ -724,19 +724,6 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     return report
 
 
-# Every row's value starts at this column, and wrapped continuations indent
-# to it, so a value that folds still reads as one column. Sized to the
-# longest label — `Selected preset:` — plus a space. A label that outgrows it
-# widens the block rather than breaking the alignment silently, which is what
-# `_row` and the gutter test between them enforce.
-_GUTTER = 19
-
-
-def _row(label: str, value: str) -> str:
-    """One `label: value` row, padded to the block's gutter."""
-    return f"  {label + ':':<{_GUTTER - 2}}{value}"
-
-
 def _pipewire_lines(f: dict) -> list[str]:
     """The `=== PipeWire ===` body: where the sound goes, the clock it runs
     on, and whether the graph drops buffers — the audio server's side, above
@@ -753,21 +740,21 @@ def _pipewire_lines(f: dict) -> list[str]:
             f.get("output_device_source", "saved"), saved)
         lines += layout.output_sink_rows(
             f.get("output_label", ""), doctor.no_bt_address(f["output_device"]),
-            source, _GUTTER)
+            source, layout.GUTTER)
     # Both rows come straight from PipeWire's own tools (`pw-metadata -n
     # settings`, `pw-top -b -n 7`), rendered by the frame both doctors share.
     if f.get("pw_clock") is not None:
-        lines += layout.clock_rows(f["pw_clock"], f.get("pw_xruns"), _GUTTER)
+        lines += layout.clock_rows(f["pw_clock"], f.get("pw_xruns"), layout.GUTTER)
     if f.get("pw_xruns") is not None:
         lines += layout.dropouts_rows(f["pw_xruns"], f.get("pw_age"),
-                                      f.get("ee_age"), _GUTTER)
+                                      f.get("ee_age"), layout.GUTTER)
     return lines
 
 
 def _setup_lines(f: dict) -> list[str]:
     """The `=== EasyEffects setup ===` body: the install this tool wrote
     into, then — after a group break — what EasyEffects is doing with it now.
-    Labels pad to `_GUTTER` so the values line up. No `Tool:` row: the
+    Labels pad to `doctor_layout.GUTTER` so the values line up. No `Tool:` row: the
     report's first line already carries the version."""
     # Rows below come from whichever source is authoritative for that value,
     # so a row EasyEffects could have answered live but didn't says where it
@@ -782,7 +769,7 @@ def _setup_lines(f: dict) -> list[str]:
         "EasyEffects",
         f"{f.get('ee_version', '?')}; running: {'yes' if running else 'no'}; "
         f"service mode {'on' if f.get('service_mode') else 'off'}, "
-        f"autostart {'on' if f.get('autostart_on_login') else 'off'}", _GUTTER)
+        f"autostart {'on' if f.get('autostart_on_login') else 'off'}", layout.GUTTER)
     # Both counts are what the folders hold — the bypass preset, presets the
     # user put there and stray .irs files included — so neither is derived
     # from the other. "Presets sharing impulse files" explained the gap with
@@ -791,9 +778,11 @@ def _setup_lines(f: dict) -> list[str]:
         "Install",
         f"{f.get('install')} — writes to {f.get('output_dir')}; "
         f"{f.get('preset_count', 0)} preset files and "
-        f"{f.get('irs_count', 0)} impulse files in the folders", _GUTTER)
-    lines.append(_row("Config", f"{f.get('rc_path')} "
-                                f"({'present' if f.get('rc_present') else 'absent'})"))
+        f"{f.get('irs_count', 0)} impulse files in the folders", layout.GUTTER)
+    lines.append(layout.row(
+        "Config",
+        f"{f.get('rc_path')} ({'present' if f.get('rc_present') else 'absent'})",
+        layout.GUTTER))
     live: list[str] = []
     if f.get("selected_preset"):
         # `Selected preset:`, not `Selected:`, and the name quoted as every
@@ -801,14 +790,15 @@ def _setup_lines(f: dict) -> list[str]:
         # rendered as "Selected: Nothing", which reads as "nothing is
         # selected" and gave no hint the row was about an EasyEffects preset
         # at all. The label is what carries that — it is the widest in the
-        # block, and `_GUTTER` is sized for it.
+        # block, and `doctor_layout.GUTTER` is sized for it.
         #
         # The row says what the thing *is*; whether it should be loaded is
         # the check's to say. In particular not "the bypass preset" here:
         # that word belongs to `Global bypass:` below, EasyEffects' own
         # toggle, and spending it on a preset name is what made the two rows
         # read as if they contradicted each other.
-        live.append(_row("Selected preset", f"'{f['selected_preset']}'")
+        live.append(layout.row("Selected preset", f"'{f['selected_preset']}'",
+                               layout.GUTTER)
                     + ("" if f.get("selected_is_live") else saved))
     # No live source exists for the chain, so it is always the saved copy —
     # worth marking next to rows that aren't. Wrapped because a full chain is
@@ -821,15 +811,15 @@ def _setup_lines(f: dict) -> list[str]:
         chain = textwrap.wrap(
             ", ".join(f["output_plugins"]),
             width=width, break_on_hyphens=False,
-            initial_indent=_row("Active chain", ""),
-            subsequent_indent=" " * _GUTTER)
+            initial_indent=layout.row("Active chain", "", layout.GUTTER),
+            subsequent_indent=" " * layout.GUTTER)
         # The marker is appended after wrapping, not wrapped with the list:
         # split across lines it reads as part of the last plugin name
         # ("limiter#0 (from" / "saved config)").
         if len(chain[-1]) + len(saved) <= width:
             chain[-1] += saved
         else:
-            chain.append(" " * _GUTTER + saved.strip())
+            chain.append(" " * layout.GUTTER + saved.strip())
         live += chain
     # Prints even when off: "is it bypassed?" is the first question behind
     # "I hear no difference", and a positive "off" answers it. `Global
@@ -839,7 +829,8 @@ def _setup_lines(f: dict) -> list[str]:
     # "'Nothing' is the expected bypass" and "Bypass: off" were not
     # contradicting. It is also what the closing block already calls it.
     if f.get("bypass_is_live") or f.get("rc_present"):
-        live.append(_row("Global bypass", "on" if f.get("bypass") else "off")
+        live.append(layout.row("Global bypass", "on" if f.get("bypass") else "off",
+                               layout.GUTTER)
                     + ("" if f.get("bypass_is_live") else saved))
     if live:
         lines += [""] + live   # the group break: install above, live state below

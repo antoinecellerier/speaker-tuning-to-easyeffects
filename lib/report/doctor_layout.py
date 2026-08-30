@@ -73,6 +73,16 @@ def print_environment(lines: Sequence[str], title: str) -> None:
     print()
 
 
+# Every row's value starts at this column, and wrapped continuations indent
+# to it, so a value that folds still reads as one column. One constant for
+# both doctors' blocks: sized to the widest label either report prints —
+# `Selected preset:` — plus a space. A label that outgrows it widens the
+# block rather than breaking the alignment silently, which is what `row` and
+# the two gutter traps (tests/test_preset.py, tests/test_pw_doctor.py,
+# through tests/conftest.py `assert_rows_line_up`) enforce.
+GUTTER = 19
+
+
 def row(label: str, value: str, gutter: int) -> str:
     """One `label: value` row, the value starting at column *gutter*."""
     return f"  {label + ':':<{gutter - 2}}{value}"

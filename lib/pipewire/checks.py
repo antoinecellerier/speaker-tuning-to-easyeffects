@@ -1218,14 +1218,18 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
 
 def _environment_lines(confs, chains, facts) -> list[str]:
     """The `=== PipeWire filter-chain setup ===` body: what this tool has
-    installed and what PipeWire is doing with it. Labels pad to a 16-column
-    gutter so the values line up, and the per-conf and per-sink lines hang
-    under that gutter. No `Tool:` row: the report's first line already
-    carries the version."""
+    installed and what PipeWire is doing with it. Labels pad to
+    `doctor_layout.GUTTER` — the same column as every block either doctor
+    prints — and the per-conf and per-sink lines hang under it. No `Tool:`
+    row: the report's first line already carries the version."""
     wp = facts["wireplumber"]
+    hang = " " * layout.GUTTER
     lines = [
-        f"  WirePlumber:  {'.'.join(map(str, wp)) if wp else 'unknown'}",
-        f"  Confs:        {len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
+        layout.row("WirePlumber",
+                   ".".join(map(str, wp)) if wp else "unknown", layout.GUTTER),
+        layout.row("Confs",
+                   f"{len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
+                   layout.GUTTER),
     ]
     for c in confs:
         if not c.readable:
@@ -1239,16 +1243,19 @@ def _environment_lines(confs, chains, facts) -> list[str]:
             state = f"pinned→{c.pinned}"
         else:
             state = "virtual sink, unpinned"
-        lines.append(f"                {doctor.tilde(c.path)} "
+        # Hanging lines carry paths, which are never wrapped — split across
+        # lines they stop being greppable — so a long one overflows instead.
+        lines.append(f"{hang}{doctor.tilde(c.path)} "
                      f"[{c.version or '?'}] {state}")
-    lines.append(f"  Live chains:  {len(chains)}"
-                 + (": " + ", ".join(sorted(c.name for c in chains))
-                    if chains else ""))
+    lines += layout.wrapped_row(
+        "Live chains",
+        f"{len(chains)}" + (": " + ", ".join(sorted(c.name for c in chains))
+                            if chains else ""), layout.GUTTER)
     # `.get` because tests stub `facts`, and because a report whose whole job is
     # to print what it knows must not die on a key it doesn't have.
     default = facts.get("default") or DefaultSink()
-    lines.append(f"  Sinks:        {len(facts['sinks'])}")
-    lines += [f"                {s}"
+    lines.append(layout.row("Sinks", str(len(facts["sinks"])), layout.GUTTER))
+    lines += [f"{hang}{s}"
               + ("   ← default" if s == default.effective else "")
               for s in facts["sinks"]]
     # The remembered pick is the report's one forward-looking routing fact:
@@ -1258,7 +1265,9 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     # when the name is missing from the graph — a remembered pick that is
     # present but not effective predicts nothing anyone can act on.
     if default.configured and default.configured not in facts["sinks"]:
-        lines.append(f"  Remembered:   {default.configured} (not in the graph)")
+        lines.append(layout.row(
+            "Remembered", f"{default.configured} (not in the graph)",
+            layout.GUTTER))
     # `.get` for the same reason `default` uses it: the run's own probe comes
     # through `facts`, and a stubbed facts dict must render, not raise.
     # A labelled hanging list like Confs and Sinks: unlabelled, the eight rows
@@ -1266,9 +1275,11 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     # below then looks like a count that lost five.
     plugin_rows = _plugin_presence(facts.get("plugins"))
     if plugin_rows:
-        lines.append("  Plugins:      every LV2 plugin this tool can use; "
-                     "a conf may need fewer")
-        lines += [f"                {row}" for row in plugin_rows]
+        lines += layout.wrapped_row(
+            "Plugins",
+            "every LV2 plugin this tool can use; a conf may need fewer",
+            layout.GUTTER)
+        lines += [f"{hang}{row}" for row in plugin_rows]
     # Once, over the whole block, rather than at each of the four sites that
     # interpolate a node name: this is the densest listing the tool prints, the
     # `Sinks:` lines are every sink in the graph, and a line added later would
@@ -1290,9 +1301,6 @@ def _probe_pipewire(chains, default: DefaultSink
             clock.process_age("pipewire"))
 
 
-_PW_GUTTER = 16   # the setup block's hand-padded gutter, matched here
-
-
 def _pipewire_lines(default: DefaultSink, settings: clock.ClockSettings,
                     dropouts: clock.Dropouts, pw_age: float | None,
                     label: str = "") -> list[str]:
@@ -1302,9 +1310,9 @@ def _pipewire_lines(default: DefaultSink, settings: clock.ClockSettings,
     lines = []
     if default.effective:
         lines += layout.output_sink_rows(
-            label, doctor.no_bt_address(default.effective), "", _PW_GUTTER)
-    lines += layout.clock_rows(settings, dropouts, _PW_GUTTER)
-    lines += layout.dropouts_rows(dropouts, pw_age, None, _PW_GUTTER,
+            label, doctor.no_bt_address(default.effective), "", layout.GUTTER)
+    lines += layout.clock_rows(settings, dropouts, layout.GUTTER)
+    lines += layout.dropouts_rows(dropouts, pw_age, None, layout.GUTTER,
                                   app="the filter chain",
                                   nodes="the chain's nodes",
                                   busiest="the busiest chain node",

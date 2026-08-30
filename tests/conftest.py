@@ -403,3 +403,16 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
 </dax3>
 """, encoding="utf-8")
     return path
+
+
+def assert_rows_line_up(lines, gutter):
+    """Every labelled row pads its value to *gutter*; continuations and group
+    breaks sit on or past it. One helper for both doctors' inventory blocks,
+    for the reason the code shares `doctor_layout.row`: two copies drift."""
+    for line in lines:
+        if not line or line.startswith(" " * gutter):
+            continue  # a group break, or a continuation already on the gutter
+        label, _, _rest = line.partition(":")
+        assert len(label) + 1 <= gutter - 1, line   # room for one space after
+        assert line[gutter] != " ", line
+        assert line[gutter - 1] == " ", line

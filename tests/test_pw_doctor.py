@@ -33,7 +33,9 @@ def _no_live_pipewire_window(monkeypatch):
 # module attribute, so the probe itself stays testable.
 from lib.pipewire.checks import easyeffects_running as unpatched_ee_probe
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
+from lib.report import doctor_layout
 from lib.report import findings as report_findings
+from tests.conftest import assert_rows_line_up
 
 SPEAKER = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
 
@@ -765,17 +767,18 @@ def test_the_environment_lines_are_unchanged_by_the_split():
                    for line in checks._plugin_presence(probe))
 
 
-def test_the_plugin_list_says_it_is_the_catalogue_not_the_confs_needs():
+def test_the_plugin_list_says_it_is_the_catalogue_not_the_confs_needs(monkeypatch):
     """Unlabelled, the eight `present` rows read as what a conf needs, and the
     LV2 check's "all 3 your conf(s) name" below then looks like a count that
     lost five — both #78-round reviewers called the mismatch a fault. The
     label makes the two numbers answer different questions on the page."""
+    monkeypatch.setenv("COLUMNS", "80")
     facts = {"version": "v", "wireplumber": (0, 5), "sinks": [],
              "plugins": _probe(**{"Calf stereo tools": False})}
     lines = checks._environment_lines([], [], facts)
-    assert ("  Plugins:      every LV2 plugin this tool can use; "
+    assert ("  Plugins:         every LV2 plugin this tool can use; "
             "a conf may need fewer") in lines
-    assert "                Calf stereo tools: MISSING" in lines
+    assert "                   Calf stereo tools: MISSING" in lines
     # An empty probe hangs no rows, so it earns no header either.
     facts["plugins"] = checks.PluginProbe()
     assert not any("Plugins:" in l
@@ -1090,7 +1093,7 @@ def test_wireplumber_version_keeps_the_patch_level(monkeypatch, answer,
 def test_the_wireplumber_line_prints_every_number_it_was_given():
     facts = {"wireplumber": (0, 5, 15), "version": "0.0.0", "sinks": []}
     lines = checks._environment_lines([], [], facts)
-    assert any("WirePlumber:  0.5.15" in line for line in lines)
+    assert any("WirePlumber:     0.5.15" in line for line in lines)
 
 
 def test_the_remembered_line_prints_only_for_a_name_the_graph_lacks():
@@ -1114,7 +1117,21 @@ def test_the_remembered_line_prints_only_for_a_name_the_graph_lacks():
     assert not any("Remembered:" in l for l in env(hdmi))
     line = [l for l in env("effect_input.Gone") if "Remembered:" in l]
     assert line == [
-        "  Remembered:   effect_input.Gone (not in the graph)"]
+        "  Remembered:      effect_input.Gone (not in the graph)"]
+
+
+def test_the_setup_block_keeps_the_gutter(tmp_path, monkeypatch):
+    """The PW block's mirror of the EE doctor's gutter trap: both print on
+    `doctor_layout.GUTTER`, so the two reports' rows sit in one column."""
+    monkeypatch.setenv("COLUMNS", "80")
+    facts = {"version": "v", "wireplumber": (0, 5, 15),
+             "sinks": [SPEAKER, "alsa_output.hdmi"],
+             "plugins": _probe(**{"Calf stereo tools": False}),
+             "default": checks.DefaultSink(effective=SPEAKER,
+                                           configured="effect_input.Gone")}
+    lines = checks._environment_lines(
+        [_conf(tmp_path, "A", version="v1")], [], facts)
+    assert_rows_line_up(lines, doctor_layout.GUTTER)
 
 
 def test_easyeffects_conflict():
@@ -1721,7 +1738,7 @@ def test_pipewire_section_is_worded_for_a_filter_chain():
     lines = checks._pipewire_lines(checks.DefaultSink(effective="alsa_output.spk"),
                                    settings, d, pw_age=90061.0)
     text = " ".join(ln.strip() for ln in lines)
-    assert lines[0] == "  Output sink:  alsa_output.spk"
+    assert lines[0] == "  Output sink:     alsa_output.spk"
     assert "during the check: 48000 Hz, 1024-sample cycles (21.3 ms)" in text
     assert ("3 xruns on the output sink (it drives the clock, so any node's "
             "dropout counts there), 1 on the busiest chain node "

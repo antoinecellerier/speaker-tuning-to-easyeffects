@@ -46,6 +46,7 @@ from lib.doctor import (
 from lib.hardware import sinks, speakers
 from lib.pipewire import clock
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
+from lib.report import doctor_layout
 from lib.report import doctor_run
 from lib.report import speaker as report_speaker
 from lib.report.doctor_run import _print_doctor_report, parse_ee_version
@@ -85,6 +86,7 @@ from lib.report.environment import (
     loaded_preset_status,
     parse_kernel_series,
 )
+from tests.conftest import assert_rows_line_up
 from tests.conftest import (
     SYNTHETIC_FREQS_20,
     is_minimum_phase,
@@ -3856,7 +3858,7 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     assert ("48000 Hz, quantum 1024 samples per cycle (session defaults, min 32, "
             "max 2048), no session-wide override during the check: the output "
             "was idle") in text
-    assert any(ln.startswith(" " * doctor_run._GUTTER + "during the check:")
+    assert any(ln.startswith(" " * doctor_layout.GUTTER + "during the check:")
                for ln in lines)
     # Totals, their age (a bound — nodes are recreated), and the live window
     # — the three things that make a cumulative counter readable — with the
@@ -3934,7 +3936,9 @@ def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
                             "autogain#0", "multiband_compressor#0",
                             "multiband_compressor#1", "limiter#0"]}
     lines = doctor_run._environment_lines(f)
-    chain = [ln for ln in lines if "Active chain" in ln or ln.startswith(" " * 16)]
+    chain = [ln for ln in lines
+             if "Active chain" in ln
+             or ln.startswith(" " * doctor_layout.GUTTER)]
     assert len(chain) > 1, "a seven-plugin chain must wrap"
     assert all(len(ln) <= console._wrap_width() for ln in chain)
     assert any("(from saved config)" in ln for ln in chain), "marker kept whole"
@@ -3942,9 +3946,9 @@ def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
 
 def test_environment_lines_keep_the_gutter():
     """Values line up only if every label fits the gutter and every row pads
-    to it. Driven by `_GUTTER` rather than a literal, so a label that outgrows
-    it fails here instead of quietly stepping one column right."""
-    gutter = doctor_run._GUTTER
+    to it. Driven by `doctor_layout.GUTTER` rather than a literal, so a label
+    that outgrows it fails here instead of quietly stepping one column
+    right."""
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
          "selected_preset": "P", "selected_is_live": True,
          "output_device": "s", "output_device_source": "live",
@@ -3953,13 +3957,7 @@ def test_environment_lines_keep_the_gutter():
          "pw_clock": clock.ClockSettings(rate="48000", quantum="1024"),
          "pw_xruns": clock.Dropouts(sink=3, chain=1, chain_node="ee_soe_convolver",
                                     sink_recent=0, chain_recent=0, window_s=5.0)}
-    for line in doctor_run._environment_lines(f):
-        if not line or line.startswith(" " * gutter):
-            continue  # a group break, or a continuation already on the gutter
-        label, _, _rest = line.partition(":")
-        assert len(label) + 1 <= gutter - 1, line   # room for one space after
-        assert line[gutter] != " ", line
-        assert line[gutter - 1] == " ", line
+    assert_rows_line_up(doctor_run._environment_lines(f), doctor_layout.GUTTER)
 
 
 def test_environment_lines_redact_a_bluetooth_default_sink():
@@ -3999,7 +3997,7 @@ def _sink_lines(f) -> list[str]:
     i = next(n for n, ln in enumerate(lines) if "Output sink" in ln)
     out = [lines[i]]
     for ln in lines[i + 1:]:
-        if not ln.startswith(" " * 16):
+        if not ln.startswith(" " * doctor_layout.GUTTER):
             break
         out.append(ln)
     return out
@@ -4059,7 +4057,7 @@ def test_environment_lines_never_split_a_long_node_name():
     lines = _sink_lines(f)
     assert any(node in ln for ln in lines), lines
     assert len(lines) > 1                      # the description did wrap
-    assert all(ln.startswith(" " * 16) for ln in lines[1:])
+    assert all(ln.startswith(" " * doctor_layout.GUTTER) for ln in lines[1:])
 
 
 def test_environment_lines_without_a_label_are_unchanged():
