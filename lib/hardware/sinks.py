@@ -70,6 +70,14 @@ def _enumerate_audio_sinks() -> list[dict]:
         data = json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
         return []
+    return sinks_from_dump(data)
+
+
+def sinks_from_dump(data) -> list[dict]:
+    """The Audio/Sink dicts `_enumerate_audio_sinks` returns, out of a pw-dump
+    already in hand. Pure, so a caller holding its own dump — the PipeWire
+    doctor reads the whole graph for its checks — labels a sink by the same
+    rule without a second ``pw-dump`` that could disagree with the first."""
     if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
         return []
 
@@ -246,6 +254,13 @@ def _sink_label(sink: dict | None) -> str:
     return sink.get("description") or ""
 
 
+def sink_label(sinks: list[dict], name: str) -> str:
+    """The display label for sink ``name`` among ``sinks``: its description,
+    the fixed label for a Bluetooth one, "" when it isn't listed. The one
+    rule behind the `Output sink:` row both doctors print."""
+    return _sink_label(next((s for s in sinks if s.get("name") == name), None))
+
+
 def sink_kind_and_label(name: str) -> tuple[str, str]:
     """`sink_kind` and a display label for one sink, from a single probe.
 
@@ -258,7 +273,7 @@ def sink_kind_and_label(name: str) -> tuple[str, str]:
     except (OSError, KeyError, TypeError):
         return "unknown", ""
     sink = next((s for s in sel["all_sinks"] if s.get("name") == name), None)
-    label = _sink_label(sink)
+    label = sink_label(sel["all_sinks"], name)
     if any(s.get("name") == name for s in sel["selected"]):
         return "speaker", label
     if sink is None or not _is_physical_output(sink):

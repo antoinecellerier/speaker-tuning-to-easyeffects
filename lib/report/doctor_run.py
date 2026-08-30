@@ -751,26 +751,9 @@ def _pipewire_lines(f: dict) -> list[str]:
         # for whole.
         source = {"live": "", "pinned": " (pinned in EasyEffects)"}.get(
             f.get("output_device_source", "saved"), saved)
-        node = doctor.no_bt_address(f["output_device"])
-        # The description leads because it answers the reader's question —
-        # what is my sound coming out of — and the node name trails because
-        # it answers the tool's: it is what --autoload-sink takes and what a
-        # bug report is triaged on. Node names run past 70 columns, so the
-        # two share a line only when they fit; the name is never wrapped,
-        # for the reason the chain below isn't, and just overflows.
-        label = f.get("output_label", "")
-        width = console._wrap_width()
-        one_line = _row("Output sink", f"{label} — {node}{source}")
-        if not label:
-            lines.append(_row("Output sink", node + source))
-        elif len(one_line) <= width:
-            lines.append(one_line)
-        else:
-            lines += textwrap.wrap(
-                label, width=width, break_on_hyphens=False,
-                initial_indent=_row("Output sink", ""),
-                subsequent_indent=" " * _GUTTER)
-            lines.append(" " * _GUTTER + node + source)
+        lines += layout.output_sink_rows(
+            f.get("output_label", ""), doctor.no_bt_address(f["output_device"]),
+            source, _GUTTER)
     # Both rows come straight from PipeWire's own tools (`pw-metadata -n
     # settings`, `pw-top -b -n 7`), rendered by the frame both doctors share.
     if f.get("pw_clock") is not None:

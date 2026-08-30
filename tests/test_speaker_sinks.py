@@ -327,6 +327,29 @@ def test_enumerate_parses_pwdump(monkeypatch):
     assert sinks[0] == {**IDEAPAD_ANALOG, "route": ""}
 
 
+def test_sinks_from_dump_is_the_boundary_without_the_subprocess():
+    """The PipeWire doctor labels its default sink off a dump it already
+    holds, through the same reduce `_enumerate_audio_sinks` runs — so the
+    pure half must accept a raw dump and reject a non-list one."""
+    dump = [
+        {"info": {"props": {"media.class": "Audio/Sink",
+                            "node.name": IDEAPAD_ANALOG["name"],
+                            "node.description": IDEAPAD_ANALOG["description"],
+                            "device.api": "alsa"}}},
+        {"info": {"props": {"media.class": "Audio/Sink",
+                            "node.name": "bluez_output.AA.1",
+                            "node.description": "Someone's AirPods",
+                            "device.api": "bluez5"}}},
+    ]
+    sinks = hw_sinks.sinks_from_dump(dump)
+    assert [s["name"] for s in sinks] == [IDEAPAD_ANALOG["name"], "bluez_output.AA.1"]
+    assert hw_sinks.sink_label(sinks, IDEAPAD_ANALOG["name"]) == IDEAPAD_ANALOG["description"]
+    assert hw_sinks.sink_label(sinks, "bluez_output.AA.1") == hw_sinks.BT_SINK_LABEL
+    assert hw_sinks.sink_label(sinks, "alsa_output.gone") == ""
+    assert hw_sinks.sinks_from_dump({"not": "a list"}) == []
+    assert hw_sinks.sinks_from_dump(None) == []
+
+
 def test_enumerate_resolves_route_for_analog_stereo(monkeypatch):
     """#18: a classic analog-stereo card whose active output route is "Speaker".
 

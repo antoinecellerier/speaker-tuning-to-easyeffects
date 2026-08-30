@@ -1735,3 +1735,49 @@ def test_pipewire_section_is_worded_for_a_filter_chain():
         settings, clock.Dropouts(reason="pw-top not found"), None)
     assert "80_99" not in " ".join(lines)
     assert any("not read (pw-top not found)" in ln for ln in lines)
+
+
+def test_the_two_doctors_print_one_output_sink_row():
+    """TRAP: the filter-chain doctor once printed the bare node name where
+    the EasyEffects doctor printed "description — node" — two renderers for
+    one row, and a reader comparing reports saw two different facts. Same
+    inputs, same value; only the gutter may differ."""
+    from lib.report import doctor_run
+    label, node = "Built-in Audio Speaker", "alsa_output.spk"
+    pw = checks._pipewire_lines(
+        checks.DefaultSink(effective=node),
+        clock.ClockSettings(reason="pw-metadata not found"),
+        clock.Dropouts(reason="pw-top not found"), None, label=label)
+    ee = doctor_run._environment_lines(
+        {"ee_running": True, "rc_present": True, "output_device": node,
+         "output_device_source": "live", "output_label": label})
+    value = lambda lines: next(ln for ln in lines if "Output sink" in ln
+                               ).split(":", 1)[1].strip()
+    assert value(pw) == value(ee) == f"{label} — {node}"
+
+
+def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):
+    """The description comes from the dump the checks already read, by the
+    rule the EasyEffects doctor uses — a Bluetooth sink's user-set name
+    included, which is never printed."""
+    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+    monkeypatch.setattr(checks, "_probe_plugins", lambda: {})
+    spk = _node(SPEAKER, **{"media.class": "Audio/Sink",
+                            "node.description": "Built-in Audio Speaker"})
+    bt = _node(BT_SINK, **{"media.class": "Audio/Sink",
+                           "node.description": "Someone's AirPods",
+                           "device.api": "bluez5"})
+
+    monkeypatch.setattr(checks, "_pw_dump",
+                        lambda: [spk, bt, _default_metadata(effective=SPEAKER)])
+    assert checks.gather_pw_doctor()[3]["default_label"] == "Built-in Audio Speaker"
+    monkeypatch.setattr(checks, "_pw_dump",
+                        lambda: [spk, bt, _default_metadata(effective=BT_SINK)])
+    assert checks.gather_pw_doctor()[3]["default_label"] == "Bluetooth output"
+    # No default, or no graph at all: an empty label, not a crash.
+    monkeypatch.setattr(checks, "_pw_dump", lambda: [spk])
+    assert checks.gather_pw_doctor()[3]["default_label"] == ""
+    monkeypatch.setattr(checks, "_pw_dump", lambda: None)
+    assert checks.gather_pw_doctor()[3]["default_label"] == ""

@@ -55,6 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib import console, doctor, packages, version
+from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -1203,6 +1204,11 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         "chains": chains,
         "sinks": sorted(sinks),
         "default": defaults,
+        # The default sink's description, by the rule the EasyEffects doctor
+        # labels its sink with — off this dump, so the row and the checks
+        # never describe two different graphs.
+        "default_label": hw_sinks.sink_label(hw_sinks.sinks_from_dump(dump),
+                                             defaults.effective),
         "wireplumber": wireplumber,
         "version": running,
         "plugins": plugin_probe,
@@ -1288,14 +1294,15 @@ _PW_GUTTER = 16   # the setup block's hand-padded gutter, matched here
 
 
 def _pipewire_lines(default: DefaultSink, settings: clock.ClockSettings,
-                    dropouts: clock.Dropouts, pw_age: float | None) -> list[str]:
+                    dropouts: clock.Dropouts, pw_age: float | None,
+                    label: str = "") -> list[str]:
     """The `=== PipeWire ===` body for this path: the default sink, the clock,
     the dropouts — rendered by the frame both doctors share, worded for a
     filter chain that lives inside PipeWire (no app uptime to bound it)."""
     lines = []
     if default.effective:
-        lines.append(layout.row("Output sink",
-                                doctor.no_bt_address(default.effective), _PW_GUTTER))
+        lines += layout.output_sink_rows(
+            label, doctor.no_bt_address(default.effective), "", _PW_GUTTER)
     lines += layout.clock_rows(settings, dropouts, _PW_GUTTER)
     lines += layout.dropouts_rows(dropouts, pw_age, None, _PW_GUTTER,
                                   app="the filter chain",
@@ -1322,7 +1329,8 @@ def report_pw_doctor() -> int:
     # seconds nobody should pay on the gather path.
     default = facts.get("default") or DefaultSink()
     layout.print_environment(
-        _pipewire_lines(default, *_probe_pipewire(chains, default)),
+        _pipewire_lines(default, *_probe_pipewire(chains, default),
+                        label=facts.get("default_label", "")),
         "=== PipeWire ===")
     layout.print_environment(_environment_lines(confs, chains, facts),
                              "=== PipeWire filter-chain setup ===")

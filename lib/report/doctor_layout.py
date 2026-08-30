@@ -96,6 +96,31 @@ def continuation(text: str, gutter: int) -> list[str]:
                          subsequent_indent=" " * gutter)
 
 
+def output_sink_rows(label: str, node: str, suffix: str, gutter: int
+                     ) -> list[str]:
+    """The `Output sink:` row both doctors print: *label* (the sink's
+    description, or "" when the probe settled nothing) leading, *node* (its
+    node.name, already redacted) trailing, *suffix* (" (from saved config)"
+    or "") after it.
+
+    The description leads because it answers the reader's question — what is
+    my sound coming out of — and the node name trails because it answers the
+    tool's: it is what --autoload-sink takes and what a bug report is triaged
+    on. Node names run past 70 columns, so the two share a line only when
+    they fit; the name is never wrapped — a name broken across lines stops
+    being greppable and stops being copy-pasteable — and just overflows."""
+    if not label:
+        return [row("Output sink", node + suffix, gutter)]
+    width = console._wrap_width()
+    one_line = row("Output sink", f"{label} — {node}{suffix}", gutter)
+    if len(one_line) <= width:
+        return [one_line]
+    return textwrap.wrap(label, width=width, break_on_hyphens=False,
+                         initial_indent=row("Output sink", "", gutter),
+                         subsequent_indent=" " * gutter) \
+        + [" " * gutter + node + suffix]
+
+
 def clock_rows(settings: clock.ClockSettings, d: clock.Dropouts | None,
                gutter: int) -> list[str]:
     """`Clock:` — the session's clock settings, then on a second line the
