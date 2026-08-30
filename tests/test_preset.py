@@ -3842,8 +3842,8 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     no quantum is known to be too small and the xrun counter is cumulative."""
     ok = clock.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
                              max_quantum="2048", force_quantum="0", force_rate="0")
-    quiet = clock.Dropouts(sink=0, ee=0, ee_node="easyeffects_sink",
-                           sink_recent=0, ee_recent=0, window_s=5.0, playing=False,
+    quiet = clock.Dropouts(sink=0, chain=0, chain_node="easyeffects_sink",
+                           sink_recent=0, chain_recent=0, window_s=5.0, playing=False,
                            sink_is_driver=True, running_quantum=0)
     f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
          "pw_clock": ok, "pw_xruns": quiet, "pw_age": 114403.0, "ee_age": 2028.9}
@@ -3861,7 +3861,7 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     # Totals, their age (a bound — nodes are recreated), and the live window
     # — the three things that make a cumulative counter readable — with the
     # plain word leading.
-    assert ("none (0 xruns) on the output sink or any EasyEffects node "
+    assert ("none (0 xruns) on the output sink or any of EasyEffects' nodes "
             "— since each node was created, at most PipeWire's 1 d 7 h / "
             "EasyEffects' 33 min uptime during the check: none in 5 s, nothing "
             "was playing into EasyEffects") in text
@@ -3873,8 +3873,8 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
                                  max_quantum="2048", force_quantum="256",
                                  force_rate="44100")
     f["pw_clock"] = forced
-    f["pw_xruns"] = clock.Dropouts(sink=42, ee=14, ee_node="ee_soe_convolver",
-                                   sink_recent=3, ee_recent=0, window_s=5.0,
+    f["pw_xruns"] = clock.Dropouts(sink=42, chain=14, chain_node="ee_soe_convolver",
+                                   sink_recent=3, chain_recent=0, window_s=5.0,
                                    playing=True, sink_is_driver=True,
                                    running_quantum=256, running_rate=48000)
     f["output_device"] = "bluez_output.80_99_E7_E0_8A_23.1"
@@ -3901,8 +3901,8 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
     assert order.index("Output sink") < order.index("Clock") < order.index("Dropouts")
     # No age known, EasyEffects' nodes clean, only the sink counting, and the
     # sink following another driver.
-    f["pw_xruns"] = clock.Dropouts(sink=42, ee=0, ee_node="easyeffects_source",
-                                   sink_recent=0, ee_recent=0, window_s=5.0)
+    f["pw_xruns"] = clock.Dropouts(sink=42, chain=0, chain_node="easyeffects_source",
+                                   sink_recent=0, chain_recent=0, window_s=5.0)
     f.pop("pw_age"); f.pop("ee_age")
     text = " ".join(ln.strip() for ln in doctor_run._environment_lines(f))
     assert ("42 xruns on the output sink, none on EasyEffects' nodes — since each "
@@ -3951,8 +3951,8 @@ def test_environment_lines_keep_the_gutter():
          "output_label": "Speaker",
          "output_plugins": ["c"], "bypass": False, "bypass_is_live": True,
          "pw_clock": clock.ClockSettings(rate="48000", quantum="1024"),
-         "pw_xruns": clock.Dropouts(sink=3, ee=1, ee_node="ee_soe_convolver",
-                                    sink_recent=0, ee_recent=0, window_s=5.0)}
+         "pw_xruns": clock.Dropouts(sink=3, chain=1, chain_node="ee_soe_convolver",
+                                    sink_recent=0, chain_recent=0, window_s=5.0)}
     for line in doctor_run._environment_lines(f):
         if not line or line.startswith(" " * gutter):
             continue  # a group break, or a continuation already on the gutter

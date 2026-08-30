@@ -372,7 +372,8 @@ future extraction has to respect, and each is checked rather than remembered:
 - **`lib/pipewire/` layers `plugins ← conf ← {install, checks}`**, with no edge
   between the top two; `clock.py` sits beside them as a stdlib-only leaf
   (the PipeWire clock and xrun reader), which is what lets
-  `lib/report/doctor_run.py` import it without dragging the chain in.
+  `lib/report/doctor_layout.py` — the frame both doctors print into — import
+  it without dragging the chain in.
   `lib/report/doctor_run.py` sits strictly above
   `speaker.py` and `environment.py` — `speaker.py` imports `environment.py`,
   and putting the doctor's I/O back into `environment.py` would close that

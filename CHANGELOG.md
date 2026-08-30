@@ -106,12 +106,12 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- `--doctor` now reports PipeWire's clock — the session defaults, any
-  session-wide override, and the rate and quantum your output actually ran
-  at during the check — plus dropouts (xruns): the counts on your output and
-  on EasyEffects' own nodes, an upper bound on how long each has been
-  counting, and whether any happened during the check — the numbers a
-  crackling report needs
+- Both `--doctor`s now print a `PipeWire` section: the clock — the session
+  defaults, any session-wide override, and the rate and quantum your output
+  actually ran at during the check — and dropouts (xruns): the counts on
+  your output and on the chain's own nodes, an upper bound on how long each
+  has been counting, and whether any happened during the check — the
+  numbers a crackling report needs
   ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)

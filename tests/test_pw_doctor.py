@@ -19,6 +19,16 @@ import pytest
 import ee_to_pipewire
 from lib import console, packages
 from lib.pipewire import checks, clock, conf
+
+
+@pytest.fixture(autouse=True)
+def _no_live_pipewire_window(monkeypatch):
+    """The report's `=== PipeWire ===` section reads pw-top over a five-second
+    window; no test here should pay that, nor depend on this machine's
+    graph. The parser tests below stub `clock._run` themselves."""
+    monkeypatch.setattr(checks, "_probe_pipewire", lambda chains, default: (
+        clock.ClockSettings(reason="pw-metadata not found"),
+        clock.Dropouts(reason="pw-top not found"), None))
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
 from lib.pipewire.checks import easyeffects_running as unpatched_ee_probe
@@ -1219,6 +1229,7 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
     # The setup block sits directly above the checks because the check details
     # name those confs and sinks.
     assert (out.index("=== HARDWARE STUB ===")
+            < out.index("=== PipeWire ===")
             < out.index("=== PipeWire filter-chain setup ===")
             < out.index("=== PipeWire filter-chain doctor ===")
             < out.index("Stacked filter chains")
@@ -1611,12 +1622,12 @@ def test_parse_pwtop_splits_snapshots_and_reads_the_columns_by_position():
 def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatch):
     monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_TOP_BATCH)
-    d = clock.read_xruns(extra_nodes=(_SPEAKER_NODE,))
+    d = clock.read_xruns(sink=_SPEAKER_NODE)
     assert d.ok
-    assert (d.sink, d.ee, d.ee_node) == (42, 27, "easyeffects_sink")
+    assert (d.sink, d.chain, d.chain_node) == (42, 27, "easyeffects_sink")
     # Growth is measured from the second snapshot: against the placeholder
     # the sink would read as 42 fresh dropouts.
-    assert (d.sink_recent, d.ee_recent) == (0, 1)
+    assert (d.sink_recent, d.chain_recent) == (0, 1)
     assert d.playing                                   # an EasyEffects node ran
     # In this capture the mic drove the clock and the sink followed it, so
     # the sink's ERR is its own and the running clock is the mic's.
@@ -1628,17 +1639,24 @@ def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatc
                                    "   42    S32LE 2 48000 alsa_output") \
                           .replace("R   91      0      0", "R   91    256  48000")
     monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: driving)
-    d = clock.read_xruns(extra_nodes=(_SPEAKER_NODE,))
+    d = clock.read_xruns(sink=_SPEAKER_NODE)
     assert d.sink_is_driver and (d.running_quantum, d.running_rate) == (256, 48000)
     # Without the sink named, only EasyEffects' side is reported.
     d = clock.read_xruns()
-    assert (d.sink, d.sink_recent, d.ee) == (None, None, 27)
+    assert (d.sink, d.sink_recent, d.chain) == (None, None, 27)
+    # A filter chain names its nodes exactly instead of by prefix.
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_TOP_BATCH.replace(
+        "+ ee_soe_multiband_compressor", "+ effect_output.Dolby_Balanced"))
+    d = clock.read_xruns(sink=_SPEAKER_NODE, chain_prefixes=(),
+                         chain_names=["effect_input.Dolby_Balanced",
+                                      "effect_output.Dolby_Balanced"])
+    assert (d.chain, d.chain_node) == (14, "effect_output.Dolby_Balanced")
     # Playing is judged on EasyEffects' nodes, not the sink: idle EasyEffects
     # beside a running sink is "nothing was playing".
     idle = PW_TOP_BATCH.replace("R  119", "S  119").replace("R  140", "S  140") \
                        .replace("R  331", "S  331")
     monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: idle)
-    assert not clock.read_xruns(extra_nodes=(_SPEAKER_NODE,)).playing
+    assert not clock.read_xruns(sink=_SPEAKER_NODE).playing
 
 
 def test_read_xruns_says_why_when_it_cannot(monkeypatch):
@@ -1653,7 +1671,7 @@ def test_read_xruns_says_why_when_it_cannot(monkeypatch):
         ln for ln in PW_TOP_BATCH.splitlines()
         if not ln.split()[-1].startswith(clock.EASYEFFECTS_NODE_PREFIXES))
     monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: no_ee)
-    assert clock.read_xruns().reason == "no EasyEffects nodes in the graph"
+    assert clock.read_xruns().reason == "none of the chain's nodes are in the graph"
 
 
 def test_process_age_is_read_off_proc_stat_past_the_comm_field():
@@ -1688,3 +1706,32 @@ def test_read_settings_soft_fails_in_the_reports_own_words(monkeypatch):
     assert (settings.rate, settings.quantum, settings.min_quantum,
             settings.max_quantum, settings.force_quantum, settings.force_rate
             ) == ("48000", "1024", "32", "2048", "0", "0")
+
+
+def test_pipewire_section_is_worded_for_a_filter_chain():
+    """The section both doctors print: on this path the chain lives inside
+    PipeWire, so there is no app uptime to bound the counters, its nodes are
+    "the chain's", and the default sink is what "the output sink" means."""
+    settings = clock.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
+                                   max_quantum="2048", force_quantum="0",
+                                   force_rate="0")
+    d = clock.Dropouts(sink=3, chain=1, chain_node="effect_output.Dolby_Balanced",
+                       sink_recent=0, chain_recent=0, window_s=5.0, playing=False,
+                       sink_is_driver=True, running_quantum=1024, running_rate=48000)
+    lines = checks._pipewire_lines(checks.DefaultSink(effective="alsa_output.spk"),
+                                   settings, d, pw_age=90061.0)
+    text = " ".join(ln.strip() for ln in lines)
+    assert lines[0] == "  Output sink:  alsa_output.spk"
+    assert "during the check: 48000 Hz, 1024-sample cycles (21.3 ms)" in text
+    assert ("3 xruns on the output sink (it drives the clock, so any node's "
+            "dropout counts there), 1 on the busiest chain node "
+            "(effect_output.Dolby_Balanced) — since each node was created, at "
+            "most PipeWire's 1 d 1 h uptime during the check: none in 5 s, "
+            "nothing was playing into the chain") in text
+    assert "EasyEffects" not in text
+    # A Bluetooth default is redacted like every node name in the report.
+    lines = checks._pipewire_lines(
+        checks.DefaultSink(effective="bluez_output.80_99_E7_E0_8A_23.1"),
+        settings, clock.Dropouts(reason="pw-top not found"), None)
+    assert "80_99" not in " ".join(lines)
+    assert any("not read (pw-top not found)" in ln for ln in lines)

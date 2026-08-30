@@ -13,9 +13,8 @@ by hand (`docs/ee-to-pipewire.md`, "Small-quantum systems under load"), and
 the one place this project does it — `tools/measure_perf/compare_paths.py` —
 is a measurement harness behind the audio handoff.
 
-Stdlib-only, deliberately: the EasyEffects doctor reaches it from
-`lib/report/doctor_run.py`, the PipeWire doctor could, and
-`tests/test_layout.py` lists it.
+Stdlib-only, deliberately: both doctors print from it through
+`lib/report/doctor_layout.py`, and `tests/test_layout.py` lists it.
 """
 
 from __future__ import annotations
@@ -81,27 +80,27 @@ class Dropouts:
     Each counter is cumulative since its node was created — nothing rebases
     it; pw-top's ``c`` key clears only that instance's display — so the
     totals mean little without an age, and the growth over the window is
-    what says whether dropouts are happening *now*. ``sink`` is the sink
-    EasyEffects plays into (``None`` when the caller named none or it isn't
-    in the graph); on a driver node, which the sink usually is, pw-top's ERR
-    counts every cycle the *graph* failed to complete — any node's fault —
-    which ``sink_is_driver`` records. ``ee`` is the highest total among
-    EasyEffects' own nodes and ``ee_node`` which one carries it;
-    ``sink_recent`` / ``ee_recent`` the growth over ``window_s`` seconds (the
-    latter the largest growth on any EasyEffects node); ``playing`` whether
-    an EasyEffects output-side node was running at any point in the window —
-    which any application's active playback stream causes, silent or not,
-    and without which a zero says nothing. ``running_quantum`` /
-    ``running_rate`` are the clock the sink's driver actually ran at during
-    the window (0 when it never ran), as distinct from the session defaults
-    `read_settings` reports. ``reason`` is set, and the rest empty, when
-    nothing could be read.
+    what says whether dropouts are happening *now*. ``sink`` is the sink the
+    chain plays into (``None`` when the caller named none or it isn't in the
+    graph); on a driver node, which the sink usually is, pw-top's ERR counts
+    every cycle the *graph* failed to complete — any node's fault — which
+    ``sink_is_driver`` records. ``chain`` is the highest total among the
+    chain's own nodes (EasyEffects', or a filter chain's) and ``chain_node``
+    which one carries it; ``sink_recent`` / ``chain_recent`` the growth over
+    ``window_s`` seconds (the latter the largest growth on any chain node);
+    ``playing`` whether a chain node on the playback path was running at any
+    point in the window — which any application's active playback stream
+    causes, silent or not, and without which a zero says nothing.
+    ``running_quantum`` / ``running_rate`` are the clock the sink's driver
+    actually ran at during the window (0 when it never ran), as distinct
+    from the session defaults `read_settings` reports. ``reason`` is set,
+    and the rest empty, when nothing could be read.
     """
     sink: int | None = None
-    ee: int | None = None
-    ee_node: str = ""
+    chain: int | None = None
+    chain_node: str = ""
     sink_recent: int | None = None
-    ee_recent: int | None = None
+    chain_recent: int | None = None
     window_s: float = 0.0
     playing: bool = False
     sink_is_driver: bool = False
@@ -200,13 +199,22 @@ def parse_pwtop(text: str) -> list[dict[str, NodeRow]]:
     return snapshots
 
 
-def read_xruns(extra_nodes: Iterable[str] = (),
-               iterations: int = WINDOW_ITERATIONS) -> Dropouts:
-    """EasyEffects' dropout counters over a ~``iterations``-2 s window.
+# EasyEffects' input side runs for a microphone, not for sound: a chain node
+# with one of these names does not count as "playing".
+_CAPTURE_SIDE_PREFIXES = ("easyeffects_source", "ee_sie_")
 
-    ``extra_nodes`` are exact names to count beside the EasyEffects prefixes,
-    typically the sink EasyEffects plays into: a dropout there is heard just
-    the same, and it is reported on its own.
+
+def read_xruns(sink: str = "",
+               chain_prefixes: Iterable[str] = EASYEFFECTS_NODE_PREFIXES,
+               chain_names: Iterable[str] = (),
+               iterations: int = WINDOW_ITERATIONS) -> Dropouts:
+    """The chain's dropout counters over a ~``iterations``-2 s window.
+
+    The chain's nodes are those whose names start with one of
+    ``chain_prefixes`` (EasyEffects' by default) or equal one of
+    ``chain_names`` (a filter chain's ``effect_input.X`` / ``effect_output.X``);
+    ``sink`` is the exact name of the sink they play into, counted and
+    reported on its own — a dropout there is heard just the same.
     """
     if shutil.which("pw-top") is None:
         return Dropouts(reason="pw-top not found")
@@ -222,46 +230,46 @@ def read_xruns(extra_nodes: Iterable[str] = (),
     # window's baseline — the second one is the first with real counts.
     first = snapshots[1] if len(snapshots) > 1 else snapshots[0]
     last = snapshots[-1]
-    extra = set(extra_nodes)
-    ee_nodes = [n for n in last if n.startswith(EASYEFFECTS_NODE_PREFIXES)]
-    sinks = [n for n in last if n in extra]
-    if not ee_nodes and not sinks:
-        return Dropouts(reason="no EasyEffects nodes in the graph")
+    prefixes, names = tuple(chain_prefixes), set(chain_names)
+    chain_nodes = [n for n in last
+                   if (prefixes and n.startswith(prefixes)) or n in names]
+    sinks = [n for n in last if n == sink] if sink else []
+    if not chain_nodes and not sinks:
+        return Dropouts(reason="none of the chain's nodes are in the graph")
 
     def growth(name: str) -> int:
         before = first.get(name)
         return last[name].err - (before.err if before else last[name].err)
 
-    ee_node = max(ee_nodes, key=lambda n: last[n].err) if ee_nodes else ""
-    sink = sinks[0] if sinks else ""
-    # "Playing" is judged on EasyEffects' output-side nodes, not the sink:
-    # the sink runs whenever EasyEffects' stream is attached to it, while
-    # `easyeffects_sink` and the `ee_soe_*` filters run only while an app
-    # holds a playback stream into them (they read `S` on an idle graph) —
-    # which a browser tab with an open audio context does, silently. The
-    # input side (`easyeffects_source`, `ee_sie_*`) runs for a microphone.
-    output_side = [n for n in ee_nodes
-                   if n == "easyeffects_sink" or n.startswith("ee_soe_")]
+    chain_node = max(chain_nodes, key=lambda n: last[n].err) if chain_nodes else ""
+    # "Playing" is judged on the chain's playback-path nodes, not the sink:
+    # the sink runs whenever the chain's stream is attached to it, while
+    # `easyeffects_sink`, the `ee_soe_*` filters and a filter chain's own
+    # nodes run only while an app holds a playback stream into them (they
+    # read `S` on an idle graph) — which a browser tab with an open audio
+    # context does, silently.
+    playback_side = [n for n in chain_nodes
+                     if not n.startswith(_CAPTURE_SIDE_PREFIXES)]
     playing = any(snap[n].state == "R" for snap in snapshots
-                  for n in output_side if n in snap)
+                  for n in playback_side if n in snap)
     # The clock the output really ran at: its driver's QUANT/RATE in any
     # real snapshot where that driver was running.
     running_quantum = running_rate = 0
-    if sink:
+    if sinks:
         drv = last[sink].driver
         for snap in snapshots[1:]:
             row = snap.get(drv)
             if row and row.state == "R" and row.quant:
                 running_quantum, running_rate = row.quant, row.rate
     return Dropouts(
-        sink=last[sink].err if sink else None,
-        ee=last[ee_node].err if ee_node else None,
-        ee_node=ee_node,
-        sink_recent=growth(sink) if sink else None,
-        ee_recent=max(growth(n) for n in ee_nodes) if ee_nodes else None,
+        sink=last[sink].err if sinks else None,
+        chain=last[chain_node].err if chain_node else None,
+        chain_node=chain_node,
+        sink_recent=growth(sink) if sinks else None,
+        chain_recent=max(growth(n) for n in chain_nodes) if chain_nodes else None,
         window_s=round(window, 1),
         playing=playing,
-        sink_is_driver=bool(sink) and last[sink].driver == sink,
+        sink_is_driver=bool(sinks) and last[sink].driver == sink,
         running_quantum=running_quantum,
         running_rate=running_rate,
     )

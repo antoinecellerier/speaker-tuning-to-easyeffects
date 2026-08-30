@@ -668,7 +668,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     #     #84's paste lacked was the numbers, and a remote reader can weigh
     #     them.
     pw_clock = clock.read_settings()
-    pw_xruns = clock.read_xruns(extra_nodes=(live.sink,) if live.sink else ())
+    pw_xruns = clock.read_xruns(sink=live.sink or "")
     pw_age = clock.process_age("pipewire")
     ee_age = clock.process_age("easyeffects")
 
@@ -737,133 +737,6 @@ def _row(label: str, value: str) -> str:
     return f"  {label + ':':<{_GUTTER - 2}}{value}"
 
 
-def _wrapped_row(label: str, value: str) -> list[str]:
-    """A row whose value may run past the line: folded to the gutter, like
-    the chain row, so a narrow terminal never truncates the qualifier."""
-    return textwrap.wrap(value, width=console._wrap_width(),
-                         break_on_hyphens=False,
-                         initial_indent=_row(label, ""),
-                         subsequent_indent=" " * _GUTTER)
-
-
-def _continuation(text: str) -> list[str]:
-    """A second line of a row, hung on the gutter: the standing state above,
-    what the check itself observed below, so the two never read as one."""
-    return textwrap.wrap(text, width=console._wrap_width(),
-                         break_on_hyphens=False,
-                         initial_indent=" " * _GUTTER,
-                         subsequent_indent=" " * _GUTTER)
-
-
-def _clock_rows(settings: "clock.ClockSettings",
-                d: "clock.Dropouts | None" = None) -> list[str]:
-    """`Clock:` — the session's clock settings, then on a second line the
-    cycle the output actually ran at during the check, or why unknown.
-
-    "session defaults" and "session-wide" are load-bearing: `clock.quantum`
-    is what a client gets when it asks for nothing (`man pipewire.conf`), a
-    driver runs at the lowest quantum any follower asks for (`man pw-top`),
-    and a per-node `node.force-quantum` rule pins a graph without touching
-    these keys. The running cycle comes from the driver row in `pw-top`.
-    "quantum" is PipeWire's word for the samples processed per graph cycle
-    — a buffer size, not a clock — and the row says so once; the cycle
-    length in ms is what a reader can weigh against a crackle.
-    """
-    if not settings.ok:
-        hint = {"pw-metadata not found": "clock settings not read",
-                "no answer from pw-metadata": "is the PipeWire daemon running?"}
-        return _wrapped_row("Clock", f"{settings.reason} — "
-                            f"{hint.get(settings.reason, 'clock settings not read')}")
-    forced = []
-    if settings.force_quantum not in ("", "0"):
-        forced.append(f"quantum {settings.force_quantum}")
-    if settings.force_rate not in ("", "0"):
-        forced.append(f"rate {settings.force_rate}")
-    bounds = (f", min {settings.min_quantum}, max {settings.max_quantum}"
-              if settings.min_quantum and settings.max_quantum else "")
-    tail = (f"; forced session-wide: {', '.join(forced)}" if forced
-            else ", no session-wide override")
-    rows = _wrapped_row("Clock", f"{settings.rate} Hz, quantum {settings.quantum} "
-                        f"samples per cycle (session defaults{bounds}){tail}")
-    if d is not None and d.ok and d.sink is not None:
-        if d.running_quantum and d.running_rate:
-            ms = 1000.0 * d.running_quantum / d.running_rate
-            rows += _continuation(
-                f"during the check: {d.running_rate} Hz, "
-                f"{d.running_quantum}-sample cycles ({ms:.1f} ms)")
-        else:
-            rows += _continuation("during the check: the output was idle")
-    return rows
-
-
-def _dropouts_rows(d: "clock.Dropouts", pw_age: float | None = None,
-                   ee_age: float | None = None) -> list[str]:
-    """`Dropouts:` — pw-top's xrun counters on the output sink and on
-    EasyEffects' own nodes, then on a second line what happened during the
-    check.
-
-    The counters are cumulative from node creation — nothing rebases them;
-    pw-top's `c` key clears only its own display — so a total means nothing
-    without an age. The PipeWire and EasyEffects process uptimes are the
-    bound a paste can carry: a node is at most that old, and EasyEffects
-    recreates its filter nodes on every pipeline restart, including the
-    preset reload this tool performs, so its counter can be much younger.
-    The growth during the doctor's own five-second window is the only "is
-    it happening now"; a zero there with no stream running says nothing,
-    and the row says which it was — "running", not "audible": any
-    application's active playback stream keeps the graph running, silent or
-    not. On a driver node, which the output sink usually is, ERR counts
-    every cycle the whole graph missed, and the row says so. A count that
-    could not be read says so rather than printing nothing: in a pasted
-    report an absent row and a zero look alike, and the reassuring reading
-    wins. "the output sink" is the `Output sink:` row above.
-    """
-    label = "Dropouts"
-    if not d.ok:
-        return _wrapped_row(label, f"not read ({d.reason})")
-    # The plain word leads and the unit follows it: "0 xruns" alone read as
-    # alarming to a reviewer until they worked out that 0 is the good number;
-    # "xruns" stays because it is pw-top's column, what a maintainer greps a
-    # paste for.
-    has_sink, has_ee = d.sink is not None, d.ee is not None
-    if not any(c for c in (d.sink, d.ee) if c):
-        where = {(True, True): "the output sink or any EasyEffects node",
-                 (True, False): "the output sink",
-                 (False, True): "any EasyEffects node"}[(has_sink, has_ee)]
-        lead = f"none (0 xruns) on {where}"
-    else:
-        parts = []
-        if has_sink:
-            parts.append(f"{d.sink} xruns on the output sink"
-                         + (" (it drives the clock, so any node's dropout "
-                            "counts there)" if d.sink_is_driver else ""))
-        if has_ee:
-            unit = "" if parts else " xruns"
-            parts.append(f"none{unit} on EasyEffects' nodes" if d.ee == 0 else
-                         f"{d.ee}{unit} on the busiest EasyEffects node ({d.ee_node})")
-        lead = ", ".join(parts)
-    ages = []
-    if pw_age is not None:
-        ages.append(f"PipeWire's {clock.format_age(pw_age)}")
-    if ee_age is not None:
-        ages.append(f"EasyEffects' {clock.format_age(ee_age)}")
-    since = " — since each node was created" + (
-        f", at most {' / '.join(ages)} uptime" if ages else "")
-    rows = _wrapped_row(label, lead + since)
-    if not any(c for c in (d.sink_recent, d.ee_recent) if c):
-        now = f"none in {d.window_s:.0f} s"
-    else:
-        got = []
-        if d.sink_recent is not None:
-            got.append(f"{d.sink_recent} on the sink")
-        if d.ee_recent is not None:
-            got.append(f"{d.ee_recent} on EasyEffects' nodes")
-        now = f"{', '.join(got)} in {d.window_s:.0f} s"
-    heard = ("a playback stream was running" if d.playing
-             else "nothing was playing into EasyEffects")
-    return rows + _continuation(f"during the check: {now}, {heard}")
-
-
 def _pipewire_lines(f: dict) -> list[str]:
     """The `=== PipeWire ===` body: where the sound goes, the clock it runs
     on, and whether the graph drops buffers — the audio server's side, above
@@ -899,11 +772,12 @@ def _pipewire_lines(f: dict) -> list[str]:
                 subsequent_indent=" " * _GUTTER)
             lines.append(" " * _GUTTER + node + source)
     # Both rows come straight from PipeWire's own tools (`pw-metadata -n
-    # settings`, `pw-top -b -n 7`).
+    # settings`, `pw-top -b -n 7`), rendered by the frame both doctors share.
     if f.get("pw_clock") is not None:
-        lines += _clock_rows(f["pw_clock"], f.get("pw_xruns"))
+        lines += layout.clock_rows(f["pw_clock"], f.get("pw_xruns"), _GUTTER)
     if f.get("pw_xruns") is not None:
-        lines += _dropouts_rows(f["pw_xruns"], f.get("pw_age"), f.get("ee_age"))
+        lines += layout.dropouts_rows(f["pw_xruns"], f.get("pw_age"),
+                                      f.get("ee_age"), _GUTTER)
     return lines
 
 
@@ -921,20 +795,20 @@ def _setup_lines(f: dict) -> list[str]:
     # line that looked equally sure of itself either way.
     saved = " (from saved config)"
     running = f.get("ee_running")
-    lines = _wrapped_row(
+    lines = layout.wrapped_row(
         "EasyEffects",
         f"{f.get('ee_version', '?')}; running: {'yes' if running else 'no'}; "
         f"service mode {'on' if f.get('service_mode') else 'off'}, "
-        f"autostart {'on' if f.get('autostart_on_login') else 'off'}")
+        f"autostart {'on' if f.get('autostart_on_login') else 'off'}", _GUTTER)
     # Both counts are what the folders hold — the bypass preset, presets the
     # user put there and stray .irs files included — so neither is derived
     # from the other. "Presets sharing impulse files" explained the gap with
     # a relationship these counts don't establish.
-    lines += _wrapped_row(
+    lines += layout.wrapped_row(
         "Install",
         f"{f.get('install')} — writes to {f.get('output_dir')}; "
         f"{f.get('preset_count', 0)} preset files and "
-        f"{f.get('irs_count', 0)} impulse files in the folders")
+        f"{f.get('irs_count', 0)} impulse files in the folders", _GUTTER)
     lines.append(_row("Config", f"{f.get('rc_path')} "
                                 f"({'present' if f.get('rc_present') else 'absent'})"))
     live: list[str] = []

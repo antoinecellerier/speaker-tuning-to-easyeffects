@@ -63,7 +63,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.pipewire.conf import CONF_HEADER_MARK, PIPEWIRE_RESTART_CMD
-from lib.pipewire import vbe
+from lib.pipewire import clock, vbe
 from lib.pipewire.plugins import (
     CALF_BE_URI,
     CALF_ST_URI,
@@ -1271,6 +1271,40 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     return [doctor.no_bt_address(line) for line in lines]
 
 
+def _probe_pipewire(chains, default: DefaultSink
+                    ) -> tuple[clock.ClockSettings, clock.Dropouts, float | None]:
+    """The `=== PipeWire ===` facts: the clock, the dropout counters on the
+    default sink and the live chains' own nodes, and PipeWire's uptime. One
+    function so tests can stand in for the five-second pw-top window."""
+    names = [f"effect_{half}.{c.name}" for c in chains
+             for half in ("input", "output")]
+    return (clock.read_settings(),
+            clock.read_xruns(sink=default.effective, chain_prefixes=(),
+                             chain_names=names),
+            clock.process_age("pipewire"))
+
+
+_PW_GUTTER = 16   # the setup block's hand-padded gutter, matched here
+
+
+def _pipewire_lines(default: DefaultSink, settings: clock.ClockSettings,
+                    dropouts: clock.Dropouts, pw_age: float | None) -> list[str]:
+    """The `=== PipeWire ===` body for this path: the default sink, the clock,
+    the dropouts — rendered by the frame both doctors share, worded for a
+    filter chain that lives inside PipeWire (no app uptime to bound it)."""
+    lines = []
+    if default.effective:
+        lines.append(layout.row("Output sink",
+                                doctor.no_bt_address(default.effective), _PW_GUTTER))
+    lines += layout.clock_rows(settings, dropouts, _PW_GUTTER)
+    lines += layout.dropouts_rows(dropouts, pw_age, None, _PW_GUTTER,
+                                  app="the filter chain",
+                                  nodes="the chain's nodes",
+                                  busiest="the busiest chain node",
+                                  into="into the chain")
+    return lines
+
+
 def report_pw_doctor() -> int:
     """Print the PipeWire-side diagnostic report. Returns a process exit code.
 
@@ -1284,6 +1318,12 @@ def report_pw_doctor() -> int:
     # Probed here rather than in gather_pw_doctor: nothing judges this block,
     # so it costs a ~2.5 s probe only on the path that prints it.
     gen._print_speaker_info(gen._gather_speaker_info())
+    # Same reason: nothing judges these rows, and the dropout window is five
+    # seconds nobody should pay on the gather path.
+    default = facts.get("default") or DefaultSink()
+    layout.print_environment(
+        _pipewire_lines(default, *_probe_pipewire(chains, default)),
+        "=== PipeWire ===")
     layout.print_environment(_environment_lines(confs, chains, facts),
                              "=== PipeWire filter-chain setup ===")
     layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
