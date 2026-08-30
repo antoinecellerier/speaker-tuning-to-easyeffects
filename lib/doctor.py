@@ -33,8 +33,11 @@ __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
 
 DOCTOR_PASS, DOCTOR_WARN, DOCTOR_FAIL, DOCTOR_UNKNOWN = "PASS", "WARN", "FAIL", "?"
 
+# UNKNOWN is cyan, not dim: "this could not be checked" must be at least as
+# visible as a warning — dimmed, reviewers skim straight past the one line
+# saying the report is incomplete (/user-review 2026-08-28, again 2026-08-30).
 _STYLE = {DOCTOR_PASS: "ok", DOCTOR_WARN: "warn",
-          DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "dim"}
+          DOCTOR_FAIL: "err", DOCTOR_UNKNOWN: "cta"}
 
 
 def tag(status: str) -> str:

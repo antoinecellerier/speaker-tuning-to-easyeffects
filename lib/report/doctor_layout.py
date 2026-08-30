@@ -82,9 +82,10 @@ def print_environment(lines: Sequence[str], title: str) -> None:
 # through tests/conftest.py `assert_rows_line_up`) enforce.
 GUTTER = 19
 
-# The one hint for "the tool ran but the daemon didn't answer", shared by
-# every row that can meet that state, so a reader sees one sentence for one
-# condition wherever it strikes.
+# The daemon question, asked exactly once per report — by each doctor's own
+# `PipeWire` check, never by the rows: three rows echoing it read as the
+# tool asking the reader what it should be answering (/user-review
+# 2026-08-30).
 DAEMON_HINT = "is the PipeWire daemon running?"
 
 
@@ -122,10 +123,10 @@ def version_rows(pipewire: session.Version, wireplumber: session.Version,
     and the (running)/(installed) tags say which claim each number makes.
     """
     def half(name: str, v: session.Version, tag: str) -> str:
+        # Bare reasons: the daemon question is asked once, by the doctors'
+        # own PipeWire check — three rows each asking it read as an echo.
         if not v.ok:
-            reason = (f"{v.reason} — {DAEMON_HINT}"
-                      if v.reason == "no answer from pw-cli" else v.reason)
-            return f"{name} not read ({reason})"
+            return f"{name} not read ({v.reason})"
         return f"{name} {v.text} ({tag})"
     return wrapped_row("Versions",
                        f"{half('PipeWire', pipewire, 'running')}, "
@@ -185,11 +186,10 @@ def clock_rows(settings: session.ClockSettings, d: session.Dropouts | None,
     what a reader can weigh against a crackle.
     """
     if not settings.ok:
-        hint = {"pw-metadata not found": "clock settings not read",
-                "no answer from pw-metadata": DAEMON_HINT}
-        return wrapped_row("Clock", f"{settings.reason} — "
-                           f"{hint.get(settings.reason, 'clock settings not read')}",
-                           gutter)
+        # Bare reason + what it cost; the daemon question is the PipeWire
+        # check's to ask, once.
+        return wrapped_row("Clock", f"{settings.reason} — clock settings "
+                           "not read", gutter)
     forced = []
     if settings.force_quantum not in ("", "0"):
         forced.append(f"quantum {settings.force_quantum}")

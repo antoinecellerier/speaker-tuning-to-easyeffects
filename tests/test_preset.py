@@ -3984,8 +3984,24 @@ def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
     assert rows["Dropouts"].endswith("not read (pw-top didn't answer)")
     f["pw_clock"] = session.ClockSettings(reason="no answer from pw-metadata")
     rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
-    assert rows["Clock"].endswith("no answer from pw-metadata — is the PipeWire "
-                                  "daemon running?")
+    assert rows["Clock"].endswith("no answer from pw-metadata — clock settings "
+                                  "not read")
+
+
+def test_the_ee_doctor_flags_an_unreadable_pipewire():
+    """The filter-chain doctor's PipeWire check, mirrored: the verdict must
+    not read "nothing failed" over a section that says "not read" four
+    times. Both probes empty → one UNKNOWN carrying the daemon question;
+    one probe missing → none (a package, not a dead server)."""
+    check = doctor_run._pipewire_unread_check(
+        session.ClockSettings(reason="no answer from pw-metadata"),
+        session.Dropouts(reason="pw-top didn't answer"))
+    assert check.status == DOCTOR_UNKNOWN and check.label == "PipeWire"
+    assert "is the PipeWire daemon running?" in check.detail
+    assert doctor_run._pipewire_unread_check(
+        session.ClockSettings(reason="pw-metadata not found"),
+        session.Dropouts(sink=0, chain=0)) is None
+    assert doctor_run._pipewire_unread_check(None, None) is None
 
 
 def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
@@ -4132,10 +4148,9 @@ def test_the_output_sink_row_survives_a_silent_pipewire(monkeypatch):
         return " ".join(ln.strip() for ln in _sink_lines(f))
 
     assert text({"output_device": "", "output_device_source": "saved",
-                 "output_reason": ("pw-dump didn't answer — is the PipeWire "
-                                   "daemon running?")}) == (
-        "Output sink:     not read (pw-dump didn't answer — is the PipeWire "
-        "daemon running?), and EasyEffects' saved config names none")
+                 "output_reason": "pw-dump didn't answer"}) == (
+        "Output sink:     not read (pw-dump didn't answer), and EasyEffects' "
+        "saved config names none")
     assert text({"output_device": "", "output_device_source": "saved"}) == (
         "Output sink:     none — PipeWire has no default output selected, "
         "and EasyEffects' saved config names none")

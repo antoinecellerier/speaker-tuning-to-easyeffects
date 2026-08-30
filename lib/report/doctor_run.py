@@ -679,6 +679,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # Which server those numbers describe — probed once here, beside them.
     pw_version = session.pipewire_version()
     wp_version = session.wireplumber_version()
+    unread = _pipewire_unread_check(pw_clock, pw_xruns)
+    if unread is not None:
+        report.checks.append(unread)
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
     gate_check = environment.firmware_gate_status(
@@ -736,6 +739,22 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
 
 
 _NO_SINK_TAIL = ", and EasyEffects' saved config names none"
+
+
+def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:
+    """UNKNOWN when nothing PipeWire-side could be read — the filter-chain
+    doctor's `PipeWire` check, mirrored, so this report's verdict can't say
+    "nothing failed" while the whole `=== PipeWire ===` section above reads
+    "not read" (/user-review 2026-08-30). Fires only when *both* probes came
+    back empty: one tool missing is a package, not a dead server."""
+    if not (clock_settings and clock_settings.reason
+            and xruns and xruns.reason):
+        return None
+    return CheckResult(
+        DOCTOR_UNKNOWN, "PipeWire",
+        f"nothing PipeWire-side could be read ({clock_settings.reason}; "
+        f"{xruns.reason}) — {layout.DAEMON_HINT} If there is no sound at "
+        "all, that is the problem to fix before any preset.")
 
 
 def _pipewire_lines(f: dict) -> list[str]:

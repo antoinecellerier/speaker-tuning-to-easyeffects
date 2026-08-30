@@ -216,11 +216,14 @@ def test_default_sinks_ignores_other_metadata_objects():
     assert checks.default_sinks(dump).effective == SPEAKER
 
 
-def test_default_sinks_tolerates_no_daemon():
+def test_default_sinks_tolerates_no_daemon(monkeypatch):
     """None (nothing answered) carries the why; [] is a daemon answering
     with an empty graph — "none", not "not read"."""
+    monkeypatch.setattr(checks.shutil, "which", lambda name: "/usr/bin/" + name)
     assert checks.default_sinks(None) == checks.DefaultSink(
         reason=checks.NO_DUMP_REASON)
+    monkeypatch.setattr(checks.shutil, "which", lambda name: None)
+    assert checks.default_sinks(None).reason == "pw-dump not found"
     assert checks.default_sinks([]) == checks.DefaultSink()
 
 
@@ -1144,15 +1147,15 @@ def test_the_versions_row_leads_the_pipewire_section(monkeypatch):
 
 
 def test_the_versions_row_says_why_a_version_is_missing(monkeypatch):
-    """An unread version prints its reason — an absent row and a zero look
-    alike in a paste — and only the daemon-shaped failure earns the
-    daemon hint."""
+    """An unread version prints its bare reason — an absent row and a zero
+    look alike in a paste; the daemon question belongs to the PipeWire
+    check, asked once."""
     monkeypatch.setenv("COLUMNS", "80")
     def text(pw, wp):
         return " ".join(ln.strip() for ln in doctor_layout.version_rows(
             pw, wp, doctor_layout.GUTTER))
-    assert ("PipeWire not read (no answer from pw-cli — is the PipeWire "
-            "daemon running?), WirePlumber 0.5.15 (installed)") in text(
+    assert ("PipeWire not read (no answer from pw-cli), WirePlumber 0.5.15 "
+            "(installed)") in text(
         session.Version(reason="no answer from pw-cli"),
         session.Version(text="0.5.15", parts=(0, 5, 15)))
     assert ("PipeWire not read (pw-cli not found), WirePlumber not read "
@@ -1874,8 +1877,7 @@ def test_both_doctors_say_which_kind_of_no_sink_it_was(monkeypatch):
         return " ".join(ln.strip() for ln in checks._pipewire_lines(
             default, settings, d, None))
 
-    assert ("Output sink:     not read (pw-dump didn't answer — is the "
-            "PipeWire daemon running?)") in pw(
+    assert ("Output sink:     not read (pw-dump didn't answer)") in pw(
         checks.DefaultSink(reason=checks.NO_DUMP_REASON))
     assert ("Output sink:     none — PipeWire has no default output "
             "selected") in pw(checks.DefaultSink())

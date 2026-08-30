@@ -16,7 +16,7 @@ the same ``installed_confs``.
 
 ``DEFAULT_OUTPUT_DIR`` is defined here too, beside the ``_UNSCANNED_CONF_DIR``
 it is the counterpart of: every check that names the directory reads it here —
-``check_conf_directory``, ``gather_pw_doctor``, ``report_pw_doctor`` — and it
+``check_conf_directory``, ``gather_pw_doctor``, ``_environment_lines`` — and it
 is the one constant the suite patches to point the doctor at a temporary tree,
 so it has to be one binding, not a name copied in from elsewhere. Its readers
 outside are the two converters, which import this module either way:
@@ -169,8 +169,9 @@ class DefaultSink:
 
 # The one sentence for "the graph could not be read", shared by the check
 # that reports it and every row that inherits it, so the same condition
-# never prints two diagnoses.
-NO_DUMP_REASON = f"pw-dump didn't answer — {layout.DAEMON_HINT}"
+# never prints two diagnoses. Bare: the rows print it as-is, and only the
+# check appends the daemon question (layout.DAEMON_HINT).
+NO_DUMP_REASON = "pw-dump didn't answer"
 
 
 def _pw_dump() -> list | None:
@@ -346,7 +347,11 @@ def default_sinks(dump) -> DefaultSink:
     dump itself is missing ([] is a daemon answering with an empty graph —
     that is "none", not "not read")."""
     if dump is None:
-        return DefaultSink(reason=NO_DUMP_REASON)
+        # "not found" and "didn't answer" send a reader to different fixes:
+        # a package, or a daemon (or a root/ssh shell outside the session).
+        return DefaultSink(reason="pw-dump not found"
+                           if shutil.which("pw-dump") is None
+                           else NO_DUMP_REASON)
     found = DefaultSink()
     for obj in dump or []:
         if not str(obj.get("type", "")).endswith("Metadata"):
@@ -1184,11 +1189,13 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     if dump is None:
         checks.append(CheckResult(
             DOCTOR_UNKNOWN, "PipeWire",
-            # Not "the checks above": a check that needed the graph returned
-            # None and is absent from the block, so there is nothing above for
-            # the reader to go back and re-read.
-            f"{NO_DUMP_REASON} Several checks need the live graph and were "
-            "skipped."))
+            # The graph-dependent checks don't vanish — they print as
+            # [ ?  ] above — so point the reader back at them rather than
+            # claim they were "skipped" (/copy-audit 2026-08-30).
+            f"{default_sinks(None).reason} — {layout.DAEMON_HINT} A root or "
+            "ssh shell can't reach your login session's daemon either. The "
+            f"checks that need the live graph read {doctor.tag(DOCTOR_UNKNOWN)} "
+            "above."))
 
     facts = {
         "confs": confs,
