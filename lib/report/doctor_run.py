@@ -92,27 +92,6 @@ def _flatpak_version_text(info_output: str) -> str:
     return ""
 
 
-def easyeffects_is_running() -> bool:
-    """Return True if an EasyEffects process is currently running.
-
-    Used to warn the user that easyeffectsrc edits won't take effect until
-    EE is restarted — EE reads the file on startup and rewrites it from
-    ``saveAll()``, which runs on quit *and* on a 30 s autosave timer that
-    only ticks while its window is open, so mid-run writes get clobbered.
-    """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-x", "easyeffects"],
-            capture_output=True, timeout=2,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, OSError):
-        # OSError covers FileNotFoundError (no pgrep) and PermissionError
-        # (sandboxed/SELinux hosts) — never crash a caller that only wants a
-        # best-effort "is EE up?" (e.g. --doctor's fact-gathering).
-        return False
-
-
 # EasyEffects' daemon listens on a QLocalServer of this name and answers
 # newline-terminated ASCII requests — its documented "Local Server"
 # (https://wwmm.github.io/easyeffects/user_interface/local_server.html, since
@@ -423,7 +402,7 @@ def _probe_ee_version() -> EEProbe:
         # --version, so from a headless shell (ssh, tmux) it exits non-zero —
         # indistinguishable from "not installed" if we only read the exit code
         # (issue #46, where a healthy 8.2.8 was reported missing).
-        installed = shutil.which("easyeffects") or easyeffects_is_running()
+        installed = shutil.which("easyeffects") or ee_socket.easyeffects_running()
         return None, False, (failure or "no output") if installed else None
 
     def flatpak():
@@ -692,7 +671,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "ee_version": (".".join(map(str, ee_version)) if ee_version
                        else "unknown")
                       + (f" (via {source})" if source else ""),
-        "ee_running": easyeffects_is_running(),
+        "ee_running": ee_socket.easyeffects_running(),
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
         "output_dir": doctor.tilde(output_dir),
         "irs_dir": doctor.tilde(irs_dir),
@@ -765,9 +744,13 @@ def _setup_lines(f: dict) -> list[str]:
     # line that looked equally sure of itself either way.
     saved = " (from saved config)"
     running = f.get("ee_running")
+    # Three states, not two: pgrep can be missing, denied or hung, and "no"
+    # there would be wrong in the direction that reassures.
+    running_txt = ("unknown (pgrep couldn't be run)" if running is None
+                   else "yes" if running else "no")
     lines = layout.wrapped_row(
         "EasyEffects",
-        f"{f.get('ee_version', '?')}; running: {'yes' if running else 'no'}; "
+        f"{f.get('ee_version', '?')}; running: {running_txt}; "
         f"service mode {'on' if f.get('service_mode') else 'off'}, "
         f"autostart {'on' if f.get('autostart_on_login') else 'off'}", layout.GUTTER)
     # Both counts are what the folders hold — the bypass preset, presets the

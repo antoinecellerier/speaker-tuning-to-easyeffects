@@ -54,7 +54,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, packages, version
+from lib import console, doctor, ee_socket, packages, version
 from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -1387,22 +1387,6 @@ def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
     console.cprint("dim", "   --doctor lists what is installed and what it does.")
 
 
-def easyeffects_running() -> bool | None:
-    """Probe: is an EasyEffects process up? ``None`` when pgrep is missing.
-
-    ``pgrep -x`` (exact executable name): ``-f`` would also match any process
-    whose argv merely contains the string — including a shell running a script
-    named after it.
-    """
-    try:
-        proc = subprocess.run(["pgrep", "-x", "easyeffects"],
-                              stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, check=False)
-    except OSError:
-        return None
-    return proc.returncode == 0
-
-
 def warn_if_easyeffects_running(running: bool | None = None) -> None:
     """Warn when EasyEffects is up as a chain conf lands.
 
@@ -1416,7 +1400,7 @@ def warn_if_easyeffects_running(running: bool | None = None) -> None:
     left for someone to notice the sound is wrong.
     """
     if running is None:
-        running = easyeffects_running()
+        running = ee_socket.easyeffects_running()
     if not running:
         return
     console.cprint("warn", "")

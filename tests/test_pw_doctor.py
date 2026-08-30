@@ -31,7 +31,8 @@ def _no_live_pipewire_window(monkeypatch):
         clock.Dropouts(reason="pw-top not found"), None))
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
-from lib.pipewire.checks import easyeffects_running as unpatched_ee_probe
+from lib import ee_socket
+from lib.ee_socket import easyeffects_running as unpatched_ee_probe
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
 from lib.report import doctor_layout
 from lib.report import findings as report_findings
@@ -1434,7 +1435,7 @@ def test_no_easyeffects_process_stays_silent(silence_console, capsys,
     # None reaches the same silent branch as False.
     def _no_pgrep(*_a, **_kw):
         raise FileNotFoundError("pgrep")
-    monkeypatch.setattr(checks.subprocess, "run", _no_pgrep)
+    monkeypatch.setattr(ee_socket.subprocess, "run", _no_pgrep)
     assert unpatched_ee_probe() is None
     checks.warn_if_easyeffects_running(running=None)
     assert capsys.readouterr().out == ""

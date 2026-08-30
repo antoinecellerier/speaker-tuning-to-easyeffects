@@ -28,7 +28,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, packages
+from lib import console, doctor, ee_paths, ee_socket, packages
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
@@ -462,7 +462,7 @@ def _configure_autoload(args, autoload_preset: str) -> None:
                 console.cprint("ok", f"  Would enable fallback preset in {rc_shown}")
             else:
                 console.cprint("ok", f"  Enabled fallback preset in {rc_shown}")
-                if doctor_run.easyeffects_is_running():
+                if ee_socket.easyeffects_running():
                     console.cprint("warn", "  EasyEffects is currently running — restart it for "
                                    "the fallback setting to take effect (EE rewrites "
                                    "this file when it quits and on its autosave "

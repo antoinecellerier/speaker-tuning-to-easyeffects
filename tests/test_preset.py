@@ -32,6 +32,9 @@ import pytest
 
 import dolby_to_easyeffects
 from lib import console, doctor as doctor_module, ee_paths, ee_socket, packages
+# Bound before the autouse `no_live_easyeffects_probe` fixture patches the
+# module attribute, so the probe itself stays testable.
+from lib.ee_socket import easyeffects_running as unpatched_ee_probe
 from lib.dax import parse
 from lib.doctor import (
     CheckResult,
@@ -2732,12 +2735,12 @@ def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
                                probe.silent).status == DOCTOR_WARN
 
 
-def test_easyeffects_is_running_degrades_on_missing_pgrep(monkeypatch):
+def test_easyeffects_running_is_unknown_on_missing_pgrep(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError("no pgrep")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
-    assert doctor_run.easyeffects_is_running() is False
+    monkeypatch.setattr(ee_socket.subprocess, "run", boom)
+    assert unpatched_ee_probe() is None
 
 
 # What each package manager actually prints when asked what it *would*
@@ -4068,12 +4071,24 @@ def test_environment_lines_without_a_label_are_unchanged():
     assert _sink_lines(f) == ["  Output sink:     alsa_output.spk"]
 
 
-def test_easyeffects_is_running_degrades_on_permission_error(monkeypatch):
+def test_easyeffects_running_is_unknown_on_permission_error(monkeypatch):
     """TRAP: a sandboxed/SELinux host where pgrep raises PermissionError (an
     OSError that is NOT FileNotFoundError/SubprocessError) must not crash the
-    doctor's fact-gathering."""
+    doctor's fact-gathering — and reads as unknown, never as "not running"."""
     def denied(*a, **k):
         raise PermissionError("operation not permitted")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", denied)
-    assert doctor_run.easyeffects_is_running() is False
+    monkeypatch.setattr(ee_socket.subprocess, "run", denied)
+    assert unpatched_ee_probe() is None
+
+
+def test_the_running_row_says_unknown_when_nothing_could_ask():
+    """TRAP: pgrep missing or denied is not "not running" — the row must not
+    reassure in the direction of "no"."""
+    def text(value):
+        f = {"ee_running": value, "rc_present": True}
+        return " ".join(ln.strip() for ln in doctor_run._environment_lines(f))
+
+    assert "running: yes;" in text(True)
+    assert "running: no;" in text(False)
+    assert "running: unknown (pgrep couldn't be run);" in text(None)

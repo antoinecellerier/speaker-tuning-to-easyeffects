@@ -84,16 +84,16 @@ def silence_console(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_live_easyeffects_probe(monkeypatch):
-    """The PipeWire converter probes for a running EasyEffects process at
-    conf-write time (`checks.warn_if_easyeffects_running`). On a dev
-    machine EasyEffects often *is* running, so without this the warning
-    joins every real-write run's output and any closing-output assertion
-    becomes machine-dependent. Autouse-forced quiet; tests of the warning
-    itself pass `running=` explicitly, and the probe's own test keeps a
-    module-level reference to the unpatched function
-    (tests/test_pw_doctor.py)."""
-    from lib.pipewire import checks
-    monkeypatch.setattr(checks, "easyeffects_running", lambda: False)
+    """Both scripts probe for a running EasyEffects process — the PipeWire
+    converter at conf-write time (`checks.warn_if_easyeffects_running`) and
+    the EasyEffects doctor's fact-gathering. On a dev machine EasyEffects
+    often *is* running, so without this the warning joins every real-write
+    run's output and the doctor's `running:` row becomes machine-dependent.
+    Autouse-forced quiet; tests of the warning itself pass `running=`
+    explicitly, and the probe's own test keeps a module-level reference to
+    the unpatched function (tests/test_pw_doctor.py)."""
+    from lib import ee_socket
+    monkeypatch.setattr(ee_socket, "easyeffects_running", lambda: False)
 
 
 @pytest.fixture(autouse=True)

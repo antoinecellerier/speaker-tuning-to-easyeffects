@@ -1,4 +1,4 @@
-"""EasyEffects' local socket: the transport, shared by every caller.
+"""Reaching a running EasyEffects: whether there is one, and its socket.
 
 Stdlib-only on purpose, like ``ee_paths.py``: the socket is reached from the
 ``--doctor`` report and from the end of a generator run, and neither should
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +32,27 @@ SERVER_NAME = "EasyEffectsServer"   # upstream tags::local_server::server_name
 # caller must read as unknown, never as "off".
 PRESET_REQUEST = "get_last_loaded_preset:output\n"
 BYPASS_REQUEST = "get_global_bypass\n"
+
+
+def easyeffects_running() -> bool | None:
+    """Is an EasyEffects process up? ``None`` when nothing could ask.
+
+    ``pgrep -x`` (exact executable name): ``-f`` would also match any process
+    whose argv merely contains the string — including a shell running a
+    script named after it. Three states, because two must not read alike: no
+    pgrep, a host that denies it, or a hung one is not "EasyEffects is not
+    running", and the doctor's `running:` row would otherwise answer "no" in
+    the direction that reassures. Callers that only gate a warning treat
+    ``None`` as falsy and stay silent.
+    """
+    try:
+        proc = subprocess.run(["pgrep", "-x", "easyeffects"],
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=2,
+                              check=False)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return proc.returncode == 0
 
 
 def _name_accepted(name: str) -> bool:
