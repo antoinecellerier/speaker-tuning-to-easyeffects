@@ -1343,6 +1343,13 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
 def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
                                          silence_console, capsys):
     monkeypatch.setattr(checks, "_pw_dump", lambda: None)
+    # Which of the two reasons default_sinks picks is which()'s answer, so a
+    # runner without pw-dump installed reads "not found" here. Pin the tool
+    # present: the state under test is a daemon that isn't answering.
+    real_which = shutil.which
+    monkeypatch.setattr(checks.shutil, "which",
+                        lambda name: "/usr/bin/pw-dump" if name == "pw-dump"
+                        else real_which(name))
     monkeypatch.setattr(
         session, "wireplumber_version",
         lambda: session.Version(reason="no answer from wireplumber --version"))
