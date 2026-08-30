@@ -821,8 +821,23 @@ def test_layout_summary_soundwire_amps_not_doubled():
 
 def test_layout_summary_hda_stereo_pin_unchanged():
     info = speakers.SpeakerInfo()
-    info.speakers = [speakers.SpeakerPin("0x17", "Speaker", "tweeter", channels=2)]
+    info.speakers = [speakers.SpeakerPin("0x17", "Speaker", "speaker", channels=2)]
     assert info.layout_summary == "2 speakers → full-range stereo"
+
+
+def test_layout_summary_woofer_less_pins_are_not_multi_way():
+    """A mono pin with no bass-named one beside it used to render "1 speakers
+    → multi-way: 1x tweeter" — a contradiction in one line — and two such
+    stereo pins must not become "full-range" either: nothing probed says
+    what they drive, only that no separate woofer pin shows. Keyed on the
+    role name, not on there being one role: six mono SoundWire amps keep
+    their `multi-way` line (test_layout_summary_soundwire_amps_not_doubled)."""
+    info = speakers.SpeakerInfo()
+    info.speakers = [speakers.SpeakerPin("0x14", "Speaker", "speaker", channels=1)]
+    assert info.layout_summary == "1 speaker, no separate woofer pin"
+    info.speakers = [speakers.SpeakerPin("0x14", "Speaker", "speaker", channels=2),
+                     speakers.SpeakerPin("0x17", "Speaker", "speaker", channels=2)]
+    assert info.layout_summary == "4 speakers, no separate woofer pin"
 
 
 def test_layout_summary_multiway_sums_channels_by_role():
@@ -1466,6 +1481,10 @@ def test_parse_codec_pins_hidden_woofer():
     _, pins, unconfigured = speakers.parse_hda_codec_pins(CODEC_ONE_PIN)
     assert [s.node for s in pins] == ["0x14"]
     assert "0x17" in [p.node for p in unconfigured]
+    # With no bass-named pin beside it this is not a tweeter (issue #84:
+    # "tweeter" sat a few lines above "full-range stereo") — and not
+    # "full-range" either: nothing probed says what it drives.
+    assert [s.role for s in pins] == ["speaker"]
 
 
 def test_parse_codec_pins_reports_spare_output_pins():
@@ -1602,6 +1621,18 @@ def test_speaker_info_tags_an_overridden_pin(capsys):
     assert "0x17: Bass Speaker Playback Switch (woofer, stereo) [kernel fixup]" in out
     assert "0x14: Speaker Playback Switch (tweeter, stereo)\n" in out
 
+
+
+def test_speaker_info_does_not_call_a_lone_pin_a_tweeter(capsys):
+    """TRAP (issue #84): the reporter's paste read `0x14: Speaker Playback
+    Switch (tweeter, stereo)` two sections above `2 speakers → full-range
+    stereo`. The two sections describe the same pin and may not disagree."""
+    info = _info([CODEC_ONE_PIN])
+    report_speaker._print_speaker_info(info)
+    out = capsys.readouterr().out
+    assert "0x14: Speaker Playback Switch (speaker, stereo)" in out
+    assert "full-range stereo" in out
+    assert "tweeter" not in out
 
 
 def test_hidden_pin_detected_on_listed_machine():

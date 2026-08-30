@@ -24,7 +24,7 @@ import pytest
 from lib.doctor import DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN, tag
 from lib.hardware import sinks
 from lib.preset.autoload import BYPASS_PRESET_NAME
-from lib.report import doctor_run
+from lib.report import doctor_run, environment
 
 _REPO = Path(__file__).resolve().parent.parent
 _SPEC = importlib.util.spec_from_file_location(
@@ -93,6 +93,10 @@ def test_scenario_stages_the_presets_the_report_globs():
             data = json.loads(preset.read_text())
             kernel = data["output"]["convolver#0"]["kernel-name"]
             assert (irs / f"{kernel}.irs").exists(), kernel
+            # And each must read as one of ours, or the report checks none
+            # of them and every scenario renders the "nothing here is this
+            # tool's" branch under the right slug (issue #84 scoping).
+            assert environment.is_generated_preset(data, preset.stem), preset
 
 
 @pytest.mark.parametrize("slug", list(_EXPECTED))

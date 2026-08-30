@@ -46,7 +46,11 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.hardware import speakers
-from lib.preset.autoload import BYPASS_PRESET_NAME
+from lib.preset.autoload import (
+    BYPASS_PRESET_NAME,
+    GENERATOR_PREFIX,
+    kernel_belongs_to,
+)
 
 
 # EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
@@ -219,6 +223,38 @@ def install_status(flatpak_exists: bool, native_exists: bool,
             "you run.")
     return CheckResult(DOCTOR_PASS, "Install location",
         f"{where} install; presets written to {base_display}.")
+
+
+def is_generated_preset(preset_json, preset_name: str) -> bool:
+    """Whether a preset file in EasyEffects' folder is one this tool wrote.
+
+    Two signals, either of which is enough: the ``_generator`` stamp every
+    preset this tool writes carries at top level, or a speaker-correction
+    convolver whose impulse is named after the preset the way
+    ``lib.preset.emit.kernel_name`` names it. Each alone has a blind spot —
+    a preset EasyEffects re-saved from its own window may not keep the
+    stamp, and a preset whose impulse file has gone still has to be
+    recognised so the check that reports the missing file can run — so it
+    is an OR, and the impulse name is matched without asking whether the
+    file exists. A preset EasyEffects re-saved under another name matches
+    neither and counts as theirs (a plain file copy keeps the stamp and
+    counts as ours); so does anything that isn't a dict.
+
+    The user's own presets (an AutoEq headphone preset, say) live in the same
+    folder, and judging them by this tool's standards is how issue #84's
+    report told its reader to fix two files it never wrote.
+    """
+    if not isinstance(preset_json, dict):
+        return False
+    if str(preset_json.get("_generator", "")).startswith(GENERATOR_PREFIX):
+        return True
+    output = preset_json.get("output")
+    if not isinstance(output, dict):
+        return False
+    return any(
+        _CONVOLVER_KEY_RE.match(key) and isinstance(block, dict)
+        and kernel_belongs_to(preset_name, str(block.get("kernel-name", "")))
+        for key, block in output.items())
 
 
 def check_preset_kernel(preset_json: dict, irs_stems: set,

@@ -104,6 +104,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- `--doctor` now reports PipeWire's clock — the session defaults, any
+  session-wide override, and the rate and quantum your output actually ran
+  at during the check — plus dropouts (xruns): the counts on your output and
+  on EasyEffects' own nodes, an upper bound on how long each has been
+  counting, and whether any happened during the check — the numbers a
+  crackling report needs
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),
@@ -122,6 +129,17 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- `--doctor` no longer runs its speaker-correction checks on presets it
+  didn't write. Your other EasyEffects presets in the same folder — a
+  headphone preset, say — were reported as missing that filter and the
+  verdict pointed at them as what to fix first; they are now counted, not
+  judged. The selected-preset check no longer passes when one of them is
+  what EasyEffects has loaded
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
+- `--speaker-info` no longer calls a speaker pin a tweeter when Linux shows
+  no separate woofer pin beside it, which contradicted the layout estimate
+  printed below
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 - `--doctor` no longer warns that the silent `Nothing` preset is selected when
   your output is a headset, HDMI or Bluetooth — that is the bypass fallback
   `--autoload` installs on purpose. It now reports which preset your speakers

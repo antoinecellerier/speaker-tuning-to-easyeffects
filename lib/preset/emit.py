@@ -163,10 +163,10 @@ def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
     only after the preset JSON is on disk (until then that JSON itself still
     named the old impulse).
     """
-    ours = re.compile(rf"\A{re.escape(preset_name)}(-[0-9a-f]{{8}})?\Z")
     try:
         stale = sorted(p for p in irs_dir.glob(f"{preset_name}*.irs")
-                       if p != keep and ours.match(p.stem))
+                       if p != keep
+                       and autoload.kernel_belongs_to(preset_name, p.stem))
     except OSError:
         return
     for path in stale:

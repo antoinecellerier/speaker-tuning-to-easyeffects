@@ -44,6 +44,7 @@ from lib.doctor import (
     summarize,
 )
 from lib.hardware import sinks, speakers
+from lib.pipewire import clock
 from lib.preset.fir import FIR_LENGTH, SAMPLE_RATE, make_fir
 from lib.report import doctor_run
 from lib.report import speaker as report_speaker
@@ -3711,11 +3712,208 @@ def test_collapsed_preset_check_reconciles_the_two_counts():
     collapsed = doctor_run._collapse_preset_checks(checks,
                                                    bypass_present=True)
     assert len(collapsed) == 1
-    assert "3 checks on one line" in collapsed[0].detail
+    assert collapsed[0].label == "Presets (3/3 checked out)"
+    # A sentence, not the fragment "3 checks on one line." the #84 paste
+    # carried — the reader could not tell what it was a fragment of.
+    assert collapsed[0].detail.startswith(
+        "Every one of them loads its speaker-correction impulse file; the "
+        "summary below counts them one by one.")
+    assert "checks on one line" not in collapsed[0].detail
     assert BYPASS_PRESET_NAME in collapsed[0].detail
 
     no_bypass = doctor_run._collapse_preset_checks(checks)
     assert BYPASS_PRESET_NAME not in no_bypass[0].detail
+    assert "other preset" not in no_bypass[0].detail
+
+    # The user's own presets in the folder are the third number to
+    # reconcile — named as a count, singular and plural agreeing.
+    two = doctor_run._collapse_preset_checks(checks, foreign=2)[0].detail
+    assert two.endswith("2 other preset files in the folder aren't this tool's, "
+                        "so nothing here checked them.")
+    one = doctor_run._collapse_preset_checks(checks, foreign=1)[0].detail
+    assert one.endswith("1 other preset file in the folder isn't this tool's, "
+                        "so nothing here checked it.")
+
+
+# --- Only presets this tool wrote are checked (issue #84) --------------------
+
+AUTOEQ_PRESET = {"output": {"blocklist": [], "plugins_order": ["equalizer#0"],
+                            "equalizer#0": {"bypass": False, "num-bands": 10}}}
+
+
+def test_is_generated_preset_recognises_either_signal():
+    ours = environment.is_generated_preset
+    assert ours({"_generator": "dolby_to_easyeffects.py v2026.08", "output": {}},
+                "Anything")
+    # The hashed impulse name, and the legacy unhashed one, with no stamp
+    # (an EasyEffects re-save may drop unknown keys).
+    assert ours({"output": {"convolver#0": {"kernel-name": "Dolby-Balanced-0a1b2c3d"}}},
+                "Dolby-Balanced")
+    assert ours({"output": {"convolver#0": {"kernel-name": "Dolby-Balanced"}}},
+                "Dolby-Balanced")
+    # Matched without asking whether the .irs exists: a preset whose impulse
+    # has gone must still reach the check that reports that.
+    assert ours({"output": {"convolver#1": {"kernel-name": "Dolby-Warm-deadbeef"}}},
+                "Dolby-Warm")
+
+
+def test_is_generated_preset_leaves_the_users_presets_alone():
+    ours = environment.is_generated_preset
+    assert not ours(AUTOEQ_PRESET, "Edition_XS")
+    # A copy the user saved under another name names a different preset's
+    # impulse — theirs now, by design.
+    assert not ours({"output": {"convolver#0": {"kernel-name": "Dolby-Balanced-0a1b2c3d"}}},
+                    "My copy")
+    assert not ours({"_generator": "someone-else 1.0", "output": {}}, "X")
+    assert not ours([], "X")
+    assert not ours({"output": "not a dict"}, "X")
+
+
+def test_generated_presets_are_recognised_as_ours(generated, tmp_path):
+    """DRIFT TRAP: the doctor recognises presets by the stamp and the impulse
+    name the writers produce. Change either writer and this goes red before
+    the doctor silently starts ignoring every preset this tool writes."""
+    preset, _irs_path = generated
+    assert environment.is_generated_preset(preset, "whatever-the-name")
+    path, _state = autoload.write_bypass_preset(tmp_path, BYPASS_PRESET_NAME)
+    assert environment.is_generated_preset(json.loads(path.read_text()),
+                                           BYPASS_PRESET_NAME)
+
+
+def test_read_presets_partitions_ours_from_the_users(tmp_path):
+    """The #84 regression: two AutoEq headphone presets beside ours produced
+    two [WARN] lines and a verdict pointing at them as what to fix first."""
+    (tmp_path / "Dolby-Balanced.json").write_text(json.dumps(
+        {"_generator": "dolby_to_easyeffects.py x",
+         "output": {"convolver#0": {"kernel-name": "Dolby-Balanced-0a1b2c3d"}}}))
+    (tmp_path / "Dolby-Warm.json").write_text(json.dumps(          # re-saved: no stamp
+        {"output": {"convolver#0": {"kernel-name": "Dolby-Warm-0a1b2c3d"}}}))
+    (tmp_path / "Edition_XS.json").write_text(json.dumps(AUTOEQ_PRESET))
+    (tmp_path / "Soundcore_A40.json").write_text(json.dumps(AUTOEQ_PRESET))
+    (tmp_path / "Broken.json").write_text("{not json")
+    autoload.write_bypass_preset(tmp_path, BYPASS_PRESET_NAME)
+
+    ours, foreign, unreadable = doctor_run._read_presets(tmp_path)
+    assert [p.stem for p, _ in ours] == ["Dolby-Balanced", "Dolby-Warm",
+                                         BYPASS_PRESET_NAME]
+    assert [data is None for _, data in ours] == [False, False, True]
+    assert foreign == 2          # the two AutoEq presets
+    # A file that won't parse is neither ours nor theirs — nothing says
+    # which — so it is reported on its own, not folded into either count.
+    assert [p.stem for p in unreadable] == ["Broken"]
+
+    # What the report then does with them: our two get the impulse check
+    # (both FAIL here — no .irs dir), the others get no line at all, and the
+    # folded PASS line is where they are mentioned.
+    checks = [environment.check_preset_kernel(data, set(), p.stem)
+              for p, data in ours if data is not None]
+    assert [c.label for c in checks] == ["Preset Dolby-Balanced", "Preset Dolby-Warm"]
+    assert all(c.status == DOCTOR_FAIL for c in checks)
+    assert not any("Edition_XS" in c.label or "Soundcore" in c.label for c in checks)
+    passing = [CheckResult(DOCTOR_PASS, "Preset Dolby-Balanced", "")]
+    folded = doctor_run._collapse_preset_checks(passing, bypass_present=True, foreign=2)
+    assert len(folded) == 1 and folded[0].status == DOCTOR_PASS
+    assert "2 other preset files" in folded[0].detail
+
+
+def test_no_presets_found_names_what_it_can_see():
+    assert doctor_run._no_presets_found("~/o", 0, False) == (
+        "no presets found in ~/o — run the script on your tuning XML first.")
+    assert doctor_run._no_presets_found("~/o", 0, True).startswith(
+        "no presets other than the bypass preset found in ~/o")
+    only_theirs = doctor_run._no_presets_found("~/o", 2, False)
+    assert only_theirs.startswith("no speaker presets from this tool found in ~/o "
+                                  "(the 2 preset files there weren't written by it)")
+    # With the bypass preset there too the count says "other", so it can be
+    # reconciled with the Environment row's total.
+    assert "(the 1 other preset file there wasn't written by it)" in \
+        doctor_run._no_presets_found("~/o", 1, True)
+    assert "(the 2 preset files there couldn't be read)" in \
+        doctor_run._no_presets_found("~/o", 0, False, unreadable=2)
+    assert "(the 3 other preset files there weren't written by it or couldn't be read)" \
+        in doctor_run._no_presets_found("~/o", 2, True, unreadable=1)
+
+
+def test_environment_lines_show_the_pipewire_clock_and_dropouts():
+    """Issue #84: a crackling report whose paste could not say what quantum
+    the chain ran at or whether the graph dropped buffers. Rows, not checks —
+    no quantum is known to be too small and the xrun counter is cumulative."""
+    ok = clock.ClockSettings(rate="48000", quantum="1024", min_quantum="32",
+                             max_quantum="2048", force_quantum="0", force_rate="0")
+    quiet = clock.Dropouts(sink=0, ee=0, ee_node="easyeffects_sink",
+                           sink_recent=0, ee_recent=0, window_s=5.0, playing=False,
+                           sink_is_driver=True, running_quantum=0)
+    f = {"ee_running": True, "rc_present": True, "rc_path": "~/rc",
+         "pw_clock": ok, "pw_xruns": quiet, "pw_age": 114403.0, "ee_age": 2028.9}
+    lines = doctor_run._environment_lines(f)
+    text = " ".join(ln.strip() for ln in lines)   # the rows wrap at 80 columns
+    # Session defaults are named as such (a client can pull the graph lower
+    # without touching them) and the clock the output ran at is separate.
+    assert ("48000 Hz, quantum 1024 (samples per cycle; session defaults, min 32, "
+            "max 2048), no session-wide override; the output was idle during the "
+            "check") in text
+    # Totals, their age (a bound — nodes are recreated), and the live window
+    # — the three things that make a cumulative counter readable — with the
+    # plain word leading.
+    assert ("no dropouts (0 xruns) on the output sink or any EasyEffects node — "
+            "counted since each node was created, at most as long as PipeWire "
+            "(1 d 7 h) and EasyEffects (33 min) have been up; none in the 5 s "
+            "this ran (nothing was playing into EasyEffects)") in text
+    # The server row sits above the app that runs on it.
+    order = [ln.split(":")[0].strip() for ln in doctor_run._environment_lines(f)]
+    assert order.index("PipeWire") < order.index("EasyEffects")
+
+    forced = clock.ClockSettings(rate="48000", quantum="256", min_quantum="32",
+                                 max_quantum="2048", force_quantum="256",
+                                 force_rate="44100")
+    f["pw_clock"] = forced
+    f["pw_xruns"] = clock.Dropouts(sink=42, ee=14, ee_node="ee_soe_convolver",
+                                   sink_recent=3, ee_recent=0, window_s=5.0,
+                                   playing=True, sink_is_driver=True,
+                                   running_quantum=256, running_rate=48000)
+    f["output_device"] = "bluez_output.80_99_E7_E0_8A_23.1"
+    f["output_device_source"] = "live"
+    lines = doctor_run._environment_lines(f)
+    text = " ".join(ln.strip() for ln in lines)
+    assert ("quantum 256 (samples per cycle; session defaults, min 32, max 2048); "
+            "forced session-wide: quantum 256, rate 44100; during the check the "
+            "output ran at 48000 Hz in cycles of 256 samples (5.3 ms)") in text
+    # Two counts, not a maximum over a set the reader has to reconstruct; a
+    # driver's ERR is the whole graph's and says so; the sink is not named
+    # twice — the Output sink row below carries its (redacted) name; and
+    # "running", not "audible": a silent stream keeps the graph running.
+    assert ("42 xruns on the output sink (it drives the clock, so any node's "
+            "dropout counts there), 14 on the busiest EasyEffects node "
+            "(ee_soe_convolver) — counted since each node was created, at most as "
+            "long as PipeWire (1 d 7 h) and EasyEffects (33 min) have been up; in "
+            "the 5 s this ran: 3 on the sink, 0 on EasyEffects' nodes (a playback "
+            "stream was running, silent or not)") in text
+    assert "80_99" not in text
+    assert all(len(ln) <= console._wrap_width() for ln in lines)
+    # No age known, EasyEffects' nodes clean, only the sink counting, and the
+    # sink following another driver.
+    f["pw_xruns"] = clock.Dropouts(sink=42, ee=0, ee_node="easyeffects_source",
+                                   sink_recent=0, ee_recent=0, window_s=5.0)
+    f.pop("pw_age"); f.pop("ee_age")
+    text = " ".join(ln.strip() for ln in doctor_run._environment_lines(f))
+    assert ("42 xruns on the output sink, none on EasyEffects' nodes — counted "
+            "since each node was created; none in the 5 s this ran (nothing was "
+            "playing into EasyEffects)") in text
+
+
+def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
+    """TRAP: an unread value must not vanish — in a pasted report an absent
+    row and a zero are indistinguishable, and the reassuring one wins."""
+    f = {"ee_running": False, "rc_present": True, "rc_path": "~/rc",
+         "pw_clock": clock.ClockSettings(reason="pw-metadata not found"),
+         "pw_xruns": clock.Dropouts(reason="pw-top didn't answer")}
+    rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
+    assert rows["PipeWire"].endswith("pw-metadata not found — clock settings not read")
+    assert rows["Dropouts"].endswith("not read (pw-top didn't answer)")
+    f["pw_clock"] = clock.ClockSettings(reason="no answer from pw-metadata")
+    rows = {ln.split(":")[0].strip(): ln for ln in doctor_run._environment_lines(f)}
+    assert rows["PipeWire"].endswith("no answer from pw-metadata — is the PipeWire "
+                                     "daemon running?")
 
 
 def test_environment_lines_wrap_the_chain_without_splitting_the_marker():
@@ -3742,7 +3940,10 @@ def test_environment_lines_keep_the_gutter():
          "selected_preset": "P", "selected_is_live": True,
          "output_device": "s", "output_device_source": "live",
          "output_label": "Speaker",
-         "output_plugins": ["c"], "bypass": False, "bypass_is_live": True}
+         "output_plugins": ["c"], "bypass": False, "bypass_is_live": True,
+         "pw_clock": clock.ClockSettings(rate="48000", quantum="1024"),
+         "pw_xruns": clock.Dropouts(sink=3, ee=1, ee_node="ee_soe_convolver",
+                                    sink_recent=0, ee_recent=0, window_s=5.0)}
     for line in doctor_run._environment_lines(f):
         if line.startswith(" " * gutter):
             continue  # a continuation line, already on the gutter

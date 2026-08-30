@@ -18,7 +18,7 @@ import pytest
 
 import ee_to_pipewire
 from lib import console, packages
-from lib.pipewire import checks, conf
+from lib.pipewire import checks, clock, conf
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
 from lib.pipewire.checks import easyeffects_running as unpatched_ee_probe
@@ -1527,3 +1527,164 @@ def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,
 
     assert (_pw_check_block(check, monkeypatch, tmp_path, capsys)
             == _ee_check_block(check, monkeypatch, capsys))
+
+
+# --- PipeWire clock / dropouts (lib.pipewire.clock) ------------------------
+#
+# Issue #84: a crackling report whose pasted --doctor output could not say
+# what quantum the chain ran at or whether the graph dropped buffers. The
+# parsers are exercised on text captured from the real tools (PipeWire 1.6.8),
+# preamble and all, so a format drift lands here and not in a user's paste.
+
+PW_METADATA_SETTINGS = """\
+Found "settings" metadata 32
+update: id:0 key:'log.level' value:'2' type:''
+update: id:0 key:'clock.rate' value:'48000' type:''
+update: id:0 key:'clock.allowed-rates' value:'[ 48000 ]' type:''
+update: id:0 key:'clock.quantum' value:'1024' type:''
+update: id:0 key:'clock.min-quantum' value:'32' type:''
+update: id:0 key:'clock.max-quantum' value:'2048' type:''
+update: id:0 key:'clock.force-quantum' value:'0' type:''
+update: id:0 key:'clock.force-rate' value:'0' type:''
+"""
+
+# Three batch snapshots. The first is pw-top's pre-info placeholder — every
+# state `C`, every ERR 0 (seen live) — and must not be the window's baseline.
+# Never-run nodes print `---` for their times, drivers carry a three-token
+# FORMAT column, followers a `+` before the name, and the last snapshot's
+# easyeffects_sink count has moved on by one.
+PW_TOP_BATCH = """\
+S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME
+C   91      0      0    ---     ---   ---   ---     0                  alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink
+C  119      0      0    ---     ---   ---   ---     0                  easyeffects_sink
+S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME
+S  113      0      0    ---     ---   ---   ---     0                  libcamera_input.__SB_.PC00.LNK1
+R  160   2048  48000   2.5ms   1.2us  0.06  0.00    8    S24LE 2 48000 alsa_input.usb-R__DE_Microphones_R__DE_VideoMic_NTG_D9D6D10C-00.analog-stereo
+R   91      0      0 134.4us 124.4us  0.00  0.00   42    S32LE 2 48000  + alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink
+R  119      0      0  81.3us  13.8us  0.00  0.00   26     F32P 2 48000  + easyeffects_sink
+R  140      0      0   2.0us 912.6us  0.00  0.02   14                   + ee_soe_multiband_compressor
+R  331      0      0  83.9us  56.8us  0.00  0.00    0                   + ee_soe_convolver
+R  231   3600  48000 247.3us  18.5us  0.01  0.00    0    F32LE 2 48000  + Firefox
+S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME
+R  160   2048  48000   2.5ms   1.2us  0.06  0.00    8    S24LE 2 48000 alsa_input.usb-R__DE_Microphones_R__DE_VideoMic_NTG_D9D6D10C-00.analog-stereo
+R   91      0      0 134.4us 124.4us  0.00  0.00   42    S32LE 2 48000  + alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink
+R  119      0      0  81.3us  13.8us  0.00  0.00   27     F32P 2 48000  + easyeffects_sink
+R  140      0      0   2.0us 912.6us  0.00  0.02   14                   + ee_soe_multiband_compressor
+"""
+
+_SPEAKER_NODE = ("alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic"
+                 ".HiFi__Speaker__sink")
+
+
+def test_parse_settings_reads_the_clock_keys_past_the_preamble():
+    values = clock.parse_settings(PW_METADATA_SETTINGS)
+    assert values["clock.rate"] == "48000"
+    assert values["clock.quantum"] == "1024"
+    assert values["clock.min-quantum"] == "32"
+    assert values["clock.max-quantum"] == "2048"
+    assert values["clock.force-quantum"] == "0"
+    assert values["clock.force-rate"] == "0"
+    assert clock.parse_settings("") == {}
+    assert clock.parse_settings("Found \"settings\" metadata 32\n") == {}
+
+
+def test_parse_pwtop_splits_snapshots_and_reads_the_columns_by_position():
+    snaps = clock.parse_pwtop(PW_TOP_BATCH)
+    assert len(snaps) == 3
+    assert snaps[0]["easyeffects_sink"][:2] == ("C", 0)            # the placeholder
+    assert snaps[1]["easyeffects_sink"][:2] == ("R", 26)
+    assert snaps[2]["easyeffects_sink"][:2] == ("R", 27)
+    assert snaps[1]["ee_soe_multiband_compressor"][:2] == ("R", 14)
+    assert snaps[1][_SPEAKER_NODE][:2] == ("R", 42)               # a FORMAT column shifts nothing
+    assert snaps[1]["libcamera_input.__SB_.PC00.LNK1"][:2] == ("S", 0)   # never ran
+    assert all("ID" not in s and "NAME" not in s for s in snaps)   # headers split, not kept
+    # Drivers carry the clock and are their own driver; followers (`+`) run
+    # under the last driver above them, at no clock of their own.
+    mic = "alsa_input.usb-R__DE_Microphones_R__DE_VideoMic_NTG_D9D6D10C-00.analog-stereo"
+    assert snaps[1][mic].quant == 2048 and snaps[1][mic].rate == 48000
+    assert snaps[1][mic].driver == mic
+    assert snaps[1][_SPEAKER_NODE].driver == mic and snaps[1][_SPEAKER_NODE].quant == 0
+    assert snaps[1]["Firefox"].driver == mic
+    assert clock.parse_pwtop("") == []
+
+
+def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatch):
+    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_TOP_BATCH)
+    d = clock.read_xruns(extra_nodes=(_SPEAKER_NODE,))
+    assert d.ok
+    assert (d.sink, d.ee, d.ee_node) == (42, 27, "easyeffects_sink")
+    # Growth is measured from the second snapshot: against the placeholder
+    # the sink would read as 42 fresh dropouts.
+    assert (d.sink_recent, d.ee_recent) == (0, 1)
+    assert d.playing                                   # an EasyEffects node ran
+    # In this capture the mic drove the clock and the sink followed it, so
+    # the sink's ERR is its own and the running clock is the mic's.
+    assert not d.sink_is_driver
+    assert (d.running_quantum, d.running_rate) == (2048, 48000)
+    # With the sink driving (its row unprefixed, carrying the clock), ERR is
+    # the whole graph's and the running clock is the sink's own.
+    driving = PW_TOP_BATCH.replace("   42    S32LE 2 48000  + alsa_output",
+                                   "   42    S32LE 2 48000 alsa_output") \
+                          .replace("R   91      0      0", "R   91    256  48000")
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: driving)
+    d = clock.read_xruns(extra_nodes=(_SPEAKER_NODE,))
+    assert d.sink_is_driver and (d.running_quantum, d.running_rate) == (256, 48000)
+    # Without the sink named, only EasyEffects' side is reported.
+    d = clock.read_xruns()
+    assert (d.sink, d.sink_recent, d.ee) == (None, None, 27)
+    # Playing is judged on EasyEffects' nodes, not the sink: idle EasyEffects
+    # beside a running sink is "nothing was playing".
+    idle = PW_TOP_BATCH.replace("R  119", "S  119").replace("R  140", "S  140") \
+                       .replace("R  331", "S  331")
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: idle)
+    assert not clock.read_xruns(extra_nodes=(_SPEAKER_NODE,)).playing
+
+
+def test_read_xruns_says_why_when_it_cannot(monkeypatch):
+    """TRAP: an unreadable count must never render as zero — in a pasted
+    report the two are indistinguishable, and the reassuring one wins."""
+    monkeypatch.setattr(clock.shutil, "which", lambda name: None)
+    assert clock.read_xruns().reason == "pw-top not found"
+    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: None)
+    assert clock.read_xruns().reason == "pw-top didn't answer"
+    no_ee = "\n".join(
+        ln for ln in PW_TOP_BATCH.splitlines()
+        if not ln.split()[-1].startswith(clock.EASYEFFECTS_NODE_PREFIXES))
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: no_ee)
+    assert clock.read_xruns().reason == "no EasyEffects nodes in the graph"
+
+
+def test_process_age_is_read_off_proc_stat_past_the_comm_field():
+    # comm may hold spaces and parentheses; field 22 (start time, in clock
+    # ticks since boot) is counted from the state field that follows it.
+    stat = ("4628 (pipe wire (x)) S 1 4628 4628 0 -1 4194560 12 0 0 0 5 3 0 0 "
+            "20 0 3 0 3900 1000000 500 18446744073709551615 1 1 0 0 0 0 0 0 0 "
+            "0 0 0 17 3 0 0 0 0 0 0 0 0 0 0 0 0 0")
+    assert clock.age_from_stat(stat, uptime_s=114442.0, clk_tck=100) == 114403.0
+    assert clock.age_from_stat("garbage", 10.0, 100) is None
+    assert clock.age_from_stat(stat, uptime_s=1.0, clk_tck=100) == 0.0   # never negative
+
+
+def test_format_age_uses_the_two_largest_units():
+    assert clock.format_age(114403) == "1 d 7 h"
+    assert clock.format_age(3 * 86400) == "3 d"
+    assert clock.format_age(2 * 3600 + 5 * 60 + 9) == "2 h 5 min"
+    assert clock.format_age(3600) == "1 h"
+    assert clock.format_age(33 * 60 + 40) == "33 min"
+    assert clock.format_age(48) == "48 s"
+
+
+def test_read_settings_soft_fails_in_the_reports_own_words(monkeypatch):
+    monkeypatch.setattr(clock.shutil, "which", lambda name: None)
+    assert clock.read_settings().reason == "pw-metadata not found"
+    monkeypatch.setattr(clock.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: "")
+    assert clock.read_settings().reason == "no answer from pw-metadata"
+    monkeypatch.setattr(clock, "_run", lambda cmd, timeout=0: PW_METADATA_SETTINGS)
+    settings = clock.read_settings()
+    assert settings.ok
+    assert (settings.rate, settings.quantum, settings.min_quantum,
+            settings.max_quantum, settings.force_quantum, settings.force_rate
+            ) == ("48000", "1024", "32", "2048", "0", "0")

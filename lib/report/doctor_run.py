@@ -62,6 +62,7 @@ from lib.doctor import (
     CheckResult,
 )
 from lib.hardware import sinks
+from lib.pipewire import clock
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
 from lib.report import environment
@@ -487,6 +488,73 @@ def _speaker_autoload_preset(autoload_dir: Path | None) -> str:
     return ""
 
 
+def _read_presets(output_dir: Path
+                  ) -> tuple[list[tuple[Path, dict | None]], int, list[Path]]:
+    """The preset files in *output_dir*: ours, how many are someone else's,
+    and the ones that couldn't be read.
+
+    Each of ours comes back with its parsed JSON — ``None`` for the bypass
+    preset, which is ours by name and carries nothing to check. The folder is
+    EasyEffects' own, so the user's other presets sit beside ours; judged by
+    this tool's standards every one of them "lacks a speaker-correction
+    filter", and the verdict then sent issue #84's reporter to fix two files
+    this tool never wrote. They are counted on the folded preset line and
+    otherwise left alone. A file that won't parse is neither: nothing says
+    whose it is, so it gets its own line rather than a verdict about
+    authorship in either direction.
+    """
+    try:
+        paths = sorted(output_dir.glob("*.json"))
+    except OSError:
+        return [], 0, []
+    ours: list[tuple[Path, dict | None]] = []
+    foreign = 0
+    unreadable: list[Path] = []
+    for p in paths:
+        if p.stem == autoload.BYPASS_PRESET_NAME:
+            ours.append((p, None))
+            continue
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            unreadable.append(p)
+            continue
+        if environment.is_generated_preset(data, p.stem):
+            ours.append((p, data))
+        else:
+            foreign += 1
+    return ours, foreign, unreadable
+
+
+def _no_presets_found(where: str, foreign: int, bypass_present: bool,
+                      unreadable: int = 0) -> str:
+    """The `Generated presets` WARN for a folder with nothing of ours to check.
+
+    Four folders look empty to the checks and must not read alike: one that
+    is empty, one holding only the bypass preset (ours, so "no presets found"
+    reads as the doctor missing a file it can see), one holding only the
+    user's own presets (where "no presets found" beside two visible files
+    reads as the doctor failing to count), and one whose files couldn't be
+    read (each of which gets its own line above). "Other" whenever the
+    bypass preset is there too, so the count matches the folder's.
+    """
+    others = foreign + unreadable
+    if others:
+        one = others == 1
+        what = ("wasn't" if one else "weren't") + " written by it" if not unreadable \
+            else ("couldn't be read" if not foreign
+                  else ("wasn't" if one else "weren't")
+                  + " written by it or couldn't be read")
+        found = (f"no speaker presets from this tool found in {where} (the "
+                 f"{others}{' other' if bypass_present else ''} preset "
+                 f"file{'' if one else 's'} there {what})")
+    elif bypass_present:
+        found = f"no presets other than the bypass preset found in {where}"
+    else:
+        found = f"no presets found in {where}"
+    return f"{found} — run the script on your tuning XML first."
+
+
 def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
                           custom_dirs: bool = False,
                           autoload_dir: Path | None = None
@@ -524,35 +592,30 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
             ee_paths.FLATPAK_BASE.exists(), ee_paths.NATIVE_BASE.exists(), ee_paths.USE_FLATPAK,
             doctor.tilde(ee_paths.EASYEFFECTS_BASE), ee_is_flatpak))
 
-    # 3. Preset + impulse-file integrity
+    # 3. Preset + impulse-file integrity — for the presets this tool wrote
     try:
         irs_stems = {p.stem for p in irs_dir.glob("*.irs")}
     except OSError:
         irs_stems = set()
-    try:
-        preset_paths = sorted(output_dir.glob("*.json"))
-    except OSError:
-        preset_paths = []
-    generated_names = [p.stem for p in preset_paths]
-    dolby_presets = [p for p in preset_paths if p.stem != autoload.BYPASS_PRESET_NAME]
-    bypass_present = any(p.stem == autoload.BYPASS_PRESET_NAME
-                         for p in preset_paths)
+    ours, foreign, unreadable = _read_presets(output_dir)
+    generated_names = [p.stem for p, _ in ours]
+    dolby_presets = [(p, data) for p, data in ours if data is not None]
+    bypass_present = any(data is None for _, data in ours)
+    for p in unreadable:
+        # UNKNOWN, not FAIL: whose file it is can't be told from a file that
+        # won't parse, and the two remedies differ. Not silent either — at
+        # feb0739 this was a FAIL, and dropping it would turn a truncated
+        # preset of ours into "no problems detected".
+        report.checks.append(CheckResult(DOCTOR_UNKNOWN, f"Preset {p.stem}",
+            "couldn't be read (not valid JSON), so it wasn't checked — if this "
+            "tool wrote it, re-run the script; if it's yours, EasyEffects "
+            "can't load it either."))
     if not dolby_presets:
-        # The bypass preset is one this tool wrote, so "no presets found" in a
-        # folder holding it reads as the doctor missing a file it can see.
-        found = ("no presets other than the bypass preset found in"
-                 if bypass_present else "no presets found in")
         report.checks.append(CheckResult(DOCTOR_WARN, "Generated presets",
-            f"{found} {doctor.tilde(output_dir)} — run the script on your "
-            "tuning XML first."))
+            _no_presets_found(doctor.tilde(output_dir), foreign, bypass_present,
+                              len(unreadable))))
     else:
-        for p in dolby_presets:
-            try:
-                data = json.loads(p.read_text())
-            except (OSError, json.JSONDecodeError):
-                report.checks.append(CheckResult(DOCTOR_FAIL, f"Preset {p.stem}",
-                    "could not be read / not valid JSON."))
-                continue
+        for p, data in dolby_presets:
             report.checks.append(environment.check_preset_kernel(data, irs_stems, p.stem))
 
     # 4. EasyEffects runtime state (loaded preset, sink, chain)
@@ -595,6 +658,20 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # 5. Hardware / codec context (folds in --speaker-info)
     report.speaker_info = report_speaker._gather_speaker_info()
 
+    # 5b. The PipeWire clock the chain runs at, and whether the graph is
+    #     dropping buffers. Facts, not checks: no quantum is known to be too
+    #     small (docs/ee-to-pipewire.md keeps that regime on the unvalidated
+    #     list), a client can legitimately pull the session down to
+    #     min-quantum, and the xrun counter is cumulative — non-zero on
+    #     healthy machines — so a WARN here would fire on machines with no
+    #     fault and send the reader to change a session setting. What issue
+    #     #84's paste lacked was the numbers, and a remote reader can weigh
+    #     them.
+    pw_clock = clock.read_settings()
+    pw_xruns = clock.read_xruns(extra_nodes=(live.sink,) if live.sink else ())
+    pw_age = clock.process_age("pipewire")
+    ee_age = clock.process_age("easyeffects")
+
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
     gate_check = environment.firmware_gate_status(
         report.speaker_info.firmware_gates,
@@ -619,7 +696,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
         "output_dir": doctor.tilde(output_dir),
         "irs_dir": doctor.tilde(irs_dir),
-        "preset_count": len(generated_names),
+        # Every file in the folder, ours or not: the Environment row counts
+        # folder contents, and the folded preset line explains the difference.
+        "preset_count": len(generated_names) + foreign + len(unreadable),
+        "foreign_preset_count": foreign,
         "bypass_preset_present": bypass_present,
         "irs_count": len(irs_stems),
         "rc_path": doctor.tilde(rc_path),
@@ -636,6 +716,10 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "output_plugins": rc.get("output_plugins", []),
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
+        "pw_clock": pw_clock,
+        "pw_xruns": pw_xruns,
+        "pw_age": pw_age,
+        "ee_age": ee_age,
     }
     return report
 
@@ -651,6 +735,121 @@ _GUTTER = 19
 def _row(label: str, value: str) -> str:
     """One `label: value` row, padded to the block's gutter."""
     return f"  {label + ':':<{_GUTTER - 2}}{value}"
+
+
+def _wrapped_row(label: str, value: str) -> list[str]:
+    """A row whose value may run past the line: folded to the gutter, like
+    the chain row, so a narrow terminal never truncates the qualifier."""
+    return textwrap.wrap(value, width=console._wrap_width(),
+                         break_on_hyphens=False,
+                         initial_indent=_row(label, ""),
+                         subsequent_indent=" " * _GUTTER)
+
+
+def _pipewire_rows(settings: "clock.ClockSettings",
+                   d: "clock.Dropouts | None" = None) -> list[str]:
+    """`PipeWire:` — the session's clock settings, and the clock the output
+    actually ran at during the check, or why they're unknown.
+
+    "session defaults" and "session-wide" are load-bearing: `clock.quantum`
+    is what a client gets when it asks for nothing (`man pipewire.conf`), a
+    driver runs at the lowest quantum any follower asks for (`man pw-top`),
+    and a per-node `node.force-quantum` rule pins a graph without touching
+    these keys. The running clock comes from the driver row in `pw-top`.
+    """
+    if not settings.ok:
+        hint = {"pw-metadata not found": "clock settings not read",
+                "no answer from pw-metadata": "is the PipeWire daemon running?"}
+        return _wrapped_row("PipeWire", f"{settings.reason} — "
+                            f"{hint.get(settings.reason, 'clock settings not read')}")
+    forced = []
+    if settings.force_quantum not in ("", "0"):
+        forced.append(f"quantum {settings.force_quantum}")
+    if settings.force_rate not in ("", "0"):
+        forced.append(f"rate {settings.force_rate}")
+    bounds = (f", min {settings.min_quantum}, max {settings.max_quantum}"
+              if settings.min_quantum and settings.max_quantum else "")
+    tail = (f"; forced session-wide: {', '.join(forced)}" if forced
+            else ", no session-wide override")
+    # "quantum" is PipeWire's word for the samples processed per graph
+    # cycle — a buffer size, not a clock — and the row says so once; the
+    # cycle length in ms is what a reader can weigh against a crackle.
+    value = (f"{settings.rate} Hz, quantum {settings.quantum} (samples per "
+             f"cycle; session defaults{bounds}){tail}")
+    if d is not None and d.ok and d.sink is not None:
+        if d.running_quantum and d.running_rate:
+            ms = 1000.0 * d.running_quantum / d.running_rate
+            value += (f"; during the check the output ran at {d.running_rate} Hz "
+                      f"in cycles of {d.running_quantum} samples ({ms:.1f} ms)")
+        else:
+            value += "; the output was idle during the check"
+    return _wrapped_row("PipeWire", value)
+
+
+def _dropouts_rows(d: "clock.Dropouts", pw_age: float | None = None,
+                   ee_age: float | None = None) -> list[str]:
+    """`Dropouts:` — pw-top's xrun counters on the sink EasyEffects plays into
+    and on its own nodes, with the two things that make a count readable.
+
+    The counters are cumulative from node creation — nothing rebases them;
+    pw-top's `c` key clears only its own display — so a total means nothing
+    without an age. The ages of the PipeWire and EasyEffects processes are
+    the bound a paste can carry: a node is at most that old, and
+    EasyEffects recreates its filter nodes on every pipeline restart,
+    including the preset reload this tool performs, so its counter can be
+    much younger. The growth during the doctor's own five-second window is
+    the only "is it happening now"; a zero there with no stream running says
+    nothing, and the row says which it was — "running", not "audible": any
+    application's active playback stream keeps the graph running, silent or
+    not. On a driver node, which the output sink usually is, ERR counts
+    every cycle the whole graph missed, and the row says so. A count that
+    could not be read says so rather than printing nothing: in a pasted
+    report an absent row and a zero look alike, and the reassuring reading
+    wins. The sink is not named — the `Output sink:` row below carries its
+    name, redacted.
+    """
+    if not d.ok:
+        return _wrapped_row("Dropouts", f"not read ({d.reason})")
+    # The plain word leads: "0 xruns" read as alarming until the reader
+    # worked out that 0 is the good number. "xruns" stays — it is pw-top's
+    # column, the thing a maintainer greps a paste for.
+    has_sink, has_ee = d.sink is not None, d.ee is not None
+    if not any(c for c in (d.sink, d.ee) if c):
+        where = {(True, True): "the output sink or any EasyEffects node",
+                 (True, False): "the output sink",
+                 (False, True): "any EasyEffects node"}[(has_sink, has_ee)]
+        lead = f"no dropouts (0 xruns) on {where}"
+    else:
+        parts = []
+        if has_sink:
+            parts.append(f"{d.sink} xruns on the output sink"
+                         + (" (it drives the clock, so any node's dropout "
+                            "counts there)" if d.sink_is_driver else ""))
+        if has_ee:
+            unit = "" if parts else " xruns"
+            parts.append(f"none{unit} on EasyEffects' nodes" if d.ee == 0 else
+                         f"{d.ee}{unit} on the busiest EasyEffects node ({d.ee_node})")
+        lead = ", ".join(parts)
+    ages = []
+    if pw_age is not None:
+        ages.append(f"PipeWire ({clock.format_age(pw_age)})")
+    if ee_age is not None:
+        ages.append(f"EasyEffects ({clock.format_age(ee_age)})")
+    since = " — counted since each node was created" + (
+        f", at most as long as {' and '.join(ages)} "
+        f"{'have' if len(ages) > 1 else 'has'} been up" if ages else "")
+    if not any(c for c in (d.sink_recent, d.ee_recent) if c):
+        now = f"none in the {d.window_s:.0f} s this ran"
+    else:
+        got = []
+        if d.sink_recent is not None:
+            got.append(f"{d.sink_recent} on the sink")
+        if d.ee_recent is not None:
+            got.append(f"{d.ee_recent} on EasyEffects' nodes")
+        now = f"in the {d.window_s:.0f} s this ran: " + ", ".join(got)
+    heard = ("a playback stream was running, silent or not" if d.playing
+             else "nothing was playing into EasyEffects")
+    return _wrapped_row("Dropouts", f"{lead}{since}; {now} ({heard})")
 
 
 def _environment_lines(f: dict) -> list[str]:
@@ -672,6 +871,15 @@ def _environment_lines(f: dict) -> list[str]:
     running = f.get("ee_running")
     lines = [
         _row("Tool", f"speaker-tuning-to-easyeffects {version.get_version()}"),
+    ]
+    # Widest context first: the audio server the chain runs in, then the app
+    # on it, then this tool's files. Both rows come straight from PipeWire's
+    # own tools (`pw-metadata -n settings`, `pw-top -b -n 2`).
+    if f.get("pw_clock") is not None:
+        lines += _pipewire_rows(f["pw_clock"], f.get("pw_xruns"))
+    if f.get("pw_xruns") is not None:
+        lines += _dropouts_rows(f["pw_xruns"], f.get("pw_age"), f.get("ee_age"))
+    lines += [
         _row("EasyEffects", f"{f.get('ee_version', '?')}; "
                             f"running: {'yes' if running else 'no'}"),
         _row("Install", f"{f.get('install')} "
@@ -767,7 +975,8 @@ def _environment_lines(f: dict) -> list[str]:
 
 
 def _collapse_preset_checks(checks: list[CheckResult], *,
-                           bypass_present: bool = False) -> list[CheckResult]:
+                           bypass_present: bool = False,
+                           foreign: int = 0) -> list[CheckResult]:
     """Fold a run of passing per-preset checks into one line.
 
     A machine can have dozens of profiles, and a screenful of identical PASS
@@ -791,20 +1000,34 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
         elif not folded:
             folded = True
             if passing:
-                # The detail reconciles two numbers readers compared and
-                # distrusted: this denominator is one short of the preset count
-                # above (the bypass preset carries no filters, so there is
-                # nothing to check), and the summary's PASS total is mostly
-                # these, counted individually but shown as one line.
+                # The detail reconciles three numbers readers compared and
+                # distrusted: the summary's PASS total is mostly these checks,
+                # counted individually but shown as one line; the preset count
+                # in the Environment block above includes the bypass preset
+                # (no filters, nothing to check) and any presets the user put
+                # there themselves, which this tool doesn't judge.
                 #
-                # "checked out", not "load their impulse file": a preset can
-                # fail this check for reasons that have nothing to do with an
-                # impulse file — including having no convolver at all.
-                detail = f"{passing} checks on one line."
+                # The label says "checked out", not "load their impulse
+                # file": a preset can fail this check for reasons that have
+                # nothing to do with an impulse file — including having no
+                # convolver at all. The detail may say it, because it speaks
+                # for the passing ones only, and PASS is exactly that
+                # (`check_preset_kernel`). Said in the user's terms rather
+                # than the tool's: "Folded onto one line" was read as a
+                # sentence about line-counting with no subject.
+                detail = ("Every one of them loads its speaker-correction "
+                          "impulse file; the summary below counts them one "
+                          "by one.")
                 if bypass_present:
                     detail += (f" The '{autoload.BYPASS_PRESET_NAME}' bypass "
                                "preset isn't among them — it has no filters "
                                "by design.")
+                if foreign:
+                    one = foreign == 1
+                    detail += (f" {foreign} other preset file{'' if one else 's'}"
+                               f" in the folder {'is' if one else 'are'}n't this"
+                               f" tool's, so nothing here checked "
+                               f"{'it' if one else 'them'}.")
                 shown.append(CheckResult(
                     DOCTOR_PASS,
                     f"Presets ({passing}/{len(presets)} checked out)",
@@ -823,7 +1046,9 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
                              _collapse_preset_checks(
                                  report.checks,
                                  bypass_present=report.facts.get(
-                                     "bypass_preset_present", False)),
+                                     "bypass_preset_present", False),
+                                 foreign=report.facts.get(
+                                     "foreign_preset_count", 0)),
                              counted=report.checks)
     # What the doctor can't see — guide the user through the manual checks.
     # The bypass line drops out once we have asked the daemon and it said off:

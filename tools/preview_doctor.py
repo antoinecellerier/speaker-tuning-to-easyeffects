@@ -76,7 +76,11 @@ def _stage_install(root: Path) -> tuple[Path, Path]:
     for name in _PRESETS:
         kernel = f"{name}-impulse"
         (irs / f"{kernel}.irs").write_bytes(b"")
+        # Stamped as the generator stamps them: the report only checks
+        # presets it recognises as its own, so an unstamped stage would
+        # render the "nothing here is ours" branch under every slug.
         (out / f"{name}.json").write_text(json.dumps({
+            "_generator": autoload.generator_stamp(),
             "output": {"convolver#0": {"kernel-name": kernel, "bypass": False},
                        "blocklist": [], "plugins_order": ["convolver#0"]},
         }, indent=4) + "\n")

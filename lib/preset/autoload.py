@@ -25,12 +25,34 @@ import configparser
 import contextlib
 import json
 import os
+import re
 from pathlib import Path
 
 from lib import version
 
 
 BYPASS_PRESET_NAME = "Nothing"
+
+# The stamp every preset this tool writes carries at top level, and the one
+# `--doctor` recognises them by (`lib/report/environment.py`
+# `is_generated_preset`): the user's own presets share the folder, and the
+# doctor must not judge those by this tool's standards (issue #84).
+GENERATOR_PREFIX = "dolby_to_easyeffects.py"
+
+
+def generator_stamp() -> str:
+    """The ``_generator`` value for a preset written by this run."""
+    return f"{GENERATOR_PREFIX} {version.get_version()}"
+
+
+def kernel_belongs_to(preset_name: str, stem: str) -> bool:
+    """Whether an impulse-file stem is one this tool writes for *preset_name*:
+    ``{preset_name}-<8 hex>`` (`lib.preset.emit.kernel_name`) or the legacy
+    unhashed ``{preset_name}``. The voicing is always the last name part, so
+    nothing else this tool writes can match. Shared by the stale-impulse sweep
+    in `lib/preset/emit.py` and the doctor's "is this preset ours?" test, so
+    the two cannot drift apart."""
+    return re.fullmatch(rf"{re.escape(preset_name)}(-[0-9a-f]{{8}})?", stem) is not None
 
 
 def starting_preset(autoload_arg, preset_names: list[str]) -> str:
@@ -145,7 +167,7 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
         return path, "would-write"
     output_dir.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(path, json.dumps({
-        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
+        "_generator": generator_stamp(),
         "output": {"blocklist": [], "plugins_order": []},
     }, indent=4) + "\n")
     return path, "written"

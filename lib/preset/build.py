@@ -21,8 +21,8 @@ their arguments, with no state a patch would have to reach.
 
 from __future__ import annotations
 
-from lib import version
 from lib.dax import parse
+from lib.preset import autoload
 from lib.preset.bands import make_convolver, make_peq_eq
 from lib.preset.plugins import (
     _coupled_bands_eligible,
@@ -79,7 +79,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     disabled = disabled or set()
     emitted = set()
     preset = {
-        "_generator": f"dolby_to_easyeffects.py {version.get_version()}",
+        "_generator": autoload.generator_stamp(),
         "output": {
             "blocklist": [],
             "convolver#0": make_convolver(kernel_name),

@@ -1,0 +1,311 @@
+"""PipeWire's session clock and per-node dropout counts, read for `--doctor`.
+
+Read-only wrappers around PipeWire's own tools — `pw-metadata -n settings`
+for the clock (rate, quantum, its bounds, anything forced) and `pw-top -b`
+for each node's xrun counter — plus the pure parsers that turn their text
+into values, so the rows they feed can be tested without a daemon. Issue #84
+is why they exist: a crackling report whose pasted `--doctor` output could
+not say what quantum the chain was running at or whether the graph was
+dropping buffers at all.
+
+Never writes. Forcing a quantum is a whole-session change the user opts into
+by hand (`docs/ee-to-pipewire.md`, "Small-quantum systems under load"), and
+the one place this project does it — `tools/measure_perf/compare_paths.py` —
+is a measurement harness behind the audio handoff.
+
+Stdlib-only, deliberately: the EasyEffects doctor reaches it from
+`lib/report/doctor_run.py`, the PipeWire doctor could, and
+`tests/test_layout.py` lists it.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass
+from typing import Iterable, NamedTuple
+
+# Names PipeWire gives EasyEffects' playback-path nodes: its virtual
+# sink/source pair and the `ee_soe_*` (stream output effects) / `ee_sie_*`
+# (input) filters. Read off a live `pw-top` on EasyEffects 8.2.8, which also
+# lists an `ee_test_signals` node — its test-tone generator, not on the
+# playback path, and deliberately not matched.
+EASYEFFECTS_NODE_PREFIXES = ("easyeffects_", "ee_soe_", "ee_sie_")
+
+_TIMEOUT = 5  # seconds — the same ceiling as the doctors' other probes
+
+# `pw-top -b -n K` prints two snapshots at once on startup, then one per
+# second (its refresh timer), so K iterations are a window of about K-2 s —
+# measured: -n 4 returns in 2.0 s, -n 6 in 4.0 s. Five seconds is long enough
+# for a dropout a listener hears as crackle to recur, and short enough not to
+# double the doctor's run.
+WINDOW_ITERATIONS = 7
+
+
+@dataclass(frozen=True)
+class ClockSettings:
+    """What `pw-metadata -n settings` reports, as the strings it prints.
+
+    ``reason`` is empty when the daemon answered; otherwise it says why not,
+    in the words the report prints, so an absent value and a zero never look
+    alike in a pasted report.
+    """
+    rate: str = ""
+    quantum: str = ""
+    min_quantum: str = ""
+    max_quantum: str = ""
+    force_quantum: str = ""
+    force_rate: str = ""
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.reason
+
+
+class NodeRow(NamedTuple):
+    """One node as a `pw-top` snapshot prints it."""
+    state: str      # S suspended, I idle, R running, C creating (pre-info)
+    err: int        # the ERR column — see `Dropouts`
+    quant: int      # QUANT/RATE: the clock a driver runs at; 0 on followers
+    rate: int
+    driver: str     # the driver this row runs under (itself for a driver)
+
+
+@dataclass(frozen=True)
+class Dropouts:
+    """pw-top's xrun counters, read at both ends of a short window.
+
+    Each counter is cumulative since its node was created — nothing rebases
+    it; pw-top's ``c`` key clears only that instance's display — so the
+    totals mean little without an age, and the growth over the window is
+    what says whether dropouts are happening *now*. ``sink`` is the sink
+    EasyEffects plays into (``None`` when the caller named none or it isn't
+    in the graph); on a driver node, which the sink usually is, pw-top's ERR
+    counts every cycle the *graph* failed to complete — any node's fault —
+    which ``sink_is_driver`` records. ``ee`` is the highest total among
+    EasyEffects' own nodes and ``ee_node`` which one carries it;
+    ``sink_recent`` / ``ee_recent`` the growth over ``window_s`` seconds (the
+    latter the largest growth on any EasyEffects node); ``playing`` whether
+    an EasyEffects output-side node was running at any point in the window —
+    which any application's active playback stream causes, silent or not,
+    and without which a zero says nothing. ``running_quantum`` /
+    ``running_rate`` are the clock the sink's driver actually ran at during
+    the window (0 when it never ran), as distinct from the session defaults
+    `read_settings` reports. ``reason`` is set, and the rest empty, when
+    nothing could be read.
+    """
+    sink: int | None = None
+    ee: int | None = None
+    ee_node: str = ""
+    sink_recent: int | None = None
+    ee_recent: int | None = None
+    window_s: float = 0.0
+    playing: bool = False
+    sink_is_driver: bool = False
+    running_quantum: int = 0
+    running_rate: int = 0
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.reason
+
+
+def parse_settings(text: str) -> dict[str, str]:
+    """`pw-metadata -n settings` output → ``{key: value}``.
+
+    Each line reads ``update: id:0 key:'clock.rate' value:'48000' type:''``;
+    the ``Found "settings" metadata 32`` preamble has neither marker and is
+    skipped. Same split `tools/measure_perf/compare_paths.py` has used since
+    the perf work.
+    """
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        if "key:'" in line and "value:'" in line:
+            key = line.split("key:'")[1].split("'")[0]
+            value = line.split("value:'")[1].split("'")[0]
+            values[key] = value
+    return values
+
+
+def _run(cmd: list[str], timeout: float = _TIMEOUT) -> str | None:
+    """The subprocess boundary — stdout, or None when the tool couldn't run."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return result.stdout
+
+
+def read_settings() -> ClockSettings:
+    """The session clock, or a ``ClockSettings`` whose ``reason`` says why not."""
+    if shutil.which("pw-metadata") is None:
+        return ClockSettings(reason="pw-metadata not found")
+    values = parse_settings(_run(["pw-metadata", "-n", "settings"]) or "")
+    if not values:
+        return ClockSettings(reason="no answer from pw-metadata")
+    return ClockSettings(
+        rate=values.get("clock.rate", ""),
+        quantum=values.get("clock.quantum", ""),
+        min_quantum=values.get("clock.min-quantum", ""),
+        max_quantum=values.get("clock.max-quantum", ""),
+        force_quantum=values.get("clock.force-quantum", ""),
+        force_rate=values.get("clock.force-rate", ""),
+    )
+
+
+def parse_pwtop(text: str) -> list[dict[str, NodeRow]]:
+    """Batch `pw-top` output → one dict per snapshot: node name → `NodeRow`.
+
+    Columns are ``S ID QUANT RATE WAIT BUSY W/Q B/Q ERR FORMAT NAME``; every
+    snapshot repeats the header, which is how snapshots are told apart.
+    ``FORMAT`` is blank for follower nodes and three tokens (``F32LE 2
+    48000``) for drivers, and a follower's name is prefixed with ``+`` (``=``
+    for an async one) and listed under its driver, so the state, clock and
+    ERR are read by position from the left, the name from the right, and the
+    driver is the last unprefixed row above. A node that has never run
+    prints ``---`` for its times, ``S`` for its state and ``0`` for ERR;
+    ``R`` is a running node.
+    """
+    snapshots: list[dict[str, NodeRow]] = []
+    current: dict[str, NodeRow] | None = None
+    driver = ""
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 10:
+            continue
+        if fields[0] == "S" and fields[1] == "ID":
+            if current is not None:
+                snapshots.append(current)
+            current = {}
+            driver = ""
+            continue
+        if current is None:
+            current = {}
+        try:
+            int(fields[1])
+            quant, rate, err = int(fields[2]), int(fields[3]), int(fields[8])
+        except ValueError:
+            continue
+        name = fields[-1]
+        if fields[-2] not in ("+", "="):
+            driver = name
+        current[name] = NodeRow(fields[0], err, quant, rate, driver or name)
+    if current:
+        snapshots.append(current)
+    return snapshots
+
+
+def read_xruns(extra_nodes: Iterable[str] = (),
+               iterations: int = WINDOW_ITERATIONS) -> Dropouts:
+    """EasyEffects' dropout counters over a ~``iterations``-2 s window.
+
+    ``extra_nodes`` are exact names to count beside the EasyEffects prefixes,
+    typically the sink EasyEffects plays into: a dropout there is heard just
+    the same, and it is reported on its own.
+    """
+    if shutil.which("pw-top") is None:
+        return Dropouts(reason="pw-top not found")
+    started = time.monotonic()
+    out = _run(["pw-top", "-b", "-n", str(iterations)],
+               timeout=iterations + _TIMEOUT)
+    window = time.monotonic() - started
+    snapshots = parse_pwtop(out or "")
+    if not snapshots:
+        return Dropouts(reason="pw-top didn't answer")
+    # The very first snapshot is printed before the nodes' info has arrived:
+    # every state reads `C` and every ERR 0 (seen live), so it cannot be the
+    # window's baseline — the second one is the first with real counts.
+    first = snapshots[1] if len(snapshots) > 1 else snapshots[0]
+    last = snapshots[-1]
+    extra = set(extra_nodes)
+    ee_nodes = [n for n in last if n.startswith(EASYEFFECTS_NODE_PREFIXES)]
+    sinks = [n for n in last if n in extra]
+    if not ee_nodes and not sinks:
+        return Dropouts(reason="no EasyEffects nodes in the graph")
+
+    def growth(name: str) -> int:
+        before = first.get(name)
+        return last[name].err - (before.err if before else last[name].err)
+
+    ee_node = max(ee_nodes, key=lambda n: last[n].err) if ee_nodes else ""
+    sink = sinks[0] if sinks else ""
+    # "Playing" is judged on EasyEffects' output-side nodes, not the sink:
+    # the sink runs whenever EasyEffects' stream is attached to it, while
+    # `easyeffects_sink` and the `ee_soe_*` filters run only while an app
+    # holds a playback stream into them (they read `S` on an idle graph) —
+    # which a browser tab with an open audio context does, silently. The
+    # input side (`easyeffects_source`, `ee_sie_*`) runs for a microphone.
+    output_side = [n for n in ee_nodes
+                   if n == "easyeffects_sink" or n.startswith("ee_soe_")]
+    playing = any(snap[n].state == "R" for snap in snapshots
+                  for n in output_side if n in snap)
+    # The clock the output really ran at: its driver's QUANT/RATE in any
+    # real snapshot where that driver was running.
+    running_quantum = running_rate = 0
+    if sink:
+        drv = last[sink].driver
+        for snap in snapshots[1:]:
+            row = snap.get(drv)
+            if row and row.state == "R" and row.quant:
+                running_quantum, running_rate = row.quant, row.rate
+    return Dropouts(
+        sink=last[sink].err if sink else None,
+        ee=last[ee_node].err if ee_node else None,
+        ee_node=ee_node,
+        sink_recent=growth(sink) if sink else None,
+        ee_recent=max(growth(n) for n in ee_nodes) if ee_nodes else None,
+        window_s=round(window, 1),
+        playing=playing,
+        sink_is_driver=bool(sink) and last[sink].driver == sink,
+        running_quantum=running_quantum,
+        running_rate=running_rate,
+    )
+
+
+def age_from_stat(stat: str, uptime_s: float, clk_tck: int) -> float | None:
+    """Pure: ``/proc/<pid>/stat`` + ``/proc/uptime`` → seconds since the
+    process started. Field 22 is the start time in clock ticks since boot;
+    the ``comm`` field (2) is parenthesised and may hold spaces, so the split
+    starts after the last ``)``, where the state (field 3) comes first."""
+    try:
+        after_comm = stat.rsplit(")", 1)[1].split()
+        start_ticks = int(after_comm[22 - 3])
+    except (IndexError, ValueError):
+        return None
+    return max(0.0, uptime_s - start_ticks / clk_tck)
+
+
+def process_age(name: str) -> float | None:
+    """Seconds since the oldest process called *name* started, or None."""
+    if shutil.which("pgrep") is None:
+        return None
+    pid = (_run(["pgrep", "-x", "-o", name]) or "").strip()
+    if not pid.isdigit():
+        return None
+    try:
+        stat = open(f"/proc/{pid}/stat", encoding="utf-8").read()
+        uptime = float(open("/proc/uptime", encoding="utf-8").read().split()[0])
+        clk_tck = os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return age_from_stat(stat, uptime, clk_tck)
+
+
+def format_age(seconds: float) -> str:
+    """``3 d 4 h`` / ``2 h 5 min`` / ``48 s`` — the two largest units."""
+    total = int(seconds)
+    days, rest = divmod(total, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes, secs = divmod(rest, 60)
+    if days:
+        return f"{days} d {hours} h" if hours else f"{days} d"
+    if hours:
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    if minutes:
+        return f"{minutes} min"
+    return f"{secs} s"

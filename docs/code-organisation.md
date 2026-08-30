@@ -370,7 +370,10 @@ future extraction has to respect, and each is checked rather than remembered:
   from `lib/preset/` into `lib/report/` (`messages.VOICING_CURVES`), and it is
   one-way.
 - **`lib/pipewire/` layers `plugins ← conf ← {install, checks}`**, with no edge
-  between the top two. `lib/report/doctor_run.py` sits strictly above
+  between the top two; `clock.py` sits beside them as a stdlib-only leaf
+  (the PipeWire clock and xrun reader), which is what lets
+  `lib/report/doctor_run.py` import it without dragging the chain in.
+  `lib/report/doctor_run.py` sits strictly above
   `speaker.py` and `environment.py` — `speaker.py` imports `environment.py`,
   and putting the doctor's I/O back into `environment.py` would close that
   loop — and nothing under `lib/` imports `doctor_run` at all.

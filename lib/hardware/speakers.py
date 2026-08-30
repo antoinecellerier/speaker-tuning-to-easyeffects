@@ -38,7 +38,9 @@ class SpeakerPin:
     """A single internal speaker output (HDA pin or SoundWire amplifier)."""
     node: str            # HDA node ID or SoundWire device name
     control_name: str    # ALSA control name or driver name
-    role: str            # "woofer" or "tweeter"
+    role: str            # "woofer" / "tweeter" (HDA pins beside a woofer),
+                         # "speaker" (HDA pins on a codec with no bass-named
+                         # one) or "amplifier" (a SoundWire amp chip)
     channels: int = 1    # audio channels this output carries. An HDA codec pin
                          # can drive a stereo (L+R) speaker = 2; SoundWire instead
                          # enumerates one slave device per amp chip, so each is a
@@ -185,6 +187,13 @@ class SpeakerInfo:
             by_role[s.role] = by_role.get(s.role, 0) + s.channels
         if len(self.speakers) == 1 and self.speakers[0].channels == 2:
             return f"{total} speakers → full-range stereo"
+        if set(by_role) == {"speaker"}:
+            # A mono pin, or several with no bass-named one: not "multi-way",
+            # which would contradict the role printed on the pin line above,
+            # and not "full-range" either — nothing probed says what they
+            # drive, only that Linux shows no separate woofer pin.
+            return (f"{total} speaker{'s' if total != 1 else ''}, no separate "
+                    "woofer pin")
         parts = " + ".join(f"{n}x {role}" for role, n in by_role.items())
         return f"{total} speakers → multi-way: {parts}"
 
@@ -398,7 +407,7 @@ def parse_hda_codec_pins(
             ctrl_match = re.search(r'Control: name="([^"]+)"', block)
             ctrl_name = ctrl_match.group(1) if ctrl_match else "Speaker"
             lower = ctrl_name.lower()
-            role = "woofer" if ("bass" in lower or "woofer" in lower) else "tweeter"
+            role = "woofer" if ("bass" in lower or "woofer" in lower) else ""
             speakers.append(SpeakerPin(
                 node=node,
                 control_name=ctrl_name,
@@ -420,6 +429,20 @@ def parse_hda_codec_pins(
                 pincap=pincap.group(1).strip(),
                 pin_default=f"0x{cfg:08x}",
             ))
+    # "tweeter" only means something beside a woofer. A machine whose one
+    # speaker pin is the whole speaker was labelled a tweeter, a few lines
+    # above a layout estimate that called it full-range stereo (issue #84).
+    # Decided per codec, which is per machine in practice — an HDMI codec has
+    # no speaker pins, so the analog codec owns them all — and keyed on "no
+    # bass-named pin here" rather than on the pin count. The neutral word,
+    # not "full-range": the control name is the only thing probed, and it
+    # says nothing about what the pin drives — on a machine whose woofer pin
+    # the firmware hides (issue #53) this one really is a tweeter, and the
+    # report flags that pin separately.
+    fill = "tweeter" if any(s.role == "woofer" for s in speakers) else "speaker"
+    for s in speakers:
+        if not s.role:
+            s.role = fill
     return codec_ssid, speakers, unconfigured
 
 
@@ -474,9 +497,12 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
         return False
     info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
     info.soundwire_devices = []
+    # "speaker", as the parser labels the one pin a codec with no bass-named
+    # one exposes: the demo reproduces issue #53's *pre-fix* state, so it
+    # must render the line that machine really prints.
     info.speakers.append(SpeakerPin(node="0x14",
                                     control_name="Speaker Playback Switch",
-                                    role="tweeter", channels=2, codec=ssid))
+                                    role="speaker", channels=2, codec=ssid))
     for node, pincap in (("0x17", "OUT HP Detect"),
                          ("0x1b", "IN OUT EAPD Detect"), ("0x1e", "OUT")):
         info.unconfigured_pins.append(UnconfiguredPin(

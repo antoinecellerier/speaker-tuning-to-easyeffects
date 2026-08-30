@@ -558,8 +558,10 @@ def test_disable_bass_enhancer_drops_harmonic_generator():
 # it claimed to: the run's *own* probes are time-bounded past it. One --doctor
 # spends up to 5 s each on `easyeffects --version` and `flatpak info`, 2 s per
 # `pgrep -x easyeffects` (reached twice), 5 s per sound card in `amixer
-# contents`, then 4 s on journalctl before a further 4 s on dmesg — ≥27 s on a
-# single-card machine. A run genuinely wedged in a probe therefore outlived
+# contents`, then 4 s on journalctl before a further 4 s on dmesg, then 5 s
+# on `pw-metadata` and 12 s on `pw-top` (a 5 s dropout window plus the
+# ceiling) — ≥44 s on a single-card machine. A run genuinely wedged in a
+# probe therefore outlived
 # 10 s no matter what, so the only thing that ceiling could fire on was a
 # healthy run on a loaded box — which it did, repeatedly, under `-n auto`.
 # 120 s is this suite's modal budget for a full-script spawn — five sites use
@@ -2183,7 +2185,7 @@ def _every_finding():
         hda_codecs=[("10EC0287", "17AA9999", "Realtek ALC287")],
         speakers=[speakers.SpeakerPin(
             node="0x14", control_name="Speaker Playback Switch",
-            role="tweeter", channels=2, codec="17AA9999")],
+            role="full-range", channels=2, codec="17AA9999")],
         unconfigured_pins=[speakers.UnconfiguredPin(
             node="0x17", codec="17AA9999", pincap="OUT",
             pin_default="0x411111f0")])
