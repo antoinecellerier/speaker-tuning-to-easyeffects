@@ -52,7 +52,11 @@ def easyeffects_running() -> bool | None:
                               check=False)
     except (subprocess.SubprocessError, OSError):
         return None
-    return proc.returncode == 0
+    if proc.returncode == 0:
+        return True
+    # pgrep: 1 = nothing matched; anything else is pgrep's own failure
+    # (2 = usage, 3 = fatal), which must not read as "not running".
+    return False if proc.returncode == 1 else None
 
 
 def _name_accepted(name: str) -> bool:

@@ -3834,8 +3834,9 @@ def test_presets_from_another_version_are_reported_once():
         ["v1", "", "v0", "v2", "v1"], "v2",
         "re-run dolby_to_easyeffects.py on your tuning XML")
     assert check.status == DOCTOR_WARN
+    # 4, not 5: the stampless (GUI re-saved) preset leaves both counts.
     assert check.detail.startswith(
-        "3 of 5 presets were written by v0, v1 and this is v2.")
+        "3 of 4 presets were written by v0, v1 and this is v2.")
     assert check.detail.endswith(
         "a preset is a snapshot, it doesn't update itself.")
     assert doctor_module.another_version_check(
@@ -4179,6 +4180,41 @@ def test_easyeffects_running_is_unknown_on_permission_error(monkeypatch):
 
     monkeypatch.setattr(ee_socket.subprocess, "run", denied)
     assert unpatched_ee_probe() is None
+
+
+def test_easyeffects_running_maps_pgrep_exits_honestly(monkeypatch):
+    """pgrep exits 1 for "no process" and 2/3 for its own errors — only the
+    first is a real "no" (/copy-audit 2026-08-30)."""
+    def fake(rc):
+        monkeypatch.setattr(ee_socket.subprocess, "run",
+                            lambda *a, **k: ee_socket.subprocess.CompletedProcess([], rc))
+    fake(0); assert unpatched_ee_probe() is True
+    fake(1); assert unpatched_ee_probe() is False
+    fake(2); assert unpatched_ee_probe() is None
+    fake(3); assert unpatched_ee_probe() is None
+
+
+def test_running_fact_takes_live_proof_over_pgrep(monkeypatch):
+    """A socket answer only a running daemon can give outranks a missing or
+    mistaken pgrep."""
+    live = doctor_run.LiveState(preset_is_live=True)
+    monkeypatch.setattr(ee_socket, "easyeffects_running", lambda: None)
+    assert doctor_run._ee_running_fact(live) is True
+    monkeypatch.setattr(ee_socket, "easyeffects_running", lambda: False)
+    assert doctor_run._ee_running_fact(live) is True
+    assert doctor_run._ee_running_fact(doctor_run.LiveState()) is False
+
+
+def test_loaded_preset_bypass_on_speakers_names_a_real_preset():
+    """TRAP (/user-review 2026-08-30): "Load a Dolby-* preset" is shell-glob
+    shorthand, and under --prefix the presets aren't named Dolby-* at all."""
+    rc = {"last_output_preset": BYPASS_PRESET_NAME, "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, ["I84-Balanced", BYPASS_PRESET_NAME],
+                             output_kind="speaker", speaker_preset="")
+    assert r.status == DOCTOR_WARN
+    assert "Load 'I84-Balanced' in EasyEffects." in r.detail
+    assert "Dolby-*" not in r.detail
 
 
 def test_the_running_row_says_unknown_when_nothing_could_ask():

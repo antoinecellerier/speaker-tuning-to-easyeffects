@@ -317,14 +317,18 @@ def loaded_preset_status(rc_data: dict, generated_names,
     verdict). Together they separate the one case where the bypass preset is
     the *designed* state from the one where it is the fault it looks like."""
     dolby = {n for n in generated_names if n != BYPASS_PRESET_NAME}
+    # A real name to point at, never "Dolby-*": glob shorthand asks a
+    # non-terminal reader to type an asterisk, and under --prefix the
+    # presets aren't named Dolby-* at all (/user-review 2026-08-30).
+    example = f"'{sorted(dolby)[0]}'" if dolby else "one of this tool's presets"
     loaded = rc_data.get("last_output_preset", "") if live_preset is None \
         else live_preset
     fallback = "" if live_preset is not None \
         else rc_data.get("fallback_preset", "")
     if not loaded and not fallback:
         return CheckResult(DOCTOR_WARN, "Selected preset",
-            "EasyEffects has no output preset recorded yet — open it and load a "
-            "Dolby-* preset for the speakers.")
+            f"EasyEffects has no output preset recorded yet — open it and "
+            f"load {example} for the speakers.")
     if loaded == BYPASS_PRESET_NAME:
         # On a non-speaker output this is the state --autoload deliberately
         # installs: it writes this empty preset and points EasyEffects' global
@@ -351,14 +355,14 @@ def loaded_preset_status(rc_data: dict, generated_names,
             # as a claim about that preset (/user-review 2026-08-29).
             return CheckResult(DOCTOR_UNKNOWN, "Selected preset",
                 "the output isn't the internal speakers, so the silent "
-                f"'{BYPASS_PRESET_NAME}' bypass preset is expected here. No "
-                "Dolby-* preset is set to load on the speakers either "
+                f"'{BYPASS_PRESET_NAME}' bypass preset is expected here. None "
+                "of this tool's presets is set to load on the speakers either "
                 "(--autoload sets that up), so what they would play couldn't "
                 "be checked — switch the system output back to the speakers "
                 "and re-run this to check it.")
         return CheckResult(DOCTOR_WARN, "Selected preset",
             f"the silent '{BYPASS_PRESET_NAME}' bypass preset is selected — that's "
-            "no processing by design. Load a Dolby-* preset in EasyEffects.")
+            f"no processing by design. Load {example} in EasyEffects.")
     if loaded in dolby:
         matched = loaded
     elif rc_data.get("uses_fallback") and fallback in dolby:

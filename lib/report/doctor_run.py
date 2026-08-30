@@ -616,7 +616,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "Presets from another version", "preset",
         [autoload.generator_version(data) for _p, data in dolby_presets],
         version.get_version(),
-        "re-run dolby_to_easyeffects.py on your tuning XML")
+        "re-run dolby_to_easyeffects.py on your tuning XML, the way you "
+        "last ran it")
     if stale is not None:
         report.checks.append(stale)
 
@@ -700,7 +701,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "ee_version": (".".join(map(str, ee_version)) if ee_version
                        else "unknown")
                       + (f" (via {source})" if source else ""),
-        "ee_running": ee_socket.easyeffects_running(),
+        "ee_running": _ee_running_fact(live),
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
         "output_dir": doctor.tilde(output_dir),
         "irs_dir": doctor.tilde(irs_dir),
@@ -736,6 +737,16 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
 
 
 _NO_SINK_TAIL = ", and EasyEffects has no saved output to fall back on"
+
+
+def _ee_running_fact(live) -> bool | None:
+    """The `running:` value: pgrep's answer, outranked by live proof — a
+    socket reply only a running daemon can give must not sit three rows
+    below "running: no" or "unknown" (/copy-audit 2026-08-30; pgrep -x can
+    also genuinely miss a wrapped binary the socket still answers for)."""
+    if live.preset_is_live or live.bypass_is_live:
+        return True
+    return ee_socket.easyeffects_running()
 
 
 def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:

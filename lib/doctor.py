@@ -224,12 +224,15 @@ def another_version_check(label: str, noun: str, versions,
     sentence: the inventory block above already names it, and a path here is
     what leaked the preview harness's staging tree into a rendered block.
     """
-    versions = list(versions)
-    stale = sorted({v for v in versions if v and v != running})
+    # Dated artefacts only, in both counts: an artefact with no version can
+    # never satisfy the sentence's implicature that the other total-minus-n
+    # are current.
+    dated = [v for v in versions if v]
+    stale = sorted({v for v in dated if v != running})
     if not stale:
         return None
-    n = sum(1 for v in versions if v in stale)
-    total = len(versions)
+    n = sum(1 for v in dated if v in stale)
+    total = len(dated)
     return CheckResult(
         DOCTOR_WARN, label,
         f"{n} of {total} {noun}{'s' if total != 1 else ''} "

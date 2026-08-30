@@ -82,12 +82,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
-- `--doctor`'s environment block is easier to read: it names your output
-  device rather than only its PipeWire node id, and labels the
-  `Selected preset:` and `Global bypass:` rows for what they are. Bluetooth
-  devices show a fixed label instead of their own name. It is now two
-  sections — `PipeWire` (output sink, clock, dropouts) and
-  `EasyEffects setup` — with the install above what is playing now.
+- Both `--doctor` reports are easier to read: they name your output
+  device rather than only its PipeWire node id, and the EasyEffects one
+  labels the `Selected preset:` and `Global bypass:` rows for what they
+  are. Bluetooth devices show a fixed label instead of their own name. The
+  inventory is now two sections — `PipeWire` (output sink, clock,
+  dropouts) and `EasyEffects setup` — with the install above what is
+  playing now.
 - A run now loads the preset into a running EasyEffects, so a first install
   or a re-run is audible without picking anything in its menu. It reloads
   the preset EasyEffects is playing, or loads the starting one.
@@ -106,18 +107,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- Both `--doctor`s now print a `PipeWire` section: the versions the report
-  ran against — the running PipeWire daemon's and the installed
-  WirePlumber's — the clock — the session
-  defaults, any session-wide override, and the rate and quantum your output
-  actually ran at during the check — and dropouts (xruns): the counts on
-  your output and on the chain's own nodes, an upper bound on how long each
-  has been counting, and whether any happened during the check — the
-  numbers a crackling report needs
+- Both `--doctor`s now print a `PipeWire` section — the versions the
+  report ran against, the output sink, the clock (session defaults and
+  what your output actually ran at), and dropout counts with ages and a
+  live window: the numbers a crackling report needs
   ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 - `--doctor` now warns when the EasyEffects presets in your folder were
-  written by an older version of this tool, as it already did for PipeWire
-  confs — re-run the script on your tuning XML to bring them up to date.
+  written by another version of this tool, as it already did for PipeWire
+  confs — re-run the script on your tuning XML so they match the version
+  you run.
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),

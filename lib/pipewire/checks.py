@@ -985,7 +985,7 @@ def check_conf_versions(confs, running: str) -> CheckResult | None:
     sentence the EasyEffects doctor says about its presets (lib.doctor)."""
     return doctor.another_version_check(
         "Conf from another version", "conf", [c.version for c in confs],
-        running, "re-run the converter")
+        running, "re-run the converter with --force")
 
 
 # Every URI the converter can emit, with the label the report gives it.
