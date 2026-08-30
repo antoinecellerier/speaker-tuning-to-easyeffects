@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import dolby_to_easyeffects as d                                # noqa: E402
 from lib.dax import parse                                       # noqa: E402
-from corpus_audit import discover_roots, find_xmls              # noqa: E402
+from corpus_audit import discover_roots, discover_xmls              # noqa: E402
 
 
 # How to recognise, from a parsed tuning alone, that a run on this XML would
@@ -190,7 +190,7 @@ def main(argv=None):
         os.environ["COLUMNS"] = str(args.width)
 
     roots = discover_roots(args.corpus_dir)
-    xmls = sorted(find_xmls(roots))
+    xmls = sorted(discover_xmls(roots))
     if not xmls:
         print(f"No Dolby DAX3 XMLs found under: {', '.join(roots)}\n"
               "Pass --corpus-dir, set ATMOS_CORPUS_DIR, or run from a folder "

@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from corpus_audit import discover_roots, find_xmls          # noqa: E402
+from corpus_audit import discover_roots, discover_xmls          # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO / "localresearch" / "msg-verify" / "renders"
@@ -70,7 +70,7 @@ GENERATOR_ARGS = ["--dry-run", "--skip-ee-check", "--no-color"]
 
 def _pick_xml() -> Path | None:
     """A stock HDA tuning that carries all three patchable fields."""
-    for xml in find_xmls(discover_roots([])):
+    for xml in discover_xmls(discover_roots([])):
         text = Path(xml).read_text(errors="ignore")
         if all(old in text for old, _ in CASES.values()):
             return Path(xml)
