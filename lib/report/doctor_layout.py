@@ -82,6 +82,11 @@ def print_environment(lines: Sequence[str], title: str) -> None:
 # through tests/conftest.py `assert_rows_line_up`) enforce.
 GUTTER = 19
 
+# The one hint for "the tool ran but the daemon didn't answer", shared by
+# every row that can meet that state, so a reader sees one sentence for one
+# condition wherever it strikes.
+DAEMON_HINT = "is the PipeWire daemon running?"
+
 
 def row(label: str, value: str, gutter: int) -> str:
     """One `label: value` row, the value starting at column *gutter*."""
@@ -104,6 +109,28 @@ def continuation(text: str, gutter: int) -> list[str]:
                          break_on_hyphens=False,
                          initial_indent=" " * gutter,
                          subsequent_indent=" " * gutter)
+
+
+def version_rows(pipewire: session.Version, wireplumber: session.Version,
+                 gutter: int) -> list[str]:
+    """`Versions:` — which audio server the rest of the section describes.
+
+    First row of `=== PipeWire ===` in both reports. PipeWire's is the
+    *running daemon*'s (`pw-cli info 0`); WirePlumber has no equivalent
+    query, so its number is the installed binary's (`wireplumber
+    --version`) — the two can differ after an upgrade nobody restarted,
+    and the (running)/(installed) tags say which claim each number makes.
+    """
+    def half(name: str, v: session.Version, tag: str) -> str:
+        if not v.ok:
+            reason = (f"{v.reason} — {DAEMON_HINT}"
+                      if v.reason == "no answer from pw-cli" else v.reason)
+            return f"{name} not read ({reason})"
+        return f"{name} {v.text} ({tag})"
+    return wrapped_row("Versions",
+                       f"{half('PipeWire', pipewire, 'running')}, "
+                       f"{half('WirePlumber', wireplumber, 'installed')}",
+                       gutter)
 
 
 def output_sink_rows(label: str, node: str, suffix: str, gutter: int
@@ -149,7 +176,7 @@ def clock_rows(settings: session.ClockSettings, d: session.Dropouts | None,
     """
     if not settings.ok:
         hint = {"pw-metadata not found": "clock settings not read",
-                "no answer from pw-metadata": "is the PipeWire daemon running?"}
+                "no answer from pw-metadata": DAEMON_HINT}
         return wrapped_row("Clock", f"{settings.reason} — "
                            f"{hint.get(settings.reason, 'clock settings not read')}",
                            gutter)

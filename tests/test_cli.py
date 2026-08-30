@@ -559,8 +559,10 @@ def test_disable_bass_enhancer_drops_harmonic_generator():
 # spends up to 5 s each on `easyeffects --version` and `flatpak info`, 2 s per
 # `pgrep -x easyeffects` (reached twice), 5 s per sound card in `amixer
 # contents`, then 4 s on journalctl before a further 4 s on dmesg, then 5 s
-# on `pw-metadata` and 12 s on `pw-top` (a 5 s dropout window plus the
-# ceiling) — ≥44 s on a single-card machine. A run genuinely wedged in a
+# on `pw-metadata`, 12 s on `pw-top` (a 5 s dropout window plus the
+# ceiling), 5 s each on the two `pgrep -x -o` uptime reads, and 5 s each on
+# `pw-cli info 0` and `wireplumber --version` — ≥64 s on a single-card
+# machine. A run genuinely wedged in a
 # probe therefore outlived
 # 10 s no matter what, so the only thing that ceiling could fire on was a
 # healthy run on a loaded box — which it did, repeatedly, under `-n auto`.

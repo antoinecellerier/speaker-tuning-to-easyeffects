@@ -650,6 +650,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     pw_xruns = session.read_xruns(sink=live.sink or "")
     pw_age = session.process_age("pipewire")
     ee_age = session.process_age("easyeffects")
+    # Which server those numbers describe — probed once here, beside them.
+    pw_version = session.pipewire_version()
+    wp_version = session.wireplumber_version()
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
     gate_check = environment.firmware_gate_status(
@@ -696,6 +699,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
         "pw_clock": pw_clock,
+        "pipewire_version": pw_version,
+        "wireplumber_version": wp_version,
         "pw_xruns": pw_xruns,
         "pw_age": pw_age,
         "ee_age": ee_age,
@@ -710,6 +715,9 @@ def _pipewire_lines(f: dict) -> list[str]:
     needs the clock and the dropouts beside it (issue #84)."""
     saved = " (from saved config)"
     lines: list[str] = []
+    if f.get("pipewire_version") and f.get("wireplumber_version"):
+        lines += layout.version_rows(f["pipewire_version"],
+                                     f["wireplumber_version"], layout.GUTTER)
     if f.get("output_device"):
         # Whichever sink this names can be a Bluetooth one — the live default
         # follows the headset on connect exactly as EE's own record did — so

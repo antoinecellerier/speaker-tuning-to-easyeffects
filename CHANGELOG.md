@@ -106,7 +106,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
-- Both `--doctor`s now print a `PipeWire` section: the clock — the session
+- Both `--doctor`s now print a `PipeWire` section: the versions the report
+  ran against — the running PipeWire daemon's and the installed
+  WirePlumber's — the clock — the session
   defaults, any session-wide override, and the rate and quantum your output
   actually ran at during the check — and dropouts (xruns): the counts on
   your output and on the chain's own nodes, an upper bound on how long each

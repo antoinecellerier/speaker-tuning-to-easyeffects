@@ -5,7 +5,7 @@ plugin block into an LV2 node, ``conf`` wires those nodes into a chain and
 renders the SPA-JSON, ``install`` decides where it goes and what to say
 afterwards, and ``checks`` is the ``--doctor`` that reads the result back off
 the disk and out of the live graph. Beside them, ``session`` is a dependency-free
-leaf — the PipeWire session reader (clock, xruns, uptime) — both doctors
+leaf — the PipeWire session reader (versions, clock, xruns, uptime) — both doctors
 print their `=== PipeWire ===` section from it, through
 `lib/report/doctor_layout.py`.
 

@@ -774,7 +774,7 @@ def test_the_plugin_list_says_it_is_the_catalogue_not_the_confs_needs(monkeypatc
     lost five — both #78-round reviewers called the mismatch a fault. The
     label makes the two numbers answer different questions on the page."""
     monkeypatch.setenv("COLUMNS", "80")
-    facts = {"version": "v", "wireplumber": (0, 5), "sinks": [],
+    facts = {"version": "v", "sinks": [],
              "plugins": _probe(**{"Calf stereo tools": False})}
     lines = checks._environment_lines([], [], facts)
     assert ("  Plugins:         every LV2 plugin this tool can use; "
@@ -794,7 +794,10 @@ def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
     monkeypatch.setattr(checks, "_probe_plugins",
                         lambda: (calls.append(1), _probe())[1])
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
 
@@ -809,7 +812,7 @@ def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
 def test_environment_block_prints_no_bluetooth_address():
     """The `Sinks:` list is every sink in the graph, and the closing line asks
     the reader to paste everything above it into an issue."""
-    facts = {"version": "v-test", "wireplumber": (0, 5),
+    facts = {"version": "v-test",
              "sinks": [SPEAKER, BT_SINK],
              "default": checks.DefaultSink(BT_SINK, BT_SINK)}
     lines = "\n".join(checks._environment_lines([], [], facts))
@@ -912,7 +915,10 @@ def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
     and the order of the check list is what makes it true — for both names
     the chains-loaded FAIL sends its reader to."""
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
     monkeypatch.setattr(checks, "_probe_plugins",
                         lambda: checks.PluginProbe(
                             entries=(("LSP PEQ", "http://lsp-plug.in/x", True),)))
@@ -954,7 +960,7 @@ def test_an_unreadable_conf_says_why_it_could_not_be_read(tmp_path,
     # The header is read before the tool is needed, so the version survives.
     assert parsed.version == "vtest"
 
-    facts = {"version": "v-test", "wireplumber": (0, 5), "sinks": []}
+    facts = {"version": "v-test", "sinks": []}
     line = [l for l in checks._environment_lines([parsed], [], facts)
             if "Dolby_Balanced.conf" in l]
     assert line and "unreadable (spa-json-dump not installed)" in line[0]
@@ -1066,35 +1072,89 @@ def test_several_missing_targets_are_not_described_as_one_chain(tmp_path):
 # --- Environment checks -----------------------------------------------------
 
 @pytest.mark.parametrize("version,status", [
-    (None,       DOCTOR_UNKNOWN),
-    ((0, 4),     DOCTOR_FAIL),      # no smart-filter support at all
-    ((0, 4, 15), DOCTOR_FAIL),      # a patch level doesn't reach 0.5
-    ((0, 5),     DOCTOR_PASS),
-    ((0, 5, 15), DOCTOR_PASS),
-    ((1, 0),     DOCTOR_PASS),
+    (session.Version(reason="wireplumber not found"),      DOCTOR_UNKNOWN),
+    (session.Version(text="0.4", parts=(0, 4)),            DOCTOR_FAIL),
+    (session.Version(text="0.4.15", parts=(0, 4, 15)),     DOCTOR_FAIL),
+    (session.Version(text="0.5", parts=(0, 5)),            DOCTOR_PASS),
+    (session.Version(text="0.5.15", parts=(0, 5, 15)),     DOCTOR_PASS),
+    (session.Version(text="1.0", parts=(1, 0)),            DOCTOR_PASS),
 ])
 def test_wireplumber_version(version, status):
     assert checks.check_wireplumber(version).status == status
+    if not version.ok:
+        # The UNKNOWN names the probe's own reason, not a fixed claim about
+        # a command that may not even exist on the machine.
+        assert checks.check_wireplumber(version).detail.startswith(
+            "wireplumber not found, so its version")
 
 
-@pytest.mark.parametrize("answer,expected", [
-    ("wireplumber 0.5.15\n", (0, 5, 15)),
-    ("wireplumber 0.4\n", (0, 4)),
-    ("no idea\n", None),
+@pytest.mark.parametrize("answer,parts,reason", [
+    ("wireplumber 0.5.15\n", (0, 5, 15), ""),
+    ("wireplumber 0.4\n", (0, 4), ""),
+    ("no idea\n", (), "no answer from wireplumber --version"),
 ])
 def test_wireplumber_version_keeps_the_patch_level(monkeypatch, answer,
-                                                   expected):
+                                                   parts, reason):
     """The version is pasted into issues as well as compared, and 0.5 reads
     as 0.5.0 — a different build from the 0.5.15 that answered."""
-    monkeypatch.setattr(checks.subprocess, "run",
+    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(session.subprocess, "run",
                         lambda *a, **k: SimpleNamespace(stdout=answer))
-    assert checks._wireplumber_version() == expected
+    v = session.wireplumber_version()
+    assert (v.parts, v.reason) == (parts, reason)
+    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    assert session.wireplumber_version().reason == "wireplumber not found"
 
 
-def test_the_wireplumber_line_prints_every_number_it_was_given():
-    facts = {"wireplumber": (0, 5, 15), "version": "0.0.0", "sinks": []}
-    lines = checks._environment_lines([], [], facts)
-    assert any("WirePlumber:     0.5.15" in line for line in lines)
+def test_pipewire_version_reads_the_running_daemons_core(monkeypatch):
+    """`pw-cli info 0` answers for the daemon that is actually running —
+    `pipewire --version` is the installed binary's number, the wrong one
+    after an upgrade nobody restarted."""
+    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    core = 'type: PipeWire:Interface:Core/4\n\tversion: "1.6.8"\n\tname: "pipewire-0"\n'
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: core)
+    v = session.pipewire_version()
+    assert (v.text, v.parts) == ("1.6.8", (1, 6, 8))
+    monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: None)
+    assert session.pipewire_version().reason == "no answer from pw-cli"
+    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    assert session.pipewire_version().reason == "pw-cli not found"
+
+
+def test_the_versions_row_leads_the_pipewire_section(monkeypatch):
+    """Which server the section describes comes before what it is doing —
+    and it moved out of the setup block, where it sat as a WirePlumber row
+    only the filter-chain doctor printed."""
+    monkeypatch.setenv("COLUMNS", "80")
+    lines = checks._pipewire_lines(
+        checks.DefaultSink(effective="alsa_output.spk"),
+        session.ClockSettings(reason="pw-metadata not found"),
+        session.Dropouts(reason="pw-top not found"), None,
+        label="",
+        pipewire=session.Version(text="1.6.8", parts=(1, 6, 8)),
+        wireplumber=session.Version(text="0.5.15", parts=(0, 5, 15)))
+    assert lines[0] == ("  Versions:        PipeWire 1.6.8 (running), "
+                        "WirePlumber 0.5.15 (installed)")
+    assert not any("WirePlumber" in ln
+                   for ln in checks._environment_lines([], [], {"sinks": []}))
+
+
+def test_the_versions_row_says_why_a_version_is_missing(monkeypatch):
+    """An unread version prints its reason — an absent row and a zero look
+    alike in a paste — and only the daemon-shaped failure earns the
+    daemon hint."""
+    monkeypatch.setenv("COLUMNS", "80")
+    def text(pw, wp):
+        return " ".join(ln.strip() for ln in doctor_layout.version_rows(
+            pw, wp, doctor_layout.GUTTER))
+    assert ("PipeWire not read (no answer from pw-cli — is the PipeWire "
+            "daemon running?), WirePlumber 0.5.15 (installed)") in text(
+        session.Version(reason="no answer from pw-cli"),
+        session.Version(text="0.5.15", parts=(0, 5, 15)))
+    assert ("PipeWire not read (pw-cli not found), WirePlumber not read "
+            "(wireplumber not found)") in text(
+        session.Version(reason="pw-cli not found"),
+        session.Version(reason="wireplumber not found"))
 
 
 def test_the_remembered_line_prints_only_for_a_name_the_graph_lacks():
@@ -1125,7 +1185,7 @@ def test_the_setup_block_keeps_the_gutter(tmp_path, monkeypatch):
     """The PW block's mirror of the EE doctor's gutter trap: both print on
     `doctor_layout.GUTTER`, so the two reports' rows sit in one column."""
     monkeypatch.setenv("COLUMNS", "80")
-    facts = {"version": "v", "wireplumber": (0, 5, 15),
+    facts = {"version": "v",
              "sinks": [SPEAKER, "alsa_output.hdmi"],
              "plugins": _probe(**{"Calf stereo tools": False}),
              "default": checks.DefaultSink(effective=SPEAKER,
@@ -1192,7 +1252,10 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced"),
             *_smart_chain("Dolby_Warm")]
     monkeypatch.setattr(checks, "_pw_dump", lambda: dump)
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
     # The probe rather than the renderer: one stub covers both readers
     # of it, and an empty probe is the "nothing was asked" shape — which
     # the LV2 plugins check must not turn into an all-clear.
@@ -1229,7 +1292,10 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
     dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced"),
             *_smart_chain("Dolby_Warm")]
     monkeypatch.setattr(checks, "_pw_dump", lambda: dump)
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
@@ -1268,7 +1334,12 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
 def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
                                          silence_console, capsys):
     monkeypatch.setattr(checks, "_pw_dump", lambda: None)
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: None)
+    monkeypatch.setattr(
+        session, "wireplumber_version",
+        lambda: session.Version(reason="no answer from wireplumber --version"))
+    monkeypatch.setattr(
+        session, "pipewire_version",
+        lambda: session.Version(reason="no answer from pw-cli"))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
@@ -1304,7 +1375,10 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", scanned)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", unread)
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
 
     _checks, confs, _chains, _facts = checks.gather_pw_doctor()
     assert [c.path.parent for c in confs] == [scanned]
@@ -1312,31 +1386,38 @@ def test_unread_directory_confs_are_not_counted_as_installed(tmp_path,
     assert checks.check_conf_directory().status == DOCTOR_WARN
 
 
-def test_wireplumber_is_probed_once_per_run(tmp_path, monkeypatch):
-    """"Probe everything once, then judge" — `wireplumber --version` is a
-    subprocess, and the check and the facts dict are two readers of one answer,
-    not two spawns. None is an answer too: a version the binary won't give is
-    not a reason to ask it again."""
+def test_the_versions_are_probed_once_per_run(tmp_path, monkeypatch):
+    """"Probe everything once, then judge" — each version probe is a
+    subprocess, and the check and the facts dict are two readers of one
+    answer, not two spawns. A reason is an answer too: a version the binary
+    won't give is not a reason to ask it again."""
     def _run(answer):
-        calls = []
-        monkeypatch.setattr(checks, "_wireplumber_version",
-                            lambda: (calls.append(answer), answer)[1])
+        wp_calls, pw_calls = [], []
+        monkeypatch.setattr(session, "wireplumber_version",
+                            lambda: (wp_calls.append(answer), answer)[1])
+        monkeypatch.setattr(
+            session, "pipewire_version",
+            lambda: (pw_calls.append(1),
+                     session.Version(text="1.0", parts=(1, 0)))[1])
         monkeypatch.setattr(checks, "_pw_dump", lambda: [])
         monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
         monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
         results, _confs, _chains, facts = checks.gather_pw_doctor()
         wireplumber = [c for c in results if c.label == "WirePlumber"]
-        return calls, wireplumber, facts
+        return wp_calls, pw_calls, wireplumber, facts
 
-    calls, wireplumber, facts = _run((0, 4))
-    assert len(calls) == 1
+    old = session.Version(text="0.4", parts=(0, 4))
+    wp_calls, pw_calls, wireplumber, facts = _run(old)
+    assert len(wp_calls) == 1 and len(pw_calls) == 1
     # ...and that one answer reaches both consumers, unchanged.
-    assert facts["wireplumber"] == (0, 4)
+    assert facts["wireplumber_version"] == old
+    assert facts["pipewire_version"].text == "1.0"
     assert [c.status for c in wireplumber] == [DOCTOR_FAIL]
 
-    calls, wireplumber, facts = _run(None)
-    assert len(calls) == 1
-    assert facts["wireplumber"] is None
+    unread = session.Version(reason="wireplumber not found")
+    wp_calls, _pw, wireplumber, facts = _run(unread)
+    assert len(wp_calls) == 1
+    assert facts["wireplumber_version"] == unread
     assert [c.status for c in wireplumber] == [DOCTOR_UNKNOWN]
 
 
@@ -1487,7 +1568,7 @@ def _pw_check_block(check, monkeypatch, tmp_path, capsys) -> list[str]:
     monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setattr(checks, "gather_pw_doctor",
                         lambda: ([check], [], [],
-                                 {"wireplumber": None, "version": "0.0-test",
+                                 {"version": "0.0-test",
                                   "sinks": []}))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
@@ -1778,7 +1859,10 @@ def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):
     """The description comes from the dump the checks already read, by the
     rule the EasyEffects doctor uses — a Bluetooth sink's user-set name
     included, which is never printed."""
-    monkeypatch.setattr(checks, "_wireplumber_version", lambda: (0, 5))
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
     monkeypatch.setattr(checks, "_probe_plugins", lambda: {})

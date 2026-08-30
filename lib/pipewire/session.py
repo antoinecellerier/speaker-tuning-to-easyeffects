@@ -1,4 +1,4 @@
-"""PipeWire's session as `--doctor` reads it: clock and per-node dropouts.
+"""PipeWire's session as `--doctor` reads it: versions, clock, dropouts.
 
 Read-only wrappers around PipeWire's own tools — `pw-metadata -n settings`
 for the clock (rate, quantum, its bounds, anything forced) and `pw-top -b`
@@ -20,6 +20,7 @@ Stdlib-only, deliberately: both doctors print from it through
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -138,6 +139,59 @@ def _run(cmd: list[str], timeout: float = _TIMEOUT) -> str | None:
     except (subprocess.SubprocessError, OSError):
         return None
     return result.stdout
+
+
+@dataclass(frozen=True)
+class Version:
+    """A component's version as its own tool reported it, or why not.
+
+    ``text`` keeps every number the tool gave, not the two a comparison
+    needs: the value is pasted into issues as well as judged, and "0.5" in
+    a report reads as 0.5.0 — a build four years and fifteen patch releases
+    away from the 0.5.15 that answered. ``parts`` is the same numbers for
+    ordering; ``reason`` is why there is no version, in the words the report
+    prints, so an absent value and a zero never look alike in a paste.
+    """
+    text: str = ""
+    parts: tuple[int, ...] = ()
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.reason
+
+
+def _version(out: str | None, no_answer: str) -> Version:
+    """A Version parsed off a tool's stdout, or the *no_answer* reason."""
+    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out or "")
+    if not m:
+        return Version(reason=no_answer)
+    parts = tuple(int(g) for g in m.groups() if g is not None)
+    return Version(text=".".join(str(v) for v in parts), parts=parts)
+
+
+def pipewire_version() -> Version:
+    """The RUNNING daemon's version, off `pw-cli info 0` (its core object).
+
+    Not `pipewire --version`: that is the installed binary's libpipewire,
+    which is the wrong answer in exactly the case a crackle report cares
+    about — an upgraded package under a daemon nobody restarted.
+    """
+    if shutil.which("pw-cli") is None:
+        return Version(reason="pw-cli not found")
+    out = _run(["pw-cli", "info", "0"])
+    m = re.search(r'^\s*version:\s*"([^"]+)"', out or "", re.MULTILINE)
+    return _version(m.group(1) if m else "", "no answer from pw-cli")
+
+
+def wireplumber_version() -> Version:
+    """The installed WirePlumber binary's version — the running daemon's
+    isn't queryable, so this is the build that answered, and the row that
+    prints it says "installed"."""
+    if shutil.which("wireplumber") is None:
+        return Version(reason="wireplumber not found")
+    return _version(_run(["wireplumber", "--version"]),
+                    "no answer from wireplumber --version")
 
 
 def read_settings() -> ClockSettings:

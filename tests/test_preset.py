@@ -3915,6 +3915,23 @@ def test_environment_lines_show_the_pipewire_clock_and_dropouts():
             "into EasyEffects") in text
 
 
+def test_environment_lines_lead_with_the_daemon_versions(monkeypatch):
+    """Which server the section describes comes first; a facts dict without
+    the probes (every hand-built one in this file) renders no Versions row,
+    so nothing else here had to change."""
+    monkeypatch.setenv("COLUMNS", "80")
+    f = {"ee_running": True, "rc_present": True,
+         "pipewire_version": session.Version(text="1.6.8", parts=(1, 6, 8)),
+         "wireplumber_version": session.Version(text="0.5.15",
+                                                parts=(0, 5, 15))}
+    lines = doctor_run._environment_lines(f)
+    assert lines[0] == ("  Versions:        PipeWire 1.6.8 (running), "
+                        "WirePlumber 0.5.15 (installed)")
+    bare = doctor_run._environment_lines({"ee_running": True,
+                                          "rc_present": True})
+    assert not any("Versions:" in ln for ln in bare)
+
+
 def test_environment_lines_say_when_the_pipewire_rows_could_not_be_read():
     """TRAP: an unread value must not vanish — in a pasted report an absent
     row and a zero are indistinguishable, and the reassuring one wins."""

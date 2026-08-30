@@ -3,7 +3,7 @@
 The EasyEffects doctor (``lib/report/environment.py``) checks the environment a
 preset lands in; this is the same idea one layer down, where there is more to
 get wrong and less to see. Probing and judging are kept apart — ``_pw_dump``,
-``_wireplumber_version``, ``parse_conf`` and ``installed_confs`` read the
+``parse_conf`` and ``installed_confs`` read the
 system — ``_probe_plugins`` too, which is why the plugin listing and the plugin
 check read one answer between them — and every ``check_*`` below is a pure
 function over what those returned, so states this machine cannot produce are
@@ -177,26 +177,6 @@ def _pw_dump() -> list | None:
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         return None
     return data if isinstance(data, list) else None
-
-
-def _wireplumber_version() -> tuple[int, ...] | None:
-    """The running WirePlumber's version, or None if it won't say.
-
-    Every number the binary gives, not the two the comparisons need: this
-    value is printed as well as judged, and "WirePlumber: 0.5" in a pasted
-    report reads as 0.5.0 — a build four years and fifteen patch releases
-    away from the 0.5.15 that answered. Tuple ordering does the rest, so the
-    ``< (0, 5)`` gate below is unchanged by the third element.
-    """
-    try:
-        out = subprocess.run(["wireplumber", "--version"], capture_output=True,
-                             text=True, timeout=5).stdout
-    except (subprocess.SubprocessError, OSError):
-        return None
-    m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", out or "")
-    if not m:
-        return None
-    return tuple(int(g) for g in m.groups() if g is not None)
 
 
 # The one unreadable cause with a remedy, so the reason is a constant rather
@@ -920,22 +900,22 @@ def check_conf_directory() -> CheckResult | None:
         "PipeWire, or leave them if you run filter-chain.service on purpose.")
 
 
-def check_wireplumber(version) -> CheckResult:
+def check_wireplumber(version: session.Version) -> CheckResult:
     """Smart-filter routing needs WirePlumber 0.5+."""
-    if version is None:
+    if not version.ok:
+        # The probe's own reason, not a fixed sentence: "wireplumber not
+        # found" and "didn't answer" are different remedies.
         return CheckResult(DOCTOR_UNKNOWN, "WirePlumber",
-                           "`wireplumber --version` didn't answer, so its "
-                           "version wasn't checked.")
-    vstr = ".".join(str(v) for v in version)
-    if version < (0, 5):
+                           f"{version.reason}, so its version wasn't checked.")
+    if version.parts < (0, 5):
         return CheckResult(
             DOCTOR_FAIL, "WirePlumber",
-            f"{vstr} has no smart-filter support, so a chain written the "
-            "default way never attaches to your speakers. Upgrade, or re-run "
-            "the converter with --target-sink '' for a plain virtual sink you "
-            "select as your output.")
+            f"{version.text} has no smart-filter support, so a chain written "
+            "the default way never attaches to your speakers. Upgrade, or "
+            "re-run the converter with --target-sink '' for a plain virtual "
+            "sink you select as your output.")
     return CheckResult(DOCTOR_PASS, "WirePlumber",
-                       f"{vstr} — smart-filter routing supported.")
+                       f"{version.text} — smart-filter routing supported.")
 
 
 def check_easyeffects_conflict(sinks, chains, dump) -> CheckResult | None:
@@ -1146,7 +1126,8 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # loaded" pass for a file that had loaded for nobody.
     confs = installed_confs(DEFAULT_OUTPUT_DIR.expanduser())
     running = version.get_version()
-    wireplumber = _wireplumber_version()
+    wireplumber = session.wireplumber_version()
+    pipewire = session.pipewire_version()
     # Probed here for the reason the WirePlumber version is: the Environment
     # block renders these facts and the check below judges them, and eight
     # lv2info spawns is not a thing to pay for twice.
@@ -1209,7 +1190,8 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # never describe two different graphs.
         "default_label": hw_sinks.sink_label(hw_sinks.sinks_from_dump(dump),
                                              defaults.effective),
-        "wireplumber": wireplumber,
+        "wireplumber_version": wireplumber,
+        "pipewire_version": pipewire,
         "version": running,
         "plugins": plugin_probe,
     }
@@ -1222,11 +1204,8 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     `doctor_layout.GUTTER` — the same column as every block either doctor
     prints — and the per-conf and per-sink lines hang under it. No `Tool:`
     row: the report's first line already carries the version."""
-    wp = facts["wireplumber"]
     hang = " " * layout.GUTTER
     lines = [
-        layout.row("WirePlumber",
-                   ".".join(map(str, wp)) if wp else "unknown", layout.GUTTER),
         layout.row("Confs",
                    f"{len(confs)} in {doctor.tilde(DEFAULT_OUTPUT_DIR)}",
                    layout.GUTTER),
@@ -1303,11 +1282,16 @@ def _probe_pipewire(chains, default: DefaultSink
 
 def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
                     dropouts: session.Dropouts, pw_age: float | None,
-                    label: str = "") -> list[str]:
-    """The `=== PipeWire ===` body for this path: the default sink, the clock,
-    the dropouts — rendered by the frame both doctors share, worded for a
-    filter chain that lives inside PipeWire (no app uptime to bound it)."""
+                    label: str = "",
+                    pipewire: session.Version | None = None,
+                    wireplumber: session.Version | None = None) -> list[str]:
+    """The `=== PipeWire ===` body for this path: the versions, the default
+    sink, the clock, the dropouts — rendered by the frame both doctors
+    share, worded for a filter chain that lives inside PipeWire (no app
+    uptime to bound it)."""
     lines = []
+    if pipewire is not None and wireplumber is not None:
+        lines += layout.version_rows(pipewire, wireplumber, layout.GUTTER)
     if default.effective:
         lines += layout.output_sink_rows(
             label, doctor.no_bt_address(default.effective), "", layout.GUTTER)
@@ -1338,7 +1322,9 @@ def report_pw_doctor() -> int:
     default = facts.get("default") or DefaultSink()
     layout.print_environment(
         _pipewire_lines(default, *_probe_pipewire(chains, default),
-                        label=facts.get("default_label", "")),
+                        label=facts.get("default_label", ""),
+                        pipewire=facts.get("pipewire_version"),
+                        wireplumber=facts.get("wireplumber_version")),
         "=== PipeWire ===")
     layout.print_environment(_environment_lines(confs, chains, facts),
                              "=== PipeWire filter-chain setup ===")
