@@ -116,7 +116,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad T14 Gen 2 AMD (20XL)
   ([#80](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/80)),
   Lenovo Yoga Pro 7 14IMH9 (83E2)
-  ([#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83)).
+  ([#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83)),
+  ThinkPad T14 Gen 1 (20S1)
+  ([#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86)).
 
 ### Fixed
 
