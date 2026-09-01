@@ -2217,17 +2217,20 @@ def test_verification_step_points_at_the_surface_the_reader_is_on():
     quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
     run = " ".join(t for _, t in report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], True, 90))
     doctor = " ".join(t for _, t in report_speaker.speaker_pin_fix_steps(
-        quirk, ["0x17"], True, 90, speaker_info_below=True))
+        quirk, ["0x17"], True, 90, speaker_info_shown=True))
 
     assert "re-run with --speaker-info" in run
     assert "re-run with --speaker-info" not in doctor
-    assert "section below" in doctor
+    # "above", not "below": --doctor prints its inventory before the checks
+    # (.claude/rules/user-messages.md), so this used to send the reader
+    # scrolling the wrong way past the section it names.
+    assert "section above" in doctor
     assert "[kernel fixup]" in run and "[kernel fixup]" in doctor
     # Only the pointer may differ — the commands are the shared part.
     assert ([t for s, t in report_speaker.speaker_pin_fix_steps(quirk, ["0x17"], True, 90)
              if s == "cta"]
             == [t for s, t in report_speaker.speaker_pin_fix_steps(
-                quirk, ["0x17"], True, 90, speaker_info_below=True)
+                quirk, ["0x17"], True, 90, speaker_info_shown=True)
                 if s == "cta"])
 
 
@@ -2414,6 +2417,34 @@ def test_route_and_pin_warnings_never_fire_together():
                  overrides={"0x17": speakers.PinOverride(0x90170121, "user")})
     assert speakers.find_hidden_speaker_pin(half) is None
     assert speakers.find_misrouted_speaker_pin(half) is not None
+
+
+def test_route_warning_yields_to_the_pin_one_on_a_different_pin():
+    """1043:3A20 is in both tables naming DIFFERENT pins — the chain declares
+    0x14 and reroutes 0x17 — so both faults are visible at once. They are one
+    missing fixup with one remedy, and two procedures would write the same
+    modprobe file twice, the second `tee` discarding the first."""
+    info = _info([_codec_dump(ssid="0x10433a20",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    # 0x14 unconfigured (the pin fault), 0x17 configured but mis-routed.
+    info.speakers = [s for s in info.speakers if s.node != "0x14"]
+    info.unconfigured_pins.append(speakers.UnconfiguredPin(
+        node="0x14", codec="10433A20", pincap="OUT EAPD Detect",
+        pin_default="0x411111f0"))
+    assert speakers.find_hidden_speaker_pin(info) is not None
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_an_override_makes_the_star_unreadable():
+    """/proc stars the entry at AC_VERB_GET_CONNECT_SEL, which indexes the
+    *driver's* cached list once an override has run, while the list printed
+    is the hardware's. A cached list that isn't a prefix of it puts the two
+    in different index spaces, so the star names some other widget."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="0x03 0x02")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
 
 
 def test_routing_warning_copy(capsys):

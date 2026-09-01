@@ -1044,21 +1044,41 @@ def find_misrouted_speaker_pin(
       fixup's allowed list;
     * that source must be known to carry no output volume amp — a widget the
       dump didn't show stays "unknown", never "no";
-    * an ``In-driver Connection`` already equal to the fixup's list means our
-      reading of the selection contradicts an applied override, so we trust
-      the kernel over our parse and stay quiet. The line's *presence* proves
-      nothing either way: the dev machine gets a conn-list override from a
-      pin-signature match (``snd_hda_pin_quirk``) with no SSID entry at all,
-      so it is only ever a negative guard.
+    * the driver's own connection list must leave the star meaningful.
+      ``/proc`` marks the selected entry by comparing each position against
+      ``AC_VERB_GET_CONNECT_SEL``, which indexes the *driver's* cached list
+      once ``snd_hda_override_conn_list`` has run — while the list being
+      printed is the hardware's. The two agree only while the cached list is
+      a prefix of the hardware one (every upstream routing helper truncates,
+      so they do today, the dev machine included); an override that
+      reordered or skipped entries would land the star on some other widget,
+      possibly an ampless one. So an ``In-driver Connection`` that is not a
+      prefix means the selector cannot be read, not that the pin is
+      mis-routed. Equal to the fixup's own list, it means the override is
+      already applied and our star reading contradicts the kernel, which
+      outranks the parse. The line's *presence* proves nothing either way:
+      the dev machine gets a conn-list override from a pin-signature match
+      (``snd_hda_pin_quirk``) with no SSID entry at all, so it is only ever
+      a negative guard.
+
+    Silent, too, on any codec the *pin* detector has already claimed. On 11
+    of the 28 machines in both tables the two rows name different pins (the
+    chain declares 0x14 and reroutes 0x17), so both faults are visible at
+    once — but they are one missing fixup with one remedy, and two warnings
+    would print two procedures writing the same modprobe file, the second
+    silently discarding the first.
     """
     if info.bus_type != "hda":
         return None
     uses_sof = _card_uses_sof(info.sound_cards)
+    hidden = find_hidden_speaker_pin(info)
     speakers_by_codec: dict[str, list[SpeakerPin]] = {}
     for pin in info.speakers:
         speakers_by_codec.setdefault(pin.codec, []).append(pin)
 
     for codec_ssid, pins in sorted(speakers_by_codec.items()):
+        if hidden and hidden[1] == codec_ssid:
+            continue
         quirk = _quirk_for_codec(speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
                                  codec_ssid, True, uses_sof,
                                  info.pci_subsystem)
@@ -1074,7 +1094,10 @@ def find_misrouted_speaker_pin(
             continue
         if routing.volume.get(route.selected, True):
             continue
-        if route.driver_sources == allowed:
+        if route.driver_sources and (
+                route.driver_sources == allowed
+                or route.driver_sources
+                != route.sources[:len(route.driver_sources)]):
             continue
         return quirk, codec_ssid, pin, route.selected
     return None

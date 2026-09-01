@@ -163,7 +163,6 @@ def _scenario(slug: str):
     """
     spec = SCENARIOS[slug]
     saved_env = {k: os.environ.get(k) for k in spec.get("env", ())}
-    os.environ.update(spec.get("env", {}))
     saved = {
         "enum": sinks._enumerate_audio_sinks,
         "default": sinks.live_session,
@@ -231,6 +230,11 @@ def _scenario(slug: str):
                                     device_description="", device_profile=route,
                                     preset_name=preset)
         try:
+            # Set inside the try, unlike the stubs above: this one escapes
+            # into subprocesses, so a staging failure that skipped the
+            # restore would inject the synthetic codec into every later
+            # scenario and test in the process.
+            os.environ.update(spec.get("env", {}))
             yield out_dir, irs_dir, autoload_dir
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]

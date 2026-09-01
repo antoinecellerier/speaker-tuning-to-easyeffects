@@ -256,7 +256,7 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
 def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
                           missing: list[str], uses_sof: bool,
                           width: int,
-                          speaker_info_below: bool = False,
+                          speaker_info_shown: bool = False,
                           ) -> tuple[tuple[str, str], ...]:
     """Apply → confirm → undo, as ``(style, text)`` lines.
 
@@ -265,18 +265,22 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
     two surfaces — and empty where the fixup has no forcible name, since then
     there is no procedure, only the upgrade route ``upgrade_prospect`` states.
 
-    ``speaker_info_below`` is the one thing that differs between the two
-    callers: a --doctor run prints the hardware section itself, so sending
-    that reader off to --speaker-info for a section already on their screen
-    reads as a third command to type. The commands stay identical either way.
+    ``speaker_info_shown`` is the one thing that differs between the two
+    callers: a --doctor run prints the hardware section itself (above its
+    checks), so sending that reader off to --speaker-info for a section
+    already on their screen reads as a third command to type. The commands
+    stay identical either way.
     """
     if not quirk.model:
         return ()
     # Where to look afterwards — the one sentence that differs by surface.
-    verify = (f'look at the "HDA internal speakers" section below: '
+    # "above": --doctor prints the hardware inventory before its checks
+    # (.claude/rules/user-messages.md, "inventory leads, diagnosis trails"),
+    # so the section this points at is up the screen, not down it.
+    verify = (f'look at the "HDA internal speakers" section above: '
               f"{_pin_phrase(missing)} should be listed there, tagged "
               "[kernel fixup]."
-              if speaker_info_below else
+              if speaker_info_shown else
               f"re-run with --speaker-info: {_pin_phrase(missing)} should be "
               'listed under "HDA internal speakers", tagged [kernel fixup].')
     # Hedged the way the warning above is: the pin usually drives woofers,
@@ -302,7 +306,7 @@ def _source_phrase(sources: str) -> str:
 
 def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
                             source: str, uses_sof: bool, width: int,
-                            speaker_info_below: bool = False,
+                            speaker_info_shown: bool = False,
                             ) -> tuple[tuple[str, str], ...]:
     """Apply → confirm → undo for a mis-routed speaker pin — the routing
     twin of ``speaker_pin_fix_steps``, empty on the same no-forcible-name
@@ -312,10 +316,10 @@ def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
     if not quirk.model:
         return ()
     where = _source_phrase(quirk.sources)
-    verify = (f'look at the "HDA internal speakers" section below: pin '
+    verify = (f'look at the "HDA internal speakers" section above: pin '
               f'{quirk.pin} should read "driven from {where}" instead of '
               f"{source}."
-              if speaker_info_below else
+              if speaker_info_shown else
               f"re-run with --speaker-info: pin {quirk.pin} should read "
               f'"driven from {where}" under "HDA internal speakers" instead '
               f"of {source}.")
@@ -898,7 +902,7 @@ def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
         steps=speaker_pin_fix_steps(quirk, missing,
                                     speakers._card_uses_sof(info.sound_cards),
                                     console._wrap_width() - 9,
-                                    speaker_info_below=True))
+                                    speaker_info_shown=True))
 
 
 def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
@@ -926,4 +930,4 @@ def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
         steps=speaker_route_fix_steps(quirk, source,
                                       speakers._card_uses_sof(info.sound_cards),
                                       console._wrap_width() - 9,
-                                      speaker_info_below=True))
+                                      speaker_info_shown=True))

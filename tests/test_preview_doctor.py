@@ -43,6 +43,9 @@ _EXPECTED = {
     "output-unknown": ("unknown", False, DOCTOR_WARN),
     "presets-from-another-version": ("speaker", True, DOCTOR_PASS),
     "no-pipewire": ("unknown", False, DOCTOR_WARN),
+    # A hardware-state scenario: its sink/preset axes are the healthy
+    # baseline's, and what it varies is the machine the checks read.
+    "speaker-routed-past-volume": ("speaker", True, DOCTOR_PASS),
 }
 
 
