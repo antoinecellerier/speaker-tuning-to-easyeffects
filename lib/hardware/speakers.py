@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -135,6 +136,45 @@ class AmpStatus:
     channels: int        # probed audio channels (0 = unknown)
 
 
+class PinRoute(NamedTuple):
+    """Where one pin complex takes its signal from, as /proc renders it.
+
+    Two lists, and the difference between them is the signal: the hardware
+    ``Connection:`` list with the current selection starred, and an
+    ``In-driver Connection:`` one the kernel prints *only* when the driver's
+    cached list differs from it — i.e. when something called
+    ``snd_hda_override_conn_list``. A pin whose two disagree is being routed
+    by the driver against what the hardware itself reports.
+    """
+    node: str                        # HDA node id, e.g. "0x17"
+    sources: tuple[str, ...] = ()    # hardware list, in order, "*" stripped
+    selected: str = ""               # the starred entry, "" when the dump
+                                     # doesn't say. A one-entry list is never
+                                     # starred — the kernel only reads the
+                                     # selector when there is a choice — so
+                                     # there the sole entry is the selection.
+    driver_sources: tuple[str, ...] = ()   # In-driver list, () when absent
+
+
+@dataclass
+class CodecRouting:
+    """One codec dump's signal routing, and where the volume amps sit.
+
+    Kept apart from the pin scan because it answers a different question: not
+    "is this pin an internal speaker" but "what is upstream of it, and can
+    anything turn that path down". A pin selected onto a converter with no
+    output amp is a speaker whose level no mixer control can move.
+    """
+    codec: str = ""      # subsystem id of the codec, e.g. "17AA22E6"
+    # Pin complexes only — those are the widgets a speaker hangs off.
+    routes: dict[str, PinRoute] = field(default_factory=dict)
+    # Every node the dump printed, pin or not: True when the widget carries an
+    # output volume amp. A node *absent* here was not in the dump at all,
+    # which is not the same as False — callers must read a missing key as
+    # unknown, never as "no volume".
+    volume: dict[str, bool] = field(default_factory=dict)
+
+
 @dataclass
 class SpeakerInfo:
     """Collected audio hardware information for --speaker-info."""
@@ -155,6 +195,10 @@ class SpeakerInfo:
     speakers: list[SpeakerPin] = field(default_factory=list)
     # Output-capable HDA pins the kernel left unconfigured (evidence only)
     unconfigured_pins: list[UnconfiguredPin] = field(default_factory=list)
+    # Per-HDA-codec signal routing, keyed by subsystem id: which converter
+    # each pin is selected onto, and which widgets carry an output volume
+    # amp. Parsed from the same codec dump the pins above come from.
+    routing: dict[str, CodecRouting] = field(default_factory=dict)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
     firmware_gates: list[FirmwareGate] = field(default_factory=list)
     # False when amixer is absent, which is the difference between "this
@@ -358,6 +402,31 @@ def _pin_is_unconnected(cfg: int) -> bool:
     return (cfg >> 30) & 0x3 == _PIN_CONN_NONE
 
 
+def _codec_ssid(codec_text: str) -> str:
+    """``"Subsystem Id: 0x17aa22e6"`` → ``"17AA22E6"``.
+
+    The id everything about a codec is filed under — quirk lookup, per-codec
+    pin counts, the routing map below — so it is read the one way, here.
+    """
+    m = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
+                  flags=re.MULTILINE)
+    return m.group(1).upper() if m else ""
+
+
+def _iter_codec_nodes(codec_text: str) -> Iterator[tuple[str, str]]:
+    """``(node id, block text)`` for each widget in a codec dump.
+
+    The AFG header above the first ``Node`` is dropped, and that is the point:
+    it carries ``Default Amp-Out caps:`` and PCM lines that read exactly like a
+    widget's own while belonging to no widget at all.
+    """
+    for block in re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", codec_text,
+                          flags=re.MULTILINE):
+        node = re.match(r"Node (0x[0-9a-fA-F]+)", block)
+        if node:
+            yield node.group(1), block
+
+
 def parse_hda_codec_pins(
         codec_text: str,
         overrides: dict[str, PinOverride] | None = None,
@@ -382,20 +451,13 @@ def parse_hda_codec_pins(
     forever that they hadn't. ``overrides`` carries what the driver actually
     uses, and it wins here for the same reason it wins there.
     """
-    ssid_match = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
-                           flags=re.MULTILINE)
-    codec_ssid = ssid_match.group(1).upper() if ssid_match else ""
+    codec_ssid = _codec_ssid(codec_text)
 
     speakers: list[SpeakerPin] = []
     unconfigured: list[UnconfiguredPin] = []
-    nodes = re.split(r"(?=^Node 0x[0-9a-fA-F]+ )", codec_text, flags=re.MULTILINE)
-    for block in nodes:
+    for node, block in _iter_codec_nodes(codec_text):
         if "[Pin Complex]" not in block:
             continue
-        node_match = re.match(r"Node (0x[0-9a-fA-F]+)", block)
-        if not node_match:
-            continue
-        node = node_match.group(1)
 
         default = re.search(r"Pin Default (0x[0-9a-fA-F]+):", block)
         if not default:
@@ -444,6 +506,103 @@ def parse_hda_codec_pins(
         if not s.role:
             s.role = fill
     return codec_ssid, speakers, unconfigured
+
+
+# How ``sound/hda/common/proc.c`` renders a widget's connection list: a count
+# line, then the list itself on the next line, indented. The star marks the
+# selected source and only appears when there is a choice to make — the kernel
+# skips the selector read for a one-entry list, so there the sole entry *is*
+# the selection. The "In-driver" variant prints only when the driver's cached
+# list differs from the hardware's, and is never starred.
+#
+#   Connection: 4
+#      0x02 0x03* 0x06 0x08
+#   In-driver Connection: 2
+#      0x02 0x03
+_CONN_COUNT_RE = re.compile(r"^\s+(In-driver )?Connection: (\d+)\s*$")
+_CONN_ENTRY_RE = re.compile(r"^(0x[0-9a-fA-F]+)(\*?)$")
+
+# "Amp-Out caps: ofs=0x57, nsteps=0x57, stepsize=0x02, mute=0". nsteps is the
+# whole test, not the line's presence: a pin's mute-only amp prints the same
+# line with nsteps=0x00, an amp-less widget prints no line at all, and a
+# widget whose caps read zero prints "N/A" — the last two match nothing here.
+_AMP_OUT_NSTEPS_RE = re.compile(r"^\s+Amp-Out caps: .*\bnsteps=0x([0-9a-fA-F]+)")
+
+
+def _parse_conn_list(line: str) -> tuple[tuple[str, ...], str]:
+    """One rendered connection list → ``(entries, the starred entry)``.
+
+    Entries that don't render as a node id are dropped rather than raised on:
+    this parses whatever a stranger's kernel printed.
+    """
+    entries: list[str] = []
+    selected = ""
+    for token in line.split():
+        entry = _CONN_ENTRY_RE.match(token)
+        if not entry:
+            continue
+        entries.append(entry.group(1))
+        if entry.group(2):
+            selected = entry.group(1)
+    return tuple(entries), selected
+
+
+def parse_hda_codec_routing(codec_text: str) -> CodecRouting:
+    """Split one ``/proc/asound/card*/codec#*`` dump into what each pin listens
+    to and which widgets can turn their output down.
+
+    Pure text parsing, like ``parse_hda_codec_pins`` — same dump, different
+    question, so the two are separate passes over one read.
+
+    Read block by block, never with one search over the file: a rendered
+    connection list names no widget of its own, so a file-wide match binds a
+    mixer's list to whichever pin header last preceded it. Every line here
+    means something only relative to the ``Node`` it sits under.
+
+    A truncated dump, a count with no list under it, an entry in a shape we
+    have never seen: each degrades to an empty field. This runs on every
+    machine that prints a report, against codec dumps we cannot see.
+    """
+    routing = CodecRouting(codec=_codec_ssid(codec_text))
+    for node, block in _iter_codec_nodes(codec_text):
+        lines = block.splitlines()
+        header, body = lines[0], lines[1:]
+        sources: tuple[str, ...] = ()
+        selected = ""
+        driver_sources: tuple[str, ...] = ()
+        volume = False
+        i = 0
+        while i < len(body):
+            line = body[i]
+            i += 1
+            amp = _AMP_OUT_NSTEPS_RE.match(line)
+            if amp:
+                volume = int(amp.group(1), 16) != 0
+                continue
+            count = _CONN_COUNT_RE.match(line)
+            if not count:
+                continue
+            # The list is on the *next* line, and only when the count is
+            # non-zero — an HDMI pin prints "Connection: 0" with nothing
+            # under it. Anything else there is left for the loop to read as
+            # the ordinary line it is.
+            if count.group(2) == "0" or i >= len(body):
+                continue
+            entries, starred = _parse_conn_list(body[i])
+            if not entries:
+                continue
+            i += 1
+            if count.group(1):       # "In-driver ": the driver's cached list
+                driver_sources = entries
+            else:
+                sources = entries
+                selected = starred or (entries[0] if len(entries) == 1 else "")
+        routing.volume[node] = volume
+        if "[Pin Complex]" in header:
+            routing.routes[node] = PinRoute(node=node, sources=sources,
+                                            selected=selected,
+                                            driver_sources=driver_sources)
+    return routing
 
 
 def read_pin_config_overrides(codec_path: Path,
@@ -557,6 +716,12 @@ def _detect_hda_speakers(info: SpeakerInfo,
             text, read_pin_config_overrides(codec_path, sysfs_class_sound))
         info.speakers.extend(speakers)
         info.unconfigured_pins.extend(unconfigured)
+        # Second pass over the same text, no second read: routing is keyed by
+        # subsystem id, so a dump that names none is parsed and dropped rather
+        # than filed under a key another codec would collide with.
+        routing = parse_hda_codec_routing(text)
+        if routing.codec:
+            info.routing[routing.codec] = routing
 
 
 # A smart-amp firmware-load gate is an ALSA control (not a DAX field) that

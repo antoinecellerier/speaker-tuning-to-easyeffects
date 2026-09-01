@@ -1432,7 +1432,8 @@ def test_demo_amp_status_unknown_value_is_no_demo(monkeypatch, value):
 # from the pins alone: they look identical to a hidden woofer.
 
 def _codec_dump(ssid="0x17aa22e6", bass_pin_default="0x90170111",
-                bass_control=None):
+                bass_control=None, bass_conn="0x02 0x03* 0x06 0x08",
+                bass_driver_conn="0x02 0x03", dac_volume=True):
     hidden = bass_pin_default == "0x411111f0"
     # The driver builds a mixer control only for a pin it drives, so the
     # firmware-hidden woofer has none — until a fixup overrides the pin, when
@@ -1444,20 +1445,48 @@ def _codec_dump(ssid="0x17aa22e6", bass_pin_default="0x90170111",
                    else "[Fixed] Speaker at Int N/A")
     bass_ctl = ('\n  Control: name="Bass Speaker Playback Switch", '
                 "index=0, device=0" if bass_control else "")
+
+    # A connection list prints as a count line and then the entries, indented,
+    # on the next one. The In-driver list only appears when the driver's cached
+    # list differs from the hardware's; "" for either omits its pair of lines
+    # entirely, which is what a dump that never printed one looks like.
+    def conn(label, entries):
+        if not entries:
+            return ""
+        return f"\n  {label}: {len(entries.split())}\n     {entries}"
+
+    bass_conns = (conn("Connection", bass_conn)
+                  + conn("In-driver Connection", bass_driver_conn))
+    # Node 0x02 is the DAC the speaker pins land on. Its amp is the only
+    # output volume on that path — pin amps here are mute-only (nsteps=0x00).
+    dac_amp = ("ofs=0x57, nsteps=0x57, stepsize=0x02, mute=0" if dac_volume
+               else "N/A")
     return f"""\
 Codec: Realtek ALC287
 Address: 0
 Vendor Id: 0x10ec0287
 Subsystem Id: {ssid}
+Default Amp-In caps: N/A
+Default Amp-Out caps: N/A
+Node 0x02 [Audio Output] wcaps 0x41d: Stereo Amp-Out
+  Control: name="DAC1 Playback Volume", index=0, device=0
+  Amp-Out caps: {dac_amp}
+  Amp-Out vals:  [0x43 0x43]
+Node 0x06 [Audio Output] wcaps 0x411: Stereo
+  Converter: stream=0, channel=0
 Node 0x14 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
   Pincap 0x0001003c: OUT EAPD Detect
+  Amp-Out caps: ofs=0x00, nsteps=0x00, stepsize=0x00, mute=1
   Pin Default 0x90170110: [Fixed] Speaker at Int N/A
     Conn = Analog, Color = Unknown
   Control: name="Speaker Playback Switch", index=0, device=0
+  Connection: 1
+     0x02
 Node 0x17 [Pin Complex] wcaps 0x40058d: Stereo Amp-Out
   Pincap 0x0001003c: OUT HP Detect
+  Amp-Out caps: ofs=0x00, nsteps=0x00, stepsize=0x00, mute=1
   Pin Default {bass_pin_default}: {bass_render}
-    Conn = Analog, Color = Unknown{bass_ctl}
+    Conn = Analog, Color = Unknown{bass_ctl}{bass_conns}
 Node 0x18 [Pin Complex] wcaps 0x40048b: Stereo Amp-In
   Pincap 0x00003724: IN Detect
   Pin Default 0x411111f0: [N/A] Speaker at Ext Rear
@@ -1523,6 +1552,121 @@ def test_parse_codec_pins_hdmi_has_no_speakers():
     ssid, pins, unconfigured = speakers.parse_hda_codec_pins(CODEC_HDMI)
     assert ssid == "80860101"
     assert pins == [] and unconfigured == []
+
+
+# --- Which converter a pin listens to ---------------------------------------
+#
+# The same dumps read for their routing. On the development machine pin 0x17
+# sits on a four-entry connection list with 0x03 selected, and the driver has
+# overridden the list it caches down to two entries — the three states below
+# are that pin starred elsewhere, starred where the driver wants it, and a
+# dump that prints no connection lines for it at all.
+
+CODEC_ROUTE_WRONG = _codec_dump(bass_conn="0x02 0x03 0x06* 0x08",
+                                bass_driver_conn="")
+CODEC_ROUTE_FIXED = _codec_dump(bass_conn="0x02* 0x03 0x06 0x08",
+                                bass_driver_conn="0x02")
+CODEC_ROUTE_UNREADABLE = _codec_dump(bass_conn="", bass_driver_conn="")
+
+
+def test_parse_routing_reads_the_selected_source():
+    routing = speakers.parse_hda_codec_routing(CODEC_TWO_PINS)
+    assert routing.codec == "17AA22E6"
+    route = routing.routes["0x17"]
+    assert route.sources == ("0x02", "0x03", "0x06", "0x08")
+    assert route.selected == "0x03"
+    # The star is the whole answer: the same list, starred elsewhere, is a
+    # different route with the same sources.
+    assert speakers.parse_hda_codec_routing(
+        CODEC_ROUTE_WRONG).routes["0x17"].selected == "0x06"
+
+
+def test_parse_routing_single_connection_has_no_marker():
+    """The kernel reads the selector only when there is a choice, so a
+    one-entry list prints unstarred — there the sole entry is the selection,
+    and a parser that waited for a star would call pin 0x14 unrouted."""
+    route = speakers.parse_hda_codec_routing(CODEC_TWO_PINS).routes["0x14"]
+    assert route.sources == ("0x02",)
+    assert route.selected == "0x02"
+
+
+def test_parse_routing_reads_the_in_driver_override():
+    routing = speakers.parse_hda_codec_routing(CODEC_ROUTE_FIXED)
+    assert routing.routes["0x17"].driver_sources == ("0x02",)
+    # Printed only where the driver's cached list differs from the hardware's,
+    # which is why its absence carries meaning: pin 0x14 has none.
+    assert routing.routes["0x14"].driver_sources == ()
+    assert routing.routes["0x17"].sources == ("0x02", "0x03", "0x06", "0x08")
+
+
+def test_parse_routing_marks_a_widget_with_no_output_amp():
+    """Node 0x06 prints no Amp-Out line and pin 0x17's is the mute-only amp
+    every pin carries (nsteps=0x00) — neither can turn anything down."""
+    volume = speakers.parse_hda_codec_routing(CODEC_TWO_PINS).volume
+    assert volume["0x02"] is True
+    assert volume["0x06"] is False
+    assert volume["0x17"] is False
+    # "N/A" is the third way the caps can read, and it means the same as none.
+    assert speakers.parse_hda_codec_routing(
+        _codec_dump(dac_volume=False)).volume["0x02"] is False
+    # A node the dump never printed is absent, not False: the map says what a
+    # codec has, and cannot be asked about a widget it never saw.
+    assert "0x99" not in volume
+
+
+def test_parse_routing_tolerates_a_zero_length_connection():
+    """HDMI pins print "Connection: 0" with no list under them — here as the
+    last line of the dump, so a count line with nothing after it at all."""
+    routing = speakers.parse_hda_codec_routing(CODEC_HDMI + "  Connection: 0\n")
+    assert routing.routes["0x05"].sources == ()
+    assert routing.routes["0x05"].selected == ""
+
+
+def test_parse_routing_does_not_bind_a_mixers_list_to_a_pin():
+    """A search over the whole file would hand pin 0x17 the mixer's list: a
+    rendered connection list names no widget of its own, and only the Node
+    block it sits under says whose it is."""
+    dump = CODEC_ROUTE_UNREADABLE.replace(
+        "Node 0x18 [Pin Complex]",
+        "Node 0x0c [Audio Mixer] wcaps 0x20010b: Stereo Amp-In\n"
+        "  Amp-In caps: ofs=0x00, nsteps=0x03, stepsize=0x27, mute=0\n"
+        "  Connection: 2\n"
+        "     0x02 0x0b\n"
+        "Node 0x18 [Pin Complex]")
+    routing = speakers.parse_hda_codec_routing(dump)
+    assert routing.routes["0x17"].sources == ()
+    assert routing.routes["0x14"].sources == ("0x02",)
+    # The mixer is no pin, so it gets no route — but it is a node, so its
+    # (input-only) amp is still recorded as carrying no output volume.
+    assert "0x0c" not in routing.routes
+    assert routing.volume["0x0c"] is False
+
+
+def test_parse_routing_missing_connection_line_yields_no_selected():
+    """A dump that prints nothing about a pin's sources leaves every field
+    empty — there is no source to guess at, and guessing is what would put a
+    wrong node id in front of a user."""
+    route = speakers.parse_hda_codec_routing(CODEC_ROUTE_UNREADABLE).routes["0x17"]
+    assert route.sources == ()
+    assert route.selected == ""
+    assert route.driver_sources == ()
+
+
+def test_detect_hda_speakers_records_the_routing_it_already_read(tmp_path):
+    """Wiring guard, and a cost one: routing comes out of the codec dump the
+    pin scan reads, so it adds nothing to what a default run touches."""
+    proc = tmp_path / "proc/asound/card0"
+    proc.mkdir(parents=True)
+    (proc / "codec#0").write_text(CODEC_TWO_PINS)
+    (proc / "codec#2").write_text(CODEC_HDMI)
+
+    info = speakers.SpeakerInfo()
+    speakers._detect_hda_speakers(info, tmp_path / "proc/asound",
+                                  tmp_path / "sys/class/sound")
+    assert sorted(info.routing) == ["17AA22E6", "80860101"]
+    analog = info.routing["17AA22E6"]
+    assert analog.routes["0x17"].selected == "0x03"
+    assert analog.volume["0x02"] is True
 
 
 @pytest.mark.parametrize("cfg,speaker,unconnected", [
