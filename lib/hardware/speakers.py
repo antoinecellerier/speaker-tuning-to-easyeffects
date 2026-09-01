@@ -9,13 +9,15 @@ firmware (issue #17). Parsing is kept apart from reading throughout —
 ``parse_firmware_gate_controls`` take text — so every hardware case is
 unit-tested without the hardware.
 
-``find_hidden_speaker_pin`` is the one piece that reasons rather than reads.
-It mirrors ``snd_hda_pick_fixup`` closely enough to only claim a match the
-kernel could itself make, against the table in
-``lib/data/speaker_pin_quirks.py``.
+``find_hidden_speaker_pin`` and ``find_misrouted_speaker_pin`` are the pieces
+that reason rather than read. Both mirror ``snd_hda_pick_fixup`` closely
+enough to only claim a match the kernel could itself make — the shared
+``_quirk_for_codec`` is that mirror — against the tables in
+``lib/data/speaker_pin_quirks.py`` and ``lib/data/speaker_route_quirks.py``.
 
-Standard library plus ``lib.data.speaker_pin_quirks``, ``lib.hardware.amps``
-and ``lib.hardware.codecs``, all stdlib-only themselves, so this module is too.
+Standard library plus ``lib.data.speaker_pin_quirks``,
+``lib.data.speaker_route_quirks``, ``lib.hardware.amps`` and
+``lib.hardware.codecs``, all stdlib-only themselves, so this module is too.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lib.data import speaker_pin_quirks
+from lib.data import speaker_route_quirks
 from lib.hardware import amps
 from lib.hardware import codecs  # single source of the SoundWire bus entry point
 
@@ -669,6 +672,43 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     return True
 
 
+def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
+    """Stand in for a machine driving a speaker past its volume control.
+
+    Same demo/preview convention as ``DEMO_SPEAKER_PIN``, for the same
+    reason: the warning is keyed to the machine, so no corpus XML can ever
+    trigger it for a copy review. ``DEMO_SPEAKER_ROUTE=17AA3906`` reproduces
+    the Legion Pro 7i 16IAX10H's pre-fix state — both speaker pins
+    configured, the bass pin 0x17 selected onto converter 0x06, which
+    carries no output volume amp. That row is codec-keyed and its fixup has
+    a forcible name, so the preview walks the full procedure branch.
+
+    Checked *after* the pin demo in both gatherers: the two substitute the
+    same audio identity, and injecting both would stack contradictory
+    machines into one report.
+    """
+    ssid = (os.environ.get("DEMO_SPEAKER_ROUTE") or "").strip().upper()
+    if not ssid:
+        return False
+    info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
+    info.soundwire_devices = []
+    info.speakers += [
+        SpeakerPin(node="0x14", control_name="Speaker Playback Switch",
+                   role="tweeter", channels=2, codec=ssid),
+        SpeakerPin(node="0x17", control_name="Bass Speaker Playback Switch",
+                   role="woofer", channels=2, codec=ssid),
+    ]
+    info.routing[ssid] = CodecRouting(
+        codec=ssid,
+        routes={
+            "0x14": PinRoute("0x14", sources=("0x02",), selected="0x02"),
+            "0x17": PinRoute("0x17", sources=("0x02", "0x03", "0x06", "0x08"),
+                             selected="0x06"),
+        },
+        volume={"0x02": True, "0x03": True, "0x06": False, "0x08": False})
+    return True
+
+
 def _maybe_demo_amp_status(info: SpeakerInfo) -> bool:
     """Inject synthetic amp status so the section can be previewed without hardware.
 
@@ -886,6 +926,32 @@ def _ssid_key(ssid: str) -> tuple[int, int] | None:
     return int(ssid[:4], 16), int(ssid[4:], 16)
 
 
+def _quirk_for_codec(table: dict, codec_ssid: str, owns_speakers: bool,
+                     uses_sof: bool, pci_subsystem: tuple[str, str] | None):
+    """The row *codec_ssid* matches in *table*, mirroring the parts of
+    ``snd_hda_pick_fixup`` both quirk tables share — factored so the pin and
+    routing detectors cannot drift on them:
+
+    * every entry can match the *codec's* subsystem id — either because it is
+      an ``HDA_CODEC_QUIRK`` or via the codec-SSID fallback the lookup ends on;
+    * a PCI-keyed entry can also match the PCI subsystem id, but not on SOF,
+      where the id the kernel sees is zeroed. Our own PCI id is read from
+      sysfs and is *not* zeroed, so trusting it there would claim a match the
+      kernel never makes. And the PCI id belongs to the machine, not to any
+      one codec, so it may only stand in for a codec that already owns
+      speaker pins — otherwise it lends the analog machine's identity to
+      whichever other codec happens to have a spare output pin.
+    """
+    key = _ssid_key(codec_ssid)
+    quirk = table.get(key) if key else None
+    if quirk is None and owns_speakers and not uses_sof and pci_subsystem:
+        pci_key = _ssid_key("".join(pci_subsystem))
+        candidate = table.get(pci_key) if pci_key else None
+        if candidate is not None and not candidate.codec_only:
+            quirk = candidate
+    return quirk
+
+
 def find_hidden_speaker_pin(
         info: SpeakerInfo) -> tuple[speaker_pin_quirks.PinQuirk, str] | None:
     """The pin fixup this machine should be getting but isn't, else None.
@@ -936,18 +1002,9 @@ def find_hidden_speaker_pin(
         configured.setdefault(pin.codec, set()).add(pin.node.lower())
 
     for codec_ssid, nodes in sorted(configured.items()):
-        key = _ssid_key(codec_ssid)
-        quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(key) if key else None
-        if quirk is None and nodes and not uses_sof and info.pci_subsystem:
-            # The PCI id belongs to the machine, not to any one codec, so it
-            # may only stand in for a codec that already owns speaker pins —
-            # otherwise it lends the analog machine's identity to whichever
-            # other codec happens to have a spare output pin.
-            pci_key = _ssid_key("".join(info.pci_subsystem))
-            candidate = (speaker_pin_quirks._SPEAKER_PIN_QUIRKS.get(pci_key)
-                         if pci_key else None)
-            if candidate and not candidate.codec_only:
-                quirk = candidate
+        quirk = _quirk_for_codec(speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                                 codec_ssid, bool(nodes), uses_sof,
+                                 info.pci_subsystem)
         if not quirk:
             continue
         declared = [n.lower() for n in quirk.pins.split()]
@@ -960,4 +1017,64 @@ def find_hidden_speaker_pin(
         missing = [n for n in declared if n not in nodes]
         if missing:
             return quirk, codec_ssid, missing
+    return None
+
+
+def find_misrouted_speaker_pin(
+        info: SpeakerInfo,
+) -> tuple[speaker_route_quirks.RouteQuirk, str, SpeakerPin, str] | None:
+    """The speaker pin this machine is driving through a widget with no
+    volume control, else None — ``(quirk, codec ssid, the pin, its source)``.
+
+    Unlike the hidden-pin detector, the fault here is *visible*: the codec
+    dump stars each pin's selected source and says whether that widget
+    carries an output volume amp. So the table only supplies the authority
+    ("upstream carries a fix for this exact machine") and the dump supplies
+    the finding. Firing on the table alone would send a user after a fixup
+    that may not be their problem — the objection recorded in design-notes
+    when this class was first left unbuilt.
+
+    Every step of the gate fails closed to silence:
+
+    * the quirk's pin must be a *configured internal speaker* on the codec
+      that matched — a pin the kernel is not driving cannot be mis-routed,
+      and a genuinely spare pin parked on an ampless converter is normal
+      (the dev machine's 0x1e);
+    * the dump must name a selected source, and it must sit outside the
+      fixup's allowed list;
+    * that source must be known to carry no output volume amp — a widget the
+      dump didn't show stays "unknown", never "no";
+    * an ``In-driver Connection`` already equal to the fixup's list means our
+      reading of the selection contradicts an applied override, so we trust
+      the kernel over our parse and stay quiet. The line's *presence* proves
+      nothing either way: the dev machine gets a conn-list override from a
+      pin-signature match (``snd_hda_pin_quirk``) with no SSID entry at all,
+      so it is only ever a negative guard.
+    """
+    if info.bus_type != "hda":
+        return None
+    uses_sof = _card_uses_sof(info.sound_cards)
+    speakers_by_codec: dict[str, list[SpeakerPin]] = {}
+    for pin in info.speakers:
+        speakers_by_codec.setdefault(pin.codec, []).append(pin)
+
+    for codec_ssid, pins in sorted(speakers_by_codec.items()):
+        quirk = _quirk_for_codec(speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                                 codec_ssid, True, uses_sof,
+                                 info.pci_subsystem)
+        if quirk is None:
+            continue
+        pin = next((p for p in pins if p.node.lower() == quirk.pin), None)
+        routing = info.routing.get(codec_ssid)
+        route = routing.routes.get(quirk.pin) if routing else None
+        if pin is None or route is None or not route.selected:
+            continue
+        allowed = tuple(quirk.sources.split())
+        if route.selected in allowed:
+            continue
+        if routing.volume.get(route.selected, True):
+            continue
+        if route.driver_sources == allowed:
+            continue
+        return quirk, codec_ssid, pin, route.selected
     return None

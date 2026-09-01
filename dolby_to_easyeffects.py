@@ -511,6 +511,14 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
             speakers.find_hidden_speaker_pin(speaker_info), speaker_info)
         if pin_finding is not None:
             found.append(pin_finding)
+        # The neighbouring class: the pin is configured but routed through a
+        # widget with no volume amp, observed in the same codec dump. Never
+        # fires alongside the pin warning — a pin the kernel isn't
+        # configuring can't also be read as mis-routed.
+        route_finding = report_speaker.warn_speaker_routing(
+            speakers.find_misrouted_speaker_pin(speaker_info), speaker_info)
+        if route_finding is not None:
+            found.append(route_finding)
         # The negative signal: no fixup exists for this machine, so we can't
         # tell a hidden woofer from a plain stereo pair. Only its owner can.
         count_finding = report_speaker.unlisted_speaker_pin_finding(speaker_info)

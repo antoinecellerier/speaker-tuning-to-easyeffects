@@ -51,6 +51,9 @@ CASES = {
 # upstream's quirk table (17AA386A = issue #53's Yoga 7 16IAH7).
 ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"},
              "speaker-pin": {"DEMO_SPEAKER_PIN": "17AA386A"},
+             # 17AA3906 = Legion Pro 7i 16IAX10H, the codec-keyed row whose
+             # routing fixup carries a forcible name — the full procedure.
+             "speaker-routing": {"DEMO_SPEAKER_ROUTE": "17AA3906"},
              # The end-of-run load into a running EasyEffects, every outcome
              # (lib/preset/reload.py). These run into a tempdir instead of
              # --dry-run, which gates the load off; the hook waives only the

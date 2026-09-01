@@ -29,6 +29,7 @@ import pytest
 import dolby_to_easyeffects
 from lib import console, doctor, version
 from lib.data import speaker_pin_quirks
+from lib.data import speaker_route_quirks
 from lib.dax import discover, parse
 from lib.hardware import codecs, speakers
 from lib.report import doctor_run
@@ -2180,6 +2181,11 @@ def _every_finding():
         speaker_pin_quirks.PinQuirk("alc287-yoga9-bass-spk-pin",
                                     pins="0x17", since="", codec_only=True),
         ["0x17"]))
+    # Same forcible-shape-only rule as the pin finding above.
+    found.append(report_speaker._routing_finding(
+        speaker_route_quirks.RouteQuirk("alc287-lenovo-legion-aw88399",
+                                        pin="0x17", sources="0x02",
+                                        since="", codec_only=True)))
     # Reached through a SpeakerInfo rather than a factory: this finding's
     # gate is the whole point of it, so building the state that raises it
     # keeps the fixture honest about when the ask actually appears.

@@ -37,6 +37,7 @@ from pathlib import Path
 
 from lib import console, packages, version
 from lib.data import speaker_pin_quirks
+from lib.data import speaker_route_quirks
 from lib.doctor import DOCTOR_WARN, CheckResult
 from lib.hardware import amps, codecs, speakers
 from lib.report import environment
@@ -139,9 +140,14 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
 _MODPROBE_CONF = "/etc/modprobe.d/speaker-pin-fix.conf"
 
 
-def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk,
+def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk
+                            | speaker_route_quirks.RouteQuirk,
                      release: str) -> str:
     """Whether upgrading the kernel would fix this, in the user's terms.
+
+    Reads only ``.since`` and ``.model``, which both quirk tables carry with
+    identical semantics, so the pin and routing warnings state the upgrade
+    picture in the same words.
 
     Three genuinely different situations, and telling the wrong one wastes a
     reader's evening: no release carries the fix yet; a release does and they
@@ -188,30 +194,24 @@ def _pin_phrase(missing: list[str]) -> str:
     return "pins " + " and ".join(missing)
 
 
-def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
-                          missing: list[str], uses_sof: bool,
-                          width: int,
-                          speaker_info_below: bool = False,
-                          ) -> tuple[tuple[str, str], ...]:
-    """Apply → confirm → undo, as ``(style, text)`` lines.
+def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
+                        hear: str, verify: str, undo_lead: str,
+                        ) -> tuple[tuple[str, str], ...]:
+    """Apply → confirm → undo for any fixup a ``hda_model=`` name can force,
+    as ``(style, text)`` lines.
 
-    Shared by the end-of-run warning and ``--doctor``'s check the way
-    ``amixer_enable_cmd`` is shared, so the procedure can't drift between the
-    two surfaces — and empty where the fixup has no forcible name, since then
-    there is no procedure, only the upgrade route ``upgrade_prospect`` states.
+    The shared core under ``speaker_pin_fix_steps`` and
+    ``speaker_route_fix_steps``: both classes are remedied by the same
+    modprobe option, so the procedure lives once and each caller supplies
+    only the three sentences that differ — what the fix should sound like
+    (*hear*), where to confirm the kernel side (*verify*), and the failure
+    phrasing that opens the undo (*undo_lead*).
 
     Prose wraps to *width*; commands never do. A command wider than the
     terminal is soft-wrapped by the terminal and still pastes as one line,
     where a folded one would not run at all — so the caller passes the width
     its own surface uses and no line here is broken by hand.
-
-    ``speaker_info_below`` is the one thing that differs between the two
-    callers: a --doctor run prints the hardware section itself, so sending
-    that reader off to --speaker-info for a section already on their screen
-    reads as a third command to type. The commands stay identical either way.
     """
-    if not quirk.model:
-        return ()
     module, param = speakers.hda_model_module(uses_sof)
 
     def prose(text: str, indent: str = "", hang: str = "") -> list[tuple[str, str]]:
@@ -219,19 +219,17 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
             text, width, initial_indent=indent,
             subsequent_indent=hang or indent, break_on_hyphens=False)]
 
-    # Where to look afterwards — the one sentence that differs by surface.
-    verify = (f'look at the "HDA internal speakers" section below: '
-              f"{_pin_phrase(missing)} should be listed there, tagged "
-              "[kernel fixup]."
-              if speaker_info_below else
-              f"re-run with --speaker-info: {_pin_phrase(missing)} should be "
-              'listed under "HDA internal speakers", tagged [kernel fixup].')
     return tuple([
         *prose("1. Write the option, then reboot:"),
-        ("cta", f"     echo 'options {module} {param}={quirk.model}' \\"),
+        ("cta", f"     echo 'options {module} {param}={model}' \\"),
+        # One conf path for both quirk classes on purpose: two files each
+        # writing "options <module> <param>=…" would set the same option twice
+        # with undefined precedence, and the undo step shipped for #53 already
+        # names this path. The two warnings never fire together — a pin the
+        # kernel is not configuring cannot also be observed mis-routed.
         ("cta", f"       | sudo tee {_MODPROBE_CONF}"),
         # The fixup's name is the kernel's, and several of them carry a model
-        # that isn't the one running: this row is keyed to a codec id, and its
+        # that isn't the one running: a row can be keyed to a codec id whose
         # upstream entry reads "Yoga 7 16IAP7" while the name says yoga9. A
         # reader who spots that in a line they are about to sudo stops there.
         # And the matching happened here, not at boot: hda_model= forces the
@@ -244,19 +242,93 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
                hang="   "),
         ("", ""),
         # Two independent confirmations, and the audible one leads because it
-        # is the one the user cares about. Hedged the way the warning above is:
-        # the pin usually drives woofers, but several fixups in the table
-        # declare a machine's only speaker pin, where nothing was playing.
-        *prose("2. After rebooting you should hear it — usually the bass "
-               "coming back, or sound from speakers that were silent. To "
+        # is the one the user cares about.
+        *prose(f"2. After rebooting you should hear it — {hear} To "
                f"check the kernel side, {verify}", hang="   "),
         ("", ""),
-        *prose("Still missing, or the speakers went quiet? Undo it:",
-               indent="   "),
+        *prose(f"{undo_lead} Undo it:", indent="   "),
         ("cta", f"     sudo rm {_MODPROBE_CONF}"),
         *prose("and reboot again. Nothing else on the system is touched.",
                indent="   "),
     ])
+
+
+def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
+                          missing: list[str], uses_sof: bool,
+                          width: int,
+                          speaker_info_below: bool = False,
+                          ) -> tuple[tuple[str, str], ...]:
+    """Apply → confirm → undo, as ``(style, text)`` lines.
+
+    Shared by the end-of-run warning and ``--doctor``'s check the way
+    ``amixer_enable_cmd`` is shared, so the procedure can't drift between the
+    two surfaces — and empty where the fixup has no forcible name, since then
+    there is no procedure, only the upgrade route ``upgrade_prospect`` states.
+
+    ``speaker_info_below`` is the one thing that differs between the two
+    callers: a --doctor run prints the hardware section itself, so sending
+    that reader off to --speaker-info for a section already on their screen
+    reads as a third command to type. The commands stay identical either way.
+    """
+    if not quirk.model:
+        return ()
+    # Where to look afterwards — the one sentence that differs by surface.
+    verify = (f'look at the "HDA internal speakers" section below: '
+              f"{_pin_phrase(missing)} should be listed there, tagged "
+              "[kernel fixup]."
+              if speaker_info_below else
+              f"re-run with --speaker-info: {_pin_phrase(missing)} should be "
+              'listed under "HDA internal speakers", tagged [kernel fixup].')
+    # Hedged the way the warning above is: the pin usually drives woofers,
+    # but several fixups in the table declare a machine's only speaker pin,
+    # where nothing was playing.
+    return hda_model_fix_steps(
+        quirk.model, uses_sof, width,
+        hear="usually the bass coming back, or sound from speakers that "
+             "were silent.",
+        verify=verify,
+        undo_lead="Still missing, or the speakers went quiet?")
+
+
+def _source_phrase(sources: str) -> str:
+    """``"0x02"`` → ``0x02``; ``"0x02 0x03"`` → ``0x02 or 0x03``.
+
+    "or", not "and": the fixup allows the pin any of these sources and the
+    driver picks one, so promising a specific pair would read as broken the
+    moment the dump shows only one of them.
+    """
+    return " or ".join(sources.split())
+
+
+def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
+                            source: str, uses_sof: bool, width: int,
+                            speaker_info_below: bool = False,
+                            ) -> tuple[tuple[str, str], ...]:
+    """Apply → confirm → undo for a mis-routed speaker pin — the routing
+    twin of ``speaker_pin_fix_steps``, empty on the same no-forcible-name
+    rule, delegating to the same ``hda_model_fix_steps`` core so the two
+    procedures cannot drift.
+    """
+    if not quirk.model:
+        return ()
+    where = _source_phrase(quirk.sources)
+    verify = (f'look at the "HDA internal speakers" section below: pin '
+              f'{quirk.pin} should read "driven from {where}" instead of '
+              f"{source}."
+              if speaker_info_below else
+              f"re-run with --speaker-info: pin {quirk.pin} should read "
+              f'"driven from {where}" under "HDA internal speakers" instead '
+              f"of {source}.")
+    # Hedged like the warning above: what changes audibly depends on where
+    # the level was stuck — a fixed loud speaker gets quieter, a fixed quiet
+    # one louder — so the one thing every fixed machine shares is the pin
+    # starting to track the control.
+    return hda_model_fix_steps(
+        quirk.model, uses_sof, width,
+        hear="usually one speaker starting to follow the volume control "
+             "when it didn't before.",
+        verify=verify,
+        undo_lead="No difference, or the speakers went quiet?")
 
 
 def warn_hidden_speaker_pin(
@@ -327,6 +399,80 @@ def _hidden_pin_finding(quirk: speaker_pin_quirks.PinQuirk,
                "those speakers get no signal — see the procedure above.",
         ask="Did forcing the missing speaker pin bring your bass back? "
             "(issue #53)")
+
+
+def warn_speaker_routing(
+        found: tuple[speaker_route_quirks.RouteQuirk, str, speakers.SpeakerPin,
+                     str] | None,
+        info: speakers.SpeakerInfo) -> Finding | None:
+    """Warn — with a copy-paste fix and its undo where the kernel accepts one
+    — that a speaker pin is being driven through a widget with no volume amp.
+
+    Silent when nothing matched *or* the fault isn't observable in the dump
+    (``find_misrouted_speaker_pin`` gates on both): the table alone is an
+    authority, not a finding, and a hda_model= line offered on a guess sends
+    a user after a fixup that may not be their problem.
+
+    The procedure below *is* this finding's detail, so the caller doesn't
+    reprint it — only the returned one-line ask travels to the closing block.
+    """
+    if not found:
+        return None
+    quirk, codec_ssid, pin, source = found
+    # The control name is the dump's own ("Bass Speaker" on most rows, plain
+    # "Speaker" elsewhere) — never a role we inferred: the two 0x15 rows and
+    # any oddly-named codec must not be promised a woofer.
+    named = f' — "{pin.control_name}" —' if pin.control_name else ""
+    console.cprint("warn", f"\n{'=' * 60}")
+    console.cprint("warn", "⚠  [speaker-routing] One of your speakers is wired "
+                           "past the volume control.")
+    console._cprint_wrapped("dim",
+        f"Linux is driving pin {quirk.pin} on codec {codec_ssid}{named} from "
+        f"widget {source}, which reports no volume amplifier. Upstream Linux "
+        "carries a fix for this exact model that routes that pin to "
+        f"{_source_phrase(quirk.sources)} instead, and your kernel isn't "
+        "applying it. Usually heard as one speaker sitting at a fixed level "
+        "while the rest track the volume slider.")
+    print()
+    console._cprint_wrapped("dim", upgrade_prospect(quirk, info.kernel))
+    steps = speaker_route_fix_steps(quirk, source,
+                                    speakers._card_uses_sof(info.sound_cards),
+                                    console._wrap_width())
+    if steps:
+        print()
+    for style, text in steps:
+        if text:
+            console.cprint(style, text)
+        else:
+            print()
+    print()
+    return _routing_finding(quirk)
+
+
+def _routing_finding(quirk: speaker_route_quirks.RouteQuirk) -> Finding:
+    """Whether forcing the routing fixup actually freed the speaker's level.
+
+    Same ask discipline as ``_hidden_pin_finding``: an ask only when the run
+    printed a procedure to ask about, which here is the minority of rows —
+    most reach their routing helper through an unnamed wrapper fixup.
+    """
+    if not quirk.model:
+        return Finding(
+            slug="speaker-routing", kind="hint",
+            detail=f"Pin {quirk.pin} is driven from a widget with no volume "
+                   "control, so that speaker plays at a fixed level, and the "
+                   "driver accepts no name that would force the fix — see "
+                   "above.")
+    return Finding(
+        slug="speaker-routing", kind="hint",
+        detail=f"Pin {quirk.pin} is driven from a widget with no volume "
+               "control, so that speaker plays at a fixed level — see the "
+               "procedure above.",
+        # No "volume" in the ask: the --disable menu's regulator symptom owns
+        # that word, and one heard symptom must not map to two remedies
+        # (test_finding_asks_do_not_borrow_other_filters_symptoms).
+        ask="Did forcing the speaker routing fix even out your speaker "
+            "levels?")
 
 
 def unlisted_speaker_pin_finding(info: speakers.SpeakerInfo) -> Finding | None:
@@ -405,9 +551,10 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
     info.hda_codecs = codecs.get_hda_codec_ids()
     info.soundwire_devices = codecs.get_soundwire_ids()   # decides bus_type
     info.pci_subsystem = codecs.get_pci_audio_subsystem()
-    # Asked first, not folded into the condition below: injecting the demo is
+    # Asked first, not folded into the condition below: injecting a demo is
     # what makes bus_type read "hda", so testing bus_type first would skip it.
-    if not speakers._maybe_demo_hidden_speaker_pin(info):
+    if not (speakers._maybe_demo_hidden_speaker_pin(info)
+            or speakers._maybe_demo_speaker_route(info)):
         if info.bus_type == "hda":
             speakers._detect_hda_speakers(info)
     return info
@@ -456,7 +603,8 @@ def _gather_speaker_info() -> speakers.SpeakerInfo:
             info.pcm_devices.append((fields.get("device", "?"), fields.get("id", "?")))
 
     # Speaker detection — branch by bus type, unless a demo machine stands in
-    if not speakers._maybe_demo_hidden_speaker_pin(info):
+    if not (speakers._maybe_demo_hidden_speaker_pin(info)
+            or speakers._maybe_demo_speaker_route(info)):
         if info.bus_type == "soundwire":
             speakers._detect_soundwire_speakers(info)
         elif info.bus_type == "hda":
@@ -627,15 +775,34 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
             amp_lines.append("  (no speaker amplifiers detected)")
         sections.append(("Speaker amplifiers", amp_lines))
     elif info.bus_type == "hda" and (info.speakers or info.unconfigured_pins):
-        speaker_lines = [
-            f"  {s.node}: {s.control_name} ({s.role}, "
-            f"{'stereo' if s.channels == 2 else 'mono'})"
-            # The tag is what makes the fix verifiable: the firmware still
-            # calls such a pin unconnected, so without it an applied quirk and
-            # a BIOS-declared speaker are the same line (issue #53).
-            + (f" [{s.override}]" if s.override else "")
-            for s in info.speakers
-        ] or ["  (none configured)"]
+        misrouted = speakers.find_misrouted_speaker_pin(info)
+        speaker_lines = []
+        for s in info.speakers:
+            line = (f"  {s.node}: {s.control_name} ({s.role}, "
+                    f"{'stereo' if s.channels == 2 else 'mono'})"
+                    # The tag is what makes the fix verifiable: the firmware
+                    # still calls such a pin unconnected, so without it an
+                    # applied quirk and a BIOS-declared speaker are the same
+                    # line (issue #53).
+                    + (f" [{s.override}]" if s.override else ""))
+            # Printed on healthy pins too — the routing fix's confirm step
+            # points a rebooted reader at this very suffix, so it has to
+            # exist before the fix as well as after. Omitted, not "unknown",
+            # when the dump didn't say: an unreadable selector is not a
+            # fault. The no-volume note is raw evidence like the spare-pin
+            # list — it needs no quirk match to be true.
+            routing = info.routing.get(s.codec)
+            route = routing.routes.get(s.node.lower()) if routing else None
+            if route and route.selected:
+                line += f" — driven from {route.selected}"
+                if routing.volume.get(route.selected) is False:
+                    line += ", which has no volume control"
+            if (misrouted and misrouted[1] == s.codec
+                    and misrouted[2].node == s.node):
+                line += ("  ⚠ a kernel fix routes this to "
+                         f"{_source_phrase(misrouted[0].sources)}")
+            speaker_lines.append(line)
+        speaker_lines = speaker_lines or ["  (none configured)"]
         if info.unconfigured_pins:
             # Raw evidence, and one verdict where we have one: these are
             # usually spare pins, but a speaker pin the BIOS wrongly calls
@@ -732,3 +899,31 @@ def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
                                     speakers._card_uses_sof(info.sound_cards),
                                     console._wrap_width() - 9,
                                     speaker_info_below=True))
+
+
+def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
+    """Verdict line for a speaker pin driven past its volume control, or None
+    when the fault isn't both listed for this machine and visible in its
+    codec dump — the same double gate the end-of-run warning sits behind.
+
+    WARN on the same reasoning as ``speaker_pin_status``: the match is
+    machine-exact and the mis-routing is read from the dump, but only the
+    user can say whether they hear a speaker stuck at one level, and
+    ignoring it breaks nothing further.
+    """
+    found = speakers.find_misrouted_speaker_pin(info)
+    if not found:
+        return None
+    quirk, codec_ssid, _pin, source = found
+    return CheckResult(
+        DOCTOR_WARN, "Speaker routing",
+        f"Linux is driving pin {quirk.pin} on codec {codec_ssid} from widget "
+        f"{source}, which reports no volume amplifier, so that speaker sits "
+        "at a fixed level whatever the preset does. Upstream Linux carries a "
+        "fix for this exact model that routes it to "
+        f"{_source_phrase(quirk.sources)}. "
+        + upgrade_prospect(quirk, info.kernel),
+        steps=speaker_route_fix_steps(quirk, source,
+                                      speakers._card_uses_sof(info.sound_cards),
+                                      console._wrap_width() - 9,
+                                      speaker_info_below=True))

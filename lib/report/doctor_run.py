@@ -702,6 +702,12 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     if pin_check is not None:
         report.checks.append(pin_check)
 
+    # 7b. The neighbouring class: a speaker pin routed through a widget with
+    #     no volume amp, observed in the codec dump this report prints below
+    route_check = report_speaker.speaker_route_status(report.speaker_info)
+    if route_check is not None:
+        report.checks.append(route_check)
+
     # 8. Kernel age — speaker-amp fixes land kernel-side (issue #33)
     report.checks.append(environment.kernel_age_status(report.speaker_info.kernel))
 

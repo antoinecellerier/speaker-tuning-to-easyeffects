@@ -23,6 +23,7 @@ import pytest
 from lib.pipewire import install as pw
 from lib import console, doctor
 from lib.data import speaker_pin_quirks
+from lib.data import speaker_route_quirks
 from lib.doctor import DOCTOR_WARN
 from lib.hardware import amps, codecs, speakers
 # Aliased: several tests bind a local named `sinks` for a synthetic sink
@@ -1727,6 +1728,9 @@ def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
         info.speakers.extend(pins)
         info.unconfigured_pins.extend(unconfigured)
         info.hda_codecs.append(("10EC0287", ssid, "Realtek ALC287"))
+        routing = speakers.parse_hda_codec_routing(dump)
+        if routing.codec:
+            info.routing[routing.codec] = routing
     return info
 
 
@@ -1786,7 +1790,7 @@ def test_speaker_info_tags_an_overridden_pin(capsys):
     report_speaker._print_speaker_info(info)
     out = capsys.readouterr().out
     assert "0x17: Bass Speaker Playback Switch (woofer, stereo) [kernel fixup]" in out
-    assert "0x14: Speaker Playback Switch (tweeter, stereo)\n" in out
+    assert "0x14: Speaker Playback Switch (tweeter, stereo) — driven from 0x02\n" in out
 
 
 
@@ -2262,3 +2266,295 @@ def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
     monkeypatch.setattr(speakers, "detect_speaker_firmware_gates", boom)
     info = report_speaker._gather_speaker_pins()
     assert isinstance(info, speakers.SpeakerInfo)
+
+
+# --- A speaker pin driven past its volume control ----------------------------
+#
+# The routing quirk class (design-notes "The class next door"): the pin is
+# configured and looks healthy, but takes its signal from a widget with no
+# output volume amp. Anchored to 17AA:3906 (Legion Pro 7i 16IAX10H), the
+# codec-keyed row whose fixup carries a forcible name; its `since` is
+# machine-written, so no test here may assume a value for it.
+
+LEGION_SSID = "0x17aa3906"
+
+
+def test_misrouted_pin_detected_on_listed_machine():
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    found = speakers.find_misrouted_speaker_pin(info)
+    assert found is not None
+    quirk, codec_ssid, pin, source = found
+    assert codec_ssid == "17AA3906"
+    assert quirk.model == "alc287-lenovo-legion-aw88399"
+    assert pin.node == "0x17"
+    assert source == "0x06"
+
+
+def test_routing_silent_once_the_pin_selects_an_allowed_source():
+    """The fixed state must go quiet, or the warning never stops firing after
+    the user's reboot — the same trap the pin warning had to dodge."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02* 0x03 0x06 0x08",
+                              bass_driver_conn="0x02")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_the_source_has_a_volume_control():
+    """Selected off the fixup's list but onto a widget with volume — the
+    development machine's own shape (0x17 on 0x03) — is not the fault this
+    class warns about, whatever the table says."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03* 0x06 0x08",
+                              bass_driver_conn="")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_the_pin_is_not_a_configured_speaker():
+    """A pin the kernel isn't driving can't be mis-routed — that state is the
+    *pin* table's finding. This precondition is also what keeps the 28
+    machines listed in both tables to one warning at a time."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_pin_default="0x411111f0",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_the_connection_is_unreadable():
+    """No selected source, no finding: the table alone is an authority, not
+    an observation, and firing on it was the recorded reason this class
+    stayed unbuilt."""
+    info = _info([_codec_dump(ssid=LEGION_SSID, bass_conn="",
+                              bass_driver_conn="")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_the_driver_list_already_matches_the_fixup():
+    """An In-driver list equal to the fixup's own says the override is
+    applied; a starred entry contradicting it means our reading of the
+    selector is wrong, and the kernel outranks our parse."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="0x02")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_routing_silent_when_the_source_is_not_in_the_dump():
+    """A selected widget the dump never printed is unknown, not ampless —
+    the detector may only claim what it read."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x0a* 0x08",
+                              bass_driver_conn="")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_pci_keyed_route_quirk_matches_off_sof():
+    """1028:075C is SND_PCI_QUIRK-keyed (and its fixup targets mixer 0x0c,
+    not a DAC), so on a legacy HDA card it may match the PCI subsystem id."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")],
+                 pci=("1028", "075C"))
+    found = speakers.find_misrouted_speaker_pin(info)
+    assert found is not None
+    assert found[0].model == "alc298-spk-volume"
+
+
+def test_pci_keyed_route_quirk_ignored_on_sof():
+    """Same reasoning as the pin detector: SOF zeroes the PCI subsystem id
+    the kernel sees, so a PCI match there is one the kernel never makes."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")],
+                 cards=("0 [sofhdadsp ]: sof-hda-dsp - sof-hda-dsp",),
+                 pci=("1028", "075C"))
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_codec_keyed_route_quirk_never_matches_pci_id():
+    """17AA:3906 is HDA_CODEC_QUIRK-keyed; a machine whose *PCI* id happens
+    to read the same must not borrow it."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")],
+                 pci=("17AA", "3906"))
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_soundwire_machine_never_checked_for_routing():
+    info = speakers.SpeakerInfo(soundwire_devices=[("025d", "0711")])
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+
+def test_route_and_pin_warnings_never_fire_together():
+    """1028:0A61 sits in both tables. Whichever state the machine is in, the
+    user gets exactly one speaker warning — the configured-speaker
+    precondition resolves it with no suppression code."""
+    dell = "0x10280a61"
+    # Pin hidden: the pin table's case, and the routing detector must yield.
+    hidden = _info([_codec_dump(ssid=dell, bass_pin_default="0x411111f0",
+                                bass_conn="0x02 0x03 0x06* 0x08",
+                                bass_driver_conn="")])
+    assert speakers.find_hidden_speaker_pin(hidden) is not None
+    assert speakers.find_misrouted_speaker_pin(hidden) is None
+    # Fixup applied: both quiet.
+    fixed = _info([_codec_dump(ssid=dell, bass_conn="0x02* 0x03 0x06 0x08",
+                               bass_driver_conn="0x02")])
+    assert speakers.find_hidden_speaker_pin(fixed) is None
+    assert speakers.find_misrouted_speaker_pin(fixed) is None
+    # A hdajackretask-style pin override without the reroute: the pin warning
+    # goes quiet and the routing one takes over — the machine-checkable form
+    # of "a pin override is not a substitute" (design-notes, issue #53).
+    half = _info([_codec_dump(ssid=dell, bass_pin_default="0x411111f0",
+                              bass_control=True,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")],
+                 overrides={"0x17": speakers.PinOverride(0x90170121, "user")})
+    assert speakers.find_hidden_speaker_pin(half) is None
+    assert speakers.find_misrouted_speaker_pin(half) is not None
+
+
+def test_routing_warning_copy(capsys):
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    finding = report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "[speaker-routing]" in out
+    assert "driving pin 0x17 on codec 17AA3906" in out
+    assert '"Bass Speaker Playback Switch"' in out
+    assert "widget 0x06, which reports no volume amplifier" in out
+    assert "routes that pin to 0x02" in out
+    # Hedged: what the fault sounds like varies by machine, and no message
+    # may promise a woofer the dump didn't name.
+    assert "Usually heard as" in out
+    assert "model=alc287-lenovo-legion-aw88399" in out.replace("\n", "")
+    assert finding is not None and finding.ask
+
+
+def test_routing_warning_silent_without_a_match(capsys):
+    info = _info([CODEC_TWO_PINS])
+    assert report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_routing_warning_offers_no_procedure_without_a_forcible_name(capsys):
+    """1028:0A61 reaches its helper through an unnamed wrapper — the majority
+    of the table — so the warning states the upgrade route and stops, and
+    the finding carries no ask (user-messages.md: no ask without a
+    procedure)."""
+    info = _info([_codec_dump(ssid="0x10280a61",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    finding = report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "no name the driver accepts" in out
+    assert "modprobe.d" not in out
+    assert finding is not None and finding.ask == ""
+
+
+def test_routing_copy_names_the_widget_it_read_not_a_dac(capsys):
+    """ALC298's fixup routes the pin to mixer 0x0c, so no surface may call
+    the target a DAC — 'widget' is the only word the dump backs."""
+    info = _info([_codec_dump(ssid="0x17aa9999",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")],
+                 pci=("1028", "075C"))
+    found = speakers.find_misrouted_speaker_pin(info)
+    report_speaker.warn_speaker_routing(found, info)
+    out = capsys.readouterr().out
+    assert "routes that pin to 0x0c" in out
+    assert "DAC" not in out
+    assert "DAC" not in report_speaker.speaker_route_status(info).detail
+
+
+def test_doctor_and_the_end_of_run_block_print_one_routing_procedure(capsys):
+    """Same builder on both surfaces, like the pin fix — a command edited on
+    one side can't go stale on the other."""
+    info = _info([_codec_dump(ssid=LEGION_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info)
+    printed = capsys.readouterr().out
+    commands = [t for style, t in report_speaker.speaker_route_status(info).steps
+                if style == "cta"]
+    assert commands
+    for text in commands:
+        assert text in printed
+
+
+def test_both_fixes_write_one_modprobe_file():
+    """Two conf files would set the same module option twice with undefined
+    precedence, and the shipped #53 undo step already names this path."""
+    pin_quirk = speaker_pin_quirks._SPEAKER_PIN_QUIRKS[(0x17AA, 0x386A)]
+    route_quirk = speaker_route_quirks._SPEAKER_ROUTE_QUIRKS[(0x17AA, 0x3906)]
+    pin_steps = [t for _, t in report_speaker.speaker_pin_fix_steps(
+        pin_quirk, ["0x17"], False, 90)]
+    route_steps = [t for _, t in report_speaker.speaker_route_fix_steps(
+        route_quirk, "0x06", False, 90)]
+    conf = "/etc/modprobe.d/speaker-pin-fix.conf"
+    assert any(conf in t for t in pin_steps)
+    assert any(conf in t for t in route_steps)
+
+
+def test_speaker_info_prints_where_a_pin_is_driven_from(capsys):
+    """The suffix prints on healthy machines too — the fix's confirm step
+    points a rebooted reader at it, so it has to exist before the fix as
+    well as after."""
+    report_speaker._print_speaker_info(_info([CODEC_TWO_PINS]))
+    out = capsys.readouterr().out
+    assert "0x14: Speaker Playback Switch (tweeter, stereo) — driven from 0x02" in out
+    assert "0x17: Bass Speaker Playback Switch (woofer, stereo) — driven from 0x03" in out
+    assert "no volume control" not in out
+
+
+def test_speaker_info_flags_only_the_misrouted_pin(capsys):
+    report_speaker._print_speaker_info(
+        _info([_codec_dump(ssid=LEGION_SSID,
+                           bass_conn="0x02 0x03 0x06* 0x08",
+                           bass_driver_conn="")]))
+    out = capsys.readouterr().out
+    assert "0x17: Bass Speaker Playback Switch (woofer, stereo) — driven " \
+           "from 0x06, which has no volume control" in out
+    assert "⚠ a kernel fix routes this to 0x02" in out
+    # The healthy pin carries its source and nothing else.
+    assert "0x14: Speaker Playback Switch (tweeter, stereo) — driven from 0x02\n" in out
+
+
+def test_speaker_info_omits_the_source_it_could_not_read(capsys):
+    """No 'unknown' rendering: an unreadable selector is not a fault, so the
+    line simply ends where the evidence does."""
+    report_speaker._print_speaker_info(
+        _info([_codec_dump(bass_conn="", bass_driver_conn="")]))
+    out = capsys.readouterr().out
+    assert "0x17: Bass Speaker Playback Switch (woofer, stereo)\n" in out
+
+
+def test_demo_speaker_route_reaches_the_warning(monkeypatch):
+    """DEMO_SPEAKER_ROUTE stands in for an affected machine the way
+    DEMO_SPEAKER_PIN does — nothing in any tuning XML can trigger a
+    machine-keyed warning, so previews need the hook."""
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    monkeypatch.setenv("DEMO_SPEAKER_ROUTE", "17aa3906")   # case-insensitive
+    info = report_speaker._gather_speaker_pins()
+    found = speakers.find_misrouted_speaker_pin(info)
+    assert found is not None and found[3] == "0x06"
+
+    monkeypatch.delenv("DEMO_SPEAKER_ROUTE")
+    assert report_speaker._gather_speaker_pins().hda_codecs == []
+
+
+def test_no_routing_ask_without_a_forcible_name():
+    """user-messages.md: a finding the user cannot act on carries no ask."""
+    nameless = speaker_route_quirks.RouteQuirk("", pin="0x17", sources="0x02",
+                                               since="6.10", codec_only=True)
+    assert report_speaker._routing_finding(nameless).ask == ""
+    forcible = nameless._replace(model="alc285-speaker2-to-dac1")
+    assert report_speaker._routing_finding(forcible).ask
