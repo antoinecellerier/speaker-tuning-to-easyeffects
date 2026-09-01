@@ -2963,6 +2963,42 @@ Design choices:
     buys nothing anyway: a kernel that old already trips the issue #33 age
     hint.
 
+### The class next door: pin present, DAC source wrong
+
+Upstream commit
+[`41d60cbfde10`](https://github.com/torvalds/linux/commit/41d60cbfde10b9f01ae6e2d3195463fbad6e54a8)
+(Lenovo Yoga Pro 9 16IAH10, 7.3) names a third shape, sitting between the
+hidden pin above and the missing amp below. Pin `0x17` is present and correctly
+declared a Bass Speaker, so nothing looks wrong; it is routed to DAC `0x03`,
+which has no volume amplifier, leaving "the right-side woofer barely audible
+while only the tweeter plays". The fixup is `alc285_fixup_speaker2_to_dac1`,
+whose whole body is one `snd_hda_override_conn_list(codec, 0x17, …)` — no pin
+config is written.
+
+**Nothing here models it.** `_SPEAKER_PIN_QUIRKS` derives membership from
+`HDA_FIXUP_PINS` tables plus the `_FUNC_FIXUP_PINS` allowlist, so a
+routing-only helper is invisible to it by construction — correctly, since there
+is no missing pin to report. `_AMP_FAMILIES` does not reach it either: a pure
+reroute has no amplifier to register. So `--speaker-info` reports four healthy
+speakers and offers no upgrade hint while a woofer is inaudible, which is the
+user-visible symptom the whole section above exists to explain.
+
+**Scope, before anyone builds for it.** Resolving `.chained`/`.chain_id` over
+`sound/hda/codecs/realtek/alc269.c` in mainline (7.3-rc2 window, 2026-09-01),
+13 helpers call `snd_hda_override_conn_list` and write no pin config, and **145
+of 1243 quirk entries** reach one: `17aa` 49, `1043` 39, `1028` 30, `103c` 25,
+plus one each on `1f4c` and `2782`. Read that as an upper bound on the class,
+not a count of affected machines — it also catches amp-binding fixups
+(`alc287_fixup_bind_dacs`, the HP TAS2781 mute-LED wrappers) and all-in-one
+volume fixes, which fail differently. Several carry a forcible name already
+(`alc285-speaker2-to-dac1`), so the `hda_model=` remedy shape would transfer.
+
+Left unbuilt on purpose: no device here, and no report so far, shows the
+symptom. The pin table's advice was written against a reporter who had the
+fault and could confirm the remedy; there is no equivalent here, and a
+`hda_model=` line offered on a guess sends a user after a fixup that may not be
+their problem.
+
 ## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
 
 The ThinkPad T495 report describes the preset as tinny, robotic, and
