@@ -134,6 +134,13 @@ SCENARIOS: dict[str, dict] = {
                "to say so rather than print nothing",
         "sinks": [], "default": "", "no_pipewire": True,
         "clear_saved_sink": True, "autoload": {}, "preset": _BYPASS},
+    "speaker-routed-past-volume": {
+        "why": "a machine whose kernel entry reroutes the bass speaker off a "
+               "widget with no volume amp — the routing check's fault state, "
+               "reached through the same demo hook every copy preview uses",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "env": {"DEMO_SPEAKER_ROUTE": "17AA3906"}},
 }
 
 
@@ -145,13 +152,18 @@ def _scenario(slug: str):
     default sink, the autoload directory, the presets and impulse files on
     disk, and what EasyEffects says it has loaded. Every one of them is
     machine state, and any left real makes the rendered block depend on the
-    laptop rather than on the scenario. The stubs are restored on the way
+    laptop rather than on the scenario. A sixth, ``env``, reaches the states
+    keyed to hardware the capture machine isn't: it sets the same DEMO_*
+    variables the copy previews use, so the hardware checks fire through
+    their shipped detection rather than a faked CheckResult. The stubs are restored on the way
     out — all scenarios run in one process, and a leak would let one decide
     the next one's answer while the block map still claimed otherwise.
 
     Yields the staged install as (output_dir, irs_dir, autoload_dir).
     """
     spec = SCENARIOS[slug]
+    saved_env = {k: os.environ.get(k) for k in spec.get("env", ())}
+    os.environ.update(spec.get("env", {}))
     saved = {
         "enum": sinks._enumerate_audio_sinks,
         "default": sinks.live_session,
@@ -228,6 +240,11 @@ def _scenario(slug: str):
             (session.read_settings, session.read_xruns,
              session.process_age, session.pipewire_version,
              session.wireplumber_version) = saved["session"]
+            for key, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def render(slug: str) -> None:
