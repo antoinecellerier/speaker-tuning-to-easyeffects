@@ -74,12 +74,21 @@ yoga 7 2-in-1
 # (merged for 7.2, no Cc: stable); the device is in the README tested table on
 # that basis, which is why the watch outlives the issue. Narrow on purpose:
 # *new* pin-adding fixups need no watching here, because the weekly
-# speaker-pin-quirks workflow rebuilds _SPEAKER_PIN_QUIRKS from upstream and
+# speaker-quirks workflow rebuilds _SPEAKER_PIN_QUIRKS from upstream and
 # opens a PR when one lands.
 yoga9-bass-spk-pin
 bass-spk-pin
 16iah7
 386a
+
+# watch: standing — churn in the speaker-routing helpers the route-quirk
+# table's warning names (_FUNC_FIXUP_ROUTES). New quirk rows need no watching
+# — the weekly speaker-quirks workflow rebuilds the table — but an edit to a
+# helper's body can change the pin or target the allowlist hand-records, and
+# nothing else would notice. Only terms not already watched: alc287, tas2781,
+# alc294 and aw88399 all fire above, and a redundant term doubles every hit.
+speaker2-to-dac1
+bind-dacs
 
 # watch: standing — regression risk to confirmed-working devices on churning
 # kernel paths: ASUS TUF A15 (#34) rides AMD ACP (redesigned in 7.2); Zenbook

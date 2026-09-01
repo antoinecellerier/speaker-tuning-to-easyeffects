@@ -107,6 +107,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- Flag a speaker Linux is driving past its volume control. `--speaker-info`
+  now shows where each speaker pin takes its signal from, and a run warns —
+  with the modprobe fix where the kernel accepts one — when upstream carries
+  a routing fix for your exact model that your kernel isn't applying.
+  (why and the membership bar in docs/design-notes.md)
 - Both `--doctor`s now print a `PipeWire` section — the versions the
   report ran against, the output sink, the clock (session defaults and
   what your output actually ran at), and dropout counts with ages and a

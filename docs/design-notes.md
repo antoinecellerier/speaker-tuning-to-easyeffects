@@ -2982,29 +2982,102 @@ while only the tweeter plays". The fixup is `alc285_fixup_speaker2_to_dac1`,
 whose whole body is one `snd_hda_override_conn_list(codec, 0x17, …)` — no pin
 config is written.
 
-**Nothing here models it.** `_SPEAKER_PIN_QUIRKS` derives membership from
-`HDA_FIXUP_PINS` tables plus the `_FUNC_FIXUP_PINS` allowlist, so a
-routing-only helper is invisible to it by construction — correctly, since there
-is no missing pin to report. `_AMP_FAMILIES` does not reach it either: a pure
-reroute has no amplifier to register. So `--speaker-info` reports four healthy
-speakers and offers no upgrade hint while a woofer is inaudible, which is the
-user-visible symptom the whole section above exists to explain.
+This section first recorded the class as deliberately unmodelled: no device
+and no report showed the symptom, and a `hda_model=` line offered on a table
+match alone sends a user after a fixup that may not be their problem. That
+objection is what the build (2026-09-01, user-authorized, prioritized on
+audible impact) was designed around — **the fault is observable**, so the
+table only supplies the authority and the codec dump supplies the finding.
 
-**Scope, before anyone builds for it.** Resolving `.chained`/`.chain_id` over
-`sound/hda/codecs/realtek/alc269.c` in mainline (7.3-rc2 window, 2026-09-01),
-13 helpers call `snd_hda_override_conn_list` and write no pin config, and **145
-of 1243 quirk entries** reach one: `17aa` 49, `1043` 39, `1028` 30, `103c` 25,
-plus one each on `1f4c` and `2782`. Read that as an upper bound on the class,
-not a count of affected machines — it also catches amp-binding fixups
-(`alc287_fixup_bind_dacs`, the HP TAS2781 mute-LED wrappers) and all-in-one
-volume fixes, which fail differently. Several carry a forcible name already
-(`alc285-speaker2-to-dac1`), so the `hda_model=` remedy shape would transfer.
+**What the dump shows.** `/proc/asound/card*/codec#*` stars each pin's
+selected source on its `Connection:` list (a one-entry list is never starred —
+the sole entry is the source), prints `In-driver Connection:` only when
+something called `snd_hda_override_conn_list`, and a widget carries an output
+volume amp iff its `Amp-Out caps:` line exists, is not `N/A`, and has
+`nsteps` ≠ 0 (pins read `nsteps=0x00, mute=1` — mute only; ALC287's 0x06 has
+no Amp-Out line at all). `parse_hda_codec_routing` reads all three from the
+text the pin scan already fetched, so a default run pays nothing new.
 
-Left unbuilt on purpose: no device here, and no report so far, shows the
-symptom. The pin table's advice was written against a reporter who had the
-fault and could confirm the remedy; there is no equivalent here, and a
-`hda_model=` line offered on a guess sends a user after a fixup that may not be
-their problem.
+**The gate** (`find_misrouted_speaker_pin`): a table row matched through the
+same `snd_hda_pick_fixup` mirror the pin table uses (`_quirk_for_codec`,
+shared so the two cannot drift), **and** the quirk's pin is a configured
+internal speaker on that codec, **and** its selected source is readable, off
+the fixup's allowed list, and known to carry no volume amp. Every leg fails
+closed to silence. The configured-speaker precondition is load-bearing twice:
+a genuinely spare pin parked on an ampless converter is normal (the dev
+machine's 0x1e sits on 0x06), and it resolves the **28 machines listed in
+both tables** with no suppression code — pin missing → pin warning alone;
+fixup applied → both quiet; a `hdajackretask`-style pin override without the
+reroute → the routing warning takes over, which is the machine-checkable form
+of "a pin override is not a substitute" above. An `In-driver Connection`
+equal to the fixup's list silences the warning (the kernel outranks our
+parse), but its *presence* proves nothing: the dev machine (`17aa:22e6`, no
+`alc269_fixup_tbl` entry at all) carries one because its fixup arrives by
+**pin-signature match** (`snd_hda_pin_quirk` — the log line is
+`ALC287: picked fixup  (pin match)`). That is a third match path neither
+table models, and the recorded scope limit that comes with it: a machine
+reached only by a pin-signature entry gets no warning from an SSID-keyed
+table when its fixup goes missing.
+
+**Membership** (`_FUNC_FIXUP_ROUTES` in `tools/update_speaker_route_quirks.py`,
+every body hand-read): fixes a speaker-pin volume-path fault and constrains
+one internal speaker pin's source. That admits all 12 conn-override helpers
+that write no pincfg **minus** `alc290_fixup_mono_speakers` (two pins, and
+its fault is mono output, not a lost volume control — 4 of its 5 Dell rows
+are in the pin table anyway), **plus one** `preferred_dacs` helper:
+`alc289_fixup_asus_ga401`, whose own comment reads "avoid DAC 0x06 for bass
+speaker 0x17; it has no volume control" — it also pins speaker 0x14 to 0x02,
+which has volume either way, so the row models only the bass half and the
+gate observes that pin directly. The wrapper-shaped helpers (bind_dacs, the
+HP TAS2781 mute-LED trio, the Legion AW88399 and ZBook ones) are in on
+purpose: each contains the identical reroute for the identical stated reason,
+their LED/amp extras are not modelled, and the observed-fault gate means
+breadth adds no speculative claim. The other four `preferred_dacs` helpers
+were swept and rejected: `alc_fixup_tpt470_dacs` fixes a *level regression*
+on a DAC that has volume, and upstream ships an opt-out model
+(`tpt470-dock-fix`,
+[`399c01aa49e5`](https://github.com/torvalds/linux/commit/399c01aa49e5)) for
+the very same SSIDs — it will keep looking admissible to anyone re-deriving
+this table, and must stay out; `alc295_fixup_asus_dacs` fixes a silent
+*headphone*; `alc274_fixup_bind_dacs` steers DACs "for EQ";
+`alc288_fixup_surface_swap_dacs` is a plain swap. `preferred_dacs` in general
+is the weaker signal — a preference the parser may override, where a conn
+override removes the ampless DAC outright — which is why the sweep keys on
+`snd_hda_override_conn_list` and the GA401 admission is the exception.
+
+**The table** (`lib/data/speaker_route_quirks.py`, regenerated weekly by the
+same `speaker-quirks.yml` workflow as the pin table, sharing its parser
+primitives and `resolve_since` walk by import): 144 rows on 2026-09-01 —
+`1043` 48, `17aa` 44, `1028` 25, `103c` 25, one each `1f4c`/`2782`; 12
+`HDA_CODEC_QUIRK`-keyed; pin `0x17` on 142 rows, `0x15` on 2; targets are
+*widgets*, not DACs (`alc298_fixup_speaker_volume` routes to mixer `0x0c`,
+and no copy may say "DAC"). Only **13 rows carry a forcible name** (4 model
+names — `alc287-lenovo-legion-aw88399`, `alc298-spk-volume`,
+`alc295-disable-dac3`, `alc245-fixup-bass-hp-dac`); the 131 others reach
+their helper through an unnamed wrapper, so unlike the pin table the
+model-less upgrade-only branch is the *majority* here. Notably
+`alc285-speaker2-to-dac1` — the name that prompted this section — labels no
+row at all: no quirk entry points at that fixup directly, only chains do, and
+"never substitute a related fixup's name" (above) holds with the same force.
+Two rows (`17aa:3802`, `17aa:386e`) exist only through the generator's
+filter-then-dedup order — the ordering residual recorded above, reproduced
+deliberately so one piece of reasoning covers both tables — and `1043:1ee2`
+sits undated because mainline re-keyed it from codec- to PCI-SSID, the
+match-kind-is-identity rule firing on real data. Both fix procedures write
+the **same** `/etc/modprobe.d/speaker-pin-fix.conf` (two files setting one
+module option would race; the warnings are mutually exclusive anyway), and
+`DEMO_SPEAKER_ROUTE=17AA3906` previews the copy the way the pin demo does.
+
+**Neighbours judged and left** (so the next audit starts here, not from
+zero): the 7 helpers that write a pincfg *and* reroute belong to the pin
+table, deliberately — same machines, same remedy, and pre-fix their pin is
+unconfigured so the routing gate could never fire; COEF/verb all-in-one
+volume fixes are unobservable in `/proc` (`Processing caps` prints counts,
+never values), so any warning would be the table-match-alone shape this
+build exists to avoid — skip; GPIO amp-enables are readable (`GPIO: io=…`
+lines) but per-machine in meaning, so the corroborating half of the gate is
+missing — recorded, not built; `alc290_fixup_mono_speakers` waits for a
+report of the mono symptom.
 
 ## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
 
