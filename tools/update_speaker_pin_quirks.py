@@ -319,6 +319,61 @@ def apply_update(src: str, entries: dict) -> str:
     return updated
 
 
+def resolve_since(mainline: dict, releases, current: dict | None,
+                  parse, identity, recorded) -> dict[tuple[int, int], str]:
+    """``{key: oldest released series known to carry that entry}``.
+
+    *parse* turns one release's quirk source into ``{key: row}``; *identity*
+    extracts from a parsed row the part a re-key must invalidate (the match
+    kind); *recorded* extracts ``(since, identity)`` from a shipped table row.
+    Parameterized so the speaker-route updater shares it and the carry-forward
+    rules cannot drift between the two tables.
+
+    A value *current* already records is carried forward rather than
+    re-derived — what a released kernel contains is a historical fact — unless
+    the entry's identity changed: one that flips from ``SND_PCI_QUIRK`` to
+    ``HDA_CODEC_QUIRK`` starts reaching the machine through a different id, so
+    a date recorded against the old kind describes a fix the user was never
+    getting, and a release only counts as carrying an entry if it carries it
+    the same way. Upstream reads the flip the same way — ``75dc2eda659f``
+    re-keyed the Yoga Slim 7 14AKP10 with a ``Cc: stable`` because its
+    PCI-keyed entry had been shadowed, and dead, since it landed.
+    """
+    since = {}
+    for key, row in (current or {}).items():
+        rec_since, rec_identity = recorded(row)
+        if (rec_since and key in mainline
+                and rec_identity == identity(mainline[key])):
+            since[key] = rec_since
+    undated = set(mainline) - set(since)
+
+    # Walking newest→oldest, each release the entry survives in overwrites the
+    # previous answer, so the last write is the oldest one carrying it. The
+    # first release *without* it settles the entry — everything older lacks it
+    # too, so there is nothing left to learn and it leaves the walk. A
+    # re-appearance after a gap (an entry reverted then restored) therefore
+    # reports the newer run of releases — deliberately the conservative
+    # direction, and no such case exists upstream today.
+    scanned = 0
+    if undated:
+        for tag, src in releases:
+            present = parse(src)
+            scanned += 1
+            for key in sorted(undated):
+                match = present.get(key)
+                if match and identity(match) == identity(mainline[key]):
+                    since[key] = tag.lstrip("v")
+                else:
+                    undated.discard(key)
+            # Tested after the work, not before it: breaking here means the
+            # next release is never asked of *releases*, so it is never
+            # fetched. Testing first would spend a fetch to find out it had
+            # nothing to do.
+            if not undated or scanned >= _RELEASE_WINDOW:
+                break
+    return since
+
+
 def build_entries(master_src: str, releases, current: dict | None = None) -> dict:
     """Merge the mainline parse with per-release parses into table entries.
 
@@ -326,20 +381,11 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
     each item pulled is a blob fetched, and the walk stops as soon as every
     entry that needs an answer has one.
 
-    *current* is the table as it ships. What a released kernel contains is a
-    historical fact — v6.13 will never stop carrying what it carries — so a
-    ``since`` an earlier run derived is carried forward rather than re-derived.
-    Only entries we have never dated are looked up: ones recorded empty (in no
+    *current* is the table as it ships. A ``since`` an earlier run derived is
+    carried forward rather than re-derived (see ``resolve_since``): only
+    entries we have never dated are looked up — ones recorded empty (in no
     release yet) and ones appearing here for the first time. Pass ``None`` to
     re-derive every value from scratch, which is what ``--rescan`` is for.
-
-    Match kind counts as part of an entry's identity. One that flips from
-    ``SND_PCI_QUIRK`` to ``HDA_CODEC_QUIRK`` starts reaching the machine through
-    a different id, so a date recorded against the old kind describes a fix the
-    user was never getting: such a row is re-dated, and a release only counts as
-    carrying it if it carries it the same way. Upstream reads the flip the same
-    way — ``75dc2eda659f`` re-keyed the Yoga Slim 7 14AKP10 with a ``Cc: stable``
-    because its PCI-keyed entry had been shadowed, and dead, since it landed.
 
     Carrying it is what keeps the weekly diff honest. Re-deriving reaches the
     same answer for most rows, but an entry older than the oldest release we
@@ -357,37 +403,10 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
                          f"(expected {MIN_ENTRIES}–{MAX_ENTRIES}) — suspect a "
                          "parse bug or a renamed fixup")
 
-    since = {key: recorded
-             for key, (_model, _pins, recorded, codec_only)
-             in (current or {}).items()
-             if recorded and key in mainline
-             and codec_only == mainline[key][2]}
-    undated = set(mainline) - set(since)
-
-    # Walking newest→oldest, each release the entry survives in overwrites the
-    # previous answer, so the last write is the oldest one carrying it. The
-    # first release *without* it settles the entry — everything older lacks it
-    # too, so there is nothing left to learn and it leaves the walk. A
-    # re-appearance after a gap (an entry reverted then restored) therefore
-    # reports the newer run of releases — deliberately the conservative
-    # direction, and no such case exists upstream today.
-    scanned = 0
-    if undated:
-        for tag, src in releases:
-            present = parse_quirks(src)
-            scanned += 1
-            for key in sorted(undated):
-                match = present.get(key)
-                if match and match[2] == mainline[key][2]:
-                    since[key] = tag.lstrip("v")
-                else:
-                    undated.discard(key)
-            # Tested after the work, not before it: breaking here means the
-            # next release is never asked of *releases*, so it is never
-            # fetched. Testing first would spend a fetch to find out it had
-            # nothing to do.
-            if not undated or scanned >= _RELEASE_WINDOW:
-                break
+    since = resolve_since(
+        mainline, releases, current, parse_quirks,
+        identity=lambda row: row[2],
+        recorded=lambda row: (row[2], row[3]))
 
     return {key: (model, pins, since.get(key, ""), codec_only)
             for key, (model, pins, codec_only) in mainline.items()}
