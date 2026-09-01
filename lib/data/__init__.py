@@ -2,9 +2,9 @@
 
 Two weekly workflows rewrite the contents of this package unattended —
 ``.github/workflows/kernel-release-table.yml`` and
-``.github/workflows/speaker-pin-quirks.yml``, each running a deterministic
-``tools/update_*.py`` script that locates a dict literal by regex, splices a
-re-rendered body in, and opens a PR. That is a safe thing to do to a file
+``.github/workflows/speaker-quirks.yml`` (which writes both quirk tables) —
+each running a deterministic ``tools/update_*.py`` script that locates a dict
+literal by regex, splices a re-rendered body in, and opens a PR. That is a safe thing to do to a file
 whose whole content is the table, and an uncomfortable one to do inside a
 script somebody is editing by hand the same week.
 

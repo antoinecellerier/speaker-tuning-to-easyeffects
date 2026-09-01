@@ -1,0 +1,176 @@
+name: Speaker quirk tables
+
+# Weekly rebuild of the two machine-written speaker tables in lib/data/ —
+# _SPEAKER_PIN_QUIRKS, the machines whose woofer pin the BIOS hides, which
+# drives the issue #53 warning; and _SPEAKER_ROUTE_QUIRKS, the machines whose
+# speaker pin the codec routes to a widget with no volume amplifier, leaving
+# that speaker at a fixed level. When upstream adds, drops or promotes an entry
+# in either, this opens a PR.
+#
+# Why automate them: each table's job is to say "upstream has a fix for *your*
+# machine that your kernel isn't applying". A stale copy gets that wrong in
+# both directions — it misses machines added since, and it keeps telling users
+# to force a fixup a renamed entry no longer provides. The `since` flag also
+# flips on its own when a mainline-only quirk reaches a release, and that flip
+# is what turns "no released kernel has this yet" into real upgrade advice.
+#
+# Same shape and reasoning as kernel-release-table.yml: deterministic
+# stdlib-only scripts (tools/update_speaker_pin_quirks.py,
+# tools/update_speaker_route_quirks.py) rather than a Claude run, unit-tested
+# offline, failing closed on an implausible parse rather than writing a
+# plausible-looking wrong table. A failing scheduled run emails the maintainer,
+# which is the intended notification path.
+
+on:
+  schedule:
+    - cron: '17 7 * * 3'  # Wednesdays — off the Monday/Tuesday kernel slots
+  workflow_dispatch:
+
+concurrency:
+  group: speaker-quirks
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the PR
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Rebuild the quirk tables from upstream
+        id: scan
+        run: |
+          # Each updater's stdout is "<+|-|~> <vendor>:<device>" per changed
+          # machine, and empty when nothing moved. --write edits the file in
+          # place; if the branch turns out to exist we discard both below.
+          #
+          # One --cache-dir for both: it holds the tag clone the release walk
+          # dates entries against (~940 refs), so the second updater re-uses it
+          # instead of fetching every ref again.
+          : > scan.log
+          python3 tools/update_speaker_pin_quirks.py --write \
+            --cache-dir "$RUNNER_TEMP/linux-tags" > pin.txt 2>> scan.log \
+            || { cat scan.log >&2; exit 1; }
+          python3 tools/update_speaker_route_quirks.py --write \
+            --cache-dir "$RUNNER_TEMP/linux-tags" > route.txt 2>> scan.log \
+            || { cat scan.log >&2; exit 1; }
+          cat scan.log >&2
+          if [ ! -s pin.txt ] && [ ! -s route.txt ]; then
+            cat scan.log >> "$GITHUB_STEP_SUMMARY"
+            echo "found=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # One header line per table that moved, so a PR body listing both
+          # says which machine belongs to which fault.
+          : > changes.txt
+          if [ -s pin.txt ]; then
+            echo "Hidden speaker pin:" >> changes.txt
+            cat pin.txt >> changes.txt
+          fi
+          if [ -s route.txt ]; then
+            echo "Speaker pin routed past the volume amp:" >> changes.txt
+            cat route.txt >> changes.txt
+          fi
+          # Branch is named for the change set's size and content hash, so a
+          # rerun proposing the same edit reuses the branch (and stays skipped
+          # if the maintainer closed that PR on purpose).
+          slug=$(sort changes.txt | sha256sum | cut -c1-8)
+          echo "found=1" >> "$GITHUB_OUTPUT"
+          echo "branch=speaker-quirks/$slug" >> "$GITHUB_OUTPUT"
+          echo "count=$(cat pin.txt route.txt | wc -l)" >> "$GITHUB_OUTPUT"
+          cat changes.txt
+
+      - name: Skip if this change set was already proposed
+        id: dedupe
+        if: steps.scan.outputs.found == '1'
+        env:
+          BRANCH: ${{ steps.scan.outputs.branch }}
+        run: |
+          # Branch-exists, not PR-open: this also covers a PR the maintainer
+          # closed on purpose, which must not be re-opened every week.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "$BRANCH already exists — nothing to propose." >> "$GITHUB_STEP_SUMMARY"
+            git checkout -- lib/data/speaker_pin_quirks.py \
+                            lib/data/speaker_route_quirks.py
+            echo "proceed=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A PR opened with GITHUB_TOKEN does not trigger tests.yml (GitHub's
+      # workflow-recursion guard), so its checks tab would be empty — the
+      # suite has to run here, before the push.
+      - name: Run the test suite against the edit
+        if: steps.dedupe.outputs.proceed == '1'
+        run: |
+          pip install -r requirements.txt
+          pytest tests/
+
+      - name: Open the pull request
+        if: steps.dedupe.outputs.proceed == '1'
+        env:
+          BRANCH: ${{ steps.scan.outputs.branch }}
+          COUNT: ${{ steps.scan.outputs.count }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # `t` branches to end-of-cycle after a successful substitution.
+          # Without it the expressions chain on the same line: `s/^+ /- added /`
+          # leaves the line starting with "- ", which `s/^- /- dropped /` then
+          # rewrites, so every addition reads "- dropped added <id>". The
+          # header lines match none of them and pass through as written.
+          changed=$(sed 's/^+ /- added /; t; s/^- /- dropped /; t; s/^~ /- changed /' changes.txt)
+          title="Refresh the speaker quirk tables ($COUNT machine(s))"
+
+          git checkout -b "$BRANCH"
+          git add lib/data/speaker_pin_quirks.py lib/data/speaker_route_quirks.py
+          # Those paths are a whitelist, and it fails badly rather than
+          # silently: if a table moves, its updater edits a file this step
+          # never stages, so `git commit` exits 1 a week later saying only "no
+          # changes added to commit". This says which path to fix instead. It
+          # can only fire when *neither* table changed, which the scan step has
+          # already ruled out.
+          if git diff --cached --quiet; then
+            echo "nothing staged — an updater edited a file this step does" \
+                 "not 'git add'. A table has moved: point the 'git add' paths" \
+                 "above, and the 'git checkout --' paths in the dedupe step," \
+                 "at wherever _SPEAKER_PIN_QUIRKS and _SPEAKER_ROUTE_QUIRKS" \
+                 "live now." >&2
+            exit 1
+          fi
+          git commit -m "$title"
+          git push -u origin "$BRANCH"
+
+          gh pr create --title "$title" --body "$(printf '%s\n' \
+            "Rebuilds \`_SPEAKER_PIN_QUIRKS\` in \`lib/data/speaker_pin_quirks.py\` and \`_SPEAKER_ROUTE_QUIRKS\` in \`lib/data/speaker_route_quirks.py\` from upstream's Realtek quirk table. The first drives the issue #53 hidden-woofer warning (end-of-run hint, \`--doctor\`); the second lists machines whose speaker pin the codec routes to a widget with no volume amplifier, leaving that speaker at a fixed level." \
+            "" \
+            "$changed" \
+            "" \
+            "Each entry is keyed by subsystem id and records whether the quirk has reached a *released* kernel — an entry that is mainline-only must not produce \"upgrade your kernel\" advice. A \"changed\" line is usually that flag flipping as a release ships." \
+            "" \
+            "\`since=\` is carried forward once derived, not re-derived weekly (a released kernel's contents cannot change), so rows not listed above were not re-checked. To re-derive every one of them — worth doing after a change to either parser, not otherwise — run the updater for that table with \`--rescan\`." \
+            "" \
+            "Verify against [\`sound/hda/codecs/realtek/alc269.c\`](https://github.com/torvalds/linux/blob/master/sound/hda/codecs/realtek/alc269.c) — search the subsystem id. A route row's fixup is often reached through a wrapper, so follow \`.chain_id\` to the helper that calls \`snd_hda_override_conn_list\`." \
+            "" \
+            "\`pytest tests/\` passed in the run that produced this commit. A PR opened by \`GITHUB_TOKEN\` does not trigger \`tests.yml\`, so this PR's own checks tab stays empty — reopen it or push an empty commit if you want CI to run again." \
+            "" \
+            "No CHANGELOG entry: a data refresh, per \`.claude/rules/changelog.md\`." \
+            "" \
+            "_Opened by the speaker-quirks workflow._")"

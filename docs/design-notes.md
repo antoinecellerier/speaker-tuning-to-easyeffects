@@ -2943,7 +2943,7 @@ Design choices:
   `snd_sof_intel_hda_generic` today and on `snd_sof_intel_hda_common` before
   the generic split; the legacy path is `snd_hda_intel model=`.
 - **Regenerated wholesale, weekly** (`tools/update_speaker_pin_quirks.py`,
-  `.github/workflows/speaker-pin-quirks.yml`), unlike the append-only kernel
+  `.github/workflows/speaker-quirks.yml`), unlike the append-only kernel
   table: entries can disappear upstream, and a stale one would tell a user to
   force a fixup their kernel no longer has. The script fails closed on a
   partial parse — which it did on first run here, correctly refusing to edit a

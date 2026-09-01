@@ -85,6 +85,7 @@ STDLIB_ONLY = (
     "lib.ee_socket",
     "lib.data.kernel_releases",
     "lib.data.speaker_pin_quirks",
+    "lib.data.speaker_route_quirks",
     "lib.hardware.codecs",
     "lib.hardware.amps",
     "lib.hardware.speakers",
