@@ -31,7 +31,11 @@ Rules that hold for anything added here:
   purpose is to prompt action, only teaches them to skip the block.
 - **One link, and it is last.** `_REPORT_FORM_URL` is printed once, by the
   closing block. No message body may contain a URL: wrapped prose folds it
-  mid-string and it stops being clickable.
+  mid-string and it stops being clickable. The one carve-out is a
+  *verification* link — the upstream commit a speaker-quirk warning rests on
+  (`upstream_change_lines`) — printed as its own line, verbatim, never inside
+  wrapped prose and never in a `Finding`; the closing block's link stays the
+  last thing on screen.
 - **Declare `kind` where the condition is raised**, not in a central table —
   `"hint"` fixes the user's own audio, `"ask"` is something the project needs.
 - **Slugs are unique and stable.** They are the de-duplication key across

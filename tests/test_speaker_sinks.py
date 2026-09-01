@@ -1811,7 +1811,7 @@ def test_hidden_pin_detected_on_listed_machine():
                               bass_pin_default="0x411111f0")])
     found = speakers.find_hidden_speaker_pin(info)
     assert found is not None
-    quirk, codec_ssid, missing = found
+    quirk, codec_ssid, missing, _key = found
     assert codec_ssid == "17AA386A"
     assert quirk.model == "alc287-yoga9-bass-spk-pin"
     # Only the pin that is actually absent — 0x14 is configured and must not
@@ -2146,7 +2146,9 @@ def test_doctor_carries_the_fix_only_when_there_is_one():
     nameless = _info([_codec_dump(ssid="0x17aa38cf",
                                   bass_pin_default="0x411111f0")])
     nameless_check = report_speaker.speaker_pin_status(nameless)
-    assert nameless_check.steps == ()
+    # The steps still carry the verification link; what they must not carry
+    # is a command the row has no name for.
+    assert not any("sudo" in text for _, text in nameless_check.steps)
     assert "modprobe" not in nameless_check.detail
 
 
@@ -2194,10 +2196,13 @@ def test_report_never_calls_a_flagged_pin_an_ordinary_spare(capsys):
     out = capsys.readouterr().out
 
     assert "0x17: pincap OUT HP Detect" in out
-    flagged = next(l for l in out.splitlines() if l.strip().startswith("0x17:"))
-    assert "⚠" in flagged and "kernel fix" in flagged
-    assert "0x1b" in out and "⚠" not in next(
-        l for l in out.splitlines() if l.strip().startswith("0x1b:"))
+    lines = out.splitlines()
+    # The flag is the line under the pin, not its tail: appended, it was the
+    # end of a 130-column line and wrapped away from the pin it flagged.
+    at = next(i for i, l in enumerate(lines) if l.strip().startswith("0x17:"))
+    assert "⚠" in lines[at + 1] and "kernel fix" in lines[at + 1]
+    spare = next(i for i, l in enumerate(lines) if l.strip().startswith("0x1b:"))
+    assert "⚠" not in lines[spare] and "⚠" not in lines[spare + 1]
     assert "(spare pins are normal" not in out
     assert "the flagged pin above would add more" in out
 
@@ -2288,7 +2293,7 @@ def test_misrouted_pin_detected_on_listed_machine():
                               bass_driver_conn="")])
     found = speakers.find_misrouted_speaker_pin(info)
     assert found is not None
-    quirk, codec_ssid, pin, source = found
+    quirk, codec_ssid, pin, source, _key = found
     assert codec_ssid == "17AA3906"
     assert quirk.model == "alc287-lenovo-legion-aw88399"
     assert pin.node == "0x17"
@@ -2589,3 +2594,136 @@ def test_no_routing_ask_without_a_forcible_name():
     assert report_speaker._routing_finding(nameless).ask == ""
     forcible = nameless._replace(model="alc285-speaker2-to-dac1")
     assert report_speaker._routing_finding(forcible).ask
+
+
+# ---- the verification link -----------------------------------------------
+#
+# Every warning above asserts "upstream carries a fix for this exact model".
+# The link is what lets a reader check that instead of trusting it.
+
+UPSTREAM_COMMIT = "https://github.com/torvalds/linux/commit/"
+UPSTREAM_TABLE = ("https://github.com/torvalds/linux/blob/master/"
+                  "sound/hda/codecs/realtek/alc269.c")
+
+
+def _with_commit(monkeypatch, table, key, commit):
+    """The live row with a *commit* of our choosing. The shipped value is
+    machine-written — blame's answer moves when upstream edits the line — so
+    no test may assume it, any more than a `since`."""
+    row = table[key]._replace(commit=commit)
+    monkeypatch.setitem(table, key, row)
+    return row
+
+
+def _url_lines(out):
+    return [line for line in out.splitlines() if "http" in line]
+
+
+def _hidden_pin_info():
+    return _info([_codec_dump(ssid=ISSUE_53_SSID,
+                              bass_pin_default="0x411111f0")])
+
+
+def _misrouted_info(ssid=LEGION_SSID, **kwargs):
+    return _info([_codec_dump(ssid=ssid, bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")], **kwargs)
+
+
+def test_pin_warning_links_the_upstream_commit_on_its_own_line(capsys, monkeypatch):
+    """The URL sits alone on its line so wrapping can never fold it — the
+    carve-out user-messages.md grants a verification link and nothing else."""
+    _with_commit(monkeypatch, speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                 (0x17AA, 0x386A), "deadbeef1234")
+    info = _hidden_pin_info()
+    report_speaker.warn_hidden_speaker_pin(
+        speakers.find_hidden_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "The upstream change that lists your id 0x17aa, 0x386a:" in out
+    assert _url_lines(out) == [f"  {UPSTREAM_COMMIT}deadbeef1234"]
+
+
+def test_pin_warning_without_a_commit_links_the_table_and_names_the_id(capsys, monkeypatch):
+    """A row the updater hasn't linked yet still gives the reader somewhere
+    to look: the table itself and the id to search it for."""
+    _with_commit(monkeypatch, speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                 (0x17AA, 0x386A), "")
+    info = _hidden_pin_info()
+    report_speaker.warn_hidden_speaker_pin(
+        speakers.find_hidden_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "lists your id 0x17aa, 0x386a — search this file for it:" in out
+    assert _url_lines(out) == [f"  {UPSTREAM_TABLE}"]
+
+
+def test_routing_warning_links_the_upstream_commit(capsys, monkeypatch):
+    _with_commit(monkeypatch, speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                 (0x17AA, 0x3906), "deadbeef1234")
+    info = _misrouted_info()
+    report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert _url_lines(out) == [f"  {UPSTREAM_COMMIT}deadbeef1234"]
+
+
+def test_fallback_link_names_the_table_key_not_the_codec_id(capsys, monkeypatch):
+    """On a PCI-keyed match the codec's own id is not what upstream's table
+    lists, so telling the reader to search for it would find nothing."""
+    _with_commit(monkeypatch, speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                 (0x1028, 0x075C), "")
+    info = _misrouted_info(ssid="0x17aa9999", pci=("1028", "075C"))
+    report_speaker.warn_speaker_routing(
+        speakers.find_misrouted_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    assert "lists your id 0x1028, 0x075c" in out
+    assert "0x17aa, 0x9999" not in out
+
+
+def test_doctor_checks_carry_the_link_even_without_a_procedure(monkeypatch):
+    """A model-less row prints no procedure and used to print nothing a
+    reader could check either. The link rides in the steps, not the detail,
+    because the printer wraps the detail."""
+    row = _with_commit(monkeypatch, speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                       (0x17AA, 0x3906), "deadbeef1234")
+    monkeypatch.setitem(speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                        (0x17AA, 0x3906), row._replace(model=""))
+    check = report_speaker.speaker_route_status(_misrouted_info())
+    assert "http" not in check.detail
+    texts = [t for _, t in check.steps]
+    assert texts[1:3] == ["The upstream change that lists your id 0x17aa, 0x3906:",
+                         f"  {UPSTREAM_COMMIT}deadbeef1234"]
+    # The upgrade picture follows the link; no procedure follows it here.
+    assert any("kernel" in t for t in texts[2:])
+    assert not any("sudo" in t for t in texts)
+
+    _with_commit(monkeypatch, speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                 (0x17AA, 0x386A), "deadbeef1234")
+    check = report_speaker.speaker_pin_status(_hidden_pin_info())
+    texts = [t for _, t in check.steps]
+    assert texts[1:3] == ["The upstream change that lists your id 0x17aa, 0x386a:",
+                         f"  {UPSTREAM_COMMIT}deadbeef1234"]
+    assert any("sudo tee" in t for t in texts[2:])
+
+
+def test_speaker_info_prints_the_link_under_the_flagged_pin(capsys, monkeypatch):
+    """A pasted --speaker-info report carries the link too — one line under
+    the pin it flags, and under no other."""
+    _with_commit(monkeypatch, speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                 (0x17AA, 0x386A), "deadbeef1234")
+    report_speaker._print_speaker_info(_hidden_pin_info())
+    out = capsys.readouterr().out
+    assert ("      ⚠ a kernel fix declares this a speaker; it lists your id "
+            f"0x17aa, 0x386a:\n        {UPSTREAM_COMMIT}deadbeef1234\n") in out
+    assert out.count("⚠") == 1
+
+    _with_commit(monkeypatch, speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
+                 (0x17AA, 0x3906), "")
+    report_speaker._print_speaker_info(_misrouted_info())
+    out = capsys.readouterr().out
+    assert ("      ⚠ a kernel fix routes this to 0x02; search this file for "
+            f"0x17aa, 0x3906:\n        {UPSTREAM_TABLE}\n") in out
+    assert out.count("⚠") == 1
+
+
+def test_a_healthy_machine_prints_no_link(capsys):
+    report_speaker._print_speaker_info(_info([CODEC_TWO_PINS]))
+    assert "http" not in capsys.readouterr().out

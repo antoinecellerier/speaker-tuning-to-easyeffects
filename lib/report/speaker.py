@@ -183,6 +183,62 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk
             "kernel upgrade is the durable fix." + tail)
 
 
+_KERNEL_TREE_URL = "https://github.com/torvalds/linux"
+_QUIRK_TABLE_PATH = "sound/hda/codecs/realtek/alc269.c"
+
+
+def upstream_change_lines(quirk: speaker_pin_quirks.PinQuirk
+                                 | speaker_route_quirks.RouteQuirk,
+                          key: tuple[int, int], width: int,
+                          ) -> tuple[tuple[str, str], ...]:
+    """The link that lets a reader check the claim, as ``(style, text)`` lines.
+
+    Both warnings assert that upstream carries a fix for this exact machine,
+    and until this nothing printed let anyone verify it. With a commit on the
+    row the link is that commit — blame's answer for the entry's line, usually
+    the change that added it, otherwise upstream's last edit of it. Without
+    one it is the table itself, with the id to search it for.
+
+    The URL is its own line, never wrapped: the one-link rule
+    (`.claude/rules/user-messages.md`) exists because wrapped prose folds a
+    URL mid-string, and a line printed verbatim keeps it clickable. The id is
+    the table's *key*, not the codec's id — on a PCI-keyed match the two
+    differ, and upstream's table lists the key. GitHub rather than
+    git.kernel.org because it opens without an anti-bot wall.
+    """
+    def prose(text: str) -> list[tuple[str, str]]:
+        return [("dim", line) for line in textwrap.wrap(
+            text, width, break_on_hyphens=False)]
+
+    # The id is named so the reader knows what to look for once there: a
+    # commit page is a raw diff, and "this model" gives them nothing to
+    # search it for.
+    vendor, device = key
+    ident = f"0x{vendor:04x}, 0x{device:04x}"
+    if quirk.commit:
+        return (*prose(f"The upstream change that lists your id {ident}:"),
+                ("cta", f"  {_KERNEL_TREE_URL}/commit/{quirk.commit}"))
+    return (*prose(f"Upstream's table lists your id {ident} — search this "
+                   "file for it:"),
+            ("cta", f"  {_KERNEL_TREE_URL}/blob/master/{_QUIRK_TABLE_PATH}"))
+
+
+def _speaker_info_flag(lead: str, quirk: speaker_pin_quirks.PinQuirk
+                                        | speaker_route_quirks.RouteQuirk,
+                       key: tuple[int, int]) -> list[str]:
+    """The --speaker-info form of ``upstream_change_lines``: the flag and its
+    link as two lines under the pin they belong to, so a pasted report
+    carries the link too. Appended to the entry instead, the flag was the
+    tail of a 130-column line and wrapped away from the clause it qualified."""
+    vendor, device = key
+    ident = f"0x{vendor:04x}, 0x{device:04x}"
+    if quirk.commit:
+        return [f"      ⚠ {lead}; it lists your id {ident}:",
+                f"        {_KERNEL_TREE_URL}/commit/{quirk.commit}"]
+    return [f"      ⚠ {lead}; search this file for {ident}:",
+            f"        {_KERNEL_TREE_URL}/blob/master/{_QUIRK_TABLE_PATH}"]
+
+
 def _pin_phrase(missing: list[str]) -> str:
     """"pin 0x17" / "pins 0x14 and 0x17" — the copy has to work for both.
 
@@ -350,7 +406,7 @@ def warn_hidden_speaker_pin(
     """
     if not found:
         return None
-    quirk, codec_ssid, missing = found
+    quirk, codec_ssid, missing, key = found
     phrase = _pin_phrase(missing)
 
     # "the preset shapes the rest alone" only holds if a speaker pin survived:
@@ -365,6 +421,11 @@ def warn_hidden_speaker_pin(
         "unconnected and the kernel takes it at its word, so whatever it "
         "drives — often the woofers — gets no signal"
         + (", and the preset shapes the rest alone." if others else "."))
+    print()
+    # Beside the claim it verifies, before the upgrade picture leads into the
+    # procedure — between the two it read as an interruption.
+    for style, text in upstream_change_lines(quirk, key, console._wrap_width()):
+        console.cprint(style, text)
     print()
     console._cprint_wrapped("dim", upgrade_prospect(quirk, info.kernel))
     steps = speaker_pin_fix_steps(quirk, missing,
@@ -422,7 +483,7 @@ def warn_speaker_routing(
     """
     if not found:
         return None
-    quirk, codec_ssid, pin, source = found
+    quirk, codec_ssid, pin, source, key = found
     # The control name is the dump's own ("Bass Speaker" on most rows, plain
     # "Speaker" elsewhere) — never a role we inferred: the two 0x15 rows and
     # any oddly-named codec must not be promised a woofer.
@@ -437,6 +498,9 @@ def warn_speaker_routing(
         f"{_source_phrase(quirk.sources)} instead, and your kernel isn't "
         "applying it. Usually heard as one speaker sitting at a fixed level "
         "while the rest track the volume slider.")
+    print()
+    for style, text in upstream_change_lines(quirk, key, console._wrap_width()):
+        console.cprint(style, text)
     print()
     console._cprint_wrapped("dim", upgrade_prospect(quirk, info.kernel))
     steps = speaker_route_fix_steps(quirk, source,
@@ -801,11 +865,13 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                 line += f" — driven from {route.selected}"
                 if routing.volume.get(route.selected) is False:
                     line += ", which has no volume control"
+            speaker_lines.append(line)
             if (misrouted and misrouted[1] == s.codec
                     and misrouted[2].node == s.node):
-                line += ("  ⚠ a kernel fix routes this to "
-                         f"{_source_phrase(misrouted[0].sources)}")
-            speaker_lines.append(line)
+                speaker_lines += _speaker_info_flag(
+                    "a kernel fix routes this to "
+                    f"{_source_phrase(misrouted[0].sources)}",
+                    misrouted[0], misrouted[4])
         speaker_lines = speaker_lines or ["  (none configured)"]
         if info.unconfigured_pins:
             # Raw evidence, and one verdict where we have one: these are
@@ -817,12 +883,13 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
             found = speakers.find_hidden_speaker_pin(info)
             flagged = set(found[2]) if found else set()
             speaker_lines.append("  Output-capable pins left unconfigured:")
-            speaker_lines += [
-                f"    {p.node}: pincap {p.pincap}, default {p.pin_default}"
-                + ("  ⚠ a kernel fix declares this a speaker"
-                   if p.node in flagged else "")
-                for p in info.unconfigured_pins
-            ]
+            for p in info.unconfigured_pins:
+                speaker_lines.append(
+                    f"    {p.node}: pincap {p.pincap}, default {p.pin_default}")
+                if p.node in flagged:
+                    speaker_lines += _speaker_info_flag(
+                        "a kernel fix declares this a speaker",
+                        found[0], found[3])
             # Said here because this section is what a reader stares at: spare
             # pins are ordinary, and a list of them is not a fault report.
             # Wrapped to the terminal like the rest of this tool's prose —
@@ -871,6 +938,28 @@ def report_speaker_info():
     _print_speaker_info(info)
 
 
+def _doctor_steps(quirk: speaker_pin_quirks.PinQuirk
+                         | speaker_route_quirks.RouteQuirk,
+                  key: tuple[int, int], prospect: str,
+                  fix_steps: tuple[tuple[str, str], ...],
+                  ) -> tuple[tuple[str, str], ...]:
+    """The link, the upgrade picture, then the procedure — what the end-of-run
+    block prints, in its order. They ride in ``steps`` rather than the detail
+    because the printer wraps the detail, and a wrapped URL is the one thing
+    the copy rules forbid; the upgrade sentence moves with the link so the
+    link stays beside the claim it verifies rather than splitting "to apply
+    it on the kernel you have now:" from step 1. A model-less row, which has
+    no procedure, still gets both."""
+    width = console._wrap_width() - 9
+    link = upstream_change_lines(quirk, key, width)
+    prose = tuple(("dim", line) for line in textwrap.wrap(
+        prospect, width, break_on_hyphens=False))
+    # A blank before the link: the detail's last sentence is a claim, and the
+    # link answers it rather than continuing it.
+    return ((("", ""),) + link + (("", ""),) + prose
+            + ((("", ""),) + fix_steps if fix_steps else ()))
+
+
 def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
     """Verdict line for a speaker pin the firmware hides, or None when this
     machine isn't one upstream has had to fix (nearly all of them — a PASS for
@@ -889,20 +978,20 @@ def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
     found = speakers.find_hidden_speaker_pin(info)
     if not found:
         return None
-    quirk, codec_ssid, missing = found
+    quirk, codec_ssid, missing, key = found
     return CheckResult(
         DOCTOR_WARN, "Speaker pins",
         f"upstream Linux carries a fix for this exact model that declares "
         f"{_pin_phrase(missing)} on codec {codec_ssid} an internal speaker, "
         "and your kernel isn't applying it — those speakers get no signal, "
-        "whatever the preset does. "
-        + upgrade_prospect(quirk, info.kernel),
+        "whatever the preset does.",
         # Same width the printer will wrap the detail to, less its indent, so
         # the prose here lines up with the prose above it.
-        steps=speaker_pin_fix_steps(quirk, missing,
-                                    speakers._card_uses_sof(info.sound_cards),
-                                    console._wrap_width() - 9,
-                                    speaker_info_shown=True))
+        steps=_doctor_steps(
+            quirk, key, upgrade_prospect(quirk, info.kernel),
+            speaker_pin_fix_steps(
+                quirk, missing, speakers._card_uses_sof(info.sound_cards),
+                console._wrap_width() - 9, speaker_info_shown=True)))
 
 
 def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
@@ -918,16 +1007,16 @@ def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
     found = speakers.find_misrouted_speaker_pin(info)
     if not found:
         return None
-    quirk, codec_ssid, _pin, source = found
+    quirk, codec_ssid, _pin, source, key = found
     return CheckResult(
         DOCTOR_WARN, "Speaker routing",
         f"Linux is driving pin {quirk.pin} on codec {codec_ssid} from widget "
         f"{source}, which reports no volume amplifier, so that speaker sits "
         "at a fixed level whatever the preset does. Upstream Linux carries a "
         "fix for this exact model that routes it to "
-        f"{_source_phrase(quirk.sources)}. "
-        + upgrade_prospect(quirk, info.kernel),
-        steps=speaker_route_fix_steps(quirk, source,
-                                      speakers._card_uses_sof(info.sound_cards),
-                                      console._wrap_width() - 9,
-                                      speaker_info_shown=True))
+        f"{_source_phrase(quirk.sources)}.",
+        steps=_doctor_steps(
+            quirk, key, upgrade_prospect(quirk, info.kernel),
+            speaker_route_fix_steps(
+                quirk, source, speakers._card_uses_sof(info.sound_cards),
+                console._wrap_width() - 9, speaker_info_shown=True)))

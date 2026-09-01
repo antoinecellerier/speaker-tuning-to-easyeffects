@@ -112,6 +112,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   with the modprobe fix where the kernel accepts one — when upstream carries
   a routing fix for your exact model that your kernel isn't applying.
   (why and the membership bar in docs/design-notes.md)
+- The hidden-speaker-pin and speaker-routing warnings now link the upstream
+  kernel commit that lists your model — in the run, in `--doctor` and under
+  the flagged pin in `--speaker-info` — so the claim can be checked instead
+  of trusted. (how the link is derived in docs/design-notes.md)
 - Both `--doctor`s now print a `PipeWire` section — the versions the
   report ran against, the output sink, the clock (session defaults and
   what your output actually ran at), and dropout counts with ages and a

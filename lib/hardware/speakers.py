@@ -941,6 +941,10 @@ def _quirk_for_codec(table: dict, codec_ssid: str, owns_speakers: bool,
       one codec, so it may only stand in for a codec that already owns
       speaker pins — otherwise it lends the analog machine's identity to
       whichever other codec happens to have a spare output pin.
+
+    Returns ``(row, key)``: the key is the *table's*, which on the PCI
+    fallback is not the codec's id. The warnings print it as the id to search
+    upstream's table for, so it has to be the one upstream lists.
     """
     key = _ssid_key(codec_ssid)
     quirk = table.get(key) if key else None
@@ -948,13 +952,15 @@ def _quirk_for_codec(table: dict, codec_ssid: str, owns_speakers: bool,
         pci_key = _ssid_key("".join(pci_subsystem))
         candidate = table.get(pci_key) if pci_key else None
         if candidate is not None and not candidate.codec_only:
-            quirk = candidate
-    return quirk
+            quirk, key = candidate, pci_key
+    return quirk, key
 
 
 def find_hidden_speaker_pin(
-        info: SpeakerInfo) -> tuple[speaker_pin_quirks.PinQuirk, str] | None:
-    """The pin fixup this machine should be getting but isn't, else None.
+        info: SpeakerInfo,
+) -> tuple[speaker_pin_quirks.PinQuirk, str, list[str], tuple[int, int]] | None:
+    """The pin fixup this machine should be getting but isn't, else None —
+    ``(quirk, codec ssid, missing pins, table key)``.
 
     Mirrors ``snd_hda_pick_fixup`` (``sound/hda/common/auto_parser.c``) so we
     only claim a match the kernel could actually make:
@@ -1002,9 +1008,9 @@ def find_hidden_speaker_pin(
         configured.setdefault(pin.codec, set()).add(pin.node.lower())
 
     for codec_ssid, nodes in sorted(configured.items()):
-        quirk = _quirk_for_codec(speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
-                                 codec_ssid, bool(nodes), uses_sof,
-                                 info.pci_subsystem)
+        quirk, key = _quirk_for_codec(speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                                      codec_ssid, bool(nodes), uses_sof,
+                                      info.pci_subsystem)
         if not quirk:
             continue
         declared = [n.lower() for n in quirk.pins.split()]
@@ -1016,15 +1022,17 @@ def find_hidden_speaker_pin(
             continue
         missing = [n for n in declared if n not in nodes]
         if missing:
-            return quirk, codec_ssid, missing
+            return quirk, codec_ssid, missing, key
     return None
 
 
 def find_misrouted_speaker_pin(
         info: SpeakerInfo,
-) -> tuple[speaker_route_quirks.RouteQuirk, str, SpeakerPin, str] | None:
+) -> tuple[speaker_route_quirks.RouteQuirk, str, SpeakerPin, str,
+           tuple[int, int]] | None:
     """The speaker pin this machine is driving through a widget with no
-    volume control, else None — ``(quirk, codec ssid, the pin, its source)``.
+    volume control, else None — ``(quirk, codec ssid, the pin, its source,
+    table key)``.
 
     Unlike the hidden-pin detector, the fault here is *visible*: the codec
     dump stars each pin's selected source and says whether that widget
@@ -1079,9 +1087,9 @@ def find_misrouted_speaker_pin(
     for codec_ssid, pins in sorted(speakers_by_codec.items()):
         if hidden and hidden[1] == codec_ssid:
             continue
-        quirk = _quirk_for_codec(speaker_route_quirks._SPEAKER_ROUTE_QUIRKS,
-                                 codec_ssid, True, uses_sof,
-                                 info.pci_subsystem)
+        quirk, key = _quirk_for_codec(
+            speaker_route_quirks._SPEAKER_ROUTE_QUIRKS, codec_ssid, True,
+            uses_sof, info.pci_subsystem)
         if quirk is None:
             continue
         pin = next((p for p in pins if p.node.lower() == quirk.pin), None)
@@ -1099,5 +1107,5 @@ def find_misrouted_speaker_pin(
                 or route.driver_sources
                 != route.sources[:len(route.driver_sources)]):
             continue
-        return quirk, codec_ssid, pin, route.selected
+        return quirk, codec_ssid, pin, route.selected, key
     return None
