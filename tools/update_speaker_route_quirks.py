@@ -25,14 +25,21 @@ rebuilt: what a released kernel contains cannot change, so re-deriving it each
 week only risks losing it. ``--rescan`` re-derives anyway, for an audit after a
 parser change.
 
+Each entry also records the upstream commit that last wrote its line, so the
+warning can link the fix it claims exists rather than the whole driver.
+``--blame`` resolves it and a token buys it; it is carried forward on the same
+terms as ``since``.
+
 The upstream reading — the source fetch, the fixup-block and quirk-entry
-regexes, the release walk — is the speaker-*pin* updater's, imported wholesale
-so the two tables cannot come to disagree about what upstream's table says.
-Only what makes a fixup qualify differs, and that is the whole of the
+regexes, the release walk, the blame — is the speaker-*pin* updater's, imported
+wholesale so the two tables cannot come to disagree about what upstream's table
+says. Only what makes a fixup qualify differs, and that is the whole of the
 interesting part below.
 
     python3 tools/update_speaker_route_quirks.py            # report, change nothing
     python3 tools/update_speaker_route_quirks.py --write    # apply
+    GH_TOKEN=$(gh auth token) \\
+        python3 tools/update_speaker_route_quirks.py --write --blame
 """
 
 import argparse
@@ -50,11 +57,15 @@ from update_speaker_pin_quirks import (
     _CHAINED_RE,
     _FIXUP_BLOCK_RE,
     _FUNC_RE,
+    _line_of,
     _MODEL_NAME_RE,
     _QUIRK_RE,
     _RELEASE_WINDOW,
+    blame_backend,
+    fetch_master_sha,
     fetch_source,
     release_tags,
+    resolve_commits,
     resolve_since,
 )
 
@@ -194,7 +205,7 @@ def route_fixups(src: str,
     return found
 
 
-def parse_quirks(src: str, require_helpers: bool = False
+def parse_quirks(src: str, require_helpers: bool = False, lines: dict | None = None
                  ) -> dict[tuple[int, int], tuple[str, str, str, bool]]:
     """``{(subvendor, subdevice): (hda_model, pin, sources, codec_only)}`` for
     every entry in *src* pointing at a rerouting fixup.
@@ -208,11 +219,16 @@ def parse_quirks(src: str, require_helpers: bool = False
 
     A duplicate key keeps the first entry, matching the kernel: the quirk table
     is walked in order and the first match wins.
+
+    Pass a dict as *lines* to also collect ``{key: source line}`` for the entry
+    that won — the same one the row describes, which is the only line whose
+    blame says anything about the row.
     """
     fixups = route_fixups(src, require_helpers)
     names = dict(_MODEL_NAME_RE.findall(src))
     found: dict[tuple[int, int], tuple[str, str, str, bool]] = {}
-    for kind, vendor, device, _name, fixup in _QUIRK_RE.findall(src):
+    for m in _QUIRK_RE.finditer(src):
+        kind, vendor, device, _name, fixup = m.groups()
         if fixup not in fixups:
             continue
         key = (int(vendor, 16), int(device, 16))
@@ -221,6 +237,8 @@ def parse_quirks(src: str, require_helpers: bool = False
         pin, sources = fixups[fixup]
         found[key] = (names.get(fixup, ""), pin, " ".join(sources),
                       kind == "HDA_CODEC_QUIRK")
+        if lines is not None:
+            lines[key] = _line_of(src, m.start())
     return found
 
 
@@ -234,7 +252,7 @@ _TABLE_RE = re.compile(r"^_SPEAKER_ROUTE_QUIRKS = \{\n(.*?)\n\}$", re.M | re.S)
 _ENTRY_RE = re.compile(
     r'\(0x([0-9A-Fa-f]{4}), 0x([0-9A-Fa-f]{4})\): '
     r'RouteQuirk\("([^"]*)", pin="([0-9a-fx]*)", sources="([0-9a-fx ]*)", '
-    r'since="([\d.]*)", codec_only=(True|False)\)')
+    r'since="([\d.]*)", codec_only=(True|False), commit="([0-9a-f]*)"\)')
 
 
 def parse_table(src: str) -> tuple[tuple[int, int], dict]:
@@ -245,8 +263,10 @@ def parse_table(src: str) -> tuple[tuple[int, int], dict]:
         raise ValueError("no _SPEAKER_ROUTE_QUIRKS literal found")
     body = m.group(1)
     entries = {
-        (int(v, 16), int(d, 16)): (model, pin, sources, since, codec == "True")
-        for v, d, model, pin, sources, since, codec in _ENTRY_RE.findall(body)
+        (int(v, 16), int(d, 16)): (model, pin, sources, since,
+                                   codec == "True", commit)
+        for v, d, model, pin, sources, since, codec, commit
+        in _ENTRY_RE.findall(body)
     }
     # Every "): RouteQuirk(" is one entry; a mismatch means the regex skipped a
     # reformatted line and the table we'd diff against would be wrong.
@@ -261,8 +281,8 @@ def render_table(entries: dict) -> str:
     return "\n".join(
         f'    (0x{vendor:04X}, 0x{device:04X}): RouteQuirk("{model}", '
         f'pin="{pin}", sources="{sources}", since="{since}", '
-        f'codec_only={codec_only}),'
-        for (vendor, device), (model, pin, sources, since, codec_only)
+        f'codec_only={codec_only}, commit="{commit}"),'
+        for (vendor, device), (model, pin, sources, since, codec_only, commit)
         in sorted(entries.items()))
 
 
@@ -278,7 +298,8 @@ def apply_update(src: str, entries: dict) -> str:
     return updated
 
 
-def build_entries(master_src: str, releases, current: dict | None = None) -> dict:
+def build_entries(master_src: str, releases, current: dict | None = None, *,
+                  master_sha: str = "", blame=None, blob=None) -> dict:
     """Merge the mainline parse with per-release parses into table entries.
 
     *releases* yields ``(tag, source)`` newest-first and is consumed **lazily**:
@@ -301,8 +322,15 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
     ``since`` ends up the oldest release we saw still carrying the entry — the
     kernel version a user actually has to reach. Empty means no release has it
     yet, which makes "upgrade" a dead end rather than advice.
+
+    ``commit`` is carried the same way and resolved by *blame* when it is not
+    (see ``resolve_commits`` in the pin updater). Without one, recorded links
+    survive and new rows get none — the table is still correct, it just links
+    the driver rather than the fix.
     """
-    mainline = parse_quirks(master_src, require_helpers=True)
+    mainline_lines: dict[tuple[int, int], int] = {}
+    mainline = parse_quirks(master_src, require_helpers=True,
+                            lines=mainline_lines)
     if not MIN_ENTRIES <= len(mainline) <= MAX_ENTRIES:
         raise ValueError(f"parsed {len(mainline)} mainline entries "
                          f"(expected {MIN_ENTRIES}–{MAX_ENTRIES}) — suspect a "
@@ -312,8 +340,14 @@ def build_entries(master_src: str, releases, current: dict | None = None) -> dic
         mainline, releases, current, parse_quirks,
         identity=lambda row: row[3],
         recorded=lambda row: (row[3], row[4]))
+    commits = resolve_commits(
+        mainline, mainline_lines, current,
+        content=lambda row: (row[0], row[1], row[2], row[3]),
+        recorded=lambda row: (row[5], (row[0], row[1], row[2], row[4])),
+        master_sha=master_sha, master_src=master_src, blame=blame, blob=blob)
 
-    return {key: (model, pin, sources, since.get(key, ""), codec_only)
+    return {key: (model, pin, sources, since.get(key, ""), codec_only,
+                  commits.get(key, ""))
             for key, (model, pin, sources, codec_only) in mainline.items()}
 
 
@@ -323,12 +357,19 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--write", action="store_true",
                         help="apply the rebuilt table (default: report only)")
+    parser.add_argument("--blame", action="store_true",
+                        help="resolve each row's upstream commit through "
+                             "GitHub's blame API, so the warning can link the "
+                             "fix rather than the whole driver (needs a token "
+                             "in GH_TOKEN or GITHUB_TOKEN). Without it, "
+                             "recorded links are carried forward and rows new "
+                             "to the table get none")
     parser.add_argument("--rescan", action="store_true",
-                        help="re-derive every since= from the releases instead "
-                             "of carrying the recorded ones forward (slow, and "
-                             "rewrites entries older than the oldest release "
-                             "scanned — for an audit after a parser change, "
-                             "not for the weekly run)")
+                        help="re-derive every since= and commit= from upstream "
+                             "instead of carrying the recorded ones forward "
+                             "(slow, and rewrites entries older than the "
+                             "oldest release scanned — for an audit after a "
+                             "parser change, not for the weekly run)")
     parser.add_argument("--script", type=Path, default=DEFAULT_SCRIPT,
                         help="file holding the table (default: the shipped "
                              "lib/data/speaker_route_quirks.py)")
@@ -344,8 +385,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        blame, blob = blame_backend() if args.blame else (None, None)
         src = args.script.read_text()
         _, current = parse_table(src)
+        master_sha = ""
         if args.offline_master and args.offline_release:
             master_src = args.offline_master.read_text()
             releases = [(args.offline_release_tag,
@@ -356,7 +399,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 with tempfile.TemporaryDirectory() as tmp:
                     tag_lines = fetch_tag_lines(Path(tmp) / "linux-tags")
-            master_src = fetch_source("refs/heads/master")
+            # Resolved once and used for every mainline read: master moves
+            # under a run, and a blame keyed by line number is only meaningful
+            # against the revision that was parsed.
+            master_sha = fetch_master_sha()
+            print(f"mainline: {master_sha[:12]}", file=sys.stderr)
+            master_src = fetch_source(master_sha)
             # A generator, not a list: build_entries stops pulling once every
             # undated entry has an answer, and a release it never pulls is a
             # blob never fetched. In a week where nothing new needs dating that
@@ -364,10 +412,14 @@ def main(argv: list[str] | None = None) -> int:
             releases = ((tag, fetch_source(f"refs/tags/{tag}"))
                         for tag in release_tags(tag_lines))
         entries = build_entries(master_src, releases,
-                                None if args.rescan else current)
+                                None if args.rescan else current,
+                                master_sha=master_sha, blame=blame, blob=blob)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    if (unlinked := sum(1 for row in entries.values() if not row[-1])):
+        print(f"{unlinked} rows without a commit link", file=sys.stderr)
 
     if entries == current:
         print(f"up to date: {len(current)} machines listed", file=sys.stderr)

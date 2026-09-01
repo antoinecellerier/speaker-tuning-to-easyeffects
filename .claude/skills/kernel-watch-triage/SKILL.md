@@ -159,6 +159,12 @@ have carried it:
   membership bar and each exclusion's reason are in `docs/design-notes.md`,
   "The class next door". Re-read a helper only when the range you are
   triaging adds or edits one.
+- **`_FILE_MOVES` in `tools/update_speaker_pin_quirks.py`** — both tables
+  carry a `commit=` link resolved by GitHub's blame, which follows a rename
+  but not a split. A commit in the range that moves or splits
+  `sound/hda/codecs/realtek/alc269.c` needs a new hop there; the symptom
+  without one is the updater's mass-edit rail refusing that commit (a stderr
+  warning naming it, new rows left `commit=""`), never a wrong link.
 - **README tested table** — grep the SSIDs in the range against it.
 
 ## Record the verdict

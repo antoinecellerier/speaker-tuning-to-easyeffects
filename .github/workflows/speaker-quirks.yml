@@ -63,11 +63,16 @@ jobs:
           # One --cache-dir for both: it holds the tag clone the release walk
           # dates entries against (~940 refs), so the second updater re-uses it
           # instead of fetching every ref again.
+          #
+          # --blame links each new row to the upstream commit that wrote its
+          # line, through GitHub's blame API with the job's own token; a
+          # blame failure is a warning in scan.log, not a failed run — the
+          # table's job doesn't depend on the link.
           : > scan.log
-          python3 tools/update_speaker_pin_quirks.py --write \
+          python3 tools/update_speaker_pin_quirks.py --write --blame \
             --cache-dir "$RUNNER_TEMP/linux-tags" > pin.txt 2>> scan.log \
             || { cat scan.log >&2; exit 1; }
-          python3 tools/update_speaker_route_quirks.py --write \
+          python3 tools/update_speaker_route_quirks.py --write --blame \
             --cache-dir "$RUNNER_TEMP/linux-tags" > route.txt 2>> scan.log \
             || { cat scan.log >&2; exit 1; }
           cat scan.log >&2
@@ -166,6 +171,8 @@ jobs:
             "Each entry is keyed by subsystem id and records whether the quirk has reached a *released* kernel — an entry that is mainline-only must not produce \"upgrade your kernel\" advice. A \"changed\" line is usually that flag flipping as a release ships." \
             "" \
             "\`since=\` is carried forward once derived, not re-derived weekly (a released kernel's contents cannot change), so rows not listed above were not re-checked. To re-derive every one of them — worth doing after a change to either parser, not otherwise — run the updater for that table with \`--rescan\`." \
+            "" \
+            "\`commit=\` is the upstream commit that last wrote the row's line (GitHub's blame, one query per file), carried forward the same way and shown to users as the link behind the warning. A row left \`commit=\"\"\` is named in the run log — blame was unreachable, or the row landed on a commit the mass-edit rail refused, which is the sign of a new file move needing a \`_FILE_MOVES\` hop. Fill it locally by running that table's updater with \`--write --blame\` and \`GH_TOKEN=\$(gh auth token)\` in the environment." \
             "" \
             "Verify against [\`sound/hda/codecs/realtek/alc269.c\`](https://github.com/torvalds/linux/blob/master/sound/hda/codecs/realtek/alc269.c) — search the subsystem id. A route row's fixup is often reached through a wrapper, so follow \`.chain_id\` to the helper that calls \`snd_hda_override_conn_list\`." \
             "" \

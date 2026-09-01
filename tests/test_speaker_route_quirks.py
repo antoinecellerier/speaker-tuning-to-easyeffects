@@ -28,12 +28,19 @@ from tools.update_speaker_route_quirks import (
     MIN_ENTRIES,
     apply_update,
     build_entries,
+    main,
     parse_quirks,
     parse_table,
     render_table,
     route_fixups,
 )
 from tools.update_speaker_route_quirks import _FUNC_FIXUP_ROUTES, _RELEASE_WINDOW
+
+# The route updater reaches the pin updater by its bare name off tools/, which
+# is a *different* module object from the tests' `tools.update_speaker_pin_quirks`
+# — so a patch aimed at the blame backend has to target the copy the shared
+# `blame_backend` actually looks the name up in.
+pin_updater = sys.modules["update_speaker_pin_quirks"]
 
 # The helpers the fixture exercises by name; every *other* helper in
 # _FUNC_FIXUP_ROUTES gets a stub below, because one missing from the source is
@@ -338,11 +345,13 @@ def test_since_is_empty_for_a_mainline_only_entry():
 # value survives *and* costs no fetch, and an entry we have never dated is
 # still dated correctly however many releases back that takes.
 
-def _dated(since, entries=None):
-    """*entries* (default: the fixture's) with every row recorded as *since*."""
+def _dated(since, entries=None, commit=""):
+    """*entries* (default: the fixture's) with every row recorded as *since*,
+    and as *commit* where a test needs a link to carry."""
     entries = entries or build_entries(QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)])
-    return {key: (model, pin, sources, since, codec_only)
-            for key, (model, pin, sources, _old, codec_only) in entries.items()}
+    return {key: (model, pin, sources, since, codec_only, commit)
+            for key, (model, pin, sources, _old, codec_only, _c)
+            in entries.items()}
 
 
 def _counting(*releases):
@@ -367,7 +376,7 @@ def test_a_dated_entry_costs_no_release_fetch():
     feed, pulled = _counting(("v7.2", QUIRK_SOURCE), ("v7.1", QUIRK_SOURCE))
     entries = build_entries(QUIRK_SOURCE, feed, _dated("6.5"))
     assert pulled == []
-    assert {since for _m, _p, _s, since, _c in entries.values()} == {"6.5"}
+    assert {since for _m, _p, _s, since, _c, _l in entries.values()} == {"6.5"}
 
 
 def test_an_undated_entry_stops_at_the_first_release_without_it():
@@ -378,7 +387,7 @@ def test_an_undated_entry_stops_at_the_first_release_without_it():
         '\tHDA_CODEC_QUIRK(0x17aa, 0x3906, "Legion Pro 7i 16IAX10H", '
         'ALC285_FIXUP_SPEAKER2_TO_DAC1),\n', "")
     current = _dated("6.5")
-    current[(0x17AA, 0x3906)] = ("m", "0x17", "0x02", "", True)
+    current[(0x17AA, 0x3906)] = ("m", "0x17", "0x02", "", True, "")
 
     feed, pulled = _counting(("v7.2", QUIRK_SOURCE), ("v7.1", QUIRK_SOURCE),
                              ("v7.0", without), ("v6.19", without))
@@ -423,6 +432,109 @@ def test_the_walk_stops_at_the_release_window():
     assert len(pulled) == _RELEASE_WINDOW
 
 
+# --- commit: the upstream change the warning links --------------------------
+
+# The resolver itself, its rail and its GitHub backend are the pin updater's
+# and tested there. What is worth pinning here is that this table reaches the
+# same one: the line each row was built from, the hop, and the CLI wiring.
+
+OWNER = "494978ae8243" + "0" * 28
+OTHER = "75dc2eda659f" + "0" * 28
+MASTER_SHA = "f" * 40
+ALC269_PATH = pin_updater._SOURCE_PATHS[0]
+SPLIT_SHA, (HOP_PARENT, HOP_PATH) = next(iter(pin_updater._FILE_MOVES.items()))
+
+
+def _fixture_lines(src=QUIRK_SOURCE):
+    """``{key: source line}``, collected the way ``build_entries`` collects it."""
+    lines = {}
+    parse_quirks(src, lines=lines)
+    return lines
+
+
+def _blaming(per_path, calls=None):
+    """A blame callable answering from ``{path: {line: oid}}``."""
+    def blame(sha, path):
+        if calls is not None:
+            calls.append((sha, path))
+        return per_path[path]
+    return blame
+
+
+def test_the_recorded_line_is_the_first_qualifying_entry():
+    """17aa:3802's first entry points at a fixup this table skips, so the line
+    the row was built from is the *second* one — and that is the only line
+    whose blame says anything about the row."""
+    duped = QUIRK_SOURCE + (
+        '\tSND_PCI_QUIRK(0x17aa, 0x3802, "Lenovo Yoga Pro 9 14IRP8", '
+        'ALC295_FIXUP_DISABLE_DAC3),\n')
+    lines = _fixture_lines(duped)
+    assert ("ALC295_FIXUP_DISABLE_DAC3"
+            in duped.splitlines()[lines[(0x17AA, 0x3802)] - 1])
+
+
+def test_a_row_records_the_commit_that_owns_its_line():
+    """17aa:3906 is the Legion Pro 7i, added by 494978ae8243 — the shape of
+    every post-split row."""
+    lines = _fixture_lines()
+    entries = build_entries(
+        QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)], master_sha=MASTER_SHA,
+        blame=_blaming({ALC269_PATH: {lines[(0x17AA, 0x3906)]: OWNER}}),
+        blob=lambda ref, path: "")
+    assert entries[(0x17AA, 0x3906)][5] == OWNER[:12]
+    assert entries[(0x1028, 0x075C)][5] == ""
+
+
+def test_a_row_the_file_split_swallowed_resolves_through_the_shared_hop():
+    """Most of this table predates the 2025 split, so the hop is the common
+    path here rather than the exception — and it is the pin updater's, reached
+    with this table's own line numbers."""
+    lines = _fixture_lines()
+    calls = []
+    entries = build_entries(
+        QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)], master_sha=MASTER_SHA,
+        blame=_blaming({ALC269_PATH: {lines[(0x1028, 0x075C)]: SPLIT_SHA},
+                        HOP_PATH: {1: OTHER}}, calls),
+        blob=lambda ref, path: (
+            '\tSND_PCI_QUIRK(0x1028, 0x075c, "Dell XPS 27 7760", X),\n'))
+    assert entries[(0x1028, 0x075C)][5] == OTHER[:12]
+    assert calls == [(MASTER_SHA, ALC269_PATH), (HOP_PARENT, HOP_PATH)]
+
+
+def test_a_recorded_commit_is_carried_and_a_changed_row_re_blamed():
+    """Carried on the same terms as `since`, for a different reason: blame can
+    only move when the line moved. A changed row is re-resolved, and here that
+    is the pin the reroute names changing."""
+    current = _dated("6.5", commit=OTHER[:12])
+    model, pin, sources, since, codec_only, commit = current[(0x17AA, 0x3906)]
+    current[(0x17AA, 0x3906)] = (model, "0x15", sources, since, codec_only,
+                                 commit)
+    lines = _fixture_lines()
+    calls = []
+    entries = build_entries(
+        QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)], current,
+        master_sha=MASTER_SHA,
+        blame=_blaming({ALC269_PATH: {lines[(0x17AA, 0x3906)]: OWNER}}, calls),
+        blob=lambda ref, path: "")
+    assert entries[(0x17AA, 0x3906)][5] == OWNER[:12]
+    assert entries[(0x1028, 0x075C)][5] == OTHER[:12]
+    assert len(calls) == 1        # one query for the whole file, hop aside
+
+
+def test_a_blame_failure_leaves_the_links_empty_and_builds_the_table(capsys):
+    """A blame outage must not hold back a table update: who gets warned about
+    their machine does not depend on being able to link the commit."""
+    def blame(sha, path):
+        raise ValueError("blame of alc269.c: HTTP 502")
+
+    entries = build_entries(QUIRK_SOURCE, [("v7.1", QUIRK_SOURCE)],
+                            master_sha=MASTER_SHA, blame=blame,
+                            blob=lambda ref, path: "")
+    assert sorted(entries) == FIXTURE_IDS
+    assert {row[5] for row in entries.values()} == {""}
+    assert "warning: blame of alc269.c: HTTP 502" in capsys.readouterr().err
+
+
 # --- the shipped table ------------------------------------------------------
 
 def test_render_reproduces_the_live_table_byte_for_byte():
@@ -465,7 +577,7 @@ def test_apply_update_touches_only_the_table():
     src = TABLE_MODULE.read_text()
     _, entries = parse_table(src)
     entries[(0x17AA, 0x9999)] = ("alc285-speaker2-to-dac1", "0x17", "0x02",
-                                 "7.2", True)
+                                 "7.2", True, "494978ae8243")
     updated = apply_update(src, entries)
     ast.parse(updated)
     assert parse_table(updated)[1] == entries
@@ -474,10 +586,12 @@ def test_apply_update_touches_only_the_table():
         src.replace(render_table(parse_table(src)[1]), "")
 
 
-def test_apply_update_round_trips_an_empty_since():
+def test_apply_update_round_trips_an_empty_since_and_commit():
+    """Both optional fields render and read back empty: a mainline-only entry
+    has no release to name, and an unresolved one no commit to link."""
     src = TABLE_MODULE.read_text()
     _, entries = parse_table(src)
-    entries[(0x17AA, 0x9998)] = ("", "0x15", "0x02 0x03", "", False)
+    entries[(0x17AA, 0x9998)] = ("", "0x15", "0x02 0x03", "", False, "")
     assert parse_table(apply_update(src, entries))[1] == entries
 
 
@@ -507,8 +621,8 @@ def _offline(tmp_path, master_src=QUIRK_SOURCE):
     script = tmp_path / "speaker_route_quirks.py"
     src = TABLE_MODULE.read_text()
     _, entries = parse_table(src)
-    model, pin, sources, _since, codec_only = entries[UNDATED_ID]
-    entries[UNDATED_ID] = (model, pin, sources, "", codec_only)
+    model, pin, sources, _since, codec_only, commit = entries[UNDATED_ID]
+    entries[UNDATED_ID] = (model, pin, sources, "", codec_only, commit)
     script.write_text(apply_update(src, entries))
     (tmp_path / "master.c").write_text(master_src)
     (tmp_path / "release.c").write_text(QUIRK_SOURCE)
@@ -570,6 +684,57 @@ def test_cli_fails_closed_on_an_implausible_parse(tmp_path):
     assert result.returncode == 1
     assert "suspect a parse bug" in result.stderr
     assert script.read_text() == before
+
+
+# The blame half runs `main` in-process: the fake reaches it by patching the
+# module, which a subprocess would not see.
+
+def test_cli_blame_without_a_token_refuses(tmp_path, monkeypatch, capsys):
+    """Failing here beats a run that quietly rewrites every link to empty."""
+    script, argv = _offline(tmp_path)
+    before = script.read_text()
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    assert main([*argv, "--write", "--blame"]) == 1
+    assert "error:" in capsys.readouterr().err
+    assert script.read_text() == before
+
+
+def test_cli_blame_writes_the_resolved_commits(tmp_path, monkeypatch):
+    """End to end through the shared backend: this updater declares the flag,
+    the pin updater builds the reader, and the render carries the field. With
+    --rescan, so every row comes from this run rather than from whatever the
+    shipped table already records."""
+    script, argv = _offline(tmp_path)
+    monkeypatch.setenv("GH_TOKEN", "token")
+    owners = {line: OWNER for line in _fixture_lines().values()}
+    monkeypatch.setattr(pin_updater, "github_blame",
+                        lambda token: _blaming({ALC269_PATH: owners}))
+
+    assert main([*argv, "--write", "--blame", "--rescan"]) == 0
+    _, entries = parse_table(script.read_text())
+    assert {row[5] for row in entries.values()} == {OWNER[:12]}
+
+
+def test_cli_without_blame_carries_links_and_leaves_new_rows_empty(tmp_path):
+    """The weekly run's shape: no token, no query, and the links an earlier run
+    resolved survive the rebuild. A row new to the table gets none."""
+    script, argv = _offline(tmp_path)
+    src = script.read_text()
+    _, entries = parse_table(src)
+    # Recorded against what the fixture parse says, so the row's content
+    # matches and the carry is what is being tested rather than the shipped
+    # table happening to agree with it.
+    model, pin, sources, codec_only = parse_quirks(QUIRK_SOURCE)[DATED_ID]
+    entries[DATED_ID] = (model, pin, sources, entries[DATED_ID][3], codec_only,
+                         OWNER[:12])
+    script.write_text(apply_update(src, entries))
+
+    assert main([*argv, "--write"]) == 0
+    _, written = parse_table(script.read_text())
+    assert written[DATED_ID][5] == OWNER[:12]
+    assert written[FILLER_IDS[0]][5] == ""
 
 
 def test_a_renamed_helper_aborts_instead_of_dropping_its_family():

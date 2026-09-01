@@ -2969,6 +2969,39 @@ Design choices:
     so this is a rate limit, not a parsing limit. Exactness below the window
     buys nothing anyway: a kernel that old already trips the issue #33 age
     hint.
+- **`commit` is the link that lets a reader check the claim** (2026-09-01).
+  Every warning built on these tables asserts "upstream carries a fix for
+  this exact model", and until this nothing printed let anyone verify it.
+  The field is *blame*, not a birthday: the commit that last wrote the
+  entry's line in `alc269.c` — usually the one that added it, after an
+  upstream edit of the line the edit — which is what "whatever `git blame`
+  says" resolves to, and it is honest about it (the warning says "the
+  upstream change that *lists* this model"). Resolved by GitHub's GraphQL
+  blame, one query per file, because the googlesource mirror the blobs come
+  from refuses history pages (`+log` → 403) and a bisect over commits would
+  have been dozens of fetches per row. Carried forward like `since` while
+  the row's content is unchanged (blame can only move when the line moved);
+  `--rescan` re-derives it; a blame outage leaves `""` and the warning links
+  the table file with the id to search for instead, so a table update is
+  never held back by a link.
+  - **One hop through the 2025 file split.** Blame follows a rename but not
+    a split: on 2026-09-01, 1003 of the 1251 quirk lines on master blamed to
+    `aeeb85f26c3b` ("ALSA: hda: Split Realtek HD-audio codec driver",
+    2025-07-11), which carved `alc269.c` out of `sound/hda/codecs/realtek.c`.
+    Blaming that pre-split file at the split's parent `6014e9021b28` (the
+    move from `sound/pci/hda/patch_realtek.c`, a pure rename blame does
+    follow) resolves all 1360 of its quirk lines to real authors — 662
+    distinct, none on the move, the largest genuine owner a 2011 bulk
+    rewrite with 52 lines. `_FILE_MOVES` in the pin updater records the hop.
+  - **A mass-edit rail catches the next split**: an owner commit holding
+    more than 100 of a file's quirk lines is refused and named on stderr,
+    because the symptom of a future move would otherwise be hundreds of
+    rows quietly linking one commit. The split owns 1003; nothing genuine
+    comes near the rail.
+  - The link prints as its own unwrapped line on every surface (end-of-run
+    block, `--doctor`, `--speaker-info`), the one carve-out from the
+    one-link rule in `.claude/rules/user-messages.md`; a `Finding` still
+    never carries a URL.
 
 ### The class next door: pin present, DAC source wrong
 
@@ -3047,7 +3080,8 @@ override removes the ampless DAC outright — which is why the sweep keys on
 
 **The table** (`lib/data/speaker_route_quirks.py`, regenerated weekly by the
 same `speaker-quirks.yml` workflow as the pin table, sharing its parser
-primitives and `resolve_since` walk by import): 144 rows on 2026-09-01 —
+primitives, `resolve_since` walk and blame-derived `commit` link by import —
+see the pin-table bullets above): 144 rows on 2026-09-01 —
 `1043` 48, `17aa` 44, `1028` 25, `103c` 25, one each `1f4c`/`2782`; 12
 `HDA_CODEC_QUIRK`-keyed; pin `0x17` on 142 rows, `0x15` on 2; targets are
 *widgets*, not DACs (`alc298_fixup_speaker_volume` routes to mixer `0x0c`,
