@@ -158,6 +158,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   into the conf's impulse-file reference, which PipeWire resolves against its
   own working directory — the whole conf was then silently skipped. Re-run
   the converter to regenerate an affected conf.
+- The hidden-speaker-pin warning now covers the HP Envy x360 13-ar0xxx, which
+  was missing from the quirk table: its kernel fixup declares both speaker
+  pins from a helper the table generator had never been told to read.
 
 ### Docs
 

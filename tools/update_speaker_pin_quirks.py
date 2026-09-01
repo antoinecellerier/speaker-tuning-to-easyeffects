@@ -70,6 +70,7 @@ _FUNC_FIXUP_PINS = {
     "alc245_fixup_hp_spectre_x360_eu0xxx": ("0x14", "0x17"),
     "alc245_fixup_hp_spectre_x360_16_aa0xxx": ("0x14", "0x17"),
     "alc295_fixup_dell_inspiron_top_speakers": ("0x14", "0x17"),
+    "alc285_fixup_hp_envy_x360": ("0x14", "0x17"),
 }
 
 # The Realtek quirk table moved in 7.2; older refs still need the old path.

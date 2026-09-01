@@ -2923,7 +2923,14 @@ Design choices:
   drop them all while the total stayed inside its rails and the weekly PR
   looked clean. The check runs against mainline only — a helper legitimately
   does not exist in releases older than the one that introduced it, which
-  aborted the first real run until scoped.
+  aborted the first real run until scoped. That check is one-sided, though:
+  it catches a listed helper disappearing, not an unlisted one appearing.
+  `alc285_fixup_hp_envy_x360` had written two speaker pincfgs since at least 6.11 and
+  was simply never listed, so the HP Envy x360 13-ar0xxx sat outside the
+  table until a 2026-09-01 audit swept `alc269.c` for every helper writing a
+  `0x9017xxxx` config and diffed the result against `_FUNC_FIXUP_PINS` — the
+  seven others matched exactly. Re-run that sweep when triaging a kernel
+  pull; it is step-by-step in the `/kernel-watch-triage` skill.
 - **`since` is a kernel version, not a boolean.** Three situations need
   different advice: no release carries the fix yet (#53's own case as of
   7.2-rc6 — merged for 7.2, so upgrading is a dead end today); a release

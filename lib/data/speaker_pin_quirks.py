@@ -104,6 +104,7 @@ _SPEAKER_PIN_QUIRKS = {
     (0x1028, 0x0CC4): PinQuirk("", pins="0x17", since="6.11", codec_only=False),
     (0x1028, 0x0CC5): PinQuirk("", pins="0x14", since="6.11", codec_only=False),
     (0x103C, 0x8519): PinQuirk("alc285-hp-spectre-x360", pins="0x14", since="6.10", codec_only=False),
+    (0x103C, 0x85DE): PinQuirk("alc285-hp-envy-x360", pins="0x14 0x17", since="6.11", codec_only=False),
     (0x103C, 0x863E): PinQuirk("alc285-hp-spectre-x360-df1", pins="0x14 0x17", since="6.15", codec_only=False),
     (0x103C, 0x86E7): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
     (0x103C, 0x86E8): PinQuirk("alc285-hp-spectre-x360-eb1", pins="0x14 0x17", since="6.10", codec_only=False),
