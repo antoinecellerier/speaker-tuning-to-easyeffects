@@ -278,7 +278,10 @@ def extract(exe: Path, cache: Path) -> Path:
     base = ["innoextract", "-s", "-d", str(out)]
     subprocess.run(base + ["-I", dolby_filter, str(exe)],
                    check=False, capture_output=True)
-    if not list(out.rglob("*.xml")):  # filter missed this layout; take it all
+    # Judged by the same filter that reads the result: a directory holding only
+    # `_settings`/`_dmic` companions has no tuning XML, and retrying unfiltered
+    # is exactly what that case needs.
+    if not discover.walk_for_dolby_xml_dirs(out):  # filter missed this layout
         shutil.rmtree(out, ignore_errors=True)
         r = subprocess.run(base + [str(exe)], capture_output=True, text=True)
         if r.returncode != 0:
@@ -299,6 +302,14 @@ def tuning_xml_dir(extract_root: Path) -> Path:
         raise Fail(f"unpacked {extract_root} but found no Dolby DAX3 tuning "
                    "XML in it. Look inside and pass a file to the converter "
                    "directly.")
+    if len(dirs) > 1:
+        # Some installers (Legion Y540-15IRH, say) fan out into a directory
+        # per SKU. Picking the first would be picking another laptop's tuning,
+        # so narrow to the one holding an XML for this machine.
+        narrowed = discover.dirs_for_this_machine(dirs)
+        if len(narrowed) == 1:
+            return narrowed[0]
+        dirs = narrowed or dirs
     if len(dirs) > 1:
         raise Fail("Dolby tuning XMLs landed in more than one directory:\n  "
                    + "\n  ".join(str(d) for d in dirs)

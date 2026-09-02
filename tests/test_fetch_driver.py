@@ -4,9 +4,11 @@ No network: `_get` is monkeypatched to serve canned catalog / descriptor XML.
 """
 
 import hashlib
+import subprocess
 
 import pytest
 
+from lib.hardware import codecs
 from tools.fetch_driver import get_lenovo_dax_xml as g
 
 CATALOG = """<?xml version="1.0"?>
@@ -267,3 +269,78 @@ def test_an_exe_url_with_no_filename_is_rejected(monkeypatch, tmp_path):
         ["--exe-url", "https://x/", "--driver-cache", str(tmp_path)])
     with pytest.raises(g.Fail, match="no filename in"):
         g.run(args)
+
+
+def _fan_out(root, skus):
+    """A per-SKU extraction: one sibling directory per machine, as the Legion
+    Y540-15IRH installer lays it out."""
+    base = root / "code$GetExtractPath$" / "Dolby" / "ext_realtek_lenovo_ideapad"
+    made = {}
+    for subsys in skus:
+        d = base / f"sku_{subsys}"
+        d.mkdir(parents=True)
+        (d / f"DEV_0257_SUBSYS_{subsys}.xml").write_text("<x/>")
+        made[subsys] = d
+    return made
+
+
+def test_a_per_sku_fan_out_resolves_to_this_machine(tmp_path, monkeypatch):
+    """A fan-out used to abort after the whole driver had been downloaded.
+    Picking dirs[0] would have picked another laptop's tuning."""
+    dirs = _fan_out(tmp_path, ["17AA380F", "17AA5094", "17AA22E6"])
+    monkeypatch.setattr(
+        codecs, "get_hda_codec_ids", lambda: [("10EC0257", "17AA380F", "ALC257")])
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
+    assert g.tuning_xml_dir(tmp_path) == dirs["17AA380F"]
+
+
+def test_a_fan_out_that_matches_nothing_still_names_every_directory(tmp_path,
+                                                                    monkeypatch):
+    """Narrowing that finds nothing must not silently pick one."""
+    _fan_out(tmp_path, ["17AA380F", "17AA5094"])
+    monkeypatch.setattr(
+        codecs, "get_hda_codec_ids", lambda: [("10EC0257", "17AA9999", "ALC257")])
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
+    with pytest.raises(g.Fail, match="more than one directory") as excinfo:
+        g.tuning_xml_dir(tmp_path)
+    assert "sku_17AA380F" in str(excinfo.value)
+    assert "sku_17AA5094" in str(excinfo.value)
+
+
+def test_an_extraction_of_only_companions_retries_unfiltered(tmp_path,
+                                                             monkeypatch):
+    """`_settings`/`_dmic` companions are not tuning XMLs. Judging the filtered
+    pass by "any .xml" called it a success and skipped the retry that would
+    have found the real files."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        out = tmp_path / "cache" / "extract"
+        out.mkdir(parents=True, exist_ok=True)
+        if "-I" in cmd:                      # filtered pass: companions only
+            (out / "DEV_0257_SUBSYS_17AA5094_dmic.xml").write_text("<x/>")
+        else:                                # unfiltered retry: the real thing
+            (out / "DEV_0257_SUBSYS_17AA5094.xml").write_text("<x/>")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(g.shutil, "which", lambda _: "/usr/bin/innoextract")
+    monkeypatch.setattr(g.subprocess, "run", fake_run)
+    out = g.extract(tmp_path / "d.exe", tmp_path / "cache")
+    assert len(calls) == 2, "the unfiltered retry never ran"
+    assert g.tuning_xml_dir(out).name == "extract"
+
+
+def test_a_subsystem_two_sku_dirs_share_stays_ambiguous(tmp_path, monkeypatch):
+    """Real packages reuse a subsystem across SKU directories (17AA382B sits in
+    two of the Legion Y540 package's fifteen). Narrowing must not guess."""
+    _fan_out(tmp_path, ["17AA382B", "17AA3833"])
+    extra = tmp_path / "code$GetExtractPath$" / "Dolby" / \
+        "ext_realtek_lenovo_ideapad" / "sku_other"
+    extra.mkdir(parents=True)
+    (extra / "DEV_0257_SUBSYS_17AA382B.xml").write_text("<x/>")
+    monkeypatch.setattr(
+        codecs, "get_hda_codec_ids", lambda: [("10EC0257", "17AA382B", "ALC257")])
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
+    with pytest.raises(g.Fail, match="more than one directory"):
+        g.tuning_xml_dir(tmp_path)
