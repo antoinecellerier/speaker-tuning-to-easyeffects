@@ -407,10 +407,16 @@ def run(args: argparse.Namespace) -> int:
     if not args.keep_exe:
         exe.unlink(missing_ok=True)
 
+    # A per-SKU package holds hundreds of tunings (696 in the IdeaPad 5x one);
+    # naming them all buries the directory and the command that follow.
+    list_up_to = 12
     xmls = discover.xmls_directly_under(xml_dir)
     print(f"\nextracted {len(xmls)} Dolby tuning XML(s):")
-    for p in xmls:
-        print("  ", p.name)
+    if len(xmls) <= list_up_to:
+        for p in xmls:
+            print("  ", p.name)
+    else:
+        print("   (the converter picks yours out of them)")
     _print_next_steps(xml_dir)
     return 0
 
