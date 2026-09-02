@@ -5,8 +5,9 @@ conversion. Each script exists to keep something *else* right: a generated
 data table in `lib/data/`, a figure in `docs/`, the release notes, the copy a
 run prints, or the converter's own output. They are listed below with what
 they keep correct and who runs them, because that — not the filename — is how
-you find the one you need. (The two exceptions — `ab_sink.sh` and
-`fetch_driver/` — get their own sections below.)
+you find the one you need. (`ab_sink.sh` is a listening aid rather than a
+correctness check; `fetch_driver/` is the one thing here an end user runs,
+and gets its own section below.)
 
 One near-exception to "nothing here is part of the conversion":
 [`measure_pw/validate_conf.py`](measure_pw/validate_conf.py) runs the same
@@ -55,7 +56,7 @@ only which question the directory answers.
 ## fetch_driver/ — a staging area, not a new category
 
 [`fetch_driver/get_lenovo_dax_xml.py`](fetch_driver/get_lenovo_dax_xml.py) is
-the one thing here an end user runs directly: on a Lenovo laptop with no
+the script that end user runs: on a Lenovo laptop with no
 Windows partition it resolves the audio-driver package from Lenovo's update
 catalog, verifies and unpacks it, and prints the extracted-XML directory to
 hand to a converter. It does **not** run a converter — that step is meant to

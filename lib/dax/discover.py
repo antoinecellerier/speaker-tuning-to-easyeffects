@@ -10,7 +10,11 @@ user input, walking `/proc/mounts` and then the working directory;
 `find_tuning_xml` answers the second, matching the `DEV_` / `MAN_` / `FUNC_` /
 `SUBSYS_` tokens in a filename against `lib/hardware/codecs.py`'s reading of
 the hardware, and falling back to each XML's own `<security-key>` when no
-filename matches. Everything else here is a helper to those two.
+filename matches. Everything else here is a helper to those two, bar
+the four names `tools/fetch_driver` reuses so it locates and chooses
+XMLs exactly as the converters do: `walk_for_dolby_xml_dirs`,
+`xmls_directly_under`, `dirs_for_this_machine` and
+`is_dolby_tuning_filename`.
 
 `autoprobe_all_dolby_xmls` is the union form of the first question — every
 XML the same probes can see — for the corpus tier and `tools/corpus_audit.py`.

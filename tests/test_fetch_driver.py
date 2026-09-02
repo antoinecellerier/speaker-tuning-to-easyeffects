@@ -4,6 +4,7 @@ No network: `_get` is monkeypatched to serve canned catalog / descriptor XML.
 """
 
 import hashlib
+import re
 import subprocess
 
 import pytest
@@ -379,3 +380,18 @@ def test_hdmi_codecs_are_not_offered_to_the_catalog():
         assert g.codec_tokens() == [("10EC", "0287", "17AA22E6", "Realtek ALC287")]
     finally:
         codecs.get_hda_codec_ids = real
+
+
+@pytest.mark.parametrize("fam,expect", [
+    ("debian", "sudo apt install innoextract"),
+    ("gentoo", "emerge app-arch/innoextract"),
+    # innoextract is exec'd by this process, so a nix-shell does reach it --
+    # the generic "install it from your distribution" was the wrong answer.
+    ("nixos", "nix-shell -p innoextract"),
+])
+def test_a_missing_innoextract_names_the_command_for_this_distro(
+        tmp_path, monkeypatch, fam, expect):
+    monkeypatch.setattr(g.shutil, "which", lambda _: None)
+    monkeypatch.setattr(g.packages, "family", lambda *a, **k: fam)
+    with pytest.raises(g.Fail, match=re.escape(expect)):
+        g.extract(tmp_path / "d.exe", tmp_path / "cache")
