@@ -24,7 +24,8 @@ What it does:
    audio package whose descriptor advertises a HardwareID for this machine's
    codec (`VEN_10EC&DEV_xxxx`), breaking ties toward the Dolby DAX3 APO and
    then the highest version.
-3. Downloads the driver EXE into `./driver-cache/` and verifies its SHA-256
+3. Downloads the driver EXE into the repo's `driver-cache/` (gitignored;
+   `--driver-cache DIR` moves it) and verifies its SHA-256
    against the catalog descriptor.
 4. Runs `innoextract` to pull the `DEV_*_SUBSYS_*.xml` tuning files out, then
    prints that directory and the converter command to run next.

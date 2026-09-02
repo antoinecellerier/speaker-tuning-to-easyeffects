@@ -62,6 +62,7 @@ _INSTALL = {
     NIXOS: "",
 }
 
+
 def install_verb(fam: str) -> str:
     """The install-command prefix for `fam`, or "" when it has none.
 

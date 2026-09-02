@@ -428,8 +428,11 @@ The easiest way is to use `--windows` to auto-discover the XML from a mounted Wi
 ```bash
 python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run   # show what it resolved
 python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch, verify, unpack
-python3 dolby_to_easyeffects.py --windows ./driver-cache/extract/...   # then run a converter
 ```
+
+It finishes by printing the converter command to run next, with the extracted
+directory already filled in — the path contains a `$`, so copy the line it
+gives you rather than retyping it.
 
 <details>
 <summary>Manual extraction, or from a Lenovo driver EXE (no Windows partition)</summary>

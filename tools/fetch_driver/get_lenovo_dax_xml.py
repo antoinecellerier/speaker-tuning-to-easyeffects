@@ -7,8 +7,8 @@ that means hand-downloading the OEM driver EXE and running innoextract. This
 script does that step and stops there: it reads the machine type and audio
 codec IDs from sysfs, resolves the matching audio-driver package from Lenovo's
 public update catalog, downloads and checksum-verifies the EXE, extracts the
-Dolby tuning XMLs into ./driver-cache/, and prints the directory to hand to
-whichever converter you want to run.
+Dolby tuning XMLs into the repo's driver-cache/, and prints the directory to
+hand to whichever converter you want to run.
 
 Lenovo only, for now. Other vendors: see the README "Extracting the XML".
 
@@ -52,6 +52,7 @@ _INNOEXTRACT = {
     packages.DEBIAN: "innoextract", packages.FEDORA: "innoextract",
     packages.SUSE: "innoextract", packages.ARCH: "innoextract",
     packages.ALPINE: "innoextract", packages.GENTOO: "app-arch/innoextract",
+    packages.NIXOS: "innoextract",
 }
 
 
@@ -214,7 +215,8 @@ def pick_descriptor(urls: list[str],
                        "pass --exe-url with the driver EXE")
         detail = ("\n  " + "\n  ".join(skipped)) if skipped else ""
         raise Fail("found audio packages in the catalog but none look like an "
-                   f"internal-codec driver; pass --exe-url with the driver EXE{detail}")
+                   "internal-codec driver; pass --exe-url with the driver "
+                   f"EXE{detail}")
     # Primary key: the descriptor advertises this machine's codec. Only narrow
     # to it when at least one does — a --machine-type override on another box,
     # or a codec sysfs can't read, leaves every candidate in the running.
@@ -274,9 +276,15 @@ def extract(exe: Path, cache: Path) -> Path:
     if not shutil.which("innoextract"):
         fam = packages.family()
         verb = packages.install_verb(fam)
-        hint = (f"{verb} {_INNOEXTRACT[fam]}"
-                if verb and fam in _INNOEXTRACT else
-                "install 'innoextract' from your distribution")
+        pkg = _INNOEXTRACT.get(fam)
+        if fam == packages.NIXOS and pkg:
+            # innoextract is exec'd by this process, which is exactly what a
+            # nix-shell reaches — the NIX_SHELL_KEYS rationale in lib/packages.py.
+            hint = f"nix-shell -p {pkg}"
+        elif verb and pkg:
+            hint = f"{verb} {pkg}"
+        else:
+            hint = "install 'innoextract' from your distribution"
         raise Fail(f"innoextract is required to unpack {exe.name}\n  {hint}")
     out = cache / "extract"
     if out.exists():
@@ -340,7 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
                    "Lenovo machine type")
     p.add_argument("--driver-cache", type=Path, default=ROOT / "driver-cache",
                    help="working directory for the EXE and extracted XMLs "
-                   "(default: ./driver-cache, gitignored)")
+                   "(default: driver-cache/ beside this repo, gitignored)")
     p.add_argument("--keep-exe", action="store_true",
                    help="don't delete the driver EXE after extraction")
     p.add_argument("--dry-run", action="store_true",
