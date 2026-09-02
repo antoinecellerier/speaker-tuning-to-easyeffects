@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -150,7 +151,12 @@ class Descriptor:
             nm = (f.findtext("Name") or "").strip()
             if nm.lower().endswith(".exe"):
                 self.exe_name = nm
-                self.sha256 = (f.findtext("CRC") or "").strip().lower()
+                # `<CRC>` is a SHA-256 on every descriptor we've read, but the
+                # tag name doesn't promise one. Anything that isn't 64 hex is
+                # some other digest: skip verification rather than fail every
+                # run of this machine type on a mismatch we'd blame on the file.
+                crc = (f.findtext("CRC") or "").strip().lower()
+                self.sha256 = crc if re.fullmatch(r"[0-9a-f]{64}", crc) else ""
                 break
 
     @property
@@ -180,16 +186,28 @@ class Descriptor:
 def pick_descriptor(urls: list[str],
                     tokens: list[tuple[str, str, str, str]]) -> Descriptor:
     cands = []
+    # Why each rejected URL was rejected. Without this a run where every
+    # descriptor 403s reports "none look like an internal-codec driver" — a
+    # true statement about an empty list, and the wrong thing to go fix.
+    skipped = []
     for u in urls:
         try:
             d = Descriptor(u, _get(u))
-        except (ET.ParseError, Fail):
+        except Fail as e:
+            skipped.append(str(e))
+            continue
+        except ET.ParseError as e:
+            skipped.append(f"{u} -> not XML ({e})")
             continue
         if d.exe_name and d.is_internal_audio:
             cands.append(d)
     if not cands:
+        if not urls:
+            raise Fail("this machine type's catalog lists no audio package; "
+                       "pass --exe-url with the driver EXE")
+        detail = ("\n  " + "\n  ".join(skipped)) if skipped else ""
         raise Fail("found audio packages in the catalog but none look like an "
-                   "internal-codec driver; pass --exe-url with the driver EXE")
+                   f"internal-codec driver; pass --exe-url with the driver EXE{detail}")
     # Primary key: the descriptor advertises this machine's codec. Only narrow
     # to it when at least one does — a --machine-type override on another box,
     # or a codec sysfs can't read, leaves every candidate in the running.
@@ -212,22 +230,30 @@ def download(url: str, dest: Path, expect_sha: str) -> Path:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     print(f"  downloading {url}")
     tty = sys.stderr.isatty()
-    with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as fh:
-        total = int(r.headers.get("Content-Length", 0))
-        done = last_pct = 0
-        while chunk := r.read(1 << 16):
-            fh.write(chunk)
-            h.update(chunk)
-            done += len(chunk)
-            if total:
-                pct = done * 100 // total
-                if pct != last_pct and (tty or pct % 20 == 0):
-                    last_pct = pct
-                    end = "\r" if tty else "\n"
-                    print(f"  {done / 1e6:5.1f} / {total / 1e6:.1f} MB "
-                          f"({pct:3d}%)", end=end, file=sys.stderr)
-        if total and tty:
-            print(file=sys.stderr)
+    # Same conversion `_get` does: a 404 on a hand-passed --exe-url, or a
+    # connection dropped mid-download, is a user-facing failure, not a traceback.
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as fh:
+            total = int(r.headers.get("Content-Length", 0))
+            done = last_pct = 0
+            while chunk := r.read(1 << 16):
+                fh.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if total:
+                    pct = done * 100 // total
+                    if pct != last_pct and (tty or pct % 20 == 0):
+                        last_pct = pct
+                        end = "\r" if tty else "\n"
+                        print(f"  {done / 1e6:5.1f} / {total / 1e6:.1f} MB "
+                              f"({pct:3d}%)", end=end, file=sys.stderr)
+            if total and tty:
+                print(file=sys.stderr)
+    except urllib.error.HTTPError as e:
+        raise Fail(f"{url} -> HTTP {e.code}")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        dest.unlink(missing_ok=True)
+        raise Fail(f"{url} -> {e}")
     got = h.hexdigest()
     if expect_sha and got != expect_sha:
         dest.unlink(missing_ok=True)
@@ -343,7 +369,12 @@ def run(args: argparse.Namespace) -> int:
         print(f"driver package: {pkg_name} v{desc.version}"
               + ("  [Dolby DAX3 APO]" if desc.has_dolby_apo else ""))
 
-    exe = cache / exe_url.rsplit("/", 1)[1]
+    # Not `rsplit("/")`: a --exe-url ending in "/" would name the cache dir
+    # itself, and a query string would end up in the filename.
+    exe_name = Path(urllib.parse.urlparse(exe_url).path).name
+    if not exe_name:
+        raise Fail(f"no filename in {exe_url}")
+    exe = cache / exe_name
     print(f"driver EXE: {exe_url}")
     if sha:
         print(f"sha256: {sha}")
