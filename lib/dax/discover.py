@@ -210,6 +210,9 @@ def _detect_expected_subsys_ids() -> set[str]:
     return an empty set if no hardware is detected.
     """
     ids: set[str] = set()
+    # HDMI/DP codecs ride along here. Harmless — no Dolby tuning filename
+    # carries a display SSID — so this stays a superset rather than growing a
+    # filter the callers would have to agree on.
     for _vendor, subsys, _name in codecs.get_hda_codec_ids():
         ids.add(subsys.upper())
     pci_token = _pci_subsys_token(codecs.get_pci_audio_subsystem())
@@ -246,6 +249,19 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
         except OSError:
             continue
     return False
+
+
+def dirs_for_this_machine(dirs: list[Path]) -> list[Path]:
+    """Narrow candidate directories to those holding a tuning XML for this
+    machine.
+
+    Public so ``tools/fetch_driver`` picks the right directory out of a
+    per-SKU fan-out the same way the autoprobe picks between extracted trees
+    — one implementation, so the two can't drift. Returns ``[]`` when no
+    hardware is detected, which callers read as "can't narrow".
+    """
+    expected = _detect_expected_subsys_ids()
+    return [d for d in dirs if _candidate_has_matching_xml(d, expected)]
 
 
 def walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -> list[Path]:
@@ -403,8 +419,7 @@ def autoprobe_dolby_source() -> Path:
     # only one is for their device.
     hardware_matches: list[Path] = []
     if len(candidates) > 1:
-        expected = _detect_expected_subsys_ids()
-        hardware_matches = [c for c in candidates if _candidate_has_matching_xml(c, expected)]
+        hardware_matches = dirs_for_this_machine(candidates)
         if len(hardware_matches) == 1:
             _announce(hardware_matches[0])
             return hardware_matches[0]
