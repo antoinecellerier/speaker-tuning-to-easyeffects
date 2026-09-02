@@ -356,16 +356,39 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _autoprobe_finds(xml_dir: Path) -> bool:
+    """True if a converter run from here would land on ``xml_dir`` by itself.
+
+    Asked with the probe's own helpers rather than guessed from the path, so
+    a second extracted tree in the way is answered correctly: the autoprobe
+    narrows several candidates to the one matching this machine, and only a
+    single survivor means a bare run is unambiguous.
+    """
+    try:
+        found = discover.walk_for_dolby_xml_dirs(Path.cwd())
+    except OSError:
+        return False
+    if xml_dir not in found:
+        return False
+    return len(found) == 1 or discover.dirs_for_this_machine(found) == [xml_dir]
+
+
 def _print_next_steps(xml_dir: Path) -> None:
     rel = xml_dir
     try:
         rel = xml_dir.relative_to(Path.cwd())
     except ValueError:
         pass
+    print(f"\nDolby tuning XMLs are in:\n  {rel}\n")
+    if _autoprobe_finds(xml_dir):
+        print("build a preset with either converter — run from here, they find "
+              "that directory themselves:")
+        print("  python3 dolby_to_easyeffects.py")
+        print("  python3 dolby_to_pipewire.py")
+        return
     # innoextract's layout has a `$` in it (`code$GetExtractPath$`), so the
     # path has to be quoted to survive a paste into a shell.
     q = shlex.quote(str(rel))
-    print(f"\nDolby tuning XMLs are in:\n  {rel}\n")
     print("build a preset from that directory with either converter:")
     print(f"  python3 dolby_to_easyeffects.py --windows {q}")
     print(f"  python3 dolby_to_pipewire.py --windows {q}")

@@ -28,7 +28,9 @@ What it does:
    `--driver-cache DIR` moves it) and verifies its SHA-256
    against the catalog descriptor.
 4. Runs `innoextract` to pull the `DEV_*_SUBSYS_*.xml` tuning files out, then
-   prints that directory and the converter command to run next.
+   prints that directory and the converter command to run next — a bare
+   `python3 dolby_to_easyeffects.py` where the autoprobe would find the
+   extraction on its own, `--windows DIR` where it wouldn't.
 
 Prerequisites: `innoextract` — the script names the package for your distro if
 it's missing. The converters' own dependencies (`lsp-plugins-lv2` etc.) are

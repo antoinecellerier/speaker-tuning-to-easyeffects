@@ -430,9 +430,10 @@ python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run   # show what it reso
 python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch, verify, unpack
 ```
 
-It finishes by printing the converter command to run next, with the extracted
-directory already filled in — the path contains a `$`, so copy the line it
-gives you rather than retyping it.
+It unpacks into the repo's `driver-cache/`, which the converters' autoprobe
+already covers — so from the repo root the next step is just
+`python3 dolby_to_easyeffects.py`, no path to pass. The script prints the exact
+command to run, with `--windows` filled in on the rare occasions it's needed.
 
 <details>
 <summary>Manual extraction, or from a Lenovo driver EXE (no Windows partition)</summary>

@@ -395,3 +395,66 @@ def test_a_missing_innoextract_names_the_command_for_this_distro(
     monkeypatch.setattr(g.packages, "family", lambda *a, **k: fam)
     with pytest.raises(g.Fail, match=re.escape(expect)):
         g.extract(tmp_path / "d.exe", tmp_path / "cache")
+
+
+def _extracted(root, subsys="17AA22E6", where="driver-cache/extract"):
+    d = root.joinpath(*where.split("/")) / "code$GetExtractPath$" / "Dolby" / "03_dax_ext"
+    d.mkdir(parents=True)
+    (d / f"DEV_0287_SUBSYS_{subsys}.xml").write_text("<x/>")
+    return d
+
+
+def test_next_steps_drop_the_path_when_a_bare_run_would_find_it(
+        tmp_path, monkeypatch, capsys):
+    """The extracted path contains a `$`, so an unquoted paste breaks. When the
+    converters would autodiscover it, the shortest correct command has no path
+    in it at all."""
+    d = _extracted(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    g._print_next_steps(d)
+    out = capsys.readouterr().out
+    assert "python3 dolby_to_easyeffects.py\n" in out
+    assert "--windows" not in out
+
+
+def test_next_steps_name_the_directory_when_a_bare_run_would_not(
+        tmp_path, monkeypatch, capsys):
+    """Extracted somewhere the cwd walk can't reach, the explicit --windows
+    form is the only one that works -- and it has to be quoted."""
+    d = _extracted(tmp_path / "elsewhere")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    g._print_next_steps(d)
+    out = capsys.readouterr().out
+    assert "--windows" in out
+    assert "'" in out, "the $ in the path must be quoted"
+
+
+def test_next_steps_stay_explicit_when_two_trees_are_in_reach(
+        tmp_path, monkeypatch, capsys):
+    """A second extracted tree makes a bare run ambiguous unless exactly one
+    matches this machine, so don't promise autodiscovery."""
+    mine = _extracted(tmp_path, "17AA22E6", "a")
+    _extracted(tmp_path, "17AA5094", "b")
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
+    monkeypatch.chdir(tmp_path)
+    g._print_next_steps(mine)
+    assert "--windows" in capsys.readouterr().out
+
+
+def test_a_second_tree_this_machine_does_not_match_still_autodiscovers(
+        tmp_path, monkeypatch, capsys):
+    """Two trees but only one for this laptop: the autoprobe narrows to it, so
+    a bare run is unambiguous and the path is still noise."""
+    mine = _extracted(tmp_path, "17AA22E6", "a")
+    _extracted(tmp_path, "17AA5094", "b")
+    monkeypatch.setattr(
+        codecs, "get_hda_codec_ids", lambda: [("10EC0287", "17AA22E6", "ALC287")])
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
+    monkeypatch.chdir(tmp_path)
+    g._print_next_steps(mine)
+    out = capsys.readouterr().out
+    assert "--windows" not in out
+    assert "python3 dolby_to_easyeffects.py\n" in out
