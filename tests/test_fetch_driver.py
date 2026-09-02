@@ -28,7 +28,7 @@ REALTEK = """<?xml version="1.0"?>
     <HardwareID><![CDATA[HDAUDIO\\FUNC_01&VEN_10EC&DEV_0257&SUBSYS_17AA5094]]></HardwareID>
   </PackageXML>
   <Files>
-    <File><Name>r1mra06w.exe</Name><CRC>BEEF</CRC></File>
+    <File><Name>r1mra06w.exe</Name><CRC>BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB</CRC></File>
     <File id="EN"><Name>r1mra06w.html</Name><CRC>99</CRC></File>
   </Files>
 </Package>"""
@@ -83,7 +83,7 @@ def test_pick_prefers_dolby_apo_and_skips_dock(net):
     assert d.name == "AUD_R1MAR"
     assert d.exe_name == "r1mra06w.exe"
     assert d.exe_url == "https://x/r1mra06w.exe"
-    assert d.sha256 == "beef"
+    assert d.sha256 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 
 def test_pick_breaks_ties_on_version(net, monkeypatch):
@@ -209,3 +209,61 @@ def test_tuning_xml_dir_finds_the_one_dolby_dir(tmp_path):
 def test_tuning_xml_dir_errors_when_nothing_extracted(tmp_path):
     with pytest.raises(g.Fail, match="no Dolby DAX3 tuning"):
         g.tuning_xml_dir(tmp_path)
+
+
+def test_a_network_error_mid_download_is_a_message_not_a_traceback(tmp_path,
+                                                                   monkeypatch):
+    """A dropped connection used to escape `main`'s `except Fail` as a
+    traceback, which reads as a bug in the tool rather than a bad network."""
+    def boom(*a, **k):
+        raise g.urllib.error.URLError("connection reset")
+
+    monkeypatch.setattr(g.urllib.request, "urlopen", boom)
+    dest = tmp_path / "d.exe"
+    with pytest.raises(g.Fail, match="connection reset"):
+        g.download("https://x/d.exe", dest, "0" * 64)
+    assert not dest.exists()
+
+
+def test_an_http_error_on_the_exe_is_a_message_not_a_traceback(tmp_path,
+                                                               monkeypatch):
+    def boom(*a, **k):
+        raise g.urllib.error.HTTPError("https://x/d.exe", 404, "Not Found",
+                                       None, None)
+
+    monkeypatch.setattr(g.urllib.request, "urlopen", boom)
+    with pytest.raises(g.Fail, match="HTTP 404"):
+        g.download("https://x/d.exe", tmp_path / "d.exe", "0" * 64)
+
+
+def test_unreadable_descriptors_are_named_not_hidden(monkeypatch):
+    """All-403 descriptors used to report "none look like an internal-codec
+    driver" — true of an empty list, and the wrong thing to go fix."""
+    monkeypatch.setattr(
+        g, "_get", lambda u: (_ for _ in ()).throw(g.Fail(f"{u} -> HTTP 403")))
+    with pytest.raises(g.Fail, match=r"HTTP 403") as excinfo:
+        g.pick_descriptor(["https://x/a.xml", "https://x/b.xml"], TOKENS)
+    assert "https://x/a.xml" in str(excinfo.value)
+    assert "https://x/b.xml" in str(excinfo.value)
+
+
+def test_a_catalog_with_no_audio_package_says_so(monkeypatch):
+    monkeypatch.setattr(g, "_get", lambda u: b"")
+    with pytest.raises(g.Fail, match="lists no audio package"):
+        g.pick_descriptor([], TOKENS)
+
+
+def test_a_crc_that_is_not_a_sha256_skips_verification():
+    """`<CRC>` is a SHA-256 on every descriptor we've read, but the tag name
+    doesn't promise one. Treating a CRC32 as a digest would abort every run of
+    that machine type after the full download, blaming the file."""
+    assert g.Descriptor("https://x/d.xml", DOCK.encode()).sha256 == ""
+    assert g.Descriptor("https://x/r.xml", REALTEK.encode()).sha256 == "b" * 64
+
+
+def test_an_exe_url_with_no_filename_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setattr(g, "codec_tokens", lambda: [])
+    args = g.build_parser().parse_args(
+        ["--exe-url", "https://x/", "--driver-cache", str(tmp_path)])
+    with pytest.raises(g.Fail, match="no filename in"):
+        g.run(args)
