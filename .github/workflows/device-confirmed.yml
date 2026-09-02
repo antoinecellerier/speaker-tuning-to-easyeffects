@@ -22,7 +22,12 @@ name: Mark confirmed device as tested
 # DMI says "ThinkPad T14 Gen 2i" — so the DEVICE NAME rules translate one to the
 # other, in the table's bare-suffix style. The map is not 1:1: on newer families
 # (X13 Gen 6, T14 Gen 7) PSREF still splits Intel/AMD but DMI drops the letter,
-# so the run flags those in the PR body for a human instead of guessing. What
+# so the run flags those in the PR body for a human instead of guessing. DMI
+# diverges from the branding two more ways, both unresolvable from the report
+# and so both flagged the same way: one machine type ships firmware with a
+# regional name (82MS is "Yoga Slim 7 Pro 14ACH5" globally, "Yoga 14sACH 2021"
+# in China — #84), and some SKUs put the marketing name in `Product` where the
+# machine type belongs ("Yoga Slim 7 Pro 14ACH5 D" on 82NJ). What
 # makes any of this safe is the charset gate under SHELL SAFETY, not the field
 # the name came from: the name is a shell argument either way (it becomes the
 # commit subject and the PR title).
@@ -156,9 +161,21 @@ jobs:
                  names no vendor, so neither do you — instead flag it in the PR
                  body (below), because Lenovo often does disambiguate such a
                  family and only its machine type will say which SKU this is.
+                 A consumer `Family` carrying a model year ("Yoga 14sACH 2021")
+                 or a China-market series word ("XiaoXin", "XiaoXinPro") is the
+                 regional name, not the global branding the table uses: 82MS is
+                 "Yoga Slim 7 Pro 14ACH5" worldwide, and both strings ship in
+                 firmware on that one machine type. You cannot resolve the
+                 global name here — PSREF is a JS app whose APIs 404 — so use
+                 `Family` as printed and flag it in the PR body (below).
               3. Append the first four characters of `Product` in parentheses —
                  that is the machine type. The rest is a configure-to-order
-                 suffix.
+                 suffix. A Lenovo machine type is two digits then two
+                 alphanumerics (82MS, 21CD, 83D2); where `Product` does not
+                 start that way it is not one at all — some SKUs put the
+                 marketing name there, and only DMI's `SKU Number` carries the
+                 code, which `--speaker-info` does not print. Append nothing
+                 then, and flag it in the PR body.
               4. Any other vendor: the name is `<brand> <model>`, brand first
                  because the table sorts on it.
                    - `Family` leads with the brand ("ASUS TUF Gaming A15"):
@@ -188,6 +205,13 @@ jobs:
                  in the name — and flag it in the PR body)</example>
             <example>Family "Yoga 7 16IAH7" + Product "82UF"
               -> Lenovo Yoga 7 16IAH7 (82UF)</example>
+            <example>Family "Yoga 14sACH 2021" + Product "82MS"
+              -> Lenovo Yoga 14sACH 2021 (82MS)   (a model year, so the name is
+                 regional — flag it in the PR body)</example>
+            <example>Family "Yoga Slim 7 Pro 14ACH5 D" + Product "Yoga Slim 7
+              Pro 14ACH5 D"
+              -> Lenovo Yoga Slim 7 Pro 14ACH5 D   (Product is not a machine
+                 type, so no code in parentheses — and flag it)</example>
             <example>Family "ASUS TUF Gaming A15" + Product "ASUS TUF Gaming A15 FA507NV_FA507NV"
               -> ASUS TUF Gaming A15 (FA507NV)</example>
             <example>Vendor "Framework" + Family "Laptop" + Product "Laptop 13 Pro (Intel Core Ultra Series 3)"
@@ -267,6 +291,13 @@ jobs:
             names no CPU vendor. Lenovo may sell this family as both Intel and
             AMD — check PSREF for machine type <the four characters> and add
             ' Intel'/' AMD' before merging if it does."
+            If the family looked regional, add: "DMI reports a regional name.
+            Search machine type <the four characters> on psref.lenovo.com; if
+            the global name differs, rename the row to '<global name> (<machine
+            type>, reported as <Family>)' before merging, and move it to that
+            name's alphabetical slot." If `Product` was not a machine type,
+            say so, quote what it held, and ask the reviewer to add the code
+            from PSREF.
 
             Finally — always, including when you stopped early — report what
             happened as structured output:
