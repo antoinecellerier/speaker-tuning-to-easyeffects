@@ -433,3 +433,25 @@ def test_print_install_hint_falls_back_to_every_family(monkeypatch):
     # distributions they are not on, and this prints on an error screen where
     # every extra line pushes the next step further down.
     assert [t for s, t in lines if s == "dim"] == []
+
+
+@pytest.mark.parametrize("fam", packages.FAMILIES)
+def test_install_verb_answers_exactly_the_families_with_a_command(fam):
+    """`install_verb` is the reusable half of `install_command`, for a caller
+    whose package this file doesn't carry (`tools/fetch_driver`'s innoextract).
+    A verb that went missing would leave that caller printing a bare package
+    name as if it were a command."""
+    verb = packages.install_verb(fam)
+    assert bool(verb) == (fam in packages.COMMAND_FAMILIES)
+    if verb:
+        assert packages.install_command([packages.LSP_LV2], fam).startswith(
+            verb + " ")
+
+
+def test_install_verb_spells_out_the_package_manager():
+    assert packages.install_verb(packages.DEBIAN) == "sudo apt install"
+    assert packages.install_verb(packages.ARCH) == "sudo pacman -S"
+    # NixOS has no imperative install verb, and an unknown family has none
+    # either -- both must read as "no command", not as a broken prefix.
+    assert packages.install_verb(packages.NIXOS) == ""
+    assert packages.install_verb("nonesuch") == ""
