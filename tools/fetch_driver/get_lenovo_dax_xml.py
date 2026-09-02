@@ -76,8 +76,12 @@ def machine_type() -> str:
     m = re.search(r"MT_([0-9A-Z]{4})", sku)
     if m:
         return m.group(1)
-    name = _dmi("product_name")[:4].upper()
-    return name if re.fullmatch(r"[0-9A-Z]{4}", name) else ""
+    # `product_name` is either an MT-prefixed code (`20XLS23200`) or a
+    # marketing name. Slicing four characters off the latter yields `THIN` /
+    # `IDEA`, which look like machine types and 404 the catalog, so match the
+    # whole string instead.
+    m = re.fullmatch(r"([0-9A-Z]{4})[A-Z0-9]{3,}", _dmi("product_name").upper())
+    return m.group(1) if m else ""
 
 
 def codec_tokens() -> list[tuple[str, str, str, str]]:
@@ -89,7 +93,10 @@ def codec_tokens() -> list[tuple[str, str, str, str]]:
     """
     out = []
     for vendor_id, subsys_id, name in codecs.get_hda_codec_ids():
-        if subsys_id.upper().startswith("00"):  # HDMI/DP controllers
+        # Keyed on the codec name, the way `_card_pci_preference` does it: an
+        # SSID test catches the AMD spelling (`00AA0100`) but not Intel's
+        # (`80860101`), and a display codec has no Dolby tuning either way.
+        if "HDMI" in name.upper():
             continue
         out.append((vendor_id[:4].upper(), vendor_id[-4:].upper(),
                     subsys_id.upper(), name))

@@ -181,6 +181,12 @@ def test_download_accepts_matching_checksum(tmp_path, monkeypatch):
 @pytest.mark.parametrize("field,value,expect", [
     ("product_sku", "LENOVO_MT_20XL_BU_Think_FM_ThinkPad T14 Gen 2a", "20XL"),
     ("product_name", "20XLS23200", "20XL"),
+    # A marketing name is not a machine type. Slicing four characters off
+    # these yielded THIN / IDEA, which 404 the catalog with a message that
+    # blames the machine type the user never gave.
+    ("product_name", "ThinkPad X1 Carbon Gen 9", ""),
+    ("product_name", "IdeaPad Pro 5 14AHP9", ""),
+    ("product_name", "Legion Y540-15IRH", ""),
 ])
 def test_machine_type_parsing(monkeypatch, field, value, expect):
     vals = {"sys_vendor": "LENOVO", "product_sku": "", "product_name": "", field: value}
@@ -344,3 +350,17 @@ def test_a_subsystem_two_sku_dirs_share_stays_ambiguous(tmp_path, monkeypatch):
     monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: None)
     with pytest.raises(g.Fail, match="more than one directory"):
         g.tuning_xml_dir(tmp_path)
+
+
+def test_hdmi_codecs_are_not_offered_to_the_catalog():
+    """A display codec has no Dolby tuning, and its DEV token must not join the
+    codec match. The old SSID test caught AMD's 00AA0100 but not Intel's."""
+    ids = [("10EC0287", "17AA22E6", "Realtek ALC287"),
+           ("8086281C", "80860101", "Intel Alderlake-P HDMI"),
+           ("1002AA01", "00AA0100", "ATI R6xx HDMI")]
+    real = codecs.get_hda_codec_ids
+    codecs.get_hda_codec_ids = lambda: ids
+    try:
+        assert g.codec_tokens() == [("10EC", "0287", "17AA22E6", "Realtek ALC287")]
+    finally:
+        codecs.get_hda_codec_ids = real
