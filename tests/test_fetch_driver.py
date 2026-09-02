@@ -12,10 +12,11 @@ from lib.hardware import codecs
 from tools.fetch_driver import get_lenovo_dax_xml as g
 
 CATALOG = """<?xml version="1.0"?>
-<packages count="3">
+<packages count="4">
   <package><location>https://x/dock.xml</location><category>Audio</category></package>
   <package><location>https://x/realtek.xml</location><category>Audio</category></package>
   <package><location>https://x/net.xml</location><category>Networking</category></package>
+  <package><location>https://x/lenovoprovisiondolbyvisionp17_2_.xml</location><category>Video</category></package>
 </packages>"""
 
 DOCK = """<?xml version="1.0"?>
@@ -50,7 +51,7 @@ PLAIN_AUDIO = """<?xml version="1.0"?>
 # The Dolby *Vision* Provisioning Kit — a display package that used to leak
 # into the audio candidate pool via a name-substring match.
 DOLBY_VISION = """<?xml version="1.0"?>
-<Package name="LenovoProvisionDolbyVision" version="2.0.1.0">
+<Package name="LenovoProvisionDolbyVision" version="99.0.1.0">
   <Files><File><Name>dolbyvision.exe</Name><CRC>cd</CRC></File></Files>
 </Package>"""
 
@@ -78,6 +79,20 @@ def net(monkeypatch):
 def test_catalog_filters_to_audio(net):
     urls = g.catalog_packages("20XL", ["11"])
     assert urls == ["https://x/dock.xml", "https://x/realtek.xml"]
+
+
+def test_pick_skips_a_dock_audio_package(net, monkeypatch):
+    """DOCK_ is USB dock audio, not the internal codec. It carries no Dolby
+    hwid either, so give it one — otherwise this passes on the wrong reason."""
+    monkeypatch.setattr(g, "_get", lambda u: {
+        "https://x/dock.xml": DOCK.replace(
+            "<Files>",
+            "<PackageXML><HardwareID><![CDATA[SWC\\VEN_DOLBY&PID_DAX3APOSVC]]>"
+            "</HardwareID></PackageXML><Files>"),
+        "https://x/plain.xml": PLAIN_AUDIO,
+    }[u].encode())
+    d = g.pick_descriptor(["https://x/dock.xml", "https://x/plain.xml"], [])
+    assert d.name == "AUD_N3AA1"
 
 
 def test_pick_prefers_dolby_apo_and_skips_dock(net):
@@ -202,7 +217,7 @@ def test_machine_type_empty_when_not_lenovo(monkeypatch):
 def test_extract_without_innoextract_names_the_package(tmp_path, monkeypatch):
     monkeypatch.setattr(g.shutil, "which", lambda _: None)
     monkeypatch.setattr(g.packages, "family", lambda: g.packages.DEBIAN)
-    with pytest.raises(g.Fail, match="innoextract"):
+    with pytest.raises(g.Fail, match=r"sudo apt install innoextract"):
         g.extract(tmp_path / "x.exe", tmp_path)
 
 
