@@ -107,6 +107,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- A run, and `--doctor`, now warn when your PipeWire graph is set above
+  48 kHz, the rate these presets are built at. EasyEffects stretches the
+  speaker-correction filter to match the graph without compensating its gain,
+  so the preset plays hot by the ratio of the two rates. The warning offers a
+  session-only test, and the PipeWire filter-chain path doesn't have the
+  problem.
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84);
+  measurements in docs/design-notes.md)
+
 - Flag a speaker Linux is driving past its volume control. `--speaker-info`
   now shows where each speaker pin takes its signal from, and a run warns —
   with the modprobe fix where the kernel accepts one — when upstream carries

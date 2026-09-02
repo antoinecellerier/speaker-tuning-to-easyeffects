@@ -359,6 +359,18 @@ filter loads nothing. Use the Flatpak if your distro still ships EE 7.
   `woofer-regulator-*`, `band_20_freq` @ 44.1 kHz (script is 48 kHz only),
   and `ieq-bands-set` (the script generates all three IEQ variants).
 
+## The 48 kHz assumption
+
+The pipeline is built at 48 kHz throughout (`lib/preset/bands.py`
+`SAMPLE_RATE`): the FIR is designed at it, the `.irs` is written at it, and the
+MBC time constants divide by it. That is a property of what we emit, not a
+limitation of the XML — the runtime consequence sits one layer down, in
+EasyEffects: it resamples the convolver kernel to whatever rate the PipeWire
+graph runs at and compensates no gain, so on a graph above 48 kHz the preset
+plays hot by the ratio of the two rates. A run and `--doctor` both warn, and
+the PipeWire filter-chain path is unaffected. Measurement and mechanism:
+`docs/design-notes.md`, "A preset that plays hot".
+
 ## Open threads — where to pick up work
 
 - **Close the gap to DAX** and validate the scaling factors above:

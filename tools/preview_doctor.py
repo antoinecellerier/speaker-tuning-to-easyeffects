@@ -141,6 +141,13 @@ SCENARIOS: dict[str, dict] = {
         "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
         "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
         "env": {"DEMO_SPEAKER_ROUTE": "17AA3906"}},
+    "graph-rate-too-high": {
+        "why": "a session whose PipeWire graph runs above 48 kHz — EasyEffects "
+               "resamples the correction filter up without compensating its "
+               "gain, so the preset plays hot and the report has to say so",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "graph_rate": 192000},
 }
 
 
@@ -195,6 +202,19 @@ def _scenario(slug: str):
         # installed binary — which this scenario's machine cannot run.
         session.wireplumber_version = lambda: session.Version(
             reason="wireplumber not found")
+
+    # The one scenario that varies the clock rather than the daemon's health:
+    # everything else about the machine is the healthy baseline's, so the only
+    # thing the report can be reacting to is the rate.
+    if spec.get("graph_rate"):
+        rate = spec["graph_rate"]
+        session.read_settings = lambda: session.ClockSettings(
+            rate=str(rate), quantum="1024", min_quantum="32",
+            max_quantum="2048", force_quantum="0", force_rate="0")
+        session.read_xruns = lambda *a, **kw: session.Dropouts(
+            sink=0, chain=0, chain_node="easyeffects_sink", sink_recent=0,
+            chain_recent=0, window_s=5.0, playing=True, sink_is_driver=True,
+            running_quantum=1024, running_rate=rate)
 
     # A running daemon is the authoritative source for the loaded preset, so
     # the scenario has to answer as one or the real EasyEffects on the capture

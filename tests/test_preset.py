@@ -2657,6 +2657,55 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     environment.warn_old_kernel(old)
     assert flat(environment.kernel_old_message()) in flat(capsys.readouterr().out)
 
+    # Graph sample rate: doctor detail and the end-of-run warning (issue #84).
+    # The run that wrote the preset is where most users will ever see this —
+    # they never type --doctor — so it must carry the same explanation.
+    def _run_with_clock(settings):
+        monkeypatch.setattr(session, "read_settings", lambda: settings)
+        doctor_run.warn_ee_environment(
+            SimpleNamespace(output_dir=ee_paths.DEFAULT_OUTPUT_DIR,
+                            irs_dir=ee_paths.DEFAULT_IRS_DIR, dry_run=False))
+        return capsys.readouterr().out
+
+    hot = session.ClockSettings(rate="192000", quantum="1024", min_quantum="32",
+                                max_quantum="2048", force_quantum="0", force_rate="0")
+    assert flat(environment.graph_rate_message(192000, "is set to")) in flat(
+        environment.graph_rate_status(0, "192000").detail)
+    # A healthy EasyEffects, or the FAIL branch above returns before reaching it.
+    monkeypatch.setattr(doctor_run, "_probe_ee_version",
+                        lambda: doctor_run.EEProbe((8, 2, 8), True, None, False))
+    out = _run_with_clock(hot)
+    assert flat(environment.graph_rate_message(192000, "is set to")) in flat(out)
+    # The body is not dimmed: it explains a fault that is already audible,
+    # unlike the install explanations around it (/user-review round 12).
+    assert "48000 Hz graph" in out
+    # Silent on a 48 kHz graph, and when PipeWire could not be read at all —
+    # an unreadable clock is not a fault to warn a generation run about.
+    assert "48000 Hz graph" not in _run_with_clock(
+        session.ClockSettings(rate="48000", quantum="1024", force_quantum="0",
+                              force_rate="0"))
+    assert "48000 Hz graph" not in _run_with_clock(
+        session.ClockSettings(reason="pw-metadata not found"))
+
+
+def test_the_graph_rate_finding_carries_an_ask_to_the_closing_block():
+    """/user-review round 12: printed inline only, the warning had scrolled
+    off by the time the run ended, so the reader's last screen was a clean
+    'Done' with no mention of the 12 dB. The ask is what survives to the end —
+    and being a finding also seats it above the --disable menu whose 'loud
+    parts distort' entry is otherwise all a distorting user is offered."""
+    f = environment.graph_rate_finding(192000, "384000")
+    assert f.slug == "preset-plays-hot" and f.kind == "hint"
+    assert f.ask and f.ask.count(".") == 1, "the ask is ONE sentence"
+    assert "192000" in f.ask and "12 dB" in f.ask
+    # The dB tracks the rate here too, not just in the detail.
+    assert "6 dB" in environment.graph_rate_finding(96000, "96000").ask
+    # No URL in a message body, and the command stays OUT of the wrapped
+    # prose — it rides `steps`, where it prints verbatim and stays runnable.
+    for text in (f.ask, f.detail):
+        assert "http" not in text and "pw-metadata" not in text
+    assert environment.graph_rate_finding(48000, "48000") is None
+
 
 def test_the_ee7_warning_names_no_distribution_release(monkeypatch,
                                                        silence_console, capsys):
@@ -3883,6 +3932,89 @@ def test_no_presets_found_names_what_it_can_see():
         doctor_run._no_presets_found("~/o", 0, False, unreadable=2)
     assert "(the 3 other preset files there weren't written by it or couldn't be read)" \
         in doctor_run._no_presets_found("~/o", 2, True, unreadable=1)
+
+
+def test_graph_rate_status_fires_only_above_the_rate_the_preset_is_built_at():
+    """Issue #84: EasyEffects resamples the convolver kernel to the graph rate
+    and compensates no gain, so above 48 kHz the preset is hot by the rate
+    ratio. Measured +5.9 dB at 96 kHz and +11.8 at 192 kHz, and isolated to the
+    convolver (bypassing it drops the rate-dependence to -0.4 dB)."""
+    assert environment.graph_rate_status(48000, "48000") is None
+    # 44.1 kHz lands at -0.74 dB — quieter, negligible, and the right thing to
+    # be doing with 44.1 kHz material. The gate is ">", not "!=".
+    assert environment.graph_rate_status(44100, "44100") is None
+
+    warn = environment.graph_rate_status(192000, "384000")
+    assert warn.status == DOCTOR_WARN
+    assert warn.label == "Graph sample rate"
+    # The rate that RAN wins over the session default: #84 asked for 384000.
+    assert "192000 Hz" in warn.detail and "384000" not in warn.detail
+    assert "runs at" in warn.detail
+    # The command is a session-only probe and rides `steps`, printed verbatim;
+    # the prose stays free of it, because wrapped prose folds a command into
+    # something unrunnable.
+    assert warn.steps and "pw-metadata" not in warn.detail
+
+    # The dB is computed, not tabulated — the same sentence at another rate
+    # must carry another number, or it is false there.
+    assert "12 dB" in warn.detail
+    assert "6 dB" in environment.graph_rate_status(96000, "96000").detail
+    assert environment.graph_rate_gain_db(96000) == pytest.approx(6.02, abs=0.01)
+    assert environment.graph_rate_gain_db(192000) == pytest.approx(12.04, abs=0.01)
+
+
+def test_graph_rate_status_falls_back_to_the_session_default_and_says_so():
+    """running_rate is 0 whenever the driver never ran during the probe — with
+    nothing playing the check must still speak, but must not claim the graph
+    *ran* at a rate it only read from the settings."""
+    warn = environment.graph_rate_status(0, "192000")
+    assert warn.status == DOCTOR_WARN
+    assert "is set to" in warn.detail and "runs at" not in warn.detail
+    assert "192000 Hz" in warn.detail
+
+
+def test_the_graph_rate_undo_restores_a_rate_that_was_already_pinned():
+    """The session test is safe to hand over because it cannot outlive a
+    restart — but its undo must put back what was there. Clearing to 0 on a
+    machine whose rate was pinned on purpose would drop the reader's own
+    setting while claiming to undo ours."""
+    cmds = [text.strip() for style, text in environment.graph_rate_steps("192000")
+            if style == "cta"]
+    assert cmds[0].endswith("clock.force-rate 48000")
+    assert cmds[1].endswith("clock.force-rate 192000"), cmds
+    # Unforced sessions undo to 0, which is what "no override" means there.
+    unforced = [text.strip() for style, text in environment.graph_rate_steps("0")
+                if style == "cta"]
+    assert unforced[1].endswith("clock.force-rate 0")
+    # The check carries them, so a reader of --doctor gets the same test.
+    assert environment.graph_rate_status(192000, "384000").steps
+
+
+def test_graph_rate_status_reads_a_forced_rate_the_session_default_hides():
+    """`clock.force-rate` pins the graph WITHOUT changing `clock.rate`, so a
+    machine with a forced rate and nothing playing during the probe would
+    otherwise be judged on its untouched default and told nothing — while the
+    graph runs forced the moment audio starts."""
+    warn = environment.graph_rate_status(0, "48000", "192000")
+    assert warn.status == DOCTOR_WARN
+    assert "192000 Hz" in warn.detail and "is pinned to" in warn.detail
+    # An unforced session ("0") falls through to the default, and a rate forced
+    # to the rate we build at is not a fault.
+    assert environment.graph_rate_status(0, "48000", "0") is None
+    assert environment.graph_rate_status(0, "48000", "48000") is None
+    # What actually ran still outranks what was pinned.
+    assert "96000 Hz" in environment.graph_rate_status(96000, "48000", "192000").detail
+
+
+def test_graph_rate_status_is_silent_when_the_rate_is_unreadable():
+    """`read_settings` reports ok when ANY key parsed and fills the rest with
+    "", so a readable probe can still carry no rate. An unknown value renders
+    its reason elsewhere and must never read here as a zero."""
+    for settings_rate in ("", "not-a-number", "0", "-48000"):
+        assert environment.graph_rate_status(0, settings_rate) is None
+    # Both halves absent is the unreadable-PipeWire case, already covered by
+    # its own UNKNOWN check; this one must add nothing.
+    assert environment.graph_rate_status(0, "") is None
 
 
 def test_environment_lines_show_the_pipewire_clock_and_dropouts():

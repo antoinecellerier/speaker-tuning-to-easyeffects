@@ -590,7 +590,11 @@ def main(argv=None):
         print("\nrestored: EE config (teardown.sh), default sink, quantum")
 
     # --- aggregate + expected-response check (per-round pw vs ee vs bypass) ---
-    summary = {"preset": str(args.preset), "quantum": args.quantum, "governor": gov,
+    summary = {"preset": str(args.preset), "quantum": args.quantum,
+               # Recorded because the rate is now a variable this harness is
+               # run across (issue #84), and a summary that cannot say which
+               # rate produced it is not evidence of anything.
+               "rate": args.rate, "governor": gov,
                "turbo": turbo, "rounds": args.rounds, "window_s": args.window,
                "conditions": {}, "response_check": {}}
     for cond, runs in results.items():

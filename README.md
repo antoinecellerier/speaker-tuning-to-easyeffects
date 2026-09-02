@@ -126,7 +126,7 @@ pip install -r requirements.txt
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
 - `--speaker-info` — report detected audio hardware and speaker layout, then exit
-- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (hardware, install location, EasyEffects version/compatibility, preset + impulse-file integrity, the selected preset, background service mode + autostart) and exit; the checks and what to do about them print last. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
+- `--doctor` (alias `--diagnose`) — run environment self-diagnostics (hardware, install location, EasyEffects version/compatibility, preset + impulse-file integrity, the selected preset, background service mode + autostart, kernel age, PipeWire graph sample rate) and exit; the checks and what to do about them print last. If a generated preset seems inaudible, run this first and paste the output into an issue. See [Troubleshooting](#troubleshooting-a-preset-that-sounds-like-nothing) below
 
 **Profile selection**
 - `--endpoint TYPE` — endpoint type (default: `internal_speaker`)

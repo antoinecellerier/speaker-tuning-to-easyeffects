@@ -20,18 +20,21 @@ of those paths costs any numpy
 The alternative was worse: importing this module at the top of the generator
 breaks that trap outright.
 
-`SAMPLE_RATE` and `FIR_LENGTH` live here rather than in a constants module
-because `make_fir` reads both, and a constant sits with its user (CLAUDE.md,
-"Co-locate definitions with use"). `SAMPLE_RATE` is the arguable one — it is
-the pipeline's rate, not the FIR's, and its other readers (the MBC time
-constants, the Nyquist line in the profile report) will end up in modules
-that want no numpy. If that coupling ever bites, it earns a stdlib-only home
-then; today every reader is in a process that has already paid for numpy.
+`FIR_LENGTH` lives here because `make_fir` reads it, and a constant sits with
+its user (CLAUDE.md, "Co-locate definitions with use"). `SAMPLE_RATE` used to,
+with a note that it was the arguable one — the pipeline's rate, not the FIR's —
+and that it would earn a stdlib-only home if a reader ever turned up in a
+module that wants no numpy. That happened: `--doctor` compares it against the
+running PipeWire graph rate, and the doctor path must not pay the DSP import.
+It now lives in `lib/preset/bands.py`, beside `make_convolver` — the plugin
+whose kernel carries the rate — and is imported back here for `make_fir`'s own
+use, so every existing `fir.SAMPLE_RATE` reader keeps resolving.
 """
 
 import numpy as np
 
-SAMPLE_RATE = 48000
+from lib.preset.bands import SAMPLE_RATE
+
 FIR_LENGTH = 4096  # ~85ms, plenty for EQ
 
 

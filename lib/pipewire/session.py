@@ -206,8 +206,39 @@ def wireplumber_version() -> Version:
                     claim="installed")
 
 
+# The graph rate a copy preview needs, which no XML can reach and this machine
+# will not be in: the fault is a session-wide PipeWire setting, so the only way
+# to render the warning it raises is to answer as a session that has it. Same
+# convention as `DEMO_SPEAKER_PIN` and friends (`lib/hardware/speakers.py`).
+# `DEMO_GRAPH_RATE=192000` sets the session default; `384000:192000` sets a
+# default the hardware caps below, which is issue #84's own shape and the one
+# arm whose wording differs.
+_DEMO_GRAPH_RATE = "DEMO_GRAPH_RATE"
+
+
+def _maybe_demo_clock() -> "ClockSettings | None":
+    """A stubbed clock when the demo hook is set, else None.
+
+    Read here rather than in the report because the report must render the
+    *shipped* sentence: a preview that fabricated a warning would prove only
+    that the harness can print. This substitutes the machine's answer and lets
+    the real check decide, exactly as the speaker-pin hook does.
+    """
+    raw = (os.environ.get(_DEMO_GRAPH_RATE) or "").strip()
+    if not raw:
+        return None
+    rate = raw.split(":")[0]
+    if not rate.isdigit():
+        return None
+    return ClockSettings(rate=rate, quantum="1024", min_quantum="32",
+                         max_quantum="2048", force_quantum="0", force_rate="0")
+
+
 def read_settings() -> ClockSettings:
     """The session clock, or a ``ClockSettings`` whose ``reason`` says why not."""
+    demo = _maybe_demo_clock()
+    if demo is not None:
+        return demo
     if shutil.which("pw-metadata") is None:
         return ClockSettings(reason="pw-metadata not found")
     values = parse_settings(_run(["pw-metadata", "-n", "settings"]) or "")

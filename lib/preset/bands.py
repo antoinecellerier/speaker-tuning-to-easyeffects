@@ -46,11 +46,32 @@ def make_band(freq: float, gain: float, q=1.5) -> dict:
     )
 
 
+# The rate the whole pipeline is built at: the FIR is designed at it
+# (`fir.make_fir`), the `.irs` WAV is written at it (`emit`), the MBC time
+# constants divide by it (`plugins`) and the profile report's Nyquist line
+# halves it. It sits beside `make_convolver` because the convolver is the one
+# plugin carrying a kernel that *has* a rate, and it lives here rather than in
+# `fir.py`, where it started, because `--doctor` now compares it against the
+# running PipeWire graph rate and that path must not pay numpy — which
+# importing `fir` costs (`tests/test_layout.py::STDLIB_ONLY`). `fir.py`'s
+# docstring predicted exactly this move.
+SAMPLE_RATE = 48000
+
+
 def make_convolver(kernel_name: str) -> dict:
     """Convolver plugin config referencing an IR by name.
 
     EasyEffects 8.x uses kernel-name (filename stem without extension),
     and looks for the WAV in its irs/ directory.
+
+    ``autogain`` stays off because this tool owns the gain budget end to end
+    (docs/design-notes.md, "Gain-staging budget"). That has a measured
+    consequence off the 48 kHz path: EasyEffects resamples this kernel to the
+    graph rate and compensates no gain for the longer filter, so on a graph
+    above `SAMPLE_RATE` the preset runs hot by the rate ratio in dB — +11.8 dB
+    measured at 192 kHz — and nothing in this block corrects it. `--doctor`
+    warns instead; flipping this to True is *not* the fix, since it would also
+    change the level at 48 kHz and invalidate that budget.
     """
     return {
         "bypass": False,

@@ -97,6 +97,31 @@ clock — not "10 % of the CPU at full tilt." The real, clock-independent cost i
 the cycle figure: **~0.33–0.37 Gcyc/s marginal ≈ a tenth of one modern core**.
 CPU% is shown only as a familiar (if noisy) cross-check.
 
+### Graph sample rate (issue #84)
+
+Same harness, `--rate`/`--quantum`, `Dolby-Balanced`, capturing each path's
+output level as well as its cycles:
+
+| Graph rate | EE Gcyc/s | PW Gcyc/s | EE out | PW out |
+|---|---|---|---|---|
+| 48 kHz / 1024 | +0.33 | +0.29 | −35.9 dBFS | −35.9 |
+| 96 kHz / 1024 | — | — | −30.0 | −35.8 |
+| 192 kHz / 1024 | +1.49 | +0.86 | −24.1 | −35.9 |
+| 192 kHz / 512 | +1.08 | +0.95 | −24.1 | −35.9 |
+
+Two findings. Cost at 192 kHz is **~4.5× for EasyEffects and ~3× for the
+PipeWire chain**, not the 16× a rate-squared estimate predicts. (All six runs
+ran with turbo on and D/E/F at n=2, so the second digit is soft.) And the EasyEffects path **plays hot by the
+rate ratio in dB** above 48 kHz while the PipeWire path does not — a
+correctness bug, isolated to the convolver, written up in
+`docs/design-notes.md` ("A preset that plays hot").
+
+Two gotchas for anyone re-running this. `--rate` really does take: the 48 kHz
+`ee_capture` null sink does not pin the graph. And forcing the *rate* alone
+makes PipeWire scale the quantum with it (1024 → 4096), preserving the cycle's
+real-time duration — so hold the blocksize constant by forcing both, which is
+what `pw_force()` does.
+
 Takeaways: the PW chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM**
 (EasyEffects' marginal footprint is ~248 MB of Qt/GUI vs the chain child's
 ~56 MB); both run xrun-free with zero added latency. Numbers are device-specific

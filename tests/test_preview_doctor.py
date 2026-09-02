@@ -46,6 +46,9 @@ _EXPECTED = {
     # A hardware-state scenario: its sink/preset axes are the healthy
     # baseline's, and what it varies is the machine the checks read.
     "speaker-routed-past-volume": ("speaker", True, DOCTOR_PASS),
+    # A session-state scenario, same shape: healthy sink and preset, and what
+    # it varies is the PipeWire clock the checks read.
+    "graph-rate-too-high": ("speaker", True, DOCTOR_PASS),
 }
 
 
@@ -62,6 +65,20 @@ def test_the_stale_version_scenario_renders_the_warn(capsys, monkeypatch):
     assert "written by v2026.01" in joined
     preview_doctor.render("output-speakers")
     assert "another version" not in capsys.readouterr().out
+
+
+def test_the_graph_rate_scenario_renders_the_warn(capsys, monkeypatch):
+    """Issue #84. The dB figure is computed from the rate, so the assertion is
+    on the number too — a hard-coded 12 would be false at every other rate."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render("graph-rate-too-high")
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "Graph sample rate" in ln)
+    assert tag(DOCTOR_WARN) in line, line
+    joined = " ".join(ln.strip() for ln in out.splitlines())
+    assert "192000 Hz" in joined and "12 dB more" in joined
+    preview_doctor.render("output-speakers")
+    assert "Graph sample rate" not in capsys.readouterr().out
 
 
 def test_registry_and_expectations_agree():

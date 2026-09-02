@@ -62,11 +62,23 @@ ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"},
              "ee-loaded": {"DEMO_EE_RELOAD": "loaded"},
              "ee-bypassed": {"DEMO_EE_RELOAD": "bypassed"},
              "reload-refused": {"DEMO_EE_RELOAD": "mismatch"},
-             "reload-unanswered": {"DEMO_EE_RELOAD": "silent"}}
+             "reload-unanswered": {"DEMO_EE_RELOAD": "silent"},
+             # The graph-rate warning (issue #84). Two cases because the two
+             # arms word themselves differently and only one may quote "about":
+             # a rate the driver ran at is measured, a rate the session merely
+             # asks for is an upper bound the hardware may cap — 384000 on
+             # #84's own machine capped at 192000, where the error is 6 dB
+             # smaller than the request implies.
+             "graph-rate": {"DEMO_GRAPH_RATE": "192000"},
+             "graph-rate-capped": {"DEMO_GRAPH_RATE": "384000"}}
 # A case is "fired" when its tag prints. The two reload successes carry no
 # tag — a success has no action — so they are recognised by their line.
 FIRED_MARKERS = {"ee-reloaded": "EasyEffects is playing",
-                 "ee-loaded": "EasyEffects is now playing"}
+                 "ee-loaded": "EasyEffects is now playing",
+                 # The finding is named for the symptom, not for the case that
+                 # forces it (`.claude/rules/user-messages.md`).
+                 "graph-rate": "[preset-plays-hot]",
+                 "graph-rate-capped": "[preset-plays-hot]"}
 
 GENERATOR_ARGS = ["--dry-run", "--skip-ee-check", "--no-color"]
 
@@ -87,6 +99,15 @@ def _run(xml: Path, out: Path, label: str, env_extra: dict) -> bool:
         if "DEMO_EE_RELOAD" in env_extra:
             gen_args = [a for a in gen_args if a != "--dry-run"] + [
                 "--output-dir", tmp, "--irs-dir", tmp]
+        if "DEMO_GRAPH_RATE" in env_extra:
+            # This warning is raised by warn_ee_environment, which
+            # --skip-ee-check gates off entirely — so the one flag every other
+            # case wants is the one that makes this case unreachable. It also
+            # needs a real EasyEffects to answer `--version`: with none found
+            # the check returns early on purpose (the presets are for another
+            # machine, whose clock this is not), so on a box without
+            # EasyEffects this case renders nothing and says so.
+            gen_args = [a for a in gen_args if a != "--skip-ee-check"]
         proc = subprocess.run(
             [sys.executable, "dolby_to_easyeffects.py", str(xml), *gen_args],
             cwd=REPO, env=env, capture_output=True, text=True)

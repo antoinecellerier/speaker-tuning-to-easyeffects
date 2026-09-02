@@ -399,6 +399,23 @@ equivalent port. The mapping is on-device validated at a 20 s history
 
 ## Equivalence to the EE chain
 
+**A measured non-equivalence, in this path's favour: the graph sample rate.**
+(Not the only one — the autogain translation below is a known approximation,
+and 4-channel upmix isn't translated at all.) EasyEffects resamples the
+convolver kernel to the server rate without compensating its gain, so an
+EasyEffects chain on a graph above 48 kHz plays hot by the rate ratio in dB
+(+11.8 dB measured at 192 kHz). This path does not: `module-filter-chain`
+resamples the IR itself — it documents a `resample_quality` "in case the IR
+does not match the graph samplerate" — and its output measured unchanged at
+48, 96 and 192 kHz. Note the conf this converter writes never sets that key, so
+what holds the level is the module's default handling, not anything we emit.
+Full measurement and the isolating test: `docs/design-notes.md`, "A preset that
+plays hot". So on a machine whose graph is deliberately above 48 kHz — an
+external DAC, say — this path holds the level the tuning intends where
+EasyEffects does not. That is a statement about output level, measured on one
+device and preset at three rates, not a claim that the whole chain is more
+faithful.
+
 The MBC/regulator/limiter linear values round-trip to the source
 preset's dB values to 4 decimals. The full chain measures equivalent
 to the live EasyEffects pipeline on the development device (X1 Yoga
@@ -602,7 +619,18 @@ reported by the activation step's sink check and by `--doctor`'s
   `pw-metadata -n settings 0 clock.force-quantum 1024` (revert with
   value `0`). That raises the whole session's base latency, a
   system-wide trade-off the user opts into; the chain itself still adds
-  zero latency over whatever quantum runs. Crackle can also originate
+  zero latency over whatever quantum runs. **The graph sample rate is the
+  bigger lever of the two**, and the one to check first: this chain costs ~3x
+  the cycles at 192 kHz that it does at 48 kHz, and the EasyEffects one ~4.5x
+  (measured, `tools/measure_perf/`),
+  and because `clock.rate` sets the real-time duration of a quantum
+  (`man pipewire.conf`), a session whose *default* rate is high runs a
+  correspondingly shorter cycle at the same quantum number — 1024 frames is 21.3 ms
+  at 48 kHz and 2.7 ms at 384 kHz. Pin it the same way,
+  `pw-metadata -n settings 0 clock.force-rate 48000` (revert with `0`), with the
+  same system-wide caveat: someone running a high rate for an external DAC chose
+  it, and issue [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)
+  is why the doctor reports the rate rather than changing it. Crackle can also originate
   below PipeWire entirely: the ROG Xbox Ally X (subsys 1043:1384) had
   playback dropouts tied to TAS2781 UEFI-calibration handling, first
   quirked to skip the unit's calibration

@@ -3711,6 +3711,97 @@ PipeWire restart — identical to the pinned conf in all four states. A single
 unpinned chain does not follow the default anywhere, so there is nothing to
 fix. (Bluetooth was not connected for this; the HDMI switch is the proxy.)
 
+## A preset that plays hot: EasyEffects resamples the kernel and keeps the gain (issue [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+
+The issue reported constant crackle on every preset, clean the instant
+EasyEffects' effects were switched off, unchanged by the volume slider. The
+reporter's PipeWire graph ran at **192000 Hz** (`clock.rate 384000`; the ALC287
+caps at 192 k). The first diagnosis was lost CPU headroom — wrong, or rather
+second-order. Measuring found a deterministic level error.
+
+Same preset, same content, `tools/measure_perf/compare_paths.py --rate`,
+capturing the output level of each path:
+
+| Graph rate | EasyEffects | vs 48 kHz | `20*log10(rate/48000)` | PipeWire filter-chain |
+|---|---|---|---|---|
+| 48 kHz | −35.9 dBFS | — | — | −35.9 |
+| 96 kHz | −30.0 | **+5.9** | +6.02 | −35.8 |
+| 192 kHz | −24.1 | **+11.8** | +12.04 | −35.9 |
+
+**Above 48 kHz the EasyEffects preset runs hot by exactly the sample-rate ratio
+in dB**, within 0.2 dB at two independent rates. The filter-chain path does not.
+
+**Isolated to the convolver.** Re-measuring with the convolver bypassed (a
+temporary preset, `convolver#0.bypass = true`) collapses the rate-dependence:
+
+| | ee | pw | bypass |
+|---|---|---|---|
+| convolver ON, 48 k → 192 k | −35.9 → **−24.1** | −35.9 → −35.9 | −30.1 → −30.4 |
+| convolver OFF, 48 k → 192 k | −28.5 → **−28.9** | −28.5 → −28.9 | −30.2 → −30.4 |
+
++11.8 dB with it, −0.4 dB without. Re-derived from the JSONs the residual is
+−0.35 dB against a −0.20 dB bypass drift in the same runs — larger than the
+drift, and negligible only against the +11.8 dB it is being compared with. The
+real control is the PipeWire column, constant at −35.9/−35.8/−35.9. Two corroborations fall out:
+with the convolver off `ee` and `pw` agree exactly at both rates, and with it on
+at 192 kHz they diverge by the same 11.8 dB.
+
+**Mechanism, read in EasyEffects' source.** `Convolver::load_kernel_file`
+resamples the impulse response to the server rate
+(`src/convolver.cpp`, `ConvolverKernelManager::resampleKernel`), and
+`resampleKernel` (`src/convolver_kernel_manager.cpp`) resamples the *samples*
+through `Resampler::process` — a thin `speex_resampler_process_float` wrapper
+(`src/resampler.hpp`) that applies no scaling — and returns. A `normalizeKernel`
+exists in the same file, and the *load* path does reach it
+(`convolver.cpp:152` → `zita.init(…, settings->autogain())` →
+`convolver_zita.cpp:302` → `apply_kernel_autogain()` → `:216`) — but only when
+the preset asks for autogain. The **resample** path never calls it, and ours
+sets `autogain = False`, so nothing normalises the stretched kernel. Speex preserves
+amplitude, so a kernel with 4× the taps sums 4× the signal: the ratio, exactly.
+Our `make_convolver` writes `autogain = False` (this tool owns the gain budget),
+so nothing downstream compensates either. `module-filter-chain` gets this right
+— `man 7 libpipewire-module-filter-chain` documents a `resample_quality` "in
+case the IR does not match the graph samplerate" — which is the immune column.
+
+**The error is set by the rate ratio alone, not by the tuning.** Resampling
+each profile's shipped kernel ×4 offline gives +11.30 dB (Balanced), +11.26
+(Detailed), +11.30 (Warm) — within 0.04 dB of each other, because resampling
+scales the whole impulse response linearly whatever its shape. So the figure is
+a function of the graph rate and nothing else, which is why the check computes
+it rather than tabulating one, and why a message may only state a dB figure
+alongside the rate it belongs to.
+
+A third, audio-free confirmation: resampling the shipped `.irs` offline with
+`scipy.signal.resample_poly` raises its peak frequency response +5.56 dB (×2)
+and +11.30 dB (×4). (Do **not** measure this as a sum of taps — the kernel is
+minimum-phase and its taps sum near a cancellation point, so that ratio is
+unstable and reads −38 dB at ×2.)
+
+**Why this explains #84 where CPU load did not.** 12 dB into the multiband
+compressor and limiter is gross distortion, which is volume-independent
+(it happens inside the chain), stops dead when effects are switched off, and is
+only *partly* eased by disabling the MBC because the limiter still sees the same
+12 dB — each of which the reporter observed and the dropout theory explained
+awkwardly. The CPU cost is real but secondary: the chain costs ~4.5× the cycles
+at 192 kHz (EE marginal +0.33 → +1.49 Gcyc/s), **not** the 16× a naive
+rate-squared estimate predicts, because zita partitions better than a uniform
+estimate and the linearly-scaling plugins dominate. That is what the reporter's
+`clock.force-quantum` change helped, and why Spotify improved while the browser
+did not.
+
+**What shipped:** a `--doctor` WARN (`environment.graph_rate_status`) *and* the
+same finding at the end of every ordinary run (`graph_rate_finding`, raised by
+`warn_ee_environment`), which is where most readers will meet it — computing
+the error from the observed rate, so the sentence stays true at any rate. Not a
+workaround: flipping `autogain = True` fails twice over. `apply_kernel_autogain`
+peak-normalises and then scales by `min(1, 1/sqrt(power))`
+(`convolver_zita.cpp:211-249`), and a resampled kernel's tap energy grows with
+the same rate ratio as its gain — so it compensates sqrt(L) against an error of
+L and leaves roughly half the error, ~6 dB of the 12 dB at 192 kHz, still
+there. It also moves the 48 kHz level by ~11 dB, invalidating the whole
+gain-staging budget above. The residual figures are an offline model of that
+arithmetic rather than a measurement; the sqrt(L) mechanism is source-certain. Not reported upstream yet.
+
 ## What counts as a smart amp, and which ones we watch for
 
 `_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family

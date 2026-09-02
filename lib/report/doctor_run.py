@@ -66,6 +66,7 @@ from lib.pipewire import session
 from lib.preset import autoload
 from lib.report import doctor_layout as layout
 from lib.report import environment
+from lib.report import findings as report_findings
 from lib.report import speaker as report_speaker
 
 
@@ -668,14 +669,29 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report.speaker_info = report_speaker._gather_speaker_info()
 
     # 5b. The PipeWire clock the chain runs at, and whether the graph is
-    #     dropping buffers. Facts, not checks: no quantum is known to be too
-    #     small (docs/ee-to-pipewire.md keeps that regime on the unvalidated
-    #     list), a client can legitimately pull the session down to
-    #     min-quantum, and the xrun counter is cumulative — non-zero on
-    #     healthy machines — so a WARN here would fire on machines with no
-    #     fault and send the reader to change a session setting. What issue
-    #     #84's paste lacked was the numbers, and a remote reader can weigh
-    #     them.
+    #     dropping buffers. The *dropout* numbers stay facts, not checks, and
+    #     the original reason holds: no quantum is known to be too small
+    #     (docs/ee-to-pipewire.md keeps that regime on the unvalidated list),
+    #     a client can legitimately pull the session down to min-quantum, and
+    #     the xrun counter is cumulative — non-zero on healthy machines — so a
+    #     WARN on those would fire with no fault and send the reader to change
+    #     a session setting. What issue #84's paste lacked was the numbers, and
+    #     a remote reader can weigh them.
+    #
+    #     The clock *rate* is the one carve-out, and it is a different kind of
+    #     claim: not a heuristic about load but a measured, deterministic error
+    #     in what we emit — above 48 kHz EasyEffects resamples the convolver
+    #     kernel without compensating its gain, so the preset is hot by the
+    #     rate ratio (+11.8 dB at 192 kHz, isolated to the convolver;
+    #     docs/design-notes.md). It still infers — two of its three rate
+    #     sources are settings rather than what ran — but it infers a
+    #     configuration, not a fault, and the error it reports is arithmetic
+    #     from that rate rather than a judgement about load. What it cannot do
+    #     is fire on a graph at the rate we build for, which is the objection
+    #     above. Note it reads the driver of whatever sink is current, so a
+    #     machine playing to a high-rate external DAC raises it with the
+    #     speaker path untouched — correct, since that is the graph the preset
+    #     would run in, but it is why the copy never says "your speakers".
     pw_clock = session.read_settings()
     pw_xruns = session.read_xruns(sink=live.sink or "")
     pw_age = session.process_age("pipewire")
@@ -688,6 +704,14 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     unread = _pipewire_unread_check(pw_clock, pw_xruns)
     if unread is not None:
         report.checks.append(unread)
+    # Prefer the rate the driver actually ran at, falling back to the session
+    # default when nothing played during the probe; both can be absent, and
+    # the check returns None rather than reading either as zero.
+    rate_check = environment.graph_rate_status(pw_xruns.running_rate,
+                                               pw_clock.rate,
+                                               pw_clock.force_rate)
+    if rate_check is not None:
+        report.checks.append(rate_check)
 
     # 6. Smart-amp firmware gate — upstream of the whole preset (issue #17)
     gate_check = environment.firmware_gate_status(
@@ -1031,10 +1055,33 @@ def report_doctor(args) -> None:
     _print_doctor_report(report)
 
 
-def warn_ee_environment(args) -> None:
+def _graph_rate_headline(dry_run: bool) -> str:
+    """The end-of-run headline. The explanation itself comes from
+    `environment.graph_rate_message`, so this path and --doctor cannot drift —
+    the arrangement `kernel_old_message` uses.
+
+    "set to", never "running at": this arm reads `pw-metadata` only, because
+    the rate the driver actually ran at costs a five-second `pw-top` window a
+    generation run should not pay. The detail below says "is set to" / "is
+    pinned to" for the same reason, and a headline claiming to know what ran
+    would contradict it one line later.
+    """
+    presets = ("The presets this run would write are" if dry_run
+               else "The presets above are")
+    return (f"{presets} built for a {environment.SAMPLE_RATE} Hz graph, "
+            "and yours isn't set to one.")
+
+
+def warn_ee_environment(args) -> "report_findings.Finding | None":
     """End-of-run check for a normal generation run: loudly warn if the
     installed EasyEffects can't use the presets we just wrote. Silent on the
-    happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate."""
+    happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate.
+
+    Returns the graph-rate finding when one is raised, so its ask reaches the
+    closing block — everything else here is a print, because everything else
+    here is about the EasyEffects *install*, which the reader either has to
+    fix before anything works or does not have to fix at all.
+    """
     probe = _probe_ee_version()
     ee_version, found, ee_is_flatpak = (
         probe.version, probe.found, probe.is_flatpak)
@@ -1054,7 +1101,7 @@ def warn_ee_environment(args) -> None:
         # stale.
         for style, text in easyeffects_install_steps():
             console.cprint(style, text)
-        return
+        return None
 
     if not found and probe.silent:
         # Installed but unreachable — say so, rather than sending someone off to
@@ -1081,3 +1128,34 @@ def warn_ee_environment(args) -> None:
         console.cprint("warn", f"\n⚠  Presets were written to the {where} EasyEffects "
                        f"location, but the {run_where} install was detected — if "
                        "that's the one you use, it won't see them (run --doctor).")
+
+    # A graph above the rate we build at makes the preset we just wrote wrong,
+    # not merely expensive (issue #84) — so it belongs on the run that wrote
+    # it, not only in a --doctor most users never type. Settings only: the
+    # rate the driver actually ran at costs a five-second pw-top window, which
+    # is the diagnostic's to pay and not a generation run's, so this arm reads
+    # what the session is configured or pinned to and words itself that way.
+    # Only meaningful when the EasyEffects that will play these presets is
+    # THIS machine's. With none found, the run is generating for elsewhere
+    # (the branch above says so), and this machine's clock describes a graph
+    # the presets will never run on.
+    if not found:
+        return None
+    clock = session.read_settings()
+    if not clock.ok:
+        return None
+    finding = environment.graph_rate_finding(0, clock.rate, clock.force_rate)
+    if finding is None:
+        return None
+    console.cprint("warn", "\n⚠  " + _graph_rate_headline(args.dry_run))
+    print()
+    # Not "dim". Every other wrapped body in this function explains an install
+    # the reader still has to go and fix; this one explains a fault that is
+    # already audible, and /user-review round 12 read the dimming as "footnote,
+    # skip me" on exactly that basis.
+    console._cprint_wrapped("warn", finding.detail)
+    # The command rides its own unwrapped lines, as it does in the --doctor
+    # check's `steps`: folded across two lines it stops being runnable.
+    for style, text in environment.graph_rate_steps(clock.force_rate):
+        console.cprint(style, text)
+    return finding

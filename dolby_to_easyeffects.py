@@ -963,7 +963,13 @@ def main(argv: list[str] | None = None,
     # because of the environment, e.g. EE 7 or a wrong install location).
     # Silent on the happy path; reuses --doctor's probes.
     if not args.skip_ee_check:
-        doctor_run.warn_ee_environment(args)
+        # Returns a finding when the PipeWire graph runs above the rate the
+        # presets are built at: that one is a fault in what this run just
+        # wrote, so its ask belongs in the closing block, not only inline
+        # where it scrolls away (issue #84).
+        ee_finding = doctor_run.warn_ee_environment(args)
+        if ee_finding is not None:
+            tally.findings.setdefault(ee_finding.slug, ee_finding)
 
     # The two findings raised after the per-profile loop rather than inside
     # it. They have no mid-run site to report from, so their detail prints

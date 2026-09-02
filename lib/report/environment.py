@@ -31,6 +31,7 @@ one this doctor has to recognise, because having it selected is itself a
 
 from __future__ import annotations
 
+import math
 import platform
 import re
 from dataclasses import dataclass, field
@@ -51,6 +52,8 @@ from lib.preset.autoload import (
     GENERATOR_PREFIX,
     kernel_belongs_to,
 )
+from lib.preset.bands import SAMPLE_RATE
+from lib.report.findings import Finding
 
 
 # EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
@@ -189,6 +192,196 @@ def kernel_old_message() -> str:
             "series — if your speakers sound thin, muffled or garbled even with "
             "EasyEffects off, a newer kernel (your distro's backports or "
             "hardware-enablement/HWE kernel) may fix that.")
+
+
+def _parse_graph_rate(text: str) -> int | None:
+    """`clock.rate` as a positive int, or None when it isn't one.
+
+    Not defensive noise: `session.read_settings` reports `ok` when *any* key
+    parsed and fills the rest with `""`, so a readable probe can still carry no
+    rate. An unreadable rate has to skip the check — the standing rule in this
+    report is that an unknown value renders its reason and never reads as zero.
+    """
+    try:
+        rate = int(text)
+    except (TypeError, ValueError):
+        return None
+    return rate if rate > 0 else None
+
+
+# Below this the sentence would round to "0 dB more" and still call it a
+# problem. It is the same judgement the gate already makes for 44.1 kHz
+# (-0.74 dB, negligible and in the quieter direction), applied upward: 1 dB is
+# reached at ~53.9 kHz, below every rate real hardware offers (88.2, 96, 176.4,
+# 192, 384) and above every rounding artefact. Load-bearing — without it
+# `clock.force-rate 50000` prints "about 0 dB more" as a fault.
+_GRAPH_RATE_MIN_DB = 1.0
+
+
+def graph_rate_gain_db(rate: int) -> float:
+    """dB the preset runs hot on a graph running at *rate*.
+
+    EasyEffects resamples the convolver kernel to the server rate and
+    compensates no gain for the longer filter, so the error is the rate ratio:
+    +6.02 dB at 96 kHz, +12.04 dB at 192 kHz. Measured on the dev box at both
+    (+5.9 and +11.8), and isolated to the convolver — bypassing it drops the
+    rate-dependence to -0.4 dB (docs/design-notes.md). Computed rather than
+    tabulated so the sentence stays true at any rate a user can reach.
+    """
+    return 20.0 * math.log10(rate / SAMPLE_RATE)
+
+
+def _effective_graph_rate(running_rate: int, settings_rate: str,
+                          forced_rate: str = "0") -> tuple[int, str] | None:
+    """(rate, verb) for the graph, or None when no rate could be read.
+
+    Three sources in falling order of authority, because no one of them is
+    always there:
+
+    1. the rate the driver actually ran at — issue #84 asked for 384000 and
+       ran 192000, and the error follows what ran;
+    2. `clock.force-rate`, which **pins the graph without changing
+       `clock.rate`** — so a machine with a forced rate and nothing playing
+       during the probe would otherwise read its untouched session default and
+       be told nothing, while the graph runs forced the moment audio starts;
+    3. the session default, for the ordinary unforced case.
+
+    The verb travels with the rate because the three are not interchangeable
+    and the sentence must not claim the graph *ran* at a rate only read from
+    settings.
+    """
+    if running_rate > 0:
+        return running_rate, "runs at"
+    forced = _parse_graph_rate(forced_rate)
+    if forced is not None:
+        return forced, "is pinned to"
+    parsed = _parse_graph_rate(settings_rate)
+    return (parsed, "is set to") if parsed is not None else None
+
+
+def graph_rate_message(rate: int, verb: str = "runs at") -> str:
+    """Why a graph above `SAMPLE_RATE` makes the preset wrong, shared by
+    --doctor, the end-of-run detail and the closing ask so the three can't
+    drift.
+
+    Deliberately carries **no command**. The rate is a session-wide setting
+    this tool doesn't own, and we cannot know why it is set — someone running
+    an external DAC chose it on purpose, and a one-liner here would talk them
+    out of their own configuration. So the sentence says the change is
+    testable for one session, which is what makes it safe to try, and leaves
+    where-to-make-it-permanent to the reader, who knows how it got set.
+    """
+    # "about" only on the arm that read the rate the driver actually ran at.
+    # A *requested* rate is an upper bound: issue #84 asked for 384000 and its
+    # codec capped at 192000, where the error is 11.8 dB, not the 18 dB the
+    # request implies — quoting "about" there would be wrong by 6 dB on the
+    # very device this check was written for. /user-review then found the
+    # hedge unusable on its own ("I'd take the number as gospel anyway"), so
+    # the unmeasured arms name the one command that settles it: --doctor pays
+    # the pw-top window this path skips, and reports what the driver reached.
+    ran = verb == "runs at"
+    hedge = ("" if ran else
+             " — that is what the session asks for, and your hardware may run "
+             "slower; --doctor, with audio playing, reports the rate it "
+             "actually reaches")
+    return (f"your PipeWire graph {verb} {rate} Hz and these presets are "
+            f"built at {SAMPLE_RATE} Hz. EasyEffects stretches the correction "
+            "filter to match the graph without compensating its gain, so the "
+            f"stages after it see {'about' if ran else 'up to'} "
+            f"{graph_rate_gain_db(rate):.0f} dB more than the tuning "
+            f"intends{hedge}. If it sounds distorted, that is the first thing "
+            "to rule out. Making the change permanent depends on where the "
+            "rate was set in the first place; if you chose it for other "
+            "hardware, this tool's other script (ee_to_pipewire.py) builds a "
+            "version of the same tuning that isn't affected.")
+
+
+def graph_rate_steps(forced_rate: str = "0") -> tuple[tuple[str, str], ...]:
+    """The session-only test, as `steps` — printed verbatim, because a command
+    folded across two lines is not runnable (`lib/doctor.py`, `emit_check`).
+
+    Safe to hand over precisely because it is temporary: `clock.force-rate`
+    lives in PipeWire's runtime metadata, not in a config file, so it is gone
+    on the next daemon restart and cannot overwrite a rate someone chose on
+    purpose. That is what makes naming it consistent with giving no permanent
+    fix — the permanent one depends on how the rate got set, which only the
+    reader knows.
+
+    The undo restores what was there rather than clearing to 0: on a machine
+    whose rate was *already* pinned, `0` would silently drop the reader's own
+    setting instead of putting it back.
+    """
+    previous = _parse_graph_rate(forced_rate)
+    undo = str(previous) if previous else "0"
+    return (("dim", "Try it for this session — this adds a temporary "
+                    "override, gone when PipeWire restarts, and changes "
+                    "nothing saved:"),
+            ("cta", f"  pw-metadata -n settings 0 clock.force-rate {SAMPLE_RATE}"),
+            ("dim", "Undo without waiting for a restart:"),
+            ("cta", f"  pw-metadata -n settings 0 clock.force-rate {undo}"))
+
+
+def graph_rate_status(running_rate: int, settings_rate: str,
+                      forced_rate: str = "0") -> CheckResult | None:
+    """WARN when the graph runs above the rate the preset is built at.
+
+    No PASS arm: a graph at the right rate is the ordinary case and saying so
+    is noise (the same reason `firmware_gate_status` returns None). WARN rather
+    than FAIL because the audio does reach the user — wrong, but audible, which
+    is the line `lib/doctor.py` draws.
+
+    The gate is `>`, not `!=`: 44.1 kHz lands at -0.74 dB, negligible and in
+    the quieter direction, and a user playing 44.1 kHz material on a 44.1 kHz
+    graph is doing the right thing.
+
+    Three sources, in falling order of authority, because no one of them is
+    always present:
+
+    1. the rate the driver actually ran at — issue #84 asked for 384000 and
+       ran 192000, and the error follows what ran;
+    2. `clock.force-rate`, which **pins the graph without changing
+       `clock.rate`** — so a machine with a forced rate and nothing playing
+       during the probe would otherwise read its untouched session default and
+       be told nothing, while the graph runs forced the moment audio starts;
+    3. the session default, for the ordinary unforced case.
+    """
+    resolved = _effective_graph_rate(running_rate, settings_rate, forced_rate)
+    if resolved is None:
+        return None
+    rate, verb = resolved
+    if graph_rate_gain_db(rate) < _GRAPH_RATE_MIN_DB:
+        return None
+    return CheckResult(DOCTOR_WARN, "Graph sample rate",
+                       graph_rate_message(rate, verb),
+                       steps=graph_rate_steps(forced_rate))
+
+
+def graph_rate_finding(running_rate: int, settings_rate: str,
+                       forced_rate: str = "0") -> "Finding | None":
+    """The same condition as a `Finding`, for a normal run.
+
+    A `Finding` rather than a bare print, unlike `warn_old_kernel` next door,
+    and the difference is what the two are claiming: an old kernel *may* be
+    mis-configuring the speaker path, while this is a measured error in the
+    preset the run just wrote. /user-review round 12 caught the cost of
+    getting that wrong — printed inline only, it had scrolled off by the time
+    the run finished, so the reader's last screen was a clean "Done" and the
+    12 dB went unmentioned. The ask puts one line in the closing block, which
+    also lands it above the `--disable` menu whose "loud parts distort" entry
+    would otherwise be the only thing a distorting user is offered.
+    """
+    resolved = _effective_graph_rate(running_rate, settings_rate, forced_rate)
+    if resolved is None or graph_rate_gain_db(resolved[0]) < _GRAPH_RATE_MIN_DB:
+        return None
+    rate, verb = resolved
+    return Finding(
+        slug="preset-plays-hot", kind="hint",
+        detail=graph_rate_message(rate, verb),
+        # "up to" on the same arms as the detail: an unmeasured rate is an
+        # upper bound, and this is the half that survives to the closing block.
+        ask=f"Put your PipeWire graph back to {SAMPLE_RATE} Hz — at {rate} Hz "
+            f"this preset is fed {'' if verb == 'runs at' else 'up to '}"
+            f"{graph_rate_gain_db(rate):.0f} dB hotter than it is built for.")
 
 
 def install_status(flatpak_exists: bool, native_exists: bool,
