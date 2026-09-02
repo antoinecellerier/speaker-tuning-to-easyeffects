@@ -61,7 +61,6 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | Lenovo IdeaPad Pro 5 14IMH9 (83D2) | Realtek ALC287, 17AA:38CE | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
 | Lenovo Legion Y540-15IRH (81SX) | Realtek ALC257, 17AA:380F | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
 | Lenovo ThinkBook 16p G5 IRX (21N5) | Realtek ALC287, 17AA:38F9 | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
-| Lenovo Yoga 14sACH 2021 (82MS) | Realtek ALC287, 17AA:384F | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
 | Lenovo Yoga 7 16IAH7 (82UF) | Realtek ALC287, 17AA:386A | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
 | Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | Lenovo Yoga Pro 7 14APH8 (82Y8) | Realtek ALC287, 17AA:38C6 | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
@@ -70,6 +69,7 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | Lenovo Yoga Pro 9i 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
 | Lenovo Yoga Slim 7 14ARE05 (82A2) | Realtek ALC287, 17AA:380D | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
 | Lenovo Yoga Slim 7 14ILL10 (83JX) | Soundwire 17AA:3838 | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
+| Lenovo Yoga Slim 7 Pro 14ACH5 (82MS, reported as Yoga 14sACH 2021) | Realtek ALC287, 17AA:384F | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
 | ThinkPad E14 Gen 2 AMD (20T6) | Realtek ALC257, 17AA:507F | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
 | ThinkPad L14 Gen 6 AMD (21S8) | Realtek ALC257, 17AA:50FF | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
 | ThinkPad T14 Gen 1 (20S1) | Realtek ALC257, 17AA:22B1 | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
