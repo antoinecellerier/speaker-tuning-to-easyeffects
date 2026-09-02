@@ -25,6 +25,7 @@ from lib.doctor import DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN, tag
 from lib.hardware import sinks
 from lib.preset.autoload import BYPASS_PRESET_NAME
 from lib.report import doctor_run, environment
+from tests.conftest import assert_summary_counts_the_printed_lines
 
 _REPO = Path(__file__).resolve().parent.parent
 _SPEC = importlib.util.spec_from_file_location(
@@ -150,6 +151,23 @@ def test_rendered_block_shows_the_status_the_scenario_is_for(slug, capsys,
     line = next(ln for ln in out.splitlines()
                 if re.match(r"\s*\[.+\]\s+Selected preset", ln))
     assert tag(_EXPECTED[slug][2]) in line, line
+
+
+@pytest.mark.parametrize("slug", list(_EXPECTED))
+def test_summary_counts_the_lines_the_report_printed(slug, capsys, monkeypatch):
+    """TRAP: the summary used to total the checks behind the folded preset
+    line, so it read two higher than the [PASS] lines on screen — the top
+    finding of two /user-review rounds, in a report whose whole job is to be
+    pasted into an issue.
+
+    Every scenario stages two presets, so the fold is live in all of them:
+    asserting the folded line is here keeps the count from passing vacuously
+    on a report that never collapsed anything."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render(slug)
+    out = capsys.readouterr().out
+    assert "Presets (2 of 2 passed)" in out, "nothing was folded to count"
+    assert_summary_counts_the_printed_lines(out)
 
 
 @pytest.mark.parametrize("slug", list(_EXPECTED))

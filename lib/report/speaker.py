@@ -820,9 +820,20 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
     sections.append(("Sound cards",
                       [f"  {c}" for c in info.sound_cards] or ["  (none found)"]))
 
-    # HDA codecs
+    # HDA codecs.
+    #
+    # "Codec subsystem", not "Subsystem": the PCI section below prints a
+    # different id under a label that used to be the same word. They coincide
+    # on many machines (17AA22E6 / 17AA:22E6 here) and diverge on others
+    # (issue #84: 0x17AA384F / 17AA:3835), which is the worst case — the
+    # reader who most needs to tell them apart is the one whose report makes
+    # them look like a contradiction. Keep both labels distinct.
+    #
+    # This one is the codec's own SSID: what the Dolby XML filenames carry
+    # alongside DEV_, and what the speaker-pin and routing quirk tables are
+    # keyed on. It is the id to quote in a device report on an HDA machine.
     sections.append(("HDA codecs",
-                      [f"  {name or 'Unknown'} — Vendor: 0x{v}  Subsystem: 0x{s}"
+                      [f"  {name or 'Unknown'} — Vendor: 0x{v}  Codec subsystem: 0x{s}"
                        for v, s, name in info.hda_codecs]
                       or ["  (none)"]))
 
@@ -831,8 +842,13 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                       [f"  Manufacturer: 0x{m}  Part: 0x{p}" for m, p in info.soundwire_devices]
                       or ["  (none)"]))
 
-    # PCI audio subsystem
-    pci_line = f"  Subsystem: {info.pci_subsystem[0]}:{info.pci_subsystem[1]}" if info.pci_subsystem else "  (none)"
+    # PCI audio subsystem — the audio *controller*'s subsystem id, a property
+    # of the machine rather than of any codec (see the HDA note above). This
+    # is the one SoundWire and Apple Boot Camp tunings are keyed on, and the
+    # narrow fallback the quirk tables accept for a codec that owns speaker
+    # pins off SOF.
+    pci_line = (f"  Controller subsystem: {info.pci_subsystem[0]}:{info.pci_subsystem[1]}"
+                if info.pci_subsystem else "  (none)")
     sections.append(("PCI audio subsystem", [pci_line]))
 
     # Speaker amplifiers / HDA pins (bus-specific section)

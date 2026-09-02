@@ -3761,25 +3761,37 @@ def test_environment_lines_count_the_files_in_the_folders():
     assert "sharing" not in row
 
 
-def test_collapsed_preset_check_reconciles_the_two_counts():
+def test_collapsed_preset_check_reconciles_the_count_above_it():
     """TRAP: the folded line's denominator is one short of the preset count in
-    the inventory (the bypass preset has nothing to check), and the summary's
-    PASS total is mostly these checks, counted individually but shown as one
-    line. Both gaps were read as the numbers not adding up. The bypass
-    sentence only reconciles them where that file exists — on a folder
-    without one it explained a gap that wasn't there."""
+    the inventory, because the bypass preset has nothing to check — read as
+    the numbers not adding up. The bypass sentence only reconciles them where
+    that file exists; on a folder without one it explained a gap that wasn't
+    there.
+
+    The summary used to be the *second* unreconcilable number here, and the
+    detail carried a clause pointing at it. It no longer does: the summary
+    counts the lines it printed, so that clause would now be false. Asserted
+    negatively below, because a plausible-sounding sentence about the summary
+    is exactly what a later readability pass would put back."""
     checks = [CheckResult(DOCTOR_PASS, f"Preset P{i}", "") for i in range(3)]
     collapsed = doctor_run._collapse_preset_checks(checks,
                                                    bypass_present=True)
     assert len(collapsed) == 1
-    assert collapsed[0].label == "Presets (3/3 checked out)"
+    # Past tense, and spelled out: "3/3" read as a fraction the summary was
+    # supposed to consume, and "checked out" as a git or library term.
+    assert collapsed[0].label == "Presets (3 of 3 passed)"
     # A sentence, not the fragment "3 checks on one line." the #84 paste
     # carried — the reader could not tell what it was a fragment of.
     assert collapsed[0].detail.startswith(
-        "Every one of them loads its speaker-correction impulse file; the "
-        "summary below counts them one by one.")
+        "Every one of them loads its speaker-correction impulse file.")
     assert "checks on one line" not in collapsed[0].detail
+    assert "summary" not in collapsed[0].detail
     assert BYPASS_PRESET_NAME in collapsed[0].detail
+
+    # One preset folds too, and the label has to read at that count.
+    one_preset = doctor_run._collapse_preset_checks(
+        [CheckResult(DOCTOR_PASS, "Preset P0", "")])
+    assert one_preset[0].label == "Presets (1 of 1 passed)"
 
     no_bypass = doctor_run._collapse_preset_checks(checks)
     assert BYPASS_PRESET_NAME not in no_bypass[0].detail

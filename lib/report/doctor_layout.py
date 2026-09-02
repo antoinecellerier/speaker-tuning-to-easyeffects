@@ -291,29 +291,32 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
     return rows + continuation(f"during the check: {now}, {heard}", gutter)
 
 
-def print_check_block(title: str, shown: Sequence[CheckResult],
-                      counted: Sequence[CheckResult] | None = None) -> None:
-    """The diagnosis: the header, the checks, the counted summary, the verdict.
+def print_check_block(title: str, checks: Sequence[CheckResult]) -> None:
+    """The diagnosis: the header, the checks, the summary, the verdict.
 
     The header sits here, with the checks it names, rather than at the top of
     the report — up there it labelled a hardware dump it has nothing to do
     with, and left the check block as the only section without a heading.
 
-    ``counted`` defaults to ``shown`` and differs only where a report collapses
-    a run of identical passes into one line: the summary has to stay honest
-    about how many checks actually ran, so a machine with dozens of presets
-    still reports every one of them in the count.
+    **The summary counts the lines it just printed, and nothing else.** There
+    used to be a second ``counted`` sequence, so a report that collapses a run
+    of passing checks onto one line could still total the checks behind it —
+    the EasyEffects doctor's presets. It read as the tool failing to count:
+    six ``[PASS]`` lines above ``8 PASS``, with no way to tell where the other
+    two were. A line that stands for several checks says so in its own label
+    (`doctor_run._collapse_preset_checks`), which is where that number belongs
+    — beside the thing it counts, not in a total the reader cannot reconcile.
     """
     console.cprint("head", title)
     # Once per report, not once per check: this asks the OS for the terminal
     # size, and it cannot change mid-report.
     width = console._wrap_width()
-    for check in shown:
+    for check in checks:
         doctor.emit_check(check, console.cprint, width)
     print()
-    doctor.print_summary(shown if counted is None else counted, console.cprint)
+    doctor.print_summary(checks, console.cprint)
     print()
-    doctor.print_verdict(shown if counted is None else counted, console.cprint)
+    doctor.print_verdict(checks, console.cprint)
 
 
 def print_closing(advice: Sequence[tuple[str, str]] = ()) -> None:

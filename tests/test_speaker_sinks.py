@@ -759,6 +759,29 @@ def test_speaker_info_prints_vendor_line_first(silence_console, capsys):
     assert "Vendor:" not in capsys.readouterr().out
 
 
+def test_the_two_subsystem_ids_are_labelled_apart(silence_console, capsys):
+    """TRAP: both rows used to be labelled `Subsystem:` — the codec's own SSID
+    and the audio controller's PCI subsystem, which are different ids that
+    happen to coincide on many machines. Issue #84's report is the shape that
+    breaks a reader: two numbers, one word, no way to tell which the triage
+    asks for. Neither line was asserted anywhere, so the formats people copy
+    into a corpus grep were unpinned too."""
+    silence_console(console)
+    info = speakers.SpeakerInfo(
+        hda_codecs=[("10EC0287", "17AA384F", "Realtek ALC287")],
+        pci_subsystem=("17AA", "3835"))
+    report_speaker._print_speaker_info(info)
+    out = capsys.readouterr().out
+
+    # 0x-prefixed for the codec, vendor:device for the controller — the two
+    # forms the kernel and sysfs use, and what a corpus lookup is keyed on.
+    assert "Codec subsystem: 0x17AA384F" in out
+    assert "Controller subsystem: 17AA:3835" in out
+    # And no row is left under the bare word that covered both.
+    assert not [ln for ln in out.splitlines()
+                if ln.strip().startswith("Subsystem:")]
+
+
 def _gate(on):
     return speakers.FirmwareGate(
         card_index="0", card_id="sofhdadsp", numid="3", iface="CARD",

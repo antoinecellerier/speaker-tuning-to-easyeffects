@@ -954,8 +954,13 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
     carrying no detail, so it renders through the same printer as every other
     check rather than a hand-built copy of its format.
 
-    Display only — the summary counts the originals (`print_check_block`'s
-    ``counted``), so the PASS total still says how many presets were read.
+    **Only passes are ever folded** — `problems` is appended whole — which is
+    what lets the summary count the returned list rather than the original:
+    FAIL, WARN and UNKNOWN totals are identical either way, and the verdict
+    reads the same statuses it always did. The count of presets behind the
+    folded line lives in that line's own label, beside the thing it counts.
+    The summary used to carry it instead (`print_check_block`'s old
+    ``counted``) and readers could not reconcile it with the lines on screen.
     """
     presets = [c for c in checks if c.label.startswith("Preset ")]
     problems = [c for c in presets if c.status != DOCTOR_PASS]
@@ -969,24 +974,22 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
         elif not folded:
             folded = True
             if passing:
-                # The detail reconciles three numbers readers compared and
-                # distrusted: the summary's PASS total is mostly these checks,
-                # counted individually but shown as one line; the preset count
-                # in the Environment block above includes the bypass preset
-                # (no filters, nothing to check) and any presets the user put
-                # there themselves, which this tool doesn't judge.
+                # The detail reconciles the one number this line cannot
+                # explain by itself: the preset count in the Environment
+                # block above includes the bypass preset (no filters, nothing
+                # to check) and any presets the user put there themselves,
+                # which this tool doesn't judge. It no longer explains the
+                # summary — that now counts the lines it printed.
                 #
-                # The label says "checked out", not "load their impulse
-                # file": a preset can fail this check for reasons that have
-                # nothing to do with an impulse file — including having no
-                # convolver at all. The detail may say it, because it speaks
-                # for the passing ones only, and PASS is exactly that
-                # (`check_preset_kernel`). Said in the user's terms rather
-                # than the tool's: "Folded onto one line" was read as a
-                # sentence about line-counting with no subject.
+                # The label says "passed", not "load their impulse file": a
+                # preset can fail this check for reasons that have nothing to
+                # do with an impulse file, including having no convolver at
+                # all. The detail may say it, because it speaks for the
+                # passing ones only, and PASS is exactly that
+                # (`check_preset_kernel`). Past tense so it still reads at
+                # one preset, which "1 of 1 pass" does not.
                 detail = ("Every one of them loads its speaker-correction "
-                          "impulse file; the summary below counts them one "
-                          "by one.")
+                          "impulse file.")
                 if bypass_present:
                     detail += (f" The '{autoload.BYPASS_PRESET_NAME}' bypass "
                                "preset isn't among them — it has no filters "
@@ -999,7 +1002,7 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
                                f"{'it' if one else 'them'}.")
                 shown.append(CheckResult(
                     DOCTOR_PASS,
-                    f"Presets ({passing}/{len(presets)} checked out)",
+                    f"Presets ({passing} of {len(presets)} passed)",
                     detail))
             shown += problems
     return shown
@@ -1020,8 +1023,7 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
                                  bypass_present=report.facts.get(
                                      "bypass_preset_present", False),
                                  foreign=report.facts.get(
-                                     "foreign_preset_count", 0)),
-                             counted=report.checks)
+                                     "foreign_preset_count", 0)))
     # What the doctor can't see — guide the user through the manual checks.
     # The bypass line drops out once we have asked the daemon and it said off:
     # sending someone to verify a setting we just read is how a closing block

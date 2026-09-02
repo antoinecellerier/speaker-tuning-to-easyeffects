@@ -94,11 +94,11 @@ For any ordering or matching claim, check it against
 ## Resolve SSIDs both ways
 
 PCI SSID ≠ codec SSID, and a machine collides with a different quirk under
-each. `--speaker-info` prints both (`HDA codecs … Subsystem:` is the codec
-one; `PCI audio subsystem: Subsystem:` is the PCI one), while the README
-tested table's "Codec / Subsystem" column may hold either. Pull the pair from
-the device report before claiming a tested device is or isn't affected, and
-say which id you matched on.
+each. `--speaker-info` names both — `Codec subsystem:` under `HDA codecs`,
+`Controller subsystem:` under `PCI audio subsystem` — while the README tested
+table's "Codec / Subsystem" column may hold either. Pull the pair from the
+device report before claiming a tested device is or isn't affected, and say
+which id you matched on.
 
 ## Sweep what the grep did not hit
 

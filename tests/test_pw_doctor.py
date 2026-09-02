@@ -36,7 +36,8 @@ from lib.ee_socket import easyeffects_running as unpatched_ee_probe
 from lib.doctor import DOCTOR_FAIL, DOCTOR_PASS, DOCTOR_UNKNOWN, DOCTOR_WARN
 from lib.report import doctor_layout
 from lib.report import findings as report_findings
-from tests.conftest import assert_rows_line_up
+from tests.conftest import (assert_rows_line_up,
+                            assert_summary_counts_the_printed_lines)
 
 SPEAKER = "alsa_output.pci-0000_00_1f.3.HiFi__Speaker__sink"
 
@@ -1649,6 +1650,34 @@ def _ee_check_block(check, monkeypatch, capsys) -> list[str]:
     while lines and lines[-1] == "":
         lines.pop()
     return lines[start:]
+
+
+def test_pw_doctor_summary_counts_the_lines_it_printed(tmp_path, monkeypatch,
+                                                      silence_console, capsys):
+    """The other half of the shared invariant. This report never collapsed
+    anything, so it was right by accident; stating it here means the rule
+    belongs to the printer both doctors call, not to the one that had the bug.
+
+    All four statuses, because UNKNOWN renders as `[ ?  ]` and is the one a
+    line-counting assertion gets wrong.
+    """
+    from lib.doctor import CheckResult
+
+    monkeypatch.setenv("COLUMNS", "200")
+    results = [CheckResult(DOCTOR_FAIL, "Gate", "nope."),
+               CheckResult(DOCTOR_WARN, "Chain", "hmm."),
+               CheckResult(DOCTOR_PASS, "Conf", "fine."),
+               CheckResult(DOCTOR_PASS, "Plugins", "fine."),
+               CheckResult(DOCTOR_UNKNOWN, "Sink", "could not tell.")]
+    monkeypatch.setattr(checks, "gather_pw_doctor",
+                        lambda: (results, [], [], {"version": "0.0-test",
+                                                   "sinks": []}))
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
+
+    checks.report_pw_doctor()
+    counted = assert_summary_counts_the_printed_lines(capsys.readouterr().out)
+    assert counted == {"FAIL": 1, "WARN": 1, "PASS": 2, "?": 1}
 
 
 def test_both_doctors_render_a_check_identically(tmp_path, monkeypatch,

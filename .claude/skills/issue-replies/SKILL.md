@@ -136,9 +136,11 @@ every one in a single pass.
 - **Check the corpus by `SUBSYS` before asking for the XML.** The collection
   is keyed by device id and holds no model names, so "is this *model* in the
   corpus?" is not a question it can answer — "is this `SUBSYS` in it?" is.
-  The id is on the codec `Subsystem:` line of `--speaker-info`
-  (`0x17AA3941` → `SUBSYS_17AA3941`), and it is also the first `SUBSYS_`
-  token of any filename the reporter quotes:
+  The id is the `Codec subsystem:` value in `--speaker-info` (`0x17AA3941` →
+  `SUBSYS_17AA3941`) — not the `Controller subsystem:` one below it, which is
+  the machine's PCI id and keys SoundWire and Apple filenames instead, reversed
+  (`17AA:2339` → `SUBSYS_233917AA`). It is also the first `SUBSYS_` token of
+  any filename the reporter quotes:
 
   ```
   find "${ATMOS_CORPUS_DIR:-.}" -iname '*SUBSYS_17AA3941*'

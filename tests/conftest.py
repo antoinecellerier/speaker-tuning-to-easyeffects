@@ -7,8 +7,10 @@ tuning. The "shape" of the data here is the public DAX3 schema; the
 
 from __future__ import annotations
 
+import collections
 import math
 import os
+import re
 import struct
 import sys
 from pathlib import Path
@@ -403,6 +405,46 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
 </dax3>
 """, encoding="utf-8")
     return path
+
+
+def assert_summary_counts_the_printed_lines(out):
+    """The `Summary:` totals must equal the tagged check lines above them.
+
+    Both doctors close their check block with a summary, and a reader who
+    cannot make the two agree reads it as the tool failing to count. The
+    EasyEffects report did exactly that: its summary totalled the checks
+    *behind* a collapsed line rather than the lines on screen, so six [PASS]
+    lines sat under "8 PASS" (/user-review, CRITICAL in two rounds). Nothing
+    pinned that wiring in either direction — the fix would have been as
+    invisible as the bug. This is the pin, and it is shared because the two
+    reports print through one function and two copies drift.
+
+    Returns the counted statuses, so a caller can assert the report it
+    rendered was worth counting.
+    """
+    head, sep, tail = out.partition("Summary:")
+    assert sep, "no summary line in this report"
+    # Count only the check block: the inventory above it is free text, and
+    # `0 [sofhdadsp     ]: sof-hda-dsp` is one grep away from looking tagged.
+    lines = head.splitlines()
+    start = max((i for i, ln in enumerate(lines) if ln.startswith("=== ")),
+                default=0)
+    counts = collections.Counter()
+    for line in lines[start:]:
+        # `[{status:^4}]`, so UNKNOWN is `[ ?  ]` — one space before and two
+        # after. Match the width, never the literal `[ ? ]`.
+        m = re.match(r"  \[(.{4})\] ", line)
+        if m:
+            counts[m.group(1).strip()] += 1
+    summary = tail.splitlines()[0]
+    stated = {word: int(n) for n, word in re.findall(r"(\d+) (\w+)", summary)}
+    # UNKNOWN is omitted from the line when zero, hence the .get default.
+    for status, word in (("FAIL", "FAIL"), ("WARN", "WARN"),
+                         ("PASS", "PASS"), ("?", "UNKNOWN")):
+        assert counts[status] == stated.get(word, 0), (
+            f"{word}: {counts[status]} line(s) printed, "
+            f"{stated.get(word, 0)} in 'Summary:{summary}'")
+    return counts
 
 
 def assert_rows_line_up(lines, gutter):
