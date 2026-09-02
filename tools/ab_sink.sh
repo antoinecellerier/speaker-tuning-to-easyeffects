@@ -17,7 +17,9 @@ command -v wpctl  >/dev/null || { echo "wpctl not found (install wireplumber)" >
 command -v pw-dump >/dev/null || { echo "pw-dump not found" >&2; exit 1; }
 
 # Menu order: Dolby variants first (sorted), then everything else. One entry per
-# line as "<id>\t<label>".
+# line as "<id>\t<rank>\t<label>", where rank picks what `raw` means: 0 = this
+# machine's analog speaker, 1 = some other output (HDMI, Bluetooth, a null
+# sink), 9 = a Dolby variant, never raw.
 mapfile -t SINKS < <(
   pw-dump | python3 -c '
 import json, sys
@@ -26,8 +28,15 @@ sinks = [n for n in json.load(sys.stdin)
 def label(n):
     p = n["info"]["props"]
     return p.get("node.description") or p.get("node.name") or "?"
+def rank(n):
+    if "Dolby" in label(n):
+        return 9
+    name = (n["info"]["props"].get("node.name") or "").lower()
+    analog = name.startswith("alsa_output.") and not any(
+        d in name for d in ("hdmi", "iec958", "spdif", "bluez"))
+    return 0 if analog else 1
 for n in sorted(sinks, key=lambda n: (0 if "Dolby" in label(n) else 1, label(n))):
-    print(str(n["id"]) + "\t" + label(n))
+    print(str(n["id"]) + "\t" + str(rank(n)) + "\t" + label(n))
 '
 )
 (( ${#SINKS[@]} )) || { echo "no audio sinks found" >&2; exit 1; }
@@ -38,7 +47,8 @@ current() {
 }
 
 id_of()   { printf '%s' "${SINKS[$1]%%$'\t'*}"; }
-name_of() { printf '%s' "${SINKS[$1]#*$'\t'}"; }
+name_of() { printf '%s' "${SINKS[$1]##*$'\t'}"; }
+rank_of() { local r="${SINKS[$1]#*$'\t'}"; printf '%s' "${r%%$'\t'*}"; }
 
 index_of_current() {
   local cur; cur=$(current)
@@ -51,7 +61,9 @@ index_of_current() {
 
 pick() {
   local i=$1
-  wpctl set-default "$(id_of "$i")" && echo "-> [$(id_of "$i")] $(name_of "$i")"
+  wpctl set-default "$(id_of "$i")" || {
+    echo "wpctl could not make [$(id_of "$i")] the default sink" >&2; return 1; }
+  echo "-> [$(id_of "$i")] $(name_of "$i")"
 }
 
 menu() {
@@ -75,16 +87,22 @@ case "${1:-}" in
     pick $(( (cur_idx + 1) % ${#SINKS[@]} ))
     ;;
   raw)
+    # Best rank wins, so a Bluetooth headset or an HDMI sink can never stand in
+    # for the speaker you are trying to hear the voicings against.
+    best=-1
     for i in "${!SINKS[@]}"; do
-      [[ "$(name_of "$i")" != *Dolby* ]] && { pick "$i"; exit $?; }
+      r=$(rank_of "$i")
+      (( r == 9 )) && continue
+      if (( best < 0 )) || (( r < $(rank_of "$best") )); then best=$i; fi
     done
-    echo "no non-Dolby sink found" >&2; exit 1
+    (( best >= 0 )) || { echo "no non-Dolby sink found" >&2; exit 1; }
+    pick "$best"; exit $?
     ;;
   *[!0-9]*)
     echo "unknown arg: $1" >&2; menu; exit 1
     ;;
   *)
-    n=$1
+    n=$((10#$1))
     (( n >= 1 && n <= ${#SINKS[@]} )) || { echo "out of range (1-${#SINKS[@]})" >&2; exit 1; }
     pick $(( n - 1 ))
     ;;
