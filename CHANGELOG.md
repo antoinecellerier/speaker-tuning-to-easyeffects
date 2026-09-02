@@ -150,7 +150,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad T14 Gen 1 (20S1)
   ([#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86)),
   ThinkPad T14s Gen 3 (21BS)
-  ([#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88)).
+  ([#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88)),
+  Lenovo Yoga 14sACH 2021 (82MS)
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
 
 ### Fixed
 
