@@ -78,6 +78,9 @@ yoga 7 2-in-1
 # opens a PR when one lands.
 yoga9-bass-spk-pin
 bass-spk-pin
+# Commit messages spell the enum, ALC287_FIXUP_YOGA9_14IAP7_BASS_SPK_PIN:
+# 616fd322e024 (sound-7.3-rc2) fired only via alc287.
+bass_spk_pin
 16iah7
 386a
 

@@ -56,7 +56,8 @@ def _tag_order(tag: str) -> tuple[int, int, int]:
 
 
 def pick_base(seen: list[str], tag: str) -> str:
-    """The newest already-processed version tag to diff *tag* against.
+    """The tag to diff *tag* against: the newest already-processed version
+    tag, or the mainline ``-rc1`` when that tag is a merge-window pull.
 
     Empty when nothing qualifies — the first run on a fresh tree, or a tree
     holding only ``sound-fix-*``. The caller reports that rather than guessing
@@ -72,7 +73,20 @@ def pick_base(seen: list[str], tag: str) -> str:
         # and an empty range gets reported as "not scanned" for a pull that did
         # carry quirks.
         candidates = [t for t in candidates if _tag_order(t) < _tag_order(tag)]
-    return max(candidates, key=_tag_order) if candidates else ""
+    if not candidates:
+        return ""
+    base = max(candidates, key=_tag_order)
+    # A merge-window tag sits on for-next, branched from mainline weeks before
+    # the release candidate it was pulled into; every later pull of that
+    # series sits on for-linus, re-based on the mainline -rc1. Diffing across
+    # that jump counts all of mainline in between: sound-7.3-rc1..sound-7.3-rc2
+    # was 15653 commits for a 23-commit pull, and the scan bailed out. The
+    # mirror carries mainline's tags, and vX.Y-rc1 is exactly where for-linus
+    # restarts, so it is the base every post-merge-window pull diffs against.
+    major, minor, rc = _VERSION_TAG_RE.match(base).groups()
+    if rc == "1":
+        return f"v{major}.{minor}-rc1"
+    return base
 
 
 # --- reading the commits ----------------------------------------------------

@@ -61,8 +61,22 @@ def test_the_base_must_order_before_the_tag_being_scanned():
 def test_a_non_version_tag_can_still_take_the_newest_base():
     """A sound-fix-* tag has no place in the version order, so it keeps the
     newest base rather than being left unscanned."""
-    assert pick_base(["sound-7.2", "sound-7.3-rc1"],
-                     "sound-fix-7.3-rc2") == "sound-7.3-rc1"
+    assert pick_base(["sound-7.2", "sound-7.2-rc7"],
+                     "sound-fix-7.3-rc1") == "sound-7.2"
+
+
+def test_the_first_fix_pull_after_a_merge_window_diffs_against_mainline():
+    """sound-7.3-rc1 is a for-next tag branched from mainline weeks earlier;
+    sound-7.3-rc2 sits on for-linus, re-based on v7.3-rc1. Diffing the two
+    counted 15653 commits for a 23-commit pull and the scan bailed out, so the
+    base is the mainline -rc1 the fix branch restarts from — for the numbered
+    pull and for a sound-fix-* one alike."""
+    seen = ["sound-7.2", "sound-7.3-rc1"]
+    assert pick_base(seen, "sound-7.3-rc2") == "v7.3-rc1"
+    assert pick_base(seen, "sound-fix-7.3-rc2") == "v7.3-rc1"
+    # Within the series the pulls are linear on for-linus, so the previous
+    # pull tag stays the base.
+    assert pick_base(seen + ["sound-7.3-rc2"], "sound-7.3-rc3") == "sound-7.3-rc2"
 
 
 def test_no_base_when_nothing_has_been_processed():
