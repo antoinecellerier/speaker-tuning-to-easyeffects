@@ -156,7 +156,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad T14s Gen 3 (21BS)
   ([#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88)),
   Lenovo Yoga Slim 7 Pro 14ACH5 (82MS)
-  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)),
+  Lenovo XiaoXinPro-13ARE 2020
+  ([#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91)).
 
 ### Fixed
 
