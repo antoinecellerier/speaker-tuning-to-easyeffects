@@ -157,7 +157,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ([#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88)),
   Lenovo Yoga Slim 7 Pro 14ACH5 (82MS)
   ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)),
-  Lenovo XiaoXinPro-13ARE 2020
+  Lenovo XiaoXinPro-13ARE 2020 (82DM)
   ([#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91)).
 
 ### Fixed
