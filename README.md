@@ -60,6 +60,7 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) | Realtek ALC287, 17AA:38C5 | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
 | Lenovo IdeaPad Pro 5 14IMH9 (83D2) | Realtek ALC287, 17AA:38CE | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
 | Lenovo Legion Y540-15IRH (81SX) | Realtek ALC257, 17AA:380F | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
+| Lenovo Legion Y7000 2020 (82AV) | Realtek ALC257, 17AA:3872 | [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93) |
 | Lenovo ThinkBook 16p G5 IRX (21N5) | Realtek ALC287, 17AA:38F9 | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
 | Lenovo XiaoXinPro-13ARE 2020 (82DM) | Realtek ALC257, 17AA:387F | [#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91) |
 | Lenovo Yoga 7 16IAH7 (82UF) | Realtek ALC287, 17AA:386A | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
