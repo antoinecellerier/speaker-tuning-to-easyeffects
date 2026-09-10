@@ -87,6 +87,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   start — so a run no longer needs a restart to take effect, and `--doctor`
   no longer reports no presets. Re-run the script to write them there.
   ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
+  of reporting it unknown, and names the install it couldn't ask.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
 
 ### Changed
 

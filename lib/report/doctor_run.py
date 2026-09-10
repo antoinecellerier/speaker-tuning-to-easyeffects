@@ -270,6 +270,12 @@ class EEProbe:
     source: str = ""
     is_flatpak: bool | None = None
     silent: str | None = None
+    # Which install stayed silent, for the explanation. Deliberately not
+    # ``is_flatpak``, which means "which install *answered*" and drives the
+    # end-of-run install-mismatch warning — that must not assert a detection
+    # made from an install that never said anything. Appended last so the
+    # positional construction in the tests still reads.
+    silent_is_flatpak: bool | None = None
 
 
 # A version anywhere on a package manager's answer, and the labels that mark
@@ -382,24 +388,38 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
     return tuple(steps)
 
 
-def _probe_ee_version() -> EEProbe:
+def _probe_ee_version(deep: bool = False) -> EEProbe:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
     raises.
+
+    ``deep`` allows one extra, slower probe — starting the Flatpak sandbox to
+    ask the binary itself — and is for --doctor only. Every generation run
+    calls this too (``warn_ee_environment``), and a bubblewrap start does not
+    belong on that path.
 
     Probes the install the script writes to (per ee_paths.USE_FLATPAK) first, then the
     other, and prefers a *parseable* version over a found-but-unreadable answer
     — so a stale/shim binary on one install can't mask a healthy version on the
     other (issue #22 review). ``found`` means an EE binary actually answered, so
     version=None with found=True means 'installed but version unreadable'."""
-    def run(cmd):
-        """(output, failure) — exactly one is non-None; failure is a short
-        human-readable reason the command produced no answer."""
+    def run(cmd, timeout=5):
+        """(output, failure) — exactly one is meaningful, and a command that
+        produced no answer always says why.
+
+        The missing-binary case used to answer ``(None, None)``, and callers
+        read that emptiness as "the app isn't installed" — which is only ever
+        true of the binary, never of the app it would have reported on. That
+        hole is what made "no flatpak command here", "app not installed" and
+        "timed out" indistinguishable, and it put `easyeffects --version` on
+        the version line of a machine that has no such binary (issue #93).
+        Whether an install exists is the caller's to decide, from evidence
+        that isn't an exit code."""
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError:
-            return None, None                      # nothing to run: absent, not silent
+            return None, f"there is no {cmd[0]} command here"
         except subprocess.TimeoutExpired:
-            return None, "timed out after 5s"
+            return None, f"timed out after {timeout:g}s"
         except (subprocess.SubprocessError, OSError) as exc:
             return None, str(exc) or type(exc).__name__
         if r.returncode != 0:
@@ -407,6 +427,10 @@ def _probe_ee_version() -> EEProbe:
                           if ln.strip()), "")
             return None, first or f"exited with status {r.returncode}"
         return (r.stdout or "") + "\n" + (r.stderr or ""), None
+
+    # Settled once, from the filesystem, so both probes agree however they are
+    # ordered: whether a command answers says nothing about what is installed.
+    flatpak_installed = ee_paths.flatpak_app_installed()
 
     def native():
         out, failure = run(["easyeffects", "--version"])
@@ -417,16 +441,80 @@ def _probe_ee_version() -> EEProbe:
         # --version, so from a headless shell (ssh, tmux) it exits non-zero —
         # indistinguishable from "not installed" if we only read the exit code
         # (issue #46, where a healthy 8.2.8 was reported missing).
-        installed = shutil.which("easyeffects") or ee_socket.easyeffects_running()
+        #
+        # `pgrep -x easyeffects` matches a *Flatpak* EasyEffects too — same
+        # executable name inside the sandbox — so a running process is evidence
+        # of a *native* install only where no Flatpak is deployed. Ungated, it
+        # claimed "installed but silent" about a binary that does not exist on
+        # Flatpak-only machines, and that claim then took over the version
+        # line's source label (issue #93). issue #46's case rides on `which`.
+        installed = bool(shutil.which("easyeffects")) or (
+            not flatpak_installed and bool(ee_socket.easyeffects_running()))
         return None, False, (failure or "no output") if installed else None
 
     def flatpak():
-        # `flatpak info` exits non-zero precisely when the app isn't installed,
-        # so a failure here is absence — never the silent-but-installed case.
-        out, _failure = run(["flatpak", "info", ee_paths.FLATPAK_APP_ID])
-        if out is None:
+        out, failure = run(["flatpak", "info", ee_paths.FLATPAK_APP_ID])
+        if out is not None:
+            version = parse_ee_version(_flatpak_version_text(out))
+            # It can answer without a version — a sideloaded or locally built
+            # ref whose metadata carries no `Version:` line. It still answered,
+            # so that is "installed, version unreadable", not silence.
+            return (version if version is not None
+                    else _flatpak_version_fallback()), True, None
+        if not flatpak_installed:
             return None, False, None
-        return parse_ee_version(_flatpak_version_text(out)), True, None
+        # Symmetrically with native(): a command that didn't answer says
+        # nothing about whether the app is there, so ask the filesystem. This
+        # is the "no flatpak command here" case (a container or toolbox shell)
+        # and the timeout case, both of which used to read as absence.
+        version = _flatpak_version_fallback()
+        if version is not None:
+            return version, True, None
+        return None, False, failure
+
+    def _flatpak_version_fallback():
+        """What to report when `flatpak info` gave no version: the deploy
+        metadata first because it costs two stats, then — only under --doctor —
+        the sandboxed binary itself."""
+        version = _flatpak_deployed_version()
+        if version is not None or not deep:
+            return version
+        # Strictly more demanding than `flatpak info`: same binary, same ref,
+        # and EE 8 builds its QApplication before parsing --version
+        # (upstream src/main.cpp), so this needs a display exactly as the
+        # native probe does (issue #46). It is a last resort, not a backstop —
+        # reached only when the metadata read above found nothing either, so
+        # it never costs a sandbox start on a healthy machine.
+        out, _failure = run(["flatpak", "run", "--command=easyeffects",
+                             ee_paths.FLATPAK_APP_ID, "--version"], timeout=10)
+        return parse_ee_version(out) if out is not None else None
+
+    def _flatpak_deployed_version():
+        """The installed Flatpak's version off its deploy metadata — the same
+        field `flatpak info` prints, without the subprocess, so it still
+        answers where `flatpak` itself can't be run and where no display is
+        available. None when nothing on disk says."""
+        for root in (Path("/var/lib/flatpak/app"),
+                     Path.home() / ".local" / "share" / "flatpak" / "app"):
+            base = root / ee_paths.FLATPAK_APP_ID / "current" / "active" / "files" / "share"
+            for sub in ("metainfo", "appdata"):
+                try:
+                    files = sorted((base / sub).glob("*.xml"))
+                except OSError:
+                    continue
+                for path in files:
+                    try:
+                        text = path.read_text(errors="replace")
+                    except OSError:
+                        continue
+                    # First <release> wins: the file lists them newest-first,
+                    # which is the one `flatpak info` reports.
+                    m = re.search(r"<release[^>]*\bversion=\"([^\"]+)\"", text)
+                    if m:
+                        version = parse_ee_version(m.group(1))
+                        if version is not None:
+                            return version
+        return None
 
     probes = ([(True, flatpak), (False, native)] if ee_paths.USE_FLATPAK
               else [(False, native), (True, flatpak)])
@@ -437,12 +525,19 @@ def _probe_ee_version() -> EEProbe:
         if not found:
             if silent and fallback.silent is None:
                 fallback.silent = silent
-                fallback.source = src
+                fallback.silent_is_flatpak = is_flatpak
+                # `source` names what *answered*. A silent probe may claim it
+                # only while nothing has answered at all — otherwise a silent
+                # native probe relabels a Flatpak's own answer as coming "via
+                # easyeffects --version" (issue #93).
+                if not fallback.found:
+                    fallback.source = src
             continue
         if ee_version is not None:
             return EEProbe(ee_version, True, src, is_flatpak)
         if not fallback.found:           # remember the first install that answered
-            fallback = EEProbe(None, True, src, is_flatpak, fallback.silent)
+            fallback = EEProbe(None, True, src, is_flatpak, fallback.silent,
+                               fallback.silent_is_flatpak)
     return fallback
 
 
@@ -558,7 +653,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report = environment.DoctorReport()
 
     # 1. EasyEffects version / compatibility
-    probe = _probe_ee_version()
+    probe = _probe_ee_version(deep=True)
     # `ee_version`, not `version`: this module imports `lib.version`, and
     # `_print_doctor_report` below calls `version.get_version()` for the tool's
     # own version. A local of that name reads identically and means the other
@@ -572,7 +667,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         environment.ee_version_status(
             ee_version, found, probe.silent,
             easyeffects_install_steps()
-            if ee_version and ee_version[0] < 8 else ()))
+            if ee_version and ee_version[0] < 8 else (),
+            probe.silent_is_flatpak))
 
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
@@ -1091,7 +1187,8 @@ def warn_ee_environment(args) -> "report_findings.Finding | None":
     probe = _probe_ee_version()
     ee_version, found, ee_is_flatpak = (
         probe.version, probe.found, probe.is_flatpak)
-    ver = environment.ee_version_status(ee_version, found, probe.silent)
+    ver = environment.ee_version_status(ee_version, found, probe.silent,
+                                        silent_is_flatpak=probe.silent_is_flatpak)
 
     if ver.status == DOCTOR_FAIL:
         vstr = ".".join(str(x) for x in ee_version)
@@ -1115,7 +1212,10 @@ def warn_ee_environment(args) -> "report_findings.Finding | None":
         # "written above" only holds on a run that wrote something: this check
         # is gated on --skip-ee-check alone, so on a dry run it referred to
         # presets the same output twice says were not written.
-        console.cprint("warn", "\n⚠  " + environment.ee_silent_message(
+        silent_message = (environment.ee_flatpak_silent_message
+                          if probe.silent_is_flatpak
+                          else environment.ee_silent_message)
+        console.cprint("warn", "\n⚠  " + silent_message(
             probe.silent,
             " and doesn't affect what this run would write." if args.dry_run
             else " and doesn't affect the presets written above."))

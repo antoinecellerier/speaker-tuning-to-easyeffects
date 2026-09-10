@@ -79,6 +79,19 @@ def ee_silent_message(reason: str, tail: str) -> str:
             f"headless shell (ssh, tmux){tail}")
 
 
+def ee_flatpak_silent_message(reason: str, tail: str) -> str:
+    """The Flatpak counterpart of `ee_silent_message`, shared by --doctor and
+    the end-of-run warning for the same reason: two hand-written copies of one
+    explanation drift.
+
+    Names `flatpak info`, because `easyeffects --version` is a binary a
+    Flatpak-only machine does not have — saying otherwise is what issue #93
+    reported. Carries no display caveat either: that one belongs to the native
+    binary, and `flatpak info` reads metadata rather than starting the app."""
+    return (f"EasyEffects is installed as a Flatpak but `flatpak info` didn't "
+            f"report its version ({reason}), so its version wasn't checked{tail}")
+
+
 def ee_v7_message(vstr: str) -> str:
     """Why an EasyEffects before 8 can't use these presets, shared by --doctor
     and the end-of-run warning so the two can't drift. Callers supply their own
@@ -92,16 +105,23 @@ def ee_v7_message(vstr: str) -> str:
 
 def ee_version_status(version: tuple[int, int, int] | None,
                       found: bool, silent: str | None = None,
-                      install_steps: tuple[tuple[str, str], ...] = ()
-                      ) -> CheckResult:
+                      install_steps: tuple[tuple[str, str], ...] = (),
+                      silent_is_flatpak: bool | None = None) -> CheckResult:
     """Verdict for the EasyEffects version. FAIL — the only loud error — is
     reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
     they're on 7. ``found`` distinguishes "no EE at all" (a valid
     generating-for-another-machine case → WARN) from "installed but version
     unreadable" (→ UNKNOWN); ``silent`` names the reason when EE is installed
-    but never answered at all (→ UNKNOWN, never "not found")."""
+    but never answered at all (→ UNKNOWN, never "not found"), and
+    ``silent_is_flatpak`` picks which install that sentence is about."""
     if version is None:
         if not found and silent:
+            if silent_is_flatpak:
+                # No "re-run from your desktop session" tail: `flatpak info`
+                # reads metadata, so a display was never what it was missing.
+                return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
+                    ee_flatpak_silent_message(
+                        silent, " — make sure it's version 8 or newer."))
             return CheckResult(DOCTOR_UNKNOWN, "EasyEffects version",
                 ee_silent_message(silent, " — re-run this from your desktop "
                                           "session to check the version."))

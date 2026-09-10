@@ -2581,6 +2581,36 @@ def test_doctor_report_unknown_not_summarised_as_clean(silence_console,
     assert "No blocking problems detected." not in out
 
 
+def _no_flatpak(monkeypatch):
+    """Pin "no EasyEffects Flatpak deployed here".
+
+    The probe now settles installedness from the filesystem rather than from
+    an exit code, so every probe test that means "native only" has to say so —
+    otherwise it reads the *developer's* machine and flips on one that has the
+    Flatpak installed."""
+    monkeypatch.setattr(ee_paths, "flatpak_app_installed", lambda: False)
+
+
+def _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9", *, metainfo=True):
+    """Build a fake per-user Flatpak deployment under `tmp_path` and point the
+    doctor's `Path.home()` at it. Mirrors the real layout, which is what
+    `flatpak info` itself reads the Version line out of."""
+    monkeypatch.setattr(ee_paths, "flatpak_app_installed", lambda: True)
+    monkeypatch.setattr(doctor_run, "Path",
+                        type("HomedPath", (type(tmp_path),),
+                             {"home": staticmethod(lambda: tmp_path)}))
+    if not metainfo:
+        return
+    share = (tmp_path / ".local/share/flatpak/app" / ee_paths.FLATPAK_APP_ID
+             / "current/active/files/share/metainfo")
+    share.mkdir(parents=True)
+    (share / f"{ee_paths.FLATPAK_APP_ID}.metainfo.xml").write_text(
+        '<component type="desktop">\n<releases>\n'
+        f'<release version="{version}" date="2026-09-01"/>\n'
+        '<release version="1.0.0" date="2020-01-01"/>\n'
+        '</releases>\n</component>\n')
+
+
 def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
     """Graceful degradation: no EE binary anywhere → (None, found=False), no
     exception — and nothing claims EE is installed."""
@@ -2589,6 +2619,7 @@ def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
 
     monkeypatch.setattr(doctor_run.subprocess, "run", boom)
     monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
     assert probe.silent is None
@@ -2610,6 +2641,7 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
         return R(1, "")
 
     monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version == (8, 2, 1) and probe.found is True
     assert probe.is_flatpak is True and probe.source == "flatpak info"
@@ -2621,6 +2653,7 @@ def test_probe_ee_version_degrades_on_timeout(monkeypatch):
 
     monkeypatch.setattr(doctor_run.subprocess, "run", slow)
     monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
 
@@ -2641,7 +2674,7 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
     assert flat(environment.ee_v7_message("7.1.5")) in flat(
         environment.ee_version_status((7, 1, 5), found=True).detail)
     monkeypatch.setattr(doctor_run, "_probe_ee_version",
-                        lambda: doctor_run.EEProbe((7, 1, 5), True, "test", False))
+                        lambda **_: doctor_run.EEProbe((7, 1, 5), True, "test", False))
     # The banner now ends on an install command built from what this machine's
     # package manager would answer, so pin that too — otherwise this shells out
     # to apt-cache on a Debian dev box and prints something else elsewhere.
@@ -2673,7 +2706,7 @@ def test_doctor_and_end_of_run_warning_share_their_wording(monkeypatch,
         environment.graph_rate_status(0, "192000").detail)
     # A healthy EasyEffects, or the FAIL branch above returns before reaching it.
     monkeypatch.setattr(doctor_run, "_probe_ee_version",
-                        lambda: doctor_run.EEProbe((8, 2, 8), True, None, False))
+                        lambda **_: doctor_run.EEProbe((8, 2, 8), True, None, False))
     out = _run_with_clock(hot)
     assert flat(environment.graph_rate_message(192000, "is set to")) in flat(out)
     # The body is not dimmed: it explains a fault that is already audible,
@@ -2721,7 +2754,7 @@ def test_the_ee7_warning_names_no_distribution_release(monkeypatch,
 
     silence_console(console)
     monkeypatch.setattr(doctor_run, "_probe_ee_version",
-                        lambda: doctor_run.EEProbe((7, 1, 5), True, "test", False))
+                        lambda **_: doctor_run.EEProbe((7, 1, 5), True, "test", False))
     for major in (7, 8, None):
         _distro_ships(monkeypatch, major)
         doctor_run.warn_ee_environment(
@@ -2757,6 +2790,7 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
     monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
     monkeypatch.setattr(doctor_run.shutil, "which", lambda name: "/usr/bin/easyeffects"
                         if name == "easyeffects" else None)
+    _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.version is None
     assert "could not connect to display" in probe.silent
@@ -2768,9 +2802,13 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
 
 
 def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
-    """`flatpak info` exits non-zero exactly when the app isn't installed, so
-    that failure means absence — it must not be reported as "installed but
-    unreachable"."""
+    """A `flatpak info` that fails with nothing deployed behind it means
+    absence — it must not be reported as "installed but unreachable".
+
+    Note what settles that: the *app root*, not the exit code. `flatpak info`
+    also fails when there is no flatpak binary to run and when it times out,
+    neither of which says anything about what is installed (issue #93), so
+    absence is asserted here by pinning the filesystem as well."""
     class R:
         def __init__(self, rc, out="", err=""):
             self.returncode, self.stdout, self.stderr = rc, out, err
@@ -2778,10 +2816,189 @@ def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
     monkeypatch.setattr(doctor_run.subprocess, "run",
                         lambda cmd, **k: R(1, "", "not installed\n"))
     monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.silent is None
     assert environment.ee_version_status(probe.version, probe.found,
                                probe.silent).status == DOCTOR_WARN
+
+
+def test_probe_ee_version_a_running_flatpak_is_not_a_native_install(
+        monkeypatch, tmp_path):
+    """Issue #93, reproduced: a Flatpak-only machine running EasyEffects as a
+    service reported `version unknown (via easyeffects --version)` — naming a
+    binary it does not have.
+
+    `pgrep -x easyeffects` matches the Flatpak's process too (same executable
+    name inside the sandbox), so the native probe called itself "installed but
+    silent", and that silent probe then took over the source label from the
+    Flatpak that had actually answered. Both halves are asserted here: the
+    version comes from the Flatpak, and nothing claims a native install."""
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def fake_run(cmd, **k):
+        if cmd[0] == "easyeffects":
+            raise FileNotFoundError("no such binary")
+        raise doctor_run.subprocess.TimeoutExpired(cmd="flatpak", timeout=5)
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(doctor_run.ee_socket, "easyeffects_running", lambda: True)
+    _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
+    probe = doctor_run._probe_ee_version()
+    assert probe.source == "flatpak info", \
+        "a machine with no easyeffects binary must never be told the version " \
+        "came from one"
+    assert probe.silent_is_flatpak is True
+    assert "timed out" in probe.silent      # the reason survives to the report
+    # The sentence the reporter would read names the install that exists.
+    assert "easyeffects --version" not in environment.ee_version_status(
+        probe.version, probe.found, probe.silent,
+        silent_is_flatpak=probe.silent_is_flatpak).detail
+
+
+def test_probe_ee_version_keeps_the_flatpak_source_when_native_is_silent(
+        monkeypatch, tmp_path):
+    """A silent probe may name the source only while nothing has answered.
+
+    Here the Flatpak answers without a parseable version and the native binary
+    is installed but silent; the fallback must still say the answer came `via
+    flatpak info`, not relabel it with the binary that never spoke.
+
+    Pinned to a Flatpak machine on purpose: that is the order in which the
+    relabel bites — the Flatpak is probed first and answers, and only then does
+    the silent native probe get a chance to overwrite its label."""
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def fake_run(cmd, **k):
+        if cmd[0] == "easyeffects":
+            return R(1, "", "qt.qpa.plugin: could not connect to display\n")
+        return R(0, "ID: x\nInstalled: 458.6 MB\n")      # answered, no Version:
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_run.shutil, "which",
+                        lambda name: "/usr/bin/easyeffects" if name == "easyeffects" else None)
+    _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
+    monkeypatch.setattr(ee_paths, "USE_FLATPAK", True)
+    probe = doctor_run._probe_ee_version()
+    assert probe.found is True and probe.version is None
+    assert probe.source == "flatpak info"
+
+
+def test_probe_ee_version_reads_the_version_off_the_deploy_metadata(
+        monkeypatch, tmp_path):
+    """When `flatpak info` can't be run at all — no flatpak binary, as in a
+    container shell — the same Version field is still readable straight off the
+    deployed app, with no subprocess and no display."""
+    def boom(*a, **k):
+        raise FileNotFoundError("no such binary")
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9")
+    probe = doctor_run._probe_ee_version()
+    assert probe.version == (8, 2, 9) and probe.found is True
+    assert probe.is_flatpak is True
+
+
+def test_probe_ee_version_flatpak_installed_but_unaskable_is_silent(
+        monkeypatch, tmp_path):
+    """No flatpak binary, no readable metadata, but the app root is there:
+    that is "installed and couldn't be asked", never "not installed" — and the
+    reason has to survive, because it is what the report shows the user.
+
+    `found` stays False: nothing answered. It is `silent` that separates this
+    from absence, and `silent_is_flatpak` that decides which of the two
+    explanations the reader gets."""
+    def boom(*a, **k):
+        raise FileNotFoundError("no such binary")
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
+    probe = doctor_run._probe_ee_version()
+    assert probe.found is False and probe.version is None
+    assert probe.source == "flatpak info" and probe.silent_is_flatpak is True
+    assert environment.ee_version_status(
+        probe.version, probe.found, probe.silent,
+        silent_is_flatpak=probe.silent_is_flatpak).status == DOCTOR_UNKNOWN
+
+
+def test_probe_ee_version_sandbox_probe_is_the_doctor_s_last_resort(
+        monkeypatch, tmp_path):
+    """`flatpak run --command=easyeffects … --version` starts a sandbox, so it
+    is gated twice: only under --doctor (every generation run probes too), and
+    only once `flatpak info` and the deploy metadata have both come up empty."""
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    calls = []
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        if cmd[0] == "easyeffects":
+            raise FileNotFoundError("no such binary")
+        if cmd[:2] == ["flatpak", "run"]:
+            return R(0, "easyeffects 8.2.9\n")
+        return R(0, "ID: x\nInstalled: 458.6 MB\n")      # answered, no Version:
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
+
+    assert doctor_run._probe_ee_version().version is None
+    assert not any(c[:2] == ["flatpak", "run"] for c in calls), \
+        "a plain run must never start a sandbox"
+
+    calls.clear()
+    assert doctor_run._probe_ee_version(deep=True).version == (8, 2, 9)
+    assert any(c[:2] == ["flatpak", "run"] for c in calls)
+
+
+def test_probe_ee_version_sandbox_probe_stays_out_of_the_way_when_asked(
+        monkeypatch, tmp_path):
+    """Even under --doctor, a machine whose metadata answers never pays for a
+    sandbox start."""
+    def boom(*a, **k):
+        raise FileNotFoundError("no such binary")
+
+    calls = []
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        boom()
+
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9")
+    assert doctor_run._probe_ee_version(deep=True).version == (8, 2, 9)
+    assert not any(c[:2] == ["flatpak", "run"] for c in calls)
+
+
+def test_ee_version_silent_flatpak_message_names_flatpak_info():
+    """The explanation has to be about the install that stayed silent. On a
+    Flatpak-only machine the old copy named `easyeffects --version` and blamed
+    a missing display — a binary that isn't there, and a caveat that belongs to
+    the native probe (`flatpak info` reads metadata, it never opens a window).
+
+    Still UNKNOWN, never WARN: "installed but wouldn't answer" must not send
+    someone off to install what they already have (issue #46)."""
+    status = environment.ee_version_status(
+        None, found=False, silent="there is no flatpak command here",
+        silent_is_flatpak=True)
+    assert status.status == DOCTOR_UNKNOWN
+    assert "flatpak info" in status.detail
+    assert "easyeffects --version" not in status.detail
+    assert "display" not in status.detail and "headless" not in status.detail
+    # …and the native side keeps its own wording, display caveat and all.
+    native = environment.ee_version_status(
+        None, found=False, silent="could not connect to display")
+    assert "easyeffects --version" in native.detail and "headless" in native.detail
 
 
 def test_easyeffects_running_is_unknown_on_missing_pgrep(monkeypatch):

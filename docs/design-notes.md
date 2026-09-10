@@ -3835,6 +3835,20 @@ A pre-8 Flatpak must still be *recognised*, though: its only files are under
 it the native paths. Hence `flatpak_tree_exists()` — detection only, never a
 write target.
 
+The same report showed `--doctor` crediting `easyeffects --version` on a machine
+whose only EasyEffects is a Flatpak. Three things had to hold at once: `run()`
+returned a bare `(None, None)` for a missing binary, so callers read
+installedness off how a command failed; `pgrep -x easyeffects` matches the
+Flatpak's own process, so the native probe called itself installed-but-silent;
+and a silent probe could relabel the source of one that had answered. The
+version now also has a subprocess-free source — the `Version:` field
+`flatpak info` prints is the first `<release>` of the deployed app's metainfo
+XML — which answers with neither a `flatpak` binary nor a display. Starting the
+sandbox (`flatpak run --command=easyeffects … --version`) is a `--doctor`-only
+last resort: it needs strictly more than `flatpak info`, and EasyEffects 8 builds
+its `QApplication` before parsing `--version`, so it needs a display exactly as
+the native probe does.
+
 ## What counts as a smart amp, and which ones we watch for
 
 `_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family
