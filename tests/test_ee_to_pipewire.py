@@ -3078,6 +3078,26 @@ def test_flatpak_tree_ignores_the_xdg_variables(tmp_path):
                        / "com.github.wwmm.easyeffects" / "data" / "easyeffects")
 
 
+def test_pipewire_drop_in_dirs_follow_xdg_config_home(tmp_path):
+    """PipeWire reads XDG_CONFIG_HOME for its drop-in directory the same way
+    EasyEffects reads XDG_DATA_HOME for its presets (`man pipewire`;
+    `man wireplumber` spells out the fallback). A conf written to the default
+    on a machine that has moved the root is one the daemon never scans — the
+    filter silently does nothing, with no file out of place to notice."""
+    config = tmp_path / "xdg-config"
+    probe = ("from lib.pipewire import checks\n"
+             "print(checks.DEFAULT_OUTPUT_DIR)\n"
+             "print(checks._UNSCANNED_CONF_DIR)\n")
+    env = {**os.environ, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(config)}
+    env.pop("XDG_DATA_HOME", None)
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    drop_in, unscanned = [Path(line) for line in result.stdout.splitlines()]
+    assert drop_in == config / "pipewire" / "pipewire.conf.d"
+    assert unscanned == config / "pipewire" / "filter-chain.conf.d"
+
+
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_doctor_reads_back_a_generated_conf(tmp_path, generated):

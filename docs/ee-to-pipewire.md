@@ -52,6 +52,10 @@ flags can't drift from the scripts that own them.
 | Filter-chain conf | `~/.config/pipewire/pipewire.conf.d/<node-name>.conf` |
 | Copied IRS | `~/.config/pipewire/pipewire.conf.d/<node-name>.irs` |
 
+That directory is `$XDG_CONFIG_HOME/pipewire/pipewire.conf.d` — PipeWire
+reads the variable (`man pipewire`) and so does this converter, so on a
+machine that has moved the config root both follow it.
+
 `<node-name>` defaults to the preset filename stem, sanitised to
 `[A-Za-z0-9_]` (e.g. `Dolby-Balanced.json` → `Dolby_Balanced`,
 `Dolby-Music-Warm.json` → `Dolby_Music_Warm`). Converting multiple

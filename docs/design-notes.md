@@ -3903,6 +3903,24 @@ would have had the cases that omit `--output-dir` write into their own live
 EasyEffects tree. Both now drop the two variables. Same trap class as passing
 `--output-dir` without `--irs-dir`.
 
+Chasing that turned up a second one, older and not about XDG at all: the
+`live_ee_tree` fixture redirected `DEFAULT_OUTPUT_DIR` and `DEFAULT_IRS_DIR`
+but not the rc, so the one case in it that reaches `--autoload` patched the
+Fallback Preset into the developer's real `easyeffectsrc`. Invisible on a
+machine that already had one configured, which is every machine that has run
+the tool — `set_autoload_fallback` leaves an already-configured file alone.
+The fixture redirects all three now.
+
+PipeWire's side has the same defect and got the same helper, in its own
+commit: `lib/pipewire/checks.py` wrote drop-ins to `~/.config/pipewire`, and
+PipeWire reads `XDG_CONFIG_HOME` (`man pipewire`; `man wireplumber` spells out
+the fallback), so a conf could land where the daemon never scans — a filter
+that silently does nothing, with no file out of place to notice. Split from
+the EasyEffects commit because `docs/code-organisation.md` names this exact
+pair, `DEFAULT_OUTPUT_DIR` in `ee_paths.py` and in `checks.py`, as the two
+definitions a reviewer will misread as one. They still resolve to different
+trees; only the root each starts from is now shared.
+
 ## What counts as a smart amp, and which ones we watch for
 
 `_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family

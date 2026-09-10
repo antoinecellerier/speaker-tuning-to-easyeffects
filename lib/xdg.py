@@ -26,6 +26,12 @@ from ``ConfigLocation`` plus a literal ``/easyeffects/db``
 Qt does — and sets no ``organizationName``, so Qt appends no organization
 component and the leaf really is ``easyeffects`` under both roots.
 
+``lib/pipewire/checks.py`` wants only the config root: PipeWire and
+WirePlumber read ``XDG_CONFIG_HOME`` for their drop-in directories too
+(``man pipewire``; ``man wireplumber``, "``~/.config/wireplumber/`` unless
+``$XDG_CONFIG_HOME``"), so a conf written under the default there is one the
+daemon never scans.
+
 Nothing here is for the *Flatpak* trees. ``flatpak run`` overrides all four
 XDG variables inside the sandbox to point at ``~/.var/app/<app id>/``
 (``man flatpak-run``), so a sandboxed app never sees the host's values and the

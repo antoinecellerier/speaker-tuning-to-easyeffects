@@ -54,7 +54,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_socket, packages, version
+from lib import console, doctor, ee_socket, packages, version, xdg
 from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -83,7 +83,7 @@ from lib.report import speaker as gen
 # `pipewire -c filter-chain.conf` invocation pattern, used by the
 # measurement rig). Drop the conf in pipewire.conf.d/ so the running
 # daemon picks it up on the next restart.
-DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/pipewire.conf.d"
+DEFAULT_OUTPUT_DIR = xdg.config_home() / "pipewire" / "pipewire.conf.d"
 
 
 # --- PipeWire-side diagnostics (--doctor) -----------------------------------
@@ -107,7 +107,7 @@ DEFAULT_OUTPUT_DIR = Path.home() / ".config/pipewire/pipewire.conf.d"
 # filter-chain.service runs that standalone invocation and does read it, so a
 # conf there is live for anyone running that unit, which is why the check
 # below offers moving it rather than declaring it inert.
-_UNSCANNED_CONF_DIR = Path.home() / ".config/pipewire/filter-chain.conf.d"
+_UNSCANNED_CONF_DIR = xdg.config_home() / "pipewire" / "filter-chain.conf.d"
 
 
 def live_conf_dirs() -> tuple[Path, Path]:

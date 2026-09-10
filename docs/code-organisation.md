@@ -45,9 +45,10 @@ mitigate.
   changed.
 
   `DEFAULT_OUTPUT_DIR` is the worked example, and it is live in this repo
-  today. `lib/ee_paths.py` has it as `~/.local/share/easyeffects/output`, the
-  EasyEffects preset directory; `lib/pipewire/checks.py` has it as
-  `~/.config/pipewire/pipewire.conf.d`, PipeWire's drop-in directory. One name,
+  today. `lib/ee_paths.py` resolves it to `~/.local/share/easyeffects/output`,
+  the EasyEffects preset directory; `lib/pipewire/checks.py` resolves it to
+  `~/.config/pipewire/pipewire.conf.d`, PipeWire's drop-in directory (both take
+  their XDG root from `lib/xdg.py` now — one helper, still two trees). One name,
   two definitions, two trees. A reviewer scanning a move commit for "one name
   defined twice, now visible in one package" finds them and is right about the
   name and wrong about the value, and the commit that unifies them redirects

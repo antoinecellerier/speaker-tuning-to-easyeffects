@@ -91,6 +91,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   and EasyEffects' settings now go where your EasyEffects reads them, instead
   of to `~/.local/share` and `~/.config` regardless. Re-run the script to write
   them there. (why in docs/design-notes.md)
+- The PipeWire filter-chain conf now lands in `$XDG_CONFIG_HOME/pipewire/`
+  rather than always in `~/.config/pipewire/`, so the daemon scans it on a
+  machine that has moved that root. Re-run the converter to write it there.
 - `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
   of reporting it unknown, and names the install it couldn't ask.
   ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
