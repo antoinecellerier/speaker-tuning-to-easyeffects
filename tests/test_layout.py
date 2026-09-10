@@ -76,6 +76,9 @@ FORBIDDEN = ("numpy", "scipy", "rich", "rich_argparse")
 
 STDLIB_ONLY = (
     "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
+    # The two XDG base directories, read from the environment. Reached at
+    # startup by everything that resolves a path default.
+    "lib.xdg",
     # Its own docstring promises this, and nothing enforced it: the module is
     # imported by both PipeWire scripts, and it is exactly the kind of table
     # that grows a convenience import nobody prices.

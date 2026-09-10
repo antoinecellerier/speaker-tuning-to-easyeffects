@@ -14,9 +14,11 @@ import functools
 import inspect
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Callable
 
@@ -73,6 +75,7 @@ from ee_to_pipewire import main as ee2pw_main
 from lib.pipewire import install, vbe
 from lib.pipewire.plugins import Stage
 from tests.conftest import (
+    ROOT,
     SYNTHETIC_FREQS_20,
     synthetic_mb_comp,
     synthetic_peq_filters,
@@ -2907,11 +2910,11 @@ def _fake_ee_install(tmp_path, monkeypatch, *, data_tree=False,
     monkeypatch.setattr(ee_paths, "FLATPAK_BASE", data)
     monkeypatch.setattr(ee_paths, "FLATPAK_CONFIG_BASE", config)
     monkeypatch.setattr(ee_paths, "NATIVE_BASE", native)
-    # The never-opened probe walks $HOME; patch the module's own Path binding
-    # rather than pathlib's, so nothing outside this module sees a fake home.
-    monkeypatch.setattr(ee_paths, "Path",
-                        type("HomedPath", (type(tmp_path),),
-                             {"home": staticmethod(lambda: tmp_path)}))
+    # The never-opened probe walks the per-user Flatpak install root, which is
+    # $XDG_DATA_HOME/flatpak. Set the variable rather than faking $HOME: it is
+    # the seam the code actually reads, and unset it would read the
+    # developer's own machine and flip on one that has the Flatpak installed.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / ".local" / "share"))
     return data, config, native
 
 
@@ -2974,6 +2977,105 @@ def test_flatpak_presets_moved_to_the_data_tree_but_the_rc_did_not():
     assert ee_paths.FLATPAK_BASE.parts[-2:] == ("data", "easyeffects")
     assert ee_paths._FLATPAK_RC.is_relative_to(ee_paths.FLATPAK_CONFIG_BASE)
     assert not ee_paths._FLATPAK_RC.is_relative_to(ee_paths.FLATPAK_BASE)
+
+
+# ---------------------------------------------------------------------------
+# XDG base directories
+#
+# EasyEffects asks Qt for both of its roots and Qt reads the environment, so a
+# user who has set XDG_DATA_HOME or XDG_CONFIG_HOME has their tree somewhere
+# these defaults have to follow. Verified against qtpaths 6.10.2, the Qt the
+# packaged EasyEffects links: an absolute value is honoured, a relative one
+# and an empty one are ignored — the XDG spec's rule, which these pin.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value,follows", [
+    ("<abs>", True),    # the whole point
+    ("relative", False),  # the spec calls a relative value invalid
+    ("", False),          # unset-with-extra-steps
+    (None, False),        # unset
+])
+def test_xdg_home_takes_only_an_absolute_value(tmp_path, monkeypatch, value,
+                                               follows):
+    """`set` is not the test — `absolute` is. Qt ignores a relative value and
+    falls back, so anything here that merely checked for a non-empty string
+    would send presets somewhere EasyEffects never looks."""
+    from lib import xdg
+    target = tmp_path / "elsewhere"
+    if value is None:
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    else:
+        for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME"):
+            monkeypatch.setenv(var, str(target) if value == "<abs>" else value)
+    monkeypatch.setattr(xdg, "Path",
+                        type("HomedPath", (type(tmp_path),),
+                             {"home": staticmethod(lambda: tmp_path)}))
+    assert (xdg.data_home() == target) is follows
+    assert (xdg.config_home() == target) is follows
+    if not follows:
+        assert xdg.data_home() == tmp_path / ".local" / "share"
+        assert xdg.config_home() == tmp_path / ".config"
+
+
+def _ee_paths_under(tmp_path, **overrides):
+    """Import `ee_paths` in a fresh interpreter and read back what it froze.
+
+    A subprocess because those constants are resolved at import and stay
+    resolved — they are argparse defaults, and re-deciding one per call is how
+    a run would split its files across two trees. That makes the import the
+    thing worth pinning, and an import is not re-runnable in process."""
+    probe = ("from lib import ee_paths as p\n"
+             "print(p.NATIVE_BASE)\n"
+             "print(p._NATIVE_RC)\n"
+             "print(p.FLATPAK_BASE)\n"
+             "print(p.flatpak_install_roots()[1])\n")
+    env = {**os.environ, "HOME": str(tmp_path)}
+    for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME"):
+        env.pop(var, None)
+    env.update({k: str(v) for k, v in overrides.items()})
+    result = subprocess.run([sys.executable, "-c", probe], cwd=ROOT, env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    native, rc, flatpak, install_root = \
+        [Path(line) for line in result.stdout.splitlines()]
+    return native, rc, flatpak, install_root
+
+
+def test_native_tree_follows_the_xdg_variables(tmp_path):
+    """The presets, the impulse responses and the settings db all move with
+    the variable their side of EasyEffects reads — and they move
+    independently, because 8.0.0 split them across the two roots."""
+    data, config = tmp_path / "xdg-data", tmp_path / "xdg-config"
+    native, rc, _flatpak, install_root = _ee_paths_under(
+        tmp_path, XDG_DATA_HOME=data, XDG_CONFIG_HOME=config)
+    assert native == data / "easyeffects"
+    assert rc == config / "easyeffects" / "db" / "easyeffectsrc"
+    # $XDG_DATA_HOME/flatpak is where a per-user Flatpak install lives, so the
+    # never-opened probe has to look there too (man flatpak).
+    assert install_root == data / "flatpak" / "app"
+
+
+def test_native_tree_ignores_a_relative_xdg_value(tmp_path):
+    """Same fallback Qt applies, so the two agree on a machine whose
+    XDG_DATA_HOME is set to something the spec says to throw away."""
+    native, rc, _flatpak, _root = _ee_paths_under(
+        tmp_path, XDG_DATA_HOME="relative/data", XDG_CONFIG_HOME="")
+    assert native == tmp_path / ".local" / "share" / "easyeffects"
+    assert rc == tmp_path / ".config" / "easyeffects" / "db" / "easyeffectsrc"
+
+
+def test_flatpak_tree_ignores_the_xdg_variables(tmp_path):
+    """`flatpak run` overrides all four XDG variables inside the sandbox to
+    point at ~/.var/app/<id>/ and passes the host's values through as
+    HOST_XDG_* instead (man flatpak-run). So a sandboxed EasyEffects cannot
+    see what the user set out here, and following it would move our writes off
+    the only tree that install reads."""
+    _native, _rc, flatpak, _root = _ee_paths_under(
+        tmp_path, XDG_DATA_HOME=tmp_path / "xdg-data",
+        XDG_CONFIG_HOME=tmp_path / "xdg-config")
+    assert flatpak == (tmp_path / ".var" / "app"
+                       / "com.github.wwmm.easyeffects" / "data" / "easyeffects")
 
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,

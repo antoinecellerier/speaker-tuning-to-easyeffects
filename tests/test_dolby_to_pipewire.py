@@ -545,7 +545,12 @@ def _run_e2e(tmp_path, *args, env=None):
     result = _run_script(
         str(xml), "--output-dir", str(out), "--target-sink", "",
         "--no-activate", "--no-color", *args,
-        env={**os.environ, "HOME": str(home), **(env or {})},
+        env={**{k: v for k, v in os.environ.items()
+                if k not in ("XDG_DATA_HOME", "XDG_CONFIG_HOME")},
+             # Not inherited: with either set, the defaults leave `home` and
+             # the no-EE-artifacts assertion below would be checking an empty
+             # directory the run never had a reason to touch.
+             "HOME": str(home), **(env or {})},
     )
     return result, home, out
 

@@ -3849,6 +3849,60 @@ last resort: it needs strictly more than `flatpak info`, and EasyEffects 8 build
 its `QApplication` before parsing `--version`, so it needs a display exactly as
 the native probe does.
 
+### The same bug on a native install: XDG_DATA_HOME / XDG_CONFIG_HOME
+
+Fixing the Flatpak base left the *native* one hardcoded to `~/.local/share`
+and `~/.config`, which is the same defect with the roles swapped: EasyEffects
+asks Qt for both roots, Qt reads the environment, so a user who has set either
+variable had presets written to a tree their EasyEffects never reads. The
+symptom is #93's, minus the rescue — nothing migrates these, because from
+EasyEffects' point of view the files simply aren't there.
+
+Verified rather than assumed, since the fix is only worth it if Qt really does
+what the spec says. Against `qtpaths` 6.10.2 — the Qt the packaged EasyEffects
+links — an absolute `XDG_DATA_HOME` is honoured while a relative one and an
+empty one both fall back to `~/.local/share`. That absolute-only rule is the
+one `lib/xdg.py` implements: a "set, or the default" test would disagree with
+Qt on exactly the inputs the spec tells both of them to discard. EasyEffects
+holds up its end — `strings` on the 8.2.8 binary finds neither `.local/share`
+nor `.config`, `libQt6Core` holds all three variable names, and upstream's
+only `qEnvironmentVariable` calls are the two desktop-detection ones.
+
+The leaf name needed checking too, because Qt's `AppDataLocation` is
+`<root>/<organizationName>/<applicationName>` and an organization component
+would have made every path here wrong in a second way. `CMakeLists.txt` does
+set `ORGANIZATION_NAME "WWMM"` and it does reach `config.h` — but nothing
+references the macro, and `KAboutData::setApplicationData` sets
+`applicationName`, `applicationVersion` and `organizationDomain` while leaving
+`organizationName` alone. So Qt appends nothing and the leaf is `easyeffects`,
+unchanged across all of 8.x.
+
+Three decisions worth keeping:
+
+- **The Flatpak tree does not follow these variables.** `flatpak run`
+  overrides all four XDG variables inside the sandbox to point at
+  `~/.var/app/<app id>/` and hands the app the host's values as `HOST_XDG_*`
+  instead (`man flatpak-run`), so applying the host's `XDG_DATA_HOME` there
+  would move our writes off the only tree that install reads. `_FLATPAK_APP`
+  stays anchored to `$HOME` and says why. The per-user *install* root is the
+  opposite case and does move: it is `$XDG_DATA_HOME/flatpak`.
+- **The constants stay resolved at import.** They are argparse defaults, and
+  re-deciding one per call is how a run would split its files across two
+  trees. That makes them untestable in process, so the traps read them back
+  out of a fresh interpreter instead.
+- **`FLATPAK_USER_DIR` is knowingly unhandled.** It overrides the per-user
+  install location outright, ahead of `$XDG_DATA_HOME/flatpak`, but it is
+  effectively a flatpak-test-suite variable and honouring it needs a second
+  helper with a different fallback shape than the two XDG roots share.
+
+The sharpest edge was in the tests, not the code. `_run_isolated` and
+`_run_e2e` build a subprocess environment as `{**os.environ, "HOME": home}`,
+which isolated a run completely while the defaults ignored the environment and
+stopped doing so the moment they didn't: a developer with `XDG_DATA_HOME` set
+would have had the cases that omit `--output-dir` write into their own live
+EasyEffects tree. Both now drop the two variables. Same trap class as passing
+`--output-dir` without `--irs-dir`.
+
 ## What counts as a smart amp, and which ones we watch for
 
 `_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family

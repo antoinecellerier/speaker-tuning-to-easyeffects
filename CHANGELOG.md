@@ -87,6 +87,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   start — so a run no longer needs a restart to take effect, and `--doctor`
   no longer reports no presets. Re-run the script to write them there.
   ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- If you set `XDG_DATA_HOME` or `XDG_CONFIG_HOME`, presets, impulse responses
+  and EasyEffects' settings now go where your EasyEffects reads them, instead
+  of to `~/.local/share` and `~/.config` regardless. Re-run the script to write
+  them there. (why in docs/design-notes.md)
 - `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
   of reporting it unknown, and names the install it couldn't ask.
   ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))

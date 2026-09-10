@@ -247,6 +247,23 @@ no per-band limiting.
   settings db stayed at `~/.config/easyeffects/db/` — which is why this tool's
   rc and preset paths are rooted differently, and why `config/easyeffects/`
   outlives the migration and can't say which layout wrote it.
+- Those two spellings are the XDG *defaults*. EasyEffects asks Qt
+  (`QStandardPaths`) for both roots and never reads the variables itself, so
+  `XDG_DATA_HOME` and `XDG_CONFIG_HOME` move its tree; this tool follows them
+  through `lib/xdg.py`. Only an **absolute** value counts — the basedir spec
+  calls a relative one invalid and Qt ignores it, so treating "set" as "use
+  it" would split the two apart. The leaf is `easyeffects` under both roots
+  with no organization component, because upstream never sets
+  `organizationName`; note the db path is generic `ConfigLocation` plus a
+  literal `/easyeffects/db` (`src/db_manager.cpp`) rather than
+  `AppConfigLocation`, the same directory today but not if that ever changes.
+- The Flatpak roots are exempt, and stay anchored to `$HOME`: `flatpak run`
+  overrides all four XDG variables inside the sandbox to point at
+  `~/.var/app/<app id>/` and passes the host's values through as `HOST_XDG_*`
+  (`man flatpak-run`), so what the user set outside says nothing about where a
+  sandboxed EasyEffects reads. The one Flatpak path that *is* an XDG path is
+  the per-user install root, `$XDG_DATA_HOME/flatpak`, which `--doctor` walks
+  to find a deployed app's version.
 - The convolver uses `"kernel-name"` (filename stem), not the deprecated
   `"kernel-path"`.
 - The convolver re-reads its `.irs` only when `kernel-name` *changes*; a

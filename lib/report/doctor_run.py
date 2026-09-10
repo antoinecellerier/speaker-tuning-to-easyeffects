@@ -494,8 +494,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         field `flatpak info` prints, without the subprocess, so it still
         answers where `flatpak` itself can't be run and where no display is
         available. None when nothing on disk says."""
-        for root in (Path("/var/lib/flatpak/app"),
-                     Path.home() / ".local" / "share" / "flatpak" / "app"):
+        for root in ee_paths.flatpak_install_roots():
             base = root / ee_paths.FLATPAK_APP_ID / "current" / "active" / "files" / "share"
             for sub in ("metainfo", "appdata"):
                 try:

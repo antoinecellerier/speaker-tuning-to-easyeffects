@@ -2593,12 +2593,14 @@ def _no_flatpak(monkeypatch):
 
 def _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9", *, metainfo=True):
     """Build a fake per-user Flatpak deployment under `tmp_path` and point the
-    doctor's `Path.home()` at it. Mirrors the real layout, which is what
-    `flatpak info` itself reads the Version line out of."""
+    doctor at it. Mirrors the real layout, which is what `flatpak info` itself
+    reads the Version line out of.
+
+    Setting XDG_DATA_HOME is what moves the per-user install root: it is
+    `$XDG_DATA_HOME/flatpak` (man flatpak), so the deployment the doctor finds
+    follows the variable even though a sandboxed app's own tree does not."""
     monkeypatch.setattr(ee_paths, "flatpak_app_installed", lambda: True)
-    monkeypatch.setattr(doctor_run, "Path",
-                        type("HomedPath", (type(tmp_path),),
-                             {"home": staticmethod(lambda: tmp_path)}))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / ".local" / "share"))
     if not metainfo:
         return
     share = (tmp_path / ".local/share/flatpak/app" / ee_paths.FLATPAK_APP_ID
@@ -3398,10 +3400,16 @@ def _serve(monkeypatch, daemon):
 @pytest.fixture
 def live_ee_tree(tmp_path, monkeypatch):
     """Point EasyEffects' own directories at tmp so a run with no
-    --output-dir/--irs-dir counts as writing the live tree."""
+    --output-dir/--irs-dir counts as writing the live tree.
+
+    The rc too: a run that reaches --autoload patches the Fallback Preset
+    into it, and the two preset directories alone left that write pointed at
+    the developer's real EasyEffects settings."""
     out, irs = tmp_path / "output", tmp_path / "irs"
     monkeypatch.setattr(ee_paths, "DEFAULT_OUTPUT_DIR", out)
     monkeypatch.setattr(ee_paths, "DEFAULT_IRS_DIR", irs)
+    monkeypatch.setattr(ee_paths, "DEFAULT_EASYEFFECTS_RC",
+                        tmp_path / "db" / "easyeffectsrc")
     monkeypatch.setattr(sinks, "live_default_sink", lambda: "")
     return out, irs
 

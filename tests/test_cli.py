@@ -880,6 +880,15 @@ def _run_isolated(script, *args, home, extra_path=None):
     env = {**os.environ, "HOME": str(home),
            **{v: ISOLATED_LOGIN
               for v in ("LOGNAME", "USER", "LNAME", "USERNAME")}}
+    # $HOME alone no longer isolates a run: the EasyEffects tree and the
+    # PipeWire drop-in dir come from $XDG_DATA_HOME/$XDG_CONFIG_HOME when
+    # those are set, and they are inherited here. A developer who sets either
+    # would have the cases that leave --output-dir off write into their own
+    # live EasyEffects tree. Dropping them puts every default back under
+    # `home`, where the assertions expect it; the traps in
+    # test_ee_to_pipewire.py cover the honouring.
+    for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME"):
+        env.pop(var, None)
     if extra_path is not None:
         env["PATH"] = os.pathsep.join([str(extra_path), env.get("PATH", "")])
     return subprocess.run(
