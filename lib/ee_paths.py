@@ -3,12 +3,16 @@
 Stdlib-only on purpose, for the same reason as ``version.py``:
 ``ee_to_pipewire.py`` has to resolve the same paths the generator writes to,
 and importing the generator to ask would pull numpy/scipy into a converter
-that never does any DSP.
+that never does any DSP. Nothing here may shell out either — this module
+builds argparse defaults, so a subprocess would put its timeout on ``--help``.
 
-The two installs don't mirror each other's layout — the Flatpak keeps its
-presets under ``config/`` inside the app's sandbox while the native package
-follows XDG and puts them under ``share/`` — so the base has to be chosen,
-not derived from a common suffix.
+EasyEffects 8 keeps presets, impulse responses and autoload profiles under
+``XDG_DATA_HOME`` and only its settings database under ``XDG_CONFIG_HOME``
+(upstream ``src/presets_directory_manager.cpp``, ``src/db_manager.cpp``). Both
+installs follow that same split; the Flatpak's two XDG roots are just spelled
+``~/.var/app/<app id>/{data,config}``. So a run's write base is chosen per
+install, while the rc path below is rooted separately rather than derived from
+it.
 
 The ``DEFAULT_*`` constants below are the single definition of where a run
 writes: the generator's ``--output-dir`` / ``--irs-dir`` / ``--autoload-dir``
@@ -22,38 +26,73 @@ rather than two that merely agree today.
 
 from pathlib import Path
 
-__all__ = ["FLATPAK_APP_ID", "FLATPAK_BASE", "NATIVE_BASE",
+__all__ = ["FLATPAK_APP_ID", "FLATPAK_BASE", "FLATPAK_CONFIG_BASE",
+           "NATIVE_BASE", "flatpak_app_installed", "flatpak_tree_exists",
            "prefer_flatpak", "easyeffects_base",
            "USE_FLATPAK", "EASYEFFECTS_BASE",
            "DEFAULT_OUTPUT_DIR", "DEFAULT_IRS_DIR", "DEFAULT_AUTOLOAD_DIR",
            "DEFAULT_EASYEFFECTS_RC", "uses_custom_dirs"]
 
 FLATPAK_APP_ID = "com.github.wwmm.easyeffects"
-FLATPAK_BASE = (Path.home() / ".var" / "app" / FLATPAK_APP_ID
-                / "config" / "easyeffects")
+_FLATPAK_APP = Path.home() / ".var" / "app" / FLATPAK_APP_ID
+# EasyEffects 8.0.0 moved presets, impulse responses and autoload profiles to
+# XDG_DATA_HOME, and migrates any XDG_CONFIG_HOME copies into it on *every*
+# start — copying them across and sending the old directory to the trash. So
+# the config tree is not a fallback to write to: it is a directory EasyEffects
+# empties. These presets need EasyEffects 8 anyway (a 7 is a --doctor FAIL),
+# and no version both reads the config tree and can load what we write.
+FLATPAK_BASE = _FLATPAK_APP / "data" / "easyeffects"
+# The same sandbox's other XDG root: EasyEffects 8 kept its settings database
+# here, and a pre-8 install kept its presets here too. Never written to; read
+# for the rc below, and probed to recognise a Flatpak that predates the move.
+FLATPAK_CONFIG_BASE = _FLATPAK_APP / "config" / "easyeffects"
 NATIVE_BASE = Path.home() / ".local" / "share" / "easyeffects"
+
+
+def flatpak_app_installed() -> bool:
+    """Is the EasyEffects Flatpak deployed, whether or not it has ever run?
+
+    Two stats against the system and per-user app roots, never ``flatpak
+    info`` — see the no-subprocess rule above. ``Path.home()`` is read inside
+    the function rather than frozen into a constant so the tests' fake-``$HOME``
+    redirect, which patches this module's own ``Path``, reaches it.
+    """
+    for root in (Path("/var/lib/flatpak/app"),
+                 Path.home() / ".local" / "share" / "flatpak" / "app"):
+        if (root / FLATPAK_APP_ID).exists():
+            return True
+    return False
+
+
+def flatpak_tree_exists() -> bool:
+    """Has a Flatpak EasyEffects left files here, under *either* XDG root?
+
+    Detection only — nothing is ever written to the config tree. A pre-8
+    Flatpak that only wrote under ``config/`` would otherwise be
+    indistinguishable from no Flatpak at all, now that ``FLATPAK_BASE`` names
+    the data tree, and would be silently handed the native paths instead.
+    """
+    return FLATPAK_BASE.exists() or FLATPAK_CONFIG_BASE.exists()
 
 
 def prefer_flatpak() -> bool:
     """Choose between Flatpak and native EasyEffects install locations.
 
-    Prefers whichever install has a data directory (i.e. has been run
-    at least once). If neither has been run, probes Flatpak app install
-    roots so a freshly-installed-but-unopened Flatpak still picks the
-    Flatpak paths. On systems with both installed and both launched,
-    preserves the prior default (Flatpak wins).
+    Prefers whichever install has a data directory (i.e. has been run at least
+    once). If neither has been run, probes Flatpak app install roots so a
+    freshly-installed-but-unopened Flatpak still picks the Flatpak paths. On
+    systems with both installed and both launched, preserves the prior default
+    (Flatpak wins) — but a Flatpak tree with no Flatpak deployed behind it is
+    leftovers from an uninstall, not an install, and loses to a native tree.
     """
-    if FLATPAK_BASE.exists():
+    flatpak_used = flatpak_tree_exists()
+    native_used = NATIVE_BASE.exists()
+    installed = flatpak_app_installed()
+    if flatpak_used and (installed or not native_used):
         return True
-    if NATIVE_BASE.exists():
+    if native_used:
         return False
-    for root in (
-        Path("/var/lib/flatpak/app"),
-        Path.home() / ".local" / "share" / "flatpak" / "app",
-    ):
-        if (root / FLATPAK_APP_ID).exists():
-            return True
-    return False
+    return installed
 
 
 def easyeffects_base() -> Path:
@@ -71,9 +110,14 @@ DEFAULT_OUTPUT_DIR = EASYEFFECTS_BASE / "output"
 DEFAULT_IRS_DIR = EASYEFFECTS_BASE / "irs"
 DEFAULT_AUTOLOAD_DIR = EASYEFFECTS_BASE / "autoload" / "output"
 
-# EasyEffects 8.x KConfig file. Separate from EASYEFFECTS_BASE (which is
-# under XDG_DATA_HOME for presets/IRs); this one is under XDG_CONFIG_HOME.
-_FLATPAK_RC = Path.home() / ".var" / "app" / FLATPAK_APP_ID / "config" / "easyeffects" / "db" / "easyeffectsrc"
+# EasyEffects 8.x KConfig file. Rooted in the *config* tree deliberately, and
+# not under EASYEFFECTS_BASE: 8.0.0 moved presets, impulses and autoload
+# profiles to XDG_DATA_HOME but kept the settings database under
+# XDG_CONFIG_HOME. The two agreed by accident while the Flatpak base was the
+# config tree — which is why the rc writes landed correctly for Flatpak users
+# all along and the presets beside them did not. Deriving this from
+# FLATPAK_CONFIG_BASE is what keeps them agreeing on purpose.
+_FLATPAK_RC = FLATPAK_CONFIG_BASE / "db" / "easyeffectsrc"
 _NATIVE_RC = Path.home() / ".config" / "easyeffects" / "db" / "easyeffectsrc"
 
 

@@ -80,6 +80,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Fixed
+
+- On a Flatpak EasyEffects, presets and impulse responses now go straight to
+  the folder EasyEffects 8 reads, not the pre-8 one it empties on its next
+  start — so a run no longer needs a restart to take effect, and `--doctor`
+  no longer reports no presets. Re-run the script to write them there.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+
 ### Changed
 
 - Both `--doctor` reports are easier to read: they name your output

@@ -582,8 +582,12 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
             f"custom output dir ({doctor.tilde(output_dir)}) — skipping EasyEffects "
             "location checks."))
     else:
+        # Either Flatpak XDG root counts as "a Flatpak has run here": a
+        # pre-8 install only ever wrote under config/, and asking about the
+        # data tree alone would report "no EasyEffects data dir found yet"
+        # beside a config/easyeffects/output full of presets.
         report.checks.append(environment.install_status(
-            ee_paths.FLATPAK_BASE.exists(), ee_paths.NATIVE_BASE.exists(), ee_paths.USE_FLATPAK,
+            ee_paths.flatpak_tree_exists(), ee_paths.NATIVE_BASE.exists(), ee_paths.USE_FLATPAK,
             doctor.tilde(ee_paths.EASYEFFECTS_BASE), ee_is_flatpak))
 
     # 3. Preset + impulse-file integrity — for the presets this tool wrote

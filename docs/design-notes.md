@@ -3802,6 +3802,39 @@ there. It also moves the 48 kHz level by ~11 dB, invalidating the whole
 gain-staging budget above. The residual figures are an offline model of that
 arithmetic rather than a measurement; the sqrt(L) mechanism is source-certain. Not reported upstream yet.
 
+## Presets written where EasyEffects stopped reading: the Flatpak's two XDG roots (issue [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+
+EasyEffects 8.0.0 (upstream `d8a50b529`) moved presets, impulse responses,
+rnnoise models and autoload profiles from `XDG_CONFIG_HOME` to `XDG_DATA_HOME`,
+keeping only its settings database behind. On the Flatpak those roots are
+`~/.var/app/com.github.wwmm.easyeffects/{data,config}`, and our base still named
+the config one — the native base had been the data path all along, which is why
+this never showed on the development machine.
+
+Not inert, which is what made it hard to see: `xdg_migration()` hauls what we
+wrote into the data tree on the next EasyEffects start, so the presets arrived —
+never in time for the end-of-run reload, and with `--doctor` reporting "0 preset
+files" afterwards, still watching the folder EasyEffects had just emptied.
+
+Three properties of that migration shaped the fix:
+
+- **The config tree survives it.** Six named subdirectories move;
+  `config/easyeffects/db/` stays. So `config/easyeffects/` exists either way and
+  cannot say which layout wrote it — the base is a constant now rather than
+  something derived from what is present.
+- **It runs on every start**, from the `DirectoryManager` constructor, so old
+  writes are rescued and nothing is stranded. It also means the config tree is
+  not a fallback to *write* to: it is one EasyEffects empties.
+- **The pre-8 layout is never a write target.** These presets need EasyEffects 8
+  (below that is a `--doctor` FAIL — the 7.x format loads the correction filter
+  as nothing), so no version both reads the config tree and can play them. A
+  version-switched base was dropped for that reason.
+
+A pre-8 Flatpak must still be *recognised*, though: its only files are under
+`config/`, and probing the data tree alone would read as "no Flatpak" and hand
+it the native paths. Hence `flatpak_tree_exists()` — detection only, never a
+write target.
+
 ## What counts as a smart amp, and which ones we watch for
 
 `_AMP_FAMILIES` (`lib/hardware/amps.py`) is the single source of amp-family

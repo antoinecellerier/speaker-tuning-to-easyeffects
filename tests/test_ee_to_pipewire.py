@@ -2888,35 +2888,92 @@ def test_irs_default_matches_the_generator():
         assert irs_default(parser) is ee_paths.DEFAULT_IRS_DIR
 
 
-@pytest.mark.parametrize("flatpak_run,native_run,installed,expected", [
-    (True,  False, False, True),    # Flatpak has been run
-    (False, True,  False, False),   # native has been run
-    (True,  True,  False, True),    # both run: Flatpak keeps the old default
-    (False, False, True,  True),    # installed but never opened (issue #33)
-    (False, False, False, False),   # nothing to go on: native
-])
-def test_prefer_flatpak(tmp_path, monkeypatch, flatpak_run, native_run,
-                        installed, expected):
-    """Which install the defaults point at, over the four states a machine can
-    be in. Writing presets to the tree EasyEffects doesn't read is one of the
-    'preset generated, nothing changed' reports --doctor exists to catch."""
+def _fake_ee_install(tmp_path, monkeypatch, *, data_tree=False,
+                     config_tree=False, native_tree=False, installed=False):
+    """Point `ee_paths` at a machine built out of `tmp_path`, and hand back its
+    three trees. Both Flatpak XDG roots are separate knobs because EasyEffects
+    8 splits its files across them and leaves the config one behind."""
     from lib import ee_paths
-    flatpak, native = tmp_path / "flatpak", tmp_path / "native"
-    if flatpak_run:
-        flatpak.mkdir()
-    if native_run:
-        native.mkdir()
+    data = tmp_path / "flatpak-data"
+    config = tmp_path / "flatpak-config"
+    native = tmp_path / "native"
+    for make, path in ((data_tree, data), (config_tree, config),
+                       (native_tree, native)):
+        if make:
+            path.mkdir()
     if installed:
         (tmp_path / ".local/share/flatpak/app"
          / ee_paths.FLATPAK_APP_ID).mkdir(parents=True)
-    monkeypatch.setattr(ee_paths, "FLATPAK_BASE", flatpak)
+    monkeypatch.setattr(ee_paths, "FLATPAK_BASE", data)
+    monkeypatch.setattr(ee_paths, "FLATPAK_CONFIG_BASE", config)
     monkeypatch.setattr(ee_paths, "NATIVE_BASE", native)
     # The never-opened probe walks $HOME; patch the module's own Path binding
     # rather than pathlib's, so nothing outside this module sees a fake home.
     monkeypatch.setattr(ee_paths, "Path",
                         type("HomedPath", (type(tmp_path),),
                              {"home": staticmethod(lambda: tmp_path)}))
+    return data, config, native
+
+
+@pytest.mark.parametrize("data_tree,config_tree,native_tree,installed,expected", [
+    (True,  True,  False, True,  True),   # EE 8 Flatpak, migrated (config keeps db/)
+    (True,  False, False, False, True),   # Flatpak data tree, nothing else to go on
+    (False, True,  False, True,  True),   # pre-8 Flatpak: presets only under config/
+    (False, False, True,  False, False),  # native has been run
+    (True,  True,  True,  True,  True),   # both run: Flatpak keeps the old default
+    (False, False, False, True,  True),   # installed but never opened (issue #33)
+    (False, False, False, False, False),  # nothing to go on: native
+])
+def test_prefer_flatpak(tmp_path, monkeypatch, data_tree, config_tree,
+                        native_tree, installed, expected):
+    """Which install the defaults point at, over the states a machine can be
+    in. Writing presets to the tree EasyEffects doesn't read is one of the
+    'preset generated, nothing changed' reports --doctor exists to catch.
+
+    The pre-8 row is the one a naive base swap gets wrong: that user's only
+    EasyEffects files are under `config/`, so probing the data tree alone
+    reads as "no Flatpak here" and hands them the native paths."""
+    from lib import ee_paths
+    _fake_ee_install(tmp_path, monkeypatch, data_tree=data_tree,
+                     config_tree=config_tree, native_tree=native_tree,
+                     installed=installed)
     assert ee_paths.prefer_flatpak() is expected
+
+
+def test_prefer_flatpak_ignores_a_tree_left_by_an_uninstalled_flatpak(
+        tmp_path, monkeypatch):
+    """A `~/.var/app` tree with no Flatpak deployed behind it is leftovers from
+    an uninstall, not an install — so it must not beat a native tree that is
+    actually in use. Nothing removes `~/.var/app/<id>` when a Flatpak goes
+    away, so this is the state of every machine that migrated to the native
+    package."""
+    from lib import ee_paths
+    _fake_ee_install(tmp_path, monkeypatch, data_tree=True, config_tree=True,
+                     native_tree=True, installed=False)
+    assert ee_paths.prefer_flatpak() is False
+
+
+def test_flatpak_tree_exists_sees_a_pre8_install(tmp_path, monkeypatch):
+    """Either XDG root counts. EasyEffects 8 moved presets to the data tree,
+    so a Flatpak that predates the move shows up only under config/."""
+    from lib import ee_paths
+    _fake_ee_install(tmp_path, monkeypatch, config_tree=True)
+    assert ee_paths.flatpak_tree_exists() is True
+
+
+def test_flatpak_presets_moved_to_the_data_tree_but_the_rc_did_not():
+    """EasyEffects 8.0.0 moved presets, impulses and autoload profiles from
+    XDG_CONFIG_HOME to XDG_DATA_HOME and kept its settings database where it
+    was, so the Flatpak write base and the rc live under different roots.
+
+    They were the same path while the base was the config tree, which is why
+    the rc writes landed correctly for Flatpak users all along while the
+    presets beside them went to a folder EasyEffects had stopped reading. This
+    pins them apart, so a later tidy-up can't re-derive one from the other."""
+    from lib import ee_paths
+    assert ee_paths.FLATPAK_BASE.parts[-2:] == ("data", "easyeffects")
+    assert ee_paths._FLATPAK_RC.is_relative_to(ee_paths.FLATPAK_CONFIG_BASE)
+    assert not ee_paths._FLATPAK_RC.is_relative_to(ee_paths.FLATPAK_BASE)
 
 
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,

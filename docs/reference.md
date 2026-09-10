@@ -236,9 +236,17 @@ no per-band limiting.
 
 ## EasyEffects 8.x specifics
 
-- Presets live in `~/.local/share/easyeffects/output/` (not `~/.config/`).
+- Presets live in `~/.local/share/easyeffects/output/` (not `~/.config/`),
+  or `~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/output/` on the
+  Flatpak.
 - IR files live in `~/.local/share/easyeffects/irs/` with the `.irs`
-  extension (not `.wav`).
+  extension (not `.wav`) — `.../data/easyeffects/irs/` on the Flatpak.
+- Hence the `not ~/.config/`: EasyEffects 8.0.0 moved presets, IRs, rnnoise
+  models and autoload profiles to `XDG_DATA_HOME` (upstream `d8a50b529`) and
+  migrates 7.x copies there on *every* start, trashing the old folder. The
+  settings db stayed at `~/.config/easyeffects/db/` — which is why this tool's
+  rc and preset paths are rooted differently, and why `config/easyeffects/`
+  outlives the migration and can't say which layout wrote it.
 - The convolver uses `"kernel-name"` (filename stem), not the deprecated
   `"kernel-path"`.
 - The convolver re-reads its `.irs` only when `kernel-name` *changes*; a
