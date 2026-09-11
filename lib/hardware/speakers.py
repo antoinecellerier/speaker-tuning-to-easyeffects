@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+from lib import tool_env
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.hardware import amps
@@ -335,6 +336,7 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         result = subprocess.run(
             ["amixer", "-c0", "scontrols"],
             capture_output=True, text=True, timeout=5,
+            env=tool_env.c_locale(),
         )
         for line in result.stdout.splitlines():
             m = amp_control_re.search(line)
@@ -850,6 +852,7 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
             result = subprocess.run(
                 ["amixer", "-c", idx, "contents"],
                 capture_output=True, text=True, timeout=5,
+                env=tool_env.c_locale(),
             )
         except FileNotFoundError:
             return gates  # amixer not installed — nothing more to scan

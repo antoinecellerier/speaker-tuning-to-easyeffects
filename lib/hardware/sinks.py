@@ -25,7 +25,7 @@ import shutil
 import subprocess
 import sys
 
-from lib import console, doctor, packages
+from lib import console, doctor, packages, tool_env
 
 
 # Speaker-sink detection for autoload / smart-filter targeting.
@@ -65,7 +65,8 @@ def _enumerate_audio_sinks() -> list[dict]:
     """
     try:
         result = subprocess.run(
-            ["pw-dump"], capture_output=True, text=True, timeout=5
+            ["pw-dump"], capture_output=True, text=True, timeout=5,
+            env=tool_env.c_locale(),
         )
         data = json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):

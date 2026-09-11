@@ -24,6 +24,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from lib import tool_env
+
 SERVER_NAME = "EasyEffectsServer"   # upstream tags::local_server::server_name
 # The two read-only requests. get_last_loaded_preset is on the documented
 # page (since 8.0.7); get_global_bypass is source-only (tags_local_server.hpp)
@@ -49,7 +51,7 @@ def easyeffects_running() -> bool | None:
         proc = subprocess.run(["pgrep", "-x", "easyeffects"],
                               stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL, timeout=2,
-                              check=False)
+                              check=False, env=tool_env.c_locale())
     except (subprocess.SubprocessError, OSError):
         return None
     if proc.returncode == 0:

@@ -53,7 +53,7 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, ee_socket, packages, version
+from lib import console, doctor, ee_paths, ee_socket, packages, tool_env, version
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -309,7 +309,8 @@ def _distro_easyeffects_major(fam: str) -> int | None:
     if not argv:
         return None
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=5,
+                              env=tool_env.c_locale())
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -415,7 +416,8 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         Whether an install exists is the caller's to decide, from evidence
         that isn't an exit code."""
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                               env=tool_env.c_locale())
         except FileNotFoundError:
             return None, f"there is no {cmd[0]} command here"
         except subprocess.TimeoutExpired:

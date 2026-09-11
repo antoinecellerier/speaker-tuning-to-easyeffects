@@ -32,6 +32,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from lib import tool_env
+
 
 # --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
 #
@@ -176,7 +178,8 @@ def _read_kernel_log() -> str | None:
     for cmd in (["journalctl", "-k", "-b", "-o", "cat", "--no-pager"], ["dmesg"]):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True,
-                               errors="replace", timeout=4)
+                               errors="replace", timeout=4,
+                               env=tool_env.c_locale())
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0 and r.stdout.strip():

@@ -41,7 +41,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from lib import console, doctor, packages
+from lib import console, doctor, packages, tool_env
 from lib.hardware import sinks
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
@@ -356,7 +356,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         try:
             listing = subprocess.run(["pw-cli", "ls", "Node"],
                                      capture_output=True, text=True,
-                                     timeout=10).stdout
+                                     timeout=10, env=tool_env.c_locale()).stdout
         except (subprocess.TimeoutExpired, OSError):
             listing = ""
         answered = answered or bool(listing.strip())
@@ -422,7 +422,7 @@ def _activate(node_names: list[str], selectable: bool) -> int:
                    "session either way, so anything it was applying goes "
                    "with it.")
     try:
-        proc = subprocess.run(PIPEWIRE_RESTART_CMD.split())
+        proc = subprocess.run(PIPEWIRE_RESTART_CMD.split(), env=tool_env.c_locale())
     except FileNotFoundError:
         console.cprint("warn", "systemctl not found (not a systemd system?) — "
                        "restart PipeWire yourself; the systemd equivalent "

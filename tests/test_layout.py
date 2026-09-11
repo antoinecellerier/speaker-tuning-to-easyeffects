@@ -974,3 +974,46 @@ def test_the_doctor_never_sends_a_mutating_socket_request():
     quietly hand the diagnostic a request that changes the app it inspects."""
     source = (ROOT / "lib" / "report" / "doctor_run.py").read_text()
     assert "load_output_preset" not in source
+
+
+def test_every_subprocess_call_in_lib_pins_the_locale():
+    """Every shell-out in lib/ runs under `tool_env.c_locale()`.
+
+    The parsers key on English labels (`Version:`, `Candidate:`) and on
+    decimal points, and gettext translates the labels with everything else:
+    issue #93's zh_CN shell turned `flatpak info`'s `Version:` into `版本：`
+    and the version went unknown. The rule is every call, not the ones known
+    to parse prose today — the next probe is written by someone who has not
+    met the bug, and an exit-code-only call that later grows a parse would
+    otherwise start life inheriting the user's language.
+    """
+    subprocess_calls = {"run", "Popen", "check_output", "check_call", "call"}
+    unpinned, seen = [], 0
+    for path in sorted((ROOT / "lib").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and func.attr in subprocess_calls
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"):
+                continue
+            seen += 1
+            env = next((kw.value for kw in node.keywords if kw.arg == "env"),
+                       None)
+            pinned = (isinstance(env, ast.Call)
+                      and isinstance(env.func, ast.Attribute)
+                      and env.func.attr == "c_locale"
+                      and isinstance(env.func.value, ast.Name)
+                      and env.func.value.id == "tool_env")
+            if not pinned:
+                unpinned.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    # A sweep that found nothing would pass vacuously; lib/ shells out from
+    # a dozen places and always will.
+    assert seen >= 10, f"only {seen} subprocess calls found under lib/"
+    assert not unpinned, (
+        "subprocess calls inheriting the shell's locale — pass "
+        f"env=tool_env.c_locale(): {', '.join(unpinned)}"
+    )

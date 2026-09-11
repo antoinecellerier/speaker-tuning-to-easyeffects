@@ -69,7 +69,9 @@ def test_parse_lv2info_records_a_bound_it_cannot_read():
     — and says which field it was, because a range that silently stops being
     checked is false clearance.
     """
-    # A decimal comma is what a non-C-locale lv2info prints.
+    # A decimal comma stands in for any unreadable bound. lv2info runs under
+    # tool_env.c_locale(), so a real one would be a build that ignores it;
+    # the parser still has to survive it.
     ports = validate._parse_lv2info(_LV2INFO_BLOCK.format(minimum="0,000000"))
     assert ports["g_in"].minimum is None
     assert ports["g_in"].unparsed == ("Minimum",)

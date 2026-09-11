@@ -54,7 +54,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_socket, packages, version, xdg
+from lib import console, doctor, ee_socket, packages, tool_env, version, xdg
 from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -184,7 +184,7 @@ def _pw_dump() -> list | None:
     """
     try:
         result = subprocess.run(["pw-dump"], capture_output=True, text=True,
-                                timeout=5)
+                                timeout=5, env=tool_env.c_locale())
         data = json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         return None
@@ -218,7 +218,8 @@ def parse_conf(path: Path) -> InstalledConf:
         return conf
     try:
         dumped = subprocess.run(["spa-json-dump", str(path)],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=10,
+                                env=tool_env.c_locale())
         data = json.loads(dumped.stdout)
         args = data["context.modules"][0]["args"]
     except (subprocess.SubprocessError, OSError, json.JSONDecodeError,
@@ -1027,7 +1028,8 @@ def _probe_plugins() -> PluginProbe:
     for label, uri in _PLUGIN_URIS:
         try:
             rc = subprocess.run(["lv2info", uri], capture_output=True,
-                                text=True, timeout=10).returncode
+                                text=True, timeout=10,
+                                env=tool_env.c_locale()).returncode
         except (subprocess.SubprocessError, OSError):
             # An lv2info that cannot run at all is not a plugin that is there.
             rc = 1

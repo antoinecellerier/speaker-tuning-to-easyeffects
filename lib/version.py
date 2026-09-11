@@ -14,6 +14,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from lib import tool_env
+
 __all__ = ["get_version"]
 
 # git-archive rewrites these two when it builds a zip/tarball -- which is what
@@ -61,6 +63,7 @@ def _git_describe(base: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            env=tool_env.c_locale(),
         )
     except (OSError, subprocess.SubprocessError):
         # FileNotFoundError (no git binary) is an OSError; timeouts etc. too.

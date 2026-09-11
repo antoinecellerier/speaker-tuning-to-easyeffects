@@ -3849,6 +3849,28 @@ last resort: it needs strictly more than `flatpak info`, and EasyEffects 8 build
 its `QApplication` before parsing `--version`, so it needs a display exactly as
 the native probe does.
 
+The round after that was a locale bug, not a timing one. `flatpak info` had
+answered in 14 ms — in Chinese: the reporter's `zh_CN.UTF-8` shell made gettext
+print `版本： 8.2.9`, and the `Version:` match found nothing. Nor was it only
+flatpak. Every shell-out in `lib/` inherited the user's environment, and
+`apt-cache policy` under French prints `Installé :` / `Candidat :` the same way
+(verified on Debian), so `_distro_easyeffects_major` skipped both lines and told
+a French Debian user it couldn't ask their package manager. Every `subprocess`
+call in `lib/` now runs under `tool_env.c_locale()` — `LC_ALL=C.UTF-8`,
+`LANGUAGE` dropped — and `tests/test_layout.py` holds the next call to it.
+`C.UTF-8` over `C` keeps UTF-8 in paths and sink descriptions intact; `LANGUAGE`
+has to be dropped rather than overridden because GLib consults it before
+`LC_ALL` and glibc ignores it only under a C locale — with it left set,
+`flatpak info` came back translated in a live test here.
+
+Rejected: switching to machine-readable output. `flatpak list --app
+--columns=application,version` is locale-proof and prints no header when piped,
+but `apt-cache policy` and `pacman -Si` have no such mode, so the pin is needed
+regardless and the flatpak command stays as it was. Loosening the parser to
+accept any label before an `N.N.N` was rejected too: the `Version:` line is
+isolated because `Installed: 458.6 MB` and ref hashes carry numbers of their
+own.
+
 ### The same bug on a native install: XDG_DATA_HOME / XDG_CONFIG_HOME
 
 Fixing the Flatpak base left the *native* one hardcoded to `~/.local/share`

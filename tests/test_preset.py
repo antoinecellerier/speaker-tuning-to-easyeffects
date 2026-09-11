@@ -1814,6 +1814,24 @@ def test_parse_ee_version(text, expected):
     assert parse_ee_version(text) == expected
 
 
+@pytest.mark.parametrize("line,found", [
+    ("Version: 8.2.9", True),
+    ("       Version: 8.2.9", True),          # flatpak's right-aligned labels
+    ("Installed: 458.6 MB", False),           # a number that is not a version
+    ("版本： 8.2.9", False),                  # the same line under zh_CN (#93)
+])
+def test_flatpak_version_text_keys_on_the_english_label(line, found):
+    """The `Version:` line is isolated by its label, and only the English one.
+
+    The strictness is deliberate: `flatpak info` prints other numbers
+    (sizes, refs), so any label-agnostic read would mis-parse. That makes
+    the locale the parser's problem to solve upstream — the probe runs
+    `flatpak info` under `tool_env.c_locale()` — not something to widen the
+    match for; the zh_CN case documents why the pin exists.
+    """
+    assert bool(doctor_run._flatpak_version_text(f"ID: x\n{line}\n")) is found
+
+
 def test_ee_version_7_is_loud_fail():
     """TRAP (#22): EE 7 can't read the v8 preset format — the convolver loads
     no kernel and the preset is silently inaudible. Every parsed 7.x must FAIL
@@ -2649,6 +2667,35 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
     assert probe.is_flatpak is True and probe.source == "flatpak info"
 
 
+def test_probe_ee_version_asks_in_the_c_locale(monkeypatch):
+    """#93 round 4: `flatpak info` answered in 14 ms — in Chinese. The
+    reporter's zh_CN shell made it print `版本： 8.2.9`, which the label
+    match cannot see, so the version went unknown. Every probe runs under
+    `tool_env.c_locale()`: LC_ALL pinned, and LANGUAGE dropped rather than
+    overridden, since it outranks LC_ALL for GLib's language list."""
+    class R:
+        def __init__(self, rc, out):
+            self.returncode, self.stdout, self.stderr = rc, out, ""
+
+    envs = {}
+
+    def fake_run(cmd, **k):
+        envs[cmd[0]] = k.get("env")
+        # The native binary answers without a version so the walk goes on to
+        # flatpak; a parseable first answer ends it.
+        return R(0, "ID: x\nVersion: 8.2.9\n" if cmd[0] == "flatpak"
+                 else "easyeffects shim\n")
+
+    monkeypatch.setenv("LANGUAGE", "zh_CN:en")
+    monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    _no_flatpak(monkeypatch)
+    doctor_run._probe_ee_version()
+    assert set(envs) == {"easyeffects", "flatpak"}
+    for env in envs.values():
+        assert env["LC_ALL"] == "C.UTF-8" and "LANGUAGE" not in env
+
+
 def test_probe_ee_version_degrades_on_timeout(monkeypatch):
     def slow(*a, **k):
         raise doctor_run.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
@@ -3088,6 +3135,32 @@ def test_the_available_version_query_reads_each_package_manager(fam, monkeypatch
     expected = ("easyeffects" if fam == packages.NIXOS
                 else packages.names([packages.EASYEFFECTS], fam)[0])
     assert any(expected in arg for arg in seen[0]), seen
+
+
+def test_the_available_version_query_runs_in_the_c_locale(monkeypatch):
+    """apt, zypper and pacman translate the very labels the parser keys on.
+
+    `LANGUAGE=fr apt-cache policy easyeffects` prints `Installé :` and
+    `Candidat :` (verified on Debian), and a parser that reads neither tells
+    a French reader we "couldn't ask your package manager" — the same shape
+    as #93's Chinese `flatpak info`. The parser stays strict; the query
+    runs under `tool_env.c_locale()` so the labels arrive in English.
+    """
+    envs = []
+
+    def fake_run(cmd, **kwargs):
+        envs.append(kwargs.get("env"))
+        return _Ran(0, "easyeffects:\n"
+                       "  Installé : 7.1.6\n"
+                       "  Candidat : 8.2.8+ds-1\n"
+                       "  Table de version :\n")
+
+    monkeypatch.setenv("LANGUAGE", "fr")
+    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    # Strict on purpose: no guessed label, no wrong package.
+    assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None
+    assert envs and all(e["LC_ALL"] == "C.UTF-8" and "LANGUAGE" not in e
+                        for e in envs)
 
 
 def test_apt_policy_answers_with_the_candidate_not_the_installed_version(

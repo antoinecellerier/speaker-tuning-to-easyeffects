@@ -27,6 +27,8 @@ import time
 from dataclasses import dataclass
 from typing import Iterable, NamedTuple
 
+from lib import tool_env
+
 # Names PipeWire gives EasyEffects' playback-path nodes: its virtual
 # sink/source pair and the `ee_soe_*` (stream output effects) / `ee_sie_*`
 # (input) filters. Read off a live `pw-top` on EasyEffects 8.2.8, which also
@@ -139,7 +141,7 @@ def _run(cmd: list[str], timeout: float = _TIMEOUT) -> str | None:
     """The subprocess boundary — stdout, or None when the tool couldn't run."""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True,
-                                timeout=timeout)
+                                timeout=timeout, env=tool_env.c_locale())
     except (subprocess.SubprocessError, OSError):
         return None
     return result.stdout

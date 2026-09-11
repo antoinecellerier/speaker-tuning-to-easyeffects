@@ -35,6 +35,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from lib import tool_env
+
 
 # ---------------------------------------------------------------------------
 # lv2info → port schema
@@ -101,9 +103,11 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
         type_ = "ControlPort"
         name = grab("Name") or ""
 
-        # A bound that is present but not a bare float — a decimal comma from
-        # a non-C locale, a unit suffix, a spelling of infinity we don't
-        # expect, a future format change — used to raise `ValueError` out of
+        # A bound that is present but not a bare float — a unit suffix, a
+        # spelling of infinity we don't expect, a future format change, a
+        # decimal comma from a build that formats under the locale (ours runs
+        # lv2info under tool_env.c_locale(), so that one is a defence, not
+        # the expected path) — used to raise `ValueError` out of
         # here and abort the whole run, taking the user's conf with it. One
         # unreadable number is not a reason to write no conf, so it degrades
         # to "this bound is unknown" and is recorded rather than swallowed.
@@ -189,6 +193,7 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
     try:
         rc = subprocess.run(
             ["lv2info", uri], capture_output=True, text=True, timeout=10,
+            env=tool_env.c_locale(),
         )
     except (OSError, subprocess.SubprocessError) as e:
         # subprocess.TimeoutExpired is a SubprocessError, so it lands here.
@@ -220,6 +225,7 @@ def parse_conf(text: str) -> list[dict]:
         rc = subprocess.run(
             ["spa-json-dump", tf.name],
             capture_output=True, text=True, timeout=10,
+            env=tool_env.c_locale(),
         )
     if rc.returncode != 0:
         raise RuntimeError(

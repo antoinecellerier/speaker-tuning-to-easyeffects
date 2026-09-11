@@ -97,6 +97,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
   of reporting it unknown, and names the install it couldn't ask.
   ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- On a non-English system, the EasyEffects version and the package-manager
+  check no longer come back unknown: the tools we ask (`flatpak info`,
+  `apt-cache policy`, …) now answer in English whatever the shell's
+  language, so their output parses.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
 
 ### Changed
 
