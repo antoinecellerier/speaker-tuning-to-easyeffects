@@ -183,7 +183,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo XiaoXinPro-13ARE 2020 (82DM)
   ([#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91)),
   Lenovo Legion Y7000 2020 (82AV)
-  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93)).
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93)),
+  ThinkPad X1 Carbon Gen 11 (21HN)
+  ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95)).
 
 ### Fixed
 
