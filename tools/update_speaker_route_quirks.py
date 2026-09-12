@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from update_kernel_releases import fetch_tag_lines
 from update_speaker_pin_quirks import (
     _CHAIN_ID_RE,
+    _CHAINED_BEFORE_RE,
     _CHAINED_RE,
     _FIXUP_BLOCK_RE,
     _FUNC_RE,
@@ -135,12 +136,17 @@ def route_fixups(src: str,
     editing it. Reading a fixup's own body alone loses every machine that
     reaches the reroute that way, which here is most of them.
 
-    A chain contributes *one* route, the first found walking it, where the pin
-    table unions its links: two links each overriding the same pin's source
-    list would mean upstream contradicting itself about where that speaker's
-    signal comes from, and picking one of the two answers would be a guess. No
-    chain upstream does this today — this is a guard against the day one does,
-    not a policy for it.
+    A chain contributes *one* route, where the pin table unions its links.
+    When two links constrain the same pin the last one applied wins:
+    ``__snd_hda_apply_fixup`` runs a fixup's own action before its chain, and
+    each ``snd_hda_override_conn_list`` replaces the previous list (7.3's
+    ``ALC287_FIXUP_YOGA9_SPEAKER2_TO_DAC1``, upstream 41d60cbfde10, is the
+    first such chain). ``chained_before`` inverts that order — the chain runs
+    *before* the wrapper's own action — so "the last one walked" would name
+    the overwritten helper, not the surviving one; no listed helper sits
+    behind one today, and a chain that puts two routes across such a link
+    raises rather than guess. Two links constraining *different* pins still
+    raise too: no row carries two routes.
 
     ``require_helpers`` asserts every hand-listed helper is still present, and
     belongs only to the *mainline* parse. The historical release sources are
@@ -151,6 +157,7 @@ def route_fixups(src: str,
     own: dict[str, tuple[str, tuple[str, ...]]] = {}
     helpers: dict[str, str] = {}
     chain: dict[str, str] = {}
+    chain_before: set[str] = set()
     starts = [(m.group(1), m.start()) for m in _FIXUP_BLOCK_RE.finditer(src)]
     for i, (name, start) in enumerate(starts):
         end = starts[i + 1][1] if i + 1 < len(starts) else len(src)
@@ -158,28 +165,39 @@ def route_fixups(src: str,
         target = _CHAIN_ID_RE.search(body)
         if target and _CHAINED_RE.search(body):
             chain[name] = target.group(1)
+            if _CHAINED_BEFORE_RE.search(body):
+                chain_before.add(name)
         func = _FUNC_RE.search(body)
         if func and func.group(1) in _FUNC_FIXUP_ROUTES:
             own[name] = _FUNC_FIXUP_ROUTES[func.group(1)]
             helpers[name] = func.group(1)
 
     def through_chain(name: str) -> tuple[str, tuple[str, ...]] | None:
-        """The route *name* delivers, taken from the first link that has one."""
+        """The route *name* delivers — the last link's, when all name one pin."""
         route = None
         source = ""
+        crossed_before = False
         walked: set[str] = set()
         while name and name not in walked:
             walked.add(name)
             if name in own:
-                if route is not None:
+                if route is not None and own[name][0] != route[0]:
                     raise ValueError(
                         f"a fixup chain reaches both {source} and "
-                        f"{helpers[name]} — upstream now gives one pin two "
-                        "source lists. Read both helpers and record in "
-                        "_FUNC_FIXUP_ROUTES which one the chain leaves in "
-                        "place; guessing would report a route the machine "
-                        "does not have.")
+                        f"{helpers[name]}, which reroute different pins; no "
+                        "row carries two routes. Read both helpers and record "
+                        "in _FUNC_FIXUP_ROUTES what the chain leaves in place.")
+                if route is not None and crossed_before:
+                    raise ValueError(
+                        f"a fixup chain reaches both {source} and "
+                        f"{helpers[name]} across a .chained_before link, "
+                        "which applies the chain before the wrapper's own "
+                        "action — so the last helper walked is the one "
+                        "overwritten, not the one left in place. Read both "
+                        "and record the survivor in _FUNC_FIXUP_ROUTES.")
                 route, source = own[name], helpers[name]
+            if name in chain_before:
+                crossed_before = True
             name = chain.get(name, "")
         return route
 

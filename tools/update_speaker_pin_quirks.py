@@ -174,6 +174,10 @@ _FUNC_RE = re.compile(r"\.v\.func = (\w+)")
 # applies the wrapper — so for "which pins end up declared" the two are one
 # case.
 _CHAINED_RE = re.compile(r"\.chained(?:_before)? = true\b")
+# The order *does* matter to anything where a later step overwrites an earlier
+# one rather than adding to it — which is every routing override, so the route
+# updater tells the two spellings apart with this.
+_CHAINED_BEFORE_RE = re.compile(r"\.chained_before = true\b")
 _CHAIN_ID_RE = re.compile(r"\.chain_id = (\w+)")
 _MODEL_NAME_RE = re.compile(r'\{\.id = (\w+), \.name = "([^"]+)"\}')
 

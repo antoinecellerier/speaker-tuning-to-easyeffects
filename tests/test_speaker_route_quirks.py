@@ -211,12 +211,10 @@ def test_parse_quirks_records_the_codec_only_match_key():
     assert parsed[(0x17AA, 0x386E)][3] is False   # SND_PCI_QUIRK
 
 
-def test_a_chain_reaching_two_listed_helpers_is_refused():
-    """A route is taken from the first listed helper in the chain, where the
-    pin table unions its links — two links overriding the same pin's source
-    list would be upstream contradicting itself about where that speaker's
-    signal comes from, and picking one answer would be a guess. No chain
-    upstream does this today; this is the guard for the day one does."""
+def test_a_chain_reaching_two_helpers_on_one_pin_keeps_the_last():
+    """Both helpers override pin 0x17's list and the kernel applies the
+    chain after the fixup's own action, so the later list wins (7.3's
+    ALC287_FIXUP_YOGA9_SPEAKER2_TO_DAC1, upstream 41d60cbfde10)."""
     src = FIXUP_DEFS + """\
 \t[ALC285_FIXUP_TWO_ROUTES] = {
 \t\t.type = HDA_FIXUP_FUNC,
@@ -225,7 +223,21 @@ def test_a_chain_reaching_two_listed_helpers_is_refused():
 \t\t.chain_id = ALC285_FIXUP_SPEAKER2_TO_DAC1
 \t},
 """
-    with pytest.raises(ValueError, match="two source lists"):
+    assert route_fixups(src)["ALC285_FIXUP_TWO_ROUTES"] == ("0x17", ("0x02",))
+
+
+def test_a_chain_rerouting_two_different_pins_is_refused():
+    """One row carries one route; a chain rerouting two pins is read by a
+    person, not guessed."""
+    src = FIXUP_DEFS + """\
+\t[ALC294_FIXUP_OTHER_PIN] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc294_fixup_bass_speaker_15,
+\t\t.chained = true,
+\t\t.chain_id = ALC285_FIXUP_SPEAKER2_TO_DAC1
+\t},
+"""
+    with pytest.raises(ValueError, match="different pins"):
         route_fixups(src)
 
 
@@ -243,6 +255,24 @@ def test_a_chained_before_wrapper_delivers_its_target_route():
 \t},
 """
     assert route_fixups(src)["ALC285_FIXUP_BEFORE_ROUTE"] == ("0x17", ("0x02",))
+
+
+def test_two_helpers_across_a_chained_before_link_are_refused():
+    """"Keep the last one walked" is only right while the chain runs *after*
+    the wrapper's own action. `.chained_before` inverts that, so the last
+    helper walked is the one overwritten — the opposite answer. No listed
+    helper sits behind such a link today, and this is what keeps that from
+    becoming a silently wrong table row rather than a person reading it."""
+    src = FIXUP_DEFS + """\
+\t[ALC285_FIXUP_BEFORE_TWO_ROUTES] = {
+\t\t.type = HDA_FIXUP_FUNC,
+\t\t.v.func = alc295_fixup_disable_dac3,
+\t\t.chained_before = true,
+\t\t.chain_id = ALC285_FIXUP_SPEAKER2_TO_DAC1
+\t},
+"""
+    with pytest.raises(ValueError, match="chained_before"):
+        route_fixups(src)
 
 
 def test_an_inert_chain_id_is_not_followed():
