@@ -3464,8 +3464,14 @@ def _serve(monkeypatch, daemon):
             out, self.pending = self.pending, b""
             return out
 
-    monkeypatch.setattr(ee_socket, "_socket_path",
-                        lambda: Path("/run/user/test/EasyEffectsServer"))
+    # A listening daemon leaves a socket file, and the pre-write hide stats
+    # for one before paying for a version probe (two subprocesses on a
+    # Flatpak machine). A fake that answers on the wire but leaves no file
+    # would read as "no EasyEffects here" and skip the hide.
+    sock_path = Path(daemon.out_dir).parent / ee_socket.SERVER_NAME
+    sock_path.parent.mkdir(parents=True, exist_ok=True)
+    sock_path.touch()
+    monkeypatch.setattr(ee_socket, "_socket_path", lambda: sock_path)
     monkeypatch.setattr(ee_socket.socket, "socket", lambda *a, **k: FakeSock())
     return daemon
 
@@ -3491,6 +3497,158 @@ def _run_live(tmp_path, *extra):
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     return dolby_to_easyeffects.main(
         [str(xml), "--skip-ee-check", "--no-color", *extra])
+
+
+def test_all_profiles_still_hides_the_window_only_once(
+        live_ee_tree, monkeypatch, capsys):
+    """--all-profiles walks the loop the hide now sits in, so the guard has to
+    be the thing that stops it repeating — not the single-profile default.
+    Each repeat would re-probe the EasyEffects version (two subprocesses on a
+    Flatpak machine) and reprint the note mid-report."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 9))
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    # The synthetic tuning carries one profile, so the loop would run once
+    # and prove nothing. Repeat the one it has: the guard counts iterations,
+    # not which profile each is.
+    monkeypatch.setattr(parse, "get_profile_types",
+                        lambda *a, **k: ["dynamic", "dynamic"])
+    assert not _run_live(out.parent, "--all-profiles")
+    text = capsys.readouterr().out
+    # More than one profile really was built, or the guard is untested.
+    assert text.count("Endpoint:") > 1
+    assert daemon.sent.count(b"hide_window\n") == 1
+    assert text.count("Asked EasyEffects to hide") == 1
+
+
+def _ee_version(monkeypatch, version):
+    """Pin the probed EasyEffects version. Left real, the machine running the
+    suite decides whether the hide fires — the same host dependence that made
+    a preview test pass only on healthy hardware."""
+    monkeypatch.setattr(doctor_run, "_probe_ee_version",
+                        lambda *a, **k: doctor_run.EEProbe(
+                            version=version, found=version is not None))
+
+
+def test_run_hides_the_window_before_writing(live_ee_tree, monkeypatch, capsys):
+    """The Convolver page crashes EasyEffects 8.2.8–8.2.9 on the impulse-file
+    writes (issue #95, reproduced) and nothing reports which page is showing,
+    so the run hides unconditionally. Hide comes before any write, the copy
+    says it happened either way, and nothing shows the window again."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 9))
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent)
+    assert daemon.sent[0] == b"hide_window\n"
+    assert b"show_window\n" not in daemon.sent
+    out_text = capsys.readouterr().out
+    joined = " ".join(ln.strip() for ln in out_text.splitlines())
+    # "Asked … to hide", not "Hid": the daemon answers nothing and hides
+    # unconditionally, and EasyEffects is commonly a background service with
+    # no window at all, so claiming one was taken away is false on the most
+    # ordinary shape there is.
+    assert "Asked EasyEffects to hide its window before writing" in joined
+    assert "Hid EasyEffects' window" not in joined
+    # The reader's window may have been on any page, or closed, so the crash
+    # is "potential" and the way back is spelled out — and conditioned on
+    # there having been a window: a window vanishing unannounced reads as
+    # this tool breaking EasyEffects.
+    assert "potential crash" in joined
+    assert "reopen the window from your app menu if it was showing" in joined
+    # Not the run's opening line. A reader's first contact with the tool was
+    # the word "crash", before anything had been established as normal, so
+    # the note now follows the endpoint/profile banner (user review). Still
+    # ahead of every write — the hide is pointless after one.
+    def first_line_with(text):
+        return next(i for i, ln in enumerate(out_text.splitlines())
+                    if text in ln)
+    assert (first_line_with("Endpoint:")
+            < first_line_with("Asked EasyEffects to hide"))
+    # And it is tried once, not once per profile: the version probe behind it
+    # shells out twice on a Flatpak machine.
+    assert daemon.sent.count(b"hide_window\n") == 1
+
+
+def test_run_hides_the_window_whatever_the_rc_last_recorded(
+        live_ee_tree, monkeypatch):
+    """TRAP: keying the hide on the rc's last-shown page missed the case that
+    matters. EasyEffects saves that key on a 30 s timer, so a page opened
+    moments ago still reads as the old one — and then the run would not hide
+    and EasyEffects would crash."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 9))
+    rc = ee_paths.DEFAULT_EASYEFFECTS_RC
+    rc.parent.mkdir(parents=True)
+    rc.write_text("[StreamOutputs]\nvisiblePage=streamsPage\n"
+                  "visiblePlugin=equalizer#0\n")
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent)
+    assert daemon.sent[0] == b"hide_window\n"
+
+
+def test_a_fixed_easyeffects_keeps_its_window(live_ee_tree, monkeypatch, capsys):
+    """Upstream fixed the crash after 8.2.9 (wwmm/easyeffects#5306), so a newer
+    build needs no hiding and must not lose its window for nothing."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 10))
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent)
+    assert b"hide_window\n" not in daemon.sent
+    assert "Hid EasyEffects' window" not in capsys.readouterr().out
+
+
+def test_an_unreadable_easyeffects_version_still_hides(live_ee_tree, monkeypatch):
+    """TRAP: fail closed. `easyeffects --version` needs a display and Flatpak
+    answers through `flatpak info`, so an unknown version is ordinary — and
+    reading it as "fixed" would hand back the crash it is there to avoid."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, None)
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent)
+    assert daemon.sent[0] == b"hide_window\n"
+
+
+def test_dry_run_never_hides_the_window(live_ee_tree, monkeypatch):
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent, "--dry-run")
+    assert b"hide_window\n" not in daemon.sent
+
+
+def test_output_dir_alone_still_hides_the_window(live_ee_tree, monkeypatch):
+    """TRAP (copy audit 2026-09-13): the gate was `uses_custom_dirs`, an *or*,
+    so --output-dir alone read as "off the live tree" and waived the hide —
+    while --irs-dir stayed at EasyEffects' own directory and the impulse burst
+    that crashes it landed there anyway. The reload IS waived on this run, so
+    the hide is the only thing the socket should carry."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 9))
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent, "--output-dir", str(out.parent / "away"))
+    assert daemon.sent == [b"hide_window\n"]
+
+
+def test_moving_both_directories_never_hides_the_window(live_ee_tree,
+                                                        monkeypatch):
+    """Nothing EasyEffects watches is written, so there is no crash to avoid
+    and no business touching someone's window."""
+    out, _ = live_ee_tree
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    assert not _run_live(out.parent, "--output-dir", str(out.parent / "away"),
+                         "--irs-dir", str(out.parent / "away-irs"))
+    assert b"hide_window\n" not in daemon.sent
+
+
+def test_a_misspelt_demo_hook_still_hides_the_window(live_ee_tree, monkeypatch):
+    """The demo hook waives the hide so rendering the docs leaves the
+    renderer's window alone — but a value the hook doesn't know is no hook,
+    and that run is real and must still hide."""
+    out, _ = live_ee_tree
+    _ee_version(monkeypatch, (8, 2, 9))
+    daemon = _serve(monkeypatch, _FakeDaemon(out))
+    monkeypatch.setenv("DEMO_EE_RELOAD", "refreshd")
+    assert not _run_live(out.parent)
+    assert daemon.sent[0] == b"hide_window\n"
 
 
 def _kernel_of(out, name):

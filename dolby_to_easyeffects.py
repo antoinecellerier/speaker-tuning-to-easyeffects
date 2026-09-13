@@ -764,6 +764,13 @@ def main(argv: list[str] | None = None,
         args.irs_dir.mkdir(parents=True, exist_ok=True)
 
     tally = RunTally()
+    # Tried once, below, after the first profile's banner — not here, where it
+    # would be the very first line of the run. A reader's first contact with
+    # the tool was then the word "crash", with nothing yet established as
+    # normal (user review). "Attempted", not "succeeded": every skip path
+    # returns False, and retrying would re-probe the EasyEffects version once
+    # per profile.
+    hide_attempted = False
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
@@ -804,6 +811,14 @@ def main(argv: list[str] | None = None,
             profile_type=profile_type,
             announce_profile=True,
         )
+
+        # Still before any write — the Convolver page crashes EasyEffects on
+        # the impulse-file writes (issue #95) and nothing says which page is
+        # up — but after the endpoint and profile lines, so the note lands in
+        # a run the reader has already been oriented in.
+        if not hide_attempted:
+            hide_attempted = True
+            reload.hide_window_before_writing(args)
 
         profile_findings = report_profile._report_parsed_profile(
             tuning, disabled,

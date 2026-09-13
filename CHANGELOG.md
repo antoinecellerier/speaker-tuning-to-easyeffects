@@ -82,6 +82,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- A run now asks a running EasyEffects to hide its window before writing,
+  and says so: its Convolver page crashes EasyEffects up to 8.2.9 on the
+  impulse-file writes (reproduced; fixed upstream since, but not in a
+  released version yet), and the record of which page is showing can be 30
+  seconds stale. An EasyEffects newer than 8.2.9 keeps its window, where the
+  version can be read. EasyEffects keeps running and your audio with it;
+  reopen the window from your app menu if it was showing.
+  ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
+
 - On a Flatpak EasyEffects, presets and impulse responses now go straight to
   the folder EasyEffects 8 reads, not the pre-8 one it empties on its next
   start — so a run no longer needs a restart to take effect, and `--doctor`

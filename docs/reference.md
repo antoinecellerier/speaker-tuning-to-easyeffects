@@ -284,6 +284,23 @@ no per-band limiting.
   do. Flatpak (socket inside the sandbox) and older installs get the manual
   step instead. `--no-reload` opts out; the run then says what EasyEffects
   keeps playing and which preset to pick.
+- EasyEffects watches its impulse and preset directories and rebuilds the
+  list models on every change, emitting row inserts inside a model reset,
+  which Qt forbids; with the window open on the Convolver page a burst of
+  changes crashes it (reproduced on 8.2.8 / Qt 6.10.2, reported on 8.2.9 / Qt
+  6.11.2 — [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95); a
+  segfault in libQt6Qml, the frames of upstream wwmm/easyeffects#5120, fixed
+  upstream in wwmm/easyeffects#5306 but not in any released version yet; a run
+  skips the hide once the installed version is past 8.2.9). A run
+  therefore sends `hide_window` over the socket before writing, whenever a
+  socket is there to take it (the request is one-way — nothing answers it),
+  and prints a line saying so.
+  Nothing can narrow that: the page EasyEffects last showed reaches
+  `db/easyeffectsrc` only on window hide, close, quit, or a 30 s timer that
+  runs while the window is open, so it is stale exactly when a page was just
+  opened; the socket cannot be asked; and hiding an already-hidden window is
+  a no-op. Never `show_window`, since nothing says whether the window was
+  open.
 - `--doctor` applies the same rule to its selected-preset check. The
   `Nothing` bypass preset is a WARN on the speakers and on an output it
   cannot classify, but on a *confidently* non-speaker one it is the state

@@ -158,4 +158,16 @@ def uses_custom_dirs(output_dir: Path, irs_dir: Path) -> bool:
     return output_dir != DEFAULT_OUTPUT_DIR or irs_dir != DEFAULT_IRS_DIR
 
 
+def writes_into_ee_tree(output_dir: Path, irs_dir: Path) -> bool:
+    """Will this run write where EasyEffects is watching?
+
+    Not the negation of ``uses_custom_dirs``: that one is an *or*, so a run
+    given only ``--output-dir`` reads as custom while its impulse burst still
+    lands in EasyEffects' own irs directory. EasyEffects watches both trees,
+    so anything keyed on what EasyEffects will *see* — the Convolver-crash
+    mitigation — needs this one instead.
+    """
+    return output_dir == DEFAULT_OUTPUT_DIR or irs_dir == DEFAULT_IRS_DIR
+
+
 DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if USE_FLATPAK else _NATIVE_RC

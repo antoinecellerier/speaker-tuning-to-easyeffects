@@ -9,10 +9,12 @@ under ``$XDG_RUNTIME_DIR`` (native EE ≥ 8.0.9; ``/tmp`` before, and inside
 the sandbox — out of reach — on Flatpak) and answers newline-terminated
 ASCII requests —
 its documented "Local Server"
-(https://wwmm.github.io/easyeffects/user_interface/local_server.html, since
-EE 8.0.7; the tags are upstream's src/tags_local_server.hpp). Callers get typed
+(https://wwmm.github.io/easyeffects/user_interface/local_server.html — the
+server shipped in EE 8.0.0, that page from 8.0.7; the tags are upstream's
+src/tags_local_server.hpp). Callers get typed
 functions, never a raw request string: ``--doctor`` sends only the two reads,
-and the end of a generator run sends one load and reads its receipt. Why the socket and not the ``easyeffects``
+and a generator run sends one hide before it writes (issue #95) and one load
+at the end, reading that one's receipt. Why the socket and not the ``easyeffects``
 CLI, and the version history: docs/design-notes.md, "Rejected approaches".
 """
 
@@ -135,6 +137,45 @@ def _exchange(request: str, lines: int) -> tuple[list[str], bool, bool]:
     # newline splits into a trailing "" that would pass as the missing line.
     got = buf.decode("utf-8", errors="replace").split("\n")[:lines]
     return got, True, buf.count(b"\n") >= lines
+
+
+def _send(request: str) -> bool:
+    """One connection, one write, no read — for the daemon's one-way
+    requests, which answer nothing. True when a daemon took it."""
+    path = _socket_path()
+    if path is None:
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(str(path))
+            sock.sendall(request.encode())
+    except OSError:
+        return False
+    return True
+
+
+def daemon_listening() -> bool:
+    """Is there a socket to take a request at all? A stat, not a connection.
+
+    For callers that would otherwise pay something expensive to decide
+    *whether* to send: nothing here is worth a subprocess on a machine with
+    no EasyEffects running. A stale socket file answers True and the send
+    then fails as it would have anyway, so this only ever saves work.
+    """
+    path = _socket_path()
+    return path is not None and path.exists()
+
+
+def hide_window() -> bool:
+    """Ask the daemon to hide its window (``onHideWindow``); it keeps running.
+
+    True means the daemon *took* the request, never that a window was open:
+    EasyEffects calls ``hide()`` unconditionally and answers nothing, and it
+    is commonly run as a background service with no window at all. Any copy
+    a caller prints has to hedge accordingly.
+    """
+    return _send("hide_window\n")
 
 
 def last_loaded_output_preset() -> EEReply:

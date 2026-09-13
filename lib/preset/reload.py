@@ -45,6 +45,72 @@ class Reloaded:
 _DEMO_OUTCOMES = frozenset({"refreshed", "loaded", "bypassed", "mismatch", "silent"})
 
 
+# EasyEffects merged the Convolver-page crash fix (wwmm/easyeffects#5306)
+# after 8.2.9, so anything newer than that release needs no hiding. Assuming
+# the next tag carries it is the bet the maintainer took, watching releases:
+# an intermediate release without it is not how this project has cut them.
+_LAST_EE_RELEASE_WITH_CONVOLVER_CRASH = (8, 2, 9)
+
+
+def _easyeffects_fixed_the_convolver_crash() -> bool:
+    """True only when a version answered *and* is past the last release whose
+    Convolver page crashes. Fails closed, because an unreadable version is
+    ordinary: ``easyeffects --version`` wants a display and Flatpak answers
+    through ``flatpak info``, so None means "don't know", never "fixed"."""
+    from lib.report import doctor_run  # local: the run path is not the doctor
+    version = doctor_run._probe_ee_version().version
+    return version is not None and version > _LAST_EE_RELEASE_WITH_CONVOLVER_CRASH
+
+
+def hide_window_before_writing(args) -> bool:
+    """Ask a running EasyEffects to hide its window before the run writes.
+
+    Its Convolver page crashes EasyEffects 8.2.8–8.2.9 on the impulse-file
+    writes (issue #95, reproduced). Hide unconditionally rather than only for
+    that page: the rc records the last-shown page on a 30 s timer that runs
+    only while the window is open, so a page opened moments ago still reads as
+    the old one, and that error is the one that costs the crash. Hiding a
+    hidden window is a no-op — EasyEffects calls ``hide()`` without checking —
+    and nothing reports whether the window was open, so never show it again.
+    Skipped on an EasyEffects past the last release that crashes.
+    Silent under ``--dry-run``, and when neither directory is EasyEffects'
+    own. Returns True when a daemon took the request — which is not the same
+    as a window having been open, so the copy hedges.
+    """
+    if args.dry_run or getattr(args, "staged", False):
+        return False
+    # Not uses_custom_dirs: --output-dir alone still drops the impulse burst
+    # into the watched irs directory, which is what crashes EasyEffects.
+    if not ee_paths.writes_into_ee_tree(args.output_dir, args.irs_dir):
+        return False
+    # A fabricated reload outcome must not reach the socket either, or
+    # rendering the docs would hide the renderer's own window. A value the
+    # hook doesn't know is no hook, exactly as below.
+    if (os.environ.get("DEMO_EE_RELOAD") or "").strip().lower() in _DEMO_OUTCOMES:
+        return False
+    # Cheapest gate last but one: the version probe shells out (twice on a
+    # Flatpak machine, 5 s apiece) and runs before the first write, so it
+    # must not be paid by the many runs with no EasyEffects listening at all.
+    if not ee_socket.daemon_listening():
+        return False
+    if _easyeffects_fixed_the_convolver_crash():
+        return False
+    if not ee_socket.hide_window():
+        return False
+    # Its own paragraph: it prints inside the run's opening banner, and run
+    # together with the endpoint and profile lines it read as one more fact
+    # about the device rather than something the tool just did.
+    print()
+    console._cprint_wrapped(
+        "dim",
+        "Asked EasyEffects to hide its window before writing, to work around "
+        "a potential crash (issue #95). EasyEffects keeps running and your "
+        "audio is unaffected — reopen the window from your app menu if it "
+        "was showing.")
+    print()
+    return True
+
+
 def reload_generated_preset(args, preset_names: list[str],
                             kernel_by_preset: dict[str, str],
                             starting: str) -> Reloaded:

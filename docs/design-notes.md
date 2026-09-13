@@ -4237,6 +4237,82 @@ re-proposed:
   a possible click, the same one picking a preset in the GUI risks. Global
   bypass makes "is playing" false, so it is read too and the copy demoted
   to "loaded" with a hint.
+
+  One crash reported on that load ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95),
+  8.2.9 / qt6-declarative 6.11.2) and reproduced on the development machine
+  (8.2.8 / Qt 6.10.2, 2026-09-13): window open on the Convolver page, the
+  run's file writes, a segfault in libQt6Qml about seven seconds later
+  (`easyeffects[…]: segfault at 58 ip … in libQt6Qml.so.6.10.2`). The
+  discriminators, each with the page showing: a socket load alone — fine; a
+  run with `--no-reload` — crash; one new `.irs` or preset `.json` copied in
+  — fine; a run with the window closed — fine; `hide_window` over the
+  socket, then the run, then `show_window` — fine, window back. So the
+  trigger is the run's burst of rewrites reaching a page that binds the
+  impulse list model (`presets_irs_manager.cpp` watches the directory and
+  rebuilds the model on every change), not the load — the same QML frames
+  as upstream [wwmm/easyeffects#5120](https://github.com/wwmm/easyeffects/issues/5120).
+  The launch loop the report describes did not reproduce on 8.2.8.
+
+  The fault, chased in the EasyEffects source the same day: `ListModel::update`
+  (`src/presets_list_model.cpp`, every preset/impulse list) wraps its
+  `append`/`remove` calls — each a `beginInsertRows`/`beginRemoveRows` pair
+  plus a whole-range `dataChanged` — in `beginResetModel`/`endResetModel`,
+  which Qt forbids; `append` also announces the new row at size−1. The
+  proxy model and the QML combo boxes bound to it lose track of the rows,
+  and the next delegate incubation dereferences a stale list. It takes two
+  directory events a few milliseconds apart, so the second reset lands
+  while delegates from the first are still incubating: `touch a.irs; touch
+  b.irs` in the irs directory with the page shown crashed a debug build of
+  8.2.9-61 under gdb three times out of three; one touch never did, nor one
+  every 1.2 s. This tool's writes are that shape — every `.irs` is a dotfile
+  temp plus a rename, and the whole run's files land within ~100 ms — and a
+  write pattern with one event per file still crashed in a burst of three,
+  so only sleeps between files would dodge it: rejected, the hide stays.
+  With `update` rewritten as plain remove-then-append row operations the
+  two touches and a full converter run with the hide step disabled both
+  survived, and that fix was merged upstream the same day as
+  [wwmm/easyeffects#5306](https://github.com/wwmm/easyeffects/pull/5306). It
+  is in no released version yet, and a user only gets it once their distro
+  packages a build carrying it, so the hide mitigation stays — gated on the
+  installed version being past 8.2.9, the last release that crashes
+  (`_LAST_EE_RELEASE_WITH_CONVOLVER_CRASH`). That assumes the next tag carries
+  the fix, which is a bet on how this project has cut releases, taken so
+  the gate cannot be forgotten; an intermediate release without it would need
+  the constant corrected. The gate fails closed — `easyeffects --version`
+  wants a display and Flatpak answers through `flatpak info`, so an unreadable
+  version hides rather than reading as fixed.
+  Mitigation: the run sends `hide_window` before writing whenever a daemon
+  answers (`reload.hide_window_before_writing`), and says so in a line that
+  calls the crash potential and names the way back — a window vanishing
+  unannounced reads as this tool breaking EasyEffects. Hide only: nothing
+  reports whether the window was open, so a `show_window` after the run would
+  pop one up on every service-mode run. That same silence is why the line
+  says *asked to hide* and hedges the way back with "if it was showing":
+  `hide_window()` is true when the daemon took the request, and a
+  service-mode EasyEffects with no window takes it just the same.
+
+  It first hid only when the rc's `visiblePage`/`visiblePlugin` named the
+  Convolver, which is wrong in the direction that costs the crash. Those keys
+  reach disk from `db::Manager::saveAll()`, which runs on window hide, on
+  close, at quit, and on a timer whose schema label says it is active only
+  while the window is open (default 30 s). So a page opened moments before a
+  run still reads as the old one, and the run would skip the hide. Confirmed
+  on the dev machine: with the window closed, an external edit to those keys
+  sat unread for 40 s. Nothing can repair the guess — the local socket answers
+  only `get_property` (plugin databases, keyed `plugin#instance`),
+  `get_last_loaded_preset` and `get_global_bypass`, so those two keys are
+  unreachable; `hide_window` writes no reply and its handler calls `hide()`
+  without testing visibility; the rc's visibility key is unmaintained (the
+  QML that would set it is commented out over a Qt warning); and GNOME's
+  `org.gnome.Shell.Introspect.GetWindows` refuses unlisted callers. Hiding an
+  already-hidden window costs nothing, so hiding always is strictly safer
+  than guessing. Rejected: a warning instead of hiding (the crash is
+  deterministic, and nobody reads the terminal while looking at the window);
+  spacing the writes apart (§ above — one event per file still crashed in a
+  burst of three); asking upstream for a `hide_window` reply that reports
+  what it hid (it would only exist in a release that also carries the fix,
+  so it can never reach the versions this mitigation is for).
+
   `--doctor` was the last place still treating that same state as a fault.
   Its selected-preset check warned "the silent 'Nothing' bypass preset is
   selected" whenever EasyEffects sat on the bypass — including on a
