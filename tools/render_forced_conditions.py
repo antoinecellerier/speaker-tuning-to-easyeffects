@@ -54,6 +54,9 @@ ENV_CASES = {"firmware-gate": {"DEMO_FIRMWARE_GATE": "off"},
              # 17AA3906 = Legion Pro 7i 16IAX10H, the codec-keyed row whose
              # routing fixup carries a forcible name — the full procedure.
              "speaker-routing": {"DEMO_SPEAKER_ROUTE": "17AA3906"},
+             # A made-up id no table lists: the same hook reaches the
+             # table-free warning (#95).
+             "speaker-fixed-level": {"DEMO_SPEAKER_ROUTE": "1D059999"},
              # The end-of-run load into a running EasyEffects, every outcome
              # (lib/preset/reload.py). These run into a tempdir instead of
              # --dry-run, which gates the load off; the hook waives only the

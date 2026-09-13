@@ -177,6 +177,10 @@ class CodecRouting:
     # which is not the same as False — callers must read a missing key as
     # unknown, never as "no volume".
     volume: dict[str, bool] = field(default_factory=dict)
+    # Widget type from each node's header ("Audio Output", "Audio Mixer",
+    # "Pin Complex"). A pin fed straight from a converter has exactly two
+    # widgets on its path, both covered by `volume`. Missing = not in the dump.
+    kinds: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -203,6 +207,10 @@ class SpeakerInfo:
     # each pin is selected onto, and which widgets carry an output volume
     # amp. Parsed from the same codec dump the pins above come from.
     routing: dict[str, CodecRouting] = field(default_factory=dict)
+    # Every pin complex's ``Pin Default`` per codec, keyed by subsystem id —
+    # what pin-signature fixups (``snd_hda_pick_pin_fixup``) are matched on.
+    # Printed as evidence so a pasted report can be checked by hand (#95).
+    pin_configs: dict[str, dict[str, int]] = field(default_factory=dict)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
     firmware_gates: list[FirmwareGate] = field(default_factory=list)
     # False when amixer is absent, which is the difference between "this
@@ -533,6 +541,9 @@ _CONN_ENTRY_RE = re.compile(r"^(0x[0-9a-fA-F]+)(\*?)$")
 # widget whose caps read zero prints "N/A" — the last two match nothing here.
 _AMP_OUT_NSTEPS_RE = re.compile(r"^\s+Amp-Out caps: .*\bnsteps=0x([0-9a-fA-F]+)")
 
+# "Node 0x06 [Audio Output] wcaps 0x411: Stereo" — the bracketed widget type.
+_NODE_KIND_RE = re.compile(r"^Node 0x[0-9a-fA-F]+ \[([^\]]+)\]")
+
 
 def _parse_conn_list(line: str) -> tuple[tuple[str, ...], str]:
     """One rendered connection list → ``(entries, the starred entry)``.
@@ -603,6 +614,9 @@ def parse_hda_codec_routing(codec_text: str) -> CodecRouting:
                 sources = entries
                 selected = starred or (entries[0] if len(entries) == 1 else "")
         routing.volume[node] = volume
+        kind = _NODE_KIND_RE.match(header)
+        if kind:
+            routing.kinds[node] = kind.group(1)
         if "[Pin Complex]" in header:
             routing.routes[node] = PinRoute(node=node, sources=sources,
                                             selected=selected,
@@ -637,6 +651,29 @@ def read_pin_config_overrides(codec_path: Path,
     return resolved
 
 
+def parse_hda_pin_defaults(codec_text: str) -> dict[str, int]:
+    """``{node: Pin Default}`` for every pin complex — the firmware's value;
+    a fixup writes the driver's override, never this register."""
+    defaults: dict[str, int] = {}
+    for node, block in _iter_codec_nodes(codec_text):
+        if "[Pin Complex]" not in block:
+            continue
+        default = re.search(r"Pin Default (0x[0-9a-fA-F]+):", block)
+        if default:
+            defaults[node.lower()] = int(default.group(1), 16)
+    return defaults
+
+
+# Part of the audio identity a demo substitutes, and the easy half to forget:
+# `_quirk_for_codec` falls back to the *PCI* subsystem id for any row that is
+# not codec-only, so a hook that swapped the codec id and left this one real
+# let the host's own machine answer "is this id listed upstream?". On a laptop
+# whose PCI id is one of the 132 PCI-usable rows that inverted two previews
+# and failed their tests. None is what a substituted machine has: the injected
+# codec id is then the whole identity, on every host.
+_DEMO_PCI_SUBSYSTEM = None
+
+
 def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     """Stand in for a machine whose firmware hides a woofer pin.
 
@@ -647,9 +684,10 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
     0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
 
-    It substitutes the machine's *audio* identity — pins, codec list, and an
-    emptied SoundWire one — and nothing else: kernel, product and distro stay
-    the host's, so anything keyed to those still describes the real machine.
+    It substitutes the machine's *audio* identity — pins, codec list, an
+    emptied SoundWire one and the PCI subsystem id — and nothing else:
+    kernel, product and distro stay the host's, so anything keyed to those
+    still describes the real machine.
     The codec list and the SoundWire one are part of it because callers pick
     the detection branch off ``bus_type``, so a demo that filled in pins alone
     did nothing on any host that wasn't itself HDA — a SoundWire laptop, or
@@ -661,6 +699,7 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
         return False
     info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
     info.soundwire_devices = []
+    info.pci_subsystem = _DEMO_PCI_SUBSYSTEM
     # "speaker", as the parser labels the one pin a codec with no bass-named
     # one exposes: the demo reproduces issue #53's *pre-fix* state, so it
     # must render the line that machine really prints.
@@ -685,6 +724,11 @@ def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
     carries no output volume amp. That row is codec-keyed and its fixup has
     a forcible name, so the preview walks the full procedure branch.
 
+    The same hook reaches the table-free warning: an id no table lists
+    (``DEMO_SPEAKER_ROUTE=1D059999``, made up) renders the same fault with no
+    upstream row to cite. Not #95's own id — upstream lists that machine by
+    pin signature. One hook, not two, so two machines can't be injected.
+
     Checked *after* the pin demo in both gatherers: the two substitute the
     same audio identity, and injecting both would stack contradictory
     machines into one report.
@@ -694,6 +738,7 @@ def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
         return False
     info.hda_codecs = [("10EC0287", ssid, "Realtek ALC287")]
     info.soundwire_devices = []
+    info.pci_subsystem = _DEMO_PCI_SUBSYSTEM
     info.speakers += [
         SpeakerPin(node="0x14", control_name="Speaker Playback Switch",
                    role="tweeter", channels=2, codec=ssid),
@@ -707,7 +752,21 @@ def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
             "0x17": PinRoute("0x17", sources=("0x02", "0x03", "0x06", "0x08"),
                              selected="0x06"),
         },
-        volume={"0x02": True, "0x03": True, "0x06": False, "0x08": False})
+        # Pin amps are mute-only here: the pin can't turn it down either.
+        volume={"0x02": True, "0x03": True, "0x06": False, "0x08": False,
+                "0x14": False, "0x17": False},
+        kinds={"0x02": "Audio Output", "0x03": "Audio Output",
+               "0x06": "Audio Output", "0x08": "Audio Output",
+               "0x14": "Pin Complex", "0x17": "Pin Complex"})
+    # Real detection fills these in beside the routing, and the report prints
+    # them under the speakers. Without them a preview of the very warning
+    # they were added for was missing the evidence line a reporter is asked
+    # to paste (user review). 0x19 carries #95's own broken value — the
+    # headset-mic connector a disabled BIOS port blanks.
+    info.pin_configs[ssid] = {
+        "0x14": 0x90170110, "0x17": 0x90170111, "0x19": 0x411111F0,
+        "0x1b": 0x411111F0, "0x1e": 0x411111F0, "0x21": 0x03211020,
+    }
     return True
 
 
@@ -763,6 +822,7 @@ def _detect_hda_speakers(info: SpeakerInfo,
         # than filed under a key another codec would collide with.
         routing = parse_hda_codec_routing(text)
         if routing.codec:
+            info.pin_configs[routing.codec] = parse_hda_pin_defaults(text)
             info.routing[routing.codec] = routing
 
 
@@ -1057,15 +1117,19 @@ def find_misrouted_speaker_pin(
       dump didn't show stays "unknown", never "no";
     * the driver's own connection list must leave the star meaningful.
       ``/proc`` marks the selected entry by comparing each position against
-      ``AC_VERB_GET_CONNECT_SEL``, which indexes the *driver's* cached list
-      once ``snd_hda_override_conn_list`` has run — while the list being
-      printed is the hardware's. The two agree only while the cached list is
-      a prefix of the hardware one (every upstream routing helper truncates,
-      so they do today, the dev machine included); an override that
-      reordered or skipped entries would land the star on some other widget,
-      possibly an ampless one. So an ``In-driver Connection`` that is not a
-      prefix means the selector cannot be read, not that the pin is
-      mis-routed. Equal to the fixup's own list, it means the override is
+      ``AC_VERB_GET_CONNECT_SEL``. Both sides of that comparison are the
+      *hardware's* — ``print_conn_list`` is handed
+      ``snd_hda_get_raw_connections()`` and reads the verb raw
+      (``sound/hda/common/proc.c``) — so the star is self-consistent and
+      always names the widget the hardware actually selected, whatever
+      ``snd_hda_override_conn_list`` did. This guard is therefore
+      conservative rather than corrective: it bails where the cached list is
+      not a prefix of the hardware one (every upstream routing helper
+      truncates, so they all are today, the dev machine included). Under one
+      that reordered, the hardware would be on a widget the *kernel* did not
+      intend — still what the user hears, but no longer a missing fixup, so
+      silence is the right answer for a different reason than the one first
+      recorded here. Equal to the fixup's own list, it means the override is
       already applied and our star reading contradicts the kernel, which
       outranks the parse. The line's *presence* proves nothing either way:
       the dev machine gets a conn-list override from a pin-signature match
@@ -1111,4 +1175,91 @@ def find_misrouted_speaker_pin(
                 != route.sources[:len(route.driver_sources)]):
             continue
         return quirk, codec_ssid, pin, route.selected, key
+    return None
+
+
+def _dead_volume_source(routing: CodecRouting, pin_node: str) -> str:
+    """The converter a speaker pin is selected onto when nothing on the path
+    can turn the speaker down, else "".
+
+    The kernel's rule (``look_for_out_vol_nid``): a path's volume control
+    goes on the first widget between pin and converter with ``nsteps > 0``,
+    and none is created when there is none. Legs, each failing closed:
+
+    * a readable selection;
+    * the source is a converter (``[Audio Output]``), so the path is exactly
+      {pin, converter}. A mixer could carry the amp on its input side, which
+      the parser doesn't read — silent;
+    * neither the converter nor the pin has a volume amp (Conexant/IDT put
+      it on the pin);
+    * the driver's own list, if printed, still contains the starred widget.
+      Deliberately a membership test, not the prefix test its sibling uses:
+      ``/proc`` prints the *raw* connection list starred at the raw
+      ``GET_CONNECT_SEL`` index (``proc.c``), so the star is self-consistent
+      and always names what the hardware selected — what the user hears. The
+      thing worth bailing on is a cached list that no longer holds that
+      widget, which means driver and hardware disagree about the selection
+      and our reading is about to stop describing the machine;
+    * another source of the same pin carries volume — a remedy exists, which
+      is what every routing fixup exploits.
+    """
+    node = pin_node.lower()
+    route = routing.routes.get(node)
+    if route is None or not route.selected:
+        return ""
+    source = route.selected
+    if routing.volume.get(source, True):
+        return ""
+    if routing.kinds.get(source) != "Audio Output":
+        return ""
+    if routing.volume.get(node, True):
+        return ""
+    if route.driver_sources and source not in route.driver_sources:
+        return ""
+    if not any(routing.volume.get(s, False)
+               for s in route.sources if s != source):
+        return ""
+    return source
+
+
+def _listed_in_a_table(info: SpeakerInfo, codec_ssid: str) -> bool:
+    """Whether either subsystem-id table lists this codec, with the SOF
+    restriction *off*: the copy says "no upstream fix is listed", which must
+    hold for a SOF laptop whose PCI-keyed row the kernel can't use."""
+    return any(
+        _quirk_for_codec(table, codec_ssid, True, False,
+                         info.pci_subsystem)[0] is not None
+        for table in (speaker_pin_quirks._SPEAKER_PIN_QUIRKS,
+                      speaker_route_quirks._SPEAKER_ROUTE_QUIRKS))
+
+
+def find_fixed_level_speaker_pin(
+        info: SpeakerInfo) -> tuple[str, SpeakerPin, str] | None:
+    """The speaker pin whose whole path has no volume amp on a machine no
+    table lists, else None — ``(codec ssid, the pin, its source)``.
+
+    The table-free twin of ``find_misrouted_speaker_pin``: no upstream row to
+    cite, so the copy is hedged. Built for issue #95, a ThinkPad reached only
+    by a pin-signature fixup whose signature a BIOS setting broke. Legs beyond
+    ``_dead_volume_source``: HDA only; no other speaker warning fired; neither
+    table lists the machine; the pin is a configured speaker.
+    """
+    if info.bus_type != "hda":
+        return None
+    if find_hidden_speaker_pin(info) or find_misrouted_speaker_pin(info):
+        return None
+    speakers_by_codec: dict[str, list[SpeakerPin]] = {}
+    for pin in info.speakers:
+        speakers_by_codec.setdefault(pin.codec, []).append(pin)
+
+    for codec_ssid, pins in sorted(speakers_by_codec.items()):
+        if _listed_in_a_table(info, codec_ssid):
+            continue
+        routing = info.routing.get(codec_ssid)
+        if routing is None:
+            continue
+        for pin in pins:
+            source = _dead_volume_source(routing, pin.node)
+            if source:
+                return codec_ssid, pin, source
     return None

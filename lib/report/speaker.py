@@ -16,7 +16,8 @@ card and globs /lib/firmware for the amp-status section, which only
 `upgrade_prospect`, `speaker_pin_fix_steps` and `speaker_pin_status` are the
 shared-copy rule in miniature: the end-of-run warning and `--doctor` render
 the same procedure from the same builder, so the two surfaces cannot tell a
-user different things about the same fixup.
+user different things about the same fixup. `fixed_level_fix_steps` and
+`fixed_level_status` are the third such pair.
 
 `report_findings` keeps the generator's alias for `lib/report/findings.py`
 because these bodies read through it verbatim. `Finding`, `CheckResult` and
@@ -39,7 +40,7 @@ from lib import console, packages, version
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.doctor import DOCTOR_WARN, CheckResult
-from lib.hardware import amps, codecs, speakers
+from lib.hardware import amps, codecs, sinks, speakers
 from lib.report import environment
 from lib.report import findings as report_findings
 from lib.report.findings import Finding
@@ -237,6 +238,17 @@ def _speaker_info_flag(lead: str, quirk: speaker_pin_quirks.PinQuirk
                 f"        {_KERNEL_TREE_URL}/commit/{quirk.commit}"]
     return [f"      ⚠ {lead}; search this file for {ident}:",
             f"        {_KERNEL_TREE_URL}/blob/master/{_QUIRK_TABLE_PATH}"]
+
+
+def _speaker_info_note(lead: str) -> list[str]:
+    """A flag line with no link: the table-free warning has no upstream
+    commit to cite. Wrapped, unlike ``_speaker_info_flag``, whose second line
+    is a URL that must survive verbatim — this one is prose and ran to 148
+    columns, the same fold-away-from-its-clause the flag was split to fix."""
+    return textwrap.wrap(f"⚠ {lead}", width=console._wrap_width(),
+                         initial_indent="      ",
+                         subsequent_indent="        ",
+                         break_on_hyphens=False)
 
 
 def _pin_phrase(missing: list[str]) -> str:
@@ -541,6 +553,146 @@ def _routing_finding(quirk: speaker_route_quirks.RouteQuirk) -> Finding:
         # (test_finding_asks_do_not_borrow_other_filters_symptoms).
         ask="Did forcing the speaker routing fix even out your speaker "
             "levels?")
+
+
+_LENOVO_MIC_ATTRIBUTE = Path(
+    "/sys/class/firmware-attributes/thinklmi/attributes/MicrophoneAccess")
+
+
+def fixed_level_fix_steps(pin: str, source: str, width: int,
+                          speaker_info_shown: bool = False,
+                          lenovo_attribute: Path | None = None,
+                          ) -> tuple[tuple[str, str], ...]:
+    """What to check, then how to confirm, as ``(style, text)`` lines.
+
+    No modprobe step: with no upstream row there is no fixup name to force,
+    so the only lever is the firmware's own settings (issue #95). Shared by
+    the run and ``--doctor`` like the two table procedures. The Lenovo line
+    prints only where thinklmi exposes the microphone switch.
+    """
+    def prose(text: str, indent: str = "", hang: str = "") -> list[tuple[str, str]]:
+        return [("dim", line) for line in textwrap.wrap(
+            text, width, initial_indent=indent,
+            subsequent_indent=hang or indent, break_on_hyphens=False)]
+
+    verify = (f'look at the "HDA internal speakers" section above: pin '
+              f'{pin} should read "driven from" a widget other than '
+              f'{source}, with no "which has no volume control" after it.'
+              if speaker_info_shown else
+              f"re-run with --speaker-info: pin {pin} should read "
+              f'"driven from" a widget other than {source} under "HDA '
+              'internal speakers", with no "which has no volume control" '
+              "after it.")
+    lines: list[tuple[str, str]] = [*prose("Worth checking, in order:")]
+    # Resolved here, not as a default: a default binds the Path at def time.
+    attribute = (lenovo_attribute if lenovo_attribute is not None
+                 else _LENOVO_MIC_ATTRIBUTE)
+    # The free check leads where there is one. It used to hang off the BIOS
+    # step as a sub-bullet, so a reader going top to bottom rebooted into
+    # firmware setup before trying the thing that answers in a second and
+    # says whether the reboot is even worth it (user review).
+    step = 1
+    if attribute.is_dir():
+        lines += [
+            *prose(f"{step}. On this Lenovo the microphone switch reads from "
+                   "Linux, no reboot needed (Enable is the working state):",
+                   hang="   "),
+            ("cta", f"     sudo cat {attribute}/current_value"),
+            ("", ""),
+        ]
+        step += 1
+    lines += [
+        *prose(f"{step}. In your firmware setup (BIOS/UEFI), look for a "
+               "disabled audio or microphone port and switch it back on.",
+               hang="   "),
+        ("", ""),
+        *prose(f"{step + 1}. Then {verify}", hang="   "),
+    ]
+    return tuple(lines)
+
+
+def _fixed_level_masked() -> bool:
+    """PipeWire mixing volume in software makes the hardware fault
+    inaudible. Asked only once a fault was found: it costs a pw-dump."""
+    return sinks.soft_mixer_in_use()
+
+
+def warn_fixed_level_speaker(
+        found: tuple[str, speakers.SpeakerPin, str] | None,
+        info: speakers.SpeakerInfo) -> Finding | None:
+    """Warn that a speaker pin's whole path has no volume amp on a machine
+    neither table lists — hedged, since the table warnings' authority ("a
+    fix exists for this model") is what this machine lacks. Prints the
+    finding's detail itself; only the ask travels to the closing block.
+    """
+    if not found or _fixed_level_masked():
+        return None
+    codec_ssid, pin, source = found
+    named = f' — "{pin.control_name}" —' if pin.control_name else ""
+    console.cprint("warn", f"\n{'=' * 60}")
+    console.cprint("warn", "⚠  [speaker-fixed-level] One of your speakers "
+                           "plays at a fixed level.")
+    console._cprint_wrapped("dim",
+        f"Linux is driving pin {pin.node} on codec {codec_ssid}{named} from "
+        f"widget {source}, which reports no volume amplifier, and the pin "
+        "carries none either. Nothing on that path can turn that speaker "
+        "down, so it plays at one level while your other speakers, if any, "
+        "follow the volume slider. The upstream fixup tables we carry are "
+        "Realtek's, and none of them lists this machine's id, so we have no "
+        "fixup name to hand you.")
+    print()
+    console._cprint_wrapped("dim",
+        "Some kernel fixes are matched on the connector values the firmware "
+        "reports, so a firmware setting that changes one can stop the match. "
+        "The one cause seen so far (issue #95, a used ThinkPad): the BIOS "
+        "microphone switch was off, which blanked the headset-mic connector; "
+        "the match failed and the woofers landed on a widget with no volume "
+        "amplifier. Switching it back on fixed it with a stock kernel. The "
+        'same setting left the card on "HDA Intel PCH" instead of SOF, with '
+        "no internal microphone.")
+    print()
+    for style, text in fixed_level_fix_steps(pin.node, source,
+                                             console._wrap_width()):
+        if text:
+            console.cprint(style, text)
+        else:
+            print()
+    print()
+    return _fixed_level_finding()
+
+
+def _fixed_level_finding() -> Finding:
+    """An ask: the run has nothing to apply, only a setting to look for."""
+    return Finding(
+        slug="speaker-fixed-level", kind="ask",
+        detail="One speaker is driven from a widget with no volume control "
+               "and no upstream fix is listed for this machine's id, so it "
+               "plays at a fixed level — see above.",
+        # No "volume" in the ask: the --disable menu's regulator symptom owns
+        # that word (test_finding_asks_do_not_borrow_other_filters_symptoms).
+        ask="Did a firmware setting explain your stuck speaker? (issue #95)")
+
+
+def fixed_level_status(info: speakers.SpeakerInfo) -> CheckResult | None:
+    """The ``--doctor`` twin of ``warn_fixed_level_speaker``: same gate,
+    same steps. WARN like its table siblings."""
+    found = speakers.find_fixed_level_speaker_pin(info)
+    if not found or _fixed_level_masked():
+        return None
+    codec_ssid, pin, source = found
+    named = f' ("{pin.control_name}")' if pin.control_name else ""
+    return CheckResult(
+        DOCTOR_WARN, "Speaker level",
+        f"Linux is driving pin {pin.node} on codec {codec_ssid}{named} from "
+        f"widget {source}, which reports no volume amplifier, and the pin "
+        "carries none either, so that speaker plays at a fixed level. No fix "
+        "for this machine's id is listed in the upstream tables we carry. "
+        "The one cause "
+        "seen so far: a microphone port disabled in the BIOS, which blanked "
+        "a connector the kernel's fix is matched on (issue #95).",
+        steps=(("", ""),) + fixed_level_fix_steps(
+            pin.node, source, console._wrap_width() - 9,
+            speaker_info_shown=True))
 
 
 def unlisted_speaker_pin_finding(info: speakers.SpeakerInfo) -> Finding | None:
@@ -860,6 +1012,9 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
         sections.append(("Speaker amplifiers", amp_lines))
     elif info.bus_type == "hda" and (info.speakers or info.unconfigured_pins):
         misrouted = speakers.find_misrouted_speaker_pin(info)
+        # The table-free reading of the same fault; None when the table one
+        # found something, so a pin gets one flag.
+        fixed = speakers.find_fixed_level_speaker_pin(info)
         speaker_lines = []
         for s in info.speakers:
             line = (f"  {s.node}: {s.control_name} ({s.role}, "
@@ -881,14 +1036,48 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                 line += f" — driven from {route.selected}"
                 if routing.volume.get(route.selected) is False:
                     line += ", which has no volume control"
-            speaker_lines.append(line)
+            # Wrapped since the no-volume clause was added: it took the entry
+            # to 101 columns, and the clause is exactly the part a reader is
+            # sent here to find, so it must not be the half that falls off.
+            speaker_lines += textwrap.wrap(
+                line, width=console._wrap_width(), initial_indent="",
+                subsequent_indent="      ", break_on_hyphens=False)
             if (misrouted and misrouted[1] == s.codec
                     and misrouted[2].node == s.node):
                 speaker_lines += _speaker_info_flag(
                     "a kernel fix routes this to "
                     f"{_source_phrase(misrouted[0].sources)}",
                     misrouted[0], misrouted[4])
+            elif fixed and fixed[0] == s.codec and fixed[1].node == s.node:
+                # The hardware reading is true either way, so it prints like
+                # the rest of this section's evidence. The imperative does
+                # not: under a software mixer PipeWire scales before the card
+                # and nothing is audible, so sending the reader into firmware
+                # setup is the one shape `_fixed_level_masked` exists to
+                # suppress — it just suppresses it in the run and --doctor,
+                # which this path is not.
+                speaker_lines += _speaker_info_note(
+                    "nothing on its path carries a volume amp, and no fix "
+                    "for this machine's id is listed in the tables we carry"
+                    + ("" if _fixed_level_masked() else
+                       " — check your firmware setup for a disabled audio "
+                       "or microphone port"))
         speaker_lines = speaker_lines or ["  (none configured)"]
+        # Evidence, not a verdict: some kernel fixups are matched on these
+        # values (snd_hda_pick_pin_fixup), and #95's fault was a BIOS setting
+        # rewriting one. Only the codec that owns the speakers.
+        speaker_codecs = {s.codec for s in info.speakers}
+        for codec_ssid in sorted(info.pin_configs):
+            configs = info.pin_configs[codec_ssid]
+            if not configs or codec_ssid not in speaker_codecs:
+                continue
+            speaker_lines += textwrap.wrap(
+                f"Pin defaults on codec {codec_ssid} (what a kernel fixup "
+                "keyed by pin signature is matched on): "
+                + " ".join(f"{node}={cfg:#010x}"
+                           for node, cfg in sorted(configs.items())),
+                width=console._wrap_width(), initial_indent="  ",
+                subsequent_indent="    ", break_on_hyphens=False)
         if info.unconfigured_pins:
             # Raw evidence, and one verdict where we have one: these are
             # usually spare pins, but a speaker pin the BIOS wrongly calls

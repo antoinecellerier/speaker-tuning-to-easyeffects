@@ -153,6 +153,13 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   with the modprobe fix where the kernel accepts one — when upstream carries
   a routing fix for your exact model that your kernel isn't applying.
   (why and the membership bar in docs/design-notes.md)
+- A run and `--doctor` now warn when a speaker is driven from a widget with
+  no volume control, no kernel fix is listed for your machine's id, and
+  nothing else on the machine supplies that volume — and say what to check.
+  On the one machine seen so far a port disabled in the BIOS was the cause.
+  `--speaker-info` also prints the firmware defaults of the codec your
+  speakers are on.
+  ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
 - The hidden-speaker-pin and speaker-routing warnings now link the upstream
   kernel commit that lists your model — in the run, in `--doctor` and under
   the flagged pin in `--speaker-info` — so the claim can be checked instead

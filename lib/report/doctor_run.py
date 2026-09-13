@@ -833,6 +833,11 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     if route_check is not None:
         report.checks.append(route_check)
 
+    # 7c. The same fault with no table row behind it (issue #95)
+    level_check = report_speaker.fixed_level_status(report.speaker_info)
+    if level_check is not None:
+        report.checks.append(level_check)
+
     # 8. Kernel age — speaker-amp fixes land kernel-side (issue #33)
     report.checks.append(environment.kernel_age_status(report.speaker_info.kernel))
 

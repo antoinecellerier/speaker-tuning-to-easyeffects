@@ -2195,6 +2195,8 @@ def _every_finding():
         speaker_route_quirks.RouteQuirk("alc287-lenovo-legion-aw88399",
                                         pin="0x17", sources="0x02",
                                         since="", codec_only=True)))
+    # One wording, no table row behind it (issue #95).
+    found.append(report_speaker._fixed_level_finding())
     # Reached through a SpeakerInfo rather than a factory: this finding's
     # gate is the whole point of it, so building the state that raises it
     # keeps the fixture honest about when the ask actually appears.

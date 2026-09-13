@@ -47,6 +47,9 @@ _EXPECTED = {
     # A hardware-state scenario: its sink/preset axes are the healthy
     # baseline's, and what it varies is the machine the checks read.
     "speaker-routed-past-volume": ("speaker", True, DOCTOR_PASS),
+    # The table-free twin: the same machine shape with an id neither quirk
+    # table lists (issue #95), so the check fires without an upstream row.
+    "speaker-level-unlisted": ("speaker", True, DOCTOR_PASS),
     # A session-state scenario, same shape: healthy sink and preset, and what
     # it varies is the PipeWire clock the checks read.
     "graph-rate-too-high": ("speaker", True, DOCTOR_PASS),
@@ -80,6 +83,31 @@ def test_the_graph_rate_scenario_renders_the_warn(capsys, monkeypatch):
     assert "192000 Hz" in joined and "12 dB more" in joined
     preview_doctor.render("output-speakers")
     assert "Graph sample rate" not in capsys.readouterr().out
+
+
+def test_the_unlisted_level_scenario_renders_the_warn(capsys, monkeypatch):
+    """Issue #95: the routing shape under an id neither table lists, so the
+    reviewer reads the hedged copy. The two scenarios are mutually exclusive."""
+    monkeypatch.setenv("COLUMNS", "80")
+    # The check asks PipeWire whether it mixes volume in software before it
+    # says anything; left real, the capture machine's session would decide
+    # whether the scenario renders the WARN it exists for.
+    monkeypatch.setattr(sinks, "soft_mixer_in_use", lambda: False)
+    preview_doctor.render("speaker-level-unlisted")
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "Speaker level" in ln)
+    assert tag(DOCTOR_WARN) in line, line
+    joined = " ".join(ln.strip() for ln in out.splitlines())
+    assert "1D059999" in joined and "issue #95" in joined
+
+    # Assert on the injected id, not the row label: a host that genuinely has
+    # this fault (a firmware port switched off, issue #95 — reproduced on the
+    # dev machine) renders "Speaker level" for real, and asserting the label
+    # away made this pass only on healthy hardware.
+    preview_doctor.render("output-speakers")
+    assert "1D059999" not in capsys.readouterr().out
+    preview_doctor.render("speaker-routed-past-volume")
+    assert "1D059999" not in capsys.readouterr().out
 
 
 def test_registry_and_expectations_agree():

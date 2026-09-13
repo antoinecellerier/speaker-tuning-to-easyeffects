@@ -273,7 +273,8 @@ lib/                29 modules in 6 subpackages
 ├── version.py  paths.py                 flat by design
 ├── data/            machine-written tables, out of hand-edited code
 │   ├── kernel_releases.py       _KERNEL_SERIES_RELEASES
-│   └── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
+│   ├── speaker_pin_quirks.py    _SPEAKER_PIN_QUIRKS
+│   └── speaker_route_quirks.py  _SPEAKER_ROUTE_QUIRKS
 ├── hardware/        system probing — no DAX, no DSP
 │   ├── codecs.py    HDA / SoundWire / PCI subsystem ids
 │   ├── speakers.py  SpeakerInfo, pin config, firmware gates

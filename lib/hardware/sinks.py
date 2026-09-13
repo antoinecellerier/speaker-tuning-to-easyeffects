@@ -63,15 +63,50 @@ def _enumerate_audio_sinks() -> list[dict]:
     caller skips such sinks rather than fall back to the profile, since guessing
     a filename EE won't match just silently recreates the #18 failure.
     """
+    data = _read_pw_dump()
+    return sinks_from_dump(data) if data is not None else []
+
+
+def _read_pw_dump():
+    """One ``pw-dump``, parsed, or None when there is no session to read."""
     try:
         result = subprocess.run(
             ["pw-dump"], capture_output=True, text=True, timeout=5,
             env=tool_env.c_locale(),
         )
-        data = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
-        return []
-    return sinks_from_dump(data)
+        return None
+
+
+def soft_mixer_from_dump(data) -> bool:
+    """Whether any object in *data* (a parsed pw-dump) sets
+    ``api.alsa.soft-mixer``.
+
+    PipeWire then scales the samples before the card, so a hardware path
+    with no volume amp still follows the slider and the fixed-level warning
+    would be wrong about what the user hears. The property is absent unless
+    someone set it; any device counts, since the rule is set per machine.
+    """
+    if not isinstance(data, list):
+        return False
+    for obj in data:
+        # `or {}` on both hops, not just a dict check on the outside: pw-dump
+        # writes `"info": null` for an object that went away, and this now
+        # runs on the ordinary end-of-run warning path, where an
+        # AttributeError would take the whole run down after it had written.
+        info = (obj.get("info") or {}) if isinstance(obj, dict) else {}
+        props = info.get("props") or {}
+        value = props.get("api.alsa.soft-mixer")
+        if value is True or str(value).strip().lower() in ("true", "1", "yes"):
+            return True
+    return False
+
+
+def soft_mixer_in_use() -> bool:
+    """``soft_mixer_from_dump`` over a fresh ``pw-dump``; False with no session."""
+    data = _read_pw_dump()
+    return soft_mixer_from_dump(data) if data is not None else False
 
 
 def sinks_from_dump(data) -> list[dict]:

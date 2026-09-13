@@ -519,6 +519,12 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
             speakers.find_misrouted_speaker_pin(speaker_info), speaker_info)
         if route_finding is not None:
             found.append(route_finding)
+        # The same fault on a machine neither table lists (issue #95); the
+        # copy offers a cause rather than asserting one.
+        level_finding = report_speaker.warn_fixed_level_speaker(
+            speakers.find_fixed_level_speaker_pin(speaker_info), speaker_info)
+        if level_finding is not None:
+            found.append(level_finding)
         # The negative signal: no fixup exists for this machine, so we can't
         # tell a hidden woofer from a plain stereo pair. Only its owner can.
         count_finding = report_speaker.unlisted_speaker_pin_finding(speaker_info)

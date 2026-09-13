@@ -21,7 +21,13 @@ lnl
 cs35l56
 rt712
 
-# watch: standing — ALC287 speaker-path/amp-match regressions (#33 IdeaPad Pro 5 class)
+# watch: standing — ALC287 speaker-path/amp-match regressions (#33 IdeaPad Pro 5 class).
+# #95's tested X1 Carbon Gen 11 rides this too: it has no SND_PCI_QUIRK row and
+# reaches its fixup only through a pin signature. No term of its own — the terms
+# that would name that path (`thinkpad_headset_jack`, its `0x2315` SSID) are
+# identifiers and hex that live in diffs, and what is grepped is the pull text,
+# where they have never once appeared; the commits that touch that path say
+# "alc287" in their subject and hit here already.
 alc287
 ideapad
 

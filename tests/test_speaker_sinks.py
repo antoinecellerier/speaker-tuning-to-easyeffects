@@ -351,6 +351,40 @@ def test_sinks_from_dump_is_the_boundary_without_the_subprocess():
     assert hw_sinks.sinks_from_dump(None) == []
 
 
+def test_soft_mixer_is_read_out_of_a_dump_and_defaults_to_off(monkeypatch):
+    """The soft-mixer flag masks the fixed-level warning. Only an explicit true
+    counts; an unreadable session must read False, or the mask would silence
+    the warning wherever pw-dump failed."""
+    assert hw_sinks.soft_mixer_from_dump([]) is False
+    assert hw_sinks.soft_mixer_from_dump(None) is False
+    assert hw_sinks.soft_mixer_from_dump({"not": "a list"}) is False
+    assert hw_sinks.soft_mixer_from_dump(
+        [{"info": {"props": {"media.class": "Audio/Sink"}}}]) is False
+    # pw-dump writes `"info": null` for an object that went away, and a
+    # missing `props` is the same shape one level down. This runs on the
+    # ordinary end-of-run warning path, so an AttributeError here would take
+    # the run down *after* it had written the user's presets.
+    assert hw_sinks.soft_mixer_from_dump([{"id": 42, "info": None}]) is False
+    assert hw_sinks.soft_mixer_from_dump([{"id": 42, "info": {}}]) is False
+    assert hw_sinks.soft_mixer_from_dump(
+        [{"id": 42, "info": {"props": None}}]) is False
+    assert hw_sinks.soft_mixer_from_dump([
+        {"id": 42, "info": None},
+        {"info": {"props": {"api.alsa.soft-mixer": True}}}]) is True
+    # Both spellings a PipeWire config can produce, and on any object in the
+    # graph — the rule is set per machine, and silence is the safe error.
+    for value in (True, "true"):
+        assert hw_sinks.soft_mixer_from_dump([
+            {"info": {"props": {"node.name": "something.else"}}},
+            {"info": {"props": {"api.alsa.soft-mixer": value}}}]) is True, value
+
+    monkeypatch.setattr(hw_sinks, "_read_pw_dump", lambda: None)
+    assert hw_sinks.soft_mixer_in_use() is False
+    monkeypatch.setattr(hw_sinks, "_read_pw_dump", lambda: [
+        {"info": {"props": {"api.alsa.soft-mixer": True}}}])
+    assert hw_sinks.soft_mixer_in_use() is True
+
+
 def test_enumerate_resolves_route_for_analog_stereo(monkeypatch):
     """#18: a classic analog-stereo card whose active output route is "Speaker".
 
@@ -1754,6 +1788,8 @@ def _info(codec_dumps, cards=("0 [PCH ]: HDA-Intel - HDA Intel PCH",),
         routing = speakers.parse_hda_codec_routing(dump)
         if routing.codec:
             info.routing[routing.codec] = routing
+            info.pin_configs[routing.codec] = \
+                speakers.parse_hda_pin_defaults(dump)
     return info
 
 
@@ -2579,8 +2615,11 @@ def test_speaker_info_flags_only_the_misrouted_pin(capsys):
                            bass_conn="0x02 0x03 0x06* 0x08",
                            bass_driver_conn="")]))
     out = capsys.readouterr().out
+    # Joined: the no-volume clause takes this entry past the wrap width, so
+    # it reaches the reader over two lines.
+    joined = " ".join(l.strip() for l in out.splitlines())
     assert "0x17: Bass Speaker Playback Switch (woofer, stereo) — driven " \
-           "from 0x06, which has no volume control" in out
+           "from 0x06, which has no volume control" in joined
     assert "⚠ a kernel fix routes this to 0x02" in out
     # The healthy pin carries its source and nothing else.
     assert "0x14: Speaker Playback Switch (tweeter, stereo) — driven from 0x02\n" in out
@@ -2750,3 +2789,413 @@ def test_speaker_info_prints_the_link_under_the_flagged_pin(capsys, monkeypatch)
 def test_a_healthy_machine_prints_no_link(capsys):
     report_speaker._print_speaker_info(_info([CODEC_TWO_PINS]))
     assert "http" not in capsys.readouterr().out
+
+
+# --- A speaker path with no volume amp, on a machine no table lists ---------
+#
+# Issue #95, a used ThinkPad X1 Carbon Gen 11: the fault the routing class
+# describes, on a machine neither quirk table names. Its BIOS had the
+# microphone switched off, which blanked the connector values the kernel's
+# fixup is matched on, so the match failed and the woofer landed on an
+# ampless converter with no row anywhere to notice.
+#
+# So this detector cannot lean on a table the way the two above do — it has
+# only the dump, which is why every leg of its reading gets a test here, and
+# why the copy it feeds offers a cause instead of asserting one.
+
+UNLISTED_SSID = "0x1d059999"
+
+
+def _fixed_level_info(ssid=UNLISTED_SSID, **kwargs):
+    """The mis-routed dump under a machine id of our choosing — the same
+    fixture on purpose: only the id decides which detector speaks."""
+    return _misrouted_info(ssid=ssid, **kwargs)
+
+
+def _hidden_pin_dump(ssid):
+    """A machine in the *pin* table, with the routing fault underneath it."""
+    return _info([_codec_dump(ssid=ssid, bass_pin_default="0x411111f0",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+
+
+@pytest.fixture
+def no_soft_mixer(monkeypatch):
+    """Pin the software-mixer probe off: it shells out to pw-dump, and
+    unpinned the copy assertions would depend on the host session."""
+    monkeypatch.setattr(hw_sinks, "soft_mixer_in_use", lambda: False)
+
+
+def test_the_unlisted_machine_is_in_neither_quirk_table():
+    """The fixture's premise. If upstream ever lists 1D05:9999, every silence
+    below passes for the wrong reason."""
+    assert (0x1D05, 0x9999) not in speaker_pin_quirks._SPEAKER_PIN_QUIRKS
+    assert (0x1D05, 0x9999) not in speaker_route_quirks._SPEAKER_ROUTE_QUIRKS
+
+
+
+def test_fixed_level_detected_on_an_unlisted_machine():
+    found = speakers.find_fixed_level_speaker_pin(_fixed_level_info())
+    assert found is not None
+    codec_ssid, pin, source = found
+    assert (codec_ssid, pin.node, source) == ("1D059999", "0x17", "0x06")
+
+
+def test_fixed_level_silent_when_the_route_table_lists_the_machine():
+    """Same dump, listed id: the table warning owns the machine."""
+    info = _fixed_level_info(ssid=LEGION_SSID)
+    assert speakers.find_misrouted_speaker_pin(info) is not None
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_the_pin_table_lists_the_machine():
+    """The other table, reached through the state it describes."""
+    info = _hidden_pin_dump(ISSUE_53_SSID)
+    assert speakers.find_hidden_speaker_pin(info) is not None
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_a_pci_keyed_row_exists_on_sof():
+    """"No upstream fix is listed" must hold on SOF too, where the kernel
+    can't use the PCI-keyed row: the lookup drops the SOF restriction."""
+    info = _fixed_level_info(
+        ssid="0x17aa9999", pci=("1028", "075C"),
+        cards=("0 [sofhdadsp ]: sof-hda-dsp - sof-hda-dsp",))
+    assert speakers.find_misrouted_speaker_pin(info) is None
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_the_source_carries_volume():
+    """Selected onto the DAC with the amp; and the dev machine's shape, 0x17
+    on a widget the dump never printed (unknown, not proven ampless)."""
+    onto_the_dac = _info([_codec_dump(ssid=UNLISTED_SSID,
+                                      bass_conn="0x02* 0x03 0x06 0x08",
+                                      bass_driver_conn="")])
+    assert speakers.find_fixed_level_speaker_pin(onto_the_dac) is None
+    assert speakers.find_fixed_level_speaker_pin(_info([CODEC_TWO_PINS])) is None
+
+
+def test_fixed_level_silent_when_the_source_is_a_mixer():
+    """A mixer's amp sits on its input side, which the parser doesn't read:
+    unknown, not ampless."""
+    dump = _codec_dump(ssid=UNLISTED_SSID, bass_conn="0x02 0x03 0x06* 0x08",
+                       bass_driver_conn="").replace(
+        "Node 0x06 [Audio Output]", "Node 0x06 [Audio Mixer]")
+    assert speakers.find_fixed_level_speaker_pin(_info([dump])) is None
+
+
+def test_fixed_level_silent_when_the_pin_carries_its_own_volume():
+    """The pin is on the path too: a pin that can attenuate is not stuck."""
+    dump = _codec_dump(ssid=UNLISTED_SSID, bass_conn="0x02 0x03 0x06* 0x08",
+                       bass_driver_conn="")
+    # 0x14 prints the identical mute-only caps line, so the rewrite is
+    # confined to the block after "Node 0x17".
+    head, _, pin_block = dump.partition("Node 0x17")
+    dump = head + "Node 0x17" + pin_block.replace("nsteps=0x00",
+                                                  "nsteps=0x1f", 1)
+    routing = speakers.parse_hda_codec_routing(dump)
+    assert routing.volume["0x17"] is True, "the rewrite missed 0x17"
+    assert routing.volume["0x14"] is False, "the rewrite hit 0x14 too"
+    assert speakers.find_fixed_level_speaker_pin(_info([dump])) is None
+
+
+def test_fixed_level_silent_when_no_other_source_has_volume():
+    """No source with an amp means no setting could help — nothing to say."""
+    info = _info([_codec_dump(ssid=UNLISTED_SSID, dac_volume=False,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_the_driver_list_omits_the_starred_widget():
+    """The star indexes the driver's cached list once an override ran; a
+    list without the starred widget means the star names something else."""
+    info = _info([_codec_dump(ssid=UNLISTED_SSID,
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="0x02 0x03")])
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_the_connection_is_unreadable():
+    """No selected source, nothing to say."""
+    info = _info([_codec_dump(ssid=UNLISTED_SSID, bass_conn="",
+                              bass_driver_conn="")])
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_silent_when_the_pin_is_not_a_configured_speaker():
+    """A pin the kernel isn't driving plays nothing at all, at any level."""
+    info = _info([_codec_dump(ssid=UNLISTED_SSID,
+                              bass_pin_default="0x411111f0",
+                              bass_conn="0x02 0x03 0x06* 0x08",
+                              bass_driver_conn="")])
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_fixed_level_never_fires_beside_the_table_warnings():
+    """One speaker warning per run. Asserted as exactly one, so a fixture that
+    stopped reaching its detector fails instead of passing as silence."""
+    for info in (_fixed_level_info(),
+                 _fixed_level_info(ssid=LEGION_SSID),
+                 _hidden_pin_dump(ISSUE_53_SSID)):
+        fired = [detect.__name__ for detect in
+                 (speakers.find_hidden_speaker_pin,
+                  speakers.find_misrouted_speaker_pin,
+                  speakers.find_fixed_level_speaker_pin)
+                 if detect(info) is not None]
+        assert len(fired) == 1, fired
+
+
+def test_routing_records_each_widgets_type():
+    """The "is the source a converter?" leg reads this map, and a node the
+    dump never printed has to stay absent from it — reading a missing key as
+    some type is how the mixer carve-out would leak."""
+    routing = speakers.parse_hda_codec_routing(
+        _codec_dump(ssid=UNLISTED_SSID, bass_conn="0x02 0x03 0x06* 0x08",
+                    bass_driver_conn=""))
+    assert routing.kinds["0x06"] == "Audio Output"
+    assert routing.kinds["0x17"] == "Pin Complex"
+    assert "0x03" not in routing.kinds
+
+
+def test_fixed_level_warning_copy(capsys, no_soft_mixer):
+    info = _fixed_level_info()
+    finding = report_speaker.warn_fixed_level_speaker(
+        speakers.find_fixed_level_speaker_pin(info), info)
+    out = capsys.readouterr().out
+    joined = " ".join(line.strip() for line in out.splitlines())
+    assert "[speaker-fixed-level]" in out
+    assert "driving pin 0x17 on codec 1D059999" in joined
+    assert '"Bass Speaker Playback Switch"' in joined
+    assert "widget 0x06, which reports no volume amplifier" in joined
+    # "widget" is the only word the dump backs — the sibling class reaches
+    # mixer targets, and no surface may promote one to a DAC.
+    assert "DAC" not in out
+    # No verification link: there is no upstream row to point a reader at,
+    # and the one-link rule forbids inventing a URL for the note to hang on.
+    assert "http" not in out
+    # The load-bearing hedge. One report is not a diagnosis, and this whole
+    # class exists for machines upstream has never seen.
+    assert "The one cause seen so far" in joined
+    assert finding is not None and finding.kind == "ask"
+    # "volume" is the --disable menu's regulator symptom
+    # (test_finding_asks_do_not_borrow_other_filters_symptoms).
+    assert finding.ask and "volume" not in finding.ask
+
+
+def test_fixed_level_warning_silent_without_the_fault(capsys, no_soft_mixer):
+    info = _info([CODEC_TWO_PINS])
+    assert report_speaker.warn_fixed_level_speaker(
+        speakers.find_fixed_level_speaker_pin(info), info) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_fixed_level_warning_silent_under_a_software_mixer(capsys, monkeypatch):
+    """PipeWire scaling the samples itself makes the hardware fault
+    inaudible — the one shape where the dump is right and the message would
+    be wrong. Masking is a report-layer decision, so the detector goes on
+    reporting what it read; only the two surfaces fall silent."""
+    monkeypatch.setattr(hw_sinks, "soft_mixer_in_use", lambda: True)
+    info = _fixed_level_info()
+    found = speakers.find_fixed_level_speaker_pin(info)
+    assert found is not None
+    assert report_speaker.warn_fixed_level_speaker(found, info) is None
+    assert report_speaker.fixed_level_status(info) is None
+    assert capsys.readouterr().out == ""
+
+
+def test_doctor_and_the_end_of_run_block_print_one_fixed_level_procedure(
+        capsys, no_soft_mixer):
+    """Same builder on both surfaces, like the two table procedures — a step
+    edited on one side cannot go stale on the other."""
+    info = _fixed_level_info()
+    report_speaker.warn_fixed_level_speaker(
+        speakers.find_fixed_level_speaker_pin(info), info)
+    printed = capsys.readouterr().out
+    check = report_speaker.fixed_level_status(info)
+    assert (check.status, check.label) == (DOCTOR_WARN, "Speaker level")
+    assert "DAC" not in check.detail
+    assert "issue #95" in check.detail
+    for text in [t for style, t in check.steps if style == "cta"]:
+        assert text in printed
+    # That loop is empty on a machine without the thinklmi attribute, and
+    # which machine this is decides it (the builder's Lenovo leg reads the
+    # filesystem). So the shared-builder claim is pinned on the builder
+    # itself too: each surface renders exactly what it produced.
+    assert check.steps[1:] == report_speaker.fixed_level_fix_steps(
+        "0x17", "0x06", console._wrap_width() - 9, speaker_info_shown=True)
+    for _style, text in report_speaker.fixed_level_fix_steps(
+            "0x17", "0x06", console._wrap_width()):
+        assert text in printed
+
+
+def test_fixed_level_steps_offer_the_lenovo_read_only_where_the_attribute_exists(
+        tmp_path):
+    """thinklmi exposes the BIOS microphone switch under firmware-attributes,
+    readable as root without a reboot — but a command promised on a machine
+    that hasn't got the file fails at the reader's first step."""
+    missing = report_speaker.fixed_level_fix_steps(
+        "0x17", "0x06", 90, lenovo_attribute=tmp_path / "missing")
+    assert not any("sudo cat" in text for _style, text in missing)
+
+    attribute = tmp_path / "MicrophoneAccess"
+    attribute.mkdir()
+    present = report_speaker.fixed_level_fix_steps(
+        "0x17", "0x06", 90, lenovo_attribute=attribute)
+    commands = [text for style, text in present if style == "cta"]
+    assert len(commands) == 1
+    assert "sudo cat" in commands[0] and "current_value" in commands[0]
+
+    # And the confirm step names the surface the reader is standing on, the
+    # rule the two table procedures already follow.
+    for shown, phrase in ((True, "section above"),
+                          (False, "re-run with --speaker-info")):
+        steps = report_speaker.fixed_level_fix_steps(
+            "0x17", "0x06", 200, speaker_info_shown=shown,
+            lenovo_attribute=attribute)
+        joined = " ".join(text for _style, text in steps)
+        assert "driven from" in joined and phrase in joined, shown
+
+
+def test_speaker_info_notes_the_dead_path_on_an_unlisted_machine(capsys, monkeypatch):
+    """A pasted --speaker-info report carries the same reading — one note
+    under the pin it flags, and no link, because there is no commit to cite.
+    The table flag prints instead wherever there is one."""
+    # Pinned, not left real: the note now asks whether PipeWire mixes in
+    # software, so the capture machine's own session would otherwise decide
+    # half of what this asserts.
+    monkeypatch.setattr(hw_sinks, "soft_mixer_in_use", lambda: False)
+    report_speaker._print_speaker_info(_fixed_level_info())
+    out = capsys.readouterr().out
+    joined = " ".join(l.strip() for l in out.splitlines())
+    assert "driven from 0x06, which has no volume control" in joined
+    assert joined.count("⚠ nothing on its path carries a volume amp") == 1
+    assert ("check your firmware setup for a disabled audio or microphone "
+            "port" in joined)
+    assert "http" not in out
+    # Wrapped, unlike the table flag, whose second line is a URL that has to
+    # survive verbatim. Unwrapped the note ran to 148 columns and the entry
+    # it hangs off to 101, folding away from the pin they belong to — which
+    # is the very thing splitting the flag onto its own line fixed.
+    section = out.split("=== HDA internal speakers ===")[1].split("===")[0]
+    assert max(len(l) for l in section.splitlines()) <= console._wrap_width()
+
+    report_speaker._print_speaker_info(_fixed_level_info(ssid=LEGION_SSID))
+    out = capsys.readouterr().out
+    assert "nothing on its path carries a volume amp" not in out
+    assert "⚠ a kernel fix routes this to" in out
+
+
+def test_speaker_info_keeps_the_evidence_but_drops_the_errand_under_a_soft_mixer(
+        capsys, monkeypatch):
+    """PipeWire scaling before the card makes the fault inaudible, which is
+    what `_fixed_level_masked` silences in the run and --doctor. This report
+    is not those, and its hardware reading is true either way — so the reading
+    stays and only the imperative goes. Sending someone into firmware setup
+    over something they cannot hear is the one shape the mask exists for."""
+    monkeypatch.setattr(hw_sinks, "soft_mixer_in_use", lambda: True)
+    report_speaker._print_speaker_info(_fixed_level_info())
+    out = capsys.readouterr().out
+    joined = " ".join(l.strip() for l in out.splitlines())
+    assert "⚠ nothing on its path carries a volume amp" in joined
+    assert "no fix for this machine's id is listed" in joined
+    assert "firmware" not in joined
+
+
+def test_demo_speaker_route_reaches_the_unlisted_warning(monkeypatch):
+    """One hook, two machines: the injected SSID is the only thing deciding
+    which of the two warnings a preview walks, so each id has to land in its
+    own detector and nowhere else."""
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    monkeypatch.setenv("DEMO_SPEAKER_ROUTE", "1d059999")   # case-insensitive
+    info = report_speaker._gather_speaker_pins()
+    found = speakers.find_fixed_level_speaker_pin(info)
+    assert found is not None and found[2] == "0x06"
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+    monkeypatch.setenv("DEMO_SPEAKER_ROUTE", "17aa3906")
+    info = report_speaker._gather_speaker_pins()
+    assert speakers.find_misrouted_speaker_pin(info) is not None
+    assert speakers.find_fixed_level_speaker_pin(info) is None
+
+
+def test_the_free_check_leads_the_fixed_level_steps(tmp_path):
+    """The sysfs read answers in a second and says whether the reboot is even
+    worth it, so it goes first. It used to hang off the BIOS step as a
+    sub-bullet, and a reader going top to bottom rebooted into firmware setup
+    before trying it (user review). Numbering has to close up where the
+    machine has no such attribute, or the steps read 2, 3 with no 1."""
+    attribute = tmp_path / "MicrophoneAccess"
+    attribute.mkdir()
+    steps = report_speaker.fixed_level_fix_steps(
+        "0x17", "0x06", 200, lenovo_attribute=attribute)
+    texts = [text for _style, text in steps if text]
+    assert texts[1].startswith("1.") and "reads from Linux" in texts[1]
+    assert any(t.startswith("2.") and "BIOS/UEFI" in t for t in texts)
+    assert any(t.startswith("3.") and "driven from" in t for t in texts)
+    # The command is a cta line, so it is not swallowed by the dim prose.
+    assert any(style == "cta" and "MicrophoneAccess" in text
+               for style, text in steps)
+
+    without = report_speaker.fixed_level_fix_steps(
+        "0x17", "0x06", 200, lenovo_attribute=tmp_path / "absent")
+    plain = [text for _style, text in without if text]
+    assert any(t.startswith("1.") and "BIOS/UEFI" in t for t in plain)
+    assert any(t.startswith("2.") and "driven from" in t for t in plain)
+    assert not any("sudo cat" in t for t in plain)
+
+
+def test_the_demo_route_carries_the_pin_defaults_it_is_matched_on(monkeypatch):
+    """Real detection fills pin_configs in beside the routing, and the report
+    prints them under the speakers — the evidence line a reporter is asked to
+    paste. The demo left them empty, so a preview of the very warning they
+    were added for was missing them (user review)."""
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    monkeypatch.setenv("DEMO_SPEAKER_ROUTE", "1D059999")
+    info = report_speaker._gather_speaker_pins()
+    configs = info.pin_configs.get("1D059999")
+    assert configs, "the demo must carry pin defaults like a real machine"
+    # Both speaker pins, and #95's own blanked headset-mic connector.
+    assert configs["0x14"] == 0x90170110 and configs["0x17"] == 0x90170111
+    assert configs["0x19"] == 0x411111F0
+    report_speaker._print_speaker_info(info)
+
+
+def test_demo_hooks_do_not_leave_the_hosts_pci_id_behind(monkeypatch):
+    """Both hooks substitute a whole audio identity, and the PCI subsystem id
+    is part of it: `_quirk_for_codec` falls back to it for any row that is not
+    codec-only, so a host whose own PCI id is one of the 132 PCI-usable rows
+    would answer "listed upstream" for a made-up codec and invert the preview.
+    Pinned with a real such id, which is what a laptop supplies for free."""
+    monkeypatch.setattr(codecs, "get_hda_codec_ids", lambda: [])
+    monkeypatch.setattr(codecs, "get_soundwire_ids", lambda: [])
+    listed = ("1028", "075C")
+    assert (0x1028, 0x075C) in speaker_route_quirks._SPEAKER_ROUTE_QUIRKS
+    monkeypatch.setattr(codecs, "get_pci_audio_subsystem", lambda: listed)
+
+    monkeypatch.setenv("DEMO_SPEAKER_ROUTE", "1D059999")
+    info = report_speaker._gather_speaker_pins()
+    assert info.pci_subsystem is None
+    # The point of the id: no table lists it, so the hedged warning fires and
+    # the table-driven one stays quiet, on any host.
+    assert speakers.find_fixed_level_speaker_pin(info) is not None
+    assert speakers.find_misrouted_speaker_pin(info) is None
+
+    monkeypatch.delenv("DEMO_SPEAKER_ROUTE")
+    monkeypatch.setenv("DEMO_SPEAKER_PIN", "17AA386A")
+    info = report_speaker._gather_speaker_pins()
+    assert info.pci_subsystem is None
+
+
+def test_speaker_info_prints_every_pins_firmware_default(capsys):
+    """Some kernel fixups are matched on the firmware's pin defaults rather
+    than on a model id (snd_hda_pick_pin_fixup), and issue #95's fault was a
+    BIOS setting rewriting one of them — so a pasted report has to carry
+    the values, or nobody can check it against upstream's signature table."""
+    report_speaker._print_speaker_info(_info([CODEC_TWO_PINS]))
+    joined = " ".join(ln.strip() for ln in capsys.readouterr().out.splitlines())
+    assert "Pin defaults on codec 17AA22E6" in joined
+    assert "0x17=0x90170111" in joined and "0x21=0x03211020" in joined
+    assert "0x1b=0x411111f0" in joined

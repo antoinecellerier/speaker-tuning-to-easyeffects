@@ -141,6 +141,13 @@ SCENARIOS: dict[str, dict] = {
         "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
         "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
         "env": {"DEMO_SPEAKER_ROUTE": "17AA3906"}},
+    "speaker-level-unlisted": {
+        "why": "the same dead volume path on a machine no table lists (a "
+               "made-up id): the hedged copy, with no upstream fix to cite "
+               "(issue #95)",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "env": {"DEMO_SPEAKER_ROUTE": "1D059999"}},
     "graph-rate-too-high": {
         "why": "a session whose PipeWire graph runs above 48 kHz — EasyEffects "
                "resamples the correction filter up without compensating its "
@@ -173,6 +180,7 @@ def _scenario(slug: str):
     saved = {
         "enum": sinks._enumerate_audio_sinks,
         "default": sinks.live_session,
+        "soft_mixer": sinks.soft_mixer_in_use,
         "query": doctor_run._ee_query,
         "read_rc": autoload.read_ee_rc,
         "session": (session.read_settings, session.read_xruns,
@@ -180,6 +188,9 @@ def _scenario(slug: str):
                     session.wireplumber_version),
     }
     sinks._enumerate_audio_sinks = lambda: list(spec["sinks"])
+    # The fixed-level check reads PipeWire's soft-mixer flag before warning;
+    # a capture machine with it set would render no WARN.
+    sinks.soft_mixer_in_use = lambda: False
     # (default sink, running WirePlumber) — the version rides the same probe,
     # so a scenario with no daemon shows both in their unread forms.
     sinks.live_session = lambda: (
@@ -259,6 +270,7 @@ def _scenario(slug: str):
         finally:
             sinks._enumerate_audio_sinks = saved["enum"]
             sinks.live_session = saved["default"]
+            sinks.soft_mixer_in_use = saved["soft_mixer"]
             doctor_run._ee_query = saved["query"]
             autoload.read_ee_rc = saved["read_rc"]
             (session.read_settings, session.read_xruns,

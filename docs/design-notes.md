@@ -3031,6 +3031,26 @@ volume amp iff its `Amp-Out caps:` line exists, is not `N/A`, and has
 no Amp-Out line at all). `parse_hda_codec_routing` reads all three from the
 text the pin scan already fetched, so a default run pays nothing new.
 
+**What the star means, settled against the source (2026-09-13).** Both halves
+of `Connection:` are the *hardware's*: `print_conn_list` is handed the list
+`snd_hda_get_raw_connections()` returned and stars it at the raw
+`AC_VERB_GET_CONNECT_SEL` index (`sound/hda/common/proc.c`); the driver's
+cached list is the separate `In-driver Connection:` line, printed only when
+it differs. So the star is self-consistent and always names the widget the
+hardware has selected — what the user hears — whatever
+`snd_hda_override_conn_list` did to the cache. An earlier note here had it
+that the star indexes the *cached* list while the printed list is the
+hardware's, making the two agree only on a prefix. That is wrong, and it is
+not inert: a review round reasoned from it that
+`_dead_volume_source`'s membership test should be the sibling's prefix test,
+which would have started warning on exactly the case the membership test
+exists to skip — a cached list that no longer holds the starred widget, where
+driver and hardware disagree and our reading is about to stop describing the
+machine. The suite caught it
+(`test_fixed_level_silent_when_the_driver_list_omits_the_starred_widget`).
+The prefix guard in `find_misrouted_speaker_pin` stays, reread as
+conservative rather than corrective.
+
 **The gate** (`find_misrouted_speaker_pin`): a table row matched through the
 same `snd_hda_pick_fixup` mirror the pin table uses (`_quirk_for_codec`,
 shared so the two cannot drift), **and** the quirk's pin is a configured
@@ -3112,6 +3132,128 @@ build exists to avoid — skip; GPIO amp-enables are readable (`GPIO: io=…`
 lines) but per-machine in meaning, so the corroborating half of the gate is
 missing — recorded, not built; `alc290_fixup_mono_speakers` waits for a
 report of the mono symptom.
+
+### When no table lists the machine (issue [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
+
+The scope limit recorded above — a machine reached only by a pin-signature
+entry gets no warning when its fixup goes missing — arrived as a report
+within two weeks. The X1 Carbon Gen 11 (21HN, ALC287, 17aa:2315) has no
+`SND_PCI_QUIRK` row; its fixup comes only from `SND_HDA_PIN_QUIRK(0x10ec0287,
+0x17aa, …, ALC285_FIXUP_THINKPAD_HEADSET_JACK, {0x14, 0x90170110}, {0x17,
+0x90170111}, {0x19, 0x03a11030}, {0x21, 0x03211020})` →
+`alc285_fixup_thinkpad_x1_gen7()`, which excludes DAC 0x06 from pin 0x17.
+Neither fixup has an `hda_model=` alias. The development X1 Yoga (17aa:22e6)
+reaches the same row.
+
+**Cause: a firmware setting.** The laptop was bought used with
+`MicrophoneAccess=Disable` in the BIOS (a factory reset keeps it). The
+firmware then reports pin 0x19 as unconnected (`0x411111f0`), the signature
+fails (`pin_config_match()`: listed pins compared with the low byte masked,
+two `0x4…` values equal, the primary table requiring unlisted pins to read
+`0x4…`), the vendor fallback `ALC269_FIXUP_LENOVO_XPAD_ACPI` applies, and the
+generic parser lands 0x17 on DAC 0x06, which has no output amp. The same
+setting drops the DMIC endpoint from NHLT, so the card comes up on
+`snd_hda_intel` ("HDA Intel PCH") instead of SOF, with no internal mic —
+worth checking on any Intel ThinkPad report showing the legacy driver.
+Re-enabling the microphone fixed both on a stock kernel.
+
+**What shipped: `find_fixed_level_speaker_pin`, a table-free reading of the
+fault.** The gate is the kernel's own rule (`look_for_out_vol_nid()`: the
+volume control goes on the first widget between pin and converter with
+`nsteps > 0`; none → no control). Legs: HDA; no other speaker warning fired;
+neither table lists the machine, looked up with the SOF restriction off (the
+copy says "no upstream fix is listed", which must hold for a SOF laptop whose
+PCI-keyed row the kernel can't use — "listed but unusable" is a different
+message, left unbuilt); a configured speaker pin with a readable star; the
+source is an `[Audio Output]` (new `kinds` field — a mixer could carry the
+amp on its input side, unread) with no volume amp; the pin has none either
+(Conexant/IDT put it on the pin); the driver's list, if printed, still holds
+the star; another source of the pin carries volume (a remedy exists).
+`look_for_dac()` takes the first free reachable DAC with no amp preference,
+so a healthy machine lands on an ampless one only by connection order —
+which is what all 144 routing rows exist to undo. The warning is an *ask*:
+the dump proves the path, nothing proves the cause. Masks above it:
+PipeWire's `api.alsa.soft-mixer` (one `pw-dump`, read only once a fault was
+found) silences the run and `--doctor`; a smart amp carrying the volume
+stays a residual, since the normal run has no amp probe. False-positive
+evidence is thin: two real dumps (17AA22E6, the ALC294 Xbox Ally), both
+silent. `DEMO_SPEAKER_ROUTE=1D059999` previews it. `--speaker-info` now also
+prints the firmware defaults of the codec the speakers are on.
+
+**"No fixup name to hand you" is a claim about our tables, not about the
+kernel (copy audit 2026-09-13).** The warning first read "no kernel setting
+to force", which is false: `alc285_fixup_speaker2_to_dac1` overrides pin
+0x17's connection list to DAC 0x02 — this fault's exact remedy — and carries
+the forcible alias `alc285-speaker2-to-dac1`, so a #95 user could have tried
+`hda_model=` after all. We still don't offer it, because forcing a name
+replaces the whole fixup chain the machine would otherwise be given (the
+headset jack, here) and nothing in the dump says that alias suits this codec.
+The sentence now says the thing that is true — the fixup tables we carry are
+Realtek's and none of them lists this id — which also keeps it honest on the
+Conexant and IDT machines the gate admits and the generators have never read.
+
+**The fault reproduced on the dev machine (2026-09-13).** `MicrophoneAccess`
+set to Disable in ThinkPad firmware setup, then a reboot, turns the dev X1
+Yoga into #95's broken shape — the positive control the class was built
+without. Pin `0x19` read `0x411111f0` while `0x14`, `0x17` and `0x21` kept
+the values the fixup lists, so exactly one pin broke the match; the woofer
+pin `0x17` starred `0x06`, a converter with no `Amp-Out caps` line at all,
+and the pin itself reported `nsteps=0x00` — mute only, which is why its
+control is a *Switch*. The card came up as `HDA Intel PCH` with every
+microphone pin blanked, both details the reporter described. The warning,
+the `--doctor` row and the fix steps fired and read correctly, and the
+firmware attribute the steps name read `Disable`.
+
+Re-enabling it and rebooting undid all of it on a stock kernel, which is the
+half of the report nothing here had verified: `0x19` returned to
+`0x03a11030`, pin `0x17` starred `0x03` with an in-driver connection list of
+`0x02 0x03` — the fixup's own override, so the match was back — the card came
+up as `sof-hda-dsp` again, and both the warning and the `--doctor` row went
+silent on their own. So the remedy step 2 promises ("pin 0x17 should read
+driven from a widget other than 0x06") is what actually happens, and the SOF
+detail is a consequence of the same firmware switch rather than a
+coincidence. The parked signature build printed "(matches)" here, its other
+control.
+
+It also caught a test that only passed on a healthy host:
+`test_the_unlisted_level_scenario_renders_the_warn` proved two preview
+scenarios distinct by asserting the other one renders no "Speaker level"
+row — which a machine that genuinely has the fault renders for real. It now
+asserts the injected machine's id is absent instead, the same host-neutral
+move the file already makes for `soft_mixer_in_use`.
+
+**A misfire the table-free copy cannot see:** a kernel too old for a
+signature that matches — the fault is real, the cause is kernel age. Only
+reading the signature tells the two apart.
+
+**A pin-signature table, built and parked.** A third machine-written table
+(`SND_HDA_PIN_QUIRK` rows whose chain reaches a routing or pin-adding fixup,
+matched like `pin_config_match`) was built, measured and taken out of the
+tree the same day. Census at 7.3-rc: 99 rows (91 primary, 8 fallback),
+**4** admitted — three `0x10ec0287/0x17aa` (`ALC285_FIXUP_THINKPAD_HEADSET_JACK`,
+blame c72b9bfe0f91, 2020, #95's and the dev machine's; two
+`ALC287_FIXUP_THINKPAD_I2S_SPK`, 2023) and one `0x10ec0298/0x1028`
+(`ALC298_FIXUP_SPK_VOLUME`, 2017, the only forcible name). The rest are
+headset-mic fixups. It bought precision (naming pin 0x19 and the expected
+value), not a different remedy, and the kernel-age shape it could tell apart
+has 2017–2023 rows behind it. Against that: a generator, a workflow leg, a
+data module and ~80 tests for four rows. The build lives on a local branch,
+ready if a second signature-keyed report arrives.
+
+Run against the dev machine in the broken state above, it named the pin
+unaided — "pin 0x19 reads 0x411111f0, which the firmware calls unconnected,
+where the fix expects 0x03a11030", with the upstream commit link — so the
+parked build is validated end to end, not only unit-tested. That sharpens
+what it buys without changing the remedy, which is still the firmware check
+the table-free warning already prints.
+
+**Route updater rule changed on the way.** 7.3-rc's
+`ALC287_FIXUP_YOGA9_SPEAKER2_TO_DAC1` (41d60cbfde10) applies
+`alc285_fixup_speaker2_to_dac1` and chains to `alc285_fixup_thinkpad_x1_gen7`
+— two `_FUNC_FIXUP_ROUTES` helpers on one chain, which the guard refused.
+The kernel applies them in that order and the later conn-list override wins,
+so the guard now keeps the last route on the same pin and still raises for
+different pins. Without it the weekly workflow would have failed.
 
 ## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
 
