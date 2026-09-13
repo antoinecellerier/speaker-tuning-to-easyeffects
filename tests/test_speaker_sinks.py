@@ -349,6 +349,19 @@ def test_sinks_from_dump_is_the_boundary_without_the_subprocess():
     assert hw_sinks.sink_label(sinks, "alsa_output.gone") == ""
     assert hw_sinks.sinks_from_dump({"not": "a list"}) == []
     assert hw_sinks.sinks_from_dump(None) == []
+    # pw-dump writes `"info": null` for an object that has gone away, on both
+    # the Device pass (params) and the node pass (props). A live graph is a
+    # moving target, so a sink listing must survive one without raising —
+    # and still find the sinks that are there.
+    for gone in ({"id": 9, "type": "PipeWire:Interface:Device", "info": None},
+                 {"id": 9, "type": "PipeWire:Interface:Node", "info": None},
+                 {"id": 9, "type": "PipeWire:Interface:Node",
+                  "info": {"props": None}},
+                 {"id": 9, "type": "PipeWire:Interface:Device",
+                  "info": {"params": None}}):
+        sinks = hw_sinks.sinks_from_dump([gone, *dump])
+        assert [s["name"] for s in sinks] == [IDEAPAD_ANALOG["name"],
+                                              "bluez_output.AA.1"], gone
 
 
 def test_soft_mixer_is_read_out_of_a_dump_and_defaults_to_off(monkeypatch):

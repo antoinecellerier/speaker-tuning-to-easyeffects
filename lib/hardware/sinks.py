@@ -79,6 +79,27 @@ def _read_pw_dump():
         return None
 
 
+def _info_section(obj, key: str) -> dict:
+    """``obj["info"][key]`` as a dict, whatever shape pw-dump actually emitted.
+
+    ``"info": null`` is what it writes for an object that has gone away, and
+    an absent or null section one level down is the same case. Every reader
+    below wants "nothing here" from all of them, and the chained
+    ``.get("info", {}).get(key, {})`` they used to spell it with raises
+    ``AttributeError`` on exactly the null the default was meant to cover.
+    That is worth a helper rather than three spellings: one of these now runs
+    on the ordinary end-of-run warning path, where it would take the run down
+    *after* it had written the user's presets.
+    """
+    if not isinstance(obj, dict):
+        return {}
+    info = obj.get("info")
+    if not isinstance(info, dict):
+        return {}
+    section = info.get(key)
+    return section if isinstance(section, dict) else {}
+
+
 def soft_mixer_from_dump(data) -> bool:
     """Whether any object in *data* (a parsed pw-dump) sets
     ``api.alsa.soft-mixer``.
@@ -91,13 +112,7 @@ def soft_mixer_from_dump(data) -> bool:
     if not isinstance(data, list):
         return False
     for obj in data:
-        # `or {}` on both hops, not just a dict check on the outside: pw-dump
-        # writes `"info": null` for an object that went away, and this now
-        # runs on the ordinary end-of-run warning path, where an
-        # AttributeError would take the whole run down after it had written.
-        info = (obj.get("info") or {}) if isinstance(obj, dict) else {}
-        props = info.get("props") or {}
-        value = props.get("api.alsa.soft-mixer")
+        value = _info_section(obj, "props").get("api.alsa.soft-mixer")
         if value is True or str(value).strip().lower() in ("true", "1", "yes"):
             return True
     return False
@@ -128,7 +143,7 @@ def sinks_from_dump(data) -> list[dict]:
         dev_id = obj.get("id")
         if dev_id is None:
             continue
-        params = obj.get("info", {}).get("params", {})
+        params = _info_section(obj, "params")
         out_routes = {}
         for route in params.get("Route", []) or []:
             if route.get("direction") != "Output":
@@ -142,7 +157,7 @@ def sinks_from_dump(data) -> list[dict]:
 
     sinks = []
     for obj in data:
-        props = obj.get("info", {}).get("props", {})
+        props = _info_section(obj, "props")
         if props.get("media.class") != "Audio/Sink":
             continue
         route = routes_by_device.get(props.get("device.id"), {}).get(
