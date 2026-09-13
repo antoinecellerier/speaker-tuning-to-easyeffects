@@ -386,13 +386,22 @@ def _print_mbc(tuning, disabled, verbose):
         # the first thing a triage of a squashed-sounding report reaches
         # for, and most reports arrive at normal verbosity.
         thr = [b["threshold"] for b in decoded]
-        if len(thr) == 1:
-            print(f"  threshold {thr[0]:+.1f} dB (where it kicks in)"
-                  + ("" if verbose else "  (full band table with -v)"))
+        tail = "" if verbose else "  (full band table with -v)"
+        # One band, or many that agree, both print a single value. Keying
+        # this on the band *count* alone left every equal-threshold tuning
+        # rendering "thresholds -6.4 to -6.4 dB", which three readers in one
+        # review round took for a display bug — and one said it cost them
+        # confidence in the numbers around it. Compared at the precision it
+        # prints: thresholds a 16th of a dB apart render identically, which
+        # is the same fake range with one more step of decoding behind it.
+        if round(max(thr), 1) == round(min(thr), 1):
+            of_bands = "" if len(thr) == 1 else f" on all {len(thr)} bands"
+            print(f"  threshold {thr[0]:+.1f} dB{of_bands} "
+                  f"(where {'it kicks' if len(thr) == 1 else 'they kick'} "
+                  f"in){tail}")
         else:
             print(f"  thresholds {max(thr):+.1f} to {min(thr):+.1f} dB "
-                  "(where bands kick in)"
-                  + ("" if verbose else "  (full band table with -v)"))
+                  f"(where bands kick in){tail}")
         n_bands_print = len(decoded)
         for i, b in enumerate(decoded if verbose else []):
             xover_idx = b["xover_idx"]

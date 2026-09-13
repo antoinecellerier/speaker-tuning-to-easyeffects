@@ -1078,6 +1078,63 @@ def _report_tuning(regulator, volmax_boost, profile_used="dynamic",
         curves={}, ao_left=ao_raw, ao_right=ao_raw)
 
 
+def test_equal_band_thresholds_print_one_value_not_a_fake_range(
+        silence_console, capsys):
+    """"thresholds -6.4 to -6.4 dB" reads as a display bug, and three readers
+    in one review round called it one — one said it cost them confidence in
+    the surrounding numbers. Keying the single-value form on the band *count*
+    missed it; equal thresholds are what actually decides."""
+    silence_console(console)
+    tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
+    same = synthetic_mb_comp(group_count=2, bands=[
+        (10, -160, 16384, 30000, 32500, 0),
+        (10, -160, 16384, 30000, 32500, 0),
+    ])
+    tuning.mb_comp = same
+    _report_parsed_profile(tuning, set())
+    out = capsys.readouterr().out
+    assert " to " not in out.split("threshold")[1].split("\n")[0], out
+    assert "on all 2 bands" in out
+
+    # threshold_q4 is the second field: -160/16 = -10 dB, -96/16 = -6 dB.
+    differing = synthetic_mb_comp(group_count=2, bands=[
+        (10, -160, 16384, 30000, 32500, 0),
+        (10, -96, 16384, 30000, 32500, 0),
+    ])
+    tuning.mb_comp = differing
+    _report_parsed_profile(tuning, set())
+    out = capsys.readouterr().out
+    # A real spread still reads as one, and still names both ends.
+    assert "thresholds" in out and " to " in out
+
+    # -100/16 and -99/16 are a 16th of a dB apart and both print -6.2, so an
+    # exact comparison brings the fake range back one decoding step lower.
+    near = synthetic_mb_comp(group_count=2, bands=[
+        (10, -100, 16384, 30000, 32500, 0),
+        (10, -99, 16384, 30000, 32500, 0),
+    ])
+    tuning.mb_comp = near
+    _report_parsed_profile(tuning, set())
+    out = capsys.readouterr().out
+    assert " to " not in out.split("threshold")[1].split("\n")[0], out
+
+
+def test_a_single_band_threshold_reads_as_one_thing_kicking_in(
+        silence_console, capsys):
+    """The singular and plural forms differ by more than the noun: folding the
+    two branches together left "(where it kick in)" on every one-band tuning,
+    and the corpus has hundreds."""
+    silence_console(console)
+    tuning = _report_tuning(synthetic_regulator([-6.0] * 20), 0.0)
+    tuning.mb_comp = synthetic_mb_comp(group_count=1, bands=[
+        (10, -160, 16384, 30000, 32500, 0),
+    ])
+    _report_parsed_profile(tuning, set())
+    out = capsys.readouterr().out
+    assert "(where it kicks in)" in out, out
+    assert "on all 1 bands" not in out
+
+
 @pytest.mark.parametrize("threshold_high,volmax_boost,disabled,expect_warn", [
     ([0.0] * 20, 6.0, set(), True),            # inert regulator + boost
     ([-6.0] * 20, 6.0, set(), False),          # regulator actually limits
