@@ -63,11 +63,14 @@ from lib import tool_env
 # while our first marker set (boot/init timeouts only) reported "no errors",
 # which is exactly why the no-error line tells the reader to eyeball the log.
 _AMP_FAMILIES = (
-    # Cirrus cs35l41 (HDA) / cs35l56 / cs35l57 (SoundWire). Markers:
-    # cs35l56-shared.c "FIRMWARE_MISSING" (l.1388), "Can't read tuning IDs"
-    # (l.1424), "Firmware boot timed out" (l.455); cs35l56.c "init_completion
-    # timed out" (l.866/1373); cs-amp-lib.c "Calibration disabled due to missing
-    # firmware controls" (l.140/172, shared lib — also fires for cs35l41).
+    # Cirrus cs35l41 (HDA) / cs35l56 / cs35l57 (SoundWire). Markers, lines as
+    # of 7.3-rc3: cs35l56-shared.c "FIRMWARE_MISSING" (l.1378), "Can't read
+    # tuning IDs" (l.1414), "Firmware boot timed out" (l.457); cs35l56.c
+    # "init_completion timed out (SDW)" (l.872); cs-amp-lib.c "Calibration
+    # disabled due to missing firmware controls" (l.143/175, shared lib — also
+    # fires for cs35l41). 7.3 dropped the unsuffixed component-probe copy of
+    # the init_completion line (1d80a4792f1d); older kernels still print it,
+    # which is why the marker stops short of "(SDW)".
     (("cs35l",), ("cirrus/cs35l*",), ("cs35l", "cirrus"),
      r"firmware_missing|can't read tuning ids"
      r"|calibration disabled due to missing firmware controls"
@@ -75,9 +78,22 @@ _AMP_FAMILIES = (
     # TI smart amps (issue #17 family). Markers from tas2781-fmwlib.c /
     # tas2781-i2c.c: "FW download failed", "Failed to read firmware",
     # "Request firmware … failed", "Firmware is NULL", "Bin file error".
-    (("tas2",), ("TAS2*", "ti/tas2*", "tas2*"), ("tas2",),
+    # The token also catches TAS2783, the SoundWire part, whose driver words
+    # the same failures its own way — tas2783-sdw.c as of 7.3-rc3: "Failed to
+    # read fallback fw binary" (l.805), "firmware size mismatch with header"
+    # (l.818), "fw with no files" (l.851), "error playback without fw
+    # download" (l.968), "firmware request failed for uid" (l.1232), "fw
+    # request, wait_event timeout" (l.1240); its "FW download failed" (l.843)
+    # is already above. Not "Failed to read preferred fw binary" (l.801): that
+    # one says it is falling back. Its blobs are named per machine,
+    # "<PCI subsystem device>-<link>-0x<unique id>.bin", so no filename prefix
+    # finds them — linux-firmware's ti/audio/tas2783/ directory is the handle.
+    (("tas2",), ("TAS2*", "ti/tas2*", "tas2*", "ti/audio/tas2783/*"), ("tas2",),
      r"fw download failed|failed to read firmware|request firmware .* failed"
-     r"|firmware is null|bin file error"),
+     r"|firmware is null|bin file error"
+     r"|failed to read fallback fw binary|firmware size mismatch with header"
+     r"|fw with no files|error playback without fw download"
+     r"|firmware request failed for uid|fw request, wait_event timeout"),
     # Realtek SoundWire amps — only rt1320 loads a firmware patch (rt1316/rt1318
     # are register-only). Markers from rt1320-sdw.c: "Failed to load … firmware",
     # "FW file doesn't match to device", "Can't find proper FW file name".

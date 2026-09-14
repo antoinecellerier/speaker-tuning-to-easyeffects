@@ -1228,6 +1228,7 @@ def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
     ("cs35l56", True, "cs35l"),
     ("snd_soc_cs35l41", True, "cs35l"),   # Cirrus over HDA, not just SoundWire
     ("snd_soc_tas2781", True, "tas2"),    # TI smart amp (issue #17 family)
+    ("snd_soc_tas2783_sdw", True, "tas2"),  # its SoundWire sibling
     ("max98373", False, "max98"),         # Maxim DSM — no separate fw blob
     ("rt1318", False, "rt13"),            # Realtek SoundWire — no separate fw blob
     # Awinic AW88399 woofer amp, HDA side codec on 2025 Lenovo Legion (7.3).
@@ -1299,6 +1300,19 @@ def test_amp_families_failure_markers():
     ("tac5xx2-sdw sdw:0:1:0102:5572:01: fw file: tac5572-0-1.bin is empty "
      "or invalid", True),
     ("tac5xx2-sdw sdw:0:1:0102:5572:01: firmware ready, 3 files", False),
+    # TAS2783, the SoundWire part the tas2 row also catches. Its driver words
+    # every failure differently from tas2781's, so the row carries both sets.
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: Failed to read fallback fw binary "
+     "15E2-0-8.bin", True),
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: fw with no files", True),
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: error playback without fw download",
+     True),
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: firmware request failed for uid=8, "
+     "ret=-12", True),
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: fw request, wait_event timeout", True),
+    # The preferred name missing is routine: the driver says so and falls back.
+    ("slave-tas2783 sdw:0:0:0102:0000:01:8: Failed to read preferred fw binary: "
+     "15E2-0-0x8.bin, attempting fallback binary load", False),
     # The driver names the same file on the way *in*; matching the filename
     # alone would call a healthy load a failure.
     ("snd_hda_scodec_aw88399: loaded aw88399_acf.bin - size: 91234", False),
@@ -1341,6 +1355,18 @@ def test_list_firmware_files(tmp_path):
     (tmp_path / "cirrus" / "other.bin").write_text("x")
     found = amps._list_firmware_files(["cirrus/cs35l*"], roots=[tmp_path])
     assert found == ["cirrus/cs35l56-b0-dsp1-misc-aabb-amp1.bin"]
+
+
+def test_tas2783_blobs_are_found_by_directory(tmp_path):
+    """TAS2783 names each blob after the machine, with no part-name prefix, so
+    only linux-firmware's directory finds it. Without that glob a machine whose
+    blobs are installed would report "none found"."""
+    blob_dir = tmp_path / "ti" / "audio" / "tas2783"
+    blob_dir.mkdir(parents=True)
+    (blob_dir / "15E2-0-0x8.bin").write_text("x")
+    globs, _keywords = amps._amp_firmware_profile("snd_soc_tas2783_sdw")
+    assert amps._list_firmware_files(globs, roots=[tmp_path]) == [
+        "ti/audio/tas2783/15E2-0-0x8.bin"]
 
 
 # --- Merged "Speaker amplifier status" section: terse, expand on problems ----
