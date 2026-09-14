@@ -952,8 +952,8 @@ def _card_uses_sof(sound_cards: list[str]) -> bool:
     """Whether any sound card is driven by the SOF stack.
 
     Load-bearing twice over: SOF zeroes the PCI subsystem id the HDA layer
-    sees (so PCI-keyed quirks can't match), and it owns the ``hda_model``
-    parameter that forces one.
+    sees (so every quirk matches on the codec's id), and it owns the
+    ``hda_model`` parameter that forces one.
     """
     for line in sound_cards:
         m = _CARD_DRIVER_RE.match(line)

@@ -2709,13 +2709,17 @@ matters for triage: it rewrites `0x17`'s default config **and** reassigns DACs
 `0x14`+`0x17` on DAC `0x02`). A `hdajackretask` pin override does only the
 first half, so it is **not** a substitute — don't suggest one.
 
-The commit also documents a matching detail worth carrying: SOF zeroes the PCI
-subsystem id the HDA layer sees, so `SND_PCI_QUIRK` entries cannot match on
-those machines and `HDA_CODEC_QUIRK` is required. `snd_hda_pick_fixup`
-(`sound/hda/common/auto_parser.c`) confirms the shape — with a zeroed PCI id
-every entry falls back to codec-SSID matching, and the lookup ends on a
-codec-SSID pass regardless. `find_hidden_speaker_pin` mirrors exactly that, so
-we never claim a match the kernel could not make.
+The commit also documents a matching detail worth carrying, though not its
+conclusion: under SOF the PCI subsystem id the HDA layer saw was `17aa:0000`,
+which the commit took to mean `SND_PCI_QUIRK` entries cannot match and
+`HDA_CODEC_QUIRK` is required. `snd_hda_pick_fixup`
+(`sound/hda/common/auto_parser.c`) says otherwise: since
+[`0aacce7c32e4`](https://github.com/torvalds/linux/commit/0aacce7c32e4631c3634df5d19d30c72a3614ec9)
+(7.1), a PCI id with either half zero skips the PCI comparison, and *every*
+entry — `SND_PCI_QUIRK` included — is compared against the codec SSID. The
+lookup ends on a codec-SSID pass regardless. So on such a machine a PCI-keyed
+entry matches on the codec's id, never the PCI one. `find_hidden_speaker_pin`
+mirrors exactly that, so we never claim a match the kernel could not make.
 
 **Two discriminators checked and rejected**, so they aren't re-litigated:
 

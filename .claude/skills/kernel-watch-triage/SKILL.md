@@ -88,8 +88,10 @@ For any ordering or matching claim, check it against
   (`SND_PCI_QUIRK`); a codec-SSID sweep runs afterwards as a fallback.
 - So two entries with different ids and the same fixup cannot differ in
   effect, and ordering only matters where the fixups differ.
-- SOF zeroes the PCI SSID the HDA layer sees, so `SND_PCI_QUIRK` entries
-  cannot match on those machines at all.
+- A PCI SSID with either half zero (reported under SOF as `17aa:0000`) skips
+  the PCI comparison entirely: since 7.1 every entry, `SND_PCI_QUIRK`
+  included, is compared against the **codec** SSID there. So a PCI-keyed
+  entry *can* match such a machine, on its codec id.
 
 ## Resolve SSIDs both ways
 
