@@ -251,8 +251,11 @@ jobs:
                "Realtek ALC287, 17AA:38D0"; use "—" if not cleanly
                determinable), then a link to this issue in the existing
                `[#N](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/N)`
-               style. Keep the table's existing alphabetical order by device
-               name.
+               style. Insert it where it keeps the table sorted by device
+               name, case-insensitively and number-aware: compare each run of
+               digits as a whole number, so "X1 Carbon Gen 9" sorts before
+               "X1 Carbon Gen 11", and "X1" before "X13". A test enforces
+               this order.
             2. Add this device to the CHANGELOG.md `## Unreleased` /
                `### Added` section, per .claude/rules/changelog.md: if a
                "Mark additional tested devices: …" bullet already exists
@@ -295,7 +298,7 @@ jobs:
             Search machine type <the four characters> on psref.lenovo.com; if
             the global name differs, rename the row to '<global name> (<machine
             type>, reported as <Family>)' before merging, and move it to that
-            name's alphabetical slot." If `Product` was not a machine type,
+            name's sorted slot." If `Product` was not a machine type,
             say so, quote what it held, and ask the reviewer to add the code
             from PSREF.
 
