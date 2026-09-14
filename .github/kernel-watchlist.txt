@@ -19,7 +19,6 @@ zenbook
 lunar lake
 lnl
 cs35l56
-rt712
 
 # watch: standing — ALC287 speaker-path/amp-match regressions (#33 IdeaPad Pro 5 class).
 # #95's tested X1 Carbon Gen 11 rides this too: it has no SND_PCI_QUIRK row and
