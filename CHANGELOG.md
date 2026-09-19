@@ -203,7 +203,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad X1 Carbon Gen 11 (21HN)
   ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95)),
   ThinkPad X13 Yoga Gen 4 (21F3)
-  ([#97](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/97)).
+  ([#97](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/97)),
+  ThinkPad X1 Carbon Gen 10 (21CC)
+  ([#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99)).
 
 ### Fixed
 
