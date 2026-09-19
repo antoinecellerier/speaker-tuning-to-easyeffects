@@ -84,6 +84,7 @@ The converter works on internal speakers whose Windows driver ships a Dolby DAX3
 | ThinkPad T14s Gen 3 (21BS) | Realtek ALC257, 17AA:22EE | [#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88) |
 | ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
 | ThinkPad X1 Carbon Gen 9 (20XW) | Realtek ALC287, 17AA:22D5 | [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63) |
+| ThinkPad X1 Carbon Gen 10 (21CC) | Realtek ALC287, 17AA:22E7 | [#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99) |
 | ThinkPad X1 Carbon Gen 11 (21HN) | Realtek ALC287, 17AA:2315 | [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95) |
 | ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [#7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
 | ThinkPad X1 Yoga Gen 6 (20Y0) | Realtek ALC287, 17AA:22D4 | [#78](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/78) |
