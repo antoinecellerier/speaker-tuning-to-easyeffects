@@ -7,6 +7,11 @@ by device name case-insensitively, with each run of digits compared as a
 number — "X1 Carbon Gen 9" before "Gen 11", "X1" before "X13". A plain string
 sort put Gen 11 and Gen 13 ahead of Gen 9. If the rule changes, change it in
 the workflow prompt too.
+
+That workflow also runs *this file* — by this path, as an exact-match entry in
+its tool allowlist — before it opens its PR, so the bot can move a mis-sorted
+row itself. Renaming or moving this file breaks that check silently: the run
+just loses the ability to verify its row. Grep the workflow first.
 """
 
 import re

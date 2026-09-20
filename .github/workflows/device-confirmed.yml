@@ -58,6 +58,17 @@ name: Mark confirmed device as tested
 # The specific `gh pr create:*` / `git push:*` rules are safe: neither can
 # approve, and a branch ruleset rejects a direct push to master.
 #
+# The run checks its own work: the prompt has it run the README sort-order
+# test before opening the PR, so a mis-sorted row is fixed in the run instead
+# of landing as a red check on the PR. Claude reaches for that test on its
+# own — runs that could not execute it spent their turns hunting for a
+# command that would be allowed, and ran out. Two things have to hold
+# together or it fails that way again: the allowlist carries an exact-match
+# pytest rule (see the claude_args comment for why exact, not a prefix), and
+# the job installs requirements.txt, because tests/conftest.py imports
+# numpy/scipy and the runner's bare python3 cannot collect the file. Dropping
+# either one turns the check into a denial or an ImportError.
+#
 # What the allowlist does NOT gate: reads. Claude Code auto-approves a
 # built-in set of read-only shell commands (ls, cat, grep, read-only git…)
 # within the working directory, whatever the allowlist says — see
@@ -75,6 +86,26 @@ name: Mark confirmed device as tested
 # Claude's claim against whether a PR really exists, and fails the job if
 # nothing was opened and nothing was reported as already covered. The full
 # transcript is uploaded as an artifact.
+#
+# That step is the job's arbiter, which is why the Claude step carries
+# continue-on-error. The two exit codes answer different questions: the
+# action's reports a turn counter, "Report outcome"'s reports whether the PR
+# exists — and only the second is what the label was applied to get. They do
+# come apart: the action fails a step whose result was a clean success if the
+# turn count overshot --max-turns, and a failed step fails the job whatever a
+# later one returns, so a run that edited both files, pushed and opened its
+# PR still goes red. Removing the flag restores that. Genuine failures still
+# turn the job red, because "Report outcome" exits 1 whenever no PR exists
+# and nothing was reported as already covered.
+#
+# Two consequences that shape the step, both easy to "simplify" back out:
+#   - The action sets no step outputs at all when it errors, so
+#     `steps.claude.outputs.structured_output` can be empty for a run that
+#     reported a perfectly good outcome. The step falls back to reading it
+#     from the uploaded transcript, which always carries it.
+#   - Every branch of the verdict consults the real PR URL. An earlier
+#     version printed "no PR was opened" from a branch that never looked,
+#     contradicting the PR link in its own summary table.
 #
 # Agent mode (custom `prompt`, no @claude mention) does not auto-create a
 # branch the way @claude-mention mode does, and commits go through plain git
@@ -99,7 +130,7 @@ jobs:
       github.event.label.name == 'confirmed-working' &&
       contains(github.event.issue.labels.*.name, 'device report')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -110,6 +141,20 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+
+      # The prompt has Claude run the README sort-order test before opening the
+      # PR. tests/conftest.py imports numpy/scipy and pyproject passes -n auto,
+      # so the runner's bare python3 cannot collect it — allowing the command
+      # without this would just swap the denial for an ImportError.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
 
       - name: Create device-report branch
         id: branch
@@ -123,6 +168,10 @@ jobs:
 
       - name: Run Claude Code
         id: claude
+        # "Report outcome" below is the arbiter, not this step: its exit code
+        # answers "does a PR exist?", this one's only reports a turn counter.
+        # See the "Outcome reporting" paragraph in the header comment.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -245,23 +294,67 @@ jobs:
             Otherwise do exactly this, matching this repo's existing conventions:
 
             1. Add one row to the "Supported devices" table in README.md
-               (the `## Supported devices` section): device name, then codec
-               and PCI/HDA subsystem ID pulled from the `--speaker-info`
-               output (format like the existing rows, e.g.
-               "Realtek ALC287, 17AA:38D0"; use "—" if not cleanly
-               determinable), then a link to this issue in the existing
+               (the `## Supported devices` section): device name, then the
+               codec and its subsystem ID, then a link to this issue in the
+               existing
                `[#N](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/N)`
-               style. Insert it where it keeps the table sorted by device
+               style.
+
+               The codec cell comes from the `=== HDA codecs ===` block of
+               the `--speaker-info` output, from the ANALOG codec line — the
+               Realtek/Cirrus/etc. one. Never an HDMI or display codec (ATI,
+               Nvidia, Intel … HDMI): those sit in the same block and carry
+               their own unrelated ID. Take that line's chip name and its
+               `Codec subsystem:` value (reports older than v2026.08 label it
+               plain `Subsystem:`), and reformat the value by dropping `0x`
+               and inserting a colon after four digits:
+                 `Realtek ALC257 — Vendor: 0x10EC0257  Codec subsystem: 0x17AA38BC`
+                 -> `Realtek ALC257, 17AA:38BC`
+               Do NOT use the `=== PCI audio subsystem ===` line. It is a
+               different ID (that same machine reports `17AA:3805` there) and
+               the table does not carry it. Use "—" for the whole cell only
+               if no analog codec line is present at all.
+
+               Insert the row where it keeps the table sorted by device
                name, case-insensitively and number-aware: compare each run of
                digits as a whole number, so "X1 Carbon Gen 9" sorts before
-               "X1 Carbon Gen 11", and "X1" before "X13". A test enforces
-               this order.
+               "X1 Carbon Gen 11", and "X1" before "X13".
+
+               tests/test_readme_devices_order.py enforces that order. Once
+               the row is in, verify it by running EXACTLY this, and nothing
+               else:
+
+                 python3 -m pytest tests/test_readme_devices_order.py -q
+
+               Run it verbatim — no pipes, no redirections, no added flags,
+               no other test path, no `cd`. It is the one test command you
+               may run and it is matched exactly; any variation is denied,
+               and this run is unattended, so there is nobody to approve it.
+               If it fails, move your row to the slot it names and run it
+               again.
+
             2. Add this device to the CHANGELOG.md `## Unreleased` /
-               `### Added` section, per .claude/rules/changelog.md: if a
-               "Mark additional tested devices: …" bullet already exists
-               there, extend its device list; otherwise add a new bullet in
-               that exact form. Follow the word-count/shape rules in that
-               file and in the comment at the top of CHANGELOG.md.
+               `### Added` section, per .claude/rules/changelog.md. Find the
+               bullet with:
+
+                 grep -n 'Mark additional tested devices' CHANGELOG.md
+
+               The FIRST hit is the one under `## Unreleased` — that is the
+               one to extend. Later hits sit in released `## vYYYY.MM`
+               sections, which are frozen release history: never edit those.
+               Keep the existing shape, two lines per device (the name, then
+               the `([#N](…))` link), and turn the closing `.` of the last
+               entry into `,` as you append:
+
+                 ThinkPad X1 Carbon Gen 10 (21CC)
+                 ([#99](…/issues/99)),
+                 <your device name>
+                 ([#N](…/issues/N)).
+
+               If `grep` finds no such bullet under `## Unreleased`, add a
+               new one in that exact form. Follow the word-count/shape rules
+               in .claude/rules/changelog.md and in the comment at the top of
+               CHANGELOG.md.
 
             You may only edit README.md and CHANGELOG.md — no other file.
 
@@ -320,8 +413,19 @@ jobs:
           # for the rules/docs, and Claude reflexively runs `git status` /
           # `git diff` before committing — denying those just burns turns);
           # writes and side effects are the tight surface.
+          #
+          # The pytest rule lets the run check its own row against the sort
+          # test before opening the PR, instead of the maintainer finding it
+          # red on the PR. It is an EXACT match, not a `:*` prefix: the
+          # argument vector is pinned, so pytest cannot be aimed at another
+          # path or handed `-p` to load something. What it does execute is
+          # conftest.py from the checked-out master, and with no network and
+          # no `pip` rule no new plugin can reach the runner. If a future run
+          # keeps fumbling the exact string, the escape hatch is the
+          # file-scoped prefix form, "Bash(python3 -m pytest
+          # tests/test_readme_devices_order.py:*)" — still one test file.
           claude_args: |
-            --allowedTools Read Grep Glob "Edit(README.md)" "Edit(CHANGELOG.md)" "Bash(gh issue view:*)" "Bash(gh pr list:*)" "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(gh pr create:*)"
+            --allowedTools Read Grep Glob "Edit(README.md)" "Edit(CHANGELOG.md)" "Bash(gh issue view:*)" "Bash(gh pr list:*)" "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git push:*)" "Bash(gh pr create:*)" "Bash(python3 -m pytest tests/test_readme_devices_order.py -q)"
             --max-turns 25
             --json-schema '{"type":"object","properties":{"outcome":{"type":"string","enum":["pr_created","already_covered","blocked"]},"device":{"type":"string"},"pr_url":{"type":"string"},"details":{"type":"string"}},"required":["outcome","device","details"]}'
 
@@ -352,9 +456,19 @@ jobs:
         run: |
           say() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
 
-          claim=$(printf '%s' "$OUTCOME_JSON" | jq -r '.outcome // empty' 2>/dev/null || true)
-          device=$(printf '%s' "$OUTCOME_JSON" | jq -r '.device // empty' 2>/dev/null || true)
-          details=$(printf '%s' "$OUTCOME_JSON" | jq -r '.details // empty' 2>/dev/null || true)
+          # The action sets no step outputs at all when it errors out, so a
+          # run that finished the job cleanly can still arrive here with an
+          # empty OUTCOME_JSON — a turn-count overshoot did exactly that on
+          # #101 and lost a pr_created. The transcript always carries it.
+          outcome="$OUTCOME_JSON"
+          if [ -z "$outcome" ] && [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            outcome=$(jq -c '[.[]? | select(.type=="result")] | last | .structured_output // empty' \
+                      "$EXECUTION_FILE" 2>/dev/null || true)
+          fi
+
+          claim=$(printf '%s' "$outcome" | jq -r '.outcome // empty' 2>/dev/null || true)
+          device=$(printf '%s' "$outcome" | jq -r '.device // empty' 2>/dev/null || true)
+          details=$(printf '%s' "$outcome" | jq -r '.details // empty' 2>/dev/null || true)
           [ -n "$claim" ] || claim='(none reported)'
 
           # Ground truth, independent of what Claude says it did.
@@ -380,9 +494,12 @@ jobs:
             jq -r '.[]? | select(.type=="result")
                    | "turns \(.num_turns)/25 · denied tool calls \((.permission_denials // []) | length) · ended: \(.terminal_reason // .subtype)"' \
               "$EXECUTION_FILE" 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+            # gsub before cut: `cut -c` truncates per line, so a multi-line
+            # argument (a `gh pr create --body`) would otherwise spill its
+            # whole text into the summary one line at a time.
             jq -r '.[]? | select(.type=="assistant") | .message.content[]?
                    | select(.type=="tool_use")
-                   | "  " + .name + " " + ((.input.command // .input.file_path // .input.pattern // "") | tostring)' \
+                   | "  " + .name + " " + ((.input.command // .input.file_path // .input.pattern // "") | tostring | gsub("\\s+"; " "))' \
               "$EXECUTION_FILE" 2>/dev/null | cut -c 1-160 >> "$GITHUB_STEP_SUMMARY" || true
             say '```'
             say ""
@@ -394,7 +511,8 @@ jobs:
             denied=$(jq -r '.[]? | select(.type=="result") | (.permission_denials // [])[]
                             | ((.tool_name // .name // "?") | tostring) + " "
                               + ((.tool_input.command // .tool_input.file_path
-                                  // .tool_input // .input // "") | tostring)' \
+                                  // .tool_input // .input // "")
+                                 | tostring | gsub("\\s+"; " "))' \
                      "$EXECUTION_FILE" 2>/dev/null | cut -c 1-300 || true)
             if [ -n "$denied" ]; then
               say "**Denied tool calls** — these are the ones to widen the allowlist for, or to re-word the prompt around:"
@@ -423,6 +541,15 @@ jobs:
               exit 0
               ;;
             *)
+              # A PR on this run's own branch is the deliverable, and a human
+              # reviews it before merge — so ground truth outranks the claim.
+              if [ -n "$pr_url" ]; then
+                say "Opened ${pr_url} — review and merge to close #${ISSUE}."
+                say ""
+                say "> The run did not report a clean outcome (\`${claim}\`). Check the PR contents before merging."
+                echo "::warning title=Device report #${ISSUE}::PR opened (${pr_url}) but outcome was ${claim}"
+                exit 0
+              fi
               say "**Failed** — no PR was opened and the run did not report a clean outcome (\`${claim}\`). See the excerpt above, or the uploaded execution log."
               echo "::error title=Device report #${ISSUE}::No PR opened and no clean outcome reported"
               exit 1
