@@ -18,10 +18,12 @@ import pytest
 from tools.scan_sound_tag import (
     ScanUnavailable,
     fetch_commits,
+    is_sound_commit,
     main,
     pick_base,
     render,
     render_unavailable,
+    sound_commits,
     speaker_subjects,
     watchlist_hits,
     watchlist_terms,
@@ -109,13 +111,31 @@ def test_fetch_strips_the_gitiles_xssi_guard():
     got = fetch_commits("sound-7.2", "sound-7.3-rc1",
                         _reply([("abcdef1234567890", "ALSA: subject\n\nbody")]))
     assert got == [{"sha": "abcdef123456", "subject": "ALSA: subject",
-                    "message": "ALSA: subject\n\nbody"}]
+                    "message": "ALSA: subject\n\nbody",
+                    "merge": False, "paths": None}]
 
 
 def test_fetch_reads_a_reply_without_the_guard():
     got = fetch_commits("sound-7.2", "sound-7.3-rc1",
                         _reply([("abcdef1234567890", "s")], guard=False))
     assert got[0]["subject"] == "s"
+
+
+def test_fetch_records_merges_and_touched_paths():
+    payload = {"log": [
+        {"commit": "a" * 40, "message": "ALSA: x", "parents": ["p"],
+         "tree_diff": [{"type": "modify", "old_path": "sound/a.c",
+                        "new_path": "sound/a.c"},
+                       {"type": "delete", "old_path": "sound/gone.c",
+                        "new_path": "/dev/null"}]},
+        {"commit": "b" * 40, "message": "Merge tag 'x'",
+         "parents": ["p", "q"]}]}
+    text = ")]}'\n" + json.dumps(payload)
+    got = fetch_commits("sound-7.2", "sound-7.3-rc4",
+                        lambda _u, timeout=None: io.BytesIO(text.encode()))
+    assert got[0]["paths"] == ["sound/a.c", "sound/a.c", "sound/gone.c",
+                                  "/dev/null"] and not got[0]["merge"]
+    assert got[1]["merge"] and got[1]["paths"] is None
 
 
 def test_an_empty_range_is_an_error_not_a_quiet_pass():
@@ -200,6 +220,55 @@ def test_speaker_subjects_pick_the_speaker_path():
                {"sha": "2", "subject": "ALSA: usb-audio: Pioneer DJ", "message": ""},
                {"sha": "3", "subject": "ASoC: foo: enable woofer", "message": ""}]
     assert [c["sha"] for c in speaker_subjects(commits)] == ["1", "3"]
+
+
+# --- telling the sound tree from mainline ---------------------------------
+
+def _c(subject, paths=None, merge=False, message=None):
+    return {"sha": subject[:12], "subject": subject, "merge": merge,
+            "paths": paths, "message": message or subject}
+
+
+def test_mainline_commits_a_back_merge_brought_in_are_not_grepped():
+    """sound-7.3-rc4 was 1359 commits, 36 of them sound, because tiwai merged
+    Linus's tree. `samsung` hit six nvme/xfs sign-off lines, `lnl` a netfilter
+    oops, and the merge of sound-7.3-rc3 re-carried the rc3 pull text."""
+    commits = [
+        _c("nvme: fix racy access", ["drivers/nvme/host/core.c"],
+           message="nvme: fix\n\nSigned-off-by: A <a@samsung.com>"),
+        _c("netfilter: cope with concurrent destruction",
+           ["net/netfilter/nfnetlink_log.c"],
+           message="netfilter: x\n\n nfulnl_recv_config+0x31a/0xd50"),
+        _c("Merge tag 'sound-7.3-rc3' of git://x", merge=True,
+           message="Merge tag\n\n - Add support for TAC5xx2"),
+        _c("ALSA: hda/realtek: Add quirk", ["sound/hda/codecs/realtek/alc269.c"])]
+    assert [c["subject"] for c in sound_commits(commits)] == [
+        "ALSA: hda/realtek: Add quirk"]
+    out = render("sound-7.3-rc4", "sound-7.3-rc3", commits,
+                 ["samsung", "lnl", "tac5xx2"])
+    assert "No watchlist hits in the commits." in out
+    assert "(4 total, 1 in the sound tree" in out
+
+
+def test_a_sound_commit_is_recognised_by_path_or_by_subject():
+    assert is_sound_commit(_c("treewide: refresh kmalloc_obj()",
+                              ["drivers/x.c", "sound/core/y.c"]))
+    assert is_sound_commit(_c("ASoC: amd: acp: fixes", merge=True))
+    assert is_sound_commit(_c('Revert "ALSA: foo: bar"'))
+    assert is_sound_commit(_c("hda: something", ["include/uapi/sound/asound.h"]))
+    assert not is_sound_commit(_c("Merge tag 'asoc-fix-v7.3-rc3'", merge=True))
+    assert not is_sound_commit(_c("xfs: fix", ["fs/xfs/xfs_inode.c"]))
+
+
+def test_no_path_info_is_judged_by_subject_alone():
+    """A mirror reply without tree_diff must not read as "touches nothing"."""
+    assert is_sound_commit(_c("ALSA: hda: x", paths=None))
+    assert not is_sound_commit(_c("xfs: fix", paths=None))
+
+
+def test_a_range_with_nothing_dropped_keeps_the_plain_count():
+    commits = [_c("ASoC: a", ["sound/soc/a.c"])]
+    assert "(1 total)" in render("sound-7.3-rc1", "sound-7.2", commits, [])
 
 
 # --- the rendered section ---------------------------------------------------

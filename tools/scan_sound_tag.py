@@ -105,10 +105,16 @@ class ScanUnavailable(Exception):
 
 
 def fetch_commits(base: str, tag: str, opener=urllib.request.urlopen) -> list[dict]:
-    """``[{sha, subject, message}]`` for the commits *tag* adds over *base*."""
+    """``[{sha, subject, message, merge, paths}]`` for the commits *tag* adds
+    over *base*."""
     if not base:
         raise ScanUnavailable("no earlier version tag to diff against")
-    url = f"{SOUND_MIRROR}/+log/{base}..{tag}?format=JSON&n={_MAX_COMMITS}"
+    # name-status adds each commit's touched paths, which is how the sound
+    # tree's own commits are told from mainline ones a back-merge dragged in
+    # (`sound_commits`). A path-scoped log would do it server side, but the
+    # mirror answers those with 401.
+    url = (f"{SOUND_MIRROR}/+log/{base}..{tag}"
+           f"?format=JSON&n={_MAX_COMMITS}&name-status=1")
     # Everything below is inside one broad handler on purpose: the caller's
     # contract is that this raises ScanUnavailable or returns commits, and the
     # workflow step dies on anything else, posting no comment for the tag at
@@ -130,7 +136,14 @@ def fetch_commits(base: str, tag: str, opener=urllib.request.urlopen) -> list[di
             raise ScanUnavailable(f"{base}..{tag} is empty — the base is wrong")
         return [{"sha": c["commit"][:12],
                  "subject": c["message"].split("\n", 1)[0],
-                 "message": c["message"]}
+                 "message": c["message"],
+                 "merge": len(c.get("parents") or []) > 1,
+                 # None = the mirror did not say; `sound_commits` then judges
+                 # by subject alone rather than by a false "touches nothing".
+                 # Both ends: a deleted file's new_path is "/dev/null".
+                 "paths": ([p for d in c["tree_diff"]
+                            for p in (d.get("old_path"), d.get("new_path")) if p]
+                           if "tree_diff" in c else None)}
                 for c in log]
     except ScanUnavailable:
         raise
@@ -145,6 +158,34 @@ def watchlist_terms(path: Path) -> list[str]:
     """The grep terms in the watchlist file — comments and blanks dropped."""
     return [line.strip() for line in path.read_text().splitlines()
             if line.strip() and not line.lstrip().startswith("#")]
+
+
+# The sound tree's own commits, told apart from mainline ones. tiwai back-merges
+# Linus's tree into for-linus, so `sound-7.3-rc3..sound-7.3-rc4` was 1359
+# commits — 36 of them sound — and the term grep then "hit" `samsung` in nvme
+# sign-off lines, `lnl` in a netfilter oops trace, and the old rc3 pull text
+# re-carried by the merge of that very tag. Nothing outside the sound paths can
+# be a sound-tree quirk, so nothing outside them is grepped.
+_SOUND_PATHS = ("sound/", "include/sound/", "include/uapi/sound/",
+                "Documentation/sound/",
+                "Documentation/devicetree/bindings/sound/")
+# Subsystem-prefixed subjects. A series merge by the ASoC maintainer keeps its
+# `ASoC: …` subject and carries the cover letter, which is worth grepping;
+# it touches no path itself (a merge has no diff here), so the subject is the
+# only handle — and `Merge tag …` merges, the back-merges, are left out.
+_SOUND_SUBJECT_RE = re.compile(r'^(?:Revert ")?(?:ALSA|ASoC|soundwire):')
+
+
+def is_sound_commit(commit: dict) -> bool:
+    if _SOUND_SUBJECT_RE.match(commit["subject"]):
+        return True
+    if commit.get("merge"):
+        return False
+    return any(p.startswith(_SOUND_PATHS) for p in commit.get("paths") or [])
+
+
+def sound_commits(commits: list[dict]) -> list[dict]:
+    return [c for c in commits if is_sound_commit(c)]
 
 
 def watchlist_hits(commits: list[dict], terms: list[str]) -> list[dict]:
@@ -177,9 +218,16 @@ def speaker_subjects(commits: list[dict]) -> list[dict]:
 # --- the comment section ----------------------------------------------------
 
 def render(tag: str, base: str, commits: list[dict], terms: list[str]) -> str:
+    total = len(commits)
+    commits = sound_commits(commits)
     hits = watchlist_hits(commits, terms)
     speaker = speaker_subjects(commits)
-    out = [f"### Commits in `{base}..{tag}` ({len(commits)} total)", ""]
+    # Said out loud, like every other cut: a range that shrank from 1359 to 36
+    # must read as "filtered", not as a small pull.
+    count = (f"{total} total" if len(commits) == total else
+             f"{total} total, {len(commits)} in the sound tree — the rest are "
+             "mainline commits and merges brought in by a back-merge")
+    out = [f"### Commits in `{base}..{tag}` ({count})", ""]
     if hits:
         out += ["#### :rotating_light: Watchlist hits in commits", "```"]
         out += [f"{c['sha']} {c['subject']}" for c in hits]
