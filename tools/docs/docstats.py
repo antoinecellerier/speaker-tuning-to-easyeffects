@@ -7,6 +7,8 @@
 Prose excludes fenced code, tables, headings, HTML comments and frontmatter.
 A sentence ends at . ! or ? before a space, and at the end of a paragraph or list item.
 "Lines > 80" counts prose lines only.
+"Rendered cells > 200" counts the text a reader sees: a link's text without its URL,
+and no HTML tags, emphasis markers or backticks.
 A path is read relative to the current directory, also at a revision.
 """
 import argparse
@@ -14,7 +16,6 @@ import re
 import subprocess
 import sys
 
-LONG_CELL = 200
 WIDTH = 80
 ABBREV = re.compile(r'\b(?:e\.g|i\.e|vs|etc|cf|approx|incl|resp|Fig|No)\.', re.I)
 
@@ -65,6 +66,21 @@ def words(text):
     return sum(1 for w in text.split() if re.search(r'\w', w))
 
 
+LONG_CELL = 200
+
+
+def rendered(cell):
+    """CELL as a reader sees it: link and image text only, code text without its
+    backticks, and no HTML tags or emphasis markers."""
+    cell = re.sub(r'!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])', r'\1', cell)
+    parts = re.split(r'`([^`]*)`', cell)
+    for k in range(0, len(parts), 2):  # the odd parts are code, kept as is
+        p = re.sub(r'<([a-z][\w+.-]*:[^>\s]*)>', r'\1', parts[k])  # an autolink shows its URL
+        p = re.sub(r'<[A-Za-z/!][^>]*>', '', p)
+        parts[k] = re.sub(r'\*+|(?<!\w)_+|_+(?!\w)', '', p)
+    return ''.join(parts)
+
+
 def stats(text):
     paras, cells = split(text)
     prose = ' '.join(clean(x) for p in paras for x in p)
@@ -86,7 +102,7 @@ def stats(text):
         'em-dash asides': plain.count(' — '),
         'parentheticals': plain.count('('),
         'bold spans': len(re.findall(r'\*\*[^*]+\*\*', prose + ' '.join(cells))),
-        f'cells > {LONG_CELL}': sum(len(c) > LONG_CELL for c in cells),
+        f'rendered cells > {LONG_CELL}': sum(len(rendered(c)) > LONG_CELL for c in cells),
         f'lines > {WIDTH}': sum(len(x) > WIDTH for p in paras for x in p),
     }
 

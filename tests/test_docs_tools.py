@@ -211,3 +211,16 @@ def test_docstats_counts_prose_only():
     assert stats["prose words"] == 17
     assert stats["sentences"] == 3
     assert stats["em-dash asides"] == 1 and stats["parentheticals"] == 1
+
+
+def test_docstats_counts_a_long_cell_by_its_rendered_text():
+    """A long URL does not make a cell long, and plain prose over the limit does."""
+    link = "[the issue](https://github.com/acellerier/atmos/issues/44#" + "x" * 120 + ")"
+    linked = "**Bass** is `volmax`, measured " + "on one device " * 5 + link
+    prose = "The regulator under-engages on this device " * 5
+    assert len(linked) > docstats.LONG_CELL >= len(docstats.rendered(linked)), \
+        "the linked cell no longer straddles the limit"
+    assert len(prose) > docstats.LONG_CELL
+    key = f"rendered cells > {docstats.LONG_CELL}"
+    assert docstats.stats(f"| a | {linked} |\n")[key] == 0
+    assert docstats.stats(f"| a | {prose} |\n")[key] == 1

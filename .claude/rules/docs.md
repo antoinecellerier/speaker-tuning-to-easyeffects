@@ -53,7 +53,11 @@ their question, then stop. A short section is never the defect.
 ## Structure
 
 6. Use a list for parallel items or steps, a table for values compared
-   across rows, and prose for an argument.
+   across rows, and prose for an argument. A table cell holds a value or
+   a short phrase, plus a second short clause where needed. A longer cell
+   usually means the row wants a bold-labelled note under the table, or
+   its own subsection if it is an essay (`docstats.py` counts long
+   cells).
 7. Bold marks at most one headline figure or warning per section, never a
    whole sentence. A bold label opening a list item, such as a
    troubleshooting symptom, is a label, not emphasis, so it is allowed.
