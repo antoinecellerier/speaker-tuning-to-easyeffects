@@ -45,9 +45,17 @@ directory, then the script directory.
 | `stimulus_pink.wav` | −18 dBFS RMS | steady-state magnitude after the leveler settles |
 | `stimulus_pink_quiet.wav` | −42 dBFS RMS | pink noise at low input level |
 | `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers. Per-band amplitude + phase via single-bin DFT |
-| `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency, 39 frequencies: the 20 band centers + the midpoint between each pair. The whole grid is replayed ascending / descending / shuffled. Per-frequency steady-state amplitude via single-bin DFT. The cross-pass mean is the static EQ. The cross-pass span is the order-dependent adaptive dynamics. |
+| `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency, 39 frequencies: the 20 band centers + the midpoint between each pair |
 | `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input. Brackets the level-dependent treble gain |
-| `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder. With `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level. −14 is the loud end pink can reach without clipping, given its ~13 dB crest factor. Use `stimulus_stepped_loud.wav` above that |
+| `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder. With `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level |
+
+- **`stimulus_stepped.wav`.** The whole grid is replayed ascending /
+  descending / shuffled. Per-frequency steady-state amplitude via single-bin
+  DFT. The cross-pass mean is the static EQ. The cross-pass span is the
+  order-dependent adaptive dynamics.
+- **`stimulus_pink{60,48,30,24,14}.wav`.** −14 is the loud end pink can reach
+  without clipping, given its ~13 dB crest factor. Use
+  `stimulus_stepped_loud.wav` above that.
 
 DAX3 is non-LTI. The first round of captures, a sweep at −18 dBFS only, showed
 the leveler / regulator engaging during the sweep and contaminating the

@@ -654,10 +654,26 @@ against the full 2795-XML cohort on 2026-08-03:
 |-------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------------------------|----------------------------------------------------------------|
 | Default profile (no `--profile` flag)     | `parse_xml` picks `endpoint.find("profile")` (first child)              | 2677/2677 internal_speaker/normal endpoints have `dynamic` first                   | XML where `off` or another no-op profile precedes `dynamic`    |
 | Asymmetric L/R PEQ filter counts          | Missing-channel HP slot fills with 100 Hz/24 dB-oct HP, bell slot with flat 1 kHz bell | 12204 PEQ profiles → 38 with an L/R filter-count diff (13 differ in HP count)     | Per-driver tuning where one channel has filters the other lacks |
-| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting) and warns. Volmax still routes via regulator | **Fixed (2026-06-17).** `threshold_schema` (corpus_audit) confirms exactly 9 profiles on one newer SoundWire device (`SUBSYS_37A317AA`) stored `threshold_high`/`threshold_low` in a per-channel `<ch_00>…<ch_07>` sub-schema, with real non-zero values on ch_00. The flat `resolve_xml_value` didn't read that sub-schema, so that device got no regulator limiting. The other 36,620 reg-enabled internal_speaker profiles use the direct `value=`/`preset=` form. That includes siblings like `384B17AA`, whose `threshold_high preset="array_20_zero"` is an intentional zero. `resolve_channel_or_direct` reads `ch_00`. The `[0.0]*20` fallback only fires on a genuinely empty tuning, and warns when it does. The doc previously mis-described this as an `isolated_band` sub-schema. `isolated_band` is an unrelated *sibling* element in the older flat schema. | Genuinely empty / hand-edited / broken regulator tuning |
+| Empty `regulator-tuning/threshold_high`   | Falls back to `[0.0]*20` (no limiting) and warns. Volmax still routes via regulator | **Fixed (2026-06-17).** See the note below. | Genuinely empty / hand-edited / broken regulator tuning |
 | Shelf filter with explicit `q` attribute  | Output-gain compensation uses full shelf gain (commit `c505864`)        | 384 type-4 shelf filters → 0 with explicit `q`                                     | Driver release that adds `q` to a shelf, previously silently under-compensated |
 | `is_soundwire` filename detection         | Falls back to HDA mode (no bass enhancer, no convolver headroom restore) | All matched XMLs in the corpus have `SOUNDWIRE_…` or `SDW_…` filenames intact      | User manually renames a SoundWire XML before passing it in     |
 | `make_multiband_compressor` 5+ band cap   | `min(group_count, 8)` enforced                                          | Max observed `group_count` = 4 (Dolby schema only allocates `band_group_0..3`)     | Dolby schema extension                                         |
+
+- **Empty `regulator-tuning/threshold_high`.**
+  - *Cause*: `threshold_schema` (corpus_audit) confirms exactly 9 profiles on
+    one newer SoundWire device (`SUBSYS_37A317AA`) stored
+    `threshold_high`/`threshold_low` in a per-channel `<ch_00>…<ch_07>`
+    sub-schema, with real non-zero values on ch_00. The flat
+    `resolve_xml_value` didn't read that sub-schema, so that device got no
+    regulator limiting.
+  - *Other profiles*: the other 36,620 reg-enabled internal_speaker profiles use
+    the direct `value=`/`preset=` form. That includes siblings like `384B17AA`,
+    whose `threshold_high preset="array_20_zero"` is an intentional zero.
+  - *Fix*: `resolve_channel_or_direct` reads `ch_00`. The `[0.0]*20` fallback
+    only fires on a genuinely empty tuning, and warns when it does.
+  - *Earlier description*: the doc previously mis-described this as an
+    `isolated_band` sub-schema. `isolated_band` is an unrelated *sibling*
+    element in the older flat schema.
 
 **Now reachable on the current cohort.** These formerly inert paths are no
 longer defensive-only and should be treated as implementation gaps:
@@ -665,9 +681,19 @@ longer defensive-only and should be treated as implementation gaps:
 | Code path                                 | Current behaviour                                                        | Current-cohort check                                                              | Status                                                          |
 |-------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------|-----------------------------------------------------------------|
 | 1-band MBC (`group_count=1`)              | Emits LSP `multiband_compressor` with band 0 active (no split frequency) and bands 1-7 disabled. Adds the `mbc-1band` experimental marker to the end-of-run callout | 633 profiles enable MBC with `group_count=1` (§2). The `music` profile dominates them, using a 1-2:1 ratio with fast attack/release as a loudness maximiser | Experimental: reproduced from the Dolby tuning but not yet audibly validated. `--disable mbc` turns it off. |
-| Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | `corpus_audit` L/R peak-asymmetry tally: 131 rows / 10 devices differ, only ALC257/287 and only Lenovo convertible/AIO packages. 119 are ~1 dB matched-filter gain trims (median 1.0 dB). 12 are structural 7 dB cases in convertible `stand` pose | **Resolved (keep global-max).** EE's equalizer has per-channel `left`/`right` bands but a *single* `output-gain`. Applying `max(L,R)` equally to both channels preserves the Dolby-tuned L/R relationship at every frequency, including the 7 dB worst case. A per-channel trim would impose a broadband L-vs-R tilt and isn't representable as one `output-gain`. The only cost is extra headroom on the quieter channel, which the downstream leveler restores. |
+| Asymmetric L/R PEQ peak gain              | Output-gain compensation uses global `max(L,R)` peak                    | `corpus_audit` L/R peak-asymmetry tally: 131 rows / 10 devices differ, only ALC257/287 and only Lenovo convertible/AIO packages | **Resolved (keep global-max).** EE's equalizer has per-channel `left`/`right` bands but a *single* `output-gain`. |
 | Non-zero `dialog-enhancer-ducking`        | Not read by the script, and irrelevant on the present pipeline           | 616/40732 rows have ducking=6 or 8 (§1)                                            | Informational: no downstream consumer, but the "always 0" invariant claim was too strong |
 | Unknown PEQ filter type                   | Warns "unknown PEQ filter type N, skipping" and drops the filter         | No observed filter outside `(1,3,4,6,7,8,9)` on the cohort                          | Inert: types 3/6/8 are emitted (see §9). The warning remains a guard against future driver releases adding new types |
+
+- **Asymmetric L/R PEQ peak gain.**
+  - *Tally split*: of the 131 differing rows, 119 are ~1 dB matched-filter gain
+    trims (median 1.0 dB). 12 are structural 7 dB cases in convertible `stand`
+    pose.
+  - *Why global-max*: applying `max(L,R)` equally to both channels preserves
+    the Dolby-tuned L/R relationship at every frequency, including the 7 dB
+    worst case. A per-channel trim would impose a broadband L-vs-R tilt and
+    isn't representable as one `output-gain`. The only cost is extra headroom on
+    the quieter channel, which the downstream leveler restores.
 
 If a future driver release breaks any of the truly-inert assumptions, the script
 will silently produce a degraded preset rather than crash.
@@ -791,7 +817,16 @@ The three bands below sort them by what the XML carries:
 
 | Block | Element(s) | Active in corpus | Status |
 |---|---|---|---|
-| Sliding bass | `sliding-bass-enable`, `-xo-frequency`, `-max-gain`, `-attack-time`, `-release-time`, `-gain-curve`, `-band-boundary`, `-min-level`/`-max-level` | Enabled and non-inert on 832 rows / 156 XMLs / 63 devices. Only 13 enabled rows are fully inert. Peak boost 3.0–18.6 dB, median 12.0. Mostly `music` (374 rows), but also 73 rows each on `dynamic`/`movie`/`game`/`personalize_*`, so it reaches the default build. Crossover 180–300 Hz. `band-boundary` is always 6 and the curve always 5 points | The parameters are all there; the semantics are not. The 5-point `gain-curve` has two incompatible readings, and they imply different stages. See "What blocks sliding bass" below. Not implemented, and not guessable without a capture |
+| Sliding bass | `sliding-bass-enable`, `-xo-frequency`, `-max-gain`, `-attack-time`, `-release-time`, `-gain-curve`, `-band-boundary`, `-min-level`/`-max-level` | Enabled and non-inert on 832 rows / 156 XMLs / 63 devices. Only 13 enabled rows are fully inert. See the note below. | The parameters are all there; the semantics are not. See "What blocks sliding bass" below. Not implemented, and not guessable without a capture |
+
+- **Sliding bass.**
+  - *Corpus spread*, over the rows the table counts: peak boost 3.0–18.6 dB,
+    median 12.0. Mostly `music` (374 rows), but also 73 rows each on
+    `dynamic`/`movie`/`game`/`personalize_*`, so it reaches the default build.
+    Crossover 180–300 Hz. `band-boundary` is always 6 and the curve always 5
+    points.
+  - *Semantics*: the 5-point `gain-curve` has two incompatible readings, and
+    they imply different stages.
 
 #### What blocks sliding bass
 
@@ -904,10 +939,27 @@ XML-only rule exists to prevent (see CLAUDE.md "Core invariants").
 
 | Block | Element(s) | Active in corpus | Status |
 |---|---|---|---|
-| Volume-leveler DRC sub-component | `volume-leveler-drc-enable` | 618 XMLs, enabled on 9979 of 11150 rows | Reported at end of run. Moot by default, because the leveler is bypassed. Only reachable under `--enable autogain`. First non-Lenovo carrier: Framework's `F111:010F` ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) package, 2026-08-25) |
-| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, enabled on 2408 of 2410 rows | Same. Does not explain the issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) autogain overshoot: neither that device (`17AA507F`) nor the dev device (`17AA22E6`) carries the element, so Dolby's leveler runs uncompressed there too. Two devices (`37A317AA`, `C1DC144D`) switch it off on `music` and on elsewhere. That is the closest thing to an in-device A/B. First non-Lenovo carrier: Framework Laptop 13 Pro `F111:000F` ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73), 2026-08-25), on in all ten of its profiles. Its `F111:010F` package sibling carries the DRC sub-component instead |
+| Volume-leveler DRC sub-component | `volume-leveler-drc-enable` | 618 XMLs, enabled on 9979 of 11150 rows | Reported at end of run. Moot by default, because the leveler is bypassed. Only reachable under `--enable autogain`. See the note below |
+| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, enabled on 2408 of 2410 rows | Same. See the note below |
 | Media-Intelligence steering | `mi-virt-steering-enable`, `mi-dialog-enhancer-steering-enable` (4245 rows), `mi-surround-compressor-steering-enable` (4139 rows) | Present on all 2681 XMLs | Content-adaptive steering of stages we do model. Not warned: it is on the `dynamic` profile of essentially every device, so a note would fire on every run |
 | MBC channel deviation | `mb-compressor-channel-deviation` | 1589 XMLs, non-zero on 64 rows | Not warned; near-universally zero |
+
+- **Volume-leveler DRC sub-component.** First non-Lenovo carrier: Framework's
+  `F111:010F`
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)
+  package, 2026-08-25).
+- **Volume-leveler compressor sub-component.**
+  - *Issue #25*: the compressor sub-component does not explain the issue
+    [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)
+    autogain overshoot: neither that device (`17AA507F`) nor the dev device
+    (`17AA22E6`) carries the element, so Dolby's leveler runs uncompressed there
+    too.
+  - *In-device A/B*: two devices (`37A317AA`, `C1DC144D`) switch it off on
+    `music` and on elsewhere. That is the closest thing to an in-device A/B.
+  - *First non-Lenovo carrier*: Framework Laptop 13 Pro `F111:000F`
+    ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73),
+    2026-08-25), on in all ten of its profiles. Its `F111:010F` package sibling
+    carries the DRC sub-component instead.
 
 ### Band C — present but inert, or engine plumbing
 
@@ -925,13 +977,34 @@ Named once so a future schema sweep doesn't re-discover them as findings:
 |---|---|---|---|
 | Dynamic Speaker Optimization (DSO) | `init-info/dynamic_speaker_optimization_enable`, `dynamic-speaker-optimization-amount`, `dynamic-speaker-optimization-speaker-interval` | 1 XML, 1 device (`SUBSYS_37A317AA`, IdeaPad-5x-2-in-1 SoundWire SPK1), enabled on all 10 of its rows | Warned at parse time. Excursion-aware bass limiting tied to driver size. It needs Dolby DSP data we don't have. |
 | Advanced speaker virtualizer | `advanced-speaker-virtualizer-rendering-config`, `advanced-speaker-virtualizer-start-bin`, `speaker_virtualizer_mode` | Same 1 XML / device | Warned at parse time. Newer FFT-domain replacement for `output-mode-partial-{surround,height}-virtualizer-enable`, and also unmodeled. |
-| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, and enabled on 2408 of 2410 rows, not merely present. Newer Lenovo AIO / ThinkPad packages, plus Framework's `F111:000F` since [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) (2026-08-25), the first non-Lenovo carrier | Not warned. Harmless by default, since the volume leveler is bypassed entirely (autogain trap, see design-notes.md). Dropping a sub-block of a stage we don't run costs nothing. It could matter under `--enable autogain` on one of these 77 devices, where our leveler would run without the compressor Dolby pairs with it. This does not explain the issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) autogain overshoot: neither that device (`17AA507F`) nor the dev device (`17AA22E6`) carries the element at all, so Dolby's leveler runs uncompressed there too. Unmeasured on the 77. |
+| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, and enabled on 2408 of 2410 rows, not merely present | Not warned. Harmless by default, since the volume leveler is bypassed entirely (autogain trap, see design-notes.md). It could matter under `--enable autogain`; see the note below. |
 | Rear / rear-height virtualizer angles | `virtualizer-rear-speaker-angle`, `virtualizer-rear-height-speaker-angle`, `rear-height-filter-mode` | Common on 4+ speaker laptops | Not modeled. The legacy `output-mode-partial-{surround,height}-virtualizer-enable` isn't modeled either; see CLAUDE.md and design-notes.md. |
 | Surround-decoder centre spreading | `surround-decoder-center-spreading-enable` | Present in 1345 XMLs, enabled in 0 | Defensive: it would silently drop if a future driver enables it. |
 | Woofer-only regulator | `woofer-regulator-enable`, `woofer-regulator-tuning` | Present in 1345, enabled in 0 | Defensive: it would silently drop if a future driver enables it. |
 | Independent regulator mode | `regulator-independent-enable` | 1 XML, never enabled | Defensive. |
 | Bass-extraction LFE gain | `bass-extraction-lfe-gain` | Present in 1345, enabled in 0 | Defensive: bass-extraction itself is universally off. |
-| Channel-gain matrix attributes | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix | Tied to the unmodeled virtualizer, so it would only matter once advanced-virt is implemented. Separately, simplified-schema XMLs reuse `gain_l`/`gain_r` inside `<audio-optimizer-bands>` as the L/R speaker-correction arrays. *Those* are modeled, mapped to the `ch_00`/`ch_01` slots (issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)). They are unrelated to the downmix matrix here. |
+| Channel-gain matrix attributes | `gain_c`, `gain_l`, `gain_r`, `gain_ls`, `gain_rs`, `gain_lfe`, `gain_lrs`, `gain_rrs`, `gain_ltm`, `gain_rtm` | Companion to virtualizer downmix | Tied to the unmodeled virtualizer, so it would only matter once advanced-virt is implemented. See the note below. |
+
+- **Volume-leveler compressor sub-component.**
+  - *Carriers*: newer Lenovo AIO / ThinkPad packages, plus Framework's
+    `F111:000F` since
+    [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)
+    (2026-08-25), the first non-Lenovo carrier.
+  - *Autogain*: dropping a sub-block of a stage we don't run costs nothing.
+    Dropping the sub-component could matter under `--enable autogain` on one of
+    these 77 devices, where our leveler would run without the compressor Dolby
+    pairs with it. Unmeasured on the 77.
+  - *Issue #25*: the sub-component does not explain the issue
+    [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)
+    autogain overshoot: neither that device (`17AA507F`) nor the dev device
+    (`17AA22E6`) carries the element at all, so Dolby's leveler runs
+    uncompressed there too.
+- **Channel-gain matrix attributes.** Separately, simplified-schema XMLs reuse
+  `gain_l`/`gain_r` inside `<audio-optimizer-bands>` as the L/R
+  speaker-correction arrays. *Those* are modeled, mapped to the `ch_00`/`ch_01`
+  slots (issue
+  [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22)).
+  They are unrelated to the downmix matrix in the table above.
 
 The `_UNMODELED_FEATURES` table in `lib/dax/parse.py` carries:
 

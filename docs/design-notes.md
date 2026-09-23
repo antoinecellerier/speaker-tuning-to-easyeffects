@@ -247,13 +247,31 @@ Each stage in the chain is a potential gain trap:
 
 | Stage | Gain | Reason |
 |-------|------|--------|
-| Convolver (FIR peak-normalized) | 0 dB | `make_fir` divides the IR by its peak magnitude, so the convolver only ever attenuates and cannot clip on a boost-heavy curve. It is the first stage, fed at unity, with nothing but the −1 dBFS brickwall downstream. As a scalar on the IR it is a constant dB offset at every frequency, so the correction *shape* is untouched. The XML-derived `volmax-boost` restores the level it removes; there is no invented makeup gain. Present since `9eb5871`. |
-| Convolver plugin `autogain` | explicitly `false` | EasyEffects' default is `true`, which re-normalizes by RMS power. Our minimum-phase FIR concentrates energy at the peak sample, so RMS power ≈ 0.00001 and the default would apply a **+50 dB boost**. Commit `5973326` disables it. |
+| Convolver (FIR peak-normalized) | 0 dB | `make_fir` divides the IR by its peak magnitude, so the convolver only ever attenuates and cannot clip on a boost-heavy curve. |
+| Convolver plugin `autogain` | explicitly `false` | EasyEffects' default is `true`, which re-normalizes by RMS power. Commit `5973326` disables it. |
 | PEQ `output-gain` | narrowband-scaled | Compensates for the highest PEQ bell gain, scaled down for narrow-Q bells because a Q=4.6 bell only boosts a thin slice of spectrum. Commit `c36907c` relaxed this from full compensation. |
-| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost`, the volume-leveler loudness ceiling, applied statically. Default slot: `multiband_compressor#1.input-gain`, before band limiting, so the regulator tames the boosted bass before the brickwall. Fallback: `limiter#0.input-gain` when the regulator is absent. `--disable volmax` turns it off. `--volmax-slot output-gain` re-routes it after the regulator: the opt-out, pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion. Neither slot is Dolby-derived. Full finding, on-device metrics and corpus verdict: ["volmax-boost slot" below](#volmax-boost-slot-input-gain-vs-output-gain-issue-23). |
+| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost`, the volume-leveler loudness ceiling, applied statically. |
 | MBC upward compression | 0 dB | LSP plugin defaults enable upward compression below `boost-threshold=-72 dB`. Dolby's compressor is purely downward. Commit `e454711` disables it on both MBC instances. |
 | Regulator upward compression | 0 dB | Same LSP default issue. Upward compression on a *limiter* is especially wrong. Also fixed in `e454711`. |
 | Output limiter | −1 dBFS | Final catch-all for inter-sample peaks after everything else. |
+
+- **Convolver (FIR peak-normalized).** It is the first stage, fed at unity, with
+  nothing but the −1 dBFS brickwall downstream. The peak normalization is a
+  scalar on the IR, so it is a constant dB offset at every frequency and the
+  correction *shape* is untouched. The XML-derived `volmax-boost` restores the
+  level it removes; there is no invented makeup gain. Present since `9eb5871`.
+- **Convolver plugin `autogain`.** Our minimum-phase FIR concentrates energy at
+  the peak sample, so RMS power ≈ 0.00001 and the EasyEffects default would
+  apply a **+50 dB boost**.
+- **Regulator `input-gain` (volmax).** Default slot:
+  `multiband_compressor#1.input-gain`, before band limiting, so the regulator
+  tames the boosted bass before the brickwall. Fallback: `limiter#0.input-gain`
+  when the regulator is absent. `--disable volmax` turns it off.
+  `--volmax-slot output-gain` re-routes it after the regulator. That is the
+  opt-out, pre-#23 placement, which on loud low frequencies could drive the
+  brickwall into distortion. Neither slot is Dolby-derived. Full finding,
+  on-device metrics and corpus verdict:
+  ["volmax-boost slot" below](#volmax-boost-slot-input-gain-vs-output-gain-issue-23).
 
 ### `volmax-boost` slot: `input-gain` vs `output-gain` (issue #23)
 
@@ -419,14 +437,14 @@ Risk class:
 |---|---|---|---|---|
 | convolver#0 | `autogain` | `false` | AUDIBLE | Trap fix (commit `5973326`). LSP default is `true`, which RMS-normalises the FIR and gives a +50 dB boost on our peak-normalised minimum-phase IR. Must stay false. |
 | convolver#0 | `ir-width` | `100` | TOPOLOGY | Stereo image width in the convolver's mid/side decode. 100 = pure stereo passthrough. |
-| ~~stereo_tools#0~~ | — | (not emitted) | — | **Removed 2026-06-13.** The converter emits no stereo widener; `surround-boost` is not mapped (entry 2). `emit_stereo_tools` (`lib/pipewire/plugins.py`) stays as a translator for any preset that still carries the block. |
+| ~~stereo_tools#0~~ | — | (not emitted) | — | **Removed 2026-06-13.** The converter emits no stereo widener; `surround-boost` is not mapped (entry 2). |
 | equalizer#0 | `mode` | `"IIR"` | AUDIBLE | Biquad realisation of the per-band PEQ. Alternatives: FIR / FFT / SPM. FFT mode would reproduce the band targets exactly at every FFT bin instead of analytically. Open: candidate test. |
 | equalizer#0 | `q-mode` | (none) | AUDIBLE | Resolved (2026-06): the EE 8.x equalizer schema we emit has no separate q-mode key. The Q convention is a property of the per-band filter family (`mode`), covered in the row below. |
-| equalizer#0 | per-band `mode` | `"RLC (BT)"` | AUDIBLE | Filter family. Verified for HP-slope behavior (commit `944a8f3`). Bell-width convention quantified from LSP source ([Filter.cpp], `FLT_BT_RLC_BELL` vs `FLT_DR_APO_PEAKING`). `APO (DR)` is exactly the RBJ-cookbook biquad (`α=sin(ω0)/2Q`, reciprocal `√gain` scaling). `RLC (BT)` uses a different prototype (`kt = 2√(1+g²)/(1+2Q)`): identical peak gain, wider bell at q>1. On the dev-device bells, realized half-gain Q is 3.43 for q=4.6 (≈25% wide), 1.72 for q=2.0 and 1.35 for q=1.5. Max in-band deviation vs cookbook is 0.58 dB (q=4.6) and ≤0.23 dB (q≤2). Whether Dolby's `q` is cookbook-convention is undecided, measured across two DAX sessions. Fitting the RLC−RBJ signature to the EE−DAX pink residual (150–800 Hz) on `dynamic`/`movie`/`game` gives a≈0.78/0.76/0.95 (2026-06) and a≈0.71/0.71/0.90 (2026-06-13 Windows session). That is consistent across sessions and leans cookbook, but the signature (0.23 dB rms) explains only ~2% of the ~1.1 dB voicing residual. A stepped-tone check is *confounded*: DAX's leveler adapts per held tone, ±3 dB ≫ the 0.43 dB bell signature. The convention delta is smaller than this device's content-adaptive variability, so settling it likely needs a device with higher-Q / higher-gain bells. Candidate fix if cookbook is ever confirmed: emit bells as `APO (DR)`, with HP staying `RLC (BT)` (verified); the second-device bar applies. `compare_ee_analytical.py` models bells as RBJ, so the offline model and the live plugin disagree by up to the 0.58 dB above. That is part of the vsXML baseline, not a DAX-side effect. |
+| equalizer#0 | per-band `mode` | `"RLC (BT)"` | AUDIBLE | Filter family. Verified for HP-slope behavior (commit `944a8f3`). Bell-width convention: see the note below. |
 | equalizer#0 | `split-channels` | `true` | AUDIBLE | Required: the Dolby PEQ is asymmetric L/R on most devices. Linking would force-symmetrise. |
 | autogain#0 | `bypass` | `true` (HDA), `false` (SDW) | AUDIBLE | Documented in "Why autogain is bypassed by default": re-enabling reintroduces pumping on quiet→loud transitions. |
 | multiband_compressor#0 | `compressor-mode` | `"Modern"` | AUDIBLE | LSP's two compressor algorithms differ in knee shape and ratio behavior. Not measured against the XML's compressor model. Open: candidate test. |
-| multiband_compressor#0 | `envelope-boost` | `"None"` | AUDIBLE | A pre-detection EQ tilt. Options include `Pink BT/MT`, `Brown BT/MT`. A primitive analog to Dolby's MI steering: it could shape compressor response on content where, with `None`, it engages flat. Open: candidate test. |
+| multiband_compressor#0 | `envelope-boost` | `"None"` | AUDIBLE | A pre-detection EQ tilt. Options include `Pink BT/MT`, `Brown BT/MT`. Open: candidate test. |
 | multiband_compressor#0 | `stereo-split` | `false` | TOPOLOGY | Single sidechain across L+R. Dolby's compressor is parameterised globally (one threshold per band, both channels), so a unified sidechain matches. |
 | multiband_compressor#0 | per-band `sidechain-mode` | `"RMS"` | AUDIBLE | RMS detection gives smoother level estimation than peak. Reasonable for a music compressor. Not directly tested against Dolby's. |
 | multiband_compressor#0 | per-band `sidechain-source` | `"Middle"` | AUDIBLE | Sidechain on `M` of M/S. Could be `"Stereo"` (full stereo image) or per-channel. The choice affects how loud-on-one-side content compresses both sides. Open: not tested. |
@@ -438,6 +456,36 @@ Risk class:
 | limiter#0 | `dithering` | `"None"` | SAFE | Off: adding dither here raises the noise floor unconditionally. |
 | limiter#0 | `lookahead` | `1.0` ms | TOPOLOGY | Below LSP default (5 ms) but non-zero. Allows correct peak detection without the full-default delay. |
 | limiter#0 | `alr` | `false` | AUDIBLE | LSP "auto level release": dynamic relaxation of release time on the limiter. Off keeps behavior predictable. |
+
+- **`stereo_tools#0`.** `emit_stereo_tools` (`lib/pipewire/plugins.py`) stays as
+  a translator for any preset that still carries the block.
+- **`equalizer#0` per-band `mode`.** Whether Dolby's `q` is cookbook-convention
+  is undecided, measured across two DAX sessions.
+  - *Bell-width convention*, quantified from LSP source ([Filter.cpp],
+    `FLT_BT_RLC_BELL` vs `FLT_DR_APO_PEAKING`). `APO (DR)` is exactly the
+    RBJ-cookbook biquad (`α=sin(ω0)/2Q`, reciprocal `√gain` scaling). `RLC (BT)`
+    uses a different prototype (`kt = 2√(1+g²)/(1+2Q)`): identical peak gain,
+    wider bell at q>1.
+  - *Size on the dev-device bells*: realized half-gain Q is 3.43 for q=4.6 (≈25%
+    wide), 1.72 for q=2.0 and 1.35 for q=1.5. Max in-band deviation vs cookbook
+    is 0.58 dB (q=4.6) and ≤0.23 dB (q≤2).
+  - *DAX sessions*: fitting the RLC−RBJ signature to the EE−DAX pink residual
+    (150–800 Hz) on `dynamic`/`movie`/`game` gives a≈0.78/0.76/0.95 (2026-06)
+    and a≈0.71/0.71/0.90 (2026-06-13 Windows session). That is consistent across
+    sessions and leans cookbook, but the signature (0.23 dB rms) explains only
+    ~2% of the ~1.1 dB voicing residual. A stepped-tone check is *confounded*:
+    DAX's leveler adapts per held tone, ±3 dB ≫ the 0.43 dB bell signature. The
+    convention delta is smaller than the dev device's content-adaptive
+    variability, so settling it likely needs a device with higher-Q /
+    higher-gain bells.
+  - *Candidate fix* if cookbook is ever confirmed: emit bells as `APO (DR)`,
+    with HP staying `RLC (BT)` (verified); the second-device bar applies.
+  - *Offline model*: `compare_ee_analytical.py` models bells as RBJ, so the
+    offline model and the live plugin disagree by up to the 0.58 dB above. That
+    is part of the vsXML baseline, not a DAX-side effect.
+- **`multiband_compressor#0` `envelope-boost`.** A primitive analog to Dolby's
+  MI steering: it could shape compressor response on content where, with `None`,
+  it engages flat.
 
 Rows flagged "Open: candidate test" are the active audit surface. A
 measurement-backed conclusion updates its row with the residual numbers and the
@@ -2350,23 +2398,535 @@ so a capture campaign can attack them deliberately. The "Follow-ups" list
 further down tracks ideas we considered and did *not* adopt; these are live,
 shipping defaults.
 
-| # | Factor (generator) | XML field | Why it's a guess | Path status | What would falsify it |
-|---|---|---|---|---|---|
-| 1 | Dialog-enhancer gain ceiling: `amount/16 * 6.0` dB, bell centered 2.5 kHz, Q≈0.7 (`make_dialog_enhancer`). The SoundWire-only `* 8.0` dB variant and its 4 kHz clarity bell at `*0.6` were **REMOVED 2026-07-03** (see end of this row) | `dialog-enhancer-amount` (0–16) | The XML gives only an amount. The dB ceiling, center and Q are converter-chosen: nothing in the schema says "6 dB" | **default audible** when `dialog-enhancer-enable=1`. X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3, off on `music`/`game` | Verdict: the 6 dB ceiling is **unconfirmed**, and our bell appears to over-apply vs DAX on the espeak speech and pink captures below. Settling it needs a speech source that demonstrably engages DAX's DE, ideally in a same-profile DE-on-vs-off capture. A pink-noise pre-screen is null/confounded, with no static speech bell (see roadmap): DAX's DE is evidently speech-gated. The battery carries `stimulus_speech`: espeak-ng synthesis when installed, else an LTASS-shaped-noise fallback that may not trip an MI speech classifier. The capture protocol must therefore verify a nonzero DE-on-vs-off contrast before concluding anything. **Measured 2026-06-13 with espeak speech on DAX: no DE signature found.** DAX output for `movie` (DE=5, enabled) and `game` (DE=0) is identical to ±0.00 dB on *both* speech and pink, which share an IEQ+AO target. Our static chain adds the modelled bell: EE `movie`−`game` = +1.3 dB @ 1.5–3.5 kHz. Two readings remain unresolved. The espeak voice, "fairly robotic" per the capture notes, may not trigger DAX's MI dialogue classifier. Or DAX's DE isn't a static speech-band boost. Dolby Access exposed no DE toggle for the movie profile, only an Intelligent-EQ switch (left off), so a same-profile on/off contrast wasn't capturable. **SoundWire `*8` arm + 4 kHz bell removed 2026-07-03.** `2f4d0b8` (2026-04-12) introduced it to add "consonant clarity" on a chain whose 10×-over-applied IEQ was crushing treble by up to 28 dB. `eeecc4a`/#13 fixed that IEQ on 2026-05-28, so the arm compensated a since-fixed bug. The measured over-application above also argues for less dialog gain, not 33% more. The arm also made the generation banner wrong on SoundWire, because the banner always printed the ×6 figure. Both device families share the ×6 single-bell mapping. Field evidence: issue [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29) ("dynamic wonky, music better"), where DE is the main dynamic-vs-music audible difference. Restore via git history (`2f4d0b8`) if a SoundWire speech capture ever shows a stronger DE |
-| 2 ✅ | Surround→stereo-base: `min(boost/20.0, 0.5)`. **REMOVED 2026-06-13**: the converter maps `surround-boost` to no widening | `surround-boost` (1/16 dB) | The `/20` divisor and 0.5 cap were invented. Dolby surround is a spatial renderer; EE `stereo_tools` is a linear M/S balance | **resolved: widening dropped.** It was emitted when surround was present (`surround-boost=96` on `dynamic`/`movie`) | Verdict: adopt the removal, **validated on-device 2026-06-13**. The in-hand data could not test the mapping. The captured battery uses *correlated* pink (`stimulus_pink.wav`, corr +1.0, no Side), so the widener is a no-op: surr=96 (`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical residual side/mid (≈ −35 dB). EE half, measured 2026-06: the live chain widens decorrelated pink by +4.10 dB S/M on `dynamic`/`movie` (surr=96 → stereo-base 0.5) and +0.02 dB on surr=0 profiles (analyzer `sm_delta_db`). DAX half, measured 2026-06-13 with decorrelated pink captured on Windows: DAX applies essentially ZERO widening. Its surr=96 (`dynamic`/`movie`) S/M-delta is +0.01 dB, byte-for-band identical to surr=0 (`game`, +0.02) and to OFF (+0.02), flat across 250 Hz–8 kHz. So our `/20` mapping added +4 dB of static S/M width on the 2-channel speaker output that DAX does not produce: a clear over-application. The phase-widening loophole is closed electrically too. On *correlated* pink (L/R corr +0.998, room to decorrelate), DAX holds the correlation at +0.997 on game and dynamic alike: no inter-channel decorrelation, so no phase/XTC widener either. Our widening chain dropped it to +0.991 (corr input) / −0.45 (decorr input). A loopback cannot represent crosstalk cancellation's *acoustic* effect at the ears, or a virtualizer that is content-gated and dormant on stereo noise, engaging only on multichannel/object Atmos. Settling those needs a binaural capture / listening test, or an XML A/B with `surround-boost` edited to 0 (the risky single-block test). For the magnitude M/S rebalance our mapping actually performed, DAX demonstrably does nothing. **Provenance:** widening first shipped 2026-02-28 (`82d7f3d`), but no DAX battery before 2026-06-13 (`measure_dax_3`) contained a decorrelated-stereo stimulus. The Apr/May sets were pink/sweep/multitone/stepped only. So 2026-06-13 is the *first* DAX widening measurement, with no earlier DAX stereo data to compare against. **Why DAX's effect is ~nil (leading hypothesis):** `surround-boost` is almost certainly a *virtualization/surround-render depth* parameter, not a stereo-width knob. It gates with `surround-decoder-enable` / `output-mode-partial-surround-virtualizer-enable`, an FFT-domain upmix→virtualize stage we classify as non-modelable. Fed plain 2-channel PCM with no surround/object bed, that renderer has nothing to synthesise, so the boost scales ≈nothing. `movie` (boost=96) ≡ `game` (boost=0) to 0.01 dB RMS / ≤0.07 dB max in both L and R, not just in S/M. So our mapping is likely wrong *in kind*, not merely over-scaled: a static width knob for what is really a multichannel-render gain. On the stereo playback path the converter targets, the faithful behaviour is to not widen. **Resolution:** the `surround-boost → stereo_tools` widening was removed from the converter. `make_stereo_tools`, the emission branch, the `surround` param of `make_preset` and the `--disable stereo` flag are all gone. `surround` is parsed and reported as intentionally-unmapped. This one-device decision (no second-device DAX capture) is justified because it *removes* an unvalidated invented scaling that the only falsifying signal, a DAX capture, contradicted, rather than adopting a new mapping. The mechanism (render-depth param, dormant on stereo) is structural, not per-device. If a future device's DAX capture shows real widening, restore via git history (`82d7f3d`). **Validation:** the no-widener chain was re-captured through live EE on 2026-06-13. Decorrelated-pink S/M widening dropped +4.10 → +0.02 dB on every profile (dynamic/movie/game), matching DAX's +0.01. Correlated pink fell +4.41 → +0.32 dB; that residual is the device's L/R-asymmetric FIR/PEQ (DAX +0.12), not widening. Mono did not regress. The rest of the chain's preset JSON is byte-identical (preset-digest snapshot, now `tests/test_golden_preset.py`). Live mono-pink matched pre-fix within capture repeatability (~0.45 dB RMS), with EE−DAX pink steady at 1.35–1.67 dB RMS (Finding-9 baseline) |
-| 3 ✅ | Convolver SoundWire headroom restore: `peak_db * 0.5`. **REMOVED 2026-07-03**: the convolver emits 0 dB gain on every device family | (none: a post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | The 0.5 was chosen to "recover brightness". It is not XML-derived | **resolved: restore dropped.** It was default audible on SoundWire | The restore was tracking the #13 bug's magnitude, not a property of SoundWire curves. **Provenance:** `2f4d0b8` (2026-04-12, the first SoundWire user's PR) introduced it to restore the "+6-7 dB" of level FIR peak-normalization removed. That large peak was an artifact of the pre-#13 chain over-applying `ieq-amount` 10×, fixed in `eeecc4a` (2026-05-28, on-device validated). After the fix the same formula self-scaled to ~+0.7 dB. Issue [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)'s pasted generation runs show FIR peaks +1.1…+1.5 dB → restores +0.6/+0.7 dB. Field evidence: issue [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29) (Zenbook S14) found the SoundWire preset over-loud, and the reporter manually set −5 dB output. Removal follows the entry-2 precedent: it *drops* an invented non-XML gain rather than adopting a new mapping, so the second-device bar doesn't apply. Loudness makeup is volmax-boost's job (XML-derived, entry on volmax slots). It is not locally measurable (dev device is HDA); the #29 reporter's regenerate-and-listen is the field check. If a SoundWire DAX capture ever shows DAX applying net positive gain vs OFF that our chain lacks, restore via git history (`2f4d0b8`) |
-| 4 | Regulator slope→ratio: slope read `/16` (`parse_xml`), then `ratio = 1/(1−slope)` (`make_regulator`) | `regulator-distortion-slope` | The `/16` reading is assumed by analogy to the dB fields. `1/(1−slope)` is inferred from how corpus values cluster | regulator only engages at high level | **Not testable on this device.** The X1 Yoga is `distortion-slope=16` on *every* profile, so there is no operating-point variation to fit `1/(1−slope)`. It needs a device with differing slope values and a bass-burst capture comparing gain-reduction-vs-level (Phase 4) |
-| 5 | Regulator timbre→knee: timbre read `/16` (`parse_xml`), then `knee = −6·timbre` dB (`make_regulator`) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | The `−6` dB maximum knee is a pure guess. The field is constant across the corpus, so we have no signal to disambiguate | regulator, high level | **Not testable on this device.** The X1 Yoga is `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre` scaling has a single operating point. It needs a device whose XML carries `timbre≠0.75`, plus a capture (Phase 4) |
-| 6 | MBC ratio `1/(coeff/32768)` (`decode_mbc_bands`); time constants via Q15 with `block_size=256` → 187.5 blocks/s (`decode_mbc_time_constant`) | `mb-compressor-tuning` 6-tuples | The Q15 format and 256-sample block size are assumed from common DSP practice and only sanity-checked numerically, never measured | **dormant**: the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) | **Diagnosed 2026-06-13:** the loud-level gap is neither the upstream bass-level gap nor a wrong MBC decode; its actual driver is the regulator under-engaging. Woken 2026-06-13 with `stimulus_stepped_loud` (−2 dBFS peak), loud-vs-normal static gain (aligned @1 kHz) shows DAX compressing far harder than our chain: DAX −10.6 dB GR @234 Hz (EE −5.5), −10.4 @277 (EE −1.7), −5.9 @141 (EE 0), −7.4 @2.25 kHz (EE −3.2). The adaptive cross-pass span is ≤1.5 dB, so this is the compressor/regulator, not the leveler. A 2026-07-01 re-verification from the raw held-tone envelopes confirms the leveler's per-tone adaptation does not contaminate the GR readout at the 234/277 Hz diagnostic bands. There the within-tone drift is ≤0.16 dB and all three passes agree to ~0.03 dB. The adaptation is visible only elsewhere: −1.1 dB early-tone at 141 Hz and a 1.5 dB cross-pass span at 3 kHz. The diagnosis ([`tools/measure_ee/dynamics_gap.py`](../tools/measure_ee/dynamics_gap.py); agent analysis, key numbers re-verified from the converter): (i) 1 kHz-referenced, the level each chain delivers to its dynamics agrees within ±3 dB at every diagnostic band (141–4193 Hz). The "DAX delivers +16–22 dB more" reading was a reference artifact: our FIR is peak-normalised to a different anchor than DAX's OFF-flat baseline. The real 22–30 dB Finding-4 bass gap sits below ~120 Hz, pre-attenuated by the 100 Hz HP before either chain's dynamics. (ii) The MBC decode is internally faithful but *conservative*. A 3-level fit (−42/−18/−2) shows EE realises its nominal 1.67 ratio only at the one band that clears threshold well (234 Hz, R≈1.54). Elsewhere the −6 dB soft knee and RMS detection keep it sub-slope. (iii) DAX's effective ratio at 234/277 Hz is ≈ 2.95, its near-100:1 regulator stacking on the MBC. Our regulator maps the same −10/−9/−8/−5 dB thresholds and slope (entry 11), yet barely fires there. So the lever is the regulator, not the MBC ratio/threshold, which stays XML-derived and unchanged. See entry 11 |
-| 7 | Volume-leveler→autogain window: `max-history = 40−amount·4` / `30−amount·5` (`make_autogain`) | `volume-leveler-amount` (0–10) | The window formula is invented. It measured as no reaction-speed lever at all: 20/32/40 s gave identical ~4 dB onset overshoot (see "The 2026-07 default-flip attempt") | **bypassed by default** on HDA, where `--enable autogain` opts in. Active in the conservative SoundWire path | A capture of DAX's MI-steered leveler (non-LTI, so hard) |
-| 8 | PEQ anti-clipping trim: `effective boost ≈ gain·min(1, 2/Q)` per positive bell (full gain for shelves), peak negated into `equalizer#0.output-gain` (`make_peq_eq`) | (none: a headroom heuristic over the XML's PEQ gains) | The `2.0` bandwidth weighting and the "compensate exactly the peak effective boost" rule are converter-invented. Nothing says DAX trims broadband level at all. And "over-conservative PEQ output-gain" is a listed listen-for trap | **default audible** on every XML whose PEQ has boost bells/shelves | **Still confounded** after two tries: DAX's leveler/volmax staging buries the 3 dB PEQ trim. The dev device has no cross-profile Q contrast: its PEQ is identical in every profile (+3 dB/Q2 @280, +4 dB/Q4.6 @400, −4 dB/Q1.5 @516). The hypotheses still predict distinct broadband offsets there: `min(1, 2/Q)` → −3 dB trim, full compensation → −4 dB, no trim → 0. An absolute-level EE↔DAX pink compare can discriminate them (`compare_ee_vs_dax.py --absolute`, volumes pinned; the default 1 kHz normalization destroys exactly this observable). Tried 2026-06 on the archived DAX captures: confounded. The absolute EE−DAX offset is −11.5 dB on `dynamic`/`movie`/`game` but −1.0 dB on `voice`, i.e. dominated by DAX's profile-dependent leveler/volmax staging. Re-tried 2026-06-13 with pinned/recorded 50% volume: still confounded. DAX's leveler drives `dynamic`/`movie`/`music`/`game` to a single loudness target, with raw transfer all within 0.01 dB. That gives a flat ≈ −8 dB EE−DAX offset (leveler boost + our −3 dB trim + convolver peak-normalisation, inseparable). `voice`, leveled to a quieter target, shows −0.06 dB. Useful byproduct: the DAX OFF raw transfer is −0.01 dB at 50% master volume. So WASAPI loopback taps the engine mix bus pre-volume, and the master-volume term never enters the captures. Validating the `min(1, 2/Q)` *shape* still needs a wide-vs-narrow-Q second device |
-| 9 | SoundWire Calf BassEnhancer constants: `amount=12 dB`, `harmonics=10`, `blend=−10`, `floor=10`, `scope = min(2·hp_freq, 300)` (`make_bass_enhancer`) | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; Finding 8) | Every knob is converter-chosen. The `2×` scope multiplier derives an emitted parameter from the PEQ HP corner. The constants were also tuned (`bc12c2e`, 2026-04-12) against the pre-#13 over-applied-IEQ chain, so the 12 dB drive may compensate a since-fixed deficit | **default audible** on SoundWire, the most audible invented stage on those devices. Kept default-on for now: Finding 8 shows DAX genuinely runs VBE, so removal re-opens a real gap. First field evidence of over-drive: issue [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29) (Zenbook S14) reported "too bass boosted" plus occasional chassis resonance. The reporter manually raised `floor` 10→50 Hz and cut output 5 dB. The #29 A/B (`--disable bass-enhancer` vs default) was the intended discriminator, but its **round-2 result (2026-07-05) is ambiguous**. Disabling the stage did *not* fix `dynamic`. `music` lands close to Windows *with* it on, since the stage rides every profile preset, `music` included. So the report neither condemns nor vindicates the whole stage. The reporter's concrete complaint is the `floor=10 Hz` constant, a hardware-dependent value the XML doesn't carry: drive below the woofer's usable range → chassis resonance. He set `floor`≈80 Hz and cut the amount. **Second negative field report (2026-07-21, issue [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27) follow-up, Galaxy Book6 Ultra):** with the machine's Cirrus amp firmware finally installed, the amp DSP does real bass management. The reporter then needed `--disable bass-enhancer --disable volmax --disable regulator` to avoid "dramatic" degradation. This is also confounded: three flags were disabled at once, and that run's volmax rode an inert all-0 dB-threshold regulator (cross-device-findings §15 addendum). It tilts toward opt-in without deciding it. The SoundWire-*only* gate is contribution-historical (`bc12c2e`, the first SoundWire user's path), not a principled HDA/SoundWire split. On Linux the HDA path equally lacks Dolby's Windows-driver VBE, and Finding 8 measured DAX running VBE on an HDA device. So the *missing*-on-HDA side is issue [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14), and the *present*-on-SoundWire side is what #29 questions. **Follow-up gated on #29's XML + capture:** revisit (a) flipping this stage to opt-in and (b) whether `floor` can be tied to the PEQ HP corner, like `scope`, instead of a hardcoded 10 Hz. **#29's XML arrived 2026-08-27 (capture still pending).** On it, (b) as written is moot. The only PEQ high-pass is in `voice`/`voice_onlinecourse` (type 7, 100 Hz, order 4). `dynamic` and `music` carry bells only, so the HP-corner derivation returns the 100 Hz fallback on every profile the reporter uses. The XML does carry the VBE source band that the HDA `--enable virtual-bass` branch already reads: `virtual-bass-src-freqs = 35,160` (`mix-freqs = 94,469`; corpus constants, parsed in `lib/dax/parse.py`). So an XML-anchored `floor = 35 Hz` / `scope = 160 Hz` is the candidate replacement for the invented `10` / `min(2·hp, 300)`. It would source both device families' bass stage from one XML block. Deferred 2026-08-28 (reply-only round): it is [AUDIBLE] on every SoundWire preset and unheard locally, so it waits for the reporter's A/B or capture. The XML also moves the `dynamic` verdict off this stage. `dynamic` is the profile whose tuning enables the volume leveler (amount 5, DRC on) plus every `mi-*-steering` switch. Our SoundWire path runs that leveler by default without steering, the #25 failure mode, while `music`, the profile he likes, has it off. `--disable autogain` (008b4d6) post-dates his tests, so that A/B is the round-3 ask, and entry 10's SoundWire arm is what it exercises | A SoundWire-device DAX capture with the bass-burst stimuli (Snapdragon X / Yoga Slim 7x / the #29 Zenbook) |
-| 10 | Conservative-autogain offsets: `target = out_target − 6.0` dB, `silence-threshold = −50` dB (`make_autogain`). Since 2026-07 both paths store the −50 gate; the HDA block previously kept EE's −70 plugin default | `volume-leveler-out-target` | The −6 dB safety offset and −50 dB threshold are invented; entry 7 covers only the window formula. The −50 gate is field-confirmed (#25) and capture-measured: +1.7 dB silence wind-up vs +41.8 dB at −70 (see "The 2026-07 default-flip attempt") | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable | Same as entry 7: an MI-steered leveler capture (hard) |
-| 11 | Fixed dynamics constants: MBC active-band `knee = −6.0` dB (`make_multiband_compressor`; the Dolby 6-tuple has no knee field), regulator `attack 1.0 ms` / `release 50.0 ms` (`make_regulator`) | (none) | Chosen from limiting practice, not decoded | **dormant at nominal levels** (the dynamics-dormant measurement above; device-specific, see the end of this row); engaged on loud content | **Engaged 2026-06-13** by `stimulus_stepped_loud` (see entry 6). The dynamics diagnosis lands *here*, on the regulator's fixed constants, not the MBC decode. Our `make_regulator` maps the XML thresholds/slope correctly (−10/−9/−8/−5 dB, near-100:1 on the 4 lowest bands) yet under-engages vs DAX, which clearly hard-limits those bands. ~~Leading hypothesis: the hard-coded `attack 1.0 ms` / Peak detection / `1 ms lookahead` / `release 50 ms` make our regulator *release between* the stepped tones and under-read steady-state GR~~ **Falsified 2026-07-01** by re-analysis of the same captures. The within-tone envelope (single-bin DFT over early/mid/late windows of each held tone) shows EE's response is *time-flat*: drift ≤0.14 dB, no attack ramp, no release decay. The stepped analyzer's readout already skips the 0.4 s settle, so a 1 ms-attack regulator cannot under-read a steady-state window by releasing in the gaps. The under-engagement is static, which points away from the invented time constants entirely. **New leading suspect, gain staging:** at capture time the dev device's volmax `+6 dB` sat in the preset `output-gain` slot, *after* the dynamics. The 2026-06-22 `--volmax-slot input-gain` default flip (`4213d5f`, #23) feeds the MBC/regulator a 6 dB hotter signal. **Measured 2026-07-01:** the flip helps but does not close the gap, on a fresh 3-level stepped battery through the regenerated input-gain-default preset vs the archived DAX stepped captures. Loud-vs-normal GR moved at 234 Hz −5.5 → −6.9 dB (DAX −10.6), 141 Hz 0 → −1.4 (DAX −5.9) and 277 Hz −1.7 → −2.1 (DAX −10.4). 2.25/3 kHz are unchanged. The regulator is inactive above 328 Hz on this XML, so that part of the gap is the MBC's knee/RMS conservatism, as diagnosed. Even 6 dB hotter, the realized regulator curve fits an effective ratio ≈1.8 at 234 Hz against the configured 100:1. The LSP MBC-as-limiter realization (band detection mode / knee / boost interplay) under-realizes the intended hard limit by an order of magnitude. So the remaining lever is the regulator's *plugin realization*, not signal level and not timing. Stage interaction (the MBC's +2 dB makeup re-inflating the signal the regulator then sees) stays a secondary suspect. Settling the remaining gap needs more captures. (a) A regulator-only EE capture (MBC bypassed) at the 3 levels would deconfound the two stages, specifically to characterise the *realized* limiter curve against the LSP settings (`make_regulator`'s detection mode, knee, lookahead) and find why 100:1 configured realizes as ≈1.8. (b) A second-device loud capture comes before any default change (corpus invariant). Ideally, (c) an EE OFF/flat stepped capture would put EE on DAX's absolute-dBFS footing. **XML-grounded angles to try first:** regulator-tuning carries no time constants, unlike the MBC's Q15 coeffs, so timing is invented by necessity. Two currently-ignored regulator fields might inform the engagement. (d) Re-examine `regulator-stress-amount` as an engagement/aggressiveness modifier, not a threshold offset. It's the only per-device-varying regulator field. On `dynamic` it's `144,144,0,…`, non-zero on exactly bands 0–1 (47/141 Hz), the under-engaging bands. Follow-up 5 rejected it only under the *threshold-offset* reading, where lowering threshold moved EE away from DAX. The new framing (DAX intensifies limiting on "stressed" bands → effective ratio ~2.95) is untested and could both explain DAX and stay XML-only. (e) ~~`regulator-relaxation-amount` (=96) as the release control~~ **Dropped 2026-06-18.** It is not XML-derivable: it is frozen at 96 across the whole corpus, so there is no contrast to decode against. The 2026-07-01 time-flat finding also removes its motivation, since release timing isn't the under-engagement driver. (f) `regulator-tuning/isolated_band` (added 2026-07-30, Finding 10) is a previously-unread per-band 0/1 array with genuine per-device contrast. It has 59 corpus patterns, and mirrors threshold-activity exactly on 18,369 profiles but diverges on ≥1 band on 11,548. Its semantics are unknown. Probe-level span attribution on the #44 stepped data argues it does *not* gate the measured adaptive layer. That device carries the discriminating contrast (band 11 iso=1 vs band 12 iso=0, both threshold-active), and both span ~5 dB alike, while the inert iso=0 band 10 spans least (Finding 10). **Shipped as an experimental opt-in 2026-07-30** (`--enable coupled-bands`), **made the default 2026-08-11** (`--disable coupled-bands` opts out). Zero-threshold zones whose bands are all `isolated_band=0` join the limiter at face value (0 dBFS), so upstream gain (volmax on input-gain) gets tamed there before the brickwall. The iso=0 scoping is a conservative gating choice, not established causation. The flip knowingly did not clear the second-device-capture bar in `.claude/rules/xml-derivability.md`. No capture can reach it (see the scope-honesty note below). Two things replaced that bar. A two-device software A/B (below) bounds the audible cost. The other is the argument that the opposite reading, discarding a stated 0 dBFS threshold, leaves the volmax boost feeding the brickwall untamed on exactly the tunings where this fires, which is the failure #23 measured. **Corpus-swept same day** (36,371 regulator profiles / 913 devices through the real parse + both regulator modes): zero crashes and zero default-output deviations. `isolated_band` is *universal*: present on every regulator profile, always 20×{0,1}. On all-zero-threshold tunings the flag yields a single full-band 0 dBFS limiter. That incidentally restores the "volmax tamed before the brickwall" property those tunings otherwise lack. Threshold-inert-but-`iso=1` bands exist on 134 devices (mixed zones correctly declined). **Re-derived against the current corpus for the default flip** (2026-08-11, a walk over the same population the corpus tier uses): 2,842 files hold 37,976 regulator profiles across 979 devices. Of these, 37,675 (99.2%) actually change output under the flip, over zones {1: 29,960, 2: 7,400, 3: 315}, and 2,955 profiles are the all-zero-threshold #27 class. So the flip reaches all but ~0.8% of profiles. That is why the `-active` marker left `EXPERIMENTAL_MARKERS` on the flip: an ask that fires on every run is an ask nobody reads. The same walk caught a real defect. `_coupled_bands_eligible` was a band-level `any()` while activation is per zone, so the run announced a limit it had not added on 274 profiles whose qualifying band shared a zone with an isolated one. The predicate is now zone-level and the two agree exactly. **Scope honesty (offline staging check, same session):** during the −18 dBFS capture battery our chain's level at every coupled band is −12…−19 dBFS (FIR + dialog bell + volmax 7). So the captures can neither confirm nor falsify the mapping's audible effect. DAX's measured 4–6 dB spans at those levels cannot be a static 0 dBFS limiter either: even +8 dB leveler makeup leaves ~−8 dBFS in-band. The mapping is a loud-content protection hypothesis, not a reproduction of the measured moderate-level spans. It engages when in-band level crosses full scale, i.e. content peaks above ≈ −5 dBFS in the 3–6 kHz range on this XML. The A/B must use loud material. **That A/B ran 2026-08-11, on both shapes, and is what the default flip rests on.** The capture route is EE → null sink, so the speakers never enter it and any XML's DSP is measurable on one machine. *Dev X1 Yoga* (one zone, 392 Hz–20 kHz): against `stimulus_stepped_loud` (−2 dBFS peak, 16 dB hotter than the battery) the largest per-tone excursion is −0.38 dB, confined to 1.9–4.7 kHz. Onset and steady state are identical to two decimals: a small static soft-knee offset, not a limiter riding. `pink14` and `bass_burst` come back bit-identical. So the mapping is *inert* on this device even on the hottest single-band excitation possible. That is why weeks of listening were unremarkable, and why this device cannot validate the mapping either. *Galaxy Book6 `F020144D`* (the #27 all-zero class, full-band zone, the biggest change the flip makes anywhere): −0.43 dB median, −0.91 dB worst on `multitone`, on a signal already arriving at the brickwall. Two methodological notes. The first attempt was invalid: that device is SoundWire, so the *leveler* is active and non-LTI. 14% of frames came out louder with the limiter on (max +12.2 dB), which a Downward band with `makeup 0` cannot do. Re-running with `--disable autogain` on both sides fixed it. Pink-noise rows keep positive excursions even then, so their large negative minima are residual misalignment rather than gain reduction. On a comparison like this, only stimuli that align tightly (a tone complex, envelope correlation 0.9998) can be quoted. The standing residual: none of this covers how the #27 shape sounds on *that* laptop's transducers. **The experiment that would validate or kill the mapping is a DAX capture of `stimulus_stepped_loud` on Windows.** The file already exists, and `tools/measure_dax/` + `CLAUDE_WINDOWS.md` carry the protocol. Every DAX capture in the archive is −18 dBFS, exactly the level the scope-honesty note above says cannot decide this. A −2 dBFS peak run would show whether DAX itself limits in bands whose `threshold_high` decodes as 0 dBFS. Read it against the known confound: the 4–6 dB spans DAX shows at moderate level are adaptive/MI-steered, not a static ceiling. So the discriminator is whether a *hard* knee appears at full scale, not whether any gain reduction does. **Second-device datapoint (2026-07-30, Finding 10):** the issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) stepped battery shows DAX applying 4–6 dB of frequency-selective adaptive span in bands whose `threshold_high` decodes as inert (+0.0) on that XML. So part of DAX's band dynamics demonstrably lives outside the regulator parameters we decode, and the "close the regulator gap" ceiling may be lower than the DAX reference implies. The MBC knee/attack/release themselves still need gated-burst transients to characterise, which is deferred. **"Dormant at nominal levels" is device-specific, not a property of the mapping (2026-08-22, issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) round 3).** That reading came from the dev X1 Yoga, whose regulator has four active bands at −10/−9/−8/−5 dBFS. `17AA380D` has eleven active bands, deepest −30.875 dBFS. There the regulator measurably engages on the ordinary −18 dBFS pink battery: −3.24 dB at 328 Hz, the −30.875 band itself, against ≈0 above 1 kHz. It removes 10.3 dB below 300 Hz on a −5 dBFS bass burst. So the under-engagement thread above is a statement about shallow-threshold tunings. On deep-threshold ones the same mapping over-engages relative to what DAX shows at the one level both were measured. That also gives the volmax-slot question a second device pointing the opposite way to #23; see the Finding 10 subsection "Why bypass has more bass than the preset". Round 4 of that subsection measured DAX's own limiter on a −5 dBFS bass burst. The onset passes at full static gain (0 dBFS peak, the first ~3 ms clipped), and the reduction settles over ~100–150 ms. That is the first direct measurement of a DAX limiter time constant, and it puts this row's 1 ms attack about two orders of magnitude too fast on deep bass |
+| # | Factor | XML field | Path status |
+|---|---|---|---|
+| [1](#entry-1-dialog-enhancer-gain-ceiling) | Dialog-enhancer gain ceiling | `dialog-enhancer-amount` (0–16) | default audible when `dialog-enhancer-enable=1`. X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3, off on `music`/`game` |
+| [2](#entry-2-surroundstereo-base) ✅ | Surround→stereo-base | `surround-boost` (1/16 dB) | resolved: widening dropped. It was emitted when surround was present (`surround-boost=96` on `dynamic`/`movie`) |
+| [3](#entry-3-convolver-soundwire-headroom-restore) ✅ | Convolver SoundWire headroom restore | (none: a post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | resolved: restore dropped. It was default audible on SoundWire |
+| [4](#entry-4-regulator-sloperatio) | Regulator slope→ratio | `regulator-distortion-slope` | regulator only engages at high level |
+| [5](#entry-5-regulator-timbreknee) | Regulator timbre→knee | `regulator-timbre-preservation` (corpus-frozen at 0.75) | regulator, high level |
+| [6](#entry-6-mbc-ratio-and-time-constants) | MBC ratio and time constants | `mb-compressor-tuning` 6-tuples | dormant: the MBC doesn't engage on the −10 dBFS test stimuli (Finding 3) |
+| [7](#entry-7-volume-levelerautogain-window) | Volume-leveler→autogain window | `volume-leveler-amount` (0–10) | bypassed by default on HDA, where `--enable autogain` opts in. Active in the conservative SoundWire path |
+| [8](#entry-8-peq-anti-clipping-trim) | PEQ anti-clipping trim | (none: a headroom heuristic over the XML's PEQ gains) | default audible on every XML whose PEQ has boost bells/shelves |
+| [9](#entry-9-soundwire-calf-bassenhancer-constants) | SoundWire Calf BassEnhancer constants | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; Finding 8) | default audible on SoundWire, the most audible invented stage on those devices |
+| [10](#entry-10-conservative-autogain-offsets) | Conservative-autogain offsets | `volume-leveler-out-target` | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable |
+| [11](#entry-11-fixed-dynamics-constants) | Fixed dynamics constants | (none) | dormant at nominal levels (the dynamics-dormant measurement above; device-specific, see the end of entry 11); engaged on loud content |
 
-For contrast, the `/16`-dB convention is verified (above), and the `/32768` Q15
-decode is at least numerically consistent with first-order time-constant theory.
-Everything else above is unverified.
+#### Entry 1: Dialog-enhancer gain ceiling
+
+- **Factor (generator):** `amount/16 * 6.0` dB, bell centered 2.5 kHz, Q≈0.7
+  (`make_dialog_enhancer`). The SoundWire-only `* 8.0` dB variant and its 4 kHz
+  clarity bell at `*0.6` were **REMOVED 2026-07-03** (see the end of this
+  entry).
+- **Why it's a guess:** The XML gives only an amount. The dB ceiling, center and
+  Q are converter-chosen: nothing in the schema says "6 dB".
+
+Verdict: the 6 dB ceiling is **unconfirmed**, and our bell appears to over-apply
+vs DAX on the espeak speech and pink captures below. Settling it needs a speech
+source that demonstrably engages DAX's DE, ideally in a same-profile
+DE-on-vs-off capture. A pink-noise pre-screen is null/confounded, with no static
+speech bell (see roadmap): DAX's DE is evidently speech-gated. The battery
+carries `stimulus_speech`: espeak-ng synthesis when installed, else an
+LTASS-shaped-noise fallback that may not trip an MI speech classifier. The
+capture protocol must therefore verify a nonzero DE-on-vs-off contrast before
+concluding anything.
+
+**Measured 2026-06-13 with espeak speech on DAX: no DE signature found.** DAX
+output for `movie` (DE=5, enabled) and `game` (DE=0) is identical to ±0.00 dB on
+*both* speech and pink, which share an IEQ+AO target. Our static chain adds the
+modelled bell: EE `movie`−`game` = +1.3 dB @ 1.5–3.5 kHz. Two readings remain
+unresolved. The espeak voice, "fairly robotic" per the capture notes, may not
+trigger DAX's MI dialogue classifier. Or DAX's DE isn't a static speech-band
+boost. Dolby Access exposed no DE toggle for the movie profile, only an
+Intelligent-EQ switch (left off), so a same-profile on/off contrast wasn't
+capturable.
+
+**SoundWire `*8` arm + 4 kHz bell removed 2026-07-03.** `2f4d0b8` (2026-04-12)
+introduced it to add "consonant clarity" on a chain whose 10×-over-applied IEQ
+was crushing treble by up to 28 dB. `eeecc4a`/#13 fixed that IEQ on 2026-05-28,
+so the arm compensated a since-fixed bug. The measured over-application above
+also argues for less dialog gain, not 33% more. The arm also made the generation
+banner wrong on SoundWire, because the banner always printed the ×6 figure. Both
+device families share the ×6 single-bell mapping. Field evidence: issue
+[#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29)
+("dynamic wonky, music better"), where DE is the main dynamic-vs-music audible
+difference. Restore via git history (`2f4d0b8`) if a SoundWire speech capture
+ever shows a stronger DE.
+
+#### Entry 2: Surround→stereo-base
+
+- **Factor (generator):** `min(boost/20.0, 0.5)`. **REMOVED 2026-06-13**: the
+  converter maps `surround-boost` to no widening.
+- **Why it's a guess:** The `/20` divisor and 0.5 cap were invented. Dolby
+  surround is a spatial renderer; EE `stereo_tools` is a linear M/S balance.
+
+Verdict: adopt the removal, **validated on-device 2026-06-13**. The in-hand data
+could not test the mapping. The captured battery uses *correlated* pink
+(`stimulus_pink.wav`, corr +1.0, no Side), so the widener is a no-op: surr=96
+(`dynamic`/`movie`) and surr=0 (`game`) loopbacks show identical residual
+side/mid (≈ −35 dB).
+
+EE half, measured 2026-06: the live chain widens decorrelated pink by +4.10 dB
+S/M on `dynamic`/`movie` (surr=96 → stereo-base 0.5) and +0.02 dB on surr=0
+profiles (analyzer `sm_delta_db`). DAX half, measured 2026-06-13 with
+decorrelated pink captured on Windows: DAX applies essentially ZERO widening.
+Its surr=96 (`dynamic`/`movie`) S/M-delta is +0.01 dB, byte-for-band identical
+to surr=0 (`game`, +0.02) and to OFF (+0.02), flat across 250 Hz–8 kHz. So our
+`/20` mapping added +4 dB of static S/M width on the 2-channel speaker output
+that DAX does not produce: a clear over-application.
+
+The phase-widening loophole is closed electrically too. On *correlated* pink
+(L/R corr +0.998, room to decorrelate), DAX holds the correlation at +0.997 on
+game and dynamic alike: no inter-channel decorrelation, so no phase/XTC widener
+either. Our widening chain dropped it to +0.991 (corr input) / −0.45 (decorr
+input). A loopback cannot represent crosstalk cancellation's *acoustic* effect
+at the ears, or a virtualizer that is content-gated and dormant on stereo noise,
+engaging only on multichannel/object Atmos. Settling those needs a binaural
+capture / listening test, or an XML A/B with `surround-boost` edited to 0 (the
+risky single-block test). For the magnitude M/S rebalance our mapping actually
+performed, DAX demonstrably does nothing.
+
+**Provenance:** widening first shipped 2026-02-28 (`82d7f3d`), but no DAX
+battery before 2026-06-13 (`measure_dax_3`) contained a decorrelated-stereo
+stimulus. The Apr/May sets were pink/sweep/multitone/stepped only. So 2026-06-13
+is the *first* DAX widening measurement, with no earlier DAX stereo data to
+compare against.
+
+**Why DAX's effect is ~nil (leading hypothesis):** `surround-boost` is almost
+certainly a *virtualization/surround-render depth* parameter, not a stereo-width
+knob. It gates with `surround-decoder-enable` /
+`output-mode-partial-surround-virtualizer-enable`, an FFT-domain
+upmix→virtualize stage we classify as non-modelable. Fed plain 2-channel PCM
+with no surround/object bed, that renderer has nothing to synthesise, so the
+boost scales ≈nothing. `movie` (boost=96) ≡ `game` (boost=0) to 0.01 dB RMS /
+≤0.07 dB max in both L and R, not just in S/M. So our mapping is likely wrong
+*in kind*, not merely over-scaled: a static width knob for what is really a
+multichannel-render gain. On the stereo playback path the converter targets, the
+faithful behaviour is to not widen.
+
+**Resolution:** the `surround-boost → stereo_tools` widening was removed from
+the converter. `make_stereo_tools`, the emission branch, the `surround` param of
+`make_preset` and the `--disable stereo` flag are all gone. `surround` is parsed
+and reported as intentionally-unmapped. This one-device decision (no
+second-device DAX capture) is justified because it *removes* an unvalidated
+invented scaling that the only falsifying signal, a DAX capture, contradicted,
+rather than adopting a new mapping. The mechanism (render-depth param, dormant
+on stereo) is structural, not per-device. If a future device's DAX capture shows
+real widening, restore via git history (`82d7f3d`).
+
+**Validation:** the no-widener chain was re-captured through live EE on
+2026-06-13. Decorrelated-pink S/M widening dropped +4.10 → +0.02 dB on every
+profile (dynamic/movie/game), matching DAX's +0.01. Correlated pink fell +4.41 →
++0.32 dB; that residual is the device's L/R-asymmetric FIR/PEQ (DAX +0.12), not
+widening. Mono did not regress. The rest of the chain's preset JSON is
+byte-identical (preset-digest snapshot, now `tests/test_golden_preset.py`). Live
+mono-pink matched pre-fix within capture repeatability (~0.45 dB RMS), with
+EE−DAX pink steady at 1.35–1.67 dB RMS (Finding-9 baseline).
+
+#### Entry 3: Convolver SoundWire headroom restore
+
+- **Factor (generator):** `peak_db * 0.5`. **REMOVED 2026-07-03**: the convolver
+  emits 0 dB gain on every device family.
+- **Why it's a guess:** The 0.5 was chosen to "recover brightness". It is not
+  XML-derived.
+
+The restore was tracking the #13 bug's magnitude, not a property of SoundWire
+curves. **Provenance:** `2f4d0b8` (2026-04-12, the first SoundWire user's PR)
+introduced it to restore the "+6-7 dB" of level FIR peak-normalization removed.
+That large peak was an artifact of the pre-#13 chain over-applying `ieq-amount`
+10×, fixed in `eeecc4a` (2026-05-28, on-device validated). After the fix the
+same formula self-scaled to ~+0.7 dB. Issue
+[#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)'s
+pasted generation runs show FIR peaks +1.1…+1.5 dB → restores +0.6/+0.7 dB.
+
+Field evidence: issue
+[#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29)
+(Zenbook S14) found the SoundWire preset over-loud, and the reporter manually
+set −5 dB output. Removal follows the entry-2 precedent: it *drops* an invented
+non-XML gain rather than adopting a new mapping, so the second-device bar
+doesn't apply. Loudness makeup is volmax-boost's job (XML-derived, entry on
+volmax slots). It is not locally measurable (dev device is HDA); the #29
+reporter's regenerate-and-listen is the field check. If a SoundWire DAX capture
+ever shows DAX applying net positive gain vs OFF that our chain lacks, restore
+via git history (`2f4d0b8`).
+
+#### Entry 4: Regulator slope→ratio
+
+- **Factor (generator):** slope read `/16` (`parse_xml`), then
+  `ratio = 1/(1−slope)` (`make_regulator`).
+- **Why it's a guess:** The `/16` reading is assumed by analogy to the dB
+  fields. `1/(1−slope)` is inferred from how corpus values cluster.
+- **What would falsify it:** **Not testable on this device.** The X1 Yoga is
+  `distortion-slope=16` on *every* profile, so there is no operating-point
+  variation to fit `1/(1−slope)`. It needs a device with differing slope values
+  and a bass-burst capture comparing gain-reduction-vs-level (Phase 4).
+
+#### Entry 5: Regulator timbre→knee
+
+- **Factor (generator):** timbre read `/16` (`parse_xml`), then
+  `knee = −6·timbre` dB (`make_regulator`).
+- **Why it's a guess:** The `−6` dB maximum knee is a pure guess. The field is
+  constant across the corpus, so we have no signal to disambiguate.
+- **What would falsify it:** **Not testable on this device.** The X1 Yoga is
+  `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre`
+  scaling has a single operating point. It needs a device whose XML carries
+  `timbre≠0.75`, plus a capture (Phase 4).
+
+#### Entry 6: MBC ratio and time constants
+
+- **Factor (generator):** MBC ratio `1/(coeff/32768)` (`decode_mbc_bands`); time
+  constants via Q15 with `block_size=256` → 187.5 blocks/s
+  (`decode_mbc_time_constant`).
+- **Why it's a guess:** The Q15 format and 256-sample block size are assumed
+  from common DSP practice and only sanity-checked numerically, never measured.
+
+**Diagnosed 2026-06-13:** the loud-level gap is neither the upstream bass-level
+gap nor a wrong MBC decode; its actual driver is the regulator under-engaging.
+Woken 2026-06-13 with `stimulus_stepped_loud` (−2 dBFS peak), loud-vs-normal
+static gain (aligned @1 kHz) shows DAX compressing far harder than our chain:
+DAX −10.6 dB GR @234 Hz (EE −5.5), −10.4 @277 (EE −1.7), −5.9 @141 (EE 0), −7.4
+@2.25 kHz (EE −3.2). The adaptive cross-pass span is ≤1.5 dB, so this is the
+compressor/regulator, not the leveler. A 2026-07-01 re-verification from the raw
+held-tone envelopes confirms the leveler's per-tone adaptation does not
+contaminate the GR readout at the 234/277 Hz diagnostic bands. There the
+within-tone drift is ≤0.16 dB and all three passes agree to ~0.03 dB. The
+adaptation is visible only elsewhere: −1.1 dB early-tone at 141 Hz and a 1.5 dB
+cross-pass span at 3 kHz.
+
+The diagnosis
+([`tools/measure_ee/dynamics_gap.py`](../tools/measure_ee/dynamics_gap.py);
+agent analysis, key numbers re-verified from the converter):
+
+- (i) 1 kHz-referenced, the level each chain delivers to its dynamics agrees
+  within ±3 dB at every diagnostic band (141–4193 Hz). The "DAX delivers +16–22
+  dB more" reading was a reference artifact: our FIR is peak-normalised to a
+  different anchor than DAX's OFF-flat baseline. The real 22–30 dB Finding-4
+  bass gap sits below ~120 Hz, pre-attenuated by the 100 Hz HP before either
+  chain's dynamics.
+- (ii) The MBC decode is internally faithful but *conservative*. A 3-level fit
+  (−42/−18/−2) shows EE realises its nominal 1.67 ratio only at the one band
+  that clears threshold well (234 Hz, R≈1.54). Elsewhere the −6 dB soft knee and
+  RMS detection keep it sub-slope.
+- (iii) DAX's effective ratio at 234/277 Hz is ≈ 2.95, its near-100:1 regulator
+  stacking on the MBC. Our regulator maps the same −10/−9/−8/−5 dB thresholds
+  and slope (entry 11), yet barely fires there.
+
+So the lever is the regulator, not the MBC ratio/threshold, which stays
+XML-derived and unchanged. See entry 11.
+
+#### Entry 7: Volume-leveler→autogain window
+
+- **Factor (generator):** `max-history = 40−amount·4` / `30−amount·5`
+  (`make_autogain`).
+- **Why it's a guess:** The window formula is invented. It measured as no
+  reaction-speed lever at all: 20/32/40 s gave identical ~4 dB onset overshoot
+  (see "The 2026-07 default-flip attempt").
+- **What would falsify it:** A capture of DAX's MI-steered leveler (non-LTI, so
+  hard).
+
+#### Entry 8: PEQ anti-clipping trim
+
+- **Factor (generator):** `effective boost ≈ gain·min(1, 2/Q)` per positive bell
+  (full gain for shelves), peak negated into `equalizer#0.output-gain`
+  (`make_peq_eq`).
+- **Why it's a guess:** The `2.0` bandwidth weighting and the "compensate
+  exactly the peak effective boost" rule are converter-invented. Nothing says
+  DAX trims broadband level at all. And "over-conservative PEQ output-gain" is a
+  listed listen-for trap.
+
+**Still confounded** after two tries: DAX's leveler/volmax staging buries the 3
+dB PEQ trim. The dev device has no cross-profile Q contrast: its PEQ is
+identical in every profile (+3 dB/Q2 @280, +4 dB/Q4.6 @400, −4 dB/Q1.5 @516).
+The hypotheses still predict distinct broadband offsets there: `min(1, 2/Q)` →
+−3 dB trim, full compensation → −4 dB, no trim → 0.
+
+An absolute-level EE↔DAX pink compare can discriminate them
+(`compare_ee_vs_dax.py --absolute`, volumes pinned; the default 1 kHz
+normalization destroys exactly this observable).
+
+- Tried 2026-06 on the archived DAX captures: confounded. The absolute EE−DAX
+  offset is −11.5 dB on `dynamic`/`movie`/`game` but −1.0 dB on `voice`, i.e.
+  dominated by DAX's profile-dependent leveler/volmax staging.
+- Re-tried 2026-06-13 with pinned/recorded 50% volume: still confounded. DAX's
+  leveler drives `dynamic`/`movie`/`music`/`game` to a single loudness target,
+  with raw transfer all within 0.01 dB. That gives a flat ≈ −8 dB EE−DAX offset
+  (leveler boost + our −3 dB trim + convolver peak-normalisation, inseparable).
+  `voice`, leveled to a quieter target, shows −0.06 dB.
+
+Useful byproduct: the DAX OFF raw transfer is −0.01 dB at 50% master volume. So
+WASAPI loopback taps the engine mix bus pre-volume, and the master-volume term
+never enters the captures.
+
+Validating the `min(1, 2/Q)` *shape* still needs a wide-vs-narrow-Q second
+device.
+
+#### Entry 9: SoundWire Calf BassEnhancer constants
+
+- **Factor (generator):** `amount=12 dB`, `harmonics=10`, `blend=−10`,
+  `floor=10`, `scope = min(2·hp_freq, 300)` (`make_bass_enhancer`).
+- **Why it's a guess:** Every knob is converter-chosen. The `2×` scope
+  multiplier derives an emitted parameter from the PEQ HP corner. The constants
+  were also tuned (`bc12c2e`, 2026-04-12) against the pre-#13 over-applied-IEQ
+  chain, so the 12 dB drive may compensate a since-fixed deficit.
+- **What would falsify it:** A SoundWire-device DAX capture with the bass-burst
+  stimuli (Snapdragon X / Yoga Slim 7x / the #29 Zenbook).
+
+Kept default-on for now: Finding 8 shows DAX genuinely runs VBE, so removal
+re-opens a real gap.
+
+- **#29 round 2 (2026-07-05):** First field evidence of over-drive: issue
+  [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29)
+  (Zenbook S14) reported "too bass boosted" plus occasional chassis resonance.
+  The reporter manually raised `floor` 10→50 Hz and cut output 5 dB. The #29 A/B
+  (`--disable bass-enhancer` vs default) was the intended discriminator, but its
+  round-2 result (2026-07-05) is ambiguous. Disabling the stage did *not* fix
+  `dynamic`. `music` lands close to Windows *with* it on, since the stage rides
+  every profile preset, `music` included. So the report neither condemns nor
+  vindicates the whole stage. The reporter's concrete complaint is the
+  `floor=10 Hz` constant, a hardware-dependent value the XML doesn't carry:
+  drive below the woofer's usable range → chassis resonance. He set `floor`≈80
+  Hz and cut the amount.
+- **Second negative field report (2026-07-21, issue
+  [#27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)
+  follow-up, Galaxy Book6 Ultra):** with the machine's Cirrus amp firmware
+  finally installed, the amp DSP does real bass management. The reporter then
+  needed `--disable bass-enhancer --disable volmax --disable regulator` to avoid
+  "dramatic" degradation. This is also confounded: three flags were disabled at
+  once, and that run's volmax rode an inert all-0 dB-threshold regulator
+  (cross-device-findings §15 addendum). It tilts toward opt-in without deciding
+  it.
+
+The SoundWire-*only* gate is contribution-historical (`bc12c2e`, the first
+SoundWire user's path), not a principled HDA/SoundWire split. On Linux the HDA
+path equally lacks Dolby's Windows-driver VBE, and Finding 8 measured DAX
+running VBE on an HDA device. So the *missing*-on-HDA side is issue
+[#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14),
+and the *present*-on-SoundWire side is what #29 questions.
+
+**Follow-up gated on #29's XML + capture:** revisit (a) flipping this stage to
+opt-in and (b) whether `floor` can be tied to the PEQ HP corner, like `scope`,
+instead of a hardcoded 10 Hz.
+
+**#29's XML arrived 2026-08-27 (capture still pending).** On it, (b) as written
+is moot. The only PEQ high-pass is in `voice`/`voice_onlinecourse` (type 7, 100
+Hz, order 4). `dynamic` and `music` carry bells only, so the HP-corner
+derivation returns the 100 Hz fallback on every profile the reporter uses. The
+XML does carry the VBE source band that the HDA `--enable virtual-bass` branch
+already reads: `virtual-bass-src-freqs = 35,160` (`mix-freqs = 94,469`; corpus
+constants, parsed in `lib/dax/parse.py`). So an XML-anchored `floor = 35 Hz` /
+`scope = 160 Hz` is the candidate replacement for the invented `10` /
+`min(2·hp, 300)`. It would source both device families' bass stage from one XML
+block. Deferred 2026-08-28 (reply-only round): it is [AUDIBLE] on every
+SoundWire preset and unheard locally, so it waits for the reporter's A/B or
+capture.
+
+The XML also moves the `dynamic` verdict off this stage. `dynamic` is the
+profile whose tuning enables the volume leveler (amount 5, DRC on) plus every
+`mi-*-steering` switch. Our SoundWire path runs that leveler by default without
+steering, the #25 failure mode, while `music`, the profile he likes, has it off.
+`--disable autogain` (008b4d6) post-dates his tests, so that A/B is the round-3
+ask, and entry 10's SoundWire arm is what it exercises.
+
+#### Entry 10: Conservative-autogain offsets
+
+- **Factor (generator):** `target = out_target − 6.0` dB,
+  `silence-threshold = −50` dB (`make_autogain`). Since 2026-07 both paths store
+  the −50 gate; the HDA block previously kept EE's −70 plugin default.
+- **Why it's a guess:** The −6 dB safety offset and −50 dB threshold are
+  invented; entry 7 covers only the window formula. The −50 gate is
+  field-confirmed (#25) and capture-measured: +1.7 dB silence wind-up vs +41.8
+  dB at −70 (see "The 2026-07 default-flip attempt").
+- **What would falsify it:** Same as entry 7: an MI-steered leveler capture
+  (hard).
+
+#### Entry 11: Fixed dynamics constants
+
+- **Factor (generator):** MBC active-band `knee = −6.0` dB
+  (`make_multiband_compressor`; the Dolby 6-tuple has no knee field), regulator
+  `attack 1.0 ms` / `release 50.0 ms` (`make_regulator`).
+- **Why it's a guess:** Chosen from limiting practice, not decoded.
+
+**Engaged 2026-06-13** by `stimulus_stepped_loud` (see entry 6). The dynamics
+diagnosis lands *here*, on the regulator's fixed constants, not the MBC decode.
+Our `make_regulator` maps the XML thresholds/slope correctly (−10/−9/−8/−5 dB,
+near-100:1 on the 4 lowest bands) yet under-engages vs DAX, which clearly
+hard-limits those bands.
+
+~~Leading hypothesis: the hard-coded `attack 1.0 ms` / Peak detection /
+`1 ms lookahead` / `release 50 ms` make our regulator *release between* the
+stepped tones and under-read steady-state GR~~ **Falsified 2026-07-01** by
+re-analysis of the same captures. The within-tone envelope (single-bin DFT over
+early/mid/late windows of each held tone) shows EE's response is *time-flat*:
+drift ≤0.14 dB, no attack ramp, no release decay. The stepped analyzer's readout
+already skips the 0.4 s settle, so a 1 ms-attack regulator cannot under-read a
+steady-state window by releasing in the gaps. The under-engagement is static,
+which points away from the invented time constants entirely.
+
+**New leading suspect, gain staging:** at capture time the dev device's volmax
+`+6 dB` sat in the preset `output-gain` slot, *after* the dynamics. The
+2026-06-22 `--volmax-slot input-gain` default flip (`4213d5f`, #23) feeds the
+MBC/regulator a 6 dB hotter signal. **Measured 2026-07-01:** the flip helps but
+does not close the gap, on a fresh 3-level stepped battery through the
+regenerated input-gain-default preset vs the archived DAX stepped captures.
+Loud-vs-normal GR moved at 234 Hz −5.5 → −6.9 dB (DAX −10.6), 141 Hz 0 → −1.4
+(DAX −5.9) and 277 Hz −1.7 → −2.1 (DAX −10.4). 2.25/3 kHz are unchanged. The
+regulator is inactive above 328 Hz on this XML, so that part of the gap is the
+MBC's knee/RMS conservatism, as diagnosed. Even 6 dB hotter, the realized
+regulator curve fits an effective ratio ≈1.8 at 234 Hz against the configured
+100:1. The LSP MBC-as-limiter realization (band detection mode / knee / boost
+interplay) under-realizes the intended hard limit by an order of magnitude. So
+the remaining lever is the regulator's *plugin realization*, not signal level
+and not timing. Stage interaction (the MBC's +2 dB makeup re-inflating the
+signal the regulator then sees) stays a secondary suspect.
+
+Settling the remaining gap needs more captures.
+
+- (a) A regulator-only EE capture (MBC bypassed) at the 3 levels would
+  deconfound the two stages, specifically to characterise the *realized* limiter
+  curve against the LSP settings (`make_regulator`'s detection mode, knee,
+  lookahead) and find why 100:1 configured realizes as ≈1.8.
+- (b) A second-device loud capture comes before any default change (corpus
+  invariant).
+- (c) Ideally, an EE OFF/flat stepped capture would put EE on DAX's
+  absolute-dBFS footing.
+
+**XML-grounded angles to try first:** regulator-tuning carries no time
+constants, unlike the MBC's Q15 coeffs, so timing is invented by necessity. Two
+currently-ignored regulator fields might inform the engagement.
+
+- (d) Re-examine `regulator-stress-amount` as an engagement/aggressiveness
+  modifier, not a threshold offset. It's the only per-device-varying regulator
+  field. On `dynamic` it's `144,144,0,…`, non-zero on exactly bands 0–1 (47/141
+  Hz), the under-engaging bands. Follow-up 5 rejected it only under the
+  *threshold-offset* reading, where lowering threshold moved EE away from DAX.
+  The new framing (DAX intensifies limiting on "stressed" bands → effective
+  ratio ~2.95) is untested and could both explain DAX and stay XML-only.
+- (e) ~~`regulator-relaxation-amount` (=96) as the release control~~ **Dropped
+  2026-06-18.** It is not XML-derivable: it is frozen at 96 across the whole
+  corpus, so there is no contrast to decode against. The 2026-07-01 time-flat
+  finding also removes its motivation, since release timing isn't the
+  under-engagement driver.
+- (f) `regulator-tuning/isolated_band` (added 2026-07-30, Finding 10) is a
+  previously-unread per-band 0/1 array with genuine per-device contrast. It has
+  59 corpus patterns, and mirrors threshold-activity exactly on 18,369 profiles
+  but diverges on ≥1 band on 11,548. Its semantics are unknown. Probe-level span
+  attribution on the #44 stepped data argues it does *not* gate the measured
+  adaptive layer. That device carries the discriminating contrast (band 11 iso=1
+  vs band 12 iso=0, both threshold-active), and both span ~5 dB alike, while the
+  inert iso=0 band 10 spans least (Finding 10).
+
+  **Shipped as an experimental opt-in 2026-07-30** (`--enable coupled-bands`),
+  **made the default 2026-08-11** (`--disable coupled-bands` opts out).
+  Zero-threshold zones whose bands are all `isolated_band=0` join the limiter at
+  face value (0 dBFS), so upstream gain (volmax on input-gain) gets tamed there
+  before the brickwall. The iso=0 scoping is a conservative gating choice, not
+  established causation. The flip knowingly did not clear the
+  second-device-capture bar in `.claude/rules/xml-derivability.md`. No capture
+  can reach it (see the scope-honesty note below). Two things replaced that bar.
+  A two-device software A/B (below) bounds the audible cost. The other is the
+  argument that the opposite reading, discarding a stated 0 dBFS threshold,
+  leaves the volmax boost feeding the brickwall untamed on exactly the tunings
+  where this fires, which is the failure #23 measured.
+
+  **Corpus-swept same day** (36,371 regulator profiles / 913 devices through the
+  real parse + both regulator modes): zero crashes and zero default-output
+  deviations. `isolated_band` is *universal*: present on every regulator
+  profile, always 20×{0,1}. On all-zero-threshold tunings the flag yields a
+  single full-band 0 dBFS limiter. That incidentally restores the "volmax tamed
+  before the brickwall" property those tunings otherwise lack.
+  Threshold-inert-but-`iso=1` bands exist on 134 devices (mixed zones correctly
+  declined).
+
+  **Re-derived against the current corpus for the default flip** (2026-08-11, a
+  walk over the same population the corpus tier uses): 2,842 files hold 37,976
+  regulator profiles across 979 devices. Of these, 37,675 (99.2%) actually
+  change output under the flip, over zones {1: 29,960, 2: 7,400, 3: 315}, and
+  2,955 profiles are the all-zero-threshold #27 class. So the flip reaches all
+  but ~0.8% of profiles. That is why the `-active` marker left
+  `EXPERIMENTAL_MARKERS` on the flip: an ask that fires on every run is an ask
+  nobody reads. The same walk caught a real defect. `_coupled_bands_eligible`
+  was a band-level `any()` while activation is per zone, so the run announced a
+  limit it had not added on 274 profiles whose qualifying band shared a zone
+  with an isolated one. The predicate is now zone-level and the two agree
+  exactly.
+
+  **Scope honesty (offline staging check, same session):** during the −18 dBFS
+  capture battery our chain's level at every coupled band is −12…−19 dBFS (FIR +
+  dialog bell + volmax 7). So the captures can neither confirm nor falsify the
+  mapping's audible effect. DAX's measured 4–6 dB spans at those levels cannot
+  be a static 0 dBFS limiter either: even +8 dB leveler makeup leaves ~−8 dBFS
+  in-band. The mapping is a loud-content protection hypothesis, not a
+  reproduction of the measured moderate-level spans. It engages when in-band
+  level crosses full scale, i.e. content peaks above ≈ −5 dBFS in the 3–6 kHz
+  range on this XML. The A/B must use loud material.
+
+  **That A/B ran 2026-08-11, on both shapes, and is what the default flip rests
+  on.** The capture route is EE → null sink, so the speakers never enter it and
+  any XML's DSP is measurable on one machine. *Dev X1 Yoga* (one zone, 392 Hz–20
+  kHz): against `stimulus_stepped_loud` (−2 dBFS peak, 16 dB hotter than the
+  battery) the largest per-tone excursion is −0.38 dB, confined to 1.9–4.7 kHz.
+  Onset and steady state are identical to two decimals: a small static soft-knee
+  offset, not a limiter riding. `pink14` and `bass_burst` come back
+  bit-identical. So the mapping is *inert* on this device even on the hottest
+  single-band excitation possible. That is why weeks of listening were
+  unremarkable, and why this device cannot validate the mapping either. *Galaxy
+  Book6 `F020144D`* (the #27 all-zero class, full-band zone, the biggest change
+  the flip makes anywhere): −0.43 dB median, −0.91 dB worst on `multitone`, on a
+  signal already arriving at the brickwall.
+
+  Two methodological notes. The first attempt was invalid: that device is
+  SoundWire, so the *leveler* is active and non-LTI. 14% of frames came out
+  louder with the limiter on (max +12.2 dB), which a Downward band with
+  `makeup 0` cannot do. Re-running with `--disable autogain` on both sides fixed
+  it. Pink-noise rows keep positive excursions even then, so their large
+  negative minima are residual misalignment rather than gain reduction. On a
+  comparison like this, only stimuli that align tightly (a tone complex,
+  envelope correlation 0.9998) can be quoted. The standing residual: none of
+  this covers how the #27 shape sounds on *that* laptop's transducers.
+
+  **The experiment that would validate or kill the mapping is a DAX capture of
+  `stimulus_stepped_loud` on Windows.** The file already exists, and
+  `tools/measure_dax/` + `CLAUDE_WINDOWS.md` carry the protocol. Every DAX
+  capture in the archive is −18 dBFS, exactly the level the scope-honesty note
+  above says cannot decide this. A −2 dBFS peak run would show whether DAX
+  itself limits in bands whose `threshold_high` decodes as 0 dBFS. Read it
+  against the known confound: the 4–6 dB spans DAX shows at moderate level are
+  adaptive/MI-steered, not a static ceiling. So the discriminator is whether a
+  *hard* knee appears at full scale, not whether any gain reduction does.
+
+**Second-device datapoint (2026-07-30, Finding 10):** the issue
+[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
+stepped battery shows DAX applying 4–6 dB of frequency-selective adaptive span
+in bands whose `threshold_high` decodes as inert (+0.0) on that XML. So part of
+DAX's band dynamics demonstrably lives outside the regulator parameters we
+decode, and the "close the regulator gap" ceiling may be lower than the DAX
+reference implies. The MBC knee/attack/release themselves still need gated-burst
+transients to characterise, which is deferred.
+
+**"Dormant at nominal levels" is device-specific, not a property of the mapping
+(2026-08-22, issue
+[#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
+round 3).** That reading came from the dev X1 Yoga, whose regulator has four
+active bands at −10/−9/−8/−5 dBFS. `17AA380D` has eleven active bands, deepest
+−30.875 dBFS. There the regulator measurably engages on the ordinary −18 dBFS
+pink battery: −3.24 dB at 328 Hz, the −30.875 band itself, against ≈0 above 1
+kHz. It removes 10.3 dB below 300 Hz on a −5 dBFS bass burst. So the
+under-engagement thread above is a statement about shallow-threshold tunings. On
+deep-threshold ones the same mapping over-engages relative to what DAX shows at
+the one level both were measured. That also gives the volmax-slot question a
+second device pointing the opposite way to #23; see the Finding 10 subsection
+"Why bypass has more bass than the preset". Round 4 of that subsection measured
+DAX's own limiter on a −5 dBFS bass burst. The onset passes at full static gain
+(0 dBFS peak, the first ~3 ms clipped), and the reduction settles over ~100–150
+ms. That is the first direct measurement of a DAX limiter time constant, and it
+puts this entry's 1 ms attack about two orders of magnitude too fast on deep
+bass.
+
+#### Verification status and the validation roadmap
+
+For contrast, the `/16`-dB convention is verified (issue #15, in the section
+introduction), and the `/32768` Q15 decode is at least numerically consistent
+with first-order time-constant theory. Everything else above is unverified.
 
 **Validation roadmap.** The steps are ordered by how closely each mirrors the
 `ieq-amount` case: a fixed scaling in the default path, measurable against a DAX

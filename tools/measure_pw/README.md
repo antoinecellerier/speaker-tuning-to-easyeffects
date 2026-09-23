@@ -193,7 +193,13 @@ results on the development device come in comfortably inside all of them.
 | metric | target | rationale |
 |---|---|---|
 | Frequency-domain max \|Δ\| (50 Hz–18 kHz) | ≤ 0.5 dB | Below the audible threshold for tonal-balance changes. Well within EE's own preset-to-preset variance. |
-| Time-domain S/R (signal-to-residual) | ≥ 30 dB | Safety margin, not a ceiling. On the dev device, mono-symmetric stimuli through the full LSP+Calf chain measure +70..+73 dB, so a sub-30 result is a real regression. Asymmetric stereo stimuli (`stimulus_stereo_pink`) exercise the M/S split and pass at the same +70 dB+ band. |
+| Time-domain S/R (signal-to-residual) | ≥ 30 dB | Safety margin, not a ceiling. |
+
+- **Time-domain S/R (signal-to-residual).** On the dev device, mono-symmetric
+  stimuli through the full LSP+Calf chain measure +70..+73 dB, so a sub-30
+  result is a real regression. Asymmetric stereo stimuli
+  (`stimulus_stereo_pink`) exercise the M/S split and pass at the same
+  +70 dB+ band.
 
 ## WirePlumber traps that bit during development
 

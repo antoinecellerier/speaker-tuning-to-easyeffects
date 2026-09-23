@@ -84,7 +84,7 @@ the bass enhancer is SoundWire-only.
 
 | # | Plugin | Source XML | What it does |
 |---|--------|-----------|--------------|
-| 1 | Convolver | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR of the combined IEQ + speaker-correction curve, normalised so its loudest band sits at 0 dB. The stage therefore only ever attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset quieter than bypass. `--enable level-restore` gives that level back; see below. A profile can ship a correction curve and still set `audio-optimizer-enable=0`, which drops the curve so only the IEQ voicing reaches the FIR. Absent means enabled, as with `speaker-peq-enable` |
+| 1 | Convolver | IEQ target + `audio-optimizer-bands` (gated by `audio-optimizer-enable`) | Min-phase FIR of the combined IEQ + speaker-correction curve, normalised so its loudest band sits at 0 dB |
 | 2 | Bass Enhancer (Calf) | IEQ-only SoundWire curve | Harmonic bass restoration on SoundWire speakers. SoundWire-only |
 | 3 | Equalizer | `speaker-peq-filters` | 4th-order high-pass at 100 Hz for speaker protection, plus per-channel PEQ bells/shelves/HP-LP |
 | 4 | Dialog Enhancer | `dialog-enhancer-amount` | Speech-band EQ boost at 2.5 kHz, from a 2nd equalizer instance. On most profiles except music |
@@ -92,6 +92,13 @@ the bass enhancer is SoundWire-only.
 | 6 | Multiband Compressor | `mb-compressor-tuning` | 1–4 bands of dynamics processing per `group_count` |
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
 | 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net. Fallback slot for `volmax-boost` when the regulator isn't emitted |
+
+- **Convolver.** With its loudest band at 0 dB, the stage only ever
+  attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
+  quieter than bypass. `--enable level-restore` gives that level back; see
+  below. A profile can ship a correction curve and still set
+  `audio-optimizer-enable=0`, which drops the curve so only the IEQ voicing
+  reaches the FIR. Absent means enabled, as with `speaker-peq-enable`.
 
 `surround-boost` is not mapped to stereo widening. A 2026-06 DAX capture showed
 no stereo-width change on 2-channel content. It's a multichannel-virtualization

@@ -38,7 +38,7 @@ NUMBERED = (
              r"|scaling\s+factors[\"”],?)\s+entr(?:y|ies)\s+"
              rf"(?P<n>{NUMS})(?:\s*\((?P<sub>[a-z])\))?",
              DESIGN_NOTES, "Unvalidated converter scaling factors",
-             r"\|\s*(\d+)\b", None),
+             r"#+ Entry (\d+):", None),
     Numbered("Follow-ups item N",
              rf"Follow-ups\s+items?\s+(?P<n>{NUMS})",
              DESIGN_NOTES, "Follow-ups to close the gap to DAX",
@@ -220,16 +220,23 @@ class Doc:
         return None
 
     def items(self, section, item):
-        """Item numbers, and their line, of a section's numbered list or table."""
+        """Item numbers, and their text, of a section's numbered items.
+
+        An item's text runs from its line up to the next item or heading.
+        """
         key = (section, item)
         if key not in self._items:
             span = self.section(section) if section else (0, len(self.lines))
-            found = {}
+            found, text = {}, None
             for line in self.lines[span[0]:span[1]] if span else ():
                 match = re.match(item, line)
                 if match:
-                    found.setdefault(int(match.group(1)), line)
-            self._items[key] = found
+                    text = found.setdefault(int(match.group(1)), [line])
+                elif HEADING.match(line):
+                    text = None
+                elif text is not None:
+                    text.append(line)
+            self._items[key] = {n: "\n".join(t) for n, t in found.items()}
         return self._items[key]
 
 
@@ -519,9 +526,9 @@ DESIGN = """# Design notes
 
 ### Unvalidated converter scaling factors (the class)
 
-| # | Factor |
-|---|---|
-| 1 | Dialog enhancer (a) (b) |
+#### Entry 1: Dialog enhancer
+
+Readings (a) (b).
 """
 
 CITING = '''"""Why: design-notes "Rejected approaches", Finding 1, scaling

@@ -311,16 +311,59 @@ can't reach.
 | EE plugin key | Translated as | Notes |
 |---|---|---|
 | `convolver#0` | `type=builtin label=convolver` × 2 | PW's builtin convolver is mono, so EE's stereo convolver expands to one node per channel. `gain` config field carries `output-gain`. |
-| `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE**, not enable: its default 0 = active. See `emit_peq` in `lib/pipewire/plugins.py`. EE writes filter type / mode / slope as enum **strings**, such as `"Bell"`, `"Hi-pass"`, `"RLC (BT)"` and `"x1"`. LSP expects integers, so `EE_FTYPE_TO_LSP` / `EE_FMODE_TO_LSP` / `EE_FSLOPE_TO_LSP` translate them. The same pattern recurs for MBC global mode (`EE_MBC_GLOBAL_MODE`), MBC envelope boost (`EE_MBC_ENVB`), MBC sidechain mode (`EE_MBC_SCMODE`) and limiter mode (`EE_LIMITER_MODE`). |
+| `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE**, not enable: its default 0 = active. See `emit_peq` in `lib/pipewire/plugins.py`. |
 | `equalizer#1` (dialog) | Same plugin as PEQ | Disambiguated by position in `plugins_order`, not by shape. `_assert_positional` fails loud if reordered. |
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. The per-control mapping is in the table below. |
-| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain` when present. That is the default slot since issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23), and `--volmax-slot output-gain` moves it. If the regulator stage is absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead, so readers walking the gain stages must check both. |
+| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain` when present. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
-| `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). `amount` is dB in the EE preset and linear in Calf, so `db_to_linear` converts it, as the `BIND_LV2_PORT_DB` macro does. `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct. Triggers on SoundWire devices with small drivers. |
-| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6). `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear; `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct. The translator is retained, but generated presets never reach it. Since 2026-06 the *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block, because a DAX capture falsified the `surround-boost → stereo_tools` widening (design-notes entry 2). This row applies to any hand-edited or legacy preset that carries a `stereo_tools` block. |
+| `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). Triggers on SoundWire devices with small drivers. |
+| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The translator is retained, but generated presets never reach it. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true, unless the preset was generated with `--enable autogain`. Emitting a bypassed node would just clutter. |
-| `_vbe` (top-level metadata, `--enable virtual-bass` only) | LSP `filter_stereo` ×7 + Calf `Saturator` ×2 + builtin `copy`/`mixer` | Not an EE plugin key. EasyEffects cannot express the parallel branch, so the generator records the XML's virtual-bass values top-level, under the `_generator` contract. `lib/pipewire/vbe.py` sandwiches the whole translated chain between a copy fan-out and a dry+wet mixer. See "No VBE by default" under limitations. |
-| `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`). `autogain_stereo` is the LV2 equivalent, a K-weighted (LUFS) loudness AGC. `target`→`level` and `silence-threshold`→`silence` are dB-domain ports passed **directly**, without `db_to_lin`, clamped to the port ranges (−60..0 / −84..−36). `weight=5` selects K-weighting = EBU R 128. `lkahead=0` keeps added latency at zero. EE's `maximum-history` (s) drives the gain-ride time-constants asymmetrically. `tfall_l` (gain down, 200 ms/s) is faster than `tgrow_l` (gain up, 500 ms/s, anti-pumping), matching EE's measured behaviour. The on-device EE-vs-PW proof is in design-notes. The mapping was validated at a 20 s history. Shorter windows surface a warning, on the console and in the conf-header warning block, that the PW ride may be faster than EE's. That covers HDA `--enable autogain` always, and SoundWire when `volume-leveler-amount` > 5. EE `input-gain`/`output-gain` are always 0.0 and have no main-path port, so they are not written. Active by default on SoundWire; on HDA only for presets generated with `--enable autogain`. |
+| `_vbe` (top-level metadata, `--enable virtual-bass` only) | LSP `filter_stereo` ×7 + Calf `Saturator` ×2 + builtin `copy`/`mixer` | Not an EE plugin key. EasyEffects cannot express the parallel branch, so the generator records the XML's virtual-bass values top-level, under the `_generator` contract. |
+| `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`). `autogain_stereo` is the LV2 equivalent, a K-weighted (LUFS) loudness AGC. The mapping was validated at a 20 s history. |
+
+- **`equalizer#0` (PEQ).** EE writes filter type / mode / slope as enum
+  **strings**, such as `"Bell"`, `"Hi-pass"`, `"RLC (BT)"` and `"x1"`. LSP
+  expects integers, so `EE_FTYPE_TO_LSP` / `EE_FMODE_TO_LSP` /
+  `EE_FSLOPE_TO_LSP` translate them. The same pattern recurs for MBC global
+  mode (`EE_MBC_GLOBAL_MODE`), MBC envelope boost (`EE_MBC_ENVB`), MBC
+  sidechain mode (`EE_MBC_SCMODE`) and limiter mode (`EE_LIMITER_MODE`).
+- **`multiband_compressor#1` (regulator).** `input-gain` is the default slot
+  since issue
+  [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23),
+  and `--volmax-slot output-gain` moves the boost. If the regulator stage is
+  absent, `make_preset` puts the boost on `limiter#0`'s `input-gain` instead,
+  so readers walking the gain stages must check both.
+- **`bass_enhancer#0`.** `amount` is dB in the EE preset and linear in Calf, so
+  `db_to_linear` converts it, as the `BIND_LV2_PORT_DB` macro does.
+  `harmonics`→`drive`, `scope`→`freq`, `floor`/`blend` direct.
+- **`stereo_tools#0`.** Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6).
+  `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear;
+  `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct.
+  Since 2026-06 the *generator* (`dolby_to_easyeffects.py`) emits no
+  `stereo_tools#0` block, because a DAX capture falsified the
+  `surround-boost → stereo_tools` widening (design-notes entry 2). The
+  `stereo_tools#0` translator applies to any hand-edited or legacy preset that
+  carries a `stereo_tools` block.
+- **`_vbe` (top-level metadata, `--enable virtual-bass` only).**
+  `lib/pipewire/vbe.py` sandwiches the whole translated chain between a copy
+  fan-out and a dry+wet mixer. See "No VBE by default" under limitations.
+- **`autogain#0` (active).** Active by default on SoundWire; on HDA only for
+  presets generated with `--enable autogain`.
+  - *Ports*: `target`→`level` and `silence-threshold`→`silence` are dB-domain
+    ports passed **directly**, without `db_to_lin`, clamped to the port ranges
+    (−60..0 / −84..−36). `weight=5` selects K-weighting = EBU R 128.
+    `lkahead=0` keeps added latency at zero.
+  - *Gain ride*: EE's `maximum-history` (s) drives the gain-ride time-constants
+    asymmetrically. `tfall_l` (gain down, 200 ms/s) is faster than `tgrow_l`
+    (gain up, 500 ms/s, anti-pumping), matching EE's measured behaviour. The
+    on-device EE-vs-PW proof is in design-notes.
+  - *Short windows*: windows shorter than 20 s surface a warning, on the
+    console and in the conf-header warning block, that the PW ride may be
+    faster than EE's. That covers HDA `--enable autogain` always, and SoundWire
+    when `volume-leveler-amount` > 5.
+  - *Gains*: EE `input-gain`/`output-gain` are always 0.0 and have no main-path
+    port, so they are not written.
 
 Anything the converter cannot express warns on the console instead of dropping
 silently:
