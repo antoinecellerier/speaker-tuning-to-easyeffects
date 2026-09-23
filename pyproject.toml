@@ -9,5 +9,5 @@ python_files = ["test_*.py"]
 # undoes it, and each worker then spawns its own. Pass -n 0 to force serial.
 addopts = "-ra -n auto"
 markers = [
-    "slow: expensive test (e.g. the ee_to_pipewire corpus tier, which runs every discovered XML's PW conf through lv2info). Skipped unless --run-slow or ATMOS_RUN_SLOW=1.",
+    "slow: expensive test (e.g. the ee_to_pipewire corpus tier, which runs every distinct discovered XML's PW conf through lv2info). Skipped unless --run-slow or ATMOS_RUN_SLOW=1.",
 ]

@@ -522,7 +522,7 @@ reported by the activation step's sink check and by `--doctor`'s
   "Known approximations & untranslated parameters" above). A new
   generator feature that is neither fails the fast tier.
 - `tests/corpus/test_ee_to_pipewire_corpus.py` — runs the full
-  XML→preset→PW-conf pipeline against every discovered DAX3 XML
+  XML→preset→PW-conf pipeline against every distinct discovered DAX3 XML
   (auto-discovered from NTFS mounts and CWD; override via
   `ATMOS_CORPUS_DIR`). Asserts every link endpoint resolves, that the
   converter emits **zero warnings** on generated presets (the coverage

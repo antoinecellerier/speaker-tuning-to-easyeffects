@@ -535,7 +535,7 @@ ATMOS_CORPUS_DIR=/path/to/dax3/xmls pytest tests/corpus/
 
 If no corpus is reachable and `ATMOS_CORPUS_DIR` is unset, the corpus tier skips cleanly.
 
-The heaviest tiers walk every endpoint/profile/curve combination and validate every discovered XML's generated PipeWire conf through `lv2info`; both are gated behind `--run-slow` (or `ATMOS_RUN_SLOW=1`). Every run fans across your cores via [`pytest-xdist`](https://pypi.org/project/pytest-xdist/) (`-n auto`, set in `pyproject.toml`), which turns the heavy tiers from tens of minutes into a few. Pass `-n 0` to force a serial run, which is what you want alongside `-x`, `-s` or `--pdb`.
+The heaviest tiers walk every endpoint/profile/curve combination and validate every distinct discovered XML's generated PipeWire conf through `lv2info`; both are gated behind `--run-slow` (or `ATMOS_RUN_SLOW=1`). Every run fans across your cores via [`pytest-xdist`](https://pypi.org/project/pytest-xdist/) (`-n auto`, set in `pyproject.toml`), which turns the heavy tiers from tens of minutes into a few. Pass `-n 0` to force a serial run, which is what you want alongside `-x`, `-s` or `--pdb`.
 
 The suite catches structural regressions (FIR not minimum-phase, convolver autogain accidentally re-enabled, MBC compression-mode flipped to upward, enums emitted as integers, etc.) but does not substitute for listening tests after any change to the output path.
 

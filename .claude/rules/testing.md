@@ -28,8 +28,10 @@ band of one profile.
 
 ## `tests/corpus/` — the real DAX3 XMLs
 
-Runs the full pipeline against every XML it auto-discovers (NTFS mounts plus
-the CWD); `ATMOS_CORPUS_DIR` overrides the search. It **skips cleanly** when
+Runs the full pipeline against every distinct XML it auto-discovers (NTFS
+mounts plus the CWD) — byte-identical copies are walked once, so its item
+count is not the corpus file count; `ATMOS_CORPUS_DIR` overrides the search.
+It **skips cleanly** when
 no corpus is reachable — which is what makes it safe to leave in the default
 run, and also what makes a green suite on a machine without one no evidence
 about real devices at all. Check for `s` in the summary before believing it.

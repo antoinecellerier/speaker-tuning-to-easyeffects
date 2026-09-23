@@ -40,8 +40,8 @@ microphone-AEC tunings rather than playback ones. What is left is what the
 converter itself would accept — `is_dolby_tuning_filename` in
 [`lib/dax/discover.py`](../lib/dax/discover.py) is the single definition, shared
 by the converter's auto-discovery, `tests/corpus/`, and the sweep tool, so the
-population the tests walk and the population the figures are measured over
-cannot drift apart.
+population the tests walk (one copy of each distinct file) and the population
+the figures are measured over cannot drift apart.
 
 ## What it holds
 

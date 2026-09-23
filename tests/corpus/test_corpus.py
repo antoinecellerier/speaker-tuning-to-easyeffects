@@ -20,6 +20,7 @@ that synthetic inputs cannot.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -67,7 +68,9 @@ def _discover_corpus() -> list[Path]:
     """Resolve the corpus: explicit env var first, else the converter's own
     union probe (``lib.dax.discover.autoprobe_all_dolby_xmls`` — NTFS-family
     mounts plus the cwd, hidden dirs pruned), shared with
-    ``tools/corpus_audit.py`` so the two tiers count the same files."""
+    ``tools/corpus_audit.py`` so the two tiers discover the same files. The
+    tests then walk one copy of each (``_one_per_distinct_file``); the audit
+    counts every copy."""
     raw = os.environ.get("ATMOS_CORPUS_DIR")
     if raw:
         root = Path(raw).expanduser()
@@ -79,7 +82,33 @@ def _discover_corpus() -> list[Path]:
     return autoprobe_all_dolby_xmls()
 
 
-CORPUS = _discover_corpus()
+def _one_per_distinct_file(paths: list[Path]) -> list[Path]:
+    """Keep the first path of each byte-identical group.
+
+    Most of a real corpus is copies — a DriverStore keeps every installed
+    driver version, and per-SKU extractions fan one tuning out across
+    directories (3,427 paths, 897 distinct files, 2026-09-23) — and walking
+    each copy re-runs identical work in every tier. The key carries the one
+    thing the pipeline reads from a filename, the bus (`is_soundwire_xml`);
+    the rest the tests take from a name is message text. A file that can't be
+    read is kept, so its test reports it instead of collection crashing.
+    """
+    seen: set[tuple[bytes, bool]] = set()
+    kept: list[Path] = []
+    for path in paths:
+        try:
+            digest = hashlib.sha256(path.read_bytes()).digest()
+        except OSError:
+            kept.append(path)
+            continue
+        key = (digest, is_soundwire_xml(path.name))
+        if key not in seen:
+            seen.add(key)
+            kept.append(path)
+    return kept
+
+
+CORPUS = _one_per_distinct_file(_discover_corpus())
 _EXPLICIT = "ATMOS_CORPUS_DIR" in os.environ
 
 
@@ -96,6 +125,28 @@ def _skip_if_no_corpus():
         "store, no DAX3 XMLs under CWD). Either run from a directory "
         "near your tuning files, or set ATMOS_CORPUS_DIR=/path/to/xmls."
     )
+
+
+def test_one_per_distinct_file_keeps_what_the_pipeline_can_tell_apart(tmp_path):
+    """Copies collapse; a different bus, a different body or an unreadable
+    file never does — each of those is a case the walk must still visit."""
+    body, other = b"<tuning>a</tuning>", b"<tuning>b</tuning>"
+    files = {
+        "a/DEV_0287_SUBSYS_1.xml": body,
+        "b/DEV_0287_SUBSYS_1.xml": body,        # copy: dropped
+        "c/DEV_0257_SUBSYS_2.xml": body,        # copy under another name: dropped
+        "d/SOUNDWIRE_SUBSYS_3.xml": body,       # same body, other bus: kept
+        "e/DEV_0287_SUBSYS_1.xml": other,       # same name, other body: kept
+    }
+    paths = []
+    for rel, data in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir()
+        p.write_bytes(data)
+        paths.append(p)
+    missing = tmp_path / "f" / "DEV_0287_SUBSYS_4.xml"  # unreadable: kept
+    kept = _one_per_distinct_file(paths + [missing])
+    assert kept == [paths[0], paths[3], paths[4], missing]
 
 
 def test_corpus_is_configured():
