@@ -1,62 +1,68 @@
 # measure_perf — EasyEffects vs PipeWire-filter-chain performance
 
-Quantifies the runtime cost of the two delivery paths for the *same* preset on
-the *same* machine, so a user with a performance criterion can choose. Backs
-the README's "Which should I use?" guidance. Sibling to
-[`tools/measure_pw/`](../measure_pw/) (which proves the two paths are
-*acoustically* equivalent); this one measures what they *cost*.
+This harness quantifies the runtime cost of the two delivery paths for the
+*same* preset on the *same* machine, so a user with a performance criterion can
+choose. It backs the README's "Which should I use?" guidance. Its sibling
+[`tools/measure_pw/`](../measure_pw/) proves the two paths are *acoustically*
+equivalent. This one measures what they *cost*.
 
-[`compare_paths.py`](compare_paths.py) runs three conditions — `bypass`
-(no processing), `ee` (EasyEffects), `pw` (PipeWire filter-chain) — over
-several interleaved rounds and reports CPU, memory, and real-time headroom.
+[`compare_paths.py`](compare_paths.py) runs three conditions over several
+interleaved rounds: `bypass` with no processing, `ee` through EasyEffects, and
+`pw` through the PipeWire filter-chain. It reports CPU, memory, and real-time
+headroom.
 
 ## The one idea that makes it valid: measure cycles, not time
 
-On a laptop the CPU clock is **not pinnable** — even with `performance` governor
-and turbo disabled, the frequency wanders (observed 0.9–2.2 GHz *within* a
-single 15 s window on the dev device). Time-based metrics (CPU%, `pw-top`
-BUSY-µs) scale with frequency: the *same* DSP work reads differently as the
-clock moves, so a CPU% comparison is dominated by clock noise.
+On a laptop you can't pin the CPU clock. The frequency wanders even with the
+`performance` governor and turbo disabled. On the dev device it was observed at
+0.9–2.2 GHz *within* a single 15 s window. Time-based metrics such as CPU% and
+`pw-top` BUSY-µs scale with frequency. The *same* DSP work reads differently as
+the clock moves, so clock noise dominates a CPU% comparison.
 
-The fix is to count **CPU cycles** via `perf`. The cycle count to push a fixed
-DSP workload (48 kHz stereo through the convolver + EQ + MBC + limiter) is the
-same regardless of clock speed — at low freq those cycles take longer wall-time,
-at high freq less, but the *count* is invariant. So **`Gcyc/s` is the headline
-metric**; CPU% is recorded but secondary (and visibly noisier).
+The harness counts CPU cycles via `perf` instead. The DSP workload is fixed:
+48 kHz stereo through the convolver + EQ + MBC + limiter. Pushing it takes the
+same cycle count regardless of clock speed. A slow clock spreads those cycles
+over more wall-time, but the *count* is invariant. So **`Gcyc/s` is the
+headline metric**. CPU% is recorded but secondary, and visibly noisier.
 
 Other noise controls:
 
-- **Differential.** Every path is reported against a same-session `bypass`
-  baseline measured back-to-back; the bypass-subtracted *marginal* is the cost
-  of adding that path. Totals include the main pipewire daemon **and** the
-  path's process(es), so the subtraction is like-for-like.
+- **Differential.** Every path is reported against a `bypass` baseline measured
+  back-to-back in the same session. The bypass-subtracted *marginal* is the cost
+  of adding that path. Totals include the main pipewire daemon and the path's
+  process, so the subtraction is like-for-like.
 - **EE off for `bypass` and `pw`.** EasyEffects' analyzers burn CPU even idle,
   so it's stopped except in the `ee` condition.
-- **Warm-up discard + interleaved rounds** (rotated order) to spread thermal
-  drift across conditions; **median / p95 / IQR**, never a bare mean.
+- **Warm-up discard + interleaved rounds.** Rounds run in rotated order to
+  spread thermal drift across conditions. The stats are median / p95 / IQR,
+  never a bare mean.
 
 ## Validity gates (a noisy window is flagged, not reported)
 
-Each window is marked invalid (and dropped from the stats) unless: cycles were
-counted, the tracked PIDs stayed alive, the processing nodes were actually
-running (`pw-top` BUSY>0), and the captured output was non-silent.
+The harness marks a window invalid and drops it from the stats unless all four
+hold:
+
+- cycles were counted
+- the tracked PIDs stayed alive
+- the processing nodes were actually running, with `pw-top` BUSY>0
+- the captured output was non-silent
 
 **Expected-response gate.** Every condition renders into the `ee_capture` null
-sink (mute-proof — audio never reaches the speaker); the harness captures each
-output spectrum and asserts **`pw ≈ ee`** (both apply the same correction) and
-**both differ from `bypass`**. PW reproducing the already-validated EE chain is
-the proof that we're measuring two paths doing the *identical* DSP — not, say,
-an EE that silently loaded no preset. (That bug actually surfaced during
-bring-up: EE must be told `easyeffects -l <preset>` or it passes through.)
+sink, which is mute-proof because audio never reaches the speaker. The harness
+captures each output spectrum. It asserts `pw ≈ ee`, since both apply the same
+correction, and that both differ from `bypass`. PW reproducing the
+already-validated EE chain proves the two paths run the *identical* DSP. It
+rules out, say, an EE that silently loaded no preset. That bug surfaced during
+bring-up: EE passes audio through unless told `easyeffects -l <preset>`.
 
 ## Prerequisites
 
-- **Audio handoff** — the harness stops/starts EE, swaps the default sink, and
+- **Audio handoff.** The harness stops/starts EE, swaps the default sink, and
   loads a filter-chain. Output stays on the silent `ee_capture` null sink, so
-  the speaker mute is irrelevant. A `try/finally` restores EE config, the
-  default sink, and the quantum even on crash.
-- **`perf`** (`linux-perf`) with `perf_event_paranoid <= 1`
-  (`sudo sysctl kernel.perf_event_paranoid=1`; reverts on reboot). Without it
+  the speaker mute is irrelevant. A `try/finally` restores the EE config, the
+  default sink and the quantum, even on a crash.
+- **`perf`** from `linux-perf`, with `perf_event_paranoid <= 1`.
+  `sudo sysctl kernel.perf_event_paranoid=1` sets it until reboot. Without it
   every window flags `no-cycles`.
 - `pw-top`, `pw-record`, `pw-play`, `pw-link`, `pactl`, `pw-metadata`.
 
@@ -71,36 +77,36 @@ python3 tools/measure_perf/compare_paths.py \
     ~/.local/share/easyeffects/output/Dolby-Balanced.json
 ```
 
-Writes `localresearch/measure_perf/perf_summary.json` (medians + the marginal
-deltas + the response-check verdict). `--rounds/--warmup/--window/--capture`
-tune rigor vs wall-clock.
+The run writes `localresearch/measure_perf/perf_summary.json`: medians, the
+marginal deltas and the response-check verdict.
+`--rounds/--warmup/--window/--capture` trade rigor against wall-clock time.
 
 ## Reference numbers (dev device)
 
-X1 Yoga Gen 7 (Alder Lake hybrid, HDA), `Dolby-Balanced`, 48 kHz / 1024
-quantum, 5 rounds, all 15 windows valid:
+X1 Yoga Gen 7, an Alder Lake hybrid on HDA, with `Dolby-Balanced`, 48 kHz /
+1024 quantum and 5 rounds. All 15 windows were valid:
 
 | Metric | bypass | EasyEffects | PW filter-chain |
 |---|---|---|---|
-| **CPU, marginal (Gcyc/s)** | — | **+0.37** (IQR 0.01) | **+0.33** (IQR 0.01) |
+| CPU, marginal (Gcyc/s) | — | +0.37 (IQR 0.01) | +0.33 (IQR 0.01) |
 | CPU% (secondary, freq-noisy) | 0.9 | 11.6 | 10.0 |
-| **Memory, Pss (MB)** | 22 | **270** | **78** |
+| Memory, Pss (MB) | 22 | 270 | 78 |
 | xruns @ 1024/48k | 0 | 0 | 0 |
 | Response check | — | — | `pw≈ee 0.5 dB, both ≠ bypass 17.5 dB` |
 
-**Reading the CPU% column — it is smaller than it looks.** These are
-*one-core-equivalent* percentages (fraction of a *single* core's wall-time),
-**not** a share of the whole CPU: ~10 % of one core is ~0.6 % of this machine's
-16 logical CPUs. They were also measured on an otherwise-idle machine
-whose clock sat low (~1–2 GHz), so the percentage is relative to a *modest*
-clock — not "10 % of the CPU at full tilt." The real, clock-independent cost is
-the cycle figure: **~0.33–0.37 Gcyc/s marginal ≈ a tenth of one modern core**.
-CPU% is shown only as a familiar (if noisy) cross-check.
+The CPU% column is smaller than it looks. Each figure is a
+*one-core-equivalent* percentage: a fraction of a *single* core's wall-time,
+not a share of the whole CPU. ~10 % of one core is ~0.6 % of this machine's 16
+logical CPUs. The machine was otherwise idle, and its clock sat low at
+~1–2 GHz. So the percentage is relative to a *modest* clock, not "10 % of the
+CPU at full tilt." The real cost is the clock-independent cycle figure:
+**~0.33–0.37 Gcyc/s marginal ≈ a tenth of one modern core**. CPU% is shown only
+as a familiar cross-check, and it is noisy.
 
 ### Graph sample rate (issue #84)
 
-Same harness, `--rate`/`--quantum`, `Dolby-Balanced`, capturing each path's
-output level as well as its cycles:
+Same harness and `Dolby-Balanced`, with `--rate`/`--quantum`, capturing each
+path's output level as well as its cycles:
 
 | Graph rate | EE Gcyc/s | PW Gcyc/s | EE out | PW out |
 |---|---|---|---|---|
@@ -109,32 +115,37 @@ output level as well as its cycles:
 | 192 kHz / 1024 | +1.49 | +0.86 | −24.1 | −35.9 |
 | 192 kHz / 512 | +1.08 | +0.95 | −24.1 | −35.9 |
 
-Two findings. Cost at 192 kHz is **~4.5× for EasyEffects and ~3× for the
-PipeWire chain**, not the 16× a rate-squared estimate predicts. (All six runs
-ran with turbo on and D/E/F at n=2, so the second digit is soft.) And the EasyEffects path **plays hot by the
-rate ratio in dB** above 48 kHz while the PipeWire path does not — a
-correctness bug, isolated to the convolver, written up in
-`docs/design-notes.md` ("A preset that plays hot").
+Two findings:
 
-Two gotchas for anyone re-running this. `--rate` really does take: the 48 kHz
-`ee_capture` null sink does not pin the graph. And forcing the *rate* alone
-makes PipeWire scale the quantum with it (1024 → 4096), preserving the cycle's
-real-time duration — so hold the blocksize constant by forcing both, which is
-what `pw_force()` does.
+- Cost at 192 kHz is ~4.5× for EasyEffects and ~3× for the PipeWire chain, not
+  the 16× a rate-squared estimate predicts. All six runs ran with turbo on and
+  D/E/F at n=2, so the second digit is soft.
+- The EasyEffects path **plays hot by the rate ratio in dB** above 48 kHz, and
+  the PipeWire path does not. This correctness bug is isolated to the
+  convolver. `docs/design-notes.md` "A preset that plays hot" has the write-up.
 
-Takeaways: the PW chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM**
-(EasyEffects' marginal footprint is ~248 MB of Qt/GUI vs the chain child's
-~56 MB); both run xrun-free with zero added latency. Numbers are device-specific
-— ship the tool so users measure their own; treat these as the reference point,
-not a universal claim.
+Two gotchas for anyone re-running this:
+
+- `--rate` really does take effect. The 48 kHz `ee_capture` null sink does not
+  pin the graph.
+- Forcing the *rate* alone makes PipeWire scale the quantum with it, 1024 →
+  4096, which preserves the cycle's real-time duration. Force both to hold the
+  blocksize constant. `pw_force()` does that.
+
+Takeaways: the PW chain costs ~11 % fewer CPU cycles and ~3.5× less RAM.
+EasyEffects' marginal footprint is ~248 MB of Qt/GUI, against ~56 MB for the
+chain child. Both run xrun-free with zero added latency. The numbers are
+device-specific, so the tool ships for users to measure their own. Treat these
+as the reference point, not a universal claim.
 
 ## Caveats
 
-- `Gcyc/s` is whole-process (main daemon + path process), bypass-subtracted; it
-  is not a per-node DSP figure. `pw-top` BUSY is recorded per node but is
+- `Gcyc/s` covers the main daemon plus the path process, bypass-subtracted. It
+  is not a per-node DSP figure. `pw-top` BUSY is recorded per node, but it is
   frequency-sensitive, so it's a cross-check, not the headline.
-- The spectral response-check is a *shape* sanity (`pw≈ee`, both≠bypass), not
-  the ±0.5 dB equivalence battery — that lives in `tools/measure_pw/`.
-- `setup_chain.sh` is rotted (its `--target-object` without `--target-sink ''`
-  now generates a conflicting smart-filter conf); this harness uses its own
-  lean loader instead.
+- The spectral response-check is a *shape* sanity check: `pw≈ee`, both≠bypass.
+  It is not the ±0.5 dB equivalence battery, which lives in
+  `tools/measure_pw/`.
+- This harness uses its own lean loader instead of `setup_chain.sh`. That
+  script is rotted: its `--target-object` without `--target-sink ''` generates
+  a conflicting smart-filter conf.

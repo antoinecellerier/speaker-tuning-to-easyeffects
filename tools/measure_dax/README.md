@@ -1,13 +1,15 @@
 # measure_dax — capture and compare Dolby DAX3's actual response
 
-Measure DAX3's per-channel response on Windows via WASAPI loopback, then
-deconvolve / spectrum-analyze on Linux and compare against the FIR our
-converter generates from the same XML. Reproduces the empirical
-comparison in [docs/design-notes.md](../../docs/design-notes.md#empirical-comparison-vs-dax3-on-windows) ("Empirical comparison vs DAX3").
+These tools measure DAX3's per-channel response on Windows via WASAPI loopback.
+They then deconvolve / spectrum-analyze it on Linux and compare it against the
+FIR our converter generates from the same XML. This reproduces the empirical
+comparison in
+[docs/design-notes.md](../../docs/design-notes.md#empirical-comparison-vs-dax3-on-windows)
+("Empirical comparison vs DAX3").
 
-For the Linux-side counterpart that runs the same stimuli through a live
-EasyEffects instance (so you can overlay EE's actual response on top of
-DAX's), see [`tools/measure_ee/`](../measure_ee/).
+[`tools/measure_ee/`](../measure_ee/) is the Linux-side counterpart. It runs
+the same stimuli through a live EasyEffects instance, so you can overlay EE's
+actual response on top of DAX's.
 
 ## Quick start
 
@@ -19,10 +21,10 @@ mkdir -p ~/dax-measure && cd ~/dax-measure
 python /path/to/repo/tools/measure_dax/make_stimulus.py
 ```
 
-`make_stimulus.py` writes `stimulus_*.{wav,json}` and
-`inverse_sweep.npy` into the current directory. Copy the `stimulus_*`
-files plus `capture_dax.py` to a Windows machine, run the captures
-(procedure below), copy the `loopback_*.{wav,json}` back, then:
+`make_stimulus.py` writes `stimulus_*.{wav,json}` and `inverse_sweep.npy` into
+the current directory. Copy the `stimulus_*` files plus `capture_dax.py` to a
+Windows machine, and run the captures with the procedure below. Copy the
+`loopback_*.{wav,json}` back, then run:
 
 ```sh
 python /path/to/repo/tools/measure_dax/analyze.py captures/loopback_*.wav \
@@ -30,34 +32,36 @@ python /path/to/repo/tools/measure_dax/analyze.py captures/loopback_*.wav \
     --profile dynamic --curve balanced
 ```
 
-`analyze.py` searches cwd / the capture's directory / the script
-directory for the inverse filter and stimulus files (in that order),
-so it works without flags as long as you keep the artifacts together.
+`analyze.py` finds the inverse filter and stimulus files without flags, as
+long as you keep the artifacts together. It searches cwd, then the capture's
+directory, then the script directory.
 
 ## Stimulus suite
 
 | stimulus | level | what it probes |
 |---|---|---|
-| `stimulus_sweep.wav` | −18 dBFS peak | exponential 20 Hz–22 kHz sweep; recovers an LTI IR if the system is LTI |
-| `stimulus_sweep_quiet.wav` | −42 dBFS peak | same sweep at lower input — does the leveler engage less? (no, in practice) |
+| `stimulus_sweep.wav` | −18 dBFS peak | exponential 20 Hz–22 kHz sweep. Recovers an LTI IR if the system is LTI |
+| `stimulus_sweep_quiet.wav` | −42 dBFS peak | same sweep at lower input. Does the leveler engage less? In practice, no |
 | `stimulus_pink.wav` | −18 dBFS RMS | steady-state magnitude after the leveler settles |
 | `stimulus_pink_quiet.wav` | −42 dBFS RMS | pink noise at low input level |
-| `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers; per-band amplitude + phase via single-bin DFT |
-| `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency (39: the 20 band centers + the midpoint between each pair), the whole grid replayed ascending / descending / shuffled. Per-frequency steady-state amplitude via single-bin DFT. The cross-pass mean is the static EQ; the cross-pass span is the adaptive (order-dependent) dynamics. |
-| `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input — brackets the level-dependent treble gain |
-| `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder: with `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level. −14 is the loud end pink can reach without clipping (~13 dB crest factor); use `stimulus_stepped_loud.wav` above that |
+| `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers. Per-band amplitude + phase via single-bin DFT |
+| `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency, 39 frequencies: the 20 band centers + the midpoint between each pair. The whole grid is replayed ascending / descending / shuffled. Per-frequency steady-state amplitude via single-bin DFT. The cross-pass mean is the static EQ. The cross-pass span is the order-dependent adaptive dynamics. |
+| `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input. Brackets the level-dependent treble gain |
+| `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder. With `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level. −14 is the loud end pink can reach without clipping, given its ~13 dB crest factor. Use `stimulus_stepped_loud.wav` above that |
 
-The first round of captures (sweep at −18 dBFS only) showed that DAX3
-is non-LTI: the leveler / regulator engage during the sweep, contaminating
-the deconvolved IR. The pink and multitone stimuli are designed to give
-the leveler something stationary to settle on, isolating the steady-state
-EQ from the time-varying dynamics. The stepped-sine goes one step further:
-because the same grid is replayed in different orders, the part of each
-tone's response that is invariant across passes is the static EQ, while the
-part that shifts with what preceded it is the adaptive processing — so a
-single capture separates the two. It also samples *between* the band
-centers, the one thing pink/multitone (band-center-only) can't (issue #13:
-linear-vs-PCHIP interpolation is only distinguishable between bands).
+DAX3 is non-LTI. The first round of captures, a sweep at −18 dBFS only, showed
+the leveler / regulator engaging during the sweep and contaminating the
+deconvolved IR. The pink and multitone stimuli are designed to give the leveler
+something stationary to settle on. That isolates the steady-state EQ from the
+time-varying dynamics.
+
+The stepped-sine goes one step further and separates the two in a single
+capture. The same grid is replayed in different orders. The part of each
+tone's response that is invariant across passes is the static EQ. The part
+that shifts with what preceded it is the adaptive processing. It also samples
+*between* the band centers, which band-center-only pink/multitone can't. That
+matters for issue #13, because linear-vs-PCHIP interpolation is only
+distinguishable between bands.
 
 ## End-to-end flow
 
@@ -79,32 +83,35 @@ mkdir -p ~/dax-measure && cd ~/dax-measure
 python /path/to/repo/tools/measure_dax/make_stimulus.py
 ```
 
-Produces all 5 stimuli + per-stimulus meta JSON + the shared
-`inverse_sweep.npy` in the current directory. Deterministic — re-run
-only if you change parameters at the top of the script.
+This produces all 5 stimuli + per-stimulus meta JSON + the shared
+`inverse_sweep.npy` in the current directory. The output is deterministic, so
+re-run it only if you change parameters at the top of the script.
 
 ## 1. Copy to Windows
 
-The Windows side needs `capture_dax.py`, plus each stimulus you intend to
-play plus **its `.json` sidecar** (the analyzer reads the sidecar for the
-stimulus geometry — a `.wav` on its own is not analysable), and
-[`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md) only if Claude Code will be helping
-on Windows.
+The Windows side needs:
 
-`make_stimulus.py` writes thirteen stimuli, ~108 MB in total, so copy the
-subset your question needs rather than all of it:
+- `capture_dax.py`
+- each stimulus you intend to play, plus **its `.json` sidecar**. The analyzer
+  reads the sidecar for the stimulus geometry, so a `.wav` on its own is not
+  analysable.
+- [`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md), only if Claude Code will be
+  helping on Windows.
+
+`make_stimulus.py` writes thirteen stimuli, ~108 MB in total. Copy the subset
+your question needs rather than all of it:
 
 | question | stimuli to copy | size |
 |---|---|---|
-| Steady-state EQ — the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~12 MB |
-| **Anything level-dependent** (does a stage's gain change with input level?) | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud` — the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
-| Bass-specific behaviour | `stimulus_bass_burst[_quiet]` — sustained 50/80/120/180 Hz bursts | ~10 MB |
+| Steady-state EQ, the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~12 MB |
+| Anything level-dependent: does a stage's gain change with input level? | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud`: the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
+| Bass-specific behaviour | `stimulus_bass_burst[_quiet]`: sustained 50/80/120/180 Hz bursts | ~10 MB |
 | Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~24 MB |
 | Leveler behaviour on real content | `stimulus_speech` | ~2 MB |
 
-`analyze.py` handles `sweep`, `pink` (and the two `stereo_*` variants),
-`speech`, `multitone` and `stepped`. `bass_burst` has **no analyzer branch
-yet** — capture it if asked, but the analysis is currently ad-hoc.
+`analyze.py` handles `sweep`, `pink` and its two `stereo_*` variants,
+`speech`, `multitone` and `stepped`. `bass_burst` has no analyzer branch yet.
+Capture it if asked, but its analysis is ad-hoc.
 
 ## 2. One-time Windows setup
 
@@ -114,22 +121,22 @@ In an admin PowerShell or cmd:
 pip install sounddevice numpy scipy soundfile pycaw comtypes pyaudiowpatch
 ```
 
-`pyaudiowpatch` is the active backend on Win11 (`sounddevice`'s
-WasapiSettings doesn't expose a `loopback` kwarg in any released version
-— `capture_dax.py` falls back automatically).
+`pyaudiowpatch` is the active backend on Win11. `sounddevice`'s WasapiSettings
+doesn't expose a `loopback` kwarg in any released version, so `capture_dax.py`
+falls back automatically.
 
-Lock the speaker endpoint format to **48 kHz** (any bit depth — 16 or
-24-bit are both fine, the loopback taps the float32 mix bus pre-quantize):
+Lock the speaker endpoint format to **48 kHz**. Any bit depth works, 16 or
+24-bit, because the loopback taps the float32 mix bus pre-quantize. Set it here:
 
-> Settings → System → Sound → All sound devices → **[your speakers]** →
-> Output settings → Format → any **48000 Hz** entry
+> Settings → System → Sound → All sound devices → [your speakers] →
+> Output settings → Format → any 48000 Hz entry
 
 The script verifies the rate and aborts if wrong.
 
 ## 3. Capture procedure (Windows)
 
-For each profile (toggle in Dolby Access GUI between profile groups, run
-all five stimuli per profile in one go):
+Run all five stimuli per profile in one go. Toggle the profile in the Dolby
+Access GUI between profile groups:
 
 ```powershell
 # off baseline (Dolby Atmos toggled OFF in Dolby Access)
@@ -144,14 +151,13 @@ foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone','stepped','
 # … repeat for movie, music, game, voice
 ```
 
-5 stimuli × 6 profile labels = 30 captures, ~13 s each = ~6 min of pure
-capture time + manual profile-toggle time. Plan ~30 min on Windows.
+5 stimuli × 6 profile labels = 30 captures, at ~13 s each. That is ~6 min of
+pure capture time, plus manual profile-toggle time. Plan ~30 min on Windows.
 
-Each capture produces `captures/loopback_<kind>_<label>.wav` plus a
-matching `.json` sidecar (schema v1) recording everything that was
-active at capture time: endpoint, format, Dolby spatial mode, package
-version map, capture levels, similarity-to-OFF score, and the full
-stimulus meta.
+Each capture produces `captures/loopback_<kind>_<label>.wav` plus a matching
+`.json` sidecar in schema v1. The sidecar records everything that was active
+at capture time: endpoint, format, Dolby spatial mode, package version map,
+capture levels, similarity-to-OFF score, and the full stimulus meta.
 
 ## 4. Copy back to Linux
 
@@ -169,85 +175,86 @@ python /path/to/repo/tools/measure_dax/analyze.py captures/loopback_*.wav \
     --profile dynamic --curve balanced
 ```
 
-`analyze.py` reads each capture's sidecar to determine the stimulus
-kind, then dispatches:
+`analyze.py` reads each capture's sidecar to determine the stimulus kind, then
+dispatches:
 
-- **kind=sweep** → Farina deconvolution → `ir_sweep_<label>_{L,R}.wav`
-  (8192-sample IR centered on its peak with 2048 samples of pre-peak
-  context, peak-normalized 32-bit float).
-- **kind=pink** → Welch-style averaged PSD over the analysis window
-  (default 6–11 s into the capture), divided by the same window of the
-  stimulus to recover the steady-state EQ. Result in
+- **kind=sweep** → Farina deconvolution → `ir_sweep_<label>_{L,R}.wav`. The
+  output is an 8192-sample IR, centered on its peak with 2048 samples of
+  pre-peak context, peak-normalized 32-bit float.
+- **kind=pink** → Welch-style averaged PSD over the analysis window, divided
+  by the same window of the stimulus to recover the steady-state EQ. The
+  window defaults to 6–11 s into the capture. Result in
   `spectrum_<kind>_<label>_<channel>.npz`.
 - **kind=multitone** → single-bin DFT at each of the 20 band-center
-  frequencies. Recovers per-band amplitude *and phase* (subtracting the
-  known stimulus phase). Result in `tones_<kind>_<label>_<channel>.npz`.
+  frequencies. It recovers per-band amplitude *and phase*, subtracting the
+  known stimulus phase. Result in `tones_<kind>_<label>_<channel>.npz`.
 
-When `--xml` is given, also writes a `compare_<basename>_<profile>_<curve>_<channel>.png`
-and a textual residual table.
+With `--xml`, it also writes a
+`compare_<basename>_<profile>_<curve>_<channel>.png` and a textual residual
+table.
 
 ## What the results mean
 
-After running on the OFF + Dynamic captures, the most informative views:
+After a run on the OFF + Dynamic captures, these are the most informative
+views.
 
-**Phase character** (sweep only, in `analysis_*.txt`):
-- "minimum-phase (post-peak energy dominates)" → DAX3 IR concentrates
-  energy after the peak, like our generated FIR. Phase choice matches.
-- "linear-phase or symmetric (post ≈ pre)" → DAX3 uses linear-phase.
-  Our converter trades phase accuracy for ~42 ms latency reduction.
-  This finding doesn't motivate a code change (saved no-added-latency
-  feedback applies regardless), but it answers the open question.
+**Phase character**, sweep only, in `analysis_*.txt`:
+- "minimum-phase (post-peak energy dominates)" → DAX3 IR concentrates energy
+  after the peak, like our generated FIR. Phase choice matches.
+- "linear-phase or symmetric (post ≈ pre)" → DAX3 uses linear-phase. Our
+  converter trades phase accuracy for ~42 ms latency reduction. This finding
+  doesn't motivate a code change, because the no-added-latency constraint
+  applies regardless. It does answer the open question.
 - "hybrid (post > pre)" → mixed-phase or non-LTI artifact.
 
-**Multitone phase column** (`compare_loopback_multitone_<label>_..._L.png`):
-- For an LTI system, the per-band phases should form a smooth curve
-  vs frequency. For a minimum-phase FIR, accumulated phase grows with
-  frequency in a feature-driven way. For linear-phase, it's `−omega*N/2`.
-- Wildly noisy phases per band → non-LTI processing (volume leveler,
-  regulator) modulates phase content-adaptively.
+**Multitone phase column**, in `compare_loopback_multitone_<label>_..._L.png`:
+- For an LTI system, the per-band phases should form a smooth curve vs
+  frequency. For a minimum-phase FIR, accumulated phase grows with frequency
+  in a feature-driven way. For linear-phase, it's `−omega*N/2`.
+- Wildly noisy phases per band → non-LTI processing, such as the volume
+  leveler or regulator, modulates phase content-adaptively.
 
-**Pink-noise EQ recovery** (`compare_loopback_pink_<label>_..._L.png`):
-- The cleanest steady-state magnitude readout. After the leveler has
-  settled (~6 s), the captured-vs-stimulus dB ratio per bin recovers
-  the active EQ shape.
-- Compare the recovered EQ curve to the FIR target. If they match
-  within ~1 dB, our converter's curve is what DAX3 applies. If not,
-  DAX3 is doing something we're not modeling.
+**Pink-noise EQ recovery**, in `compare_loopback_pink_<label>_..._L.png`:
+- The cleanest steady-state magnitude readout. Once the leveler has settled,
+  after ~6 s, the captured-vs-stimulus dB ratio per bin recovers the active EQ
+  shape.
+- Compare the recovered EQ curve to the FIR target. If they match within
+  ~1 dB, our converter's curve is what DAX3 applies. If not, DAX3 is doing
+  something we're not modeling.
 
-**Sweep level swap** (`stimulus_sweep_quiet.wav`):
-- If the −42 dBFS sweep has a similar non-LTI signature to the −18
-  dBFS one, the leveler is independent of input level (it targets a
-  fixed loudness regardless of input). If the quiet version is more
-  LTI-like, the leveler engages more aggressively at moderate levels.
+**Sweep level swap**, with `stimulus_sweep_quiet.wav`:
+- If the −42 dBFS sweep has a similar non-LTI signature to the −18 dBFS one, the
+  leveler is independent of input level: it targets a fixed loudness regardless
+  of input. If the quiet version is more LTI-like, the leveler engages more
+  aggressively at moderate levels.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| `endpoint default samplerate is 44100 Hz` | Output format not locked. Fix in Sound settings (any 48 kHz entry). |
-| `No Dolby installation detected` | Wrong endpoint (HDMI / dock?), or DAX3 not installed. Pass `--no-apo-check` if you can verify manually that Atmos is the active spatial mode. |
-| `Dolby Access shows X but you passed Y` | Toggle the right profile in Dolby Access GUI (this check is undocumented-format substring matching, false positives possible — say "y" if you're sure). |
+| `endpoint default samplerate is 44100 Hz` | Output format not locked. Pick any 48 kHz entry in Sound settings. |
+| `No Dolby installation detected` | Wrong endpoint, perhaps HDMI or a dock, or DAX3 not installed. Pass `--no-apo-check` if you can verify manually that Atmos is the active spatial mode. |
+| `Dolby Access shows X but you passed Y` | Toggle the right profile in Dolby Access GUI. The check substring-matches an undocumented format, so false positives are possible. Say "y" if you're sure. |
 | `capture is essentially identical to the OFF baseline` | Forgot to switch DAX3 on, or forgot to switch profile. The script flags > 0.98 cross-correlation. |
-| OFF-baseline check fails (sidelobes > −25 dB on sweep) | Some other APO active (Realtek "Audio Effects", "Loudness Equalization"); disable in Sound → Properties → Enhancements. |
+| OFF-baseline check fails with sidelobes > −25 dB on sweep | Some other APO is active, such as Realtek "Audio Effects" or "Loudness Equalization". Disable it in Sound → Properties → Enhancements. |
 | `endpoint is muted — capture will be silent` | Unmute in Volume Mixer and re-run. |
 
 ## Limitations
 
-- **No automated profile toggle.** Dolby Access has no public API; we
-  switch profiles in its GUI between captures.
-- **L=R stereo stimulus only.** Recovers DAX3's diagonal IR. Cross-channel
-  processing (surround virtualizer, dialog steering) isn't measured.
-  Do separate L-only and R-only sweeps as a follow-up if needed.
-- **Speaker-endpoint dependent.** The captured IR is what DAX3 does to
-  the digital signal; the physical speaker's response isn't included
-  (loopback can't measure that).
+- **No automated profile toggle.** Dolby Access has no public API. We switch
+  profiles in its GUI between captures.
+- **L=R stereo stimulus only.** It recovers DAX3's diagonal IR. Cross-channel
+  processing, such as the surround virtualizer or dialog steering, isn't
+  measured. If needed, do separate L-only and R-only sweeps as a follow-up.
+- **Speaker-endpoint dependent.** The captured IR is what DAX3 does to the
+  digital signal. It doesn't include the physical speaker's response, which
+  loopback can't measure.
 
 ## Prior art
 
 [`shuhaowu/linux-thinkpad-speaker-improvements`](https://github.com/shuhaowu/linux-thinkpad-speaker-improvements)
-uses the same basic technique — WASAPI
-loopback of a stimulus through DAX3 — with a single dirac impulse and
-manual Audacity capture. We use a swept sine plus stationary stimuli
-for ~40 dB better SNR, script the entire Windows-side flow, and
-correlate per-stimulus baselines so the "I forgot to switch profile"
-mistake is caught automatically.
+uses the same basic technique: WASAPI loopback of a stimulus through DAX3. It
+uses a single dirac impulse and manual Audacity capture. We use a swept sine
+plus stationary stimuli for ~40 dB better SNR. We also script the entire
+Windows-side flow, and correlate per-stimulus baselines so the "I forgot to
+switch profile" mistake is caught automatically.
