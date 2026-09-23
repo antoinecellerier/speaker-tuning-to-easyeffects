@@ -15,7 +15,16 @@ import struct
 import sys
 from pathlib import Path
 
-import numpy as np
+# One BLAS thread per process. xdist already spreads the suite over every core,
+# and OpenBLAS would add a pool of one spinning thread per core to each worker
+# and to each script a test starts: a converter run cost 1.7 s of CPU for 0.3 s
+# of wall with the pool, 0.2 s without (2026-09-23). Set before numpy is first
+# imported, which is when OpenBLAS reads it; children inherit it.
+for _blas_threads in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS",
+                      "MKL_NUM_THREADS"):
+    os.environ.setdefault(_blas_threads, "1")
+
+import numpy as np  # noqa: E402 — after the thread cap above
 import pytest
 from scipy.signal import freqz
 
