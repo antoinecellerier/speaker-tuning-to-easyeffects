@@ -397,6 +397,16 @@ def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
     assert "restart failed" in capsys.readouterr().out
 
 
+def _instant_polling(monkeypatch):
+    """Let the post-restart verify window run out at once. A no-op sleep alone
+    left the loop polling against the real clock for the full six seconds —
+    each of these tests burned 6 s of CPU, the fast tier's longest two."""
+    now = [0.0]
+    monkeypatch.setattr(install.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(install.time, "sleep",
+                        lambda seconds: now.__setitem__(0, now[0] + seconds))
+
+
 def test_routing_missing_sink_after_restart_is_an_error(recorders,
                                                         monkeypatch, capsys):
     """Restart succeeds, pw-cli answers, and our node isn't in the graph — the
@@ -410,7 +420,7 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
         tool_env, "run",
         lambda cmd, **kwargs: SimpleNamespace(
             returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
-    monkeypatch.setattr(install.time, "sleep", lambda s: None)
+    _instant_polling(monkeypatch)
     assert wrapper_main([]) == 1
     out = capsys.readouterr().out
     assert "did not appear" in out
@@ -468,7 +478,7 @@ def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
     monkeypatch.setattr(
         tool_env, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
-    monkeypatch.setattr(install.time, "sleep", lambda s: None)
+    _instant_polling(monkeypatch)
     assert wrapper_main([]) == 0
     out = capsys.readouterr().out
     assert "couldn't be checked" in out
