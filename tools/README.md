@@ -95,8 +95,8 @@ change all nine import lines to buy one file a tidier home.
 **[`corpus_audit.py`](corpus_audit.py) — not only a CLI.**
 `preview_output.py` and `render_forced_conditions.py` both `from corpus_audit
 import discover_roots, find_xmls`, so it is the corpus-discovery library for
-the copy tooling as well as the statistics command. `.claude/rules/docs.md`
-also names it by literal path in its `paths:` frontmatter, so the docs rule
+the copy tooling as well as the statistics command. `.claude/rules/claims.md`
+also names it by literal path in its `paths:` frontmatter, so the claims rule
 loads whenever it is edited — a glob that silently matches nothing if the file
 moves.
 

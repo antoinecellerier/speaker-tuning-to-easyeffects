@@ -6,7 +6,7 @@ turns up missing. The README itself promises they agree — "The converter print
 whichever of these matches your `/etc/os-release`, so you shouldn't need this
 table on a run that fails" — and nothing checked it.
 
-Drift here is not a documentation nit. `.claude/rules/docs.md` records that a
+Drift here is not a documentation nit. `.claude/rules/claims.md` records that a
 *fabricated package-name expansion* is what prompted `lib/packages.py`, and the
 pass that added these families found two live errors in these very lists: an
 Alpine row naming `py3-rich-argparse`, which does not exist, so `apk add`

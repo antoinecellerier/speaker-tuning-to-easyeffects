@@ -2682,7 +2682,7 @@ def test_finding_asks_do_not_borrow_other_filters_symptoms():
 # the biggest source of false statements: a reviewer grades comprehension,
 # which a wrong sentence can satisfy perfectly. Two of those classes are
 # mechanical, so they get traps rather than a rule nobody re-reads. The
-# claim-type checklist for the rest is in .claude/rules/user-messages.md.
+# claim-type checklist for the rest is in .claude/rules/claims.md.
 
 # The stages that own a section line in the run report. high-shelf and lo-pass
 # are PEQ filter *types* — they appear as bell/shelf rows, not as a section

@@ -2,7 +2,6 @@
 paths:
   - "docs/**/*.md"
   - "README.md"
-  - "tools/corpus_audit.py"
 ---
 
 # Writing docs in this repo
@@ -34,19 +33,3 @@ and the placement discipline.)
 
 Rule of thumb when unsure: user-facing how-to → README; "what it does now" →
 reference; "why / evidence / history" → design-notes.
-
-## Empirical claims must be reproduced from data
-
-Every empirical number — corpus stats, error/dB figures, decoded coefficient
-values, prevalence counts — must be re-derived from data before you assert or
-update it. Don't carry a prior figure (or an agent-computed one) forward
-unchecked, and don't expand an abbreviation/name you can't verify.
-
-- Regenerate corpus statistics with `tools/corpus_audit.py`; cite it as the
-  source. Run one-off cross-cuts as ad-hoc queries over the same corpus.
-- When a count changes, re-check the *claim* it supports — a number shift can
-  flip a qualitative conclusion.
-
-Why: both the 2026-06 doc review and the 2026-06 corpus re-derivation shipped
-numbers that were assumed rather than re-derived (plus one fabricated
-package-name expansion). Carried-over claims are the risk surface.

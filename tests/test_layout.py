@@ -816,7 +816,7 @@ def test_every_referenced_tools_path_exists():
     comments, in `paths:` frontmatter and in `sys.path` neighbours — no
     importer resolves them, so a renamed or moved tool leaves a doc that lies,
     a rule that scopes to nothing, and a workflow step that only fails the
-    week it next runs. The one in `.claude/rules/docs.md`'s frontmatter is the
+    week it next runs. The one in `.claude/rules/claims.md`'s frontmatter is the
     sharpest: a `paths:` glob that matches no file doesn't error, it just
     stops loading the rule it was written to load.
 

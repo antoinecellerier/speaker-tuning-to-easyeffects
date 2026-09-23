@@ -49,7 +49,7 @@ way out", which `limiter#0` falsifies on every preset.
 
 This audit walks a git range and checks each claim against the evidence its
 **type** demands. The claim-type checklist it applies is
-`.claude/rules/user-messages.md` ("Every claim is checkable").
+`.claude/rules/claims.md` ("What each claim rests on").
 
 **Non-expert phrasing is the design goal and is never a finding.** A reviewer
 reporting that copy is informal, imprecise or jargon-free has misunderstood
