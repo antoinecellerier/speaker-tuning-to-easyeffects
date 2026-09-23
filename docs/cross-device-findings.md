@@ -114,7 +114,7 @@ profiles select `ieq_balanced`.
 
 ---
 
-## 2. Multi-band compressor — the minority feature
+## 2. Multi-band compressor
 
 **MBC is the exception, not the rule**, except on `music`, where it reaches 36%.
 This is the most important finding. Only 100 of the 1589 files whose `dynamic`
@@ -197,7 +197,7 @@ dynamics control. That is a much simpler and safer signal chain.
 
 ---
 
-## 3. Volume leveler amount — wide variation
+## 3. Volume leveler amount
 
 The `vl_amount` parameter (0–10 scale) varies significantly across devices.
 Current-cohort row shares:
@@ -253,7 +253,7 @@ already-loud masters.
 
 ---
 
-## 5. Dialog enhancer — profile-dependent behaviour
+## 5. Dialog enhancer by profile
 
 Current-cohort enable rates:
 
@@ -358,7 +358,7 @@ device-specific parameter in the entire chain.
 
 ---
 
-## 8. Audio optimizer — voice profile often uses different curves
+## 8. Audio optimizer
 
 A majority of devices use a different audio-optimizer curve for the `voice`
 profile than for `dynamic` / `movie` / `music` / `game`, but it is far from
@@ -605,7 +605,7 @@ ceiling.
 
 ---
 
-## 10. IEQ amount — nearly always maxed
+## 10. IEQ amount
 
 Current-cohort IEQ=10 share, when `ieq_enable=1`:
 
@@ -630,7 +630,7 @@ cases.
 
 ---
 
-## 11. MI steering — dynamic profile only
+## 11. MI steering
 
 `mi-dv-leveler-steering-enable=1` appears **almost exclusively on the `dynamic`
 profile**, across all devices that have it: 4205 of 4225 dynamic rows,
@@ -644,7 +644,7 @@ bypasses autogain by default. `docs/design-notes.md` has the full rationale.
 
 ---
 
-## 12. Defensive paths verified inert against the corpus
+## 12. Defensive paths checked against the corpus
 
 Dolby's XML schema permits more variation than most shipping devices exhibit.
 The parser handles several of these cases defensively. Each was re-checked
@@ -856,7 +856,7 @@ That issue is the best capture candidate so far. Its reporter dual-boots, is on
 the 300 Hz / `max-gain=18.0` variant above, and reports the symptom the stage
 would explain: "the generated preset lacks low end/bass that Windows has".
 
-#### `threshold_high = −960` looks like a rail used as a non-value
+#### What `threshold_high = −960` encodes
 
 The −60.00 dB end of `threshold_high` (raw −960) does not behave like a
 threshold. Swept 2026-08-05 over 3056 XMLs → 41,667 regulator-enabled profiles →
@@ -893,7 +893,7 @@ pair at two levels on any ≥2-band carrier (24 filenames). The 47/141 Hz
 `dynamic − off` figure answers it directly. Not raised with issue #44: that
 device (`17AA380D`) carries no rail at all.
 
-### Band B — an on/off bit and nothing else, so *not* derivable
+### Band B — an on/off bit and nothing else
 
 These are enabled on real devices, but no amount of corpus evidence will make
 them implementable. The schema carries only the enable flag for each: no
@@ -974,7 +974,7 @@ future device-level investigation can wire in something better.
 
 ---
 
-## 15. SoundWire tuning-filename matching — `FUNC` is not the Linux part id
+## 15. SoundWire tuning-filename matching
 
 Auto-detection treats `FUNC` as **preferred, not required**. It first matches
 `(man, part)` exactly. Only when nothing matches that way does it fall back to
@@ -1100,7 +1100,7 @@ default, after issue #29 (design-notes unvalidated-scaling entry 9).
 
 ---
 
-## 16. HDA tuning-filename matching — the codec subsystem id is not unique
+## 16. HDA tuning-filename matching
 
 Matching keys on the `(DEV, SUBSYS)` pair, with subsystem-only kept as a warned
 fallback tier. This is the same preferred-not-required tiering as the SoundWire
@@ -1130,7 +1130,7 @@ copies are common.
 
 ---
 
-## 17. Bus-prefixed filenames are one tuning, not two
+## 17. Bus-prefixed filenames
 
 > Measured 2026-08-22 over the full corpus (3638 files), not the frozen
 > 2795-XML cohort the sections above use.

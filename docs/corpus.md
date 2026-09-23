@@ -30,7 +30,7 @@ device it binds to, in one of two families:
   and as `AUCD_DEV_…_ADCM_SUBSYS_…` on Qualcomm Aqstic. Those prefixes are the
   Windows hardware-ID namespace the tuning's `.inf` binds it under. The **OEM
   package ships them**. Installing it does not produce them.
-  [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two)
+  [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames)
   holds the evidence, and what it means when two of them match one device.
 - **SoundWire**:
   `SOUNDWIRE_[SDCAFUNCTION_NN_]MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml`,
@@ -125,7 +125,7 @@ harness.
 `ext_realtek_lenovo_ideapad` holds fifteen per-model subfolders, one per SKU
 that download covers. That layout is why it is the only package here that ships
 two bus-prefixed spellings of the *same* device. See
-[cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two).
+[cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames).
 
 Not every audio driver package carries a tuning. For some vendors, none of the
 downloadable ones do. ASUS ships them through Windows Update only, which is why

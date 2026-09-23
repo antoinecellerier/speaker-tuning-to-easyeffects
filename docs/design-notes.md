@@ -46,7 +46,7 @@ DAX3 splits processing into two stages, which the XML reflects under
 The generated EasyEffects chain mirrors this split as closely as LV2 plugins
 allow.
 
-### Simplified-schema XMLs: `gain_l`/`gain_r` audio-optimizer (issue [#22](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/22))
+### Simplified-schema XMLs: `gain_l`/`gain_r` audio-optimizer (issue #22)
 
 `parse_xml`'s audio-optimizer block supports the *simplified* DAX3 schema that
 some Lenovo drivers ship, at xml_version ~3.2.x, e.g. ThinkPad X1 Carbon Gen 8.
@@ -250,12 +250,12 @@ Each stage in the chain is a potential gain trap:
 | Convolver (FIR peak-normalized) | 0 dB | `make_fir` divides the IR by its peak magnitude, so the convolver only ever attenuates and cannot clip on a boost-heavy curve. It is the first stage, fed at unity, with nothing but the −1 dBFS brickwall downstream. As a scalar on the IR it is a constant dB offset at every frequency, so the correction *shape* is untouched. The XML-derived `volmax-boost` restores the level it removes; there is no invented makeup gain. Present since `9eb5871`. |
 | Convolver plugin `autogain` | explicitly `false` | EasyEffects' default is `true`, which re-normalizes by RMS power. Our minimum-phase FIR concentrates energy at the peak sample, so RMS power ≈ 0.00001 and the default would apply a **+50 dB boost**. Commit `5973326` disables it. |
 | PEQ `output-gain` | narrowband-scaled | Compensates for the highest PEQ bell gain, scaled down for narrow-Q bells because a Q=4.6 bell only boosts a thin slice of spectrum. Commit `c36907c` relaxed this from full compensation. |
-| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost`, the volume-leveler loudness ceiling, applied statically. Default slot: `multiband_compressor#1.input-gain`, before band limiting, so the regulator tames the boosted bass before the brickwall. Fallback: `limiter#0.input-gain` when the regulator is absent. `--disable volmax` turns it off. `--volmax-slot output-gain` re-routes it after the regulator: the opt-out, pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion. Neither slot is Dolby-derived. Full finding, on-device metrics and corpus verdict: ["volmax-boost slot" below](#volmax-boost-slot-input-gain-default-vs-output-gain-opt-out-issue-23-volmax-boost-slot-issue-23). |
+| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost`, the volume-leveler loudness ceiling, applied statically. Default slot: `multiband_compressor#1.input-gain`, before band limiting, so the regulator tames the boosted bass before the brickwall. Fallback: `limiter#0.input-gain` when the regulator is absent. `--disable volmax` turns it off. `--volmax-slot output-gain` re-routes it after the regulator: the opt-out, pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion. Neither slot is Dolby-derived. Full finding, on-device metrics and corpus verdict: ["volmax-boost slot" below](#volmax-boost-slot-input-gain-vs-output-gain-issue-23). |
 | MBC upward compression | 0 dB | LSP plugin defaults enable upward compression below `boost-threshold=-72 dB`. Dolby's compressor is purely downward. Commit `e454711` disables it on both MBC instances. |
 | Regulator upward compression | 0 dB | Same LSP default issue. Upward compression on a *limiter* is especially wrong. Also fixed in `e454711`. |
 | Output limiter | −1 dBFS | Final catch-all for inter-sample peaks after everything else. |
 
-### `volmax-boost` slot: `input-gain` (default) vs `output-gain` (opt-out, issue [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)) {#volmax-boost-slot-issue-23}
+### `volmax-boost` slot: `input-gain` vs `output-gain` (issue #23)
 
 `input-gain` has been the default slot since 2026-06-22. Issue
 [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)
@@ -520,7 +520,7 @@ none of it has been measured.
 Recorded 2026-08-08 by decision, with the fix deferred: no code, no invariant
 wording, and none of the three claims above were changed.
 
-### Measurement outcome: dynamics plugins are dormant on the test stimuli
+### Measurement outcome: dynamics plugins on the test stimuli
 
 The dynamics plugins (limiter, MBC, regulator) are passive at our nominal
 stimulus levels. A reduced A/B sweep compared current against
@@ -598,7 +598,8 @@ been captured yet, so this isn't a second confirmation of the issue
 [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25)
 mitigation, just a pointer for whoever investigates next.
 
-### The 2026-07 default-flip attempt: measured, then rejected (issue [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25))
+<a id="the-2026-07-default-flip-attempt-measured-then-rejected-issue-25"></a>
+### The 2026-07 default-flip attempt (issue #25)
 
 The on-device listening gate rejected flipping the HDA default to enabled. The
 attempt followed the #25 reporter's confirmation on 2026-07-27 that enable + −50
@@ -845,7 +846,7 @@ Findings 1–9 come from a ThinkPad X1 Yoga Gen 7 with a Realtek ALC287, subsyst
 the simplified schema, whose battery arrived 2026-07-30 via issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44).
 
-### Finding 1: DAX3 is non-LTI for our stimuli
+### Finding 1: DAX3 LTI behaviour for our stimuli
 
 The volume leveler and regulator engage during capture and apply time-varying,
 content-adaptive gain:
@@ -868,7 +869,7 @@ leveler and regulator disabled, which Dolby Access doesn't expose, or
 continuously-stationary stimuli that give the leveler a fixed level to settle
 on. The pink stimuli do the latter.
 
-### Finding 2: DAX3's phase is hybrid, not pure min-phase or linear-phase
+### Finding 2: DAX3's phase response
 
 Every DAX3-on profile sits between linear-phase and minimum-phase. The metric is
 the post-peak vs pre-peak energy ratio of the sweep captures, channel L: pure
@@ -900,7 +901,7 @@ The no-added-latency constraint forces min-phase regardless of this finding.
 Minimum-phase is the right trade-off for an EQ correction filter, and we accept
 that this diverges from Dolby's choice.
 
-### Finding 3: DAX3 doesn't faithfully implement the published XML curves
+### Finding 3: DAX3 response vs the published XML curves
 
 > **Superseded in part by Finding 9.** These captures predate the
 > `ieq-amount`/100 correction, and the hypothesis list below omits the branch
@@ -951,7 +952,7 @@ The Music profile fits its XML target most closely, at 5–7 dB RMS. Dynamic,
 Movie and Game cluster around 7–12 dB RMS, and Voice deviates the most, at 9–10
 dB RMS.
 
-### Finding 4: EE-on-Linux follows the XML; the gap is on DAX's side
+### Finding 4: EE-on-Linux response vs the XML
 
 > **Superseded in part by Finding 9.** The EE column below was captured under
 > the old `ieq-amount`/10 scaling. Finding 9's /100 correction, an XML-only
@@ -1007,7 +1008,7 @@ the leveler can lock onto a single 47 Hz sine for 12 s, DAX sits at −14 dB vs 
 −37 dB. That 23 dB gap is much bigger than the pink-noise gap and consistent
 with leveler boost rather than steady-state EQ.
 
-### Finding 5: No HF-shaping XML block was missed
+### Finding 5: Audit for a missed HF-shaping XML block
 
 > **Superseded in part by Finding 9.** "Cannot be falsified without data
 > outside the XML" did not survive: the decisive fix, `ieq-amount` read as a
@@ -1043,7 +1044,7 @@ to one of two possibilities:
 Either way, hypothesis (a) cannot be falsified without data outside the XML, and
 the deterministic "XML-only filter chain" property cannot close it.
 
-### Finding 6: Hypothesis (b) is rejected; hypothesis (a) lives outside the XML
+### Finding 6: Testing hypotheses (a) and (b)
 
 > **Superseded in part by Finding 9.** The "fixed DAX-side HF behavior"
 > conclusion below was falsified. The profile-independent HF residual was
@@ -1153,7 +1154,7 @@ The captures and analysis tooling under `tools/measure_dax/` are kept for future
 debugging: re-running on a new device or after a Dolby driver update is a
 one-command repeat.
 
-### Finding 7: Five XML-interpretation hypotheses tested; none closes the gap
+### Finding 7: Five XML-interpretation hypotheses
 
 None of five further hypotheses closes the residual left after Findings 5/6
 closed hypothesis (b) and the missed-block theory:
@@ -1651,7 +1652,7 @@ the gap has two shapes if ever taken:
   only in the PW path. Shape (b) shipped 2026-08 as the `--enable virtual-bass`
   opt-in. The phase-2 work below is how it got there.
 
-#### Phase 2 (2026-08): `virtual-bass-subgains` decoded, and a chain that scores
+#### Phase 2 (2026-08): decoding `virtual-bass-subgains` and scoring a chain
 
 The VBE fields are corpus-frozen but not dead: they decode, and the decode
 predicts the measured DAX behaviour. A scored search over readings of
@@ -1847,7 +1848,7 @@ is `17AA380D` itself, which newer Lenovo packages still list at that tier, so
 then the finding's conclusion stands, strengthened: whatever enables VBE is not
 in any file or registry value we can read.
 
-### Finding 9: The IEQ is over-applied — `ieq-amount` reads as a percentage, and that closes the HF gap (issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13))
+### Finding 9: `ieq-amount` scaling and the HF gap (issue #13)
 
 Reading `ieq-amount` as a percentage, `amount/100` instead of `amount/10`,
 removes a ~10× over-weighting of the IEQ and closes the X1 Yoga's HF gap to a ~1
@@ -1973,7 +1974,7 @@ with the voicing set to Detailed and then Warm, settles it:
   steady-state weight (e.g. `ieq-amount` scaling only the MI-steered part), and
   the converter's variants are under-differentiated.
 
-### Finding 10: simplified-schema AO units confirmed on a second device (issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44))
+### Finding 10: simplified-schema AO units on a second device (issue #44)
 
 **Verdict (the 2026-07-30 capture set):** the simplified-schema static mapping
 is validated end-to-end at the loud operating point. On those captures, the
@@ -2073,7 +2074,7 @@ regulator under-engagement thread (entries 6/11 below). No converter change is
 indicated for it: chasing a content-adaptive layer with a static chain is the
 same trade rejected in Finding 6.
 
-#### Why bypass has more bass than the preset (issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44), round 3, 2026-08-22)
+#### Why bypass has more bass than the preset (issue #44, round 3, 2026-08-22)
 
 Two causes explain the reporter's round-3 observation that *"disabling the
 preset completely … adds a lot of bass, although everything else does not sound
@@ -2279,7 +2280,7 @@ while the Linux preset barely changes level. That is the leveler's +8.2 dB loud
 `--enable level-restore` territory, not this subsection's, and was raised with
 the reporter in the same thread.
 
-#### Second deep-threshold tuning: issue [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)'s Yoga Slim 7 Pro 14ACH5 (2026-08-30)
+#### Second deep-threshold tuning: issue #84's Yoga Slim 7 Pro 14ACH5 (2026-08-30)
 
 On this tuning the regulator engages at ordinary level, as on #44, and the
 distortion it adds measures 1–2 %: grit on paper, not crackle. The report was
@@ -2646,7 +2647,7 @@ against.
     It gives the biggest HF reduction (−10.5 dB at 19.7 kHz), but 47 Hz blows
     out from −8 to −18 dB EE−DAX.
 
-## Bad sound with a perfect preset: the kernel layer below (issue [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33))
+## Bad sound with a perfect preset: the kernel layer below (issue #33)
 
 A kernel upgrade fixed the IdeaPad Pro 5 14APH8 report ([#33]), not any preset
 change: Debian's 6.12 LTS → 7.0. On 6.12 the sound was "a lot worse than
@@ -2702,7 +2703,7 @@ check and a `--speaker-info` annotation. Design choices:
 
 [#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
 
-## Half the speakers, silently: a woofer pin the firmware hides (issue [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53))
+## Half the speakers, silently: a woofer pin the firmware hides (issue #53)
 
 On the Lenovo Yoga 7 16IAH7 (82UF, ALC287 codec SSID `17AA:386A`), the reporter
 found that Linux drives only the tweeters until they install a modprobe line.
@@ -3181,7 +3182,7 @@ zero:
   built.
 - `alc290_fixup_mono_speakers` waits for a report of the mono symptom.
 
-### When no table lists the machine (issue [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
+### When no table lists the machine (issue #95)
 
 The scope limit recorded above arrived as a report within two weeks: a machine
 reached only by a pin-signature entry gets no warning when its fixup goes
@@ -3324,7 +3325,7 @@ That puts two `_FUNC_FIXUP_ROUTES` helpers on one chain, which the guard
 refused. The kernel applies them in that order, and the later conn-list override
 wins. Without the change the weekly workflow would have failed.
 
-## A tuning pinned at the gain rail: the T495 (issue [#46](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/46))
+## A tuning pinned at the gain rail: the T495 (issue #46)
 
 The ThinkPad T495 report describes the preset as tinny, robotic, and
 clipped/overblown at normal volume. Its `--doctor` was clean: 0 FAIL, 0 WARN,
@@ -3414,7 +3415,7 @@ so the regulator is read.
 The one genuinely unmodelled thing that *is* active is MI steering: all five
 `mi-*-steering-enable` flags are set. That matters for profile choice more than
 for this device's tone. Per
-[cross-device-findings §11](cross-device-findings.md#11-mi-steering--dynamic-profile-only),
+[cross-device-findings §11](cross-device-findings.md#11-mi-steering),
 MI steering is a `dynamic`-profile feature almost everywhere, in 3805/3825 rows.
 It is "the key feature that the EasyEffects pipeline cannot replicate". So our
 "first profile" default systematically picks the profile whose Windows behaviour
@@ -3435,7 +3436,7 @@ in-GUI per-effect bypass already brackets the question: switching off
 curve is confirmed as the cause, the answer is to find what DAX does that we
 don't, not a fudge factor.
 
-## Giving back what normalisation removed: `--enable level-restore` (issue [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50))
+## Giving back what normalisation removed: `--enable level-restore` (issue #50)
 
 The Yoga 7 2-in-1 16IML9 report describes the preset as quieter than bypass and
 thin, with the convolver specifically sounding muffled. Unlike the T495 above,
@@ -3815,7 +3816,7 @@ second-device requirement is met, and the listening gate is answered
 negatively. So the flag stays opt-in, and a default flip is off the table until
 a smaller restore or a mitigation is measured.
 
-## Selecting the chain as the system output (issue [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63))
+## Selecting the chain as the system output (issue #63)
 
 This is a hazard characterisation, not a bug fix. A reporter described a
 hand-selected chain sink whose volume "compounded" with the speaker's and
@@ -3944,7 +3945,7 @@ stayed there as the selected output, with the default switched to HDMI, and
 across a PipeWire restart. That is identical to the pinned conf in all four
 states. Bluetooth was not connected for this; the HDMI switch is the proxy.
 
-## A preset that plays hot: EasyEffects resamples the kernel and keeps the gain (issue [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+## A preset that plays hot: EasyEffects resamples the kernel and keeps the gain (issue #84)
 
 Measuring found a deterministic level error. The issue reported constant crackle
 on every preset. It was clean the instant EasyEffects' effects were switched
@@ -4045,7 +4046,7 @@ invalidating the whole gain-staging budget above. The residual figures are an
 offline model of that arithmetic rather than a measurement. The sqrt(L)
 mechanism is source-certain. Not reported upstream yet.
 
-## Presets written where EasyEffects stopped reading: the Flatpak's two XDG roots (issue [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+## Presets written where EasyEffects stopped reading: the Flatpak's two XDG roots (issue #93)
 
 EasyEffects 8.0.0 (upstream `d8a50b529`) moved presets, impulse responses,
 rnnoise models and autoload profiles from `XDG_CONFIG_HOME` to `XDG_DATA_HOME`.
