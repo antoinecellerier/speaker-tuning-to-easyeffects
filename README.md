@@ -338,17 +338,16 @@ order:
   generated before this option existed, also raise its *Silence threshold* to
   about −50 dB. Otherwise, sounds arriving after silence will crackle.
 - **If it is quieter than with the preset switched off entirely**, not just
-  quieter than Windows, re-run with `--enable level-restore`. The impulse
-  response is normalised so its loudest band sits at 0 dB. On a tuning whose
-  peak exceeds its `volmax-boost`, that leaves the whole preset below bypass.
-  The flag hands that level back. **Experimental**: the restored level also
-  drives the final limiter harder. On the one device that has listened, loud
-  speech picked up audible artifacts. If yours does too, add `--disable volmax`
-  or drop the flag. Report either way on
+  quieter than Windows, re-run with `--enable level-restore`. The flag hands
+  back the level the preset loses below bypass. **Experimental**: the restored
+  level also drives the final limiter harder. On the one device that has
+  listened, loud speech picked up audible artifacts. If yours does too, add
+  `--disable volmax` or drop the flag. Report either way on
   [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50).
   The script's end-of-run menu offers this flag only on tunings where it would
-  change the level. See
-  [Disabling and enabling filters](#disabling-and-enabling-filters).
+  change the level. The `level-restore` row in
+  [Disabling and enabling filters](#disabling-and-enabling-filters) explains
+  why the preset can play below bypass.
 - **Allow volume above 100%** in your desktop environment. GNOME:
   `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`.
   KDE Plasma: volume applet settings → *Raise maximum volume*. Any environment:

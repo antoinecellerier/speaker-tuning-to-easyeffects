@@ -72,7 +72,7 @@ The files, in its `--out-dir`:
   `⟦color⟧…⟦/⟧` markers, such as `⟦yellow⟧`, `⟦faint⟧` or `⟦bold-cyan⟧`.
   The markers name what the screen shows, never what we mean by it. The
   meaning would be comprehension granted (§2), and the color choices
-  themselves are something reviewers can fault. Reviewers A and C read
+  themselves are something reviewers can fault. Reviewers A, C and D read
   these, and reviewer B reads plain as the color-blind control. Plain files
   are the verbatim-quoting source.
 - `meta.txt`: which pattern each block came from, and the patterns with no
@@ -157,8 +157,8 @@ real. On a fallback capture, re-add the old disclosure: "--dry-run was
 forced by our capture tooling; judge the wording, not the flag." Reviewer C
 always gets the preview-blocks disclosure in its own body below.
 
-COLOR NOTE. Append it to PERSONA for reviewers A and C, whose files are the
-`.color.txt` variants:
+COLOR NOTE. Append it to PERSONA for reviewers A, C and D, whose files are
+the `.color.txt` variants:
 
 ```
 Color note: your terminal shows colors, and the capture preserves them as

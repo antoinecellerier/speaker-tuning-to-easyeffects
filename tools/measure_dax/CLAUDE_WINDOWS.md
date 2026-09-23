@@ -55,8 +55,9 @@ different tool.
   `.json` sidecar: the ladder rungs `stimulus_pink{60,48,30,24,14}.wav`,
   `stimulus_stepped_loud.wav` and `stimulus_bass_burst[_quiet].wav`.
 - `captures/`: the output dir. Each capture writes
-  `loopback_<kind>_<label>.wav`, e.g. `loopback_pink_dynamic.wav`, plus a
-  matching `.json` sidecar.
+  `loopback_<tag>_<label>.wav` plus a matching `.json` sidecar. `<tag>` is
+  the stimulus file name minus `stimulus_`, so `stimulus_pink.wav` captured
+  as `dynamic` writes `loopback_pink_dynamic.wav`.
 - `CLAUDE_WINDOWS.md`: this file.
 
 ## Run sequence
@@ -327,7 +328,7 @@ DAX3 IR capture — label: dynamic
     {F4250F44-5F92-4F03-A19F-0F2BB2B08C04} Dolby DAX3 EFX
   starting input loopback…
   starting playback…
-  wrote captures/loopback_dynamic.wav (528000 samples)
+  wrote captures/loopback_pink_dynamic.wav (528000 samples)
   capture peak -18.4 dBFS, RMS -45.2 dBFS, clip samples: 0
   similarity to loopback_off.wav: 0.4221
 ```
@@ -356,7 +357,7 @@ Reasonable values:
 
 Tell the user:
 
-1. Which `loopback_<label>.wav` files were produced, and their reasonable
+1. Which `loopback_<tag>_<label>.wav` files were produced, and their reasonable
    levels.
 2. Any warnings, e.g. similarity to OFF too high → suggest a re-run.
 3. To copy the `captures/` directory back to Linux, where `analyze.py` runs

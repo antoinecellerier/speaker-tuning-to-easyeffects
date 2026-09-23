@@ -22,8 +22,8 @@ has no theme.
     only restate what those entries say. /copy-audit reads the Unreleased
     section only, so prose added at cut time is never fact-checked.
 
-Keep entries newest at the top. Within each ### section, put the most
-impactful first, with [AUDIBLE] and user-facing changes above minor or
+Put the newest release at the top. Within each ### section, put the most
+impactful entry first, with [AUDIBLE] and user-facing changes above minor or
 internal ones. Order sections the same way: lead with the one carrying the
 most user-facing change, as v2026.05 leads with Changed.
 

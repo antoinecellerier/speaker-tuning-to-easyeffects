@@ -55,7 +55,8 @@ their question, then stop. A short section is never the defect.
 6. Use a list for parallel items or steps, a table for values compared
    across rows, and prose for an argument.
 7. Bold marks at most one headline figure or warning per section, never a
-   whole sentence.
+   whole sentence. A bold label opening a list item, such as a
+   troubleshooting symptom, is a label, not emphasis, so it is allowed.
 8. A heading names what the section holds: no verdict, no URL. Citation
    numbers never change (`Finding N:`, `## N.`, numbered entries and
    items), because code and other docs cite them.
