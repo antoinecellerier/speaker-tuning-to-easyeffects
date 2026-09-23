@@ -32,6 +32,9 @@ import tokenize
 UNIT = (r'(?:dB\s?SPL|dBFS|dBTP|dB/oct|dB|LUFS|kHz|Hz|µs|us|ms|sec|s|min|%|'
         r'samples?|taps?|bands?|ppm|bits?|kB|KB|MB|GB|W|×|x)')
 NUM = r'(?:(?<![\w.])[-+−±~≈<>≤≥])?(?<![\w.])\d+(?:[.,]\d+)?(?:/\d+)?'
+# A figure may end on a sentence's full stop but not on a dot inside a longer
+# figure: "since 8.0.7." holds 8.0.7, and "8.0.7.1" holds no 8.0.7.
+END = r'(?!\w|\.\S)'
 PATTERNS = [
     ('code', re.compile(r'(`+)(?!`)(.+?)(?<!`)\1(?!`)')),
     ('url', re.compile(r'https?://[^\s<>()\[\]`\'"]+')),
@@ -49,7 +52,7 @@ PATTERNS = [
     ('flag', re.compile(r'(?<![\w-])--[a-z][a-z0-9-]*[a-z0-9]')),
     ('cite', re.compile(r'§\s?\d+(?:\.\d+)*|\b(?:Follow-ups )?(?i:findings?|entry|'
                         r'entries|items?|options?|phases?|rounds?|steps?|gen)\s\d+\b')),
-    ('count', re.compile(r'\b\d+ of \d+\b|(?<![\w./])\d+/\d+(?![\w./])|'
+    ('count', re.compile(r'\b\d+ of \d+\b|(?<![\w./])\d+/\d+(?!/)' + END + '|'
                          r'(?<![\w.#/–-])(?!(?:19|20)\d\d )\d[\d,]* (?:XMLs?|devices?|rows?|'
                          r'files?|machines?|laptops?|models?|entries|commits?|tests?|'
                          r'profiles?|voicings?|presets?|reports?|variants?|captures?|'
@@ -57,7 +60,7 @@ PATTERNS = [
     ('version', re.compile(r'\b(?:EE|EasyEffects|[Kk]ernel|Linux|PipeWire|WirePlumber|'
                            r'Python|Debian|Fedora|Ubuntu|SOF|numpy|scipy|Qt|GTK)'
                            r'\s?v?\d+(?:\.\d+)+(?:-rc\d+)?|\bv20\d\d\.\d\d(?:\.\d+)?\b|'
-                           r'(?<![\w.])\d+\.\d+\.\d+(?![\w.])')),
+                           r'(?<![\w.])\d+(?:\.\d+){2,}' + END)),
     # A range goes before `num`: the figures inside it are not tokens of their own.
     ('range', re.compile(NUM + r'\s?(?:[-–]|\.\.)\s?' + NUM + r'\s?' + UNIT + r'(?!\w)')),
     ('num', re.compile(NUM + r'(?:\s|-)?' + UNIT + r'(?!\w)')),

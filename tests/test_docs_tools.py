@@ -38,6 +38,18 @@ def test_docinv_does_not_find_a_figure_inside_a_longer_one():
     assert "20dB" in docinv.missing("a 20 dB cut", "a 120 dB cut")
 
 
+def test_docinv_counts_a_figure_that_ends_a_sentence():
+    """A full stop after a version or an N/M count still counts it, and a longer
+    dotted version stays one token."""
+    assert set(docinv.tokens("Fixed since 8.0.7.")) == {"8.0.7"}
+    assert set(docinv.tokens("Fixed since 8.0.7.\n")) == {"8.0.7"}
+    assert set(docinv.tokens("Fixed since 8.0.7. Then")) == {"8.0.7"}
+    assert set(docinv.tokens("Fixed in 8.0.7.1 here")) == {"8.0.7.1"}
+    assert set(docinv.tokens("Fixed on kernel 6.12.")) == {"kernel6.12"}
+    assert set(docinv.tokens("It held on 3/4.")) == {"3/4"}
+    assert docinv.missing("In 8.0.7, it broke.\n", "It broke since 8.0.7.\n") == {}
+
+
 def test_docinv_counts_mode_sees_a_deleted_repeat():
     """A token still present elsewhere is listed with its drop when counts are on."""
     old = "Use `volmax` here.\n\nAnd `volmax` there.\n"
