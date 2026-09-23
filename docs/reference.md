@@ -333,7 +333,7 @@ loads nothing. Use the Flatpak if your distro still ships EE 7.
 
 ## Validated vs unvalidated mappings
 
-Validated:
+Validated against DAX captures:
 
 | Mapping | Evidence |
 |---|---|

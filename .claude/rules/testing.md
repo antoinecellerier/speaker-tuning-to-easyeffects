@@ -69,7 +69,7 @@ without it. Every corpus-fed check then degrades silently:
   `2>/dev/null | md5sum`, which prints the empty string's digest,
   `d41d8cd98f00…`. It reads as a real result either way.
 - `tests/corpus/` skips, and the fast tier drops with it.
-  `pytest tests/ --collect-only` shows it: a worktree collects well under half
+  `pytest tests/ --collect-only` shows it: a worktree collects fewer than half
   the tests the main checkout does.
 
 ## The machine
