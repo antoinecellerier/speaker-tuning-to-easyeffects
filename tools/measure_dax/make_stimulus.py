@@ -29,7 +29,7 @@ matching `.json` sidecar:
 
 The non-LTI dynamics (compressor, regulator, brickwall) only engage on
 the loud bass_burst / stepped_loud variants; the LTI battery leaves them
-dormant (see docs/design-notes.md "dynamics dormant" measurement).
+dormant (see docs/design-notes.md "dynamics plugins are dormant").
 
 Stereo stimuli are L=R (centered mono) except the stereo_* probes;
 analyze.py / compare.py key off each sidecar's `stereo_mode`.
@@ -807,7 +807,7 @@ def main() -> None:
 
     # stepped sine, MBC-waking level. The dev-device XML decodes both MBC
     # band thresholds to ≈ −6.4 dBFS (see docs/design-notes.md, "dynamics
-    # dormant" measurement: the −18/−42 batteries never cross them). A
+    # plugins are dormant": the −18/−42 batteries never cross them). A
     # −2 dBFS-peak tone (−5 dBFS RMS) crosses that knee by ~1.4 dB even at
     # unity chain gain, and engages the regulator/limiter at boosted bands
     # — intended: this variant exists to characterise the dynamics

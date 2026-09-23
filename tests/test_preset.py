@@ -10,11 +10,11 @@ The file groups two kinds of checks:
      right order, IRS file is a 4096-sample float32 stereo RIFF/WAVE,
      etc. Things any future maintainer should expect to remain true.
 
-  2. **Trap regressions** — one assertion per shipped-bug "rabbit
-     hole" in CLAUDE.md. Each section header names the trap and points
-     to the CLAUDE.md bullet that motivates it. Re-introducing one of
-     these bugs should turn the build red even if the math elsewhere
-     stays correct.
+  2. **Trap regressions** — one assertion per shipped bug. Each section
+     header names the trap and points to the rule that motivates it
+     (`.claude/rules/`, or the /audio-validate skill's "Listening pass").
+     Re-introducing one of these bugs should turn the build red even if
+     the math elsewhere stays correct.
 
 The split between "structural" and "trap" is editorial only; both
 classes of test run on the same fixture and live in the same file.
@@ -197,8 +197,8 @@ def test_irs_peak_normalised_for_flat_target(generated):
 
 
 # --- TRAP: convolver autogain (+50 dB clipping bug) ---
-# CLAUDE.md: "Clipping or sudden level jumps on loud content — past
-# traps include the convolver autogain +50 dB bug". The LSP convolver
+# .claude/skills/audio-validate/SKILL.md "Listening pass": "clipping /
+# level jumps (convolver autogain +50 dB, MBC output-gain)". The LSP convolver
 # default applies +50 dB RMS re-normalisation, which clips loud content
 # because the FIR is already peak-normalised in make_fir.
 
@@ -210,8 +210,8 @@ def test_convolver_autogain_disabled(generated):
 
 
 # --- TRAP: convolver kernel-name vs deprecated kernel-path ---
-# CLAUDE.md: "EE 8.x convolver wants kernel-name (filename stem), not
-# the deprecated kernel-path".
+# .claude/rules/ee-preset-format.md: the EE 8.x convolver wants kernel-name
+# (filename stem), not the deprecated kernel-path.
 
 def test_convolver_uses_kernel_name_not_kernel_path(generated):
     preset, _ = generated
@@ -434,8 +434,8 @@ def test_dry_run_deletes_no_impulse_file(hermetic_referrers, tmp_path):
 
 
 # --- TRAP: enum parameters as integer indices (commit 91423b8) ---
-# CLAUDE.md: "enum parameters must be string labels, not integer
-# indices (commit 91423b8 was this exact bug)".
+# .claude/rules/ee-preset-format.md: "Enum parameters are string labels,
+# not integer indices" (commit 91423b8 was this exact bug).
 
 # Field names whose values must be string enums in EasyEffects 8.x.
 # Anywhere these keys appear in the preset JSON, the value must be a string.
@@ -468,8 +468,8 @@ def test_enum_parameters_are_strings(generated):
 
 
 # --- TRAP: .irs extension and minimum-phase FIR ---
-# CLAUDE.md: "impulse-response files need the .irs extension";
-# "FIR must be minimum-phase".
+# .claude/rules/ee-preset-format.md: "Impulse-response files need the .irs
+# extension"; .claude/rules/dsp-fir.md: "The FIR is minimum-phase".
 
 def test_irs_file_uses_irs_extension(generated):
     _, irs = generated
@@ -487,8 +487,8 @@ def test_generated_fir_is_minimum_phase(generated):
 
 
 # --- TRAP: LSP MBC defaults to upward compression ---
-# CLAUDE.md: "Audible noise-floor boost during silence — the
-# upward-compression trap on LSP MBC defaults". LSP's compression-mode
+# .claude/skills/audio-validate/SKILL.md "Listening pass": "noise-floor
+# boost in silence (LSP MBC upward-compression)". LSP's compression-mode
 # defaults to "Upward" when omitted; we must explicitly set "Downward".
 
 def test_mbc_compression_mode_is_downward_on_every_band(generated):
@@ -502,8 +502,8 @@ def test_mbc_compression_mode_is_downward_on_every_band(generated):
 
 
 def test_mbc_top_level_output_gain_is_zero(generated):
-    """CLAUDE.md flags "MBC output-gain misconfiguration" as a past
-    clipping trap. The MBC top-level output-gain feeds straight into
+    """The /audio-validate "Listening pass" lists "MBC output-gain" as a
+    past clipping trap. The MBC top-level output-gain feeds straight into
     the limiter; it must stay at 0 dB so per-band makeup is the only
     place gain rejoins the chain.
     """
@@ -588,8 +588,8 @@ def test_decode_mbc_bands_is_single_source_for_builder():
 
 
 # --- TRAP: PEQ output-gain compensation for clipping/loudness ---
-# CLAUDE.md: "Loss of loudness / over-conservative PEQ output-gain
-# compensation"; "Clipping or sudden level jumps on loud content".
+# .claude/skills/audio-validate/SKILL.md "Listening pass": "loudness loss
+# (over-conservative PEQ output-gain / headroom)"; "clipping / level jumps".
 
 def test_peq_output_gain_compensates_highest_bell():
     """A +6 dB bell at Q=2 has effective broadband contribution of
@@ -2149,8 +2149,8 @@ def test_check_preset_kernel_no_kernel_name_fails():
 
 
 def test_check_preset_kernel_legacy_kernel_path_fails():
-    """TRAP: the deprecated EE-7 'kernel-path' key → FAIL (CLAUDE.md: EE 8.x
-    wants kernel-name)."""
+    """TRAP: the deprecated EE-7 'kernel-path' key → FAIL
+    (.claude/rules/ee-preset-format.md: EE 8.x wants kernel-name)."""
     preset = {"output": {"convolver#0": {"kernel-path": "/x.irs"}}}
     r = check_preset_kernel(preset, set(), "X")
     assert r.status == DOCTOR_FAIL

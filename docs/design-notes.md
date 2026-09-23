@@ -223,7 +223,7 @@ Each stage in the chain is a potential gain trap. The key decisions:
 | Convolver (FIR peak-normalized) | 0 dB | `make_fir` divides the IR by its peak magnitude, so the convolver only ever attenuates and cannot clip on a boost-heavy curve — it is the first stage, fed at unity, with nothing but the −1 dBFS brickwall downstream. Being a scalar on the IR it is a constant dB offset at every frequency, so the correction *shape* is untouched; the level it removes is restored by XML-derived `volmax-boost`, not by an invented makeup gain. Present since `9eb5871`. |
 | Convolver plugin `autogain` | **explicitly `false`** | EasyEffects' default is `true`, which re-normalizes by RMS power. Our minimum-phase FIR concentrates energy at the peak sample → RMS power ≈ 0.00001 → the default would apply a **+50 dB boost**. Commit `5973326` disables it. |
 | PEQ `output-gain` | narrowband-scaled | Compensates for the highest PEQ bell gain, but scaled down for narrow-Q bells because a Q=4.6 bell only boosts a thin slice of spectrum. Commit `c36907c` relaxed this from full compensation. |
-| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost` (volume-leveler loudness ceiling), applied statically. Default slot: `multiband_compressor#1.input-gain` (pre-band-limiting, so the regulator tames the boosted bass before the brickwall; falls back to `limiter#0.input-gain` when the regulator is absent). `--disable volmax` turns it off; `--volmax-slot output-gain` re-routes it after the regulator (opt-out — the pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion). Neither slot is Dolby-derived. Full finding, on-device metrics, and corpus verdict: **["volmax-boost slot" below](#volmax-boost-slot-issue-23).** |
+| Regulator `input-gain` (volmax) | +6 dB typical (device/profile-specific) | Dolby's `volmax-boost` (volume-leveler loudness ceiling), applied statically. Default slot: `multiband_compressor#1.input-gain` (pre-band-limiting, so the regulator tames the boosted bass before the brickwall; falls back to `limiter#0.input-gain` when the regulator is absent). `--disable volmax` turns it off; `--volmax-slot output-gain` re-routes it after the regulator (opt-out — the pre-#23 placement, which on loud low frequencies could drive the brickwall into distortion). Neither slot is Dolby-derived. Full finding, on-device metrics, and corpus verdict: **["volmax-boost slot" below](#volmax-boost-slot-input-gain-default-vs-output-gain-opt-out-issue-23-volmax-boost-slot-issue-23).** |
 | MBC upward compression | **0 dB** | LSP plugin defaults enable upward compression below `boost-threshold=-72 dB`. Dolby's compressor is purely downward. Commit `e454711` disables it on both MBC instances. |
 | Regulator upward compression | **0 dB** | Same LSP default issue — upward compression on a *limiter* is especially wrong. Also fixed in `e454711`. |
 | Output limiter | −1 dBFS | Final catch-all for inter-sample peaks after everything else. |
@@ -2527,8 +2527,8 @@ numeric order.)
    2026-07-01 re-analysis found the under-engagement is static, not
    release-timing; see entry 11.)
 
-   **The flag has been reverted** (per CLAUDE.md "investigation
-   flags are temporary scaffolding"). The mapping math is documented
+   **The flag has been reverted** (per CLAUDE.md "Investigation
+   flags are scaffolding"). The mapping math is documented
    here as a permanent finding rather than carried as a CLI switch
    future readers would feel obliged to keep correct.
 
@@ -3066,11 +3066,11 @@ machine's 0x1e sits on 0x06), and it resolves the **28 machines listed in
 both tables** with no suppression code — pin missing → pin warning alone;
 fixup applied → both quiet; a `hdajackretask`-style pin override without the
 reroute → the routing warning takes over, which is the machine-checkable form
-of "a pin override is not a substitute" above. An `In-driver Connection`
-equal to the fixup's list silences the warning (the kernel outranks our
-parse), but its *presence* proves nothing: the dev machine (`17aa:22e6`, no
-`alc269_fixup_tbl` entry at all) carries one because its fixup arrives by
-**pin-signature match** (`snd_hda_pin_quirk` — the log line is
+of the pin-override caveat in "Half the speakers, silently" above. An
+`In-driver Connection` equal to the fixup's list silences the warning (the
+kernel outranks our parse), but its *presence* proves nothing: the dev machine
+(`17aa:22e6`, no `alc269_fixup_tbl` entry at all) carries one because its
+fixup arrives by **pin-signature match** (`snd_hda_pin_quirk` — the log line is
 `ALC287: picked fixup  (pin match)`). That is a third match path neither
 table models, and the recorded scope limit that comes with it: a machine
 reached only by a pin-signature entry gets no warning from an SSID-keyed

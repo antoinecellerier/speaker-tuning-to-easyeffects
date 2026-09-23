@@ -78,7 +78,7 @@ processing stages:
   audio-optimizer (speaker correction), speaker PEQ, multi-band compressor,
   regulator.
 
-For the full annotated XML tree, see design-notes.md ("XML structure") and
+For the XML fields in detail, see "XML → parameter mapping" below and
 cross-device-findings.md.
 
 ## Output: the plugin chain

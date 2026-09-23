@@ -331,10 +331,9 @@ labels (translated to the fallback integer, with a pointer at the
 and plugin objects missing from `plugins_order` (never visited by the
 chain builder).
 
-The XML→preset mapping invariant (CLAUDE.md "every parameter must
-trace to an XML field") applies here too: this script translates
-what EE's preset already encoded; it does not introduce new
-parameters or hand-tuned offsets.
+The XML→preset mapping invariant (CLAUDE.md "XML-only derivability")
+applies here too: this script translates what EE's preset already
+encoded; it does not introduce new parameters or hand-tuned offsets.
 
 ### MBC per-control translation
 
