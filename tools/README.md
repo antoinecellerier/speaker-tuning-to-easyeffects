@@ -29,7 +29,7 @@ file-in/file-out, with no audio and no PipeWire daemon. So is
 
 | script | what it keeps correct | who runs it, and when |
 |---|---|---|
-| [`_wavio.py`](_wavio.py) | Every WAV read in the measurement tree. `pw-record` writes a `PEAK` chunk that `scipy.io.wavfile` doesn't recognise and warns about on each read. This strips it | Nobody directly: it has no CLI. Nine scripts across `measure_dax/`, `measure_ee/` and `measure_pw/` `sys.path`-insert this directory and `from _wavio import read`. See below for why it lives here |
+| [`_wavio.py`](_wavio.py) | Every WAV read in the measurement tree. `pw-record` writes a `PEAK` chunk that `scipy.io.wavfile` doesn't recognise and warns about on each read. This strips it | Nobody directly: it has no CLI. Scripts across `measure_dax/`, `measure_ee/` and `measure_pw/` `sys.path`-insert this directory and `from _wavio import read`. `git grep "from _wavio import" -- tools` lists them. See below for why it lives here |
 | [`ab_sink.sh`](ab_sink.sh) | Nothing: it is a listening aid. It flips the default sink with `wpctl` between the generated Dolby voicing sinks and the raw speaker, moving playing streams over immediately. So you can A/B `--variant all --target-sink ''` by ear | You, while choosing a voicing. It is independent of the converters and lists whatever `Audio/Sink` nodes exist |
 | [`changelog_section.py`](changelog_section.py) | The GitHub Release. It slices `CHANGELOG.md` down to one version's section for the notes. With `--title` it lifts the heading's tagline into the release title | `.github/workflows/release.yml`, on a pushed `vYYYY.MM` tag. It exits non-zero on a missing section, or on a heading still carrying a date instead of a tagline. So the job fails loudly instead of publishing empty or misnamed notes. `tests/test_changelog_section.py` guards it. That test also holds every `## v` heading in the real file to the shape, because CI runs no tests on a tag push |
 | [`check_move_purity.py`](check_move_purity.py) | `git blame -C -C` history across an extraction. It proves a commit is *pure code motion*: every line it adds under `lib/` was already there, byte-for-byte, in a line it removed | You, by hand, against one commit, before pushing an extraction. It is wired to nothing. The rule it enforces is in `docs/code-organisation.md`, "Splitting the single-file scripts" |
@@ -90,10 +90,10 @@ writing down. For the third it is right, and the fix is half-landed.
 **[`_wavio.py`](_wavio.py): a library at the root of a directory of CLIs.**
 It has no CLI, no test and no documentation besides this file. It sits here
 because `tools/` is the common ancestor of its three consumer directories.
-Nine scripts under `measure_dax/`, `measure_ee/` and `measure_pw/` each insert
-this directory on `sys.path` and import `read` from it. Anywhere deeper, two of
-the three would need a longer path. A sub-package of its own would change all
-nine import lines to buy one file a tidier home.
+Scripts under `measure_dax/`, `measure_ee/` and `measure_pw/` each insert this
+directory on `sys.path` and import `read` from it. Anywhere deeper, two of the
+three would need a longer path. A sub-package of its own would change every one
+of those import lines to buy one file a tidier home.
 
 **[`corpus_audit.py`](corpus_audit.py): not only a CLI.**
 `preview_output.py` and `render_forced_conditions.py` both
@@ -155,11 +155,11 @@ and expensive to rediscover:
   goes quiet when code moves". `tests/test_layout.py` sweeps every one of
   those references and fails on any that stops resolving. So the cost is
   *findable*, but it is a cost.
-- **`_wavio.py` pins the root anyway.** Grouping the ten scripts would leave it
-  here regardless, since the root is the common ancestor of its consumers. So
+- **`_wavio.py` pins the root anyway.** Grouping the loose scripts would leave
+  it here regardless, since the root is the common ancestor of its consumers. So
   the flat directory does not disappear. It only gets emptier.
-- **The grouping would be invented.** Ten scripts doing ten unrelated jobs do
-  not fall into categories that would still look right in six months. A wrong
+- **The grouping would be invented.** The loose scripts do unrelated jobs, which
+  do not fall into categories that would still look right in six months. A wrong
   grouping is worse than none: it tells you where a script *isn't*.
 
 This holds for the loose scripts. A self-contained kit with its own section in

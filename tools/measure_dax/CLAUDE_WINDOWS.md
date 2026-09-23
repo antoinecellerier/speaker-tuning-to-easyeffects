@@ -148,10 +148,9 @@ pairs**, checked 2026-08-05 against the dev-device archives:
 | `stepped_loud` (−2 dBFS) | yes | yes |
 
 Stepped is the regime the regulator actually engages in. On the dev device,
-`stepped_loud` drives DAX over its threshold on 3 of 4 active bands: 141 Hz
-+4.7, 234 Hz +5.0, 328 Hz +1.8 dB. The open regulator questions in
-design-notes entries 6/11 are therefore an analysis gap, not a capture gap.
-Don't re-capture the stepped battery: it buys nothing.
+`stepped_loud` drives DAX over its threshold on 3 of 4 active bands. The open
+regulator questions in design-notes entries 6/11 are therefore an analysis gap,
+not a capture gap. Don't re-capture the stepped battery: it buys nothing.
 
 The pink ladder measures the volume leveler. It will not incidentally
 measure the regulator: pink tops out at −14 dBFS RMS before it clips, which

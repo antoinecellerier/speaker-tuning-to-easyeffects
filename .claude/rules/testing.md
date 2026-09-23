@@ -68,9 +68,9 @@ without it. Every corpus-fed check then degrades silently:
 - `preview_output.py` exits 1. The obvious render diff pipes it as
   `2>/dev/null | md5sum`, which prints the empty string's digest,
   `d41d8cd98f00…`. It reads as a real result either way.
-- `tests/corpus/` skips, and the fast tier drops with it. At one commit,
-  `pytest tests/ --collect-only` collected 1979 tests in a worktree against
-  4670 in the main checkout (2026-09-23).
+- `tests/corpus/` skips, and the fast tier drops with it.
+  `pytest tests/ --collect-only` shows it: a worktree collects well under half
+  the tests the main checkout does.
 
 ## The machine
 

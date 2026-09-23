@@ -390,8 +390,8 @@ uncomfortable stereo width. Repeat `--disable NAME` as many times as needed:
 | `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers. This mirrors `--enable autogain` below. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
-| `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf. In Lenovo AIO-RTK XMLs, it sits around 2.7 kHz at +2–5 dB. **Experimental** path: the reproduction of the Dolby tuning is numerically verified, but not yet audibly validated. Feedback welcome. |
-| `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass. That is rare: a few ALC274 SKUs. **Experimental**, with the same caveat as `high-shelf`. |
+| `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf. [docs/cross-device-findings.md](docs/cross-device-findings.md#type-3--high-shelf-filter-experimental) lists where it appears. **Experimental** path: the reproduction of the Dolby tuning is numerically verified, but not yet audibly validated. Feedback welcome. |
+| `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass. [docs/cross-device-findings.md](docs/cross-device-findings.md#types-6-and-8--low-pass-variants-experimental) lists where it appears. **Experimental**, with the same caveat as `high-shelf`. |
 
 Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 

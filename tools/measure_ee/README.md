@@ -62,7 +62,7 @@ When auditing whether EE is applying the current preset:
   unloads the null sink.
 - `smoke.py`: the bypass-preset smoke harness that gates every route attempt
   before the full battery.
-- `capture_battery.py`: runs the 5-stimulus battery through EE and writes
+- `capture_battery.py`: runs the stimulus battery through EE and writes
   analyzer-compatible `loopback_*.{wav,json}`.
 - `sweep_variants.sh`: drives a variant matrix over the same route. It runs one
   build → capture cycle per row of a tab-separated spec: label, build command,

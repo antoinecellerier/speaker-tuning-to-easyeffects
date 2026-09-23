@@ -120,8 +120,8 @@ path's output level as well as its cycles:
 Two findings:
 
 - Cost at 192 kHz is ~4.5× for EasyEffects and ~3× for the PipeWire chain, not
-  the 16× a rate-squared estimate predicts. All six runs ran with turbo on and
-  D/E/F at n=2, so the second digit is soft.
+  the 16× a rate-squared estimate predicts. Every run in the table ran with
+  turbo on, and the 96 kHz row is from n=2 rounds, so the second digit is soft.
 - The EasyEffects path **plays hot by the rate ratio in dB** above 48 kHz, and
   the PipeWire path does not. This correctness bug is isolated to the
   convolver. `docs/design-notes.md` "A preset that plays hot" has the write-up.

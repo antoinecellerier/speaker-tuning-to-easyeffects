@@ -17,7 +17,7 @@ actual response on top of DAX's.
 # Pick a working directory for stimuli + captures.
 mkdir -p ~/dax-measure && cd ~/dax-measure
 
-# Generate the 5 stimuli + matching inverse filter for the sweeps.
+# Generate the stimulus suite + matching inverse filter for the sweeps.
 python /path/to/repo/tools/measure_dax/make_stimulus.py
 ```
 
@@ -69,9 +69,9 @@ distinguishable between bands.
 [Linux]                          [Windows]                    [Linux]
 make_stimulus.py   ─copy──▶   capture_dax.py    ─copy──▶   analyze.py
   ↓                              ↓                              ↓
-stimulus_*.wav (5)            loopback_<kind>_<label>.wav    ir_*.wav (sweep)
+stimulus_*.wav                loopback_<kind>_<label>.wav    ir_*.wav (sweep)
 inverse_sweep.npy             + .json sidecar                spectrum_*.npz (pink)
-stimulus_*.json (5)                                          tones_*.npz (multitone)
+stimulus_*.json                                              tones_*.npz (multitone)
                                                              compare_*.png
                                                              analysis_*.txt
 ```
@@ -83,7 +83,7 @@ mkdir -p ~/dax-measure && cd ~/dax-measure
 python /path/to/repo/tools/measure_dax/make_stimulus.py
 ```
 
-This produces all 5 stimuli + per-stimulus meta JSON + the shared
+This produces every stimulus + per-stimulus meta JSON + the shared
 `inverse_sweep.npy` in the current directory. The output is deterministic, so
 re-run it only if you change parameters at the top of the script.
 
@@ -135,8 +135,8 @@ The script verifies the rate and aborts if wrong.
 
 ## 3. Capture procedure (Windows)
 
-Run all five stimuli per profile in one go. Toggle the profile in the Dolby
-Access GUI between profile groups:
+Run every stimulus in the loop per profile in one go. Toggle the profile in the
+Dolby Access GUI between profile groups:
 
 ```powershell
 # off baseline (Dolby Atmos toggled OFF in Dolby Access)

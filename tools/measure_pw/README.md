@@ -16,7 +16,7 @@ same analysis tools.
 
 `ee_to_pipewire.py` runs this check on every conf it writes, and refuses to
 write one that fails. Keep that default on: don't pass `--no-validate`. The
-conf gets validated *before* anyone spends five minutes on a battery, because
+conf gets validated *before* anyone spends time on a battery, because
 comparative audio testing has a long warm-up. The warm-up means setting up the
 null sink, restarting EE, running the capture battery, deconvolving sweeps and
 plotting diffs. The failure modes are noisy too: a misrouted PW link or a
@@ -74,7 +74,7 @@ mono-symmetric stimuli cannot expose.
 - [`teardown_chain.sh`](teardown_chain.sh): reverses the above. It kills the
   child `pipewire`, removes the conf drop-in and restores the default sink. It
   restarts EE in service mode if setup stopped it.
-- [`capture_battery.py`](capture_battery.py): plays the 5-stimulus battery
+- [`capture_battery.py`](capture_battery.py): plays the stimulus battery
   into the chain and captures from `ee_capture.monitor` to
   `loopback_<stim>_<label>.{wav,json}`. The output is schema-identical to
   `tools/measure_ee/capture_battery.py`. It reuses
@@ -232,8 +232,8 @@ audio" mystery. The static schema doesn't show them:
 - Whether the convolver block size, partition strategy, or FFT precision
   diverges from EE in ways that affect transients.
 
-The compare scripts answer all of those, at the cost of ~1 min for a full
-battery. Run `validate_conf.py` on every commit. Run the audio battery before
+The compare scripts answer all of those, at the cost of a full battery
+run. Run `validate_conf.py` on every commit. Run the audio battery before
 tagging a release or merging a converter change that could affect the output
 path.
 
