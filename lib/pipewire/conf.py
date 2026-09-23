@@ -3,13 +3,13 @@
 ``build_chain`` walks the preset's ``plugins_order``, hands each key to the
 emitter ``lib.pipewire.plugins`` registered for it, and collects the warnings a
 skipped or unknown plugin raises. ``emit_links`` pairs the resulting stages
-stereo-wise, and ``format_conf`` renders the whole thing — including the
+stereo-wise. ``format_conf`` renders the whole thing, including the
 ``capture.props`` / ``playback.props`` that decide whether the chain is a
 WirePlumber smart filter or a v1 virtual sink.
 
 The SPA-JSON writer is hand-rolled rather than ``json.dumps``-based because
 PipeWire's dialect is not JSON: bare keys, ``=`` instead of ``:``, and no
-commas. Reading it back is the opposite — ``spa-json-dump`` does that, in
+commas. Reading it back goes the other way: ``spa-json-dump`` does that, in
 ``checks.py``.
 
 ``Stage``, ``ChainResult`` and ``EE_KEY_DISPATCH`` come in under their bare
@@ -39,20 +39,21 @@ DEFAULT_NODE_DESCRIPTION = "Dolby DAX3 (filter-chain)"
 DEFAULT_LINK_GROUP_SUFFIX = "_smart_filter"
 
 # What a smart filter calls itself in a sound-settings list. Every Audio/Sink
-# node is listed there, this chain included — hiding it was explored twice and
+# node is listed there, this chain included. Hiding it was explored twice, and
 # neither path survives on multi-port HDA cards (docs/ee-to-pipewire.md,
-# Limitations). Measured on this hardware: the entry is indistinguishable from a
-# real output, listed first, described as the bare preset name. So the
-# description is the only place left to say it is not an output to pick — it is
-# already applied to the speaker beside it, and selecting it stacks a second
-# volume control in front of that speaker (issue #63).
+# Limitations).
+# Measured on this hardware: the entry is indistinguishable from a real output,
+# listed first, described as the bare preset name. So the description is the
+# only place left to say it is not an output to pick. The chain is already
+# applied to the speaker beside it, and selecting it stacks a second volume
+# control in front of that speaker (issue #63).
 SMART_DESCRIPTION_SUFFIX = " (speaker filter)"
 
-# Nothing in this module prints it. It lives here because the three that do —
-# ``lib.pipewire.install``, ``lib.pipewire.checks`` and ``ee_to_pipewire.py``
-# — already import this module, so collapsing the four copies here adds no
-# import edge. ``lib.console`` is the other module all three share and the
-# wrong home for it: it owns how a line is printed, not the conf vocabulary a
+# Nothing in this module prints it. It lives here because the three that do
+# (``lib.pipewire.install``, ``lib.pipewire.checks`` and ``ee_to_pipewire.py``)
+# already import this module, so one copy here adds no import edge.
+# ``lib.console`` is the other module all three share, and the wrong home for
+# it: it owns how a line is printed, not the conf vocabulary a
 # restart-to-load-it belongs to. ``install`` also runs it, splitting on
 # whitespace: keep it a plain argv-shaped string with no shell syntax in it.
 PIPEWIRE_RESTART_CMD = "systemctl --user restart pipewire pipewire-pulse"
@@ -62,13 +63,13 @@ def _assert_positional(plugins_order: list[str]) -> None:
     """Lock the dialog/PEQ and MBC/regulator disambiguation contracts.
 
     Both `equalizer#0` (PEQ) and `equalizer#1` (dialog) are emitted by
-    `dolby_to_easyeffects.py` with the same dict shape — only their
+    `dolby_to_easyeffects.py` with the same dict shape. Only their
     position in `plugins_order` distinguishes them. The same is true of
     `multiband_compressor#0` (MBC) and `multiband_compressor#1`
-    (regulator). If a future change reordered either pair, the
-    converter's mapping would silently swap roles. Fail loudly here.
+    (regulator). If a change reordered either pair, the converter's
+    mapping would silently swap roles, so this raises instead.
     """
-    # Real raises, not bare asserts — the contract must survive `python -O`.
+    # Real raises, not bare asserts, so the contract survives `python -O`.
     for first, role1, second, role2 in (
             ("equalizer#0", "PEQ", "equalizer#1", "dialog"),
             ("multiband_compressor#0", "MBC",
@@ -133,8 +134,8 @@ def build_chain(preset: dict, irs_dir: Path,
 
         if bypassed:
             # Surface bypass-skip uniformly so users notice if their EE
-            # bypassed-plugin choice silently disappeared — unless
-            # silent_if_bypassed marks bypass as the expected default
+            # bypassed-plugin choice silently disappeared. The exception is
+            # silent_if_bypassed, which marks bypass as the expected default
             # (autogain on HDA), where nagging would be noise.
             if not handler.silent_if_bypassed:
                 warn(f"{key}: bypassed in source preset; not emitted.")
@@ -150,7 +151,7 @@ def build_chain(preset: dict, irs_dir: Path,
             for w in stage.warnings:
                 warn(w)
 
-    # The loop above only visits plugins_order — a plugin object that never
+    # The loop above only visits plugins_order. A plugin object that never
     # made it into the order (hand-edited preset) would vanish without this.
     orphaned = [k for k, v in out.items()
                 if k not in ("blocklist", "plugins_order")
@@ -196,8 +197,8 @@ def _fmt_num(v):
         # lapsing into scientific notation. Trailing zeros are dropped
         # by %g.
         s = f"{v:.10g}"
-        # Avoid emitting `inf`/`nan` — clamp to a representable value
-        # so the conf still parses.
+        # Clamp `inf`/`nan` to a representable value so the conf still
+        # parses.
         if s in ("inf", "-inf", "nan"):
             return "0.0"
         return s
@@ -238,17 +239,17 @@ def format_conf(stages: list[Stage], links: list[dict],
                 warnings: list[str] | None = None) -> str:
     """Render the full PipeWire filter-chain conf as text.
 
-    ``target_sink`` (the WirePlumber 0.5+ smart-filter target — typically
-    the internal speaker sink's ``node.name``) makes the chain attach
+    ``target_sink`` is the WirePlumber 0.5+ smart-filter target, typically
+    the internal speaker sink's ``node.name``. It makes the chain attach
     transparently to that hardware sink: apps keep targeting the
     speaker sink as the default, WirePlumber's link resolver routes
     them through the filter automatically, the chain auto-bypasses on
     HDMI/Bluetooth/USB, and there's no second volume layer. When unset,
-    falls back to the v1 virtual-sink behaviour.
+    the conf falls back to the v1 virtual-sink behaviour.
 
     ``target_object`` is the lower-level "pin playback to this node"
-    used by the measurement rig to redirect into a null sink; it
-    coexists with ``target_sink`` but the smart-filter pattern usually
+    used by the measurement rig to redirect into a null sink. It
+    coexists with ``target_sink``, but the smart-filter pattern usually
     makes it unnecessary outside test rigs.
     """
     if not stages:
@@ -262,9 +263,9 @@ def format_conf(stages: list[Stage], links: list[dict],
         raise ValueError(msg)
     nodes = [n for s in stages for n in s.nodes]
     # Without explicit `inputs` / `outputs`, the filter.graph has no
-    # external endpoints and PipeWire silently passes nothing through —
+    # external endpoints and PipeWire silently passes nothing through:
     # audio reaches the capture sink but never enters the graph. The
-    # first stage's input ports become the chain's audio inputs; the
+    # first stage's input ports become the chain's audio inputs, and the
     # last stage's output ports become its audio outputs.
     first, last = stages[0], stages[-1]
     graph_inputs = [f"{first.in_l[0]}:{first.in_l[1]}",
@@ -284,35 +285,35 @@ def format_conf(stages: list[Stage], links: list[dict],
         # node. `node.link-group` ties the capture and playback streams
         # together as one logical filter so WP routes them as a unit.
         # `filter.smart.targetable` defaults to false, which keeps apps
-        # from picking the chain's capture sink directly — they target
-        # the hardware speaker sink as usual, the chain inserts itself
+        # from picking the chain's capture sink directly. They target
+        # the hardware speaker sink as usual, and the chain inserts itself
         # in the path. HDMI/BT outputs aren't matched, so the chain
         # bypasses automatically when audio routes anywhere other than
         # ``target_sink``.
         #
-        # Not "no second volume layer", which is what this said: the
-        # chain sink keeps its own volume and it still applies here —
-        # measured 7.9x down with the speaker selected and the chain at
-        # 0.125. What smart-filter routing removes is the *reason to
-        # touch it*; --doctor's "Chain volume" check catches one left
-        # down (issue #63).
+        # The chain sink keeps its own volume, and it applies here too
+        # (an earlier wording of this comment said "no second volume
+        # layer"): measured 7.9x down with the speaker selected and the
+        # chain at 0.125.
+        # What smart-filter routing removes is the *reason to touch it*.
+        # --doctor's "Chain volume" check catches one left down
+        # (issue #63).
         #
         # `priority.session = -1` is belt-and-braces against WirePlumber's
         # default-nodes/find-best-default-node.lua picking the chain as the
-        # default sink. It is not load-bearing, and the reason it was once
-        # thought to be does not survive contact with a real graph: a
-        # module-filter-chain node declares neither priority.session nor
-        # priority.driver, so node-utils.lua scores it 0 — while an ALSA
-        # speaker sink starts at 1000 (monitors/alsa.lua), Bluetooth at 1010
-        # (monitors/bluez.lua) and HDMI in the 600s. The chain loses that
-        # comparison with or without the -1.
+        # default sink. It is not load-bearing. A module-filter-chain node
+        # declares neither priority.session nor priority.driver, so
+        # node-utils.lua scores it 0. An ALSA speaker sink starts at 1000
+        # (monitors/alsa.lua), Bluetooth at 1010 (monitors/bluez.lua) and
+        # HDMI in the 600s. The chain loses that comparison with or without
+        # the -1.
         #
-        # What it does *not* do is anything about a sink the user picked by
-        # hand: find-selected-default-node.lua scores the current
+        # It does nothing about a sink the user picked by hand.
+        # find-selected-default-node.lua scores the current
         # default.configured.audio.sink at 30000 + priority, so a chain
         # selected once stays the default across restarts, and comes back if a
         # sink of that name reappears (both measured, issue #63).
-        # --doctor's "Default output" check is what reports that state.
+        # --doctor's "Default output" check reports that state.
         capture_props.update({
             "node.link-group": f"{safe_name}{DEFAULT_LINK_GROUP_SUFFIX}",
             "filter.smart": True,
@@ -345,9 +346,9 @@ def format_conf(stages: list[Stage], links: list[dict],
         "playback.props": playback_props,
     }
     if target_object:
-        # Bind the playback stream to a specific downstream sink. Used
-        # by the measurement tooling to route the chain into a null
-        # sink (e.g. ee_capture) instead of the system default — without
+        # Bind the playback stream to a specific downstream sink. The
+        # measurement tooling uses it to route the chain into a null
+        # sink (e.g. ee_capture) instead of the system default. Without
         # this, WirePlumber auto-links to the actual speakers.
         args["playback.props"]["target.object"] = target_object
     # `nofail` keeps a chain that cannot load from taking the daemon with
@@ -356,7 +357,7 @@ def format_conf(stages: list[Stage], links: list[dict],
     # one missing LV2 plugin aborts context creation and PipeWire never
     # starts, leaving the machine with no audio at all rather than no filter.
     # `ifexists` covers the module itself being absent. Both are PipeWire's
-    # own idiom — its stock pipewire.conf carries them on four modules.
+    # own idiom: its stock pipewire.conf carries them on four modules.
     module = {"name": "libpipewire-module-filter-chain",
               "flags": ["ifexists", "nofail"],
               "args": args}

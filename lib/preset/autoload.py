@@ -1,6 +1,6 @@
 """What gets written beside the preset: autoload files, the bypass, EE's rc.
 
-Three jobs that share one property — they all touch state EasyEffects owns, so
+Three jobs that share one property: they all touch state EasyEffects owns, so
 a half-written file is worse than none. `_atomic_write` is the single home for
 the temp-then-rename that prevents it, and every writer in the project goes
 through it (the preset JSON and the `.irs` included, from the generator).
@@ -10,7 +10,7 @@ its loudest reader: parsing the rc is the other half of patching it, and
 `set_autoload_fallback` cannot be separated from the parser whose output it
 edits.
 
-`BYPASS_PRESET_NAME` rides along for the same reason — the empty preset this
+`BYPASS_PRESET_NAME` rides along for the same reason: the empty preset this
 module writes is the one the doctor recognises, and one spelling has to be
 authoritative. So does `starting_preset`: the rule a bare `--autoload`
 follows is the rule the end-of-run reload and the closing copy must follow
@@ -46,9 +46,11 @@ def generator_stamp() -> str:
 
 
 def generator_version(preset_json) -> str:
-    """The tool version stamped into a preset we wrote, "" when there is no
-    stamp of ours to read — a foreign preset, or an EasyEffects GUI re-save,
-    which rebuilds the JSON and drops unknown top-level keys."""
+    """The tool version stamped into a preset we wrote, or "" without one.
+
+    "" means there is no stamp of ours to read: a foreign preset, or an
+    EasyEffects GUI re-save, which rebuilds the JSON and drops unknown
+    top-level keys."""
     if not isinstance(preset_json, dict):
         return ""
     stamp = str(preset_json.get("_generator", ""))
@@ -58,12 +60,13 @@ def generator_version(preset_json) -> str:
 
 
 def kernel_belongs_to(preset_name: str, stem: str) -> bool:
-    """Whether an impulse-file stem is one this tool writes for *preset_name*:
-    ``{preset_name}-<8 hex>`` (`lib.preset.emit.kernel_name`) or the legacy
-    unhashed ``{preset_name}``. The voicing is always the last name part, so
-    nothing else this tool writes can match. Shared by the stale-impulse sweep
-    in `lib/preset/emit.py` and the doctor's "is this preset ours?" test, so
-    the two cannot drift apart."""
+    """Whether an impulse-file stem is one this tool writes for *preset_name*.
+
+    That is ``{preset_name}-<8 hex>`` (`lib.preset.emit.kernel_name`) or the
+    legacy unhashed ``{preset_name}``. The voicing is always the last name
+    part, so nothing else this tool writes can match. Shared by the
+    stale-impulse sweep in `lib/preset/emit.py` and the doctor's "is this
+    preset ours?" test, so the two cannot drift apart."""
     return re.fullmatch(rf"{re.escape(preset_name)}(-[0-9a-f]{{8}})?", stem) is not None
 
 
@@ -90,12 +93,14 @@ def starting_preset(autoload_arg, preset_names: list[str]) -> str:
 
 @contextlib.contextmanager
 def _atomic_write(path: Path):
-    """Yield a same-directory temp path, then os.replace it into place when the
-    block completes — so a crash mid-write can't leave a truncated file that
-    EasyEffects would silently fail to load. The dotfile temp name keeps a
-    leftover from a failed write out of EE's ``*.json`` / ``*.irs`` scan. The
-    single home for the temp-then-rename pattern; callers fill the temp however
-    they like (text, WAV, configparser)."""
+    """Yield a same-directory temp path, then os.replace it into place.
+
+    The replace happens when the block completes, so a crash mid-write can't
+    leave a truncated file that EasyEffects would silently fail to load. The
+    dotfile temp name keeps a leftover from a failed write out of EE's
+    ``*.json`` / ``*.irs`` scan. The single home for the temp-then-rename
+    pattern; callers fill the temp however they like (text, WAV,
+    configparser)."""
     tmp = path.with_name(f".{path.name}.tmp")
     try:
         yield tmp
@@ -169,7 +174,7 @@ def write_bypass_preset(output_dir: Path, preset_name: str,
     """Write an empty bypass preset used as EasyEffects' global fallback.
 
     Returns (path, status) where status is "written", "kept", or "would-write".
-    If a preset of the same name already exists on disk, it is preserved — the
+    If a preset of the same name already exists on disk, it is preserved. The
     user may have hand-built one and we don't want to clobber it.
     """
     path = output_dir / f"{preset_name}.json"
@@ -199,15 +204,15 @@ def _ee_rc_parser() -> configparser.ConfigParser:
 def read_ee_rc(rc_text: str) -> dict:
     """Parse easyeffectsrc text into the fields the diagnostics care about.
 
-    Pure (text in, dict out — no filesystem). Verified key locations against a
-    live EE 8.x rc: the loaded output preset is ``[Presets]
-    lastLoadedOutputPreset``; the global Fallback Preset toggle and the
+    Pure: text in, dict out, no filesystem. Key locations were verified
+    against a live EE 8.x rc. The loaded output preset is ``[Presets]
+    lastLoadedOutputPreset``. The global Fallback Preset toggle and the
     Background-Service ``autostartOnLogin`` / ``enableServiceMode`` flags are
-    ``[Window]`` keys (``enableServiceMode`` is written only when toggled off —
-    an absent key is the ON default); the target sink and active plugin chain
-    are
-    ``[StreamOutputs] outputDevice``/``plugins``. Missing sections/keys fall
-    back to empty/False so callers never KeyError on a partial or older rc.
+    ``[Window]`` keys. ``enableServiceMode`` is written only when toggled
+    off, so an absent key is the ON default. The target sink and active
+    plugin chain are ``[StreamOutputs] outputDevice``/``plugins``. Missing
+    sections/keys fall back to empty/False so callers never KeyError on a
+    partial or older rc.
 
     Everything here is a *snapshot*, not live state: EasyEffects writes this
     file from ``saveAll()``, which runs on quit and on an autosave timer that
@@ -244,7 +249,7 @@ def read_ee_rc(rc_text: str) -> dict:
                           "true").lower() == "true",
         "output_device": g("StreamOutputs", "outputDevice"),
         "output_plugins": [p for p in plugins.split(",") if p],
-        # Written only when toggled OFF, so an absent key is the ON default —
+        # Written only when toggled OFF, so an absent key is the ON default:
         # same polarity as service_mode above. True (the default) means EE
         # follows the system default sink and outputDevice is merely its cache
         # of it; false means the user pinned EE to that device, and then this
@@ -253,7 +258,7 @@ def read_ee_rc(rc_text: str) -> dict:
                                        "true").lower() == "true",
         # [EffectsPipelines] bypass, default false. Only a fallback for the
         # live get_global_bypass request over EE's local socket
-        # (doctor_run._ee_query) — a stale copy of this must never raise a
+        # (doctor_run._ee_query). A stale copy of this must never raise a
         # confident "your audio is bypassed" verdict.
         "bypass": g("EffectsPipelines", "bypass", "false").lower() == "true",
     }
@@ -263,12 +268,12 @@ def set_autoload_fallback(rc_path: Path, preset_name: str,
                           dry_run: bool = False) -> tuple[str, str]:
     """Enable EasyEffects' global Fallback Preset toggle in its KConfig file.
 
-    EasyEffects 8.x stores the toggle as two keys under the [Window] section
-    (they're bound to QML properties attached to the main window object —
-    quirky location, but matches EE's config binding). No EE CLI, D-Bus or
-    local-socket command reaches this setting — the socket's set_property
-    only addresses per-plugin databases (plugin#instance), not [Window] keys
-    — so direct file edit is the only option.
+    EasyEffects 8.x stores the toggle as two keys under the [Window]
+    section. They are bound to QML properties attached to the main window
+    object: a quirky location, but it matches EE's config binding. No EE
+    CLI, D-Bus or local-socket command reaches this setting. The socket's
+    set_property only addresses per-plugin databases (plugin#instance), not
+    [Window] keys. So a direct file edit is the only option.
 
     Returns (status, existing_preset) where status is one of:
       - "already-configured": both keys set and fallback enabled; file untouched.

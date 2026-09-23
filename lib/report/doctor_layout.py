@@ -6,18 +6,18 @@ different things, but a reader meets the same report either way, so the order
 and the text around the findings live here rather than in each of them.
 
 **Inventory leads, diagnosis trails.** Someone runs `--doctor` because
-something is already wrong, and the report is longer than a terminal: printed
-inventory-last, the checks and the fix command scrolled off a 26-line window
-and a PCI listing was the last thing on screen. So the widest context goes
-first (hardware, the same block `--speaker-info` prints), then the audio
-server (`=== PipeWire ===`: where the sound goes, the clock, dropped buffers),
-then the tool's own state (`=== EasyEffects setup ===`, or the PipeWire path's
-`=== PipeWire filter-chain setup ===`), then what is wrong with it, then what
-to do about it. The setup block sits directly above the checks because the
-check details name those confs, sinks and presets — the facts a reader
-cross-references stay on the same screen. `.claude/rules/user-messages.md`
-states the contract; `tests/test_pw_doctor.py` and `tests/test_preset.py`
-each trap the order.
+something is already wrong, and the report is longer than a terminal. Printed
+inventory-last, the checks and the fix command would scroll off a 26-line
+window and leave a PCI listing as the last thing on screen. So the widest
+context goes first: hardware, the same block `--speaker-info` prints. The
+audio server follows (`=== PipeWire ===`: where the sound goes, the clock,
+dropped buffers), then the tool's own state (`=== EasyEffects setup ===`, or
+the PipeWire path's `=== PipeWire filter-chain setup ===`), then what is wrong
+with it, then what to do about it. The setup block sits directly above the
+checks because the check details name those confs, sinks and presets. The
+facts a reader cross-references stay on the same screen.
+`.claude/rules/user-messages.md` states the contract; `tests/test_pw_doctor.py`
+and `tests/test_preset.py` each trap the order.
 
 The hardware block is *not* printed from here. Both reports show it in the same
 slot, but the PipeWire side probes at print time and the EasyEffects side at
@@ -26,7 +26,7 @@ below it in the import graph.
 
 Why here and not `lib/doctor.py`, which owns the shared vocabulary: this prints,
 so it reaches `lib/console.py`, and `console` imports `lib/doctor.py` for
-`tilde`. An `import console` there would close a cycle — which is why that
+`tilde`. An `import console` there would close a cycle, which is why that
 module's printers take a `cprint` instead. Everything below already lives above
 `console`, so it can just call it.
 """
@@ -54,16 +54,16 @@ def print_report_header(running_version: str) -> None:
 
 
 def print_environment(lines: Sequence[str], title: str) -> None:
-    """An inventory block — raw probed facts, always shown, under *title*.
+    """Print an inventory block of raw probed facts, always shown, under *title*.
 
     Shown whatever the checks concluded: a verdict can be wrong or UNKNOWN and
     the report still has to be diagnosable by someone reading it remotely.
     Sections are named by what they list (`=== PipeWire ===`, `=== EasyEffects
-    setup ===`), like every other section of the report — not "Environment",
-    which named nothing a reader could find.
+    setup ===`), like every other section of the report. An earlier title,
+    "Environment", named nothing a reader could find.
 
     ``lines`` are rendered strings, printed verbatim through bare ``print``.
-    Unstyled is deliberate — this is a paste block, and each report pads its
+    Unstyled is deliberate: this is a paste block, and each report pads its
     labels to a gutter so the values line up. An empty string is a group
     break within the block.
     """
@@ -75,15 +75,15 @@ def print_environment(lines: Sequence[str], title: str) -> None:
 
 # Every row's value starts at this column, and wrapped continuations indent
 # to it, so a value that folds still reads as one column. One constant for
-# both doctors' blocks: sized to the widest label either report prints —
-# `Selected preset:` — plus a space. A label that outgrows it widens the
+# both doctors' blocks: sized to the widest label either report prints,
+# `Selected preset:`, plus a space. A label that outgrows it widens the
 # block rather than breaking the alignment silently, which is what `row` and
 # the two gutter traps (tests/test_preset.py, tests/test_pw_doctor.py,
 # through tests/conftest.py `assert_rows_line_up`) enforce.
 GUTTER = 19
 
-# The daemon question, asked exactly once per report — by each doctor's own
-# `PipeWire` check, never by the rows: three rows echoing it read as the
+# The daemon question, asked exactly once per report by each doctor's own
+# `PipeWire` check, never by the rows. Three rows echoing it read as the
 # tool asking the reader what it should be answering (/user-review
 # 2026-08-30).
 DAEMON_HINT = "is the PipeWire daemon running?"
@@ -120,12 +120,12 @@ def version_rows(pipewire: session.Version, wireplumber: session.Version,
     its own claim (`Version.claim`): "running" when read from the live
     daemon (`pw-cli info 0`; WirePlumber's Client object in the
     filter-chain doctor's dump), "installed" when only the binary answered
-    (`wireplumber --version`) — the two can differ after an upgrade nobody
+    (`wireplumber --version`). The two can differ after an upgrade nobody
     restarted, and the tag says which one the reader is looking at.
     """
     def half(name: str, v: session.Version, fallback: str) -> str:
         # Bare reasons: the daemon question is asked once, by the doctors'
-        # own PipeWire check — three rows each asking it read as an echo.
+        # own PipeWire check. Three rows each asking it read as an echo.
         if not v.ok:
             return f"{name} not read ({v.reason})"
         return f"{name} {v.text} ({v.claim or fallback})"
@@ -139,24 +139,25 @@ def output_sink_rows(label: str, node: str, suffix: str, gutter: int,
                      *, reason: str = "",
                      none: str = "PipeWire has no default output right now"
                      ) -> list[str]:
-    """The `Output sink:` row both doctors print: *label* (the sink's
-    description, or "" when the probe settled nothing) leading, *node* (its
-    node.name, already redacted) trailing, *suffix* (" (from saved config)"
-    or "") after it.
+    """The `Output sink:` row both doctors print.
 
-    The description leads because it answers the reader's question — what is
-    my sound coming out of — and the node name trails because it answers the
+    *label* (the sink's description, or "" when the probe settled nothing)
+    leads, *node* (its node.name, already redacted) trails, and *suffix*
+    (" (from saved config)" or "") follows it.
+
+    The description leads because it answers the reader's question: what is
+    my sound coming out of. The node name trails because it answers the
     tool's: it is what --autoload-sink takes and what a bug report is triaged
     on. Node names run past 70 columns, so the two share a line only when
-    they fit; the name is never wrapped — a name broken across lines stops
-    being greppable and stops being copy-pasteable — and just overflows.
+    they fit. The name is never wrapped, because a name broken across lines
+    stops being greppable and copy-pasteable, so it just overflows.
 
-    With no *node* the row still prints — `dropouts_rows` below calls it
-    "the output sink", and in a paste an absent row and a zero read alike —
-    saying either why it wasn't read (*reason*) or that there genuinely is
-    none (*none* — the caller's sentence, because "none" means different
-    things: no default in the graph, or a config that pins no device);
-    *suffix* still applies for extra context."""
+    With no *node* the row still prints, because `dropouts_rows` below calls
+    it "the output sink" and in a paste an absent row and a zero read alike.
+    It says either why the sink wasn't read (*reason*) or that there
+    genuinely is none (*none*). *none* is the caller's sentence, because
+    "none" means different things: no default in the graph, or a config that
+    pins no device. *suffix* still applies for extra context."""
     if not node:
         text = f"not read ({reason})" if reason else f"none — {none}"
         return wrapped_row("Output sink", text + suffix, gutter)
@@ -184,12 +185,12 @@ def clock_rows(settings: session.ClockSettings, d: session.Dropouts | None,
     lowest quantum any follower asks for (`man pw-top`), and a per-node
     `node.force-quantum` rule pins a graph without touching these keys. The
     running cycle comes from the driver row in `pw-top`. "quantum" is
-    PipeWire's word for the samples processed per graph cycle — a buffer
-    size, not a clock — and the row says so once; the cycle length in ms is
-    what a reader can weigh against a crackle.
+    PipeWire's word for the samples processed per graph cycle. It is a
+    buffer size, not a clock, and the row says so once. The cycle length in
+    ms is what a reader can weigh against a crackle.
     """
     if not settings.ok:
-        # Bare reason + what it cost; the daemon question is the PipeWire
+        # Bare reason and what it cost. The daemon question is the PipeWire
         # check's to ask, once.
         return wrapped_row("Clock", f"{settings.reason} — clock settings "
                            "not read", gutter)
@@ -223,17 +224,17 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
     """`Dropouts:` — pw-top's xrun counters on the output sink and on the
     chain's own nodes, then on a second line what happened during the check.
 
-    The counters are cumulative from node creation — nothing rebases them;
-    pw-top's `c` key clears only its own display — so a total means nothing
-    without an age. The PipeWire process uptime (and *app*'s, when the chain
+    The counters are cumulative from node creation, so a total means nothing
+    without an age. Nothing rebases them: pw-top's `c` key clears only its
+    own display. The PipeWire process uptime (and *app*'s, when the chain
     lives in one) is the bound a paste can carry: a node is at most that
-    old, and EasyEffects recreates its filter nodes on every pipeline
-    restart, including the preset reload the generator performs, so its
-    counter can be much younger. The growth during the doctor's own
-    five-second window is the only "is it happening now"; a zero there with
-    no stream running says nothing, and the row says which it was —
-    "running", not "audible": any application's active playback stream keeps
-    the graph running, silent or not. On a driver node, which the output
+    old. EasyEffects recreates its filter nodes on every pipeline restart,
+    including the preset reload the generator performs, so its counter can
+    be much younger. The growth during the doctor's own five-second window
+    is the only "is it happening now". A zero there with no stream running
+    says nothing, and the row says which it was. It says "running", not
+    "audible": any application's active playback stream keeps the graph
+    running, silent or not. On a driver node, which the output
     sink usually is, ERR counts every cycle the whole graph missed, and the
     row says so. A count that could not be read says so rather than
     printing nothing: in a pasted report an absent row and a zero look
@@ -243,7 +244,7 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
     if not d.ok:
         return wrapped_row("Dropouts", f"not read ({d.reason})", gutter)
     # The plain word leads and the unit follows it: "0 xruns" alone read as
-    # alarming to a reviewer until they worked out that 0 is the good number;
+    # alarming to a reviewer until they worked out that 0 is the good number.
     # "xruns" stays because it is pw-top's column, what a maintainer greps a
     # paste for.
     has_sink, has_chain = d.sink is not None, d.chain is not None
@@ -292,20 +293,19 @@ def dropouts_rows(d: session.Dropouts, pw_age: float | None, app_age: float | No
 
 
 def print_check_block(title: str, checks: Sequence[CheckResult]) -> None:
-    """The diagnosis: the header, the checks, the summary, the verdict.
+    """Print the diagnosis: the header, the checks, the summary, the verdict.
 
     The header sits here, with the checks it names, rather than at the top of
-    the report — up there it labelled a hardware dump it has nothing to do
-    with, and left the check block as the only section without a heading.
+    the report. Up there it would label a hardware dump it has nothing to do
+    with, and leave the check block as the only section without a heading.
 
-    **The summary counts the lines it just printed, and nothing else.** There
-    used to be a second ``counted`` sequence, so a report that collapses a run
-    of passing checks onto one line could still total the checks behind it —
-    the EasyEffects doctor's presets. It read as the tool failing to count:
-    six ``[PASS]`` lines above ``8 PASS``, with no way to tell where the other
-    two were. A line that stands for several checks says so in its own label
-    (`doctor_run._collapse_preset_checks`), which is where that number belongs
-    — beside the thing it counts, not in a total the reader cannot reconcile.
+    **The summary counts the lines it just printed, and nothing else.** A
+    total of the checks behind a collapsed line (the EasyEffects doctor's
+    presets) would read as the tool failing to count: six ``[PASS]`` lines
+    above ``8 PASS``, with no way to tell where the other two were. A line
+    that stands for several checks says so in its own label
+    (`doctor_run._collapse_preset_checks`), beside the thing it counts.
+    tests/conftest.py `assert_summary_counts_the_printed_lines` pins it.
     """
     console.cprint("head", title)
     # Once per report, not once per check: this asks the OS for the terminal
@@ -320,15 +320,15 @@ def print_check_block(title: str, checks: Sequence[CheckResult]) -> None:
 
 
 def print_closing(advice: Sequence[tuple[str, str]] = ()) -> None:
-    """What to do, then the link — the last thing on screen.
+    """Print what to do, then the link, the last thing on screen.
 
     ``advice`` is the report's own remedy as ``(cprint style, text)`` pairs,
-    the shape a `CheckResult`'s ``steps`` already uses: it is the one step a
+    the shape a `CheckResult`'s ``steps`` already uses. It is the one step a
     reader cannot derive from a diagnosis.
 
     One link, and it is last (`.claude/rules/user-messages.md`). The report is
-    written to be pasted, and with the inventory no longer trailing there is
-    nothing after it left to say where it should go.
+    written to be pasted, and the inventory leads, so the link that says
+    where the paste goes is the last line.
     """
     if advice:
         print()

@@ -1,17 +1,17 @@
 """PipeWire's session as `--doctor` reads it: versions, clock, dropouts.
 
-Read-only wrappers around PipeWire's own tools — `pw-metadata -n settings`
+Read-only wrappers around PipeWire's own tools: `pw-metadata -n settings`
 for the clock (rate, quantum, its bounds, anything forced) and `pw-top -b`
-for each node's xrun counter — plus the pure parsers that turn their text
-into values, so the rows they feed can be tested without a daemon. Issue #84
-is why they exist: a crackling report whose pasted `--doctor` output could
-not say what quantum the chain was running at or whether the graph was
-dropping buffers at all.
+for each node's xrun counter. Pure parsers turn their text into values, so
+the rows they feed can be tested without a daemon. Issue #84 is why they
+exist: a crackling report whose pasted `--doctor` output could not say what
+quantum the chain was running at or whether the graph was dropping buffers
+at all.
 
 Never writes. Forcing a quantum is a whole-session change the user opts into
-by hand (`docs/ee-to-pipewire.md`, "Small-quantum systems under load"), and
-the one place this project does it — `tools/measure_perf/compare_paths.py` —
-is a measurement harness behind the audio handoff.
+by hand (`docs/ee-to-pipewire.md`, "Small-quantum systems under load"). The
+one place this project does it, `tools/measure_perf/compare_paths.py`, is a
+measurement harness behind the audio handoff.
 
 Stdlib-only, deliberately: both doctors print from it through
 `lib/report/doctor_layout.py`, and `tests/test_layout.py` lists it.
@@ -31,15 +31,15 @@ from lib import host, tool_env
 # Names PipeWire gives EasyEffects' playback-path nodes: its virtual
 # sink/source pair and the `ee_soe_*` (stream output effects) / `ee_sie_*`
 # (input) filters. Read off a live `pw-top` on EasyEffects 8.2.8, which also
-# lists an `ee_test_signals` node — its test-tone generator, not on the
+# lists an `ee_test_signals` node. That is its test-tone generator, not on the
 # playback path, and deliberately not matched.
 EASYEFFECTS_NODE_PREFIXES = ("easyeffects_", "ee_soe_", "ee_sie_")
 
 _TIMEOUT = 5  # seconds — the same ceiling as the doctors' other probes
 
 # `pw-top -b -n K` prints two snapshots at once on startup, then one per
-# second (its refresh timer), so K iterations are a window of about K-2 s —
-# measured: -n 4 returns in 2.0 s, -n 6 in 4.0 s. Five seconds is long enough
+# second (its refresh timer), so K iterations are a window of about K-2 s.
+# Measured: -n 4 returns in 2.0 s, -n 6 in 4.0 s. Five seconds is long enough
 # for a dropout a listener hears as crackle to recur, and short enough not to
 # double the doctor's run.
 WINDOW_ITERATIONS = 7
@@ -79,20 +79,20 @@ class NodeRow(NamedTuple):
 class Dropouts:
     """pw-top's xrun counters, read at both ends of a short window.
 
-    Each counter is cumulative since its node was created — nothing rebases
-    it; pw-top's ``c`` key clears only that instance's display — so the
+    Each counter is cumulative since its node was created. Nothing rebases
+    it: pw-top's ``c`` key clears only that instance's display. So the
     totals mean little without an age, and the growth over the window is
     what says whether dropouts are happening *now*. ``sink`` is the sink the
     chain plays into (``None`` when the caller named none or it isn't in the
-    graph); on a driver node, which the sink usually is, pw-top's ERR counts
-    every cycle the *graph* failed to complete — any node's fault — which
-    ``sink_is_driver`` records. ``chain`` is the highest total among the
+    graph). On a driver node, which the sink usually is, pw-top's ERR counts
+    every cycle the *graph* failed to complete, whichever node was at fault;
+    ``sink_is_driver`` records that. ``chain`` is the highest total among the
     chain's own nodes (EasyEffects', or a filter chain's) and ``chain_node``
-    which one carries it; ``sink_recent`` / ``chain_recent`` the growth over
-    ``window_s`` seconds (the latter the largest growth on any chain node);
-    ``playing`` whether a chain node on the playback path was running at any
-    point in the window — which any application's active playback stream
-    causes, silent or not, and without which a zero says nothing.
+    which one carries it. ``sink_recent`` / ``chain_recent`` are the growth
+    over ``window_s`` seconds (the latter the largest growth on any chain
+    node). ``playing`` is whether a chain node on the playback path was
+    running at any point in the window. Any application's active playback
+    stream causes that, silent or not, and without it a zero says nothing.
     ``running_quantum`` / ``running_rate`` are the clock the sink's driver
     actually ran at during the window (0 when it never ran), as distinct
     from the session defaults `read_settings` reports. ``reason`` is set,
@@ -104,7 +104,7 @@ class Dropouts:
     sink_recent: int | None = None
     chain_recent: int | None = None
     # True when the busiest chain node IS the sink (EasyEffects' own sink as
-    # the default output): one node, one count — the renderer must not hang
+    # the default output): one node, one count. The renderer must not hang
     # two labels on it, which reads as twice the dropouts.
     sink_is_chain_node: bool = False
     window_s: float = 0.0
@@ -124,8 +124,7 @@ def parse_settings(text: str) -> dict[str, str]:
 
     Each line reads ``update: id:0 key:'clock.rate' value:'48000' type:''``;
     the ``Found "settings" metadata 32`` preamble has neither marker and is
-    skipped. Same split `tools/measure_perf/compare_paths.py` has used since
-    the perf work.
+    skipped. Same split `tools/measure_perf/compare_paths.py` uses.
     """
     values: dict[str, str] = {}
     for line in text.splitlines():
@@ -137,7 +136,7 @@ def parse_settings(text: str) -> dict[str, str]:
 
 
 def _run(cmd: list[str], timeout: float = _TIMEOUT) -> str | None:
-    """The subprocess boundary — stdout, or None when the tool couldn't run."""
+    """The subprocess boundary: stdout, or None when the tool couldn't run."""
     try:
         result = tool_env.run(cmd, capture_output=True, text=True,
                               timeout=timeout)
@@ -151,18 +150,18 @@ class Version:
     """A component's version as its own tool reported it, or why not.
 
     ``text`` keeps every number the tool gave, not the two a comparison
-    needs: the value is pasted into issues as well as judged, and "0.5" in
-    a report reads as 0.5.0 — a build four years and fifteen patch releases
+    needs: the value is pasted into issues as well as judged. "0.5" in a
+    report reads as 0.5.0, a build four years and fifteen patch releases
     away from the 0.5.15 that answered. ``parts`` is the same numbers for
-    ordering; ``reason`` is why there is no version, in the words the report
+    ordering. ``reason`` is why there is no version, in the words the report
     prints, so an absent value and a zero never look alike in a paste.
     """
     text: str = ""
     parts: tuple[int, ...] = ()
     reason: str = ""
-    # Which claim the number makes — "running" (read from the live daemon)
-    # or "installed" (the binary that answered) — printed beside it, because
-    # the two can differ after an upgrade nobody restarted.
+    # Which claim the number makes: "running" (read from the live daemon)
+    # or "installed" (the binary that answered). It is printed beside the
+    # number, because the two can differ after an upgrade nobody restarted.
     claim: str = ""
 
     @property
@@ -185,7 +184,7 @@ def pipewire_version() -> Version:
 
     Not `pipewire --version`: that is the installed binary's libpipewire,
     which is the wrong answer in exactly the case a crackle report cares
-    about — an upgraded package under a daemon nobody restarted.
+    about: an upgraded package under a daemon nobody restarted.
     """
     if tool_env.which("pw-cli") is None:
         return Version(reason="pw-cli not found")
@@ -196,10 +195,11 @@ def pipewire_version() -> Version:
 
 
 def wireplumber_version() -> Version:
-    """The installed WirePlumber binary's version — the fallback when the
-    running daemon's own number (its Client object in a pw-dump, read by
-    the filter-chain doctor) isn't in hand, and the row says "installed"
-    because that is all this probe can claim."""
+    """The installed WirePlumber binary's version.
+
+    The fallback when the running daemon's own number (its Client object in
+    a pw-dump, read by the filter-chain doctor) isn't in hand. The row says
+    "installed" because that is all this probe can claim."""
     if tool_env.which("wireplumber") is None:
         return Version(reason="wireplumber not found")
     return _version(_run(["wireplumber", "--version"]),
@@ -312,7 +312,7 @@ def read_xruns(sink: str = "",
     ``chain_prefixes`` (EasyEffects' by default) or equal one of
     ``chain_names`` (a filter chain's ``effect_input.X`` / ``effect_output.X``);
     ``sink`` is the exact name of the sink they play into, counted and
-    reported on its own — a dropout there is heard just the same.
+    reported on its own: a dropout there is heard just the same.
     """
     if tool_env.which("pw-top") is None:
         return Dropouts(reason="pw-top not found")
@@ -325,7 +325,7 @@ def read_xruns(sink: str = "",
         return Dropouts(reason="pw-top didn't answer")
     # The very first snapshot is printed before the nodes' info has arrived:
     # every state reads `C` and every ERR 0 (seen live), so it cannot be the
-    # window's baseline — the second one is the first with real counts.
+    # window's baseline. The second one is the first with real counts.
     first = snapshots[1] if len(snapshots) > 1 else snapshots[0]
     last = snapshots[-1]
     prefixes, names = tuple(chain_prefixes), set(chain_names)
@@ -348,8 +348,8 @@ def read_xruns(sink: str = "",
     # the sink runs whenever the chain's stream is attached to it, while
     # `easyeffects_sink`, the `ee_soe_*` filters and a filter chain's own
     # nodes run only while an app holds a playback stream into them (they
-    # read `S` on an idle graph) — which a browser tab with an open audio
-    # context does, silently.
+    # read `S` on an idle graph). A browser tab with an open audio context
+    # holds one, silently.
     playback_side = [n for n in chain_nodes
                      if not n.startswith(_CAPTURE_SIDE_PREFIXES)]
     playing = any(snap[n].state == "R" for snap in snapshots
@@ -379,9 +379,11 @@ def read_xruns(sink: str = "",
 
 
 def age_from_stat(stat: str, uptime_s: float, clk_tck: int) -> float | None:
-    """Pure: ``/proc/<pid>/stat`` + ``/proc/uptime`` → seconds since the
-    process started. Field 22 is the start time in clock ticks since boot;
-    the ``comm`` field (2) is parenthesised and may hold spaces, so the split
+    """Seconds since a process started, from its stat line and the uptime.
+
+    Pure: ``/proc/<pid>/stat`` + ``/proc/uptime`` → seconds since the
+    process started. Field 22 is the start time in clock ticks since boot.
+    The ``comm`` field (2) is parenthesised and may hold spaces, so the split
     starts after the last ``)``, where the state (field 3) comes first."""
     try:
         after_comm = stat.rsplit(")", 1)[1].split()

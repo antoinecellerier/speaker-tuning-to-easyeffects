@@ -24,11 +24,10 @@ values say nothing about where a sandboxed EasyEffects reads.
 The ``DEFAULT_*`` constants below are the single definition of where a run
 writes: the generator's ``--output-dir`` / ``--irs-dir`` / ``--autoload-dir``
 defaults and the converter's ``--irs-dir`` default are all this module's
-attributes. ``lib/pipewire/install.py`` held a second derivation of the IRS
-directory until this module absorbed it. That copy had itself started out
-hardcoded to the native path, which sent Flatpak users looking for an impulse
-response in a directory they never had — the reason to keep one definition
-rather than two that merely agree today.
+attributes. Keep one definition rather than two that merely agree today: a
+second derivation of the IRS directory hardcoded to the native path would
+send Flatpak users looking for an impulse response in a directory they never
+had.
 """
 
 from pathlib import Path
@@ -73,8 +72,8 @@ def flatpak_install_roots() -> tuple[Path, ...]:
     test point it somewhere by setting the variable.
 
     Exported because ``--doctor`` reads a deployed app's version straight out
-    of its metainfo file and needs the same two roots to find it. It had its
-    own copy of this walk, and that copy is how the two came to disagree.
+    of its metainfo file and needs the same two roots to find it. A copy of
+    this walk there is how the two would come to disagree.
     """
     return (host.path("/var/lib/flatpak/app"),
             xdg.data_home() / "flatpak" / "app")
@@ -92,10 +91,10 @@ def flatpak_app_installed() -> bool:
 def flatpak_tree_exists() -> bool:
     """Has a Flatpak EasyEffects left files here, under *either* XDG root?
 
-    Detection only — nothing is ever written to the config tree. A pre-8
-    Flatpak that only wrote under ``config/`` would otherwise be
-    indistinguishable from no Flatpak at all, now that ``FLATPAK_BASE`` names
-    the data tree, and would be silently handed the native paths instead.
+    Detection only: nothing is ever written to the config tree. Since
+    ``FLATPAK_BASE`` names the data tree, a pre-8 Flatpak that only wrote
+    under ``config/`` would otherwise be indistinguishable from no Flatpak at
+    all, and would be silently handed the native paths instead.
     """
     return FLATPAK_BASE.exists() or FLATPAK_CONFIG_BASE.exists()
 
@@ -106,9 +105,9 @@ def prefer_flatpak() -> bool:
     Prefers whichever install has a data directory (i.e. has been run at least
     once). If neither has been run, probes Flatpak app install roots so a
     freshly-installed-but-unopened Flatpak still picks the Flatpak paths. On
-    systems with both installed and both launched, preserves the prior default
-    (Flatpak wins) — but a Flatpak tree with no Flatpak deployed behind it is
-    leftovers from an uninstall, not an install, and loses to a native tree.
+    systems with both installed and both launched, Flatpak wins, which keeps
+    the prior default. A Flatpak tree with no Flatpak deployed behind it is
+    left over from an uninstall, not an install, and loses to a native tree.
     """
     flatpak_used = flatpak_tree_exists()
     native_used = NATIVE_BASE.exists()
@@ -138,10 +137,10 @@ DEFAULT_AUTOLOAD_DIR = EASYEFFECTS_BASE / "autoload" / "output"
 # EasyEffects 8.x KConfig file. Rooted in the *config* tree deliberately, and
 # not under EASYEFFECTS_BASE: 8.0.0 moved presets, impulses and autoload
 # profiles to XDG_DATA_HOME but kept the settings database under
-# XDG_CONFIG_HOME. The two agreed by accident while the Flatpak base was the
-# config tree — which is why the rc writes landed correctly for Flatpak users
-# all along and the presets beside them did not. Deriving this from
-# FLATPAK_CONFIG_BASE is what keeps them agreeing on purpose.
+# XDG_CONFIG_HOME. Derive this from FLATPAK_CONFIG_BASE, never FLATPAK_BASE,
+# which names the data tree. tests/test_ee_to_pipewire.py's
+# test_flatpak_presets_moved_to_the_data_tree_but_the_rc_did_not pins the two
+# apart.
 _FLATPAK_RC = FLATPAK_CONFIG_BASE / "db" / "easyeffectsrc"
 _NATIVE_RC = xdg.config_home() / "easyeffects" / "db" / "easyeffectsrc"
 

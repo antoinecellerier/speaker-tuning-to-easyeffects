@@ -3,9 +3,10 @@
 Between the parse and the build sits a screen and a half of prose: the voicing
 strength, the speaker-correction curve reduced to its deepest cut and boost,
 the PEQ rows, the dialog/surround/leveler/compressor/regulator stages and the
-loudness boost — each one glossed in what a listener would hear rather than in
-what the stage is called. `.claude/rules/user-messages.md` is the contract for
-that copy, and a dozen review rounds are recorded in the comments beside it.
+loudness boost. Each one is glossed in what a listener would hear rather than
+in what the stage is called. `.claude/rules/user-messages.md` is the contract
+for that copy, and a dozen review rounds are recorded in the comments beside
+it.
 
 Side-effect-free apart from stdout, and it returns the findings it raised
 rather than printing their asks: each finding's technical half prints here, in
@@ -13,13 +14,13 @@ place, next to the table or value that explains it, and `main()` renders the
 one-line asks at the end where the user still has them on screen.
 
 It is a module of its own and not more of `lib/report/messages.py` because it
-reaches the DSP stack — numpy for the audio-optimizer summary,
+reaches the DSP stack: numpy for the audio-optimizer summary,
 `lib/preset/fir.py` for the sample rate the compressor crossovers print
 against, `lib/preset/plugins.py` for the decoders whose answers it reports.
 That is also why `dolby_to_easyeffects.py` imports it inside `main()`, beside
 `emit`, rather than at the top of the file: numpy and scipy are ~0.35 s of the
 generator's ~0.5 s startup, so anything reaching them has to stay off the
-import path and out of every early return — `--version`, `--list`, `--doctor`,
+import path and out of every early return: `--version`, `--list`, `--doctor`,
 `--speaker-info`, an argparse error, and a tab completion, which argcomplete
 re-runs the whole script for on every TAB press
 (`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
@@ -28,10 +29,9 @@ re-runs the whole script for on every TAB press
 `_print_finding_detail` and `Finding` arrive as bare names because neither
 holds state a patch would have to reach: a frozen record, and a printer that
 reads `_TAG_CONVENTION_SHOWN` out of its own module globals at call time.
-`VOICING_CURVES` comes from `messages` for the reason
-recorded there: its other readers are `lib/preset/emit.py`, in a package this
-one may not import, and `dolby_to_pipewire.py`'s `--variant` choices, in a
-root script.
+`VOICING_CURVES` comes from `messages` for the reason recorded there: its
+other readers are `lib/preset/emit.py`, in a package this one may not import,
+and `dolby_to_pipewire.py`'s `--variant` choices, in a root script.
 """
 
 from __future__ import annotations
@@ -48,17 +48,17 @@ from lib.report.findings import Finding, _print_finding_detail
 
 def _print_voicing(tuning):
     ieq_amount = tuning.ieq_amount
-    # One clause of meaning: this used to print bare ("ieq-amount: 10%
-    # (scale: 0.10)") — no heading, nothing tying back to it, and a
+    # One clause of meaning: printed bare (an earlier "ieq-amount: 10%
+    # (scale: 0.10)"), with no heading and nothing tying back to it, a
     # reviewer couldn't tell whether it mattered.
     # Leads with the plain name (round 3: the bare acronym was the one
     # line still doing it) and ties the three preset files to the profile
-    # they voice — reviewers read them as unrelated flavors.
-    # "of full strength" anchors the percentage's scale — a bare "10%"
+    # they voice: reviewers read them as unrelated flavors.
+    # "of full strength" anchors the percentage's scale: a bare "10%"
     # gave no way to tell strong from weak (round 6). "Differ in shape,
     # not strength": one number over three differently-described presets
     # left a round-7 reviewer unsure whether it covered all three. No
-    # is-this-typical cue — no corpus stat backs one.
+    # is-this-typical cue: no corpus stat backs one.
     # The list is derived, not hardcoded (round 7, user catch): the emit
     # loop skips any voicing whose ieq_* curve the XML lacks, so the
     # summary must not promise three when fewer will build.
@@ -80,8 +80,8 @@ def _print_voicing(tuning):
                                 + ("; they differ in shape, not strength"
                                    if len(voicings) > 1 else ""), indent="  ")
         else:
-            # With <ieq-enable> at 0 — about 45% of dynamic-profile corpus
-            # rows — the tuning states no strength and Dolby engages none,
+            # With <ieq-enable> at 0 (about 45% of dynamic-profile corpus
+            # rows), the tuning states no strength and Dolby engages none,
             # while ieq_amount still holds our assumed 10 and the build
             # applies it (scale = ieq_amount/100, unconditional). Stating the
             # percentage first and "Windows applies none" after read as a
@@ -102,7 +102,7 @@ def _print_voicing(tuning):
 
 def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
     freqs = tuning.freqs
-    # Audio-optimizer: one triage-grade line by default — deepest cut/boost
+    # Audio-optimizer: one triage-grade line by default: deepest cut/boost
     # with its frequency, and channel symmetry, which is what a pasted
     # normal-verbosity report gets read for first. The raw twenty-number
     # arrays read as "my sound is about to be damaged" (round 3, two
@@ -152,19 +152,19 @@ def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose):
 def _print_peq(tuning, verbose):
     peq_filters = tuning.peq_filters
     # The row types carry a what-you-hear clause where the name alone says
-    # nothing to a non-engineer — the dialog/bass sections had one and this
-    # section didn't, which read as "am I supposed to understand this?".
+    # nothing to a non-engineer. Without one, beside the dialog/bass sections
+    # that have one, this section read as "am I supposed to understand this?".
     # Every type gets one (round 3: the glossed and bare rows side by side
-    # read worse than all-bare). Header only when there are rows — over
+    # read worse than all-bare). Header only when there are rows: over
     # nothing it read as a failed section.
     #
-    # Most tunings configure L and R identically; printing both channels
-    # doubled every row for no information (round 5). When the two channel
+    # Most tunings configure L and R identically, and printing both channels
+    # doubles every row for no information (round 5). When the two channel
     # configurations match and -v is off, each filter prints once. Any L/R
-    # difference keeps per-channel rows — the difference is itself the
-    # detail worth reading — but the filter-design internals (order, S, Q)
+    # difference keeps per-channel rows, because the difference is itself
+    # the detail worth reading. The filter-design internals (order, S, Q)
     # are -v-only in every view: an unglossed S=1.0 on a default row was
-    # the round-6 nit (freq and gain, the audible knobs, stay).
+    # the round-6 nit. Freq and gain, the audible knobs, stay.
     def _peq_spec(pf):
         return {k: v for k, v in pf.items() if k != "speaker"}
 
@@ -172,9 +172,8 @@ def _print_peq(tuning, verbose):
     right_specs = [_peq_spec(p) for p in peq_filters if p["speaker"] == 1]
     condensed = not verbose and left_specs == right_specs
     if peq_filters:
-        # Plain name leads, acronym trails (round 8) — this header was the
-        # one still leading with the acronym; "kept as parametric EQ" was
-        # near-tautological next to "EQ filters" and goes.
+        # Plain name leads, acronym trails (round 8). An earlier "kept as
+        # parametric EQ" was near-tautological next to "EQ filters".
         print("\nSpeaker EQ filters (PEQ"
               + ("; same for both speakers):  (details with -v)"
                  if condensed else "):"))
@@ -183,7 +182,7 @@ def _print_peq(tuning, verbose):
         spk = "" if condensed else ("[L] " if pf["speaker"] == 0 else "[R] ")
         if pf["type"] in (7, 9):
             # Says there is no knob: "bass sounds thin" is the one symptom
-            # with no flag in the menu (deliberately — this filter protects
+            # with no flag in the menu (deliberately: this filter protects
             # the driver), and a round-4 reviewer went hunting for one and
             # settled on --disable bass-enhancer, a different symptom.
             tech = (f", order {pf['order']} ({pf['order'] * 6} dB/oct)"
@@ -197,8 +196,8 @@ def _print_peq(tuning, verbose):
             tech = f", S={pf['s']}" if verbose else ""
             print(f"  {spk}Lo-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the low end")
         elif pf["type"] == 3:
-            # "High-shelf" in display copy — matching --disable high-shelf;
-            # the LSP mode string stays "Hi-shelf" (emitted parameter).
+            # "High-shelf" in display copy, matching --disable high-shelf.
+            # The LSP mode string stays "Hi-shelf" (emitted parameter).
             tech = f", S={pf['s']}" if verbose else ""
             print(f"  {spk}High-shelf @ {pf['f0']} Hz, {pf['gain']:+.1f} dB{tech} — shapes the treble  [unconfirmed-by-ear]")
         elif pf["type"] == 1:
@@ -214,17 +213,18 @@ def _print_bass_enhancer(tuning, disabled, is_soundwire):
     if is_soundwire and "bass-enhancer" not in disabled:
         # Converter-added, not XML-derived: SoundWire tunings rely on Dolby's
         # in-driver Virtual Bass Enhancement, which has no XML parameters to
-        # translate. It was the one active stage the run never mentioned —
-        # so the --disable menu offered to drop something the reader had
-        # never heard of (user-review round 1).
+        # translate. Unmentioned, it would be the one active stage the run
+        # never names, and the --disable menu would offer to drop something
+        # the reader had never heard of (user-review round 1).
         be = plugins.bass_enhancer_from_peq(peq_filters)
         # "Separate from" only when the [speaker-optimizer] note fired this
         # run: a round-4 reviewer couldn't tell this boost and that
         # dropped protection stage apart ("is my bass protected or not?"),
         # but either message can appear without the other, so the clause
         # must not dangle on runs where the note never printed. Named
-        # outright (round 5): "the bass-protection stage noted above" was
-        # ambiguous against the HP rows' "speaker protection" clause.
+        # outright (round 5): an earlier "the bass-protection stage noted
+        # above" was ambiguous against the HP rows' "speaker protection"
+        # clause.
         sep = (" (separate from the Dynamic Speaker Optimization stage "
                "noted above)"
                if any(f.slug == "speaker-optimizer" for f in tuning.findings)
@@ -234,11 +234,11 @@ def _print_bass_enhancer(tuning, disabled, is_soundwire):
         # nowhere. The scope derives from the PEQ high-pass corner
         # (min(2*hp, 300) — see make_bass_enhancer).
         print()
-        # Two corrections to one sentence:
+        # Two facts shape this sentence:
         # - the scope is only device-derived when the tuning ships a PEQ
         #   high-pass. Most SoundWire tunings carry no PEQ at all, so the
-        #   200 Hz that prints is 2x the 100 Hz fallback — a constant the
-        #   old wording credited to "this speaker's bass cutoff".
+        #   200 Hz that prints is 2x the 100 Hz fallback, a constant an
+        #   earlier wording credited to "this speaker's bass cutoff".
         # - the settings are IN the XML: bass-enhancer-enable/-boost/
         #   -cutoff-frequency/-width are present on every corpus row, all
         #   frozen (enable 0). What is missing is a tuning to copy, not the
@@ -270,7 +270,7 @@ def _print_dialog(tuning, disabled):
             # "about", and "where speech sits" rather than "speech boost":
             # the 6 dB ceiling behind the figure is on the unvalidated list
             # (reference.md "Validated vs unvalidated mappings"), and ours
-            # is a static bell — Dolby's is speech-gated, so it lifts that
+            # is a static bell. Dolby's is speech-gated, so ours lifts that
             # band on everything, not only on dialogue.
             print(f"\nDialog enhancer: about +{gain:.1f} dB around 2.5 kHz, "
                   f"where speech sits ({raw})")
@@ -279,11 +279,11 @@ def _print_dialog(tuning, disabled):
 def _print_surround(tuning):
     surround = tuning.surround
     if surround:
-        # No "virtualizer" in ANY form here — noun or verb: with the
+        # No "virtualizer" in ANY form here, noun or verb: with the
         # [virtualizer] finding on the same screen, two features sharing
         # the word read as one feature with contradictory verdicts (rounds
         # 2-4; round 3 dropped the noun, the surviving "virtualizing" still
-        # read as the contradiction). And no doc citation — three rounds of
+        # read as the contradiction). And no doc citation: three rounds of
         # reviewers called it unfollowable dev-talk on a line whose inline
         # reason stands alone.
         # Verdict first (round 7): leading with the dB figure made the
@@ -292,7 +292,7 @@ def _print_surround(tuning):
         # Says what was measured, not what Dolby intends. A DAX capture
         # found surround-boost=96 and =0 identical on 2-channel content
         # (0.01 dB S/M); that the boost applies to *surround* content is
-        # the leading hypothesis in design-notes, never captured — no
+        # the leading hypothesis in design-notes, never captured: no
         # multichannel capture exists. And with the tuning at 0 dB there is
         # nothing to skip, so that case says so instead.
         if surround["boost"] == 0:
@@ -308,12 +308,12 @@ def _print_surround(tuning):
 def _print_leveler(tuning, disabled, enabled, is_soundwire):
     vol_leveler = tuning.vol_leveler
     if vol_leveler:
-        # Says BOTH states — the tuning file's and this preset's — and
+        # Says BOTH states, the tuning file's and this preset's, and
         # names the flag that flips it. The label leads with "Autogain"
         # because that is the flag word: a round-4 reviewer got "Volume
         # leveler" from this line and then couldn't find that word anywhere
         # in the flag menus. Each state clause gives the two worlds their
-        # own subjects ("your tuning … this preset") — the compressed
+        # own subjects ("your tuning … this preset"). An earlier compressed
         # "enabled — ships switched off" read as the line contradicting
         # itself (rounds 3 and 4).
         enabled_flags = enabled or set()
@@ -331,7 +331,7 @@ def _print_leveler(tuning, disabled, enabled, is_soundwire):
         else:
             # Carries its why (round 6): the override of the tuning's own
             # setting was only explained 48 lines later in the flag menu.
-            # Same risk phrasing as the menu row — the leveler family's
+            # Same risk phrasing as the menu row: the leveler family's
             # one wording.
             state = ("on in your tuning, but this preset ships with it "
                      "off — it can make quiet passages swell then duck "
@@ -346,7 +346,7 @@ def _print_leveler(tuning, disabled, enabled, is_soundwire):
             # These are the tuning's numbers, and the built stage is not
             # identical to them: the SoundWire path takes 6 dB off the target
             # for headroom (make_autogain, conservative=True), so printing
-            # them unlabelled reported a target the preset does not use.
+            # them unlabelled would report a target the preset does not use.
             print(f"  your tuning: amount {vol_leveler['amount']}, targets "
                   f"{vol_leveler['in_target']:.1f} dB in / "
                   f"{vol_leveler['out_target']:.1f} dB out"
@@ -366,21 +366,21 @@ def _print_mbc(tuning, disabled, verbose):
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
         # "on loud content": measured dormant on the -10 dBFS stimuli and
         # only waking near -2 dBFS (design-notes, unvalidated-scaling entry
-        # 6), so the bare present tense described a stage that mostly isn't
-        # doing anything.
+        # 6), so the bare present tense would describe a stage that mostly
+        # isn't doing anything.
         print(f"\nMulti-band compressor (mbc): {mb_comp['group_count']} "
               "frequency band(s) — on loud content, evens out loud vs quiet "
               f"separately per frequency range{tag}")
         # Read-only, like regulator-overdrive and -relaxation: the field is
         # parsed and shown as a report handle but drives no emitted
-        # parameter, so "the level it evens toward" credited the preset
-        # with behaviour it does not have.
+        # parameter, so an earlier "the level it evens toward" credited the
+        # preset with behaviour it does not have.
         print(f"  target-power-level: {mb_comp['target_power']:.1f} dB "
               "(read from your tuning; this preset doesn't use it)")
-        # Print FROM the single-source decode — no inline re-decode, no
+        # Print FROM the single-source decode: no inline re-decode, no
         # warnings (those fire in make_multiband_compressor). xover_hz is a
         # display concern derived here from the stored xover_idx + band
-        # position, exactly as before.
+        # position.
         decoded = plugins.decode_mbc_bands(mb_comp)
         # The threshold range is the summary's diagnostic payload: it is
         # the first thing a triage of a squashed-sounding report reaches
@@ -388,9 +388,9 @@ def _print_mbc(tuning, disabled, verbose):
         thr = [b["threshold"] for b in decoded]
         tail = "" if verbose else "  (full band table with -v)"
         # One band, or many that agree, both print a single value. Keying
-        # this on the band *count* alone left every equal-threshold tuning
-        # rendering "thresholds -6.4 to -6.4 dB", which three readers in one
-        # review round took for a display bug — and one said it cost them
+        # this on the band *count* alone would leave every equal-threshold
+        # tuning rendering "thresholds -6.4 to -6.4 dB". Three readers in one
+        # review round took that for a display bug, and one said it cost them
         # confidence in the numbers around it. Compared at the precision it
         # prints: thresholds a 16th of a dB apart render identically, which
         # is the same fake range with one more step of decoding behind it.
@@ -406,9 +406,10 @@ def _print_mbc(tuning, disabled, verbose):
         for i, b in enumerate(decoded if verbose else []):
             xover_idx = b["xover_idx"]
             if i == n_bands_print - 1:
-                # Sentinel in the last band — it runs to the top of the
-                # range. Printed as a frequency: "Nyquist" was the one word
-                # in an otherwise numeric table a reviewer had never seen.
+                # Sentinel in the last band: it runs to the top of the
+                # range. Printed as a frequency: an earlier "Nyquist" was the
+                # one word in an otherwise numeric table a reviewer had never
+                # seen.
                 xover_hz = ("full-band" if n_bands_print == 1
                             else f"{fir.SAMPLE_RATE // 2} Hz (top of range)")
             elif 0 <= xover_idx < len(freqs):
@@ -423,14 +424,15 @@ def _print_mbc(tuning, disabled, verbose):
 def _print_regulator(tuning, disabled, verbose):
     regulator = tuning.regulator
     if regulator and "regulator" in disabled:
-        # Dropped stages say so rather than describing themselves; without
-        # this the whole section — protective gloss, band counts and the
-        # coupled-bands offer — described a limiter the preset doesn't have.
+        # Dropped stages say so rather than describing themselves. Without
+        # this the whole section (protective gloss, band counts and the
+        # coupled-bands offer) would describe a limiter the preset doesn't
+        # have.
         print("\nRegulator (per-band limiter): in your tuning — dropped by "
               "--disable regulator")
     elif regulator:
         # Plain tail + a triage-grade summary (how many bands limit, and
-        # how hard) — the raw arrays were six unexplained lines of numbers
+        # how hard). The raw arrays were six unexplained lines of numbers
         # (round 3, all three reviewers) and move behind -v. The active-band
         # count and floor are what a report diagnosis reads first.
         th = regulator["threshold_high"]
@@ -475,9 +477,8 @@ def _print_regulator(tuning, disabled, verbose):
             # The tuning sets no limits of its own, yet the regulator does
             # run: every band sits at full scale and the coupled mapping
             # takes that at face value. Saying "configured never to engage"
-            # here — the wording the no-coupling case still uses — would be
-            # false, and sat one line above "Added a limit to 20 more
-            # bands" (round 12).
+            # here, the wording the no-coupling case uses, would be false,
+            # one line above "Added a limit to 20 more bands" (round 12).
             print()
             # "we have it step in", not "it steps in": the coupled-bands
             # mapping is our unvalidated reading of isolated_band
@@ -507,9 +508,8 @@ def _print_regulator(tuning, disabled, verbose):
         # them is the exact "stage keeps describing itself after you
         # switched it off" bug the section trap exists to catch.
         if coupled:
-            # Co-located with the fact it explains: the only plain wording
-            # for coupled-bands used to sit a screen away in the flag menu
-            # (rounds 2–3). Still no isolated_band count (round 7, user
+            # Co-located with the fact it explains, not a screen away in the
+            # flag menu (rounds 2–3). No isolated_band count (round 7, user
             # decision): "marks N of 20 isolated (limited on their own)"
             # over-claimed a field whose semantics are still open, and read
             # as contradicting the "limits N bands" line above whenever the
@@ -518,15 +518,15 @@ def _print_regulator(tuning, disabled, verbose):
             # wasn't: it is how many raw bands the run actually put a limit
             # on, fully determined by the zones make_regulator built, and it
             # reads *with* the "limits N of 20" line rather than against it.
-            # It replaces "some of the bands" — two independent first-time
-            # readers (round 12) called that out as the one place the tool
-            # changes what the tuning asked for while going vague, next to
-            # exact figures everywhere else.
+            # Two independent first-time readers (round 12) called out an
+            # earlier "some of the bands" as the one place the tool changes
+            # what the tuning asked for while going vague, next to exact
+            # figures everywhere else.
             # Not "the other N": bands can stay unlimited here (a zone
             # holding an isolated band is declined), so the two counts need
             # not sum to 20.
             # "Adds a limit to", not "extends limiting to" (round 10): on
-            # all-inert tunings — where it does the most — "extends" read as
+            # all-inert tunings, where it does the most, "extends" read as
             # growing existing limits, of which that reader has none.
             # States what the run did rather than offering a flag: the
             # mapping is the default, so the actionable half is the way out
@@ -555,18 +555,17 @@ def _print_volmax(tuning, disabled, volmax_slot, verbose):
     # Glossed like every other stage; the gain-slot detail is -v only.
     # Round-4 review (all three reviewers): the bare "(applied as
     # regulator input-gain)" was the one summary line with no plain
-    # meaning, and it implied the boost dies with --disable regulator —
-    # the limiter fallback keeps it, so the slot is an implementation
+    # meaning, and it implied the boost dies with --disable regulator.
+    # The limiter fallback keeps it, so the slot is an implementation
     # detail, not a dependency.
-    # "Loudness boost (volmax-boost):" — the friendly-name-first header
-    # shape every other section uses; this was the one lowercase raw-flag
-    # header left (round 6).
+    # "Loudness boost (volmax-boost):" is the friendly-name-first header
+    # shape every other section uses (round 6).
     if volmax_boost == 0:
         print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
               "(your tuning asks for none)")
     elif volmax_boost < 0:
-        # A negative boost is still applied — it goes into the same gain
-        # slot as a positive one — so "asks for none" was wrong about the
+        # A negative boost is still applied: it goes into the same gain
+        # slot as a positive one. So "asks for none" would be wrong about the
         # one case where the tuning asks for a cut.
         print(f"\nLoudness boost (volmax-boost): {volmax_boost:+.1f} dB "
               "from your tuning — a cut, not a boost")
@@ -600,12 +599,12 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     findings: list[Finding] = []
     # A band with threshold >= 0 dBFS never triggers, so make_regulator
     # disables it; if every band is like that, the regulator carries the
-    # volmax boost but tames nothing — the issue-#23 "per-band compression
+    # volmax boost but tames nothing. The issue-#23 "per-band compression
     # tames the boost before the brickwall" rationale doesn't apply, and
     # both volmax slots degenerate to the same untamed brickwall feed
     # (issue #27 field report; see design-notes).
     # coupled-bands is on unless switched off, so on an all-inert tuning that
-    # qualifies the zone is now limited and the warning would be false. It
+    # qualifies the zone is limited and the warning would be false. It
     # survives for the two ways a run can still reach the untamed shape:
     # --disable coupled-bands, and a tuning with no qualifying zone.
     coupled_on = ("coupled-bands" not in disabled
@@ -618,23 +617,23 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
         _print_finding_detail(findings[-1])
     # The partial case: the regulator limits *somewhere*, so the warning above
     # stays quiet, yet the band carrying the tuning's largest boost is one of
-    # the bands it leaves alone — the boost and the volmax gain on top of it
+    # the bands it leaves alone: the boost and the volmax gain on top of it
     # reach the brickwall unprotected. Two ways in, and they need different
     # gates because the drive level differs:
     #
     #  - Default path: the FIR is peak-normalised, so that band leaves the
     #    convolver at 0 dB and reaches the brickwall at exactly volmax_boost
-    #    above bypass — the same drive every tuning gets, whatever its peak.
+    #    above bypass: the same drive every tuning gets, whatever its peak.
     #    What the peak measures here is spectral contrast, not level, so the
-    #    bar stays where it was: the boost reaching this XML's full gain
-    #    range. Re-derived 2026-08-04 over 3051 parsed corpus XMLs — 10.6%,
-    #    against the all-inert case's 16% (issue #46's T495 is one). Read
+    #    bar is the boost reaching this XML's full gain range. Re-derived
+    #    2026-08-04 over 3051 parsed corpus XMLs: 10.6%, against the
+    #    all-inert case's 16% (issue #46's T495 is one). Read
     #    that bar honestly: only 172 of those files declare
     #    <geq_maximum_range> at all (30 of the 1661 that reach this branch),
     #    so for almost every device it compares against our assumed +12.0 dB
     #    rather than a rail the tuning stated.
     #  - --enable level-restore: the peak is handed back to the chain, so
-    #    the same band now arrives at volmax_boost + peak_db — 15.2 dB above
+    #    the same band arrives at volmax_boost + peak_db: 15.2 dB above
     #    bypass on issue #50's tuning. That is the flag's own risk, so it
     #    warns whatever the peak's relation to the rail. It reaches 54% of
     #    the tunings that get this far, which would be a nag as a default
@@ -663,7 +662,7 @@ def _report_parsed_profile(tuning, disabled, volmax_slot="input-gain",
     (audio-optimizer / PEQ / dialog / surround / leveler / MBC / regulator /
     volmax), and return the findings raised while doing so.
 
-    Side-effect-free apart from stdout — split out of main() so the
+    Side-effect-free apart from stdout: split out of main() so the
     orchestration there stays legible. Each finding prints its technical half
     here, in place; main() collects the returned list and renders the one-line
     asks at the end, where a user still has them on screen."""

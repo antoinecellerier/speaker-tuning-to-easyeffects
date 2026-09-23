@@ -7,8 +7,8 @@ curves and audio-optimizer speaker correction, then creates EasyEffects
 presets using the Convolver plugin for the combined EQ and a parametric
 Equalizer for the explicit speaker PEQ filters.
 
-This avoids all parametric bell filter overlap/solver issues — the FIR
-directly implements the exact target frequency response.
+The FIR implements the exact target frequency response directly, which
+avoids all the overlap/solver issues of parametric bell filters.
 
 Output chain:
   - convolver#0: IEQ curve + audio-optimizer (as FIR impulse response)
@@ -40,12 +40,13 @@ from lib.preset import autoload, reload
 # an unqualified `findings.` in this file would read as that, not the module.
 from lib.report import findings as report_findings
 # Aliased: one letter apart from lib.hardware.speakers above, which this file
-# still reads on the lines that hand it a SpeakerInfo to report on.
+# also reads on the lines that hand it a SpeakerInfo to report on.
 from lib.report import speaker as report_speaker
 from lib.report import doctor_run, environment, messages
 
-# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, the
-# script behaves exactly as before — same contract as rich in lib/console.py.
+# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete,
+# the script works the same without completion: the contract rich has in
+# lib/console.py.
 try:
     import argcomplete
 except ImportError:
@@ -150,7 +151,7 @@ def add_profile_selection_args(container, *, only=None):
 
 
 def add_autoload_args(container, *, only=None):
-    """Autoload flags — EasyEffects-only, never shared with the wrapper."""
+    """Autoload flags: EasyEffects-only, never shared with the wrapper."""
     add, added = console._make_adder(container, only)
     add(
         "--autoload",
@@ -228,9 +229,9 @@ def add_filter_tweak_args(container, *, only=None):
         default=[],
         choices=list(messages.DISABLEABLE_FILTERS),
         metavar="NAME",
-        # #44 is NOT a coupled-bands case — measured inert there
-        # (design-notes 2026-08-22); don't re-add the pointer here. Its fix
-        # was --volmax-slot output-gain, which E-022 below names.
+        # #44 is NOT a coupled-bands case: coupled-bands measured inert there
+        # (design-notes 2026-08-22), so the coupled-bands hint in this help
+        # must not cite #44. Its fix was --volmax-slot output-gain, which E-022 below names.
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud / saturated, "
@@ -243,9 +244,10 @@ def add_filter_tweak_args(container, *, only=None):
         default=[],
         choices=list(messages.ENABLEABLE_FILTERS),
         metavar="NAME",
-        # Only autogain ships a stage the preset leaves bypassed;
+        # Only autogain ships a stage the preset leaves bypassed.
         # level-restore and virtual-bass add nothing EasyEffects can see, so
-        # "ships present but inactive" was true of one name in three.
+        # an earlier wording, "ships present but inactive", was true of one
+        # name in three.
         help="switch on an optional stage the preset leaves off "
              f"(repeatable). Valid names: {', '.join(messages.ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
@@ -274,10 +276,11 @@ def add_filter_tweak_args(container, *, only=None):
 
 
 def add_general_args(container, *, only=None):
-    """General flags — dolby_to_pipewire.py takes only --verbose from here
-    (which it forwards to the generator it runs), authors its own --dry-run,
-    and adds the shared --no-color/--version itself so neither is recorded
-    as forwardable."""
+    """General flags (dolby_to_pipewire.py shares only --verbose).
+
+    The wrapper forwards --verbose to the generator it runs. It authors its
+    own --dry-run, and adds the shared --no-color/--version itself so neither
+    is recorded as forwardable."""
     add, added = console._make_adder(container, only)
     add(
         "--verbose", "-v",
@@ -339,9 +342,9 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
 def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
     """Tab-completion for --autoload-sink: the PipeWire node.name values.
 
-    Reuses the single pw-dump boundary so the names offered are exactly the
-    ones the autoload resolver accepts — which is the answer the flag's help
-    currently sends people to `pw-dump | grep node.name` for.
+    Reuses the single pw-dump boundary, so it offers exactly the names the
+    autoload resolver accepts. The flag's help sends people to
+    `pw-dump | grep node.name` for the same answer.
     """
     try:
         names = [s.get("name", "") for s in hardware_sinks._enumerate_audio_sinks()]
@@ -351,8 +354,10 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
 
 
 def _complete_preset_names(prefix: str, **_kwargs) -> list[str]:
-    """Tab-completion for --autoload's optional PRESET: the preset stems
-    already present in the EasyEffects output directory."""
+    """Tab-completion for --autoload's optional PRESET.
+
+    Offers the preset stems already present in the EasyEffects output
+    directory."""
     try:
         stems = [p.stem for p in ee_paths.DEFAULT_OUTPUT_DIR.glob("*.json")]
     except OSError:
@@ -364,10 +369,10 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
     """Tell argcomplete what each value-taking option means.
 
     argparse records `type=Path` for directories and XML files alike, and
-    nothing at all for PipeWire node names, so that distinction has to live
-    somewhere. Options carrying `choices=` are absent by design — argcomplete
-    reads those off the parser itself, which is why --disable/--enable can't
-    drift from DISABLEABLE_FILTERS/ENABLEABLE_FILTERS.
+    nothing at all for PipeWire node names, so this table holds that
+    distinction. Options carrying `choices=` are absent by design: argcomplete
+    reads those off the parser itself, so --disable/--enable can't drift from
+    DISABLEABLE_FILTERS/ENABLEABLE_FILTERS.
     """
     from argcomplete.completers import DirectoriesCompleter, FilesCompleter
 
@@ -387,15 +392,17 @@ def _attach_completers(parser: argparse.ArgumentParser) -> None:
 
 
 def _configure_autoload(args, autoload_preset: str) -> None:
-    """Write the autoload entries, the bypass fallback, and the
-    persistence tip — the whole of what --autoload sets up.
+    """Write the autoload entries, bypass fallback and persistence tip.
 
-    ``autoload_preset`` is the run's starting preset, resolved once by
-    main() (autoload.starting_preset) and shared with the end-of-run
-    reload — never re-derived here, so the two can't name different
-    presets. No-op unless --autoload was passed and something was
-    generated (the name is empty then), so main() calls it unconditionally
-    and the guard lives with the work.
+    That is the whole of what --autoload sets up.
+
+    ``autoload_preset`` is the run's starting preset. main() resolves it once
+    (autoload.starting_preset) and shares it with the end-of-run reload. It
+    is never re-derived here, so the two can't name different presets.
+
+    No-op unless --autoload was passed and something was generated (the name
+    is empty otherwise), so main() calls it unconditionally and the guard
+    lives with the work.
     """
     # Autoload configuration
     if args.autoload and autoload_preset:
@@ -405,9 +412,9 @@ def _configure_autoload(args, autoload_preset: str) -> None:
             verb = "Would write" if args.dry_run else "Wrote"
             for sink in sinks:
                 # EasyEffects keys the autoload file on the active output route
-                # description (node.name + route), not the card profile — see
-                # _enumerate_audio_sinks() and issue #18. Without the route we
-                # can't predict the filename EE will look for; guessing the
+                # description (node.name + route), not the card profile (see
+                # _enumerate_audio_sinks() and issue #18). Without the route we
+                # can't predict the filename EE will look for. Guessing the
                 # profile silently recreates #18 on classic analog cards, so
                 # skip and say why rather than write a file that never matches.
                 route = sink.get("route", "")
@@ -469,8 +476,8 @@ def _configure_autoload(args, autoload_preset: str) -> None:
                                    "timer while its window is open).")
 
         # Autoload only persists across logins if EasyEffects both starts at
-        # login (autostart) and stays alive in the background (service mode);
-        # nudge toward the prefs, but only when one is off so the fully
+        # login (autostart) and stays alive in the background (service mode).
+        # Nudge toward the prefs only when one is off, so the fully
         # configured case stays quiet.
         try:
             _rc_text = ee_paths.DEFAULT_EASYEFFECTS_RC.read_text(encoding="utf-8")
@@ -483,21 +490,22 @@ def _configure_autoload(args, autoload_preset: str) -> None:
 
 
 def _speaker_environment_findings(endpoint: str) -> list[Finding]:
-    """Probe the speaker environment — smart-amp firmware gate, hidden woofer
-    pin, unlisted pin count, kernel age — printing what each finds where it
-    finds it, and return the findings raised, in that order.
+    """Probe the speaker environment and return the findings raised, in probe order.
 
-    Returns them rather than merging into main()'s dict so the caller's merge
-    stays pure bookkeeping: setdefault prints nothing, so the inline output
-    below keeps exactly the order it is written in.
+    The probes are the smart-amp firmware gate, hidden woofer pin, unlisted
+    pin count and kernel age. Each prints what it finds where it finds it.
+
+    Returns the findings rather than merging them into main()'s dict, so the
+    caller's merge stays pure bookkeeping: setdefault prints nothing, so the
+    inline output below keeps exactly the order it is written in.
 
     Empty off the internal-speaker endpoint, so main() calls it
     unconditionally and the guard lives with the work.
     """
     found: list[Finding] = []
     # Some laptops gate their woofers behind a smart-amp firmware-load ALSA
-    # control (issue #17). Only relevant when tuning the internal speakers —
-    # irrelevant for headphone/other endpoints.
+    # control (issue #17). Only relevant when tuning the internal speakers,
+    # not headphone/other endpoints.
     if endpoint == "internal_speaker":
         gate_finding = report_speaker.warn_speaker_firmware_gate(
             speakers.detect_speaker_firmware_gates())
@@ -513,7 +521,7 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
             found.append(pin_finding)
         # The neighbouring class: the pin is configured but routed through a
         # widget with no volume amp, observed in the same codec dump. Never
-        # fires alongside the pin warning — a pin the kernel isn't
+        # fires alongside the pin warning: a pin the kernel isn't
         # configuring can't also be read as mis-routed.
         route_finding = report_speaker.warn_speaker_routing(
             speakers.find_misrouted_speaker_pin(speaker_info), speaker_info)
@@ -532,18 +540,18 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
             _print_finding_detail(count_finding)
             found.append(count_finding)
         # An old kernel can mis-configure the speaker path below any preset
-        # (issue #33) — hint at it, softly, when the series is old.
+        # (issue #33). Hint at it, softly, when the series is old.
         environment.warn_old_kernel()
     return found
 
 
 @dataclass
 class RunTally:
-    """Everything the per-profile loop accumulates for the closing block to
-    read. One record rather than five parallel locals: the loop visits up to
-    nine profiles and every one of them adds to all five, so they are one
-    thing with five faces, and naming them as one is what keeps the loop's
-    inputs readable at its head."""
+    """Everything the per-profile loop accumulates for the closing block.
+
+    One record rather than five parallel locals: the loop visits up to nine
+    profiles and every one of them adds to all five. Naming them as one thing
+    keeps the loop's inputs readable at its head."""
 
     # Preset names in emission order. The starting preset falls back to the
     # first (autoload.starting_preset), so the order is part of the contract.
@@ -552,9 +560,9 @@ class RunTally:
     # content hash, so it is only known once the FIR is built).
     kernel_by_preset: dict[str, str] = field(default_factory=dict)
     # The declared default profile's first preset when several profiles were
-    # built — for the closing's "Windows ships this device on" note only,
-    # never the starting preset: <default_profile> is reported, not acted on
-    # (docs/reference.md), under --all-profiles as in a bare run.
+    # built. Only the closing's "Windows ships this device on" note reads it.
+    # It is never the starting preset: <default_profile> is reported, not
+    # acted on (docs/reference.md), under --all-profiles as in a bare run.
     declared_default_preset: str = ""
     # filter name → set of profile labels that emitted it. Lets the
     # end-of-run --disable hint say *which* profiles each suggestion
@@ -565,8 +573,8 @@ class RunTally:
     # Findings raised across every profile built this run, in first-seen order
     # and de-duplicated by slug: --all-profiles would otherwise repeat the same
     # one nine times. The key is the slug rather than the rendered text because
-    # several findings embed a per-profile value (peak-level=-3), which made
-    # text-keyed de-duplication miss them.
+    # several findings embed a per-profile value (peak-level=-3), which
+    # text-keyed de-duplication would miss.
     findings: dict[str, Finding] = field(default_factory=dict)
     # slug → profiles that raised it, so the closing block can say when one
     # applies to some profiles and not the preset the user will autoload.
@@ -582,25 +590,30 @@ def main(argv: list[str] | None = None,
          troubleshooting: dict | None = None,
          resolved: dict | None = None,
          staged: bool = False):
-    """Generate the presets. ``closing`` collects the findings the closing
-    block would render, for a caller that prints that block itself (see
-    ``--skip-closing``). Always populated when supplied, independently of
-    the flag, so a wrapper can't accidentally drop the run's findings.
-    ``troubleshooting``, when supplied, likewise takes the fix-flags menu:
-    it is filled with print_troubleshooting's inputs instead of the menu
-    printing here, so the caller can render it at its own end. ``resolved``
-    takes what only this function can work out — currently ``xml_path``,
-    which auto-discovery may have found on a mounted Windows partition; the
-    closing block names it as the file to attach, and a caller printing that
-    block on our behalf has no other way to learn it. ``staged`` marks the
-    output dirs as a wrapper's throwaway staging area, so the per-file
-    announcements say "Staged", not "Wrote"."""
+    """Generate the presets.
+
+    ``closing`` collects the findings the closing block would render, for a
+    caller that prints that block itself (see ``--skip-closing``). It is
+    always populated when supplied, independently of the flag, so a wrapper
+    can't accidentally drop the run's findings.
+
+    ``troubleshooting``, when supplied, likewise takes the fix-flags menu. It
+    is filled with print_troubleshooting's inputs instead of the menu
+    printing here, so the caller can render it at its own end.
+
+    ``resolved`` takes what only this function can work out: currently
+    ``xml_path``, which auto-discovery may have found on a mounted Windows
+    partition. The closing block names it as the file to attach, and a
+    caller printing that block on our behalf has no other way to learn it.
+
+    ``staged`` marks the output dirs as a wrapper's throwaway staging area,
+    so the per-file announcements say "Staged", not "Wrote"."""
     parser = build_parser(argv)
     # Serve a shell tab-completion request: on a TAB press argcomplete answers
     # on fd 8 and exits inside autocomplete(), so nothing below here runs.
     # Written out rather than kept behind a helper because the wrapper's own
-    # copy differs — it attaches both converters' completer tables to its
-    # composed parser — so one helper for the two call sites would need a
+    # copy differs: it attaches both converters' completer tables to its
+    # composed parser. One helper for the two call sites would need a
     # parameter to say which.
     if argcomplete is not None:
         _attach_completers(parser)
@@ -616,7 +629,7 @@ def main(argv: list[str] | None = None,
     console.refuse_root()
     disabled = set(args.disable)
     # A name in both directions is a contradiction, not a preference to
-    # resolve — silently picking a winner would leave the user believing
+    # resolve. Silently picking a winner would leave the user believing
     # whichever flag they meant. The menus can't steer anyone here: the
     # --disable row for a stage the user switched on with --enable is
     # suppressed (see print_troubleshooting), so this only fires on a
@@ -644,8 +657,8 @@ def main(argv: list[str] | None = None,
         xml_path = args.xml_file
     else:
         # An auto-detection miss/ambiguity is an environment condition, not
-        # CLI misuse — let it propagate to the top-level handler so it prints
-        # as a clean error (no usage banner) that points at --help. Routing it
+        # CLI misuse. It propagates to the top-level handler, which prints a
+        # clean error (no usage banner) that points at --help. Routing it
         # through parser.error() would slap the usage synopsis on top and exit
         # 2, framing it as a syntax error the user can't fix by reading usage.
         windows_root = discover.autoprobe_dolby_source()
@@ -678,26 +691,24 @@ def main(argv: list[str] | None = None,
     else:
         profile_types = [args.profile]  # None means "first profile"
 
-    # The DSP stack, imported here and not at the top of the file: numpy is
+    # The DSP stack is imported here, not at the top of the file. numpy is
     # ~0.35 s of a ~0.5 s start-up, and every path that returns above reaches
-    # none of it — --version, --list, --doctor, --speaker-info, an argparse
+    # none of it: --version, --list, --doctor, --speaker-info, an argparse
     # error, and a tab completion (argcomplete re-runs the whole script on
-    # *every* TAB press, exiting inside autocomplete()). This file names no
-    # numpy of its own; `emit` and `profile` are what pull it in, and they are
-    # here rather than at the top for that reason — between them they reach
-    # numpy, scipy and lib.preset.{fir,build,plugins}, so importing either
-    # eagerly would undo the deferral. Everything this file does import at the
-    # top — console, doctor, ee_paths; dax.{discover,parse};
+    # *every* TAB press, exiting inside autocomplete()). This file names no numpy
+    # of its own. `emit` and `profile` are what pull it in: between them they
+    # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
+    # either eagerly would undo the deferral. Everything this file does import
+    # at the top (console, doctor, ee_paths; dax.{discover,parse};
     # hardware.{speakers,sinks}; preset.autoload; report.{findings,speaker,
-    # doctor_run,environment,messages} — reaches no numpy. That is the whole
+    # doctor_run,environment,messages}) reaches no numpy. That is the whole
     # predicate, and it is not "stdlib-only": console owns the optional rich
     # import and still belongs at the top, because rich costs milliseconds
     # where the DSP stack costs ~0.35 s.
     #
-    # Before the loop rather than inside it, which is the same thing minus the
-    # repetition: profile_types is never empty by here (the empty case
-    # returned above) and always holds at least one entry, so the loop body
-    # runs on exactly the paths that reach this line.
+    # Before the loop rather than inside it, to skip the repetition:
+    # profile_types is never empty by here (the empty case returned above),
+    # so the loop body runs on exactly the paths that reach this line.
     try:
         from lib.preset import emit
         # Aliased on report_findings/report_speaker's precedent: profile_type,
@@ -706,24 +717,23 @@ def main(argv: list[str] | None = None,
         from lib.report import profile as report_profile
     except ModuleNotFoundError as exc:
         if (exc.name or "").split(".")[0] == "lib":
-            # Two of the three imports above are first-party, and a module
-            # missing from inside their graph — `lib/preset/build.py` does
-            # `from lib.preset.bands import …`, two hops down — arrives here as
-            # the same exception numpy does. There is nothing to install for
-            # one. Re-raised as itself: a traceback naming the module is what
-            # says so, where the message below would send someone to
-            # requirements.txt for a bug in this repo. It is also what keeps
-            # that message honest, since it can now only ever name a real
-            # dependency.
+            # Two of the three imports above are first-party. A module missing
+            # from inside their graph arrives here as the same exception numpy
+            # does: `lib/preset/build.py` does `from lib.preset.bands import …`,
+            # two hops down. There is nothing to install for one, so it is
+            # re-raised as itself. A traceback naming the module says so, where
+            # the message below would send someone to requirements.txt for a
+            # bug in this repo. Re-raising also keeps that message honest,
+            # since it can only ever name a real dependency.
             #
             # Narrower than it looks, and deliberately not relied on: `emit`
             # itself going missing raises `ImportError`, which this never sees,
             # because the import system swallows `ModuleNotFoundError` for a
             # name in the fromlist.
             raise
-        # Someone who cloned the repo and skipped the install step lands here,
-        # and on the default single-profile path nothing has been printed yet:
-        # this is the whole screen, so it has to say what to install on its own.
+        # Someone who cloned the repo and skipped the install step lands here.
+        # On the default single-profile path nothing has been printed yet, so
+        # this is the whole screen and has to say what to install on its own.
         #
         # ModuleNotFoundError, not ImportError: a numpy that is installed but
         # fails to load is a different problem, and its traceback is the only
@@ -732,21 +742,21 @@ def main(argv: list[str] | None = None,
         # one sends them round in a circle.
         #
         # Raised rather than printed here, per the convention the auto-detection
-        # failure above documents — the top-level handler in run_cli() renders
+        # failure above documents: the top-level handler in run_cli() renders
         # it as a clean error and returns 1. The remedy rides on `next_step`
-        # rather than in the sentence: it is a command, and on a machine
-        # os-release cannot place it is one command per distribution, neither
-        # of which survives being folded into prose. Not `no_next_step`, whose
+        # rather than in the sentence, because it is a command. On a machine
+        # os-release cannot place it is one command per distribution, and
+        # neither survives being folded into prose. Not `no_next_step`, whose
         # empty string exists for a sentence that already ends on the thing to
-        # do — this one hands over the thing to do itself, and the generic
+        # do. This one hands over the thing to do itself, and the generic
         # --help pointer still never appears.
         failure = RuntimeError(
             f"{exc.name} is not installed, and generating a preset needs it.")
-        # Both DSP dependencies in the command, though the sentence names only
-        # the one that stopped this run: both are hard requirements, so a
-        # reader who installs just the named one meets the other on the next
-        # run. The sentence stays on `exc.name` for the reason above — it is
-        # what their machine actually reported.
+        # The command installs both DSP dependencies, though the sentence
+        # names only the one that stopped this run. Both are hard
+        # requirements, so a reader who installs just the named one meets the
+        # other on the next run. The sentence stays on `exc.name` for the
+        # reason above: it is what their machine actually reported.
         failure.next_step = (
             ("cta", "Install them:"),
             # Indented under the lead-in: run_guarded gives every line of a
@@ -760,19 +770,18 @@ def main(argv: list[str] | None = None,
         )
         raise failure from exc
 
-    # Created here rather than beside the dry-run banner above: below every
-    # early return, and below the import that a machine without numpy dies
-    # on, so a run that produces nothing leaves nothing behind in the user's
-    # EasyEffects tree either. The banner itself stays up there, ahead of the
-    # first line the run prints.
+    # Created here, below every early return and below the import that a
+    # machine without numpy dies on, so a run that produces nothing leaves
+    # nothing behind in the user's EasyEffects tree. The dry-run banner stays
+    # above, ahead of the first line the run prints.
     if not args.dry_run:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         args.irs_dir.mkdir(parents=True, exist_ok=True)
 
     tally = RunTally()
-    # Tried once, below, after the first profile's banner — not here, where it
-    # would be the very first line of the run. A reader's first contact with
-    # the tool was then the word "crash", with nothing yet established as
+    # Tried once, below, after the first profile's banner. Here it would be
+    # the very first line of the run, and a reader's first contact with the
+    # tool would be the word "crash", with nothing yet established as
     # normal (user review). "Attempted", not "succeeded": every skip path
     # returns False, and retrying would re-probe the EasyEffects version once
     # per profile.
@@ -794,14 +803,14 @@ def main(argv: list[str] | None = None,
 
         console.cprint("head", f"\n{'='*60}")
         if is_soundwire:
-            # Names the practical difference — "enhanced preset generation"
-            # told the reader nothing and read as either good news or a
-            # warning (round 2).
+            # Names the practical difference. An earlier wording, "enhanced
+            # preset generation", told the reader nothing and read as either
+            # good news or a warning (round 2).
             # "where your tuning enables it": this prints from the filename,
             # before any profile is parsed, and plenty of profiles disable
-            # the leveler outright (voice, off, most game). The flat "on by
-            # default" then contradicted the leveler section four lines
-            # below, which correctly said "switched off in your tuning".
+            # the leveler outright (voice, off, most game). A flat "on by
+            # default" would contradict the leveler section four lines
+            # below, which correctly says "switched off in your tuning".
             console.cprint("head", "SoundWire speaker hardware detected — adds a "
                            "bass enhancer, and keeps the volume leveler on "
                            "where your tuning enables it")
@@ -818,10 +827,10 @@ def main(argv: list[str] | None = None,
             announce_profile=True,
         )
 
-        # Still before any write — the Convolver page crashes EasyEffects on
+        # Before any write, because the Convolver page crashes EasyEffects on
         # the impulse-file writes (issue #95) and nothing says which page is
-        # up — but after the endpoint and profile lines, so the note lands in
-        # a run the reader has already been oriented in.
+        # up. After the endpoint and profile lines, so the note lands in a
+        # run the reader has already been oriented in.
         if not hide_attempted:
             hide_attempted = True
             reload.hide_window_before_writing(args)
@@ -849,14 +858,14 @@ def main(argv: list[str] | None = None,
 
         # The closing block, ~120 lines down, wants two scalars off `tuning`.
         # Bound here rather than read off the loop variable down there, so
-        # that "the last profile's" is a choice made where the loop makes it:
-        # under --all-profiles this runs up to nine times, and reaching back
-        # into `tuning` afterwards said nothing about which one it meant.
+        # that "the last profile's" is a choice made where the loop makes it.
+        # Under --all-profiles this runs up to nine times, and reaching back
+        # into `tuning` afterwards says nothing about which one it means.
         #
         # Only "last" for profile_used, and only nominally: its one reader is
         # gated on a single-profile run, where last is also only.
         last_profile_used = tuning.profile_used
-        # No "last" for this one — <setting><default_profile> is read off the
+        # No "last" for this one: <setting><default_profile> is read off the
         # document root, not the profile, so every iteration parses the same
         # value out of the same file.
         default_profile = tuning.default_profile
@@ -870,10 +879,10 @@ def main(argv: list[str] | None = None,
     start = autoload.starting_preset(args.autoload, tally.all_preset_names)
     _configure_autoload(args, start)
 
-    # Make it audible without asking: EasyEffects doesn't watch preset files,
-    # and until now the run ended on "then reload it". Beside autoload
-    # because both are things this run *did*, not things it noticed. Prints
-    # its own line; returns a finding only when the reader has to act.
+    # Make it audible without asking: EasyEffects doesn't watch preset files.
+    # Beside autoload because both are things this run *did*, not things it
+    # noticed. Prints its own line, and returns a finding only when the
+    # reader has to act.
     reloaded = reload.reload_generated_preset(
         args, tally.all_preset_names, tally.kernel_by_preset, starting=start)
     if reloaded.finding is not None:
@@ -936,8 +945,9 @@ def main(argv: list[str] | None = None,
             elif is_soundwire:
                 # "our stage", not the tuning's: bass_enh_enable is 0 on
                 # every corpus row, so the XML never asks for one. Load-
-                # bearing — "SoundWire tunings ship a bass-enhancer" credited
-                # Dolby with a stage this converter invents from the PEQ.
+                # bearing: an earlier wording, "SoundWire tunings ship a
+                # bass-enhancer", credited Dolby with a stage this converter
+                # invents from the PEQ.
                 console._cprint_wrapped("warn", "--enable virtual-bass had no "
                                         "effect: it isn't built for SoundWire "
                                         "tunings — their presets already "
@@ -979,8 +989,8 @@ def main(argv: list[str] | None = None,
     for finding in _speaker_environment_findings(args.endpoint):
         tally.findings.setdefault(finding.slug, finding)
 
-    # Proactively flag an EasyEffects install that can't use what we just wrote
-    # — the failure mode #22 surfaced (a correct preset silently inaudible
+    # Proactively flag an EasyEffects install that can't use what we just
+    # wrote: the failure mode #22 surfaced (a correct preset silently inaudible
     # because of the environment, e.g. EE 7 or a wrong install location).
     # Silent on the happy path; reuses --doctor's probes.
     if not args.skip_ee_check:
@@ -1024,15 +1034,16 @@ def main(argv: list[str] | None = None,
 
     # Gated on the leveler actually running, not on the flag being passed:
     # --enable autogain does nothing when the XML disables the leveler, and
-    # escalating on the flag alone contradicted the "had no effect" warning
-    # printed a few lines above on exactly those devices.
+    # escalating on the flag alone would contradict the "had no effect"
+    # warning printed a few lines above on exactly those devices.
     substage_finding = report_findings._leveler_gap_finding(
         list(tally.leveler_substages),
         autogain_on="autogain-active" in tally.filters_by_profile,
         # "autogain" is the marker for a leveler that shipped bypassed but
-        # could be switched on; absent means the XML disabled it outright —
-        # or that --disable autogain cleared it, which the flag branch owns
-        # so the tuning doesn't get blamed for the reader's own choice.
+        # could be switched on. Absent means the XML disabled it outright, or
+        # that --disable autogain cleared it. The flag branch owns the
+        # --disable case, so the tuning doesn't get blamed for the reader's
+        # own choice.
         autogain_available="autogain" in tally.filters_by_profile,
         disabled_by_flag="autogain" in args.disable)
     if substage_finding is not None:
@@ -1055,10 +1066,10 @@ def main(argv: list[str] | None = None,
 
     scoped = [_scope(f) for f in tally.findings.values()]
 
-    # A wrapper takes the menu along with the closing ask (round 4: printed
-    # at [1/3] it told the reader what to re-run before setup had finished,
-    # with two more phases of output below it) — stashed here, printed by
-    # the wrapper at its own end.
+    # A wrapper takes the menu along with the closing ask: stashed here,
+    # printed by the wrapper at its own end. Printed at [1/3], it would tell
+    # the reader what to re-run before setup had finished, with two more
+    # phases of output below it (round 4).
     menu_printed = False
     if troubleshooting is not None:
         troubleshooting.update(
@@ -1073,14 +1084,14 @@ def main(argv: list[str] | None = None,
             dry_run=args.dry_run,
             auto_reload=bool(reloaded.loaded))
     # After the troubleshooting, not before it. Printed first, the success
-    # line and "how to use them" scrolled off the top of a 24-line terminal
-    # and the last thing on screen was troubleshooting advice and a
-    # bug-report link — which reads as though the run failed.
-    # Suppressed for a wrapper along with the closing ask: it stages presets
-    # into a tempdir it deletes on the way out, so "wrote 3 presets to
-    # /tmp/…, open EasyEffects and pick one" named a directory that no longer
-    # existed — and under the wrapper's --dry-run it also contradicted its
-    # own "nothing was written" two lines later.
+    # line and "how to use them" would scroll off the top of a 24-line
+    # terminal, leaving troubleshooting advice and a bug-report link as the
+    # last thing on screen, which reads as though the run failed.
+    # Suppressed for a wrapper along with the closing ask. The wrapper stages
+    # presets into a tempdir it deletes on the way out, so "wrote 3 presets
+    # to /tmp/…, open EasyEffects and pick one" would name a directory that no
+    # longer exists. Under the wrapper's --dry-run it would also contradict
+    # the wrapper's own "nothing was written" two lines later.
     if not args.skip_closing:
         # Single-mode runs only: under --all-profiles every mode was built,
         # so there is nothing to point at. get_profile_types re-reads the
@@ -1127,12 +1138,11 @@ def run_cli(argv: list[str] | None = None,
             troubleshooting: dict | None = None,
             resolved: dict | None = None,
             staged: bool = False) -> int:
-    """main() with the top-level error handling the __main__ block used to
-    inline, as a return code — the seam dolby_to_pipewire.py calls in-process.
+    """Run main() under the top-level error handling, as a return code.
 
     The handling itself is console.run_guarded, shared with the other two
     entry points. Guarded here rather than under ``__main__`` because this is
-    the seam: the wrapper calls it directly, and a failure rendered by any
+    the seam dolby_to_pipewire.py calls in-process: a failure rendered by any
     other name would reach it as an exception instead of a return code."""
     return console.run_guarded(
         lambda: main(argv, closing=closing, troubleshooting=troubleshooting,

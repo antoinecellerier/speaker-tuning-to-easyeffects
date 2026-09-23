@@ -56,13 +56,12 @@ def get_hda_codec_ids():
 # Both names are shared rather than re-spelled at each reader. ``iterdir`` the
 # bus, keep what the regex matches: that is how ``get_soundwire_ids`` below
 # opens, and how ``lib.hardware.speakers._detect_soundwire_speakers``'s
-# amplifier probe opens; ``get_pci_audio_subsystem`` takes the path on its own,
-# reading it in the body rather than as a parameter default — a default is
-# evaluated once when the ``def`` runs, so it would hold this object for the
-# life of the process and no ``monkeypatch.setattr`` on this module could reach
-# it (``tests/test_layout.py`` guards exactly that). Only the entry point is
-# shared — the loop bodies read different things and are deliberately kept
-# apart.
+# amplifier probe opens. ``get_pci_audio_subsystem`` takes the path on its
+# own, reading it in the body rather than as a parameter default. A default
+# would hold this object for the life of the process, out of reach of any
+# ``monkeypatch.setattr`` on this module (``tests/test_layout.py`` guards
+# exactly that). Only the entry point is shared; the loop bodies read
+# different things and are deliberately kept apart.
 SDW_BUS = Path("/sys/bus/soundwire/devices")
 SDW_SLAVE_RE = re.compile(r"sdw:\d+:\d+:([0-9a-fA-F]{4}):([0-9a-fA-F]{4}):\d+")
 
@@ -108,10 +107,12 @@ def _walk_to_pci_subsys(start: Path):
 
 
 def _card_pci_preference(card_name: str, proc_asound: Path) -> int:
-    """Rank a sound card for the PCI-subsystem probe: 0 = has a non-HDMI HDA
-    codec (the analog controller quirks and Dolby SKU ids key on), 1 = no HDA
-    codec info (e.g. USB), 2 = HDMI/DP codecs only (a GPU audio function whose
-    PCI subsystem is the GPU's, not the machine SKU's)."""
+    """Rank a sound card for the PCI-subsystem probe.
+
+    0 = has a non-HDMI HDA codec (the analog controller quirks and Dolby SKU
+    ids key on), 1 = no HDA codec info (e.g. USB), 2 = HDMI/DP codecs only (a
+    GPU audio function whose PCI subsystem is the GPU's, not the machine
+    SKU's)."""
     names = []
     for codec_path in sorted((proc_asound / card_name).glob("codec*")):
         try:
@@ -139,17 +140,17 @@ def get_pci_audio_subsystem(
     e.g. ("17AA", "2339"), or None if not found.
 
     Prefers the PCI ancestor of a SoundWire device when present so we pick
-    the controller that actually hosts the speaker amplifiers, rather than
-    whichever /sys/class/sound card sorts first (which may be HDMI audio
-    on a discrete GPU). Falls back to walking up from sound cards for
-    traditional HDA systems — ranked so the analog codec's controller wins
-    over a GPU HDMI function: on AMD dual-controller laptops card0 is the
-    GPU audio function with its own PCI subsystem id (issue #33: 17AA:3823
-    reported where the analog controller — the id kernel quirks and Dolby
-    PCI-keyed filenames use — was a different device).
+    the controller that actually hosts the speaker amplifiers. Whichever
+    /sys/class/sound card sorts first may be HDMI audio on a discrete GPU.
+    Traditional HDA systems fall back to walking up from sound cards, ranked
+    so the analog codec's controller wins over a GPU HDMI function. On AMD
+    dual-controller laptops card0 is the GPU audio function with its own PCI
+    subsystem id. Issue #33 reported 17AA:3823 where the analog controller was
+    a different device, and the analog controller's id is the one kernel
+    quirks and Dolby PCI-keyed filenames use.
 
     ``sdw_bus=None`` means the module's own ``SDW_BUS``, read in the body
-    rather than defaulted in the signature — the same way ``get_soundwire_ids``
+    rather than defaulted in the signature, the same way ``get_soundwire_ids``
     above reads it. A caller overriding the root still passes it outright.
     """
     if sdw_bus is None:

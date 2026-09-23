@@ -8,7 +8,7 @@ pipeline is strictly serial, so the generator only records the XML's
 (`lib/preset/build.py`), and this module turns that block into filter-graph
 nodes and links around the translated chain.
 
-Topology (measured against the DAX capture — docs/design-notes.md Finding 8):
+Topology, measured against the DAX capture (docs/design-notes.md Finding 8):
 
     input copies -+-> translated dry chain -----------------> final mix In 1
                   +-> arm 1: HP@35  -> LP@57.4 -> saturator -\
@@ -17,14 +17,14 @@ Topology (measured against the DAX capture — docs/design-notes.md Finding 8):
                        premix -> HP@94 -> HP@94 -> LP@469 --> final mix In 2
 
 Sub-band edges partition [src-freqs[0], mix-freqs[0]] geometrically over the
-arms whose subgain is above the schema's -192 "off" floor; the mix band is
-`mix-freqs` verbatim; the double HP at the mix-band edge is what keeps arm
+arms whose subgain is above the schema's -192 "off" floor. The mix band is
+`mix-freqs` verbatim. The double HP at the mix-band edge keeps arm
 fundamentals out of the sum (guard G1 in the Finding 8 evidence). Everything
 is IIR with no look-ahead, so the branch adds zero latency.
 
 `wrap_chain` sandwiches the translated stages: a copy fan-out becomes the
-graph input and the dry+wet mixer becomes the graph output, so
-`conf.emit_links` and `conf.format_conf` need no changes — they only ever
+graph input and the dry+wet mixer becomes the graph output. So
+`conf.emit_links` and `conf.format_conf` need no changes, because they only
 look at the first and last stage's port references.
 """
 
@@ -36,10 +36,10 @@ LSP_FILTER_URI = "http://lsp-plug.in/plugins/lv2/filter_stereo"
 CALF_SATURATOR_URI = "http://calf.sourceforge.net/plugins/Saturator"
 
 # Saturator shape: measurement-calibrated global engine constants, fit once
-# against the DAX bass-burst capture and identical for every device (same
-# debt class as the SoundWire Calf BassEnhancer constants — design-notes
-# empirical-shortcut list). Each won its sweep by more than the 1.5 dB
-# margin; the XML has no field for either.
+# against the DAX bass-burst capture and identical for every device. They are
+# the same debt class as the SoundWire Calf BassEnhancer constants
+# (design-notes empirical-shortcut list). Each won its sweep by more than the
+# 1.5 dB margin. The XML has no field for either.
 VBE_SAT_DRIVE = 4.0
 VBE_SAT_BLEND = -10.0
 
@@ -109,8 +109,8 @@ def _sub_band_edges(src_lo: float, mix_lo: float, arms: int) -> list[float]:
 
     For the corpus values (35, 94, two live arms) this yields the measured
     v3 edges 35 / 57.3585 / 94. The split point is an assumption, not an
-    XML field — Finding 8 measured it as non-load-bearing (an alternative
-    70 Hz edge scored within 0.03 dB).
+    XML field. Finding 8 measured it as non-load-bearing: an alternative
+    70 Hz edge scored within 0.03 dB.
     """
     ratio = (mix_lo / src_lo) ** (1.0 / arms)
     return [src_lo * ratio ** i for i in range(arms + 1)]
@@ -121,7 +121,7 @@ def wrap_chain(stages: list[Stage],
     """Sandwich the translated chain between a fan-out and a dry+wet mix.
 
     Returns (new_stages, wet_links). The caller concatenates `wet_links`
-    after `conf.emit_links(new_stages)` — the serial linker wires the copy
+    after `conf.emit_links(new_stages)`. The serial linker wires the copy
     fan-out into the dry chain and the dry chain into the final mixer's
     `In 1` on its own, because those nodes are the new first/last stages.
     """

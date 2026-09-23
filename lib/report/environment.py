@@ -4,8 +4,8 @@ A generated preset can be flawless yet inaudible because of the *environment*
 it lands in, and this is where each of those conditions gets its verdict: one
 `*_status` function per check, taking plain inputs and returning a
 `CheckResult`, so every one of them is unit-testable without touching the
-system. The probing and assembly that feeds them — `_probe_ee_version`,
-`_gather_doctor_report`, `_print_doctor_report` — are in
+system. The probing and assembly that feed them (`_probe_ee_version`,
+`_gather_doctor_report`, `_print_doctor_report`) are in
 `lib/report/doctor_run.py`, which imports this module. The edge only goes that
 way: this one reaches `lib/hardware/speakers.py` for a type and never the
 report, so `doctor_run.py` can sit above both halves and fold in
@@ -16,17 +16,17 @@ Each carries the sentence a user acts on, and several are the single source
 that both `--doctor` and a normal run's end-of-run warning render, which is
 what stops the two from drifting (`e3a7ee4` fixed a pair that already had).
 
-The report vocabulary — PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary
-counter and the check printer — comes from `lib/doctor.py`, shared with
-`ee_to_pipewire.py`'s PipeWire-side doctor so the two read as one tool. Not
-the `~`-collapsing path renderer, though: these functions take plain inputs,
-so the one verdict that names a path (`install_status`) is handed it already
-collapsed, as `base_display`. The constants come in under bare names because
-string constants and a record type hold no state a patch would have to reach.
-`BYPASS_PRESET_NAME` arrives the same way, from `lib/preset/autoload.py` —
-the empty preset written there is
-one this doctor has to recognise, because having it selected is itself a
-"sounds like nothing" cause.
+The report vocabulary comes from `lib/doctor.py`, shared with
+`ee_to_pipewire.py`'s PipeWire-side doctor so the two read as one tool:
+PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary counter and the check
+printer. Not the `~`-collapsing path renderer, though: these functions take
+plain inputs, so the one verdict that names a path (`install_status`) is handed
+it already collapsed, as `base_display`. The constants come in under bare names
+because string constants and a record type hold no state a patch would have to
+reach. `BYPASS_PRESET_NAME` arrives the same way, from
+`lib/preset/autoload.py`. The empty preset written there is one this doctor has
+to recognise, because having it selected is itself a "sounds like nothing"
+cause.
 """
 
 from __future__ import annotations
@@ -55,8 +55,8 @@ from lib.preset.bands import SAMPLE_RATE
 from lib.report.findings import Finding
 
 
-# EE names stacked instances of a plugin "convolver#0", "equalizer#1", … —
-# match the speaker-correction convolver regardless of its index. Keep the
+# EE names stacked instances of a plugin "convolver#0", "equalizer#1", and so
+# on. Match the speaker-correction convolver regardless of its index. Keep the
 # "kernel-name" literal in step with make_convolver().
 _CONVOLVER_KEY_RE = re.compile(r"^convolver#\d+$")
 
@@ -84,7 +84,7 @@ def ee_flatpak_silent_message(reason: str, tail: str) -> str:
     explanation drift.
 
     Names `flatpak info`, because `easyeffects --version` is a binary a
-    Flatpak-only machine does not have — saying otherwise is what issue #93
+    Flatpak-only machine does not have. Saying otherwise is what issue #93
     reported. Carries no display caveat either: that one belongs to the native
     binary, and `flatpak info` reads metadata rather than starting the app."""
     return (f"EasyEffects is installed as a Flatpak but `flatpak info` didn't "
@@ -94,7 +94,7 @@ def ee_flatpak_silent_message(reason: str, tail: str) -> str:
 def ee_v7_message(vstr: str) -> str:
     """Why an EasyEffects before 8 can't use these presets, shared by --doctor
     and the end-of-run warning so the two can't drift. Callers supply their own
-    headline and install instructions — one inline sentence for the report,
+    headline and install instructions: one inline sentence for the report,
     copy-paste commands for the warning."""
     return (f"EasyEffects 8 changed the preset (filter-chain) format, and these "
             f"presets use the new one. On {vstr} they don't load correctly — the "
@@ -106,13 +106,15 @@ def ee_version_status(version: tuple[int, int, int] | None,
                       found: bool, silent: str | None = None,
                       install_steps: tuple[tuple[str, str], ...] = (),
                       silent_is_flatpak: bool | None = None) -> CheckResult:
-    """Verdict for the EasyEffects version. FAIL — the only loud error — is
-    reserved for a *cleanly parsed* major < 8, so an EE-8 user is never told
-    they're on 7. ``found`` distinguishes "no EE at all" (a valid
-    generating-for-another-machine case → WARN) from "installed but version
-    unreadable" (→ UNKNOWN); ``silent`` names the reason when EE is installed
-    but never answered at all (→ UNKNOWN, never "not found"), and
-    ``silent_is_flatpak`` picks which install that sentence is about."""
+    """Verdict for the EasyEffects version.
+
+    FAIL, the only loud error, is reserved for a *cleanly parsed* major < 8,
+    so an EE-8 user is never told they're on 7. ``found`` distinguishes "no EE
+    at all" (a valid generating-for-another-machine case → WARN) from
+    "installed but version unreadable" (→ UNKNOWN). ``silent`` names the
+    reason when EE is installed but never answered at all (→ UNKNOWN, never
+    "not found"), and ``silent_is_flatpak`` picks which install that sentence
+    is about."""
     if version is None:
         if not found and silent:
             if silent_is_flatpak:
@@ -136,7 +138,7 @@ def ee_version_status(version: tuple[int, int, int] | None,
     if version[0] < 8:
         # The prose stops at "install 8"; which command that is depends on
         # what this machine's package manager would actually give, so the
-        # caller supplies it — and it rides in `steps`, where a command is
+        # caller supplies it. It rides in `steps`, where a command is
         # printed as written instead of being wrapped into unusability.
         return CheckResult(DOCTOR_FAIL, "EasyEffects version",
             f"{vstr} detected — these presets need EasyEffects 8. "
@@ -148,9 +150,9 @@ def ee_version_status(version: tuple[int, int, int] | None,
 # A stable distro's kernel is at most ~9 months old on the distro's release day
 # (Debian 13 shipped 6.12 at 9 months; Ubuntu LTS GA kernels at ~1 month), so
 # 18 months keeps every fresh install quiet for 9+ months and never flags
-# HWE/Fedora/Arch users — while still catching the real case we have (#33
-# fired at 6.12 + 20 months; LTS point releases backport one-line quirks but
-# not the driver rework / power-management fixes of that class).
+# HWE/Fedora/Arch users. It still catches the real case we have: #33 fired
+# at 6.12 + 20 months. LTS point releases backport one-line quirks but not
+# the driver rework / power-management fixes of that class.
 _KERNEL_OLD_MONTHS = 18
 
 
@@ -174,7 +176,7 @@ def _kernel_series_age(series: tuple[int, int],
 def kernel_age_status(release: str, today: date | None = None) -> CheckResult:
     """Verdict for the running kernel's age. WARN is a hint, not an error: an
     old series *can* be the whole problem on laptop speakers (issue #33), but
-    only the user can tell — the detail says what symptom would confirm it."""
+    only the user can tell. The detail says what symptom would confirm it."""
     today = today or date.today()
     label = "Kernel age"
     series = parse_kernel_series(release)
@@ -218,7 +220,7 @@ def _parse_graph_rate(text: str) -> int | None:
 
     Not defensive noise: `session.read_settings` reports `ok` when *any* key
     parsed and fills the rest with `""`, so a readable probe can still carry no
-    rate. An unreadable rate has to skip the check — the standing rule in this
+    rate. An unreadable rate has to skip the check: the standing rule in this
     report is that an unknown value renders its reason and never reads as zero.
     """
     try:
@@ -232,8 +234,8 @@ def _parse_graph_rate(text: str) -> int | None:
 # problem. It is the same judgement the gate already makes for 44.1 kHz
 # (-0.74 dB, negligible and in the quieter direction), applied upward: 1 dB is
 # reached at ~53.9 kHz, below every rate real hardware offers (88.2, 96, 176.4,
-# 192, 384) and above every rounding artefact. Load-bearing — without it
-# `clock.force-rate 50000` prints "about 0 dB more" as a fault.
+# 192, 384) and above every rounding artefact. Load-bearing: without it
+# `clock.force-rate 50000` would print "about 0 dB more" as a fault.
 _GRAPH_RATE_MIN_DB = 1.0
 
 
@@ -243,7 +245,7 @@ def graph_rate_gain_db(rate: int) -> float:
     EasyEffects resamples the convolver kernel to the server rate and
     compensates no gain for the longer filter, so the error is the rate ratio:
     +6.02 dB at 96 kHz, +12.04 dB at 192 kHz. Measured on the dev box at both
-    (+5.9 and +11.8), and isolated to the convolver — bypassing it drops the
+    (+5.9 and +11.8), and isolated to the convolver: bypassing it drops the
     rate-dependence to -0.4 dB (docs/design-notes.md). Computed rather than
     tabulated so the sentence stays true at any rate a user can reach.
     """
@@ -257,10 +259,10 @@ def _effective_graph_rate(running_rate: int, settings_rate: str,
     Three sources in falling order of authority, because no one of them is
     always there:
 
-    1. the rate the driver actually ran at — issue #84 asked for 384000 and
+    1. the rate the driver actually ran at: issue #84 asked for 384000 and
        ran 192000, and the error follows what ran;
     2. `clock.force-rate`, which **pins the graph without changing
-       `clock.rate`** — so a machine with a forced rate and nothing playing
+       `clock.rate`**. A machine with a forced rate and nothing playing
        during the probe would otherwise read its untouched session default and
        be told nothing, while the graph runs forced the moment audio starts;
     3. the session default, for the ordinary unforced case.
@@ -284,7 +286,7 @@ def graph_rate_message(rate: int, verb: str = "runs at") -> str:
     drift.
 
     Deliberately carries **no command**. The rate is a session-wide setting
-    this tool doesn't own, and we cannot know why it is set — someone running
+    this tool doesn't own, and we cannot know why it is set. Someone running
     an external DAC chose it on purpose, and a one-liner here would talk them
     out of their own configuration. So the sentence says the change is
     testable for one session, which is what makes it safe to try, and leaves
@@ -293,7 +295,7 @@ def graph_rate_message(rate: int, verb: str = "runs at") -> str:
     # "about" only on the arm that read the rate the driver actually ran at.
     # A *requested* rate is an upper bound: issue #84 asked for 384000 and its
     # codec capped at 192000, where the error is 11.8 dB, not the 18 dB the
-    # request implies — quoting "about" there would be wrong by 6 dB on the
+    # request implies. Quoting "about" there would be wrong by 6 dB on the
     # very device this check was written for. /user-review then found the
     # hedge unusable on its own ("I'd take the number as gospel anyway"), so
     # the unmeasured arms name the one command that settles it: --doctor pays
@@ -316,14 +318,14 @@ def graph_rate_message(rate: int, verb: str = "runs at") -> str:
 
 
 def graph_rate_steps(forced_rate: str = "0") -> tuple[tuple[str, str], ...]:
-    """The session-only test, as `steps` — printed verbatim, because a command
+    """The session-only test, as `steps`, printed verbatim because a command
     folded across two lines is not runnable (`lib/doctor.py`, `emit_check`).
 
     Safe to hand over precisely because it is temporary: `clock.force-rate`
     lives in PipeWire's runtime metadata, not in a config file, so it is gone
     on the next daemon restart and cannot overwrite a rate someone chose on
     purpose. That is what makes naming it consistent with giving no permanent
-    fix — the permanent one depends on how the rate got set, which only the
+    fix: the permanent one depends on how the rate got set, which only the
     reader knows.
 
     The undo restores what was there rather than clearing to 0: on a machine
@@ -346,7 +348,7 @@ def graph_rate_status(running_rate: int, settings_rate: str,
 
     No PASS arm: a graph at the right rate is the ordinary case and saying so
     is noise (the same reason `firmware_gate_status` returns None). WARN rather
-    than FAIL because the audio does reach the user — wrong, but audible, which
+    than FAIL because the audio does reach the user: wrong, but audible, which
     is the line `lib/doctor.py` draws.
 
     The gate is `>`, not `!=`: 44.1 kHz lands at -0.74 dB, negligible and in
@@ -356,10 +358,10 @@ def graph_rate_status(running_rate: int, settings_rate: str,
     Three sources, in falling order of authority, because no one of them is
     always present:
 
-    1. the rate the driver actually ran at — issue #84 asked for 384000 and
+    1. the rate the driver actually ran at: issue #84 asked for 384000 and
        ran 192000, and the error follows what ran;
     2. `clock.force-rate`, which **pins the graph without changing
-       `clock.rate`** — so a machine with a forced rate and nothing playing
+       `clock.rate`**. A machine with a forced rate and nothing playing
        during the probe would otherwise read its untouched session default and
        be told nothing, while the graph runs forced the moment audio starts;
     3. the session default, for the ordinary unforced case.
@@ -382,12 +384,12 @@ def graph_rate_finding(running_rate: int, settings_rate: str,
     A `Finding` rather than a bare print, unlike `warn_old_kernel` next door,
     and the difference is what the two are claiming: an old kernel *may* be
     mis-configuring the speaker path, while this is a measured error in the
-    preset the run just wrote. /user-review round 12 caught the cost of
-    getting that wrong — printed inline only, it had scrolled off by the time
-    the run finished, so the reader's last screen was a clean "Done" and the
-    12 dB went unmentioned. The ask puts one line in the closing block, which
-    also lands it above the `--disable` menu whose "loud parts distort" entry
-    would otherwise be the only thing a distorting user is offered.
+    preset the run just wrote. Printed inline only, it would scroll off by
+    the time the run finishes, so the reader's last screen would be a clean
+    "Done" and the 12 dB would go unmentioned (/user-review round 12). The ask
+    puts one line in the closing block, which also lands it above the
+    `--disable` menu whose "loud parts distort" entry would otherwise be the
+    only thing a distorting user is offered.
     """
     resolved = _effective_graph_rate(running_rate, settings_rate, forced_rate)
     if resolved is None or graph_rate_gain_db(resolved[0]) < _GRAPH_RATE_MIN_DB:
@@ -443,10 +445,10 @@ def is_generated_preset(preset_json, preset_name: str) -> bool:
     Two signals, either of which is enough: the ``_generator`` stamp every
     preset this tool writes carries at top level, or a speaker-correction
     convolver whose impulse is named after the preset the way
-    ``lib.preset.emit.kernel_name`` names it. Each alone has a blind spot —
-    a preset EasyEffects re-saved from its own window may not keep the
+    ``lib.preset.emit.kernel_name`` names it. Each alone has a blind spot.
+    A preset EasyEffects re-saved from its own window may not keep the
     stamp, and a preset whose impulse file has gone still has to be
-    recognised so the check that reports the missing file can run — so it
+    recognised so the check that reports the missing file can run. So it
     is an OR, and the impulse name is matched without asking whether the
     file exists. A preset EasyEffects re-saved under another name matches
     neither and counts as theirs (a plain file copy keeps the stamp and
@@ -520,8 +522,8 @@ def loaded_preset_status(rc_data: dict, generated_names,
     ``live_preset`` is the running daemon's own answer when we got one, and
     then it is authoritative: the fallback key is skipped, because what EE
     reports *is* the outcome autoloading already arrived at. Without it this
-    check reads a file EE may not have written for hours — which is how it
-    came to report the silent bypass preset while a Dolby one was loaded.
+    check reads a file EE may not have written for hours, and can report
+    the silent bypass preset while a Dolby one is loaded.
 
     ``output_kind`` is `lib.hardware.sinks.sink_kind` on the output EasyEffects
     is using, and ``speaker_preset`` the preset an autoload entry maps the
@@ -546,13 +548,13 @@ def loaded_preset_status(rc_data: dict, generated_names,
         # installs: it writes this empty preset and points EasyEffects' global
         # fallback at it so HDMI/Bluetooth/USB stop applying a speaker tuning.
         # Warning there would flag our own design as a fault and send the
-        # reader to put a speaker tuning on their headset — which the run
+        # reader to put a speaker tuning on their headset, which the run
         # itself refuses to do (lib/preset/reload.py).
         #
         # `== "other"`, not `!= "speaker"`: only a *confident* non-speaker
         # softens this. sink_kind's "unknown" covers a failed probe, a
         # disconnected sink and a virtual one, and none of those are evidence
-        # the speakers are fine. The qualifier is load-bearing — widening it
+        # the speakers are fine. The qualifier is load-bearing: widening it
         # to "not a speaker" is how this check would go quiet on the very
         # machines it exists for.
         if output_kind == "other":
@@ -562,9 +564,10 @@ def loaded_preset_status(rc_data: dict, generated_names,
                     "output isn't the internal speakers. The speakers autoload "
                     f"'{speaker_preset}'.")
             # Never open a sentence with the bare word "Nothing" here: it is
-            # this project's preset name, quoted three words earlier, and a
-            # first-time reader parsed "Nothing autoloads a Dolby-* preset"
-            # as a claim about that preset (/user-review 2026-08-29).
+            # this project's preset name, quoted three words earlier. A
+            # first-time reader parsed an earlier wording, "Nothing autoloads
+            # a Dolby-* preset", as a claim about that preset (/user-review
+            # 2026-08-29).
             return CheckResult(DOCTOR_UNKNOWN, "Selected preset",
                 "the output isn't the internal speakers, so the silent "
                 f"'{BYPASS_PRESET_NAME}' bypass preset is expected here. None "
@@ -595,7 +598,7 @@ def ee_unanswered_status(names) -> CheckResult:
     Its local socket is a documented interface (upstream's "Local Server"
     page), but the page promises nothing about compatibility, the shape has
     already changed twice (the pipeline argument in 8.0.7, the socket path
-    in 8.0.9), and one of our two requests — get_global_bypass — is only in
+    in 8.0.9), and one of our two requests, get_global_bypass, is only in
     EE's source, not on the page. So a request it stops recognising is a real
     possibility. Saying so is the whole point: the alternative is falling back
     to its config file in silence and reporting hours-old values as current
@@ -603,8 +606,9 @@ def ee_unanswered_status(names) -> CheckResult:
     coming from that file. Provenance: docs/design-notes.md, "Rejected
     approaches"."""
     # "a usable answer": a reply we can't parse lands here too, and that is
-    # not silence. And only the rows this list names fall back — the sink row
-    # is read from PipeWire, so "Values below" called the whole block stale.
+    # not silence. And only the rows this list names fall back: the sink row
+    # is read from PipeWire, so an earlier wording, "Values below", called
+    # the whole block stale.
     joined = " and ".join(names)
     tail = "values below come" if len(names) > 1 else "value below comes"
     return CheckResult(DOCTOR_UNKNOWN, "EasyEffects state",
@@ -618,11 +622,11 @@ def global_bypass_status() -> CheckResult:
     """Global bypass is on, so every preset is passthrough.
 
     FAIL, not WARN: none of this tool's output is reaching the speakers, which
-    is the whole thing the reader came to check. As a WARN it sat under a
-    "Nothing failed outright" verdict and a "0 FAIL" summary — reassuring
+    is the whole thing the reader came to check. As a WARN it would sit under
+    a "Nothing failed outright" verdict and a "0 FAIL" summary: reassuring
     headlines above the one line saying the audio is untouched.
 
-    Raised only on a live reading from the running daemon — the config file's
+    Raised only on a live reading from the running daemon: the config file's
     copy of this key is written on save, so a stale one would accuse a user
     whose audio is fine. No 'off' counterpart: a check that passes for the
     overwhelming majority is noise, and the Environment block states it."""
@@ -635,20 +639,22 @@ def global_bypass_status() -> CheckResult:
 def autostart_status(rc_data: dict) -> CheckResult:
     """Whether EasyEffects is set to keep running in the background so the
     preset stays applied. Two Background-Service toggles matter, both persisted
-    in ``[Window]``: ``autostartOnLogin`` (launch at login — default off) and
-    ``enableServiceMode`` (stay active when the window is closed — default on).
+    in ``[Window]``: ``autostartOnLogin`` (launch at login, default off) and
+    ``enableServiceMode`` (stay active when the window is closed, default on).
     The preset only processes audio while EasyEffects runs, so if EITHER is off
-    it silently stops applying after a window-close or reboot — a common "it was
-    working, now it sounds like nothing" cause. Both off and a single one off
-    are all problem states, so we name exactly the toggle(s) that are off."""
+    it silently stops applying after a window-close or reboot. That is a common
+    "it was working, now it sounds like nothing" cause. Both off and a single
+    one off are all problem states, so we name exactly the toggle(s) that are
+    off."""
     autostart = rc_data.get("autostart_on_login")
     service = rc_data.get("service_mode")
     if autostart and service:
         return CheckResult(DOCTOR_PASS, "Background service",
             "EasyEffects autostarts as a background service at login — the "
             "preset applies automatically and survives reboots.")
-    # Name the toggle(s) up front and adjacent, then group the explanations —
-    # inline parentheticals buried the second toggle so it read as one warning.
+    # Name the toggle(s) up front and adjacent, then group the explanations:
+    # inline parentheticals would bury the second toggle so it reads as one
+    # warning.
     off, why = [], []
     if not service:
         off.append("'Enable service mode'")
@@ -668,9 +674,9 @@ def _alsa_utils_step() -> tuple[tuple[str, str], ...]:
 
     `alsa-utils` carries that name on every family the table knows bar
     Gentoo's category prefix, so a reader this run could not place loses
-    almost nothing by being told the package instead of the command — where
-    the seven-command fallback would cost them seven lines inside a
-    diagnostic they are reading because something else is already wrong.
+    almost nothing by being told the package instead of the command. The
+    seven-command fallback would cost them seven lines inside a diagnostic
+    they are reading because something else is already wrong.
     And there is no README section about `amixer` to point at.
     """
     command = packages.install_command([packages.ALSA_UTILS],
@@ -682,8 +688,10 @@ def _alsa_utils_step() -> tuple[tuple[str, str], ...]:
 def firmware_gate_status(gates: list[speakers.FirmwareGate],
                         checked: bool = True) -> CheckResult | None:
     """Verdict line for the smart-amp firmware gates, or None when the machine
-    exposes no such control (most don't — there is nothing to report either
-    way, and a PASS for an absent control is noise).
+    exposes no such control.
+
+    Most don't: there is nothing to report either way, and a PASS for an
+    absent control is noise.
 
     The gate sits *upstream* of everything EasyEffects does, which is why it
     belongs among the checks and not only in the raw hardware dump: a report
@@ -702,7 +710,7 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate],
     ``checked`` is False when amixer is absent, and then an empty ``gates``
     stops meaning "no such control". Returning None there would let the
     report's verdict say "no blocking problems" about a control nothing
-    looked for — the one this section exists to catch.
+    looked for: the one this section exists to catch.
     """
     if not gates:
         if checked:
@@ -729,7 +737,7 @@ def firmware_gate_status(gates: list[speakers.FirmwareGate],
 
 def warn_old_kernel(release: str | None = None) -> None:
     """End-of-run hint: an old kernel series can mis-configure the speaker
-    path no matter how good the preset is — issue #33 was fixed by a
+    path no matter how good the preset is. Issue #33 was fixed by a
     kernel upgrade, not a preset change. Silent unless the running series is
     older than _KERNEL_OLD_MONTHS. Mirrors warn_ee_environment."""
     if release is None:

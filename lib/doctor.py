@@ -8,12 +8,11 @@ either of them.
 
 Stdlib-only, like `version.py` and `ee_paths.py`: `ee_to_pipewire.py` must
 not pull the generator's numpy/scipy into a report that is mostly about
-PipeWire. Each printer takes the caller's own ``cprint``, which dates from
-when the two scripts held a console each and neither was reachable from here.
-There is one console now, in `lib/console.py`, and it is still not reachable
-from here — but for a harder reason: it imports this module, for ``tilde``,
-to render the failure all three entry points end on. So the arrow points one
-way only, and an ``import console`` added below would close a cycle.
+PipeWire. Each printer takes the caller's own ``cprint`` because the one
+console, in `lib/console.py`, is not reachable from here. That console
+imports this module, for ``tilde``, to render the failure all three entry
+points end on. So the arrow points one way only, and an ``import console``
+added below would close a cycle.
 """
 
 from __future__ import annotations
@@ -44,10 +43,11 @@ def tag(status: str) -> str:
     """The bracketed status as a check line shows it: ``[WARN]``, ``[ ?  ]``.
 
     The verdict lines send readers to "the [WARN] lines above", so they build
-    that label through this rather than spelling it out. Both used to, and
-    both were wrong: the WARN one named a ⚠ that appears nowhere in either
-    report, and the UNKNOWN one wrote ``[ ? ]`` where the centring yields
-    ``[ ?  ]``. Either way the reader searched for a string that wasn't there.
+    that label through this rather than spelling it out. A hand-spelled label
+    drifts from the box: the centring yields ``[ ?  ]``, not ``[ ? ]``, and a
+    reader searching for a string that isn't there finds nothing.
+    tests/test_preset.py's
+    test_verdict_names_a_tag_the_report_actually_prints pins this.
     """
     return f"[{status:^4}]"
 
@@ -221,8 +221,8 @@ def another_version_check(label: str, noun: str, versions,
     EasyEffects GUI save rebuilds a preset's JSON from scratch and drops the
     stamp (upstream ``savePresetFile``), and an unreadable conf header is
     not a mismatch either — "" means unknown, never stale. No folder in the
-    sentence: the inventory block above already names it, and a path here is
-    what leaked the preview harness's staging tree into a rendered block.
+    sentence: the inventory block above already names it, and a path here
+    would leak the preview harness's staging tree into a rendered block.
     """
     # Dated artefacts only, in both counts: an artefact with no version can
     # never satisfy the sentence's implicature that the other total-minus-n
@@ -259,16 +259,14 @@ def emit_check(check: CheckResult, cprint, width: int) -> None:
     ``width`` is required, and passed in for the same reason ``cprint`` is:
     this module is stdlib-only (``tests/test_layout.py``'s ``STDLIB_ONLY``),
     so it cannot reach ``lib.console`` to ask what measure the rest of the run
-    prints at. A default here could only be a second wrap policy — which is
-    what it was, and the two disagreed whenever output was redirected.
+    prints at. A default here could only be a second wrap policy, and the two
+    would disagree whenever output was redirected.
 
     The split is what makes a fix reachable from here at all. ``detail`` is
-    prose and wraps; ``steps`` is printed exactly as given, because a command
-    folded across two lines is not runnable — a line wider than the terminal
+    prose and wraps. ``steps`` is printed exactly as given, because a command
+    folded across two lines is not runnable. A line wider than the terminal
     is soft-wrapped by the terminal instead, which still copy-pastes. So a
-    check's prose belongs in the detail and its commands in the steps, and
-    checks used to send readers elsewhere for the fix only because this
-    printer had nowhere to put one.
+    check's prose belongs in the detail and its commands in the steps.
     """
     cprint(_STYLE.get(check.status, "dim"), f"  {tag(check.status)} {check.label}")
     for line in textwrap.wrap(check.detail, width=width - 9):
@@ -302,16 +300,15 @@ def print_verdict(checks, cprint) -> None:
     if not (fail or warn or unknown):
         cprint("ok", "No blocking problems detected.")
     elif fail:
-        # A FAIL used to print no verdict at all: the branches below are each
-        # guarded on `not fail`, so the one state that most needs a closing
-        # instruction ended on the summary counts alone.
+        # Its own branch, ahead of the rest: FAIL is the state that most needs
+        # a closing instruction, and must not end on the summary counts alone
+        # (tests/test_preset.py's test_verdict_says_something_on_a_fail).
         cprint("err", f"Fix the {tag(DOCTOR_FAIL)} lines above first.")
     elif warn and unknown:
-        # Both, because this branch used to print the WARN sentence alone and
-        # leave the unknowns unmentioned — beside a check saying a missing
-        # package is "the usual reason a conf loads nothing", "the WARN lines
-        # are what to fix first" reads as a ruling on the one line it never
-        # looked at.
+        # Both, because the WARN sentence alone leaves the unknowns
+        # unmentioned. Beside a check saying a missing package is "the usual
+        # reason a conf loads nothing", "the WARN lines are what to fix first"
+        # reads as a ruling on the one line it never looked at.
         cprint("warn", f"Nothing failed outright. Start with the "
                        f"{tag(DOCTOR_WARN)} lines above; the "
                        f"{tag(DOCTOR_UNKNOWN)} ones are checks that couldn't "

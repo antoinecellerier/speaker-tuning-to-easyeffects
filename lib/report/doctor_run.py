@@ -1,7 +1,7 @@
 """``--doctor`` for the EasyEffects path: run the probes, assemble, print.
 
 A generated preset can be flawless yet inaudible because of the *environment*
-it lands in — EasyEffects 7 (which can't read the v8 preset format), presets
+it lands in: EasyEffects 7 (which can't read the v8 preset format), presets
 written to the Flatpak path while EE runs native (or vice-versa), a missing
 impulse file so the speaker-correction convolver loads nothing, no Dolby
 preset selected, or a kernel series so old it mis-configures the speaker path
@@ -9,36 +9,34 @@ itself (issue #33). ``--doctor`` surfaces those deterministically (#22), and
 ``warn_ee_environment`` reuses the same probes to warn at the end of a normal
 run.
 
-This is the I/O half of that. Its counterpart `lib/report/environment.py`
-holds the verdicts — one pure `*_status` function per check, taking plain
-inputs — so the states this machine cannot produce are still unit-testable;
-everything here reads the system, and the split follows the comment that used
-to sit over both halves in the generator.
+This is the I/O half of that: everything here reads the system. Its
+counterpart `lib/report/environment.py` holds the verdicts, one pure
+`*_status` function per check taking plain inputs, so the states this machine
+cannot produce are still unit-testable.
 
 The two halves are a strict stack, and that is why this is a module of its own
 rather than more of `environment.py`. `lib/report/speaker.py` imports
 `environment` (`upgrade_prospect` reads `parse_kernel_series`,
 `_print_speaker_info` reads `_kernel_series_age`), and the report assembled
-here folds in *both* — `_gather_doctor_report` calls `_gather_speaker_info`
+here folds in *both*: `_gather_doctor_report` calls `_gather_speaker_info`
 and `speaker_pin_status`, `_print_doctor_report` calls `_print_speaker_info`.
 So it sits above them, and putting it back in `environment.py` would close a
 loop: environment → speaker → environment.
 
 The EasyEffects-side counterpart of `lib/pipewire/checks.py`, whose
 `report_pw_doctor` the converter calls the same way `dolby_to_easyeffects.py`
-calls `report_doctor` here. The two doctors share their report vocabulary —
-PASS/WARN/FAIL/UNKNOWN, `CheckResult`, the summary counter, the check printer
-and the `~`-collapsing path renderer — through `lib/doctor.py`, so they read as
-one tool. The constants and `CheckResult` arrive under bare names because
+calls `report_doctor` here. The two doctors share their report vocabulary
+through `lib/doctor.py`, so they read as one tool: PASS/WARN/FAIL/UNKNOWN,
+`CheckResult`, the summary counter, the check printer and the `~`-collapsing
+path renderer. The constants and `CheckResult` arrive under bare names because
 string constants and a record type hold no state a patch would have to reach.
 
-`speaker` keeps the alias the generator gave it (`report_speaker`) for the same
-reason: the moved lines read through that name. In the generator it is one
-letter from `lib.hardware.speakers` — a hazard that does not exist here, and the
-name is kept anyway because renaming it would cost the provenance of every line
-that uses it.
+`speaker` keeps the alias the generator gave it (`report_speaker`), because
+the moved lines read through that name. In the generator that name is one
+letter from `lib.hardware.speakers`. That hazard does not exist here, but
+renaming it would cost the provenance of every line that uses it.
 
-The report's frame — the order of its sections and the text around them — is
+The report's frame, the order of its sections and the text around them, is
 `lib/report/doctor_layout.py`, shared with the PipeWire doctor so the two cannot
 drift. What is left here is this side's own two builders and its probes.
 """
@@ -93,11 +91,11 @@ def _flatpak_version_text(info_output: str) -> str:
 
 
 # EasyEffects' daemon listens on a QLocalServer of this name and answers
-# newline-terminated ASCII requests — its documented "Local Server"
+# newline-terminated ASCII requests: its documented "Local Server"
 # (https://wwmm.github.io/easyeffects/user_interface/local_server.html, since
 # EE 8.0.7; the tags are upstream's src/tags_local_server.hpp). Of our two
-# requests get_last_loaded_preset is on that page; get_global_bypass is
-# source-only — it is what `easyeffects -b 3` itself sends. Only these two are
+# requests get_last_loaded_preset is on that page. get_global_bypass is
+# source-only: it is what `easyeffects -b 3` itself sends. Only these two are
 # ever sent: the same socket also takes quit_app, hide_window, show_window,
 # load_preset, global_bypass, toggle_global_bypass and set_property, none of
 # which a diagnostic may send. Naming the allowed set means a later edit
@@ -119,11 +117,11 @@ def _ee_query(request: str) -> ee_socket.EEReply:
     * It **hides the running instance's window.** Through EE 8.2.8 its
       argument parser emits `onHideWindow()` for these very queries, which
       the secondary instance forwards to the daemon as a `hide_window`
-      message — asking what preset is loaded would close the window out from
+      message. Asking what preset is loaded would close the window out from
       under whoever is reading it. Upstream 8942fbc39 (after 8.2.8) keeps
       that to `-a`'s failure branch, but `-b 3` still hides unconditionally.
     * With no daemon it becomes the *primary* instance and starts a whole
-      second EasyEffects — upstream picks that branch purely on whether a lock
+      second EasyEffects. Upstream picks that branch purely on whether a lock
       file is held, and under Flatpak that lock lives in the sandbox's temp
       dir where a host-side client cannot see it.
 
@@ -145,9 +143,9 @@ class LiveState:
     """EasyEffects state resolved from the best source available per value.
 
     Each value carries where it came from, because the report has to say so:
-    a config-file reading can be arbitrarily old (see `read_ee_rc`), and one
-    presented as current is how --doctor came to report the silent 'Nothing'
-    preset while a Dolby one was loaded.
+    a config-file reading can be arbitrarily old (see `read_ee_rc`). One
+    presented as current can make --doctor report the silent 'Nothing'
+    preset while a Dolby one is loaded.
     """
     preset: str = ""
     preset_is_live: bool = False
@@ -158,23 +156,23 @@ class LiveState:
     # What PipeWire's description of `sink` settles about where its audio
     # comes out: "speaker", "other" or "unknown" (lib.hardware.sinks.sink_kind).
     # Three states, not a bool, because two checks act on it in opposite
-    # directions — the closing block drops a bullet on "speaker", and the
+    # directions: the closing block drops a bullet on "speaker", and the
     # selected-preset check softens only on a confident "other". Folding
     # "unknown" into either would make one of them wrong.
     sink_kind: str = "unknown"
-    # A human name for `sink` — the sink's own description, except on
+    # A human name for `sink`: the sink's own description, except on
     # Bluetooth, which renders under one fixed label (lib.hardware.sinks).
     # Empty when the probe settled nothing, and the report then shows the
-    # node name alone, as it always did.
+    # node name alone.
     sink_label: str = ""
     # Why `sink` is empty, when it is: the graph couldn't be read, or the rc
     # pins an output without naming one. Empty with an empty `sink` means
     # both sources answered and there is genuinely no default.
     sink_reason: str = ""
     # Requests a listening daemon did not answer. Non-empty means EasyEffects'
-    # socket protocol changed, not that it is absent — reported rather than
-    # absorbed, so this stops reporting stale values as current the moment it
-    # happens instead of whenever someone next reads the source.
+    # socket protocol changed, not that it is absent. It is reported rather
+    # than absorbed, so the report stops passing stale values off as current
+    # the moment that happens, not whenever someone next reads the source.
     unanswered: list[str] = field(default_factory=list)
     # WirePlumber's version as the graph reports it, off the same pw-dump the
     # sink came from; None when it wasn't there to read.
@@ -184,9 +182,9 @@ class LiveState:
     def system_output_is_speaker(self) -> bool:
         """Is the *system's* output one of this machine's own speakers?
 
-        Live readings only. A pinned sink answers a different question —
-        EasyEffects' own device — and the one caller asks the reader to
-        confirm the system output. Someone pinned to the speakers while the
+        Live readings only. A pinned sink answers a different question:
+        EasyEffects' own device. The one caller asks the reader to confirm
+        the system output. Someone pinned to the speakers while the
         system default is HDMI needs that prompt most: nothing they are
         listening to goes through the chain. Spending a pinned "speaker" on
         it would drop the line exactly there.
@@ -209,8 +207,8 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if reply.reached:
             state.unanswered.append("loaded preset")
 
-    # One pw-dump answers two rows of the report — which sink PipeWire is
-    # sending to, and which WirePlumber is running — so it is read even for a
+    # One pw-dump answers two rows of the report: which sink PipeWire is
+    # sending to, and which WirePlumber is running. So it is read even for a
     # pinned output, whose sink comes from the rc.
     d, state.wireplumber = sinks.live_session()
     # useDefaultOutputDevice defaults ON, in which case EE just follows the
@@ -234,7 +232,7 @@ def _resolve_live_state(rc: dict) -> LiveState:
         # that key), so it earns an answer the same way the live one does. A
         # sink that has since left the graph isn't found and comes back
         # "unknown", which is the right answer rather than a stale one. The
-        # `saved` arm above gets no classification on purpose — that name is
+        # `saved` arm above gets no classification on purpose: that name is
         # EasyEffects' cache of a default it may have followed hours ago.
         if state.sink:
             state.sink_kind, state.sink_label = \
@@ -242,7 +240,7 @@ def _resolve_live_state(rc: dict) -> LiveState:
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
-    # as a confident "off" — and, since we got *an* answer, counts as drift.
+    # as a confident "off". Since we got *an* answer, it also counts as drift.
     # The rc copy is only ever a display fallback, never a verdict.
     bypass_reply = _ee_query(ee_socket.BYPASS_REQUEST)
     if bypass_reply.value in ("1", "2"):
@@ -261,7 +259,7 @@ class EEProbe:
 
     ``found`` means a binary *answered*; ``silent`` is set instead when one is
     demonstrably installed but couldn't answer, and carries the short reason.
-    All three of found / silent / neither are distinct states — collapsing the
+    All three states are distinct: found, silent and neither. Collapsing the
     middle one into "not installed" is what misled issue #46.
     """
     version: tuple[int, int, int] | None = None
@@ -271,9 +269,9 @@ class EEProbe:
     silent: str | None = None
     # Which install stayed silent, for the explanation. Deliberately not
     # ``is_flatpak``, which means "which install *answered*" and drives the
-    # end-of-run install-mismatch warning — that must not assert a detection
-    # made from an install that never said anything. Appended last so the
-    # positional construction in the tests still reads.
+    # end-of-run install-mismatch warning. That warning must not assert a
+    # detection made from an install that never said anything. Appended last so
+    # the positional construction in the tests still reads.
     silent_is_flatpak: bool | None = None
 
 
@@ -294,15 +292,15 @@ _VERSION_LINE = re.compile(r"[\d.]+(?:[-_+~][\w.]+)*")
 def _distro_easyeffects_major(fam: str) -> int | None:
     """The major version this distribution would install, or None.
 
-    None for every way of not knowing — no query for this family, the tool
-    absent, a non-zero exit, a timeout, an answer we can't read — and callers
-    treat all of them the same way, because the remedy that doesn't depend on
-    the distribution is right in every one of them.
+    None for every way of not knowing: no query for this family, the tool
+    absent, a non-zero exit, a timeout, an answer we can't read. Callers treat
+    all of them the same way, because the remedy that doesn't depend on the
+    distribution is right in every one of them.
 
     Asked rather than tabulated: which release ships EasyEffects 8 changes
     every few months, and a stale table here names a package that installs
-    7.x, loads the preset and silently does almost nothing — exactly what the
-    check that calls this exists to catch.
+    7.x, loads the preset and silently does almost nothing. That is exactly
+    what the check that calls this exists to catch.
     """
     argv = packages.available_version_cmd(packages.EASYEFFECTS, fam)
     if not argv:
@@ -319,7 +317,7 @@ def _distro_easyeffects_major(fam: str) -> int | None:
             # `dnf --qf` prints the bare number with no label at all.
             answer = line
         elif label.strip().lower() in _CANDIDATE_LABELS:
-            # apt's "Candidate", pacman's and zypper's "Version" — the label
+            # apt's "Candidate", pacman's and zypper's "Version": the label
             # that means "what an install would get". apt prints "Installed"
             # too, and taking that one would read a 7.x already on the machine
             # as what the distribution ships.
@@ -336,12 +334,12 @@ def _distro_easyeffects_major(fam: str) -> int | None:
 
 
 def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
-    """How to get EasyEffects 8, for this machine — the distro's own package
+    """How to get EasyEffects 8 on this machine: the distro's own package
     when the distro actually ships 8, and the Flatpak otherwise.
 
     Both, never one: the Flatpak works everywhere and is the answer when we
-    cannot place the machine or cannot ask it, and a distro package that ships
-    7.x is worse than no suggestion at all — it installs cleanly, loads the
+    cannot place the machine or cannot ask it. A distro package that ships
+    7.x is worse than no suggestion at all: it installs cleanly, loads the
     preset, and leaves the speaker-correction filter doing nothing.
     """
     fam = packages.family()
@@ -362,7 +360,7 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
                                  f"EasyEffects {major}:"))
             steps.extend(native)
     # Labelled rather than listed, so two commands read as a choice instead of
-    # a procedure — a bulleted caption above each keeps the command alone on
+    # a procedure. A bulleted caption above each keeps the command alone on
     # its line, which is what makes it pasteable.
     steps.append(("cta", "  • or the Flathub Flatpak, which works anywhere:"
                          if steps else "  • the Flathub Flatpak:"))
@@ -370,9 +368,9 @@ def easyeffects_install_steps() -> tuple[tuple[str, str], ...]:
                          "com.github.wwmm.easyeffects"))
     # The Flatpak is only "works anywhere" once Flatpak itself is set up, and
     # on a plain install of most distributions the Flathub remote is not
-    # there. Named, not linked — the one-link rule keeps URLs out of message
-    # bodies (.claude/rules/user-messages.md) — but a reader who hits
-    # "remote flathub not found" now knows it isn't this tool's fault.
+    # there. Named, not linked: the one-link rule keeps URLs out of message
+    # bodies (.claude/rules/user-messages.md). A reader who hits
+    # "remote flathub not found" still knows it isn't this tool's fault.
     steps.append(("dim", "        (needs Flatpak installed and the Flathub "
                          "remote added)"))
     if len(steps) == 3:
@@ -391,28 +389,29 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
     """Probe the installed EasyEffects version. Read-only, time-bounded, never
     raises.
 
-    ``deep`` allows one extra, slower probe — starting the Flatpak sandbox to
-    ask the binary itself — and is for --doctor only. Every generation run
+    ``deep`` allows one extra, slower probe that starts the Flatpak sandbox to
+    ask the binary itself, and is for --doctor only. Every generation run
     calls this too (``warn_ee_environment``), and a bubblewrap start does not
     belong on that path.
 
-    Probes the install the script writes to (per ee_paths.USE_FLATPAK) first, then the
-    other, and prefers a *parseable* version over a found-but-unreadable answer
-    — so a stale/shim binary on one install can't mask a healthy version on the
-    other (issue #22 review). ``found`` means an EE binary actually answered, so
-    version=None with found=True means 'installed but version unreadable'."""
+    Probes the install the script writes to (per ee_paths.USE_FLATPAK) first,
+    then the other. It prefers a *parseable* version over a found-but-unreadable
+    answer, so a stale/shim binary on one install can't mask a healthy version
+    on the other (issue #22 review). ``found`` means an EE binary actually
+    answered, so version=None with found=True means 'installed but version
+    unreadable'."""
     def run(cmd, timeout=5):
-        """(output, failure) — exactly one is meaningful, and a command that
-        produced no answer always says why.
+        """Run *cmd* and return (output, failure).
 
-        The missing-binary case used to answer ``(None, None)``, and callers
-        read that emptiness as "the app isn't installed" — which is only ever
-        true of the binary, never of the app it would have reported on. That
-        hole is what made "no flatpak command here", "app not installed" and
-        "timed out" indistinguishable, and it put `easyeffects --version` on
-        the version line of a machine that has no such binary (issue #93).
-        Whether an install exists is the caller's to decide, from evidence
-        that isn't an exit code."""
+        Exactly one is meaningful, and a command that produced no answer
+        always says why. A bare ``(None, None)`` for a missing binary would be
+        read as "the app isn't installed", which is only ever true of the
+        binary, never of the app it would have reported on. It would make "no
+        flatpak command here", "app not installed" and "timed out"
+        indistinguishable, and put `easyeffects --version` on the version line
+        of a machine that has no such binary (issue #93). Whether an install
+        exists is the caller's to decide, from evidence that isn't an exit
+        code."""
         try:
             r = tool_env.run(cmd, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError:
@@ -437,16 +436,18 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
             return parse_ee_version(out), True, None
         # A binary that's on PATH (or already running) but couldn't answer is
         # installed, not absent. EE 8's Qt build needs a display to handle
-        # --version, so from a headless shell (ssh, tmux) it exits non-zero —
-        # indistinguishable from "not installed" if we only read the exit code
-        # (issue #46, where a healthy 8.2.8 was reported missing).
+        # --version, so from a headless shell (ssh, tmux) it exits non-zero.
+        # That is indistinguishable from "not installed" if we only read the
+        # exit code (issue #46, where a healthy 8.2.8 was reported missing).
         #
-        # `pgrep -x easyeffects` matches a *Flatpak* EasyEffects too — same
-        # executable name inside the sandbox — so a running process is evidence
-        # of a *native* install only where no Flatpak is deployed. Ungated, it
-        # claimed "installed but silent" about a binary that does not exist on
-        # Flatpak-only machines, and that claim then took over the version
-        # line's source label (issue #93). issue #46's case rides on `which`.
+        # `pgrep -x easyeffects` matches a *Flatpak* EasyEffects too, which has
+        # the same executable name inside the sandbox. So a running process is
+        # evidence of a *native* install only where no Flatpak is deployed.
+        # Ungated, it would claim "installed but silent" about a binary that
+        # does not exist on Flatpak-only machines, and that claim would take
+        # over the version line's source label (issue #93,
+        # test_probe_ee_version_a_running_flatpak_is_not_a_native_install).
+        # issue #46's case rides on `which`.
         installed = bool(tool_env.which("easyeffects")) or (
             not flatpak_installed and bool(ee_socket.easyeffects_running()))
         return None, False, (failure or "no output") if installed else None
@@ -455,7 +456,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         out, failure = run(["flatpak", "info", ee_paths.FLATPAK_APP_ID])
         if out is not None:
             version = parse_ee_version(_flatpak_version_text(out))
-            # It can answer without a version — a sideloaded or locally built
+            # It can answer without a version: a sideloaded or locally built
             # ref whose metadata carries no `Version:` line. It still answered,
             # so that is "installed, version unreadable", not silence.
             return (version if version is not None
@@ -465,7 +466,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         # Symmetrically with native(): a command that didn't answer says
         # nothing about whether the app is there, so ask the filesystem. This
         # is the "no flatpak command here" case (a container or toolbox shell)
-        # and the timeout case, both of which used to read as absence.
+        # and the timeout case, both of which would otherwise read as absence.
         version = _flatpak_version_fallback()
         if version is not None:
             return version, True, None
@@ -473,7 +474,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
 
     def _flatpak_version_fallback():
         """What to report when `flatpak info` gave no version: the deploy
-        metadata first because it costs two stats, then — only under --doctor —
+        metadata first because it costs two stats, then, only under --doctor,
         the sandboxed binary itself."""
         version = _flatpak_deployed_version()
         if version is not None or not deep:
@@ -481,7 +482,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         # Strictly more demanding than `flatpak info`: same binary, same ref,
         # and EE 8 builds its QApplication before parsing --version
         # (upstream src/main.cpp), so this needs a display exactly as the
-        # native probe does (issue #46). It is a last resort, not a backstop —
+        # native probe does (issue #46). It is a last resort, not a backstop:
         # reached only when the metadata read above found nothing either, so
         # it never costs a sandbox start on a healthy machine.
         out, _failure = run(["flatpak", "run", "--command=easyeffects",
@@ -489,10 +490,11 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         return parse_ee_version(out) if out is not None else None
 
     def _flatpak_deployed_version():
-        """The installed Flatpak's version off its deploy metadata — the same
-        field `flatpak info` prints, without the subprocess, so it still
-        answers where `flatpak` itself can't be run and where no display is
-        available. None when nothing on disk says."""
+        """The installed Flatpak's version off its deploy metadata.
+
+        It is the same field `flatpak info` prints, read without the
+        subprocess, so it still answers where `flatpak` itself can't be run
+        and where no display is available. None when nothing on disk says."""
         for root in ee_paths.flatpak_install_roots():
             base = root / ee_paths.FLATPAK_APP_ID / "current" / "active" / "files" / "share"
             for sub in ("metainfo", "appdata"):
@@ -525,9 +527,9 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
                 fallback.silent = silent
                 fallback.silent_is_flatpak = is_flatpak
                 # `source` names what *answered*. A silent probe may claim it
-                # only while nothing has answered at all — otherwise a silent
-                # native probe relabels a Flatpak's own answer as coming "via
-                # easyeffects --version" (issue #93).
+                # only while nothing has answered at all. Otherwise a silent
+                # native probe would relabel a Flatpak's own answer as coming
+                # "via easyeffects --version" (issue #93).
                 if not fallback.found:
                     fallback.source = src
             continue
@@ -545,8 +547,8 @@ def _speaker_autoload_preset(autoload_dir: Path | None) -> str:
     Answers the question behind "the bypass preset is selected" once the
     output is something else: not "is a tuning loaded now?" (it correctly
     isn't) but "will the speakers still be right?". Empty when nothing
-    settles it — no directory, no entry for a speaker sink, or no speaker
-    sink to match against — and the caller then reports a check it couldn't
+    settles it: no directory, no entry for a speaker sink, or no speaker
+    sink to match against. The caller then reports a check it couldn't
     make rather than a pass.
     """
     if autoload_dir is None:
@@ -559,7 +561,7 @@ def _speaker_autoload_preset(autoload_dir: Path | None) -> str:
     except (OSError, KeyError, TypeError):
         return ""
     # Matched on node.name *and* the active output route, because that pair is
-    # what EasyEffects keys an autoload file on — not the name alone (issue
+    # what EasyEffects keys an autoload file on, not the name alone (issue
     # #18, and `write_autoload`'s filename convention). An entry left behind
     # when the route changed still names the right device, and matching on the
     # name would report a mapping EasyEffects will never act on as the preset
@@ -580,11 +582,11 @@ def _read_presets(output_dir: Path
     """The preset files in *output_dir*: ours, how many are someone else's,
     and the ones that couldn't be read.
 
-    Each of ours comes back with its parsed JSON — ``None`` for the bypass
+    Each of ours comes back with its parsed JSON, or ``None`` for the bypass
     preset, which is ours by name and carries nothing to check. The folder is
-    EasyEffects' own, so the user's other presets sit beside ours; judged by
+    EasyEffects' own, so the user's other presets sit beside ours. Judged by
     this tool's standards every one of them "lacks a speaker-correction
-    filter", and the verdict then sent issue #84's reporter to fix two files
+    filter", and that verdict sent issue #84's reporter to fix two files
     this tool never wrote. They are counted on the folded preset line and
     otherwise left alone. A file that won't parse is neither: nothing says
     whose it is, so it gets its own line rather than a verdict about
@@ -671,7 +673,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # 2. Install location (skip the EE-location verdict for custom dirs)
     if custom_dirs:
         # UNKNOWN, not PASS: the run skipped the location checks, and a green
-        # box said the location was fine when nothing had looked at it.
+        # box would say the location was fine when nothing had looked at it.
         report.checks.append(CheckResult(DOCTOR_UNKNOWN, "Install location",
             f"custom output dir ({doctor.tilde(output_dir)}) — skipping EasyEffects "
             "location checks."))
@@ -695,7 +697,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     bypass_present = any(data is None for _, data in ours)
     for p in unreadable:
         # UNKNOWN, not FAIL: whose file it is can't be told from a file that
-        # won't parse, and the two remedies differ. Not silent either — at
+        # won't parse, and the two remedies differ. Not silent either: at
         # feb0739 this was a FAIL, and dropping it would turn a truncated
         # preset of ours into "no problems detected".
         report.checks.append(CheckResult(DOCTOR_UNKNOWN, f"Preset {p.stem}",
@@ -709,7 +711,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     else:
         for p, data in dolby_presets:
             report.checks.append(environment.check_preset_kernel(data, irs_stems, p.stem))
-    # 3b. Presets written by an older build — the same artefact class the
+    # 3b. Presets written by an older build: the same artefact class the
     #     PipeWire doctor's conf check covers, in the same sentence
     #     (lib.doctor). A preset without a stamp (an EasyEffects GUI re-save
     #     drops it) reads as unknown, never stale. The bypass preset stays
@@ -736,7 +738,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # The selected-preset check compares against presets in output_dir; that's
     # only meaningful when output_dir is where EE actually loads from (default
     # dirs). Under custom dirs, surface the loaded preset as a fact instead.
-    # A live answer runs the check even with no rc at all — the daemon knows
+    # A live answer runs the check even with no rc at all: the daemon knows
     # what it loaded whether or not it has got round to writing it down.
     if (rc_text or live.preset_is_live) and not custom_dirs:
         # Resolved only when the check is about to soften: this costs a
@@ -754,8 +756,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     if live.bypass_is_live and live.bypass:
         report.checks.append(environment.global_bypass_status())
     # A listening daemon that ignored our request means its protocol moved,
-    # not that it is absent — surfaced so the fallback below can't quietly
-    # become permanent.
+    # not that it is absent. It is surfaced so the fallback below can't
+    # quietly become permanent.
     if live.unanswered:
         report.checks.append(environment.ee_unanswered_status(live.unanswered))
     # Background-service / autostart is install-global, not output-dir-specific,
@@ -767,37 +769,37 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     report.speaker_info = report_speaker._gather_speaker_info()
 
     # 5b. The PipeWire clock the chain runs at, and whether the graph is
-    #     dropping buffers. The *dropout* numbers stay facts, not checks, and
-    #     the original reason holds: no quantum is known to be too small
-    #     (docs/ee-to-pipewire.md keeps that regime on the unvalidated list),
-    #     a client can legitimately pull the session down to min-quantum, and
-    #     the xrun counter is cumulative — non-zero on healthy machines — so a
-    #     WARN on those would fire with no fault and send the reader to change
-    #     a session setting. What issue #84's paste lacked was the numbers, and
-    #     a remote reader can weigh them.
+    #     dropping buffers. The *dropout* numbers stay facts, not checks: no
+    #     quantum is known to be too small (docs/ee-to-pipewire.md keeps that
+    #     regime on the unvalidated list), a client can legitimately pull the
+    #     session down to min-quantum, and the xrun counter is cumulative,
+    #     non-zero on healthy machines. So a WARN on those would fire with no
+    #     fault and send the reader to change a session setting. What issue
+    #     #84's paste lacked was the numbers, and a remote reader can weigh
+    #     them.
     #
     #     The clock *rate* is the one carve-out, and it is a different kind of
     #     claim: not a heuristic about load but a measured, deterministic error
-    #     in what we emit — above 48 kHz EasyEffects resamples the convolver
+    #     in what we emit. Above 48 kHz EasyEffects resamples the convolver
     #     kernel without compensating its gain, so the preset is hot by the
     #     rate ratio (+11.8 dB at 192 kHz, isolated to the convolver;
-    #     docs/design-notes.md). It still infers — two of its three rate
-    #     sources are settings rather than what ran — but it infers a
+    #     docs/design-notes.md). It still infers, because two of its three
+    #     rate sources are settings rather than what ran. But it infers a
     #     configuration, not a fault, and the error it reports is arithmetic
     #     from that rate rather than a judgement about load. What it cannot do
     #     is fire on a graph at the rate we build for, which is the objection
-    #     above. Note it reads the driver of whatever sink is current, so a
-    #     machine playing to a high-rate external DAC raises it with the
-    #     speaker path untouched — correct, since that is the graph the preset
-    #     would run in, but it is why the copy never says "your speakers".
+    #     above. It reads the driver of whatever sink is current, so a machine
+    #     playing to a high-rate external DAC raises it with the speaker path
+    #     untouched. That is correct, since that is the graph the preset would
+    #     run in, but it is why the copy never says "your speakers".
     pw_clock = session.read_settings()
     pw_xruns = session.read_xruns(sink=live.sink or "")
     pw_age = session.process_age("pipewire")
     ee_age = session.process_age("easyeffects")
-    # Which server those numbers describe — probed once here, beside them.
+    # Which server those numbers describe, probed once here beside them.
     pw_version = session.pipewire_version()
     # The running daemon when the graph named it, the installed binary
-    # otherwise — same order as the filter-chain doctor, same probe.
+    # otherwise: same order as the filter-chain doctor, same probe.
     wp_version = live.wireplumber or session.wireplumber_version()
     unread = _pipewire_unread_check(pw_clock, pw_xruns)
     if unread is not None:
@@ -881,21 +883,24 @@ _NO_SINK_TAIL = ", and EasyEffects has no saved output to fall back on"
 
 
 def _ee_running_fact(live) -> bool | None:
-    """The `running:` value: pgrep's answer, outranked by live proof — a
-    socket reply only a running daemon can give must not sit three rows
-    below "running: no" or "unknown" (/copy-audit 2026-08-30; pgrep -x can
-    also genuinely miss a wrapped binary the socket still answers for)."""
+    """The `running:` value: pgrep's answer, outranked by live proof.
+
+    A socket reply only a running daemon can give must not sit three rows
+    below "running: no" or "unknown" (/copy-audit 2026-08-30). pgrep -x can
+    also genuinely miss a wrapped binary the socket still answers for."""
     if live.preset_is_live or live.bypass_is_live:
         return True
     return ee_socket.easyeffects_running()
 
 
 def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:
-    """UNKNOWN when nothing PipeWire-side could be read — the filter-chain
-    doctor's `PipeWire` check, mirrored, so this report's verdict can't say
-    "nothing failed" while the whole `=== PipeWire ===` section above reads
-    "not read" (/user-review 2026-08-30). Fires only when *both* probes came
-    back empty: one tool missing is a package, not a dead server."""
+    """UNKNOWN when nothing PipeWire-side could be read.
+
+    It mirrors the filter-chain doctor's `PipeWire` check, so this report's
+    verdict can't say "nothing failed" while the whole `=== PipeWire ===`
+    section above reads "not read" (/user-review 2026-08-30). Fires only when
+    *both* probes came back empty: one tool missing is a package, not a dead
+    server."""
     if not (clock_settings and clock_settings.reason
             and xruns and xruns.reason):
         return None
@@ -908,17 +913,19 @@ def _pipewire_unread_check(clock_settings, xruns) -> CheckResult | None:
 
 def _pipewire_lines(f: dict) -> list[str]:
     """The `=== PipeWire ===` body: where the sound goes, the clock it runs
-    on, and whether the graph drops buffers — the audio server's side, above
-    EasyEffects' because a check's detail names the sink and a crackle report
-    needs the clock and the dropouts beside it (issue #84)."""
+    on, and whether the graph drops buffers.
+
+    It is the audio server's side, printed above EasyEffects' because a
+    check's detail names the sink and a crackle report needs the clock and
+    the dropouts beside it (issue #84)."""
     saved = " (from saved config)"
     lines: list[str] = []
     if f.get("pipewire_version") and f.get("wireplumber_version"):
         lines += layout.version_rows(f["pipewire_version"],
                                      f["wireplumber_version"], layout.GUTTER)
     if f.get("output_device"):
-        # Whichever sink this names can be a Bluetooth one — the live default
-        # follows the headset on connect exactly as EE's own record did — so
+        # Whichever sink this names can be a Bluetooth one: the live default
+        # follows the headset on connect exactly as EE's own record did. So
         # this stays the one redacted node name on a path the issue form asks
         # for whole.
         source = {"live": "", "pinned": " (pinned in EasyEffects)"}.get(
@@ -935,7 +942,7 @@ def _pipewire_lines(f: dict) -> list[str]:
             none="EasyEffects is pinned to an output but its config names "
                  "no device")
     else:
-        # No name from either source — the row survives and says why, with
+        # No name from either source. The row survives and says why, with
         # this path's context: the rc was the fallback and named nothing.
         lines += layout.output_sink_rows("", "", _NO_SINK_TAIL, layout.GUTTER,
                                          reason=f.get("output_reason", ""))
@@ -951,16 +958,16 @@ def _pipewire_lines(f: dict) -> list[str]:
 
 def _setup_lines(f: dict) -> list[str]:
     """The `=== EasyEffects setup ===` body: the install this tool wrote
-    into, then — after a group break — what EasyEffects is doing with it now.
+    into, then, after a group break, what EasyEffects is doing with it now.
     Labels pad to `doctor_layout.GUTTER` so the values line up. No `Tool:` row: the
     report's first line already carries the version."""
     # Rows below come from whichever source is authoritative for that value,
     # so a row EasyEffects could have answered live but didn't says where it
-    # came from — including when EE isn't running at all. Stating it once up
-    # top instead was worse: the rows then read identically whether or not
-    # the value was confirmed, and the closing block's bypass reminder (which
-    # is dropped only on a live reading) looked arbitrary next to a bypass
-    # line that looked equally sure of itself either way.
+    # came from, including when EE isn't running at all. Stated once up top
+    # instead, the rows would read identically whether or not the value was
+    # confirmed. The closing block's bypass reminder, which is dropped only on
+    # a live reading, would then look arbitrary next to a bypass line equally
+    # sure of itself either way.
     saved = " (from saved config)"
     running = f.get("ee_running")
     # Three states, not two: pgrep can be missing, denied or hung, and "no"
@@ -972,10 +979,10 @@ def _setup_lines(f: dict) -> list[str]:
         f"{f.get('ee_version', '?')}; running: {running_txt}; "
         f"service mode {'on' if f.get('service_mode') else 'off'}, "
         f"autostart {'on' if f.get('autostart_on_login') else 'off'}", layout.GUTTER)
-    # Both counts are what the folders hold — the bypass preset, presets the
-    # user put there and stray .irs files included — so neither is derived
-    # from the other. "Presets sharing impulse files" explained the gap with
-    # a relationship these counts don't establish.
+    # Both counts are what the folders hold, including the bypass preset,
+    # presets the user put there and stray .irs files. So neither is derived
+    # from the other. An earlier wording, "Presets sharing impulse files",
+    # explained the gap with a relationship these counts don't establish.
     lines += layout.wrapped_row(
         "Install",
         f"{f.get('install')} — writes to {f.get('output_dir')}; "
@@ -989,25 +996,25 @@ def _setup_lines(f: dict) -> list[str]:
     if f.get("selected_preset"):
         # `Selected preset:`, not `Selected:`, and the name quoted as every
         # other mention of one in this report is. Bare, the bypass preset
-        # rendered as "Selected: Nothing", which reads as "nothing is
-        # selected" and gave no hint the row was about an EasyEffects preset
-        # at all. The label is what carries that — it is the widest in the
+        # would render as "Selected: Nothing", which reads as "nothing is
+        # selected" and gives no hint the row is about an EasyEffects preset
+        # at all. The label is what carries that. It is the widest in the
         # block, and `doctor_layout.GUTTER` is sized for it.
         #
         # The row says what the thing *is*; whether it should be loaded is
         # the check's to say. In particular not "the bypass preset" here:
         # that word belongs to `Global bypass:` below, EasyEffects' own
-        # toggle, and spending it on a preset name is what made the two rows
+        # toggle, and spending it on a preset name would make the two rows
         # read as if they contradicted each other.
         live.append(layout.row("Selected preset", f"'{f['selected_preset']}'",
                                layout.GUTTER)
                     + ("" if f.get("selected_is_live") else saved))
-    # No live source exists for the chain, so it is always the saved copy —
+    # No live source exists for the chain, so it is always the saved copy,
     # worth marking next to rows that aren't. Wrapped because a full chain is
-    # seven plugin names and ran to ~145 columns on one line; continuations
-    # land on the same gutter as the values above. break_on_hyphens
-    # is off for the same reason `_cprint_wrapped` turns it off — a plugin name
-    # split across lines stops being greppable.
+    # seven plugin names and ran to ~145 columns on one line. Continuations
+    # land on the same gutter as the values above. break_on_hyphens is off
+    # for the same reason `_cprint_wrapped` turns it off: a plugin name split
+    # across lines stops being greppable.
     if f.get("output_plugins"):
         width = console._wrap_width()
         chain = textwrap.wrap(
@@ -1025,11 +1032,11 @@ def _setup_lines(f: dict) -> list[str]:
         live += chain
     # Prints even when off: "is it bypassed?" is the first question behind
     # "I hear no difference", and a positive "off" answers it. `Global
-    # bypass:`, not `Bypass:` — this is EasyEffects' one power-button toggle,
-    # and the short label collided with the bypass *preset* two rows up, so a
-    # reader met the same word for two things and had to work out that
-    # "'Nothing' is the expected bypass" and "Bypass: off" were not
-    # contradicting. It is also what the closing block already calls it.
+    # bypass:`, not `Bypass:`, because this is EasyEffects' one power-button
+    # toggle. The short label would collide with the bypass *preset* two
+    # rows up: a reader would meet the same word for two things and have to
+    # work out that "'Nothing' is the expected bypass" and "Bypass: off" are
+    # not contradicting. It is also what the closing block calls it.
     if f.get("bypass_is_live") or f.get("rc_present"):
         live.append(layout.row("Global bypass", "on" if f.get("bypass") else "off",
                                layout.GUTTER)
@@ -1040,9 +1047,11 @@ def _setup_lines(f: dict) -> list[str]:
 
 
 def _environment_lines(f: dict) -> list[str]:
-    """Both inventory blocks in print order — the PipeWire rows, then the
-    EasyEffects setup — as one list, for tests and for anyone who wants the
-    whole inventory at once. The report prints them as two sections."""
+    """Both inventory blocks in print order as one list: the PipeWire rows,
+    then the EasyEffects setup.
+
+    For tests and for anyone who wants the whole inventory at once. The
+    report prints them as two sections."""
     return _pipewire_lines(f) + _setup_lines(f)
 
 
@@ -1057,13 +1066,13 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
     carrying no detail, so it renders through the same printer as every other
     check rather than a hand-built copy of its format.
 
-    **Only passes are ever folded** — `problems` is appended whole — which is
+    **Only passes are ever folded**: `problems` is appended whole. That is
     what lets the summary count the returned list rather than the original:
     FAIL, WARN and UNKNOWN totals are identical either way, and the verdict
-    reads the same statuses it always did. The count of presets behind the
+    reads the same statuses either way. The count of presets behind the
     folded line lives in that line's own label, beside the thing it counts.
-    The summary used to carry it instead (`print_check_block`'s old
-    ``counted``) and readers could not reconcile it with the lines on screen.
+    Carried in the summary instead, it would not reconcile with the lines on
+    screen.
     """
     presets = [c for c in checks if c.label.startswith("Preset ")]
     problems = [c for c in presets if c.status != DOCTOR_PASS]
@@ -1081,8 +1090,8 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
                 # explain by itself: the preset count in the Environment
                 # block above includes the bypass preset (no filters, nothing
                 # to check) and any presets the user put there themselves,
-                # which this tool doesn't judge. It no longer explains the
-                # summary — that now counts the lines it printed.
+                # which this tool doesn't judge. The summary needs no
+                # reconciling here: it counts the lines it printed.
                 #
                 # The label says "passed", not "load their impulse file": a
                 # preset can fail this check for reasons that have nothing to
@@ -1141,7 +1150,7 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
             ("dim", "  • Make sure global bypass (the power-button icon, top bar) is OFF."))
     # Same rule for the sink half: we print which output PipeWire is using, and
     # when that is one of the machine's own speakers there is nothing left for
-    # the reader to confirm. The volume half always stays — no level we read
+    # the reader to confirm. The volume half always stays: no level we read
     # tells us what the reader can hear.
     closing.append(
         ("dim", "  • Confirm the volume is up.")
@@ -1162,8 +1171,8 @@ def report_doctor(args) -> None:
 
 def _graph_rate_headline(dry_run: bool) -> str:
     """The end-of-run headline. The explanation itself comes from
-    `environment.graph_rate_message`, so this path and --doctor cannot drift —
-    the arrangement `kernel_old_message` uses.
+    `environment.graph_rate_message`, so this path and --doctor cannot drift.
+    `kernel_old_message` uses the same arrangement.
 
     "set to", never "running at": this arm reads `pw-metadata` only, because
     the rate the driver actually ran at costs a five-second `pw-top` window a
@@ -1183,7 +1192,7 @@ def warn_ee_environment(args) -> "report_findings.Finding | None":
     happy path. Reuses --doctor's probes; mirrors warn_speaker_firmware_gate.
 
     Returns the graph-rate finding when one is raised, so its ask reaches the
-    closing block — everything else here is a print, because everything else
+    closing block. Everything else here is a print, because everything else
     here is about the EasyEffects *install*, which the reader either has to
     fix before anything works or does not have to fix at all.
     """
@@ -1201,19 +1210,18 @@ def warn_ee_environment(args) -> "report_findings.Finding | None":
         console._cprint_wrapped("dim", environment.ee_v7_message(vstr))
         print()
         console.cprint("dim", "To fix, install EasyEffects 8:")
-        # Was a hand-maintained list of which distros still shipped 7.x. That
-        # sentence was true when written and had no way of staying true; the
-        # machine's own package manager answers the same question and can't go
-        # stale.
+        # Asked, not listed: a hand-maintained list of which distros still
+        # ship 7.x has no way of staying true. The machine's own package
+        # manager answers the same question and can't go stale.
         for style, text in easyeffects_install_steps():
             console.cprint(style, text)
         return None
 
     if not found and probe.silent:
-        # Installed but unreachable — say so, rather than sending someone off to
+        # Installed but unreachable: say so, rather than sending someone off to
         # install what they already have (issue #46).
         # "written above" only holds on a run that wrote something: this check
-        # is gated on --skip-ee-check alone, so on a dry run it referred to
+        # is gated on --skip-ee-check alone, so on a dry run it would refer to
         # presets the same output twice says were not written.
         silent_message = (environment.ee_flatpak_silent_message
                           if probe.silent_is_flatpak
@@ -1239,7 +1247,7 @@ def warn_ee_environment(args) -> "report_findings.Finding | None":
                        "that's the one you use, it won't see them (run --doctor).")
 
     # A graph above the rate we build at makes the preset we just wrote wrong,
-    # not merely expensive (issue #84) — so it belongs on the run that wrote
+    # not merely expensive (issue #84). So it belongs on the run that wrote
     # it, not only in a --doctor most users never type. Settings only: the
     # rate the driver actually ran at costs a five-second pw-top window, which
     # is the diagnostic's to pay and not a generation run's, so this arm reads

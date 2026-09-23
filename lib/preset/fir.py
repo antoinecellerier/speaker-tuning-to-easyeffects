@@ -1,34 +1,32 @@
-"""Minimum-phase FIR design — the convolver kernel, and the rates it uses.
+"""Minimum-phase FIR design: the convolver kernel, and the rates it uses.
 
 The IEQ target curve and the audio-optimizer correction are realised as one
-impulse response rather than a stack of bell filters, which is what lets the
+impulse response rather than a stack of bell filters. That is what lets the
 response be exact instead of solved for. `make_fir`'s cepstral section is
 load-bearing and is under a hard **zero-added-latency** invariant (CLAUDE.md,
-"Core invariants"): a naive inverse FFT of the target magnitude gives a
+"Core invariants"). A naive inverse FFT of the target magnitude gives a
 *linear*-phase filter with audible pre-ringing and half the kernel's length
 in group delay. Change the peak position, not the design.
 
 **This module imports numpy at the top, and that is why the generator does
 not import it at the top.** `dolby_to_easyeffects.py` defers the whole DSP
-stack into function-local imports inside `main()` — numpy is ~0.35 s of a
-~0.5 s start-up, and every path that returns before the emit loop (`--version`,
-`--list`, `--doctor`, `--speaker-info`, an argparse error, and a tab
-completion, which argcomplete re-runs the whole script for on every TAB press)
-reaches none of it. It reaches this module only through those imports, so none
-of those paths costs any numpy
+stack into function-local imports inside `main()`. Numpy is ~0.35 s of a
+~0.5 s start-up, and every path that returns before the emit loop reaches
+none of it: `--version`, `--list`, `--doctor`, `--speaker-info`, an argparse
+error, and a tab completion, which argcomplete re-runs the whole script for
+on every TAB press. The generator reaches this module only through those
+imports, so none of those paths costs any numpy
 (`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
-The alternative was worse: importing this module at the top of the generator
-breaks that trap outright.
+Importing this module at the top of the generator would break that trap
+outright.
 
 `FIR_LENGTH` lives here because `make_fir` reads it, and a constant sits with
-its user (CLAUDE.md, "Co-locate definitions with use"). `SAMPLE_RATE` used to,
-with a note that it was the arguable one — the pipeline's rate, not the FIR's —
-and that it would earn a stdlib-only home if a reader ever turned up in a
-module that wants no numpy. That happened: `--doctor` compares it against the
-running PipeWire graph rate, and the doctor path must not pay the DSP import.
-It now lives in `lib/preset/bands.py`, beside `make_convolver` — the plugin
-whose kernel carries the rate — and is imported back here for `make_fir`'s own
-use, so every existing `fir.SAMPLE_RATE` reader keeps resolving.
+its user (CLAUDE.md, "Co-locate definitions with use"). `SAMPLE_RATE` is the
+pipeline's rate, not the FIR's. It lives in `lib/preset/bands.py`, beside
+`make_convolver`, the plugin whose kernel carries the rate. `--doctor`
+compares it against the running PipeWire graph rate, and the doctor path must
+not pay the DSP import. It is imported back here for `make_fir`'s own use, so
+every `fir.SAMPLE_RATE` reader keeps resolving.
 """
 
 import numpy as np
@@ -52,7 +50,8 @@ def interpolate_curve_db(band_freqs: np.ndarray, band_gains_db: np.ndarray,
 
 
 # Floor added to a linear magnitude before 20*log10 so a true zero maps to a
-# large finite negative dB instead of -inf (keeps FIR peak/verification finite).
+# large finite negative dB instead of -inf. That keeps the FIR peak and the
+# verification finite.
 LOG_MAG_FLOOR = 1e-12
 
 

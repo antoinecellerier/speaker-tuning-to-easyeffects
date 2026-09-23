@@ -3,9 +3,9 @@
 `make_preset` is the only place that decides what ships. It walks the chain in
 Dolby's own order (dialog → leveler → compressor → regulator → limiter), asks
 `bands.py` and `plugins.py` for each stage, and returns the preset dict
-alongside the set of flag-actionable names the run actually emitted — recorded
-inline with each emission branch, so the end-of-run menu cannot claim a stage
-the JSON does not contain.
+alongside the set of flag-actionable names the run actually emitted. Each name
+is recorded inline with its emission branch, so the end-of-run menu cannot
+claim a stage the JSON does not contain.
 
 It also owns the one placement decision that is not a mapping: which slot the
 static volmax boost (and `--enable level-restore`'s giveback) is injected
@@ -40,19 +40,20 @@ from lib.preset.plugins import (
 VBE_SUBGAIN_OFF_RAW = -192
 
 
-# NOTE: there is deliberately no surround→stereo-widening builder. Earlier
-# revisions mapped `surround-boost` to a Calf Stereo Tools `stereo-base`
-# widening (commit 82d7f3d). A 2026-06-13 DAX capture on the X1 Yoga
-# falsified that mapping: on 2-channel content DAX applies *zero* stereo
-# widening — `surround-boost=96` (movie) is identical to `surround-boost=0`
-# (game) to 0.01 dB RMS in both L and R, and leaves the L/R correlation
-# untouched (no magnitude M/S rebalance, no phase decorrelation). The field
-# is a virtualization/surround-render depth control that is dormant without
-# a multichannel/object bed, not a stereo-width knob — so the faithful
+# NOTE: there is deliberately no surround→stereo-widening builder. A
+# 2026-06-13 DAX capture on the X1 Yoga falsified the mapping of
+# `surround-boost` to a Calf Stereo Tools `stereo-base` widening (commit
+# 82d7f3d). On 2-channel content DAX applies *zero* stereo widening:
+# `surround-boost=96` (movie) is identical to `surround-boost=0` (game) to
+# 0.01 dB RMS in both L and R. It leaves the L/R correlation untouched, with
+# no magnitude M/S rebalance and no phase decorrelation. The field is a
+# virtualization/surround-render depth control that is dormant without a
+# multichannel/object bed, not a stereo-width knob. So the faithful
 # stereo-playback behaviour is to not widen. See docs/design-notes.md,
-# unvalidated-scaling entry 2. (The converter keeps `emit_stereo_tools`, in
-# lib/pipewire/plugins.py, as a translator for any preset that still carries
-# a stereo_tools block.)
+# unvalidated-scaling entry 2, and the trap
+# `tests/test_cli.py::test_no_stereo_widener_ever_emitted`. The converter
+# keeps `emit_stereo_tools`, in lib/pipewire/plugins.py, as a translator for
+# any preset that still carries a stereo_tools block.
 
 
 def make_preset(kernel_name: str, peq_filters: list[dict],
@@ -96,10 +97,9 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         preset["output"]["plugins_order"].append("bass_enhancer#0")
         emitted.add("bass-enhancer")
 
-    # No stereo widening: `surround-boost` is a virtualization-render-depth
-    # control, dormant on 2-channel content — DAX applies no stereo widening
-    # on stereo playback (design-notes entry 2). Earlier revisions emitted a
-    # stereo_tools#0 widener here.
+    # No stereo_tools#0 widener here: `surround-boost` is a
+    # virtualization-render-depth control, dormant on 2-channel content. DAX
+    # applies no stereo widening on stereo playback (design-notes entry 2).
 
     effective_peq = peq_filters
     if "high-shelf" in disabled:
@@ -151,16 +151,16 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
             if mb_comp and mb_comp["group_count"] == 1:
                 emitted.add("mbc-1band")
 
-    # volmax-boost injection: regulator input-gain is the default slot (issue
-    # #23) — placed pre-band-limiting so the per-band compression tames the
-    # boosted low end before the brickwall, instead of feeding the full static
-    # makeup straight into it (volmax-boost is a CP-stage volume-leveler
-    # ceiling, not a Dolby-documented placement; this is a pragmatic
-    # approximation). --volmax-slot output-gain opts back into the pre-#23
-    # post-band placement. If the regulator is disabled or absent from the XML,
-    # fall back to limiter#0 input-gain so the boost still happens. Never both.
-    # volmax_slot only re-routes the regulator path; the limiter fallback is
-    # unaffected.
+    # volmax-boost injection. Regulator input-gain is the default slot (issue
+    # #23). It sits pre-band-limiting, so the per-band compression tames the
+    # boosted low end before the brickwall instead of feeding the full static
+    # makeup straight into it. volmax-boost is a CP-stage volume-leveler
+    # ceiling, not a Dolby-documented placement, so this is a pragmatic
+    # approximation. --volmax-slot output-gain selects the pre-#23 post-band
+    # placement. If the regulator is disabled or absent from the XML, the
+    # boost falls back to limiter#0 input-gain so it still happens. Never
+    # both. volmax_slot only re-routes the regulator path; the limiter
+    # fallback is unaffected.
     apply_volmax = volmax_boost if "volmax" not in disabled else 0.0
     # --enable level-restore rides the same slot rather than adding a stage of
     # its own: it is a static broadband gain like volmax-boost, and issue #23
@@ -182,7 +182,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         emitted.add("regulator")
         limiter_boost = 0.0
         # A band that is enabled at a >= 0 dB threshold can only come from
-        # the coupled-bands mapping — the default path disables those.
+        # the coupled-bands mapping: the default path disables those.
         coupled_fired = any(
             reg[f"band{i}"]["compressor-enable"]
             and reg[f"band{i}"]["attack-threshold"] >= 0
@@ -191,18 +191,20 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
             # Marker, not a DISABLEABLE_FILTERS key in its own right: it is
             # what _DISABLE_MENU_MARKER keys the --disable coupled-bands row
             # off, so the row appears only where the mapping actually put a
-            # zone in — same contract as autogain-active above.
+            # zone in. Same contract as autogain-active above.
             emitted.add("coupled-bands-active")
         elif ("coupled-bands" in disabled
                 and _coupled_bands_eligible(regulator)):
             # The opt-out actually removed zones. It needs a marker of its
             # own because the -active one cannot serve here: --disable
             # forces couple_bands off, so `coupled_fired` is false on every
-            # run that passes the flag, and keying the "had no effect"
-            # warning off its absence made that warning fire on ~99% of
-            # opt-out runs — including this one, where 16 zones were
-            # dropped. Autogain has no such inversion (--enable is what
-            # sets its marker), which is how mirroring it introduced this.
+            # run that passes the flag. Keying the "had no effect" warning
+            # off its absence would make it fire on ~99% of opt-out runs,
+            # including runs that do drop zones (one dropped 16). Autogain
+            # has no such inversion, because --enable is what sets its
+            # marker, so mirroring autogain here would be wrong. Trap:
+            # tests/test_cli.py
+            # `test_disable_coupled_bands_marks_when_it_actually_dropped_zones`.
             emitted.add("coupled-bands-dropped")
     else:
         limiter_boost = static_boost
@@ -221,7 +223,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         # Offer the flag only where it would do something (the precedent is
         # coupled-bands, 619a663). The gate is the deficit itself: the
         # convolver gives back fir_peak_db less than the tuning asks for, and
-        # only the static boost puts any of it back — so a peak above it is
+        # only the static boost puts any of it back. So a peak above it is
         # a preset that plays quieter than bypass. Below it there is nothing
         # to restore and the menu stays quiet.
         emitted.add("level-restore")
@@ -230,12 +232,13 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)
     preset["output"]["plugins_order"].append("limiter#0")
 
-    # Virtual bass enhancement on HDA (issue #14) — metadata only, no plugin:
-    # EasyEffects' serial pipeline cannot express the parallel wet branch, so
-    # the flag records the XML's virtual-bass values as a top-level `_vbe`
-    # block (same contract as `_generator`: EE ignores unknown top-level
-    # keys) and ee_to_pipewire.py builds the branch from it. SoundWire
-    # tunings are excluded — their bass_enhancer#0 above covers the gap.
+    # Virtual bass enhancement on HDA (issue #14) is metadata only, no
+    # plugin. EasyEffects' serial pipeline cannot express the parallel wet
+    # branch. So the flag records the XML's virtual-bass values as a
+    # top-level `_vbe` block, and ee_to_pipewire.py builds the branch from
+    # it. That is the same contract as `_generator`: EE ignores unknown
+    # top-level keys. SoundWire tunings are excluded, because their
+    # bass_enhancer#0 above covers the gap.
     if virtual_bass is not None and not is_soundwire:
         arm_gains = [g / parse.DB_FIXED_POINT_SCALE
                      for g in virtual_bass["subgains"]

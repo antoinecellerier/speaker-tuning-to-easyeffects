@@ -10,8 +10,8 @@ the *mapping*, not the parse: `parse_xml` hands over the stored integers, and
 turning them into the milliseconds and ratios LSP wants is a hypothesis about
 what Dolby meant by them (CLAUDE.md, "XML-only derivability").
 
-**This module reaches numpy transitively** — `lib.preset.fir`, for the sample
-rate the MBC time constants decode against — so `dolby_to_easyeffects.py`
+**This module reaches numpy transitively**, through `lib.preset.fir`, for the
+sample rate the MBC time constants decode against. So `dolby_to_easyeffects.py`
 reaches it only through the function-local imports in `main()`, never at the
 top of the file: the same deferral `fir.py`'s own docstring explains.
 
@@ -39,10 +39,10 @@ def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
     scaled by the DE amount (0-16 scale): amount/16 * 6 dB, giving a
     maximum of +6 dB.
 
-    (An earlier SoundWire-only variant used a stronger *8 mapping plus
-    a 4 kHz "clarity" bell — removed: it was calibrated against the
-    pre-#13 chain whose over-applied IEQ crushed the treble it was
-    compensating; see design-notes unvalidated-scaling entry 1.)
+    There is no SoundWire-only variant, because the stronger *8 mapping
+    plus a 4 kHz "clarity" bell it used was calibrated against the pre-#13
+    chain, whose over-applied IEQ crushed the treble it was compensating
+    (see design-notes unvalidated-scaling entry 1).
     """
     if not dialog_enhancer:
         return None
@@ -78,17 +78,17 @@ def make_autogain(vol_leveler: dict | None,
       10 = aggressive (short history window)
 
     For HDA presets: bypassed by default. EE's leveler has no equivalent
-    of Dolby's MI steering: it boosts legitimate quiet content (a low
-    background under intermittent speech, ~+14 dB measured) and each loud
-    onset then rides ~4 dB of overshoot into the downstream dynamics —
+    of Dolby's MI steering. It boosts legitimate quiet content (a low
+    background under intermittent speech, ~+14 dB measured). Each loud
+    onset then rides ~4 dB of overshoot into the downstream dynamics:
     audible saturation, measured independent of `maximum-history`
     (design-notes). `--enable autogain` (enabled=True) opts in for the
     ~+9 dB program loudness it brings (issue #25). Either way the silence
-    gate ships at -50 dB — the #25 field-confirmed fix for crackle on
-    short sounds arriving after silence — so manual GUI enabling is safe.
+    gate ships at -50 dB, the #25 field-confirmed fix for crackle on
+    short sounds arriving after silence, so manual GUI enabling is safe.
 
     For SoundWire presets (conservative=True): active with gentler
-    settings — a -6 dB target offset and a longer history window.
+    settings, a -6 dB target offset and a longer history window.
     """
     if not vol_leveler or not vol_leveler["enable"]:
         return None
@@ -142,13 +142,13 @@ MBC_RELEASE_THRESHOLD_FLOOR = -80.01
 
 
 def _disabled_band() -> dict:
-    """The LSP 'band off' parameter dict, shared by make_multiband_compressor
-    and make_regulator (the literal was byte-identical in both).
+    """The LSP 'band off' parameter dict.
 
-    Key order and the trap-fix values are load-bearing: the preset JSON
-    preserves insertion order, and design-notes track compression-mode
-    "Downward" (over LSP's "Upward" default), boost-amount 0.0, and
-    enable-band False as the LSP defaults that must be explicitly overridden.
+    Shared by make_multiband_compressor and make_regulator. Key order and the
+    trap-fix values are load-bearing: the preset JSON preserves insertion
+    order, and design-notes track compression-mode "Downward" (over LSP's
+    "Upward" default), boost-amount 0.0, and enable-band False as the LSP
+    defaults that must be explicitly overridden.
     Returns a fresh dict each call so each band gets its own object.
     """
     return {
@@ -190,13 +190,13 @@ def decode_mbc_bands(mb_comp: dict | None) -> list[dict]:
     keys: ``xover_idx``, ``threshold`` (dB), ``ratio`` (x:1),
     ``attack_ms``, ``release_ms``, ``makeup`` (dB).
 
-    PURE — no printing or warnings. The R5 out-of-range fallback warnings
+    PURE: no printing or warnings. The R5 out-of-range fallback warnings
     (ratio clamp, attack/release Q15-range fallbacks) are emitted by the
     builder only, so they fire exactly once per band per run (this decode
     is also called by the silent diagnostics path). Out-of-range values
     are still *handled* here (ratio clamps to 100.0, time constants fall
     back via ``decode_mbc_time_constant``) so the returned values match
-    what the builder emits — the builder just additionally warns.
+    what the builder emits. The builder just additionally warns.
 
     Band selection mirrors the builder: at most ``group_count`` bands,
     capped by the number of band_groups parsed and LSP's 8-band limit.
@@ -255,7 +255,7 @@ def make_multiband_compressor(mb_comp: dict | None,
     294 profiles (music-dominated, fast attack/release used as a
     loudness maximiser with full-band ratio up to 2:1), 2 bands on
     561, 3 on 175, 4 on 121. LSP MBC supports 8 bands max, so any
-    value above that would be clipped — but Dolby's schema only
+    value above that would be clipped, but Dolby's schema only
     allocates 4 band_group_N elements. For group_count=1 the single
     band covers the whole spectrum (no split frequency); bands 1-7
     in the emitted config stay disabled via enable-band=False.
@@ -271,7 +271,7 @@ def make_multiband_compressor(mb_comp: dict | None,
 
     # R5 fallback warnings about the EMITTED dynamics. decode_mbc_bands is
     # pure/silent (it is also called by the main() diagnostics, which must
-    # not re-warn), so the warnings live here in the builder path only —
+    # not re-warn), so the warnings live here in the builder path only,
     # firing exactly once per affected band per run. Walk the decoded bands
     # alongside their raw band_groups to inspect the original coefficients.
     for i, (b, bg) in enumerate(zip(decoded, band_groups[:n_bands])):
@@ -288,7 +288,7 @@ def make_multiband_compressor(mb_comp: dict | None,
 
     # Crossovers between adjacent bands. Band i ends at freqs[decoded[i].xover_idx];
     # band i+1's lower edge is the same frequency. Only the first n_bands - 1
-    # crossovers are meaningful — the last band's xover_idx is the high-cap
+    # crossovers are meaningful: the last band's xover_idx is the high-cap
     # sentinel and isn't used as a split point.
     def xover_to_freq(idx, fallback):
         if 0 <= idx < len(freqs):
@@ -416,8 +416,8 @@ def make_regulator(regulator: dict | None, freqs: list[int],
         knee = -6 * timbre dB (0 = hard knee, 1 = -6 dB soft knee).
 
     `regulator-stress-amount`, `regulator-overdrive` and
-    `regulator-relaxation-amount` are parsed for visibility (debug
-    print + `_UNMODELED_FEATURES` watch list) but not mapped here. See
+    `regulator-relaxation-amount` are parsed for visibility, in the debug
+    print and the `_UNMODELED_FEATURES` watch list, but not mapped here. See
     docs/design-notes.md "Follow-ups" entry on regulator-stress for
     the empirical work that closed that hypothesis.
 
@@ -426,21 +426,21 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     be read as "never triggers" and disabled. A second-device DAX capture
     showed band dynamics on exactly such bands when the XML marks them
     non-isolated (`isolated_band` 0), so a zero-dB zone whose bands are
-    all isolated_band==0 takes its threshold at face value — a live
-    limiter at full scale, which engages when upstream gain (e.g. volmax
-    on input-gain) pushes the band past 0 dBFS. Zones without isolated
+    all isolated_band==0 takes its threshold at face value. That makes it
+    a live limiter at full scale, which engages when upstream gain (e.g.
+    volmax on input-gain) pushes the band past 0 dBFS. Zones without isolated
     data, or containing an isolated_band==1 band, stay disabled.
 
-    The reading is still a hypothesis: no capture has confirmed it, because
-    the levels that engage it are above what the capture battery reaches
+    The reading is a hypothesis: no capture has confirmed it, because the
+    levels that engage it are above what the capture battery reaches
     (design-notes Finding 10 / unvalidated-scaling entry 11 (f)). It is the
-    default because the alternative reading — discard the threshold — leaves
+    default because the alternative reading, discarding the threshold, leaves
     the volmax boost feeding the brickwall untamed on the tunings where this
     fires, which is the exact failure issue #23 measured.
 
     volmax_boost lands on `input-gain` by default (issue #23) so the per-band
     compression tames the boosted low end before the brickwall;
-    `volmax_slot="output-gain"` opts back into the older post-band-limiting
+    `volmax_slot="output-gain"` selects the older post-band-limiting
     placement. See `make_preset` for how that interacts with the chain.
     """
     if not regulator:
@@ -467,15 +467,15 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     zones = _regulator_zones(th)
 
     # Build the multiband compressor (used as limiter: ratio=100:1, fast attack).
-    # volmax_slot picks which gain slot carries the static volmax-boost:
+    # volmax_slot picks which gain slot carries the static volmax-boost.
     # input-gain (default, issue #23) applies it pre-band-limiting, letting the
     # regulator's per-band downward compression tame the boosted low end before
-    # the brickwall; output-gain opts back into post-band-limiting placement
-    # (the full loudness makeup straight into the brickwall — the pre-#23
-    # behaviour, kept for A/B and aggressive-regulator loudness recovery).
-    # Neither placement is Dolby-documented (volmax-boost is a CP-stage leveler
-    # ceiling; both slots are pragmatic approximations). Any value other than
-    # "output-gain" keeps the input-gain default.
+    # the brickwall. output-gain selects post-band-limiting placement: the full
+    # loudness makeup straight into the brickwall. That is the pre-#23
+    # behaviour, kept for A/B and aggressive-regulator loudness recovery.
+    # Neither placement is Dolby-documented: volmax-boost is a CP-stage leveler
+    # ceiling, and both slots are pragmatic approximations. Any value other
+    # than "output-gain" keeps the input-gain default.
     boost = round(volmax_boost, 1)
     on_input = volmax_slot != "output-gain"
     result = {
@@ -501,8 +501,8 @@ def make_regulator(regulator: dict | None, freqs: list[int],
             else:
                 cross_freq = 10.0  # not used for band 0
 
-            # Bands with threshold >= 0 dB never trigger; disable to save CPU
-            # — unless the experimental coupled-bands mapping takes the 0 dBFS
+            # Bands with threshold >= 0 dB never trigger; disable to save CPU,
+            # unless the experimental coupled-bands mapping takes the 0 dBFS
             # threshold at face value on a fully non-isolated zone (docstring).
             is_active = threshold < 0
             if not is_active and couple_bands:
@@ -548,17 +548,18 @@ def make_regulator(regulator: dict | None, freqs: list[int],
 
 
 def _coupled_bands_eligible(regulator: dict | None) -> bool:
-    """True when the coupled-bands mapping actually activates a zone here:
-    a zone whose threshold_high is >= 0 dBFS (excluded from limiting on the
-    old reading) and *all* of whose bands are marked non-isolated
+    """True when the coupled-bands mapping actually activates a zone here.
+
+    Such a zone has a threshold_high >= 0 dBFS, which the uncoupled reading
+    excludes from limiting, and *all* of its bands are marked non-isolated
     (isolated_band == 0).
 
     Zone-level, deliberately: this gates the run's "Added a limit to some of
-    the bands..." line, so a band-level `any()` claimed a limit that never
-    appeared on 274 of 37,949 eligible corpus profiles (re-derived
-    2026-08-11) — the zone containing that band also held an isolated one,
-    and make_regulator declined it. The two must answer alike or the report
-    describes a stage the preset does not carry."""
+    the bands..." line. A band-level `any()` would claim a limit that never
+    appears on 274 of 37,949 eligible corpus profiles (re-derived
+    2026-08-11). There the zone containing that band also holds an isolated
+    one, and make_regulator declines it. The two must answer alike or the
+    report describes a stage the preset does not carry."""
     iso = (regulator or {}).get("isolated_band")
     if not iso:
         return False
@@ -594,9 +595,10 @@ def make_bass_enhancer(hp_freq: float, amount: float = 12.0) -> dict:
 
 
 def bass_enhancer_from_peq(peq_filters: list[dict]) -> dict:
-    """The bass-enhancer stage as make_preset ships it for SoundWire,
-    derived from the PEQ high-pass corner (fallback 100 Hz). Shared with
-    the run report so the printed numbers cannot drift from the built
+    """The bass-enhancer stage as make_preset ships it for SoundWire.
+
+    It is derived from the PEQ high-pass corner (fallback 100 Hz). Shared
+    with the run report so the printed numbers cannot drift from the built
     stage.
 
     Whether the corner was derived or fell back is answered by
@@ -611,9 +613,10 @@ def bass_enhancer_from_peq(peq_filters: list[dict]) -> dict:
 def bass_enhancer_scope_is_derived(peq_filters: list[dict]) -> bool:
     """True when the bass-enhancer range came from the tuning's own high-pass.
 
-    Most SoundWire tunings carry no PEQ at all — 36 of 39 distinct corpus
-    files — so the printed range is twice the 100 Hz fallback, and the run
-    report used to credit that constant to "this speaker's bass cutoff".
+    Most SoundWire tunings carry no PEQ at all: 36 of 39 distinct corpus
+    files. There the printed range is twice the 100 Hz fallback, and an
+    earlier run-report wording credited that constant to "this speaker's
+    bass cutoff".
     """
     return any(f["type"] in (7, 9) for f in peq_filters)
 

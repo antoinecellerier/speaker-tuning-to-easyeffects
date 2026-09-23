@@ -2,10 +2,10 @@
 
 HDA-attached Cirrus and TI parts load DSP firmware exactly as SoundWire ones
 do, so "did the amplifier come up" is a smart-amp question and not a SoundWire
-question. ``_AMP_FAMILIES`` is the single registry that answers it — one row
-per part family, carrying the driver-name tokens, the firmware globs and the
-kernel-log strings those drivers really print — and everything around it is a
-generic engine over that table, so adding a device is one row rather than a
+question. ``_AMP_FAMILIES`` is the single registry that answers it. It holds
+one row per part family, carrying the driver-name tokens, the firmware globs
+and the kernel-log strings those drivers really print. Everything around it is
+a generic engine over that table, so adding a device is one row rather than a
 new code path.
 
 Nothing here renders a verdict, deliberately: no sysfs or debugfs attribute
@@ -19,7 +19,7 @@ Two boundary notes:
   ``lib/hardware/speakers.py``. It is a forward reference and stays
   unresolved: ``from __future__ import annotations`` keeps annotations as
   strings, so the record type can own the amp fields this fills without this
-  module importing — and cycling with — the one that defines it. The body
+  module importing the one that defines it, which would be a cycle. The body
   touches attributes only.
 * Standard library only, so ``tests/test_layout.py``'s ``STDLIB_ONLY`` covers
   it. ``lib/hardware/speakers.py`` imports this module and not the other way
@@ -39,36 +39,38 @@ from lib import host, tool_env
 #
 # Whether the speaker amps are actually live is a smart-amp question, not a
 # SoundWire one: HDA-attached Cirrus (cs35l41) and TI (TAS2781) amps load DSP
-# firmware too, and a cs35l56 with no firmware still plays — but as a quiet
-# "mono mix" with no voicing/protection (cs35l56 kernel doc). No sysfs/debugfs
+# firmware too. A cs35l56 with no firmware still plays, but as a quiet "mono
+# mix" with no voicing/protection (cs35l56 kernel doc). No sysfs/debugfs
 # exposes amp audio-state, so the authoritative signal is the kernel log. We
-# gather *evidence* (an enumerated-but-unbound amp is the one hard verdict;
-# firmware files + log markers are shown for a human) keyed by driver, so the
-# engine is generic and adding a device is one registry row.
+# gather *evidence* keyed by driver, so the engine is generic and adding a
+# device is one registry row. An enumerated-but-unbound amp is the one hard
+# verdict; firmware files + log markers are shown for a human.
 
 # One row per smart-amp family: (driver/module name tokens, firmware globs,
 # kernel-log keywords, kernel-log failure markers). Empty globs = the family
 # ships no DSP blob. Tokens are matched as substrings of a driver/module name
 # and double as the SoundWire amp-detection patterns, so adding a device is
 # genuinely one row. The max98 tokens are the specific *smart*-amp parts, not a
-# bare "max98" — that would also catch the max98090 jack codec and the dumb
-# max98357/360 I2S amps (same reason "rt13" is narrow enough to skip rt711).
+# bare "max98". That would also catch the max98090 jack codec and the dumb
+# max98357/360 I2S amps. "rt13" is narrow enough to skip rt711 for the same
+# reason.
 #
 # The failure markers are firmware/tuning/DSP-bring-up error strings verified
-# verbatim against the mainline driver source (file:line cited per family) — NOT
-# the kernel doc, whose ".bin file required but not found" is prose the driver
-# never prints. They classify which collected log lines are failures; "" = no
-# honest tell. Absence of a marker is never a pass: a real cs35l56 report (#27)
-# printed FIRMWARE_MISSING / "Calibration disabled…" / "Can't read tuning IDs"
-# while our first marker set (boot/init timeouts only) reported "no errors",
-# which is exactly why the no-error line tells the reader to eyeball the log.
+# verbatim against the mainline driver source (file:line cited per family).
+# They are NOT from the kernel doc, whose ".bin file required but not found"
+# is prose the driver never prints. They classify which collected log lines
+# are failures; "" = no honest tell. Absence of a marker is never a pass, so
+# the no-error line tells the reader to eyeball the log. A real cs35l56 report
+# (#27) printed FIRMWARE_MISSING / "Calibration disabled…" / "Can't read
+# tuning IDs", which a boot/init-timeouts-only marker set reports as "no
+# errors" (test_amp_log_is_error).
 _AMP_FAMILIES = (
     # Cirrus cs35l41 (HDA) / cs35l56 / cs35l57 (SoundWire). Markers, lines as
     # of 7.3-rc3: cs35l56-shared.c "FIRMWARE_MISSING" (l.1378), "Can't read
     # tuning IDs" (l.1414), "Firmware boot timed out" (l.457); cs35l56.c
     # "init_completion timed out (SDW)" (l.872); cs-amp-lib.c "Calibration
-    # disabled due to missing firmware controls" (l.143/175, shared lib — also
-    # fires for cs35l41). 7.3 dropped the unsuffixed component-probe copy of
+    # disabled due to missing firmware controls" (l.143/175, shared lib, so it
+    # also fires for cs35l41). 7.3 dropped the unsuffixed component-probe copy of
     # the init_completion line (1d80a4792f1d); older kernels still print it,
     # which is why the marker stops short of "(SDW)".
     (("cs35l",), ("cirrus/cs35l*",), ("cs35l", "cirrus"),
@@ -79,7 +81,7 @@ _AMP_FAMILIES = (
     # tas2781-i2c.c: "FW download failed", "Failed to read firmware",
     # "Request firmware … failed", "Firmware is NULL", "Bin file error".
     # The token also catches TAS2783, the SoundWire part, whose driver words
-    # the same failures its own way — tas2783-sdw.c as of 7.3-rc3: "Failed to
+    # the same failures its own way. From tas2783-sdw.c as of 7.3-rc3: "Failed to
     # read fallback fw binary" (l.805), "firmware size mismatch with header"
     # (l.818), "fw with no files" (l.851), "error playback without fw
     # download" (l.968), "firmware request failed for uid" (l.1232), "fw
@@ -94,7 +96,7 @@ _AMP_FAMILIES = (
      r"|failed to read fallback fw binary|firmware size mismatch with header"
      r"|fw with no files|error playback without fw download"
      r"|firmware request failed for uid|fw request, wait_event timeout"),
-    # Realtek SoundWire amps — only rt1320 loads a firmware patch (rt1316/rt1318
+    # Realtek SoundWire amps. Only rt1320 loads a firmware patch (rt1316/rt1318
     # are register-only). Markers from rt1320-sdw.c: "Failed to load … firmware",
     # "FW file doesn't match to device", "Can't find proper FW file name".
     (("rt13", "rt_amp"), (), ("rt13",),
@@ -102,36 +104,36 @@ _AMP_FAMILIES = (
      r"|can't find proper fw file name"),
     # Awinic AW88399, the woofer amp on 2025 Lenovo Legion laptops (upstream
     # 7.3, ALC287 + AWDZ8399 over I2C). Its HDA side codec arrived with the
-    # symptom this project already knows from issue #53 — "only the tweeters
-    # produce sound", in the driver's own words — but the cause is the missing
-    # driver, not a hidden pin, so nothing in the speaker-pin table catches it.
+    # symptom this project knows from issue #53: "only the tweeters produce
+    # sound", in the driver's own words. The cause is the missing driver, not
+    # a hidden pin, so nothing in the speaker-pin table catches it.
     # The whole family loads one aw88NNN_acf.bin; markers from aw88399-lib.c
     # "request [%s] failed!" (l.1292, no file) and "load [%s] failed!" (l.1309,
     # bad ACF), the same pair the ASoC siblings print. Not "dev init failed"
-    # (l.1317): too generic to attribute. Derived from upstream source — no
+    # (l.1317): too generic to attribute. Derived from upstream source; no
     # device has been reported on yet.
     (("aw88",), ("aw88*_acf.bin",), ("aw88",),
      r"request \[aw88[0-9]*_acf\.bin\] failed"
      r"|load \[aw88[0-9]*_acf\.bin\] failed"),
-    # Maxim DSM smart amps — no honest firmware-missing tell: only max98390 loads
-    # a DSM calibration param, and a missing file falls through silently
+    # Maxim DSM smart amps, with no honest firmware-missing tell. Only max98390
+    # loads a DSM calibration param, and a missing file falls through silently
     # (max98390.c err path), so we collect its log lines but flag nothing.
     (("max98373", "max98390", "max98363", "max98396"),
      (), ("max98",), ""),
-    # TI TAC5XX2, a SoundWire smart amp on recent Intel laptops — it sits in
+    # TI TAC5XX2, a SoundWire smart amp on recent Intel laptops. It sits in
     # the Meteor Lake ACPI match table (soc-acpi-intel-mtl-match.c) with real
     # ADR entries, though no named model has been reported here yet. Listed
     # anyway because `tac5` matches nothing else in the tree, so the row either
-    # finds a real amp or stays silent. Firmware is named per machine —
-    # "<part>-<pci-subsys>-<link>-<unique>.bin", else a "tac5xx2"/"tas2883"
-    # prefix — so the glob catches the prefixed form only; the SSID form has no
+    # finds a real amp or stays silent. Firmware is named per machine,
+    # "<part>-<pci-subsys>-<link>-<unique>.bin", else with a "tac5xx2"/"tas2883"
+    # prefix. The glob catches the prefixed form only; the SSID form has no
     # distinguishing prefix to match on. Markers from tac5xx2-sdw.c: l.1547,
     # l.1555, l.1595, l.1661.
     (("tac5",), ("tac5*.bin", "tas2883*.bin"), ("tac5",),
      r"firmware size mismatch|firmware with no files"
      r"|fw file: .* is empty or invalid|firmware download failed"),
-    # Qualcomm WSA smart speaker amps — the whole Snapdragon-laptop speaker
-    # path: ThinkPad X13s ships a WSA8830 (wsa883x), while the T14s, Yoga Slim
+    # Qualcomm WSA smart speaker amps, the whole Snapdragon-laptop speaker
+    # path. ThinkPad X13s ships a WSA8830 (wsa883x), while the T14s, Yoga Slim
     # 7x, ThinkBook 16, ASUS Zenbook A14 and HP OmniBook X14 ship WSA8845
     # (wsa884x), the Slim 7x driving separate woofers and tweeters. One token
     # covers wsa881x/883x/884x and the wsa885x that arrived in 7.3.
@@ -150,7 +152,7 @@ _AMP_DRIVER_TOKENS = tuple(tok for fam in _AMP_FAMILIES for tok in fam[0])
 def _amp_firmware_profile(driver: str) -> tuple[list[str], list[str]] | None:
     """(firmware globs under /lib/firmware, kernel-log keywords) for a driver.
 
-    Looks the driver up in ``_AMP_FAMILIES`` — the single source of amp-family
+    Looks the driver up in ``_AMP_FAMILIES``, the single source of amp-family
     identity. None ⇒ not a recognised smart amp.
     """
     d = driver.lower()
@@ -185,9 +187,10 @@ def _list_firmware_files(globs: list[str], roots=None) -> list[str]:
 def _read_kernel_log() -> str | None:
     """Current-boot kernel log via journalctl then dmesg; None if none readable.
 
-    ``journalctl -o cat`` emits the message text only — no hostname or wall-clock
-    timestamp — so the lines stay safe to paste into a device-report issue (same
-    privacy posture as get_distro_pretty_name; dmesg carries no hostname either).
+    ``journalctl -o cat`` emits the message text only, with no hostname or
+    wall-clock timestamp, so the lines stay safe to paste into a device-report
+    issue. That is the same privacy posture as get_distro_pretty_name; dmesg
+    carries no hostname either.
     ``errors="replace"`` keeps a stray non-UTF-8 byte from aborting the report,
     and the timeout is kept short since this runs on the default --doctor path.
     """
@@ -205,7 +208,7 @@ def _read_kernel_log() -> str | None:
 # Union of every family's source-verified failure markers (co-located in
 # _AMP_FAMILIES above). We do NOT try to classify "healthy": no log line
 # reliably proves firmware loaded (`patched=N` is nuanced; success strings are
-# vendor-specific), so a green verdict would mislead — and the marker list is
+# vendor-specific), so a green verdict would mislead. The marker list is
 # deliberately not exhaustive, so the no-error path tells the reader to read the
 # lines themselves. Every matched line is shown verbatim as evidence.
 _AMP_LOG_ERROR_RE = re.compile(

@@ -3,19 +3,19 @@
 Two things are decided here and nowhere else.
 
 **The locale.** Nothing this project runs is asked to speak to the user in
-their language: each command's output is *parsed* — a ``Version:`` label, a
-``Candidate:`` line, a decimal point in an ``lv2info`` bound — and gettext
-translates those labels along with everything else. Issue #93 was the first
-sighting: a ``zh_CN.UTF-8`` shell made ``flatpak info`` print ``版本： 8.2.9``,
-which no ``startswith("version:")`` finds, and an ``apt-cache policy`` under
-French prints ``Candidat :`` the same way. Pinning the locale at the
+their language. Each command's output is *parsed*: a ``Version:`` label, a
+``Candidate:`` line, a decimal point in an ``lv2info`` bound. gettext
+translates those labels along with everything else. In issue #93 a
+``zh_CN.UTF-8`` shell made ``flatpak info`` print ``版本： 8.2.9``, which no
+``startswith("version:")`` finds, and an ``apt-cache policy`` under French
+prints ``Candidat :`` the same way. Pinning the locale at the
 subprocess boundary fixes every parser at once, where a per-parser tolerance
 would have to guess each tool's catalogue.
 
 **Whether the machine is asked at all.** With ``ATMOS_NO_LIVE_TOOLS`` set,
 ``which`` finds nothing and ``run`` raises ``FileNotFoundError``: the machine
-looks like one with none of these tools installed — the state every caller
-already handles, and the one CI runs in. The test suite sets it for every test
+looks like one with none of these tools installed. Every caller already
+handles that state, and CI runs in it. The test suite sets it for every test
 (``tests/conftest.py``), so a result never depends on the audio stack of the
 machine running it, and the scripts a test starts as child processes inherit
 it, which is the reach a monkeypatch lacks. Tests that need a tool's answer

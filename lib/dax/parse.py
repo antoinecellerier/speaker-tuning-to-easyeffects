@@ -7,8 +7,8 @@ stores dB in, the `ParsedTuning` record `parse_xml` fills, and the table of
 DSP blocks the corpus shows but this script does not model.
 
 **No numpy.** Nothing in this module needs it, so it is imported eagerly by
-`dolby_to_easyeffects.py` and costs a few milliseconds — unlike
-`lib/preset/fir.py`, which the generator has to defer. Keep it that way: the
+`dolby_to_easyeffects.py` and costs a few milliseconds. `lib/preset/fir.py`,
+by contrast, is one the generator has to defer. Keep it that way: the
 preset builders read `DB_FIXED_POINT_SCALE` from here, and a numpy import
 behind that constant would be paid by everything downstream of it.
 
@@ -37,15 +37,16 @@ def _parsed_root(data: bytes) -> ET.Element:
 
 
 def _read_root(path: Path) -> ET.Element:
-    """The XML's root element, parsed once per content of the file.
+    """Return the XML's root element, parsed once per content of the file.
 
-    One run reads the same tuning several times — `get_profile_types`, then
-    `parse_xml` once per profile under `--all-profiles` — and the corpus
-    tier's every-profile walk did it ~40,000 times, most of that tier's run
-    (2026-09-23). Keyed on the bytes, not on mtime and size: a same-size
-    rewrite within one timestamp tick, or one that kept the old mtime, would
-    otherwise be served the old parse, and reading a file costs a fraction of
-    parsing it. Shared, so read-only: nothing in this module mutates the tree.
+    One run reads the same tuning several times: `get_profile_types`, then
+    `parse_xml` once per profile under `--all-profiles`. The corpus tier's
+    every-profile walk did it ~40,000 times, most of that tier's run
+    (2026-09-23). Keyed on the bytes, not on mtime and size, since reading a
+    file costs a fraction of parsing it. An mtime-and-size key would serve
+    the old parse to a same-size rewrite within one timestamp tick, or to one
+    that kept the old mtime. The tree is shared, so it is read-only: nothing in this
+    module mutates it.
     """
     return _parsed_root(Path(path).read_bytes())
 
@@ -71,8 +72,8 @@ def sanitize_profile_type(t: str) -> str:
     Profile names flow into `{output_dir}/{...}-{profile}-....json` and the
     matching `.irs`, so values like `../foo` from a crafted XML would escape
     the intended directory. Replace anything outside a plain identifier with
-    `_` rather than rejecting — unknown vendor profile names should still
-    produce a usable (if ugly) preset name.
+    `_` rather than rejecting, so an unknown vendor profile name still
+    produces a usable, if ugly, preset name.
     """
     safe = _SAFE_PROFILE_RE.sub("_", t)
     return safe or "_"
@@ -115,12 +116,13 @@ def resolve_xml_value(element, constants):
 
 
 def resolve_channel_or_direct(element, constants):
-    """Resolve a CSV array that may live directly on ``element`` or on a
-    per-channel ``<ch_00>..<ch_07>`` sub-element.
+    """Resolve a CSV array from ``element`` itself or its ``<ch_00>`` child.
 
-    Older/flat DAX3 regulator tunings put the array directly on
-    ``threshold_high``/``threshold_low`` via ``value=``/``preset=``. The newer
-    SoundWire schema (e.g. ``SUBSYS_37A317AA``) nests it per channel instead::
+    The array may live directly on ``element`` or on a per-channel
+    ``<ch_00>..<ch_07>`` sub-element. Older/flat DAX3 regulator tunings
+    put the array directly on ``threshold_high``/``threshold_low`` via
+    ``value=``/``preset=``. The newer SoundWire schema (e.g.
+    ``SUBSYS_37A317AA``) nests it per channel instead::
 
         <threshold_high>
           <ch_00 value="-282,-294,..." />
@@ -150,9 +152,10 @@ def _int_attr(element, default=None, name="value"):
     Returns ``default`` when ``element`` is None or the attribute is absent
     or empty. Centralises the ``int(el.get("value"))`` idiom, which
     otherwise raises ``TypeError`` on a present element with a missing or
-    blank ``value=`` — a plausible hand-edited or schema-variant shape that
-    the CLI top-level did not catch. A present, non-empty but non-integer
-    value still raises ``ValueError`` (surfaced cleanly by the CLI handler).
+    blank ``value=``. That is a plausible hand-edited or schema-variant shape
+    whose TypeError the CLI handler (`console._HANDLED`) does not catch. A
+    present, non-empty but non-integer value still raises ``ValueError``
+    (surfaced cleanly by the CLI handler).
     """
     if element is None:
         return default
@@ -166,11 +169,11 @@ def _int_attr(element, default=None, name="value"):
 class ParsedTuning:
     """Everything parse_xml extracts from one DAX3 endpoint/profile.
 
-    Field order matches the legacy 12-tuple this replaced. Values are a mix of
-    raw schema ints (freqs, curves, ao_left/ao_right, ieq_amount) and
-    already-dB-scaled fields (vol_leveler, surround, volmax_boost); main() and
-    the converters apply the remaining /16 and /100 scalings (see M-COUP in
-    docs for the layering).
+    Field order is load-bearing: `parse_xml` passes the first 12 fields
+    positionally. Values are a mix of raw schema ints (freqs, curves,
+    ao_left/ao_right, ieq_amount) and already-dB-scaled fields (vol_leveler,
+    surround, volmax_boost); main() and the converters apply the remaining
+    /16 and /100 scalings (see M-COUP in docs for the layering).
     """
     freqs: list[int]
     curves: dict[str, list[int]]
@@ -223,23 +226,25 @@ DB_FIXED_POINT_SCALE = 16.0
 def parse_xml(path: Path, endpoint_type="internal_speaker",
               operating_mode="normal", profile_type=None,
               announce_profile=False) -> ParsedTuning:
-    """Parse a DAX3 tuning XML into a ``ParsedTuning`` (see that dataclass for
-    the fields and their units). Raises ``ValueError`` with an actionable
-    message for unsupported schema variants or missing required elements.
+    """Parse a DAX3 tuning XML into a ``ParsedTuning``.
+
+    That dataclass documents the fields and their units. Raises
+    ``ValueError`` with an actionable message for unsupported schema variants
+    or missing required elements.
 
     ``announce_profile`` prints the resolved "Profile: …" banner line as soon
-    as the profile is selected — before the finding details this function
-    also prints — so main's run header can carry the actual profile name.
-    The pre-parse banner can only name the request, and "Profile: first in
-    the file" with the real name arriving lines later read as broken output
-    (two review rounds)."""
+    as the profile is selected, before the finding details this function
+    also prints, so main's run header can carry the actual profile name.
+    The pre-parse banner can only name the request. An earlier wording,
+    "Profile: first in the file", with the real name arriving lines later,
+    read as broken output (two review rounds)."""
     root = _read_root(path)
     constant = root.find("constant")
 
     if constant is None:
         # Dolby Fusion (microphone AEC / noise-suppression) XMLs share the
         # ``DEV_*_SUBSYS_*`` filename shape but carry a completely different
-        # schema — no ``<constant>``, no ``<endpoint>``. They ship under
+        # schema, with no ``<constant>`` and no ``<endpoint>``. They ship under
         # ``fusion_ext_*`` or ``ext_*_*/fusion/`` with ``_dmic.xml`` /
         # ``_amic.xml`` suffixes. The probe filters them by suffix; this
         # guard catches the case where the user passes one explicitly.
@@ -300,10 +305,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             )
 
     # <setting><default_profile> names the profile the device ships on under
-    # Windows. It's rare (23 of 2802 corpus XMLs, re-counted 2026-08-04, and
-    # every one of them names `music`) and we don't act on it — we
-    # still build the first profile — but a run that silently diverges from
-    # Dolby's own default is worth one line of output (issue #46). Read here
+    # Windows. It's rare: 23 of 2802 corpus XMLs, re-counted 2026-08-04, and
+    # every one of them names `music`. We don't act on it, and build the
+    # first profile regardless. A run that silently diverges from Dolby's own
+    # default is still worth one line of output (issue #46). It is read here
     # so the banner below can also say where the pick stands.
     declared_default = root.find("setting/default_profile")
     declared_name = (declared_default.get("value")
@@ -311,8 +316,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
     # Excludes the `off` profile, matching get_profile_types: it is the
     # disabled state, not a mode anyone selects, and --all-profiles doesn't
-    # build it. Counting it made the banner say "9 sound modes" on a device
-    # where "--all-profiles builds every mode" then built 8.
+    # build it. Counting it would make the banner say "9 sound modes" on a
+    # device where "--all-profiles builds every mode" then builds 8.
     n_profiles = len([p for p in endpoint.findall("profile")
                       if p.get("type") != "off"])
 
@@ -321,14 +326,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         if profile_type:
             console.cprint("head", f"Profile: {profile_type}")
         else:
-            # "this speaker's first-listed", one anchor phrase everywhere:
-            # the banner, the profile-mismatch detail, and the parse error
-            # (three variants read as three facts, round 3; "the file's
-            # first" is loose — profiles are per-endpoint, which matters on
-            # multi-output XMLs). "Sound modes" + the count answer the
-            # round-4 question all three reviewers had — is "first" a
-            # sensible pick or an arbitrary one — and give profiles a plain
-            # name distinct from the three voicings two lines down.
+            # "this speaker's first-listed" is one anchor phrase everywhere:
+            # the banner, the profile-mismatch detail, and the parse error.
+            # Three variants read as three facts (round 3). "the file's
+            # first" is loose: profiles are per-endpoint, which matters on
+            # multi-output XMLs. "Sound modes" plus the count answer the
+            # round-4 question all three reviewers had: is "first" a
+            # sensible pick or an arbitrary one? They also give profiles a
+            # plain name distinct from the three voicings two lines down.
             shown = name if name else "(unnamed)"
             if n_profiles == 1:
                 console.cprint("head", f"Profile: {shown} (this speaker's only "
@@ -337,27 +342,27 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 console.cprint("head", f"Profile: {shown} (the first-listed of "
                                f"this speaker's {n_profiles} sound modes — "
                                "--list names them; --profile picks)")
+                # Say where the pick stands against the Windows default.
                 # Round 5, all three reviewers: understanding HOW the pick
-                # was made didn't answer whether it's the right one. Say
-                # where it stands against the Windows default — a match is
-                # a confidence line, an undeclared default is honest doubt.
+                # was made didn't answer whether it's the right one. A match
+                # is a confidence line; an undeclared default is honest doubt.
                 # "Default", never "the mode Windows uses": default_profile
-                # is the shipping default, and the mode actually active on
-                # the user's Windows install may differ (they can switch in
-                # the Dolby app). The mismatch case says nothing here:
+                # is the shipping default. The mode actually active on the
+                # user's Windows install may differ, since they can switch in
+                # the Dolby app. The mismatch case says nothing here:
                 # [profile-mismatch] owns it, with the ask.
                 if name and declared_name == name:
                     console.cprint("dim", "  (also the Windows default for this "
                                   "device)")
                 elif not declared_name:
-                    # A dim aside, not a finding (user decision, round 6):
-                    # first-listed-as-default has held on every device
+                    # A dim aside, not a finding (user decision, round 6).
+                    # First-listed-as-default has held on every device
                     # checked so far, so a tagged note or a fix-menu row
-                    # over-promoted a non-issue. The Done block repeats
+                    # would over-promote a non-issue. The Done block repeats
                     # the assumption once, beside --all-profiles.
                     # The where-to-check pointer (rounds 4-9, every
                     # reviewer; user approved round 9): the app shows the
-                    # ACTIVE profile — never claim it shows "the default".
+                    # ACTIVE profile. Never claim it shows "the default".
                     console.cprint("dim", "  (we assume it's also the Windows "
                                   "default — your file doesn't say)")
                     console.cprint("dim", "  (the Dolby app on Windows shows the "
@@ -392,13 +397,14 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             "This XML uses a DAX3 schema variant this script does not support."
         )
     # Per-channel audio-optimizer correction. Full-schema DAX3 names the
-    # channels <ch_00>..<ch_07>; simplified-schema XMLs (older Lenovo drivers,
-    # xml_version ~3.2.x — e.g. ThinkPad X1 Carbon Gen 8, see issue #22) store
-    # the same 20-band, 1/16-dB arrays under a <gain_l>/<gain_r>/<gain_c>/…
-    # surround layout instead. Both resolve through the identical value=/preset=
-    # mechanism, so for a 2-channel speaker gain_l→left, gain_r→right. The
-    # simplified variant also omits the MBC and speaker-PEQ blocks; those are
-    # handled by the enable-gates below (absent element → block skipped).
+    # channels <ch_00>..<ch_07>. Simplified-schema XMLs store the same
+    # 20-band, 1/16-dB arrays under a <gain_l>/<gain_r>/<gain_c>/… surround
+    # layout instead: older Lenovo drivers, xml_version ~3.2.x, e.g. ThinkPad
+    # X1 Carbon Gen 8 (issue #22). Both resolve through the identical
+    # value=/preset= mechanism, so for a 2-channel speaker gain_l→left,
+    # gain_r→right. The simplified variant also omits the MBC and speaker-PEQ
+    # blocks. The enable-gates below handle those: absent element → block
+    # skipped.
     left_band = ao_bands.find("ch_00")
     right_band = ao_bands.find("ch_01")
     simplified_ao = left_band is None or right_band is None
@@ -423,7 +429,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     ao_left = parse_csv_ints(resolve_xml_value(left_band, constant))
     ao_right = parse_csv_ints(resolve_xml_value(right_band, constant))
 
-    # Dolby can ship a correction curve and still declare the optimizer off —
+    # Dolby can ship a correction curve and still declare the optimizer off.
     # 773 content-unique internal_speaker/normal rows do, and 18 of those, in
     # 17 XMLs, carry a *non-zero* curve, so applying it regardless emits a
     # correction the tuning says not to apply. Almost all are the `off`
@@ -432,10 +438,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     # `music`. Same absent-means-enabled convention as speaker-peq-enable
     # below. The IEQ voicing is a separate stage and stays untouched.
     # Figures re-derived 2026-08-04 against the 3056-XML corpus through
-    # resolve_xml_value — a plain grep misses the preset= indirection, and
-    # tuning-cp has an audio-optimizer-enable of its own we never read
-    # (cross-device-findings.md §8, "Curves shipped with the optimizer
-    # switched off", carries the method and the raw-corpus cut).
+    # resolve_xml_value. A plain grep misses the preset= indirection, and
+    # tuning-cp has an audio-optimizer-enable of its own we never read.
+    # cross-device-findings.md §8, "Curves shipped with the optimizer
+    # switched off", carries the method and the raw-corpus cut.
     ao_enable = vlldp.find("audio-optimizer-enable")
     ao_enabled = ao_enable is None or ao_enable.get("value") != "0"
     if not ao_enabled:
@@ -443,20 +449,20 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         ao_right = [0] * len(ao_right)
 
     if simplified_ao:
-        # Informational, not a warning: round-4 reviewers read the yellow
+        # Informational, not a warning: round-4 reviewers read a yellow
         # filename-led schema line as "my laptop is missing something".
-        # Plain color, plain words, reassurance first; "simplified-schema
+        # Plain color, plain words, reassurance first. "simplified-schema
         # DAX3" stays as the grep handle triage and the docs use.
         # Not "speaker-EQ stages" (round 6): the Audio-optimizer section
-        # two lines down prints cuts/boosts that read as exactly that, so
-        # the absent optional stages get non-EQ words and the line says
+        # two lines down prints cuts/boosts that read as exactly that. So
+        # the absent optional stages get non-EQ words, and the line says
         # outright that the correction itself is converted.
         #
-        # Printed after the audio-optimizer gate rather than before it: the
-        # two conditions are independent, and on a profile that is both
-        # simplified AND declares the optimizer off, "the speaker correction
-        # below is all there and converted" contradicted the flat-curve
-        # explanation printed a few lines later.
+        # Printed after the audio-optimizer gate rather than before it,
+        # because the two conditions are independent. Take a profile that is
+        # both simplified AND declares the optimizer off: there, "the speaker
+        # correction below is all there and converted" would contradict the
+        # flat-curve explanation printed a few lines later.
         converted = ("the speaker correction below is all there and converted"
                      if ao_enabled else
                      "the speaker correction it carries is read in full")
@@ -511,12 +517,12 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "out_target": _int_attr(vl_out, default=VOL_LEVELER_TARGET_DEFAULT) / DB_FIXED_POINT_SCALE,
             }
     # Sub-stages Dolby pairs with its leveler that we cannot reproduce. Unlike
-    # every other mapping, these carry *no* parameters — the schema has only an
-    # on/off bit, no threshold, ratio, attack or release anywhere in either
-    # tuning block — so there is nothing to derive a stage from, and inventing
-    # one is exactly the per-device hand-tuning the XML-only rule forbids. They
-    # are recorded so the end-of-run summary can ask affected users for the
-    # capture that could settle what they do.
+    # every other mapping, these carry *no* parameters. The schema has only an
+    # on/off bit, with no threshold, ratio, attack or release anywhere in
+    # either tuning block. So there is nothing to derive a stage from, and
+    # inventing one is exactly the per-device hand-tuning the XML-only rule
+    # forbids. They are recorded so the end-of-run summary can ask affected
+    # users for the capture that could settle what they do.
     leveler_substages = [
         name for name, tag in (
             ("volume-leveler-compressor", "volume-leveler-compressor-enable"),
@@ -525,7 +531,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         if cp is not None and _int_attr(cp.find(tag), default=0) == 1
     ]
 
-    # volmax-boost (tuning-cp) — Dolby's loudness-maximiser ceiling: the
+    # volmax-boost (tuning-cp) is Dolby's loudness-maximiser ceiling: the
     # maximum gain above the volume leveler's out-target. Parsed outside
     # the MBC block because the regulator is the preferred injection point
     # and MBC may be disabled on some profiles.
@@ -554,10 +560,11 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                 "boost": _int_attr(cp.find("surround-boost"), default=0) / DB_FIXED_POINT_SCALE,
             }
 
-    # Virtual-bass family (tuning-cp) — corpus-frozen (identical on every
-    # corpus XML), so it drives no per-device mapping; carried raw for the
-    # opt-in PipeWire VBE branch (issue #14). Gains stay 1/16-dB ints here:
-    # the -192 floored slot must survive exactly for "band off" detection.
+    # Virtual-bass family (tuning-cp). It is corpus-frozen (identical on
+    # every corpus XML), so it drives no per-device mapping. It is carried
+    # raw for the opt-in PipeWire VBE branch (issue #14). Gains stay
+    # 1/16-dB ints here: the -192 floored slot must survive exactly for
+    # "band off" detection.
     virtual_bass = None
     if cp is not None:
         vb_src = resolve_xml_value(cp.find("virtual-bass-src-freqs"), constant)
@@ -608,10 +615,10 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             group_count = _int_attr(mbc_tuning.find("group_count"),
                                     default=len(band_groups))
             target_power = vlldp.find("mb-compressor-target-power-level")
-            # Also grab regulator stress for additional context (same
-            # regulator-stress-amount element `_parse_regulator` re-reads
-            # for its own `stress`; named distinctly to keep the two
-            # consumers' intent clear).
+            # Also grab regulator stress for additional context.
+            # `_parse_regulator` re-reads the same regulator-stress-amount
+            # element for its own `stress`; the distinct name keeps the two
+            # consumers' intent clear.
             mbc_reg_stress_el = vlldp.find("regulator-stress-amount")
             mb_comp = {
                 "group_count": group_count,
@@ -650,11 +657,11 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
 
 
 def _parse_regulator(vlldp, constant, freqs, path):
-    """Regulator settings (per-band limiter from tuning-vlldp).
+    """Read the regulator settings (per-band limiter from tuning-vlldp).
 
-    Returns the regulator dict, or None when the tuning has no
-    ``regulator-speaker-dist-enable=1`` / ``regulator-tuning`` pair —
-    the shape `ParsedTuning.regulator` and `make_regulator` expect.
+    Returns the regulator dict that `ParsedTuning.regulator` and
+    `make_regulator` expect, or None when the tuning has no
+    ``regulator-speaker-dist-enable=1`` / ``regulator-tuning`` pair.
     """
     regulator = None
     reg_dist = vlldp.find("regulator-speaker-dist-enable")
@@ -666,12 +673,13 @@ def _parse_regulator(vlldp, constant, freqs, path):
             # The newer SoundWire schema nests per-channel <ch_00>..<ch_07>
             # arrays under threshold_high/low; resolve_channel_or_direct reads
             # ch_00. make_regulator is a single stereo limiter that consumes
-            # only threshold_high, so ch_00 is the reference. Warn (rather than
-            # silently picking one) when ch_01 diverges so a future genuinely
-            # L/R-asymmetric device surfaces — ch_00==ch_01 on the only device
-            # with this schema today. (per-band-min would protect both channels
-            # but can over-limit the one that didn't need it — left XML-only for
-            # a later call once such a device exists.)
+            # only threshold_high, so ch_00 is the reference. Warn, rather than
+            # silently picking one, when ch_01 diverges, so a future genuinely
+            # L/R-asymmetric device surfaces. ch_00==ch_01 on the only device
+            # with this schema today. Per-band-min would protect both
+            # channels but can over-limit the one that didn't need it. That
+            # choice is left XML-only for a later call, once such a device
+            # exists.
             th_val = resolve_channel_or_direct(th_el, constant)
             tl_val = resolve_channel_or_direct(tl_el, constant)
             for _el, _name in ((th_el, "threshold_high"), (tl_el, "threshold_low")):
@@ -703,8 +711,8 @@ def _parse_regulator(vlldp, constant, freqs, path):
             timbre = _int_attr(reg_timbre, default=12) / DB_FIXED_POINT_SCALE   # 12/16 = 0.75
             # `regulator-overdrive` and `regulator-relaxation-amount` are read
             # for visibility (debug print + watch warn) but not yet mapped to
-            # any LSP plugin parameter — the corpus shows them as constants
-            # (overdrive=0, relaxation=96 in 1/16-dB units) so we have no
+            # any LSP plugin parameter. The corpus shows them as constants
+            # (overdrive=0, relaxation=96 in 1/16-dB units), so we have no
             # signal to disambiguate the right mapping.
             reg_overdrive = vlldp.find("regulator-overdrive")
             overdrive = _int_attr(reg_overdrive, default=0)
@@ -739,16 +747,16 @@ def _parse_regulator(vlldp, constant, freqs, path):
 
 # Newer-pipeline DSP blocks observed in the corpus that the script does not
 # model. Flag them when they're enabled so users can correlate with audible
-# gaps. The list intentionally omits features that are universally present
-# (e.g. `output-mode-partial-{surround,height}-virtualizer-enable`, MI
-# steering) — those are documented in CLAUDE.md / docs/ and flagging them
+# gaps. The list intentionally omits features that are universally present,
+# e.g. `output-mode-partial-{surround,height}-virtualizer-enable` and MI
+# steering. Those are documented in CLAUDE.md / docs/, and flagging them
 # every run would be noise. Only rare, enabled-only feature blocks belong here.
 #
 # `active` takes the matched element and returns True if the feature is live
 # in this profile; `detail`/`ask` take the same element and return the two
 # halves of the Finding. A row's `ask` sits right here, next to the predicate
-# that raises it, so adding a field states its own urgency and its own handle
-# — there is no central table to keep in sync.
+# that raises it, so adding a field states its own urgency and its own handle.
+# There is no central table to keep in sync.
 @dataclass(frozen=True)
 class _UnmodeledFeature:
     xpath: str
@@ -766,13 +774,13 @@ _UNMODELED_FEATURES = [
         ".//dynamic_speaker_optimization_enable", "speaker-optimizer",
         lambda el: el.get("value") == "1",
         # Naming a dropped "bass limiting" stage and stopping there reads as
-        # "nothing is protecting your woofers now", and a reader who fears
-        # for their speakers has no way to check — so the line still
-        # reassures, but only with something true. "Nothing here plays
-        # louder than your laptop normally would" was not: the same run can
-        # add a volmax boost and, on SoundWire, +12 dB of bass harmonics
-        # into the band this dropped stage was protecting. Program level is
-        # raised; what is actually capped is the peak.
+        # "nothing is protecting your woofers now". A reader who fears for
+        # their speakers has no way to check, so the line still reassures,
+        # but only with something true. An earlier wording, "Nothing here
+        # plays louder than your laptop normally would", was not true: the
+        # same run can add a volmax boost and, on SoundWire, +12 dB of bass
+        # harmonics into the band this dropped stage was protecting. Program
+        # level is raised; what is actually capped is the peak.
         lambda el: "Your tuning has an extra bass-protection stage (Dynamic "
                    "Speaker Optimization) that this converter doesn't "
                    "reproduce. Nothing here clips, but the preset does add "
@@ -781,17 +789,17 @@ _UNMODELED_FEATURES = [
     _UnmodeledFeature(
         ".//advanced-speaker-virtualizer-rendering-config", "virtualizer",
         lambda el: True,  # presence implies the newer virtualizer pipeline
-        # What you'd notice, not the internal name: "silently dropped" read
-        # as ominous (and false — this line is the announcement), and
-        # reviewers took it for the same thing as the "Surround virtualizer"
-        # section printed later. Each message now carries its own identity;
-        # no cross-reference, since either can appear without the other.
-        # "Nothing more" bounded a cost nobody has measured: this stage is
-        # on one corpus device, has never been captured, and the one
-        # measurement we do have of Dolby virtualization on 2-channel
-        # content found no widening at all — so "narrower" isn't even the
-        # direction the evidence points. The reassurance stays, but as the
-        # true one: dropping it doesn't disturb anything else.
+        # What you'd notice, not the internal name. An earlier wording,
+        # "silently dropped", read as ominous, and was false: this line is
+        # the announcement. Reviewers also took it for the same thing as the
+        # "Surround virtualizer" section printed later. Each message carries
+        # its own identity, with no cross-reference, since either can appear
+        # without the other. An earlier "Nothing more" bounded a cost nobody
+        # has measured. This stage is on one corpus device and has never been
+        # captured. The one measurement we do have of Dolby virtualization
+        # on 2-channel content found no widening at all, so "narrower" isn't
+        # even the direction the evidence points. The reassurance stays, but
+        # as the true one: dropping it doesn't disturb anything else.
         lambda el: "Your tuning switches on Dolby's newer speaker-widening "
                    "effect (advanced speaker virtualizer), which this "
                    "converter doesn't rebuild — so the stereo image may "
@@ -806,8 +814,8 @@ _UNMODELED_FEATURES = [
         lambda el: (el.get("value") or "0") != "0",
         # Device terms, not schema terms: "corpus rows" and "the standard
         # 1/16-dB convention" read as leaked internal notes to all three
-        # round-4 reviewers. The raw value stays verbatim (triage greps
-        # for it); the /16 math stays, uncited.
+        # round-4 reviewers. The raw value stays verbatim, because triage
+        # greps for it. The /16 math stays, uncited.
         # Reassurance before caveat (round 7): opening on "unverified"
         # made the tool sound shaky when the behaviour described is the
         # safe default. Two sentences (round 9): one packing what/why/risk
@@ -819,15 +827,15 @@ _UNMODELED_FEATURES = [
             "are built as if it were 0, which is what every other device "
             "gets. Applying our unverified reading of it could audibly "
             "cost volume, so we don't."),
-        # Says where it stands. "a value we've never seen" alone left the
-        # reader unable to tell whether their presets were wrong, so the
-        # choice was between ignoring it and not installing at all.
-        # Three rewrites of history here: "confirm it" dangled its
+        # Says where it stands. "a value we've never seen" alone would leave
+        # the reader unable to tell whether their presets were wrong, so the
+        # choice would be between ignoring it and not installing at all.
+        # Three earlier wordings failed: "confirm it" dangled its
         # antecedent; "check it's safe" implied a hazard; "should sound
         # right — we'll double-check" read as taking the reassurance back
-        # (round 2). The reason to ask (a rare ignored setting) now leads,
-        # so the confirmation has an object and the status stands alone.
-        # "your tuning XML", the sibling asks' vocabulary — "the XML" cold
+        # (round 2). The reason to ask (a rare ignored setting) leads, so
+        # the confirmation has an object and the status stands alone.
+        # "your tuning XML" is the sibling asks' vocabulary. "the XML" cold
         # was a jump for a round-4 reviewer ("is that the file I copied?").
         # Keep the token "XML": the attach-path print in print_project_asks
         # gates on it.

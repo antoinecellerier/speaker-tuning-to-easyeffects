@@ -195,8 +195,8 @@ UNPACKAGED = {
 # What NixOS installs system-wide rather than into a shell, by attribute.
 # These are the things the PipeWire daemon or the desktop has to find, and a
 # `nix-shell` never reaches either. Kept as its own table because the answer
-# is one declarative instruction for however many packages were asked for —
-# rendered per key, three missing plugins repeated the same long sentence
+# is one declarative instruction for however many packages were asked for.
+# Rendered per key, three missing plugins would repeat the same long sentence
 # three times. `UNPACKAGED` is filled from it so a cell is still *spoken* when
 # the fallback lists every family one by one.
 _NIXOS_SYSTEM = {
@@ -480,9 +480,9 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
             # would be a reason that isn't one.
             why = (", since a nix-shell doesn't reach the PipeWire daemon"
                    if any(k in _NIXOS_DAEMON_KEYS for k in declarative) else "")
-            # Not "NixOS installs these": the reader is on NixOS — this line
-            # only prints once os-release has placed them — and "these" was
-            # wrong whenever the list held one package.
+            # Not "NixOS installs these": the reader is on NixOS, since this
+            # line only prints once os-release has placed them, and "these" is
+            # wrong whenever the list holds one package.
             out.append(("dim", f"(a configuration change, not an install{why}"
                                f" — add {attrs} to "
                                "environment.systemPackages)"))
@@ -492,10 +492,10 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
     for label, alt in install_commands(keys):
         out.append(("cta", f"{label}: {alt}"))
     # Grouped by note rather than walked as a sorted dict: keyed on (key,
-    # family) the lines interleave — openSUSE's Calf landing between two NixOS
-    # ones — and the same sentence repeats per family and per package, so
-    # "the pipewire package itself carries pw-cli and pw-dump" printed three
-    # times over and read as three different facts.
+    # family) the lines interleave, openSUSE's Calf landing between two NixOS
+    # ones. The same sentence also repeats per family and per package, so
+    # "the pipewire package itself carries pw-cli and pw-dump" would print
+    # three times over and read as three different facts.
     grouped: dict[str, list[str]] = {}
 
     def note(text, label):

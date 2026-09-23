@@ -1,19 +1,19 @@
 """The ``SpeakerInfo`` record, and every probe that fills it.
 
 What Linux thinks is wired to this laptop: the HDA pin complexes it
-configured as internal speakers, the ones it left unconfigured (which is what
-a woofer the firmware hides looks like — issue #53), the amplifiers
-enumerated on the SoundWire bus, and the ALSA control that gates smart-amp
-firmware (issue #17). Parsing is kept apart from reading throughout —
+configured as internal speakers, the ones it left unconfigured, the
+amplifiers enumerated on the SoundWire bus, and the ALSA control that gates
+smart-amp firmware (issue #17). An unconfigured pin is what a woofer the
+firmware hides looks like (issue #53). Parsing is kept apart from reading
+throughout, so every hardware case is unit-tested without the hardware:
 ``parse_hda_codec_pins``, ``parse_pin_config_overrides`` and
-``parse_firmware_gate_controls`` take text — so every hardware case is
-unit-tested without the hardware.
+``parse_firmware_gate_controls`` take text.
 
 ``find_hidden_speaker_pin`` and ``find_misrouted_speaker_pin`` are the pieces
-that reason rather than read. Both mirror ``snd_hda_pick_fixup`` closely
-enough to only claim a match the kernel could itself make — the shared
-``_quirk_for_codec`` is that mirror — against the tables in
-``lib/data/speaker_pin_quirks.py`` and ``lib/data/speaker_route_quirks.py``.
+that reason rather than read. Both mirror ``snd_hda_pick_fixup`` against the
+tables in ``lib/data/speaker_pin_quirks.py`` and
+``lib/data/speaker_route_quirks.py``, closely enough to only claim a match
+the kernel could itself make. The shared ``_quirk_for_codec`` is that mirror.
 
 Standard library plus ``lib.data.speaker_pin_quirks``,
 ``lib.data.speaker_route_quirks``, ``lib.hardware.amps`` and
@@ -48,15 +48,15 @@ class SpeakerPin:
     channels: int = 1    # audio channels this output carries. An HDA codec pin
                          # can drive a stereo (L+R) speaker = 2; SoundWire instead
                          # enumerates one slave device per amp chip, so each is a
-                         # single addressable amp → probe it, default 1 (NOT 2 —
-                         # that HDA-style default is what double-counted #27).
+                         # single addressable amp → probe it, default 1. NOT 2:
+                         # that HDA-style default double-counts, as in #27.
     codec: str = ""      # subsystem id of the codec exposing this pin, e.g.
                          # "17AA22E6". Empty on SoundWire. Pins must be counted
                          # per codec, not per machine: a report carries the HDMI
                          # codecs (0x00AA0100, 0x80860101) alongside the analog
                          # one, and only the analog codec's SSID keys a quirk.
     override: str = ""   # set when the kernel is driving this pin against the
-                         # firmware's description of it — the label says which
+                         # firmware's description of it. The label says which
                          # layer did so. Printed, because it is the *only*
                          # visible sign that a pin fixup took (issue #53): the
                          # firmware's own value stays in place underneath.
@@ -72,13 +72,13 @@ class UnconfiguredPin:
     speaker and belongs above.
     Printed as raw evidence under "HDA internal speakers", never warned on: a
     genuinely unused pin and a speaker pin the BIOS wrongly calls unconnected
-    look *identical* here (issue #53 — pin 0x17's dark woofers vs. pins
-    0x1b/0x1e on the development machine, which are simply spare). Only a
+    look *identical* here. In issue #53 pin 0x17's woofers were dark, while
+    pins 0x1b/0x1e on the development machine are simply spare. Only a
     quirk-table match (``lib/data/speaker_pin_quirks.py``) tells them apart.
 
     Its value is that the pins are otherwise invisible: the speaker scan below
-    keeps only ``[Fixed] Speaker at Int`` pins, so every report we have ever
-    collected silently omits the one line that would show a missing woofer.
+    keeps only ``[Fixed] Speaker at Int`` pins. Without this record a report
+    would silently omit the one line that would show a missing woofer.
     """
     node: str            # HDA node ID, e.g. "0x17"
     codec: str           # subsystem id of the codec exposing it, e.g. "17AA22E6"
@@ -93,10 +93,10 @@ class FirmwareGate:
     On some laptops whose woofers run through a TI TAS2563/2781 smart
     amplifier, the firmware does not auto-load and the amp stays muted until
     an ALSA control ("Speaker Force Firmware Load") is switched on (issue
-    #17). This is a kernel/ALSA-side gate — nothing in the DAX XML hints at
-    it — so the preset can be perfect while the bass speakers are silent.
+    #17). This is a kernel/ALSA-side gate that nothing in the DAX XML hints
+    at, so the preset can be perfect while the bass speakers are silent.
     On other devices the firmware auto-loads fine and flipping the gate is
-    an audible no-op (#39, ROG Xbox Ally X) — the warning stays because the
+    an audible no-op (#39, ROG Xbox Ally X). The warning is kept because the
     toggle is cheap and harmless, but it says so.
     """
     card_index: str      # ALSA card index, e.g. "0"
@@ -108,14 +108,15 @@ class FirmwareGate:
 
 
 def amixer_enable_cmd(gate: FirmwareGate) -> str:
-    """The one-line command that switches a gate on, shared by every place
-    that offers the fix (the end-of-run warning, --speaker-info, --doctor) so
-    the three can't drift.
+    """The one-line command that switches a gate on.
+
+    Shared by every place that offers the fix (the end-of-run warning,
+    --speaker-info, --doctor) so the three can't drift.
 
     iface= is load-bearing: these are iface=CARD controls on modern kernels,
     and a bare name= means iface=MIXER to amixer → "Cannot find the given
     element" (issue #39). Double-quoting the identifier lets the inner 'name'
-    quotes reach amixer's parser — that form also survives control names
+    quotes reach amixer's parser. That form also survives control names
     containing commas.
     """
     return (f"amixer -c {gate.card_id} cset "
@@ -127,11 +128,12 @@ class AmpStatus:
     """Bind status of one SoundWire amplifier, for the merged amp-status report.
 
     SoundWire-specific: an amp enumerated on the bus but with no driver bound is
-    the one clear-cut signal we surface (and even then neutrally — it could be a
-    non-amp slave or a still-binding device). Channel count is probed from
-    sysfs. Firmware presence and kernel-log lines are gathered separately and
-    shown as raw evidence for a human to read — no sysfs/debugfs exposes amp
-    audio-state (cs35l56 kernel doc), so we never render a health *verdict*.
+    the one clear-cut signal we surface. Even that is surfaced neutrally,
+    since it could be a non-amp slave or a still-binding device. Channel count
+    is probed from sysfs. Firmware presence and kernel-log lines are gathered
+    separately and shown as raw evidence for a human to read. No sysfs/debugfs
+    exposes amp audio-state (cs35l56 kernel doc), so we never render a health
+    *verdict*.
     """
     node: str            # SoundWire device name (or mixer-control name on fallback)
     driver: str          # bound driver name, or "" when unbound
@@ -145,7 +147,7 @@ class PinRoute(NamedTuple):
     Two lists, and the difference between them is the signal: the hardware
     ``Connection:`` list with the current selection starred, and an
     ``In-driver Connection:`` one the kernel prints *only* when the driver's
-    cached list differs from it — i.e. when something called
+    cached list differs from it, which is when something called
     ``snd_hda_override_conn_list``. A pin whose two disagree is being routed
     by the driver against what the hardware itself reports.
     """
@@ -153,9 +155,9 @@ class PinRoute(NamedTuple):
     sources: tuple[str, ...] = ()    # hardware list, in order, "*" stripped
     selected: str = ""               # the starred entry, "" when the dump
                                      # doesn't say. A one-entry list is never
-                                     # starred — the kernel only reads the
-                                     # selector when there is a choice — so
-                                     # there the sole entry is the selection.
+                                     # starred, because the kernel only reads
+                                     # the selector when there is a choice.
+                                     # There the sole entry is the selection.
     driver_sources: tuple[str, ...] = ()   # In-driver list, () when absent
 
 
@@ -185,7 +187,7 @@ class CodecRouting:
 @dataclass
 class SpeakerInfo:
     """Collected audio hardware information for --speaker-info."""
-    vendor: str = ""     # DMI sys_vendor — the only line that names the OEM
+    vendor: str = ""     # DMI sys_vendor, the only line that names the OEM
     product: str = ""
     family: str = ""
     kernel: str = ""
@@ -206,8 +208,8 @@ class SpeakerInfo:
     # each pin is selected onto, and which widgets carry an output volume
     # amp. Parsed from the same codec dump the pins above come from.
     routing: dict[str, CodecRouting] = field(default_factory=dict)
-    # Every pin complex's ``Pin Default`` per codec, keyed by subsystem id —
-    # what pin-signature fixups (``snd_hda_pick_pin_fixup``) are matched on.
+    # Every pin complex's ``Pin Default`` per codec, keyed by subsystem id.
+    # Pin-signature fixups (``snd_hda_pick_pin_fixup``) are matched on these.
     # Printed as evidence so a pasted report can be checked by hand (#95).
     pin_configs: dict[str, dict[str, int]] = field(default_factory=dict)
     # Smart-amp firmware-load gates (e.g. TAS2781 "Speaker Force Firmware Load")
@@ -245,7 +247,7 @@ class SpeakerInfo:
         if set(by_role) == {"speaker"}:
             # A mono pin, or several with no bass-named one: not "multi-way",
             # which would contradict the role printed on the pin line above,
-            # and not "full-range" either — nothing probed says what they
+            # and not "full-range" either. Nothing probed says what they
             # drive, only that Linux shows no separate woofer pin.
             return (f"{total} speaker{'s' if total != 1 else ''}, no separate "
                     "woofer pin")
@@ -265,10 +267,10 @@ def _read_sysfs_int(path: Path) -> int | None:
 def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
     """Best-effort audio-channel count of a SoundWire amp from its sink ports.
 
-    Reads ``<dev>/dpN_sink/max_ch`` — the path/attr are confirmed against the
+    Reads ``<dev>/dpN_sink/max_ch``; the path/attr are confirmed against the
     kernel ABI ``sysfs-bus-soundwire-slave``. Caveat: ``max_ch`` is the DisCo
     *maximum supported* channel count (a capability ceiling), not the provisioned
-    count — there is no static sysfs attribute for the latter. For a dedicated
+    count. There is no static sysfs attribute for the latter. For a dedicated
     mono amp the sink port should declare ``max_ch=1``, but a mono part that
     advertised a 2-channel-capable port would over-count; unverified without a
     real capture, which is why the layout line is an *estimate* and the caller
@@ -285,12 +287,12 @@ def _amp_channels_from_sysfs(dev_dir: Path) -> int | None:
 def _detect_soundwire_speakers(info: SpeakerInfo):
     """Detect speaker amplifiers on the SoundWire bus, with per-amp bind status.
 
-    SoundWire enumerates one slave device per amp chip, so each amp counts once;
-    its channel count is *probed* from the sink data-port DisCo props, else 1 —
-    never the old stereo default that double-counted six mono cs35l56 as twelve
-    (issue #27). Records per-amp bind status into ``info.amp_status`` (an
-    enumerated-but-unbound device is surfaced neutrally — it may be a non-amp
-    slave or one still binding).
+    SoundWire enumerates one slave device per amp chip, so each amp counts once.
+    Its channel count is *probed* from the sink data-port DisCo props, else 1.
+    A stereo default would count six mono cs35l56 as twelve (issue #27,
+    test_detector_counts_six_mono_cs35l56_as_six). Records per-amp bind status
+    into ``info.amp_status``. An enumerated-but-unbound device is surfaced
+    neutrally, since it may be a non-amp slave or one still binding.
     """
     if not codecs.SDW_BUS.is_dir():
         return
@@ -319,7 +321,7 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
                 node=dev_dir.name, driver=driver_name, bound=True, channels=channels,
             ))
         elif not bound:
-            # Enumerated SoundWire slave with no driver bound — surfaced
+            # Enumerated SoundWire slave with no driver bound, surfaced
             # neutrally (could be a non-amp peripheral or one still binding).
             info.amp_status.append(AmpStatus(
                 node=dev_dir.name, driver="", bound=False, channels=0,
@@ -331,12 +333,13 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
         return
 
     # Fallback: check ALSA mixer for amp controls when sysfs gives nothing.
-    # The part names come from the same registry as everything else — hand-kept
-    # here, this list drifted *looser* than the tokens (a bare `max98` catches
-    # the max98090 jack codec, a bare `rt\d+` catches rt711, both of which the
-    # registry refuses) while missing tas2, aw88 and wsa88 entirely. Since a
-    # match here appends a SpeakerPin exactly like the sysfs path, that drift
-    # reached the speaker count.
+    # The part names come from the same registry as everything else. A list
+    # hand-kept here would drift from the tokens both ways: *looser* (a bare
+    # `max98` catches the max98090 jack codec, a bare `rt\d+` catches rt711,
+    # both of which the registry refuses) and missing tas2, aw88 and wsa88.
+    # A match here appends a SpeakerPin exactly like the sysfs path, so that
+    # drift would reach the speaker count
+    # (test_mixer_fallback_uses_the_same_amp_registry_as_sysfs).
     amp_alt = "|".join(re.escape(t) for t in amps._AMP_DRIVER_TOKENS)
     amp_control_re = re.compile(rf"'((?:{amp_alt})[^']*)\s+DAC'", re.I)
     try:
@@ -365,7 +368,7 @@ class PinOverride(NamedTuple):
     source: str          # what put it there, in the user's terms
 
 
-# Where those overrides live, lowest priority first — the order
+# Where those overrides live, lowest priority first. That is the order
 # ``snd_hda_codec_get_pincfg`` resolves them in (user beats driver beats the
 # firmware's own value), so merging in this order reproduces what the driver
 # acts on. Both files exist on every HDA codec; only ``user_pin_configs`` is
@@ -395,7 +398,7 @@ def parse_pin_config_overrides(text: str) -> dict[str, int]:
 # Fields of the 32-bit pin default config. Named for what the HDA spec calls
 # them, and each value confirmed against how the kernel renders real dumps:
 # 0x90170110 prints as "[Fixed] Speaker at Int", 0x411111f0 as "[N/A] Speaker
-# at Ext Rear", 0x03211020 as "[Jack] HP Out at Ext Left" — so connectivity
+# at Ext Rear", 0x03211020 as "[Jack] HP Out at Ext Left". So connectivity
 # 2 is Fixed, 1 is none, device 1 is Speaker, and location base 1 is internal.
 _PIN_CONN_NONE = 1        # firmware says nothing is wired to this pin
 _PIN_CONN_FIXED = 2       # a device is soldered to it
@@ -416,8 +419,8 @@ def _pin_is_unconnected(cfg: int) -> bool:
 def _codec_ssid(codec_text: str) -> str:
     """``"Subsystem Id: 0x17aa22e6"`` → ``"17AA22E6"``.
 
-    The id everything about a codec is filed under — quirk lookup, per-codec
-    pin counts, the routing map below — so it is read the one way, here.
+    The id everything about a codec is filed under (quirk lookup, per-codec
+    pin counts, the routing map below), so it is read the one way, here.
     """
     m = re.search(r"^Subsystem Id: 0x([0-9a-fA-F]+)", codec_text,
                   flags=re.MULTILINE)
@@ -442,11 +445,13 @@ def parse_hda_codec_pins(
         codec_text: str,
         overrides: dict[str, PinOverride] | None = None,
 ) -> tuple[str, list[SpeakerPin], list[UnconfiguredPin]]:
-    """Split one ``/proc/asound/card*/codec#*`` dump into its speaker pins and
-    its output-capable-but-unconfigured pins, plus the codec's subsystem id.
+    """Split one ``/proc/asound/card*/codec#*`` dump into its pins.
 
-    Pure text parsing so it can be unit-tested without hardware — same shape as
-    ``parse_firmware_gate_controls()``.
+    Returns the codec's subsystem id, its speaker pins and its
+    output-capable-but-unconfigured pins.
+
+    Pure text parsing so it can be unit-tested without hardware, the same
+    shape as ``parse_firmware_gate_controls()``.
 
     The two lists come from one pass because they partition the same pin
     complexes by their *effective* default config: a fixed internal speaker is
@@ -502,14 +507,15 @@ def parse_hda_codec_pins(
                 pincap=pincap.group(1).strip(),
                 pin_default=f"0x{cfg:08x}",
             ))
-    # "tweeter" only means something beside a woofer. A machine whose one
-    # speaker pin is the whole speaker was labelled a tweeter, a few lines
-    # above a layout estimate that called it full-range stereo (issue #84).
-    # Decided per codec, which is per machine in practice — an HDMI codec has
-    # no speaker pins, so the analog codec owns them all — and keyed on "no
+    # "tweeter" only means something beside a woofer. Without that rule, a
+    # machine whose one speaker pin is the whole speaker would be labelled a
+    # tweeter, a few lines above a layout estimate that calls it full-range
+    # stereo (issue #84, test_speaker_info_does_not_call_a_lone_pin_a_tweeter).
+    # Decided per codec, which is per machine in practice: an HDMI codec has
+    # no speaker pins, so the analog codec owns them all. Keyed on "no
     # bass-named pin here" rather than on the pin count. The neutral word,
     # not "full-range": the control name is the only thing probed, and it
-    # says nothing about what the pin drives — on a machine whose woofer pin
+    # says nothing about what the pin drives. On a machine whose woofer pin
     # the firmware hides (issue #53) this one really is a tweeter, and the
     # report flags that pin separately.
     fill = "tweeter" if any(s.role == "woofer" for s in speakers) else "speaker"
@@ -521,7 +527,7 @@ def parse_hda_codec_pins(
 
 # How ``sound/hda/common/proc.c`` renders a widget's connection list: a count
 # line, then the list itself on the next line, indented. The star marks the
-# selected source and only appears when there is a choice to make — the kernel
+# selected source and only appears when there is a choice to make. The kernel
 # skips the selector read for a one-entry list, so there the sole entry *is*
 # the selection. The "In-driver" variant prints only when the driver's cached
 # list differs from the hardware's, and is never starred.
@@ -536,10 +542,10 @@ _CONN_ENTRY_RE = re.compile(r"^(0x[0-9a-fA-F]+)(\*?)$")
 # "Amp-Out caps: ofs=0x57, nsteps=0x57, stepsize=0x02, mute=0". nsteps is the
 # whole test, not the line's presence: a pin's mute-only amp prints the same
 # line with nsteps=0x00, an amp-less widget prints no line at all, and a
-# widget whose caps read zero prints "N/A" — the last two match nothing here.
+# widget whose caps read zero prints "N/A". The last two match nothing here.
 _AMP_OUT_NSTEPS_RE = re.compile(r"^\s+Amp-Out caps: .*\bnsteps=0x([0-9a-fA-F]+)")
 
-# "Node 0x06 [Audio Output] wcaps 0x411: Stereo" — the bracketed widget type.
+# "Node 0x06 [Audio Output] wcaps 0x411: Stereo": the bracketed widget type.
 _NODE_KIND_RE = re.compile(r"^Node 0x[0-9a-fA-F]+ \[([^\]]+)\]")
 
 
@@ -562,11 +568,13 @@ def _parse_conn_list(line: str) -> tuple[tuple[str, ...], str]:
 
 
 def parse_hda_codec_routing(codec_text: str) -> CodecRouting:
-    """Split one ``/proc/asound/card*/codec#*`` dump into what each pin listens
-    to and which widgets can turn their output down.
+    """Split one codec dump into pin sources and widget output volume.
 
-    Pure text parsing, like ``parse_hda_codec_pins`` — same dump, different
-    question, so the two are separate passes over one read.
+    For one ``/proc/asound/card*/codec#*`` dump: what each pin listens to and
+    which widgets can turn their output down.
+
+    Pure text parsing, like ``parse_hda_codec_pins``. It is the same dump
+    asked a different question, so the two are separate passes over one read.
 
     Read block by block, never with one search over the file: a rendered
     connection list names no widget of its own, so a file-wide match binds a
@@ -597,7 +605,7 @@ def parse_hda_codec_routing(codec_text: str) -> CodecRouting:
             if not count:
                 continue
             # The list is on the *next* line, and only when the count is
-            # non-zero — an HDMI pin prints "Connection: 0" with nothing
+            # non-zero. An HDMI pin prints "Connection: 0" with nothing
             # under it. Anything else there is left for the loop to read as
             # the ordinary line it is.
             if count.group(2) == "0" or i >= len(body):
@@ -629,7 +637,7 @@ def read_pin_config_overrides(codec_path: Path,
 
     ``/proc/asound/card0/codec#0`` → ``/sys/class/sound/hwC0D0``: the card
     index and the codec address are what name both, so the two views can be
-    lined up without parsing either. Missing files mean no override — a
+    lined up without parsing either. Missing files mean no override: a
     machine whose kernel applies nothing reads exactly like one with an empty
     list.
     """
@@ -651,8 +659,9 @@ def read_pin_config_overrides(codec_path: Path,
 
 
 def parse_hda_pin_defaults(codec_text: str) -> dict[str, int]:
-    """``{node: Pin Default}`` for every pin complex — the firmware's value;
-    a fixup writes the driver's override, never this register."""
+    """``{node: Pin Default}`` for every pin complex, as the firmware set it.
+
+    A fixup writes the driver's override, never this register."""
     defaults: dict[str, int] = {}
     for node, block in _iter_codec_nodes(codec_text):
         if "[Pin Complex]" not in block:
@@ -665,11 +674,13 @@ def parse_hda_pin_defaults(codec_text: str) -> dict[str, int]:
 
 # Part of the audio identity a demo substitutes, and the easy half to forget:
 # `_quirk_for_codec` falls back to the *PCI* subsystem id for any row that is
-# not codec-only, so a hook that swapped the codec id and left this one real
-# let the host's own machine answer "is this id listed upstream?". On a laptop
-# whose PCI id is one of the 132 PCI-usable rows that inverted two previews
-# and failed their tests. None is what a substituted machine has: the injected
-# codec id is then the whole identity, on every host.
+# not codec-only. A hook that swapped the codec id and left this one real
+# would let the host's own machine answer "is this id listed upstream?". On a
+# laptop whose PCI id is one of the 132 PCI-usable rows, that would invert two
+# previews and fail their tests
+# (test_demo_hooks_do_not_leave_the_hosts_pci_id_behind). None is what a
+# substituted machine has: the injected codec id is then the whole identity,
+# on every host.
 _DEMO_PCI_SUBSYSTEM = None
 
 
@@ -680,18 +691,19 @@ def _maybe_demo_hidden_speaker_pin(info: SpeakerInfo) -> bool:
     same reason: this warning is keyed to the *machine*, not to anything in a
     tuning XML, so `tools/preview_output.py` can never find a corpus file that
     triggers it and the copy would go unread by every review round.
-    ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7 — pin
+    ``DEMO_SPEAKER_PIN=17AA386A`` reproduces issue #53's Yoga 7 16IAH7: pin
     0x14 configured, 0x17 called unconnected, 0x1b/0x1e genuinely spare.
 
-    It substitutes the machine's *audio* identity — pins, codec list, an
-    emptied SoundWire one and the PCI subsystem id — and nothing else:
-    kernel, product and distro stay the host's, so anything keyed to those
-    still describes the real machine.
+    It substitutes the machine's *audio* identity and nothing else. That is
+    the pins, the codec list, an emptied SoundWire one and the PCI subsystem
+    id. Kernel, product and distro stay the host's, so anything keyed to
+    those still describes the real machine.
     The codec list and the SoundWire one are part of it because callers pick
-    the detection branch off ``bus_type``, so a demo that filled in pins alone
-    did nothing on any host that wasn't itself HDA — a SoundWire laptop, or
-    CI, where there is no codec to make ``bus_type`` "hda" at all. Returns
-    True when a demo was injected (skip real detection then).
+    the detection branch off ``bus_type``. A demo that filled in pins alone
+    would do nothing on any host that wasn't itself HDA: a SoundWire laptop,
+    or CI, where there is no codec to make ``bus_type`` "hda" at all
+    (test_demo_speaker_pin_reaches_the_warning). Returns True when a demo was
+    injected (skip real detection then).
     """
     ssid = (os.environ.get("DEMO_SPEAKER_PIN") or "").strip().upper()
     if not ssid:
@@ -718,15 +730,16 @@ def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
     Same demo/preview convention as ``DEMO_SPEAKER_PIN``, for the same
     reason: the warning is keyed to the machine, so no corpus XML can ever
     trigger it for a copy review. ``DEMO_SPEAKER_ROUTE=17AA3906`` reproduces
-    the Legion Pro 7i 16IAX10H's pre-fix state — both speaker pins
+    the Legion Pro 7i 16IAX10H's pre-fix state: both speaker pins
     configured, the bass pin 0x17 selected onto converter 0x06, which
     carries no output volume amp. That row is codec-keyed and its fixup has
     a forcible name, so the preview walks the full procedure branch.
 
     The same hook reaches the table-free warning: an id no table lists
     (``DEMO_SPEAKER_ROUTE=1D059999``, made up) renders the same fault with no
-    upstream row to cite. Not #95's own id — upstream lists that machine by
-    pin signature. One hook, not two, so two machines can't be injected.
+    upstream row to cite. It is not #95's own id, because upstream lists that
+    machine by pin signature. One hook, not two, so two machines can't be
+    injected.
 
     Checked *after* the pin demo in both gatherers: the two substitute the
     same audio identity, and injecting both would stack contradictory
@@ -759,9 +772,9 @@ def _maybe_demo_speaker_route(info: SpeakerInfo) -> bool:
                "0x14": "Pin Complex", "0x17": "Pin Complex"})
     # Real detection fills these in beside the routing, and the report prints
     # them under the speakers. Without them a preview of the very warning
-    # they were added for was missing the evidence line a reporter is asked
-    # to paste (user review). 0x19 carries #95's own broken value — the
-    # headset-mic connector a disabled BIOS port blanks.
+    # they serve would miss the evidence line a reporter is asked to paste
+    # (user review). 0x19 carries #95's own broken value: the headset-mic
+    # connector a disabled BIOS port blanks.
     info.pin_configs[ssid] = {
         "0x14": 0x90170110, "0x17": 0x90170111, "0x19": 0x411111F0,
         "0x1b": 0x411111F0, "0x1e": 0x411111F0, "0x21": 0x03211020,
@@ -787,7 +800,7 @@ def _maybe_demo_amp_status(info: SpeakerInfo) -> bool:
         info.amp_status = [AmpStatus(n, "cs35l56", True, 1) for n in nodes]
         # Real #27 shape: generic cirrus blobs are present, but the *machine*
         # firmware is absent, so the driver logs FIRMWARE_MISSING even though
-        # file-presence looks fine — the log marker, not the count, is the tell.
+        # file-presence looks fine. The log marker, not the count, is the tell.
         info.amp_firmware = ["cirrus/cs35l56-b0-dsp1-misc-aabbccdd-amp1.bin"]
         info.amp_log = [
             (True, "cs35l56 sdw:0:1:01fa:3557:01:0: FIRMWARE_MISSING"),
@@ -848,7 +861,7 @@ def parse_firmware_gate_controls(
     The iface must be captured, not assumed: modern tas2781 kernels expose
     these as iface=CARD, and ``amixer cset name=…`` without an iface assumes
     MIXER and fails with "Cannot find the given element" (issue #39, ROG
-    Xbox Ally X) — the fix command has to spell the iface out.
+    Xbox Ally X). The fix command has to spell the iface out.
 
     Returns ``(numid, iface, name, on)`` per name-matched control. Pure text
     parsing so it can be unit-tested without hardware.
@@ -871,10 +884,12 @@ def amixer_present() -> bool:
     """Whether the gate scan below could run at all.
 
     Split from the scan because its empty result is ambiguous: no gate found
-    and no way to look are the same `[]`, and the report was rendering both
-    as silence. Nothing in the PipeWire stack pulls `alsa-utils` in — on
-    Debian it arrives as a Recommends of the desktop task — so a minimal or
-    container install genuinely has no amixer.
+    and no way to look are the same `[]`, and a report reading the scan alone
+    renders both as silence
+    (test_amp_status_lines_say_why_the_gate_scan_found_nothing). Nothing in
+    the PipeWire stack pulls `alsa-utils` in; on Debian it arrives as a
+    Recommends of the desktop task. So a minimal or container install
+    genuinely has no amixer.
     """
     return tool_env.which("amixer") is not None
 
@@ -885,8 +900,8 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
     Reads each card's raw control list via ``amixer -c <N> contents`` (the
     same tool the SoundWire fallback already shells out to) and returns a
     FirmwareGate per matching control. Empty when amixer is absent or no
-    gate exists — which is why callers ask `amixer_present()` too, since
-    those two mean opposite things to the reader.
+    gate exists. Callers ask `amixer_present()` too, since those two mean
+    opposite things to the reader.
     """
     # Demo/preview hook (same ATMOS_* convention as the test corpus env vars):
     # inject a synthetic gate so the issue-#17 warning can be previewed on a
@@ -929,9 +944,9 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
 #
 # Some laptops report the pin complex driving their woofers as unconnected, so
 # the kernel configures only the tweeter pin and the preset drives half the
-# speaker set. The DAX XML cannot see this — its internal_speaker endpoints
+# speaker set. The DAX XML cannot see this: its internal_speaker endpoints
 # describe *channels* (always "2"), never drivers, on 2- and 4-driver machines
-# alike — so the only signal is that upstream Linux carries a per-machine fixup
+# alike. So the only signal is that upstream Linux carries a per-machine fixup
 # for this exact subsystem id while the running kernel isn't applying it.
 #
 # Detection is table-driven rather than inferred from the pins themselves: an
@@ -942,7 +957,7 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
 
 # A /proc/asound/cards entry: " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp".
 # The driver field is what identifies the stack; matching "sof" anywhere in the
-# line instead catches the *shortname*, and "microsoft" contains "sof" — a
+# line instead catches the *shortname*, and "microsoft" contains "sof". A
 # plugged-in Microsoft webcam or headset would otherwise read as a SOF machine.
 _CARD_DRIVER_RE = re.compile(r"^\s*\d+\s*\[[^\]]*\]:\s*(\S+)")
 
@@ -969,11 +984,11 @@ def hda_model_module(uses_sof: bool,
     a parameter: on an Intel machine the SOF modules are routinely loaded
     beside ``snd_hda_intel`` (both are present on the development machine), so
     picking the first ``hda_model`` found writes the option to a module that
-    isn't driving anything — the user reboots and nothing changes.
+    isn't driving anything. The user reboots and nothing changes.
 
-    The SOF parameter itself is still found by scanning, because it moved:
-    ``snd_sof_intel_hda_generic`` today, ``snd_sof_intel_hda_common`` before
-    the generic split.
+    The SOF parameter itself is still found by scanning, because its module
+    differs across kernels: ``snd_sof_intel_hda_generic`` today,
+    ``snd_sof_intel_hda_common`` before the generic split.
     """
     module_root = host.path(module_root)
     if uses_sof:
@@ -991,18 +1006,19 @@ def _ssid_key(ssid: str) -> tuple[int, int] | None:
 
 def _quirk_for_codec(table: dict, codec_ssid: str, owns_speakers: bool,
                      uses_sof: bool, pci_subsystem: tuple[str, str] | None):
-    """The row *codec_ssid* matches in *table*, mirroring the parts of
-    ``snd_hda_pick_fixup`` both quirk tables share — factored so the pin and
-    routing detectors cannot drift on them:
+    """The row *codec_ssid* matches in *table*, as ``snd_hda_pick_fixup`` would.
 
-    * every entry can match the *codec's* subsystem id — either because it is
+    It mirrors the parts of that lookup both quirk tables share, factored so
+    the pin and routing detectors cannot drift on them:
+
+    * every entry can match the *codec's* subsystem id, either because it is
       an ``HDA_CODEC_QUIRK`` or via the codec-SSID fallback the lookup ends on;
     * a PCI-keyed entry can also match the PCI subsystem id, but not on SOF,
       where the id the kernel sees is zeroed. Our own PCI id is read from
       sysfs and is *not* zeroed, so trusting it there would claim a match the
       kernel never makes. And the PCI id belongs to the machine, not to any
       one codec, so it may only stand in for a codec that already owns
-      speaker pins — otherwise it lends the analog machine's identity to
+      speaker pins. Otherwise it lends the analog machine's identity to
       whichever other codec happens to have a spare output pin.
 
     Returns ``(row, key)``: the key is the *table's*, which on the PCI
@@ -1022,13 +1038,14 @@ def _quirk_for_codec(table: dict, codec_ssid: str, owns_speakers: bool,
 def find_hidden_speaker_pin(
         info: SpeakerInfo,
 ) -> tuple[speaker_pin_quirks.PinQuirk, str, list[str], tuple[int, int]] | None:
-    """The pin fixup this machine should be getting but isn't, else None —
-    ``(quirk, codec ssid, missing pins, table key)``.
+    """The pin fixup this machine should be getting but isn't, else None.
+
+    Returns ``(quirk, codec ssid, missing pins, table key)``.
 
     Mirrors ``snd_hda_pick_fixup`` (``sound/hda/common/auto_parser.c``) so we
     only claim a match the kernel could actually make:
 
-    * every entry can match the *codec's* subsystem id — either because it is
+    * every entry can match the *codec's* subsystem id, either because it is
       an ``HDA_CODEC_QUIRK`` or via the codec-SSID fallback the lookup ends on;
     * a PCI-keyed entry can also match the PCI subsystem id, but not on SOF,
       where the id the kernel sees is zeroed. Our own PCI id is read from
@@ -1045,13 +1062,13 @@ def find_hidden_speaker_pin(
     fixup's effect does not.
 
     Pins are matched per codec, and the fixup's pins must be *findable* on the
-    codec that matched — already configured, or sitting there unconfigured.
+    codec that matched: already configured, or sitting there unconfigured.
     That last test is what keeps a machine's other codecs out of it: an HDMI
     codec has no pin 0x14/0x17 to be short of, so a machine-wide PCI id can't
     make it look like the analog one.
 
     Returns ``(quirk, codec subsystem id, pins actually missing)``. The missing
-    list is what the messages name — reporting every pin the fixup declares
+    list is what the messages name. Reporting every pin the fixup declares
     would tell a user their working pin is broken too.
     """
     if info.bus_type != "hda":
@@ -1093,55 +1110,54 @@ def find_misrouted_speaker_pin(
         info: SpeakerInfo,
 ) -> tuple[speaker_route_quirks.RouteQuirk, str, SpeakerPin, str,
            tuple[int, int]] | None:
-    """The speaker pin this machine is driving through a widget with no
-    volume control, else None — ``(quirk, codec ssid, the pin, its source,
-    table key)``.
+    """The speaker pin driven through a widget with no volume control, else None.
+
+    Returns ``(quirk, codec ssid, the pin, its source, table key)``.
 
     Unlike the hidden-pin detector, the fault here is *visible*: the codec
     dump stars each pin's selected source and says whether that widget
     carries an output volume amp. So the table only supplies the authority
     ("upstream carries a fix for this exact machine") and the dump supplies
     the finding. Firing on the table alone would send a user after a fixup
-    that may not be their problem — the objection recorded in design-notes
-    when this class was first left unbuilt.
+    that may not be their problem. That is the objection recorded in
+    design-notes "The class next door: pin present, DAC source wrong".
 
     Every step of the gate fails closed to silence:
 
     * the quirk's pin must be a *configured internal speaker* on the codec
-      that matched — a pin the kernel is not driving cannot be mis-routed,
+      that matched. A pin the kernel is not driving cannot be mis-routed,
       and a genuinely spare pin parked on an ampless converter is normal
       (the dev machine's 0x1e);
     * the dump must name a selected source, and it must sit outside the
       fixup's allowed list;
-    * that source must be known to carry no output volume amp — a widget the
+    * that source must be known to carry no output volume amp. A widget the
       dump didn't show stays "unknown", never "no";
     * the driver's own connection list must leave the star meaningful.
       ``/proc`` marks the selected entry by comparing each position against
       ``AC_VERB_GET_CONNECT_SEL``. Both sides of that comparison are the
-      *hardware's* — ``print_conn_list`` is handed
+      *hardware's*: ``print_conn_list`` is handed
       ``snd_hda_get_raw_connections()`` and reads the verb raw
-      (``sound/hda/common/proc.c``) — so the star is self-consistent and
+      (``sound/hda/common/proc.c``). So the star is self-consistent and
       always names the widget the hardware actually selected, whatever
       ``snd_hda_override_conn_list`` did. This guard is therefore
       conservative rather than corrective: it bails where the cached list is
-      not a prefix of the hardware one (every upstream routing helper
-      truncates, so they all are today, the dev machine included). Under one
+      not a prefix of the hardware one. Every upstream routing helper
+      truncates, so they all are today, the dev machine included. Under one
       that reordered, the hardware would be on a widget the *kernel* did not
-      intend — still what the user hears, but no longer a missing fixup, so
-      silence is the right answer for a different reason than the one first
-      recorded here. Equal to the fixup's own list, it means the override is
-      already applied and our star reading contradicts the kernel, which
-      outranks the parse. The line's *presence* proves nothing either way:
-      the dev machine gets a conn-list override from a pin-signature match
-      (``snd_hda_pin_quirk``) with no SSID entry at all, so it is only ever
-      a negative guard.
+      intend. That is still what the user hears, but no longer a missing
+      fixup, so silence is the right answer. Equal to the fixup's own list,
+      it means the override is already applied and our star reading
+      contradicts the kernel, which outranks the parse. The line's
+      *presence* proves nothing either way: the dev machine gets a conn-list
+      override from a pin-signature match (``snd_hda_pin_quirk``) with no
+      SSID entry at all. So it is only ever a negative guard.
 
     Silent, too, on any codec the *pin* detector has already claimed. On 11
     of the 28 machines in both tables the two rows name different pins (the
     chain declares 0x14 and reroutes 0x17), so both faults are visible at
-    once — but they are one missing fixup with one remedy, and two warnings
-    would print two procedures writing the same modprobe file, the second
-    silently discarding the first.
+    once. They are one missing fixup with one remedy, though, and two
+    warnings would print two procedures writing the same modprobe file, the
+    second silently discarding the first.
     """
     if info.bus_type != "hda":
         return None
@@ -1179,29 +1195,29 @@ def find_misrouted_speaker_pin(
 
 
 def _dead_volume_source(routing: CodecRouting, pin_node: str) -> str:
-    """The converter a speaker pin is selected onto when nothing on the path
-    can turn the speaker down, else "".
+    """The converter under a speaker pin nothing can turn down, else "".
 
-    The kernel's rule (``look_for_out_vol_nid``): a path's volume control
-    goes on the first widget between pin and converter with ``nsteps > 0``,
-    and none is created when there is none. Legs, each failing closed:
+    That converter is the one the pin is selected onto. The kernel's rule
+    (``look_for_out_vol_nid``): a path's volume control goes on the first
+    widget between pin and converter with ``nsteps > 0``, and none is
+    created when there is none. Legs, each failing closed:
 
     * a readable selection;
     * the source is a converter (``[Audio Output]``), so the path is exactly
       {pin, converter}. A mixer could carry the amp on its input side, which
-      the parser doesn't read — silent;
+      the parser doesn't read, so that case stays silent;
     * neither the converter nor the pin has a volume amp (Conexant/IDT put
       it on the pin);
     * the driver's own list, if printed, still contains the starred widget.
       Deliberately a membership test, not the prefix test its sibling uses:
       ``/proc`` prints the *raw* connection list starred at the raw
-      ``GET_CONNECT_SEL`` index (``proc.c``), so the star is self-consistent
-      and always names what the hardware selected — what the user hears. The
-      thing worth bailing on is a cached list that no longer holds that
-      widget, which means driver and hardware disagree about the selection
-      and our reading is about to stop describing the machine;
-    * another source of the same pin carries volume — a remedy exists, which
-      is what every routing fixup exploits.
+      ``GET_CONNECT_SEL`` index (``proc.c``). So the star is self-consistent
+      and always names what the hardware selected, which is what the user
+      hears. The thing worth bailing on is a cached list that no longer holds
+      that widget, which means driver and hardware disagree about the
+      selection and our reading is about to stop describing the machine;
+    * another source of the same pin carries volume, so a remedy exists.
+      Every routing fixup exploits that.
     """
     node = pin_node.lower()
     route = routing.routes.get(node)
@@ -1223,9 +1239,11 @@ def _dead_volume_source(routing: CodecRouting, pin_node: str) -> str:
 
 
 def _listed_in_a_table(info: SpeakerInfo, codec_ssid: str) -> bool:
-    """Whether either subsystem-id table lists this codec, with the SOF
-    restriction *off*: the copy says "no upstream fix is listed", which must
-    hold for a SOF laptop whose PCI-keyed row the kernel can't use."""
+    """Whether either subsystem-id table lists this codec, SOF restriction off.
+
+    The restriction is *off* because the copy says "no upstream fix is
+    listed", which must hold for a SOF laptop whose PCI-keyed row the kernel
+    can't use."""
     return any(
         _quirk_for_codec(table, codec_ssid, True, False,
                          info.pci_subsystem)[0] is not None
@@ -1235,8 +1253,10 @@ def _listed_in_a_table(info: SpeakerInfo, codec_ssid: str) -> bool:
 
 def find_fixed_level_speaker_pin(
         info: SpeakerInfo) -> tuple[str, SpeakerPin, str] | None:
-    """The speaker pin whose whole path has no volume amp on a machine no
-    table lists, else None — ``(codec ssid, the pin, its source)``.
+    """A speaker pin with no volume amp on its whole path, else None.
+
+    Returns ``(codec ssid, the pin, its source)``. Only a machine no table
+    lists qualifies.
 
     The table-free twin of ``find_misrouted_speaker_pin``: no upstream row to
     cite, so the copy is hedged. Built for issue #95, a ThinkPad reached only

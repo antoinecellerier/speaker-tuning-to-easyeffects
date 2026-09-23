@@ -1,6 +1,6 @@
 """Every EE plugin block, turned into the LV2 node that stands in for it.
 
-One ``emit_*`` per EasyEffects plugin key, each returning a ``Stage`` — the
+One ``emit_*`` per EasyEffects plugin key, each returning a ``Stage``: the
 node dict(s) plus the four port references that let ``conf.py`` link stages
 without knowing which plugin produced them. ``EE_KEY_DISPATCH`` is the table
 that says which emitter serves which key; ``build_chain`` walks it.
@@ -10,7 +10,7 @@ enum parameters as string labels and LSP/Calf want integers, so every one of
 them is a label→index map read through ``_enum``, which warns rather than
 falling back silently when a label is missing.
 
-Stdlib-only, and deliberately the deepest module of ``lib/pipewire`` — nothing
+Stdlib-only, and deliberately the deepest module of ``lib/pipewire``. Nothing
 here reads the filesystem beyond resolving the impulse response, prints
 anything, or knows where a conf is installed. That is what lets the converter
 import it at startup without paying for numpy, and what lets the emitters be
@@ -32,7 +32,7 @@ from typing import Callable
 LSP_PEQ_URI = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"
 LSP_MBC_URI = "http://lsp-plug.in/plugins/lv2/mb_compressor_stereo"
 LSP_LIM_URI = "http://lsp-plug.in/plugins/lv2/limiter_stereo"
-# autogain_stereo is a K-weighted (LUFS) loudness AGC — the LV2 equivalent of
+# autogain_stereo is a K-weighted (LUFS) loudness AGC, the LV2 equivalent of
 # EE's native libebur128 autogain (volume leveler). See emit_autogain.
 LSP_AUTOGAIN_URI = "http://lsp-plug.in/plugins/lv2/autogain_stereo"
 # Calf plugins back EE's bass_enhancer and stereo_tools modules (verified
@@ -79,8 +79,8 @@ EE_MBC_ENVB = {
 EE_MBC_SCMODE = {"Peak": 0, "RMS": 1, "LPF": 2, "SMA": 3}
 # mb_compressor.cpp:105 — mb_comp_modes[] (Down/Up/Boost). The generator pins
 # "Downward" on every band because LSP's boost path (bth −72 dB / bsa +6 dB
-# defaults) is live in the other two modes and amplifies the noise floor —
-# the audible trap commit e454711 fixed on the EE side. Translate it
+# defaults) is live in the other two modes and amplifies the noise floor.
+# That is the audible trap commit e454711 fixed on the EE side. Translate it
 # explicitly so the conf never rides the LV2 default.
 EE_MBC_CM = {"Downward": 0, "Upward": 1, "Boosting": 2}
 
@@ -142,7 +142,10 @@ def db_to_lin(db: float) -> float:
 
 
 def lin_to_db(lin: float) -> float:
-    """Inverse of db_to_lin. Used by tests for the round-trip assertion."""
+    """Convert linear gain to dB, the inverse of db_to_lin.
+
+    Used by tests for the round-trip assertion.
+    """
     return 20.0 * math.log10(max(lin, LIN_AMP_FLOOR))
 
 
@@ -176,7 +179,7 @@ def _enum(table: dict[str, int], label: str, fallback: int,
     fallback integer (often 0 = Off) with no trace; warn instead so the
     missing table entry gets added. Deduped so 16 PEQ bands × 2 sides
     don't repeat one message. Call sites must keep the
-    `plugin.get("key", …)` literal inline — the coverage guard in
+    `plugin.get("key", …)` literal inline, because the coverage guard in
     tests/test_ee_to_pipewire.py scrapes those literals from the source.
     """
     if label in table:
@@ -193,11 +196,11 @@ def emit_convolver(plugin: dict, irs_dir: Path,
                    must_exist: bool = True) -> Stage | None:
     """Two builtin `convolver` nodes, one per channel, in parallel.
 
-    PipeWire's builtin convolver is mono — one node per output channel.
+    PipeWire's builtin convolver is mono: one node per output channel.
     EE's single `convolver#0` plugin therefore expands to two PW nodes
     (`conv_l`, `conv_r`) reading channels 0 and 1 of the same stereo IRS.
     """
-    # Defensive — build_chain skips bypassed plugins before dispatch, but
+    # Defensive: build_chain skips bypassed plugins before dispatch, but
     # the unit tests call emitters directly.
     if plugin.get("bypass", False):
         return None
@@ -223,9 +226,8 @@ def emit_convolver(plugin: dict, irs_dir: Path,
     # The PW builtin convolver's `gain` config field scales the IR
     # samples on load (libpipewire-module-filter-chain(7)). EE's
     # convolver output_gain is universally 0.0 across the 1050-XML
-    # corpus, so this is structurally identity in practice; passing it
-    # through anyway keeps the chain faithful for any preset that does
-    # set it.
+    # corpus, so this is structurally identity in practice. Passing it
+    # through keeps the chain faithful for any preset that does set it.
     nodes = [
         {
             "type": "builtin",
@@ -287,9 +289,9 @@ def _emit_peq_node(plugin: dict, name: str, warnings: list[str]) -> dict:
                 control[f"q{side}_{i}"] = float(band.get("q", 1.0))
                 control[f"w{side}_{i}"] = float(band.get("width", 4.0))
                 # xm = filter MUTE (default 0 = not muted; 1 = muted).
-                # The control name is "xm" (mute), not enable — getting
-                # this inverted mutes every band and the whole PEQ
-                # silently passes through. para_equalizer.cpp:201:
+                # The control name is "xm" (mute), not enable. Inverting
+                # it mutes every band and the whole PEQ silently passes
+                # through. para_equalizer.cpp:201:
                 #   SWITCH("xm" id "_" #x, "Filter mute " ..., 0.0f)
                 control[f"xm{side}_{i}"] = 1 if band.get("mute", False) else 0
                 control[f"xs{side}_{i}"] = 1 if band.get("solo", False) else 0
@@ -314,9 +316,9 @@ def emit_peq(plugin: dict, name: str) -> Stage | None:
     enhancer). The dialog enhancer's `make_dialog_enhancer` always sets
     `split-channels=False` and writes identical bands to left/right;
     the speaker PEQ always sets `split-channels=True`. The `_lr` plugin
-    handles both — we just feed identical bands when not split.
+    handles both: when not split, it gets identical bands.
     """
-    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
+    # Defensive: build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
     warns: list[str] = []
@@ -336,7 +338,7 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
     `multiband_compressor#1` (the regulator). Identical shape on the EE
     side, identical mapping here.
     """
-    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
+    # Defensive: build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
 
@@ -383,14 +385,14 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
         control[f"sla_{i}"] = float(band.get("sidechain-lookahead", 0.0))
         control[f"scp_{i}"] = db_to_lin(band.get("sidechain-preamp", 0.0))
         # Boost cluster: LSP's defaults keep the below-threshold boost
-        # primed (bth −72 dB, bsa +6 dB) behind cm alone — the EE side pins
+        # primed (bth −72 dB, bsa +6 dB) behind cm alone. The EE side pins
         # all three per design-notes "MBC upward compression" (e454711), so
         # the conf must too rather than ride LV2 defaults.
         control[f"cm_{i}"] = _enum(
             EE_MBC_CM, band.get("compression-mode", "Downward"), 0,
             warns, f"{name}: compression-mode")
         # Missing-key fallbacks mirror the LSP/EE defaults (−72 dB / +6 dB),
-        # not the generator's pinned −60/0 — a hand-edited preset that
+        # not the generator's pinned −60/0. A hand-edited preset that
         # omits the keys must render as EE would, not as our generator
         # happens to write them.
         control[f"bth_{i}"] = db_to_lin(band.get("boost-threshold", -72.0))
@@ -422,7 +424,7 @@ def emit_mb_compressor(plugin: dict, name: str) -> Stage | None:
 
 def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
     """LSP limiter_stereo node."""
-    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
+    # Defensive: build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
 
@@ -437,7 +439,7 @@ def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
         "lk": float(plugin.get("lookahead", 1.0)),
         "at": float(plugin.get("attack", 1.0)),
         "rt": float(plugin.get("release", 5.0)),
-        # slink is U_PERCENT — value range 0..100, not 0..1. Pass EE's
+        # slink is U_PERCENT: value range 0..100, not 0..1. Pass EE's
         # `stereo-link` (also percent) directly. Verified at limiter.cpp:179.
         "slink": float(plugin.get("stereo-link", 100.0)),
         "alr": 1 if plugin.get("alr", False) else 0,
@@ -462,17 +464,18 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 
 # EE's `maximum-history` (libebur128 integration window, seconds) has no
-# 1:1 LSP port — autogain_stereo's loudness periods cap at 2 s. We instead
-# steer the gain-ride *time-constants* (tgrow_l/tfall_l, 10..10000 ms) so a
-# longer EE history yields a slower, gentler ride (monotonic). The two
-# directions are asymmetric, matching EE's measured behaviour: it attenuates
-# loud content quickly but boosts quiet content very slowly (anti-pumping).
-# So `fall` (gain down toward target) is mapped fast and `grow` (gain up) slow.
-# These scales are the load-bearing hypothesis tuned by the on-device EE-vs-PW
-# comparison (docs/design-notes.md, autogain entry): at history=20 s, FALL→4 s
-# matched EE's attenuation to 0.2 dB; GROW is pushed to the 10 s port ceiling
-# to approach EE's much slower (~50 s effective) boost as closely as the port
-# allows.
+# 1:1 LSP port: autogain_stereo's loudness periods cap at 2 s. The history
+# steers the gain-ride *time-constants* instead (tgrow_l/tfall_l,
+# 10..10000 ms), so a longer EE history yields a slower, gentler ride
+# (monotonic). The two directions are asymmetric, matching EE's measured
+# behaviour: it attenuates loud content quickly but boosts quiet content very
+# slowly (anti-pumping). So `fall` (gain down toward target) is mapped fast and
+# `grow` (gain up) slow. These scales are the load-bearing hypothesis tuned by
+# the on-device EE-vs-PW comparison (docs/design-notes.md, "Translating active
+# autogain to LSP `autogain_stereo` (PW converter)"). At history=20 s,
+# FALL→4 s matched EE's attenuation to 0.2 dB. GROW is pushed to the 10 s port
+# ceiling to approach EE's much slower (~50 s effective) boost as closely as
+# the port allows.
 AUTOGAIN_FALL_MS_PER_S = 200.0
 AUTOGAIN_GROW_MS_PER_S = 500.0
 # The history the scales above were fitted and on-device-validated at.
@@ -485,7 +488,7 @@ AUTOGAIN_VALIDATED_HISTORY_S = 20.0
 
 
 def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
-    """LSP autogain_stereo node — translates EE's autogain (volume leveler).
+    """LSP autogain_stereo node, translating EE's autogain (volume leveler).
 
     EE's autogain is native libebur128 (EBU R 128, K-weighted). autogain_stereo
     is the LV2 equivalent: a K-weighted loudness AGC. The EE block is derived
@@ -493,25 +496,26 @@ def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
     and on HDA presets generated with --enable autogain (bypassed-by-default
     on HDA, where build_chain skips it).
 
-    Port-unit note: `level`/`silence` are dB-domain (LUFS / dBFS) values passed
-    **directly** — NOT linear gains, so no db_to_lin (contrast emit_limiter's
-    `th`/`g_*`). EE `input-gain`/`output-gain` are always 0.0 here and have no
-    main-path port on autogain_stereo (`preamp` is sidechain-only), so they are
-    structurally identity and intentionally not written.
+    Port units: `level`/`silence` are dB-domain (LUFS / dBFS) values passed
+    **directly**. They are NOT linear gains, so no db_to_lin (contrast
+    emit_limiter's `th`/`g_*`). EE `input-gain`/`output-gain` are always 0.0
+    here and have no main-path port on autogain_stereo (`preamp` is
+    sidechain-only), so they are structurally identity and intentionally not
+    written.
     """
-    # Defensive — build_chain handles bypass; kept for direct unit-test calls.
+    # Defensive: build_chain handles bypass; kept for direct unit-test calls.
     if plugin.get("bypass", False):
         return None
 
     history_s = float(plugin.get("maximum-history", 0.0))
-    # The scales were fitted at a 20 s history. Shorter windows — HDA with
-    # --enable autogain (10 s at volume-leveler-amount>=4) and SoundWire at
-    # amount>5 (16 s and below) — extrapolate below the validated point:
-    # the ride is then faster than at 20 s, and EE-vs-PW equivalence has
+    # The scales were fitted at a 20 s history. Shorter windows extrapolate
+    # below the validated point: HDA with --enable autogain (10 s at
+    # volume-leveler-amount>=4) and SoundWire at amount>5 (16 s and below).
+    # The ride is then faster than at 20 s, and EE-vs-PW equivalence has
     # not been re-measured there. Recorded on the Stage.warnings channel
     # like every other emitter caveat so it reaches the conf header, not
-    # just the terminal; the corpus tier's zero-warnings assertion exempts
-    # this advisory by its "autogain: maximum-history" prefix — keep the
+    # just the terminal. The corpus tier's zero-warnings assertion exempts
+    # this advisory by its "autogain: maximum-history" prefix, so keep the
     # prefix stable.
     warns: list[str] = []
     if history_s < AUTOGAIN_VALIDATED_HISTORY_S:
@@ -534,7 +538,7 @@ def emit_autogain(plugin: dict, name: str = "autogain") -> Stage | None:
         # Zero added latency: lookahead is the only latency source (port 41).
         "lkahead": 0.0,
         # Asymmetric long-window ride from EE maximum-history: slow boost
-        # (grow), faster attenuation (fall) — see the constants above.
+        # (grow), faster attenuation (fall). See the constants above.
         "tgrow_l": grow_ms,
         "tfall_l": fall_ms,
     }
@@ -590,7 +594,7 @@ def emit_bass_enhancer(plugin: dict, name: str = "bass") -> Stage | None:
 def emit_stereo_tools(plugin: dict, name: str = "stereo") -> Stage | None:
     """Calf StereoTools node.
 
-    Mapping verified against stereo_tools.cpp:65-80 — `slev` and `mlev`
+    Mapping verified against stereo_tools.cpp:65-80. `slev` and `mlev`
     are the only ports that go through BIND_LV2_PORT_DB (dB → linear);
     every other named symbol is a direct linear/bool/enum bind. The
     `mode` enum string-label → integer table is `EE_ST_MODE`.
@@ -640,9 +644,9 @@ class PluginHandler:
 
     `emitter=None` marks a key with no translation: it is skipped with
     `skip_warning`. `silent_if_bypassed=True` suppresses the bypass-skip
-    warning when the source plugin is bypassed — used for autogain, whose
-    bypassed state is the HDA default (the user shouldn't be nagged); when
-    active (SoundWire, or --enable autogain) it is translated normally.
+    warning when the source plugin is bypassed. Autogain uses it, because
+    its bypassed state is the HDA default and the user shouldn't be nagged.
+    When active (SoundWire, or --enable autogain) it is translated normally.
     """
     emitter: Callable[..., "Stage | None"] | None
     args: tuple = ()

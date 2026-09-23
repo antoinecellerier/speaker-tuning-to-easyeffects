@@ -3,9 +3,9 @@
 Machine-written: ``tools/update_kernel_releases.py`` appends to the literal
 below and the weekly ``.github/workflows/kernel-release-table.yml`` opens a PR
 per new series. Both find it by a regex pinned to its exact shape, so the
-literal's formatting is a contract, not a style choice — see
-``tests/test_kernel_releases.py``, which asserts the updater re-renders what
-ships here byte-for-byte.
+literal's formatting is a contract, not a style choice.
+``tests/test_kernel_releases.py`` asserts the updater re-renders what ships
+here byte-for-byte.
 
 Only the dates live here. What counts as *old* (``_KERNEL_OLD_MONTHS``) and
 what the user is told about it stay in ``lib/report/environment.py``, where a
@@ -14,14 +14,14 @@ weekly rewrite of this file cannot reach them.
 Stdlib-only, and in fact import-free.
 """
 
-# Upstream release month per kernel series (issue #33: a preset can be perfect
-# while an *old kernel* mis-configures the speaker path — that report was fixed
-# by a 6.12→7.0 kernel upgrade, not a preset change). Month precision is enough for
-# an age hint. Dates are historical facts, so an aging copy of this tool still
-# ages old kernels correctly; a series newer than the table is assumed recent.
-# Each value is that series' `vX.Y` tag date on Linus' tree; new ones are
-# appended by tools/update_kernel_releases.py, which the weekly
-# .github/workflows/kernel-release-table.yml runs to open a PR per release.
+# Upstream release month per kernel series. Issue #33 is why: a preset can be
+# perfect while an *old kernel* mis-configures the speaker path, and that
+# report was fixed by a 6.12→7.0 kernel upgrade, not a preset change. Month
+# precision is enough for an age hint. Dates are historical facts, so an aging
+# copy of this tool still ages old kernels correctly. A series newer than the
+# table is assumed recent. Each value is that series' `vX.Y` tag date on Linus'
+# tree. tools/update_kernel_releases.py appends new ones, and the weekly
+# .github/workflows/kernel-release-table.yml runs it to open a PR per release.
 # Edits below the newest entry are never machine-rewritten, so a hand
 # correction sticks.
 _KERNEL_SERIES_RELEASES = {

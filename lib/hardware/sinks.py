@@ -1,21 +1,22 @@
 """Which PipeWire node the internal speakers are behind.
 
 ``pw-dump`` is read exactly once, in ``_enumerate_audio_sinks``, and
-everything above it works on the dicts that come back — which is what lets the
-whole tiered classification be exercised against synthetic graphs. Selection
-runs in two tiers because the tagging cannot be trusted:
+everything above it works on the dicts that come back. That lets the whole
+tiered classification be exercised against synthetic graphs. Selection runs
+in two tiers because the tagging cannot be trusted:
 ``device.icon_name == audio-speakers`` is the strict answer, and a laptop
 whose UCM2 profile omits that icon (issue #18) falls back to a relaxed tier of
-internal analog outputs — auto-applied when there is one candidate, prompted
-for when there are several, and always overridable with ``--autoload-sink``.
+internal analog outputs. The relaxed tier is auto-applied when there is one
+candidate, prompted for when there are several, and always overridable with
+``--autoload-sink``.
 
 Shared by both converters: ``ee_to_pipewire.py`` pins its smart filter to the
 sink chosen here, so the two agree on what "the internal speaker" means and
 their diagnostic lines stay in lockstep.
 
-Not stdlib-only — it imports ``lib.console``, which owns the optional rich
-dependency — but it stays clear of the DSP stack, so the converter can reach
-it without paying for numpy.
+Not stdlib-only: it imports ``lib.console``, which owns the optional rich
+dependency. It stays clear of the DSP stack, so the converter can reach it
+without paying for numpy.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from lib import console, doctor, packages, tool_env
 #
 # NOTE: this is the device-detection (structural) path, not the audio-math
 # path, so the "every emitted parameter must trace to an XML field" invariant
-# (CLAUDE.md) does NOT apply here — runtime PipeWire node selection has no XML
+# (CLAUDE.md) does NOT apply here. Runtime PipeWire node selection has no XML
 # provenance. The heuristics below are pragmatic and always overridable by the
 # user (--autoload-sink here, --target-sink in ee_to_pipewire.py).
 
@@ -51,9 +52,9 @@ def _enumerate_audio_sinks() -> list[dict]:
 
     'profile' is the card *profile* description (e.g. "Analog Stereo"); 'route'
     is the active output *route* description (e.g. "Speaker"). EasyEffects keys
-    its autoload files on the route description — the node's
-    ``device_route_description``, taken from the SPA_PARAM_Route ``description``
-    — not the profile. On UCM "HiFi" cards the two happen to coincide
+    its autoload files on the route description, not the profile. That is the
+    node's ``device_route_description``, taken from the SPA_PARAM_Route
+    ``description``. On UCM "HiFi" cards the two happen to coincide
     ("Speaker"), but on a classic ``analog-stereo`` card the profile is
     "Analog Stereo" while the active output route is still "Speaker", so an
     autoload entry filed under the profile never matches and the fallback wins
@@ -82,12 +83,12 @@ def _info_section(obj, key: str) -> dict:
 
     ``"info": null`` is what it writes for an object that has gone away, and
     an absent or null section one level down is the same case. Every reader
-    below wants "nothing here" from all of them, and the chained
-    ``.get("info", {}).get(key, {})`` they used to spell it with raises
-    ``AttributeError`` on exactly the null the default was meant to cover.
-    That is worth a helper rather than three spellings: one of these now runs
-    on the ordinary end-of-run warning path, where it would take the run down
-    *after* it had written the user's presets.
+    below wants "nothing here" from all of them. A chained
+    ``.get("info", {}).get(key, {})`` raises ``AttributeError`` on exactly the
+    null its default is meant to cover. That is worth a helper rather than
+    three spellings: one of these runs on the ordinary end-of-run warning
+    path, where the error would take the run down *after* it had written the
+    user's presets (test_soft_mixer_is_read_out_of_a_dump_and_defaults_to_off).
     """
     if not isinstance(obj, dict):
         return {}
@@ -99,8 +100,7 @@ def _info_section(obj, key: str) -> dict:
 
 
 def soft_mixer_from_dump(data) -> bool:
-    """Whether any object in *data* (a parsed pw-dump) sets
-    ``api.alsa.soft-mixer``.
+    """Whether any object in parsed pw-dump *data* sets ``api.alsa.soft-mixer``.
 
     PipeWire then scales the samples before the card, so a hardware path
     with no volume amp still follows the slider and the fixed-level warning
@@ -123,10 +123,12 @@ def soft_mixer_in_use() -> bool:
 
 
 def sinks_from_dump(data) -> list[dict]:
-    """The Audio/Sink dicts `_enumerate_audio_sinks` returns, out of a pw-dump
-    already in hand. Pure, so a caller holding its own dump — the PipeWire
-    doctor reads the whole graph for its checks — labels a sink by the same
-    rule without a second ``pw-dump`` that could disagree with the first."""
+    """`_enumerate_audio_sinks`'s Audio/Sink dicts, from a pw-dump in hand.
+
+    Pure, so a caller holding its own dump labels a sink by the same rule
+    without a second ``pw-dump`` that could disagree with the first. The
+    PipeWire doctor is such a caller: it reads the whole graph for its
+    checks."""
     if not isinstance(data, list):  # pw-dump normally emits an array; be defensive
         return []
 
@@ -219,10 +221,10 @@ def _is_bluetooth(sink: dict) -> bool:
     """A Bluetooth node, by either tell PipeWire gives us.
 
     `device.api` is the reliable one; the node-name prefix catches a sink
-    whose device node the dump didn't carry. Three callers need the same
-    answer — the classifier excludes these, `_is_physical_output` counts
-    them, and `_sink_label` refuses to print their description — so the
-    test lives here rather than being spelled out at each.
+    whose device node the dump didn't carry. The test lives here rather than
+    being spelled out at each of three callers that need the same answer.
+    The classifier excludes these, `_is_physical_output` counts them, and
+    `_sink_label` refuses to print their description.
     """
     return (sink.get("api") == "bluez5"
             or "bluez" in sink.get("name", "").lower())
@@ -231,7 +233,7 @@ def _is_bluetooth(sink: dict) -> bool:
 def _relaxed_sort_key(sink: dict) -> tuple:
     """Preference order for relaxed candidates (lower sorts first).
 
-    Tie-break only — never excludes. Prefer internal buses (pci/soundwire) over
+    Tie-break only; it never excludes. Prefer internal buses (pci/soundwire) over
     usb/unknown, then the exact issue-#18 symptom (audio-card-analog).
     """
     bus_rank = 0 if sink.get("bus") in ("pci", "soundwire") else 1
@@ -253,7 +255,7 @@ def select_speaker_sinks() -> dict:
     autoload entries and render diagnostics. ('all_sinks' is everything seen.)
     """
     all_sinks = _enumerate_audio_sinks()
-    # Single classification pass — keeps the strict/relaxed/excluded partition
+    # A single classification pass keeps the strict/relaxed/excluded partition
     # total and mutually exclusive (no double classify, no drift between arms).
     by_tier: dict[str, list[dict]] = {"strict": [], "relaxed": [], "excluded": []}
     for s in all_sinks:
@@ -267,10 +269,10 @@ def select_speaker_sinks() -> dict:
 
 
 def live_session() -> tuple:
-    """What one `pw-dump` says about the running session: `(default sink,
-    WirePlumber's running version or None)`.
+    """The default sink and running WirePlumber version, from one `pw-dump`.
 
-    Both come off the same dump because the doctor prints them a few rows
+    Returns `(default sink, WirePlumber's running version or None)`. Both
+    come off the same dump because the doctor prints them a few rows
     apart, and a second dump could answer for a graph that has since changed.
     The version is None when the daemon didn't answer or isn't in the graph;
     the caller falls back to the installed binary, which is a different fact
@@ -286,8 +288,10 @@ def live_session() -> tuple:
 
 
 def live_default():
-    """PipeWire's default output as a `checks.DefaultSink`: the node name
-    when the graph answered, the reason when it couldn't be read."""
+    """PipeWire's default output as a `checks.DefaultSink`.
+
+    It carries the node name when the graph answered, the reason when it
+    couldn't be read."""
     return live_session()[0]
 
 
@@ -297,17 +301,18 @@ def live_default_sink() -> str:
 
 
 def _is_physical_output(sink: dict) -> bool:
-    """An ALSA or Bluetooth node: one whose classification says where the
-    audio actually comes out. `_classify_sink` excludes the rest too, but
-    as "not a speaker to autoload onto", which is not the same as "not a
-    speaker"."""
+    """Whether *sink* is an ALSA or Bluetooth node.
+
+    Those are the nodes whose classification says where the audio actually
+    comes out. `_classify_sink` excludes the rest too, but as "not a speaker
+    to autoload onto", which is not the same as "not a speaker"."""
     return (sink.get("name", "").lower().startswith("alsa_output")
             or _is_bluetooth(sink))
 
 
 # Every Bluetooth sink renders under one label. The description is user-set
-# and routinely carries a person's name — "<Name>'s AirPods" is the stock
-# spelling — and it reaches blocks the issue form asks people to paste whole.
+# and routinely carries a person's name: "<Name>'s AirPods" is the stock
+# spelling. It reaches blocks the issue form asks people to paste whole.
 # The model behind it has some triage value, but a name has none and cannot
 # be un-pasted, so the same reasoning that strips the address strips this.
 BT_SINK_LABEL = "Bluetooth output"
@@ -323,9 +328,11 @@ def _sink_label(sink: dict | None) -> str:
 
 
 def sink_label(sinks: list[dict], name: str) -> str:
-    """The display label for sink ``name`` among ``sinks``: its description,
-    the fixed label for a Bluetooth one, "" when it isn't listed. The one
-    rule behind the `Output sink:` row both doctors print."""
+    """The display label for sink ``name`` among ``sinks``.
+
+    That is its description, the fixed label for a Bluetooth one, "" when it
+    isn't listed. The one rule behind the `Output sink:` row both doctors
+    print."""
     return _sink_label(next((s for s in sinks if s.get("name") == name), None))
 
 
@@ -350,34 +357,37 @@ def sink_kind_and_label(name: str) -> tuple[str, str]:
 
 
 def sink_kind(name: str) -> str:
-    """'speaker', 'other' or 'unknown': what PipeWire's description of sink
-    ``name`` settles about where its audio comes out.
+    """Classify sink ``name`` as 'speaker', 'other' or 'unknown'.
 
-    'speaker' is the classifier `--autoload` uses rather than a match on the
-    node name, so every caller agrees about what a speaker is — including
-    the relaxed tier for laptops whose UCM2 profile omits the speaker icon
-    (issue #18). 'other' is a confident no: an ALSA or Bluetooth node that
-    classifier excluded — HDMI, a headset, a Bluetooth speaker. Everything
-    else is 'unknown' — a failed probe, a sink the enumeration didn't list,
-    or a virtual one (EasyEffects' own sink, a combine sink), which says
-    nothing about the physical output — and a caller that would act on a
-    "no" treats it as no answer.
+    The answer is what PipeWire's description of the sink settles about
+    where its audio comes out. 'speaker' is the classifier `--autoload` uses
+    rather than a match on the node name, so every caller agrees about what
+    a speaker is. That includes the relaxed tier for laptops whose UCM2
+    profile omits the speaker icon (issue #18). 'other' is a confident no:
+    an ALSA or Bluetooth node that classifier excluded, such as HDMI, a
+    headset or a Bluetooth speaker. Everything else is 'unknown', and a
+    caller that would act on a "no" treats it as no answer. 'unknown' covers
+    a failed probe, a sink the enumeration didn't list, or a virtual one
+    (EasyEffects' own sink, a combine sink), which says nothing about the
+    physical output.
     """
     return sink_kind_and_label(name)[0]
 
 
 def is_internal_speaker(name: str) -> bool:
     """Does PipeWire call this sink one of the machine's own speakers?
-    `sink_kind` with "don't know" folded into False — right for a
+
+    `sink_kind` with "don't know" folded into False. That is right for a
     diagnostic bullet, wrong for anything that would act on a no."""
     return sink_kind(name) == "speaker"
 
 
 def _sink_diag_line(sink: dict, with_description: bool = True) -> str:
-    """One-line diagnostic: the sink's node.name (what --autoload-sink/
-    --target-sink take) plus icon/bus detail, and optionally a human
-    description, to identify the device. Shared by both converters so their
-    candidate/diagnostic lines stay in lockstep."""
+    """One-line diagnostic that identifies a sink's device.
+
+    The sink's node.name (what --autoload-sink/--target-sink take) plus
+    icon/bus detail, and optionally a human description. Shared by both
+    converters so their candidate/diagnostic lines stay in lockstep."""
     desc = sink.get("description") or ""
     desc_part = f'  "{desc}"' if (with_description and desc) else ""
     # Redacted here, at the one renderer both scripts share, rather than at its
@@ -399,9 +409,9 @@ def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
     """Prompt for a 1-based choice among already-listed `candidates`, or None.
 
     The caller is expected to have printed the numbered candidate list. Only
-    prompts when both stdin AND stdout are TTYs — piping stdout (e.g.
-    ``--autoload | tee log``) would otherwise block on a prompt the user can't
-    see — and treats EOF / interrupt / empty / invalid input as a skip, so
+    prompts when both stdin AND stdout are TTYs. Otherwise piping stdout
+    (e.g. ``--autoload | tee log``) would block on a prompt the user can't
+    see. EOF / interrupt / empty / invalid input counts as a skip, so
     non-interactive runs (pipes, CI, pytest) never block.
     """
     if not (sys.stdin.isatty() and sys.stdout.isatty()):

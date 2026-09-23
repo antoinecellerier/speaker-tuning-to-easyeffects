@@ -22,9 +22,10 @@ apart: EasyEffects asks Qt for each separately, taking presets, impulse
 responses, rnnoise models and autoload profiles from ``AppDataLocation``
 (upstream ``src/presets_directory_manager.cpp:39``) and its settings database
 from ``ConfigLocation`` plus a literal ``/easyeffects/db``
-(``src/db_manager.cpp:86``). EasyEffects never reads either variable itself —
-Qt does — and sets no ``organizationName``, so Qt appends no organization
-component and the leaf really is ``easyeffects`` under both roots.
+(``src/db_manager.cpp:86``). EasyEffects never reads either variable itself;
+Qt does. EasyEffects sets no ``organizationName``, so Qt appends no
+organization component and the leaf really is ``easyeffects`` under both
+roots.
 
 ``lib/pipewire/checks.py`` wants only the config root: PipeWire and
 WirePlumber read ``XDG_CONFIG_HOME`` for their drop-in directories too

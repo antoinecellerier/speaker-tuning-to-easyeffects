@@ -1,10 +1,10 @@
 """Where the conf and its impulse response go, and what to do once they're there.
 
-The write itself stays in ``ee_to_pipewire.py``'s ``main`` — this is
+The write itself stays in ``ee_to_pipewire.py``'s ``main``. This module is
 everything around it: the smart-filter target sink to pin to, the convolver
 retarget that makes the conf self-contained, and the two blocks a user reads
 afterwards. The ``lv2info`` schema self-check the conf is run through before
-it is written is not here either — that is ``lib.pipewire.validate.run``,
+it is written is not here either. That is ``lib.pipewire.validate.run``,
 called and rendered by the same ``main``. Where the impulse response is read
 *from* is not decided here: ``--irs-dir`` defaults to
 ``lib.ee_paths.DEFAULT_IRS_DIR``, the same attribute the generator's
@@ -16,19 +16,18 @@ inside ``_enumerate_audio_sinks``, so a converter run that never needs a sink
 never shells out, whether the import sits here or in the function.
 
 ``_sanitize_name`` comes in bare from ``lib.pipewire.conf`` for
-``_print_next_steps`` — a regex over its argument, with no state a patch would
-have to reach. ``PIPEWIRE_RESTART_CMD`` rides the same import — it was defined
-here until ``checks.py`` and
-``ee_to_pipewire.py`` had to spell it too, and ``conf`` is a module all three
-already import, and the one whose subject the command belongs to (``console``,
-the other they share, owns printing). Not stdlib-only —
-``lib.console`` owns the optional rich dependency — but nothing here reaches
-the DSP stack.
+``_print_next_steps``: a regex over its argument, with no state a patch would
+have to reach. ``PIPEWIRE_RESTART_CMD`` rides the same import. It lives in
+``conf`` because ``checks.py`` and ``ee_to_pipewire.py`` spell it too, and
+``conf`` is a module all three already import, and the one whose subject the
+command belongs to (``console``, the other they share, owns printing). Not
+stdlib-only, because ``lib.console`` owns the optional rich dependency, but
+nothing here reaches the DSP stack.
 
 The block from ``QUIT_EE_HINT`` down is the same seam for
 ``dolby_to_pipewire.py``: restart, poll ``pw-cli`` until the nodes appear,
 say what is still to be picked, and say how to undo the whole thing. It has
-no edge to ``lib.pipewire.checks`` and adds none — that direction is the one
+no edge to ``lib.pipewire.checks`` and adds none. That direction is the one
 deliberately left open so the two cannot form a cycle. It is also where this
 module's ``shutil``/``subprocess``/``time`` bindings are read, which is what
 the wrapper's tests patch through.
@@ -47,10 +46,11 @@ from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 def _retarget_convolver_irs(stages: list["Stage"],
                             target_irs: Path) -> Path | None:
-    """Rewrite every convolver node's `filename` to ``target_irs`` and
-    return the original source path (or ``None`` if the chain has no
-    convolver). All convolver nodes share one source IRS, so we copy
-    once and point both channels at the same destination.
+    """Rewrite every convolver node's `filename` to ``target_irs``.
+
+    Returns the original source path, or ``None`` if the chain has no
+    convolver. All convolver nodes share one source IRS, so one copy at
+    the destination serves both channels.
     """
     src: Path | None = None
     for stage in stages:
@@ -70,10 +70,10 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
     EasyEffects autoload pathway): ``pw-dump`` filtered to ``Audio/Sink``
     nodes, preferring those tagged ``device.icon_name == audio-speakers`` (the
     "strict" tier, which excludes HDMI / Bluetooth / headsets). When nothing is
-    tagged as a speaker — e.g. a laptop whose UCM2 profile omits the speaker
-    icon (issue #18) — it falls back to a "relaxed" tier of internal analog
-    sinks; a single relaxed candidate is used, with a warning. Returns
-    ``(None, [reasons])`` when no unique sink can be chosen — the caller
+    tagged as a speaker, e.g. a laptop whose UCM2 profile omits the speaker
+    icon (issue #18), it falls back to a "relaxed" tier of internal analog
+    sinks. A single relaxed candidate is used, with a warning. Returns
+    ``(None, [reasons])`` when no unique sink can be chosen. The caller then
     surfaces that, falls back to the v1 virtual-sink conf, and asks the user to
     pass ``--target-sink``.
     """
@@ -88,9 +88,10 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
         if len(selected) == 1:
             return selected[0]["name"], []
         # Redacted like the relaxed-tier lines below, which reach the same
-        # printers through `_diag`. A Bluetooth *speaker* lands in this tier —
-        # `_classify_sink` returns "strict" on device.icon_name=audio-speakers
-        # before it excludes bluez — so this list is not speakers-only.
+        # printers through `_diag`. A Bluetooth *speaker* lands in this tier,
+        # because `_classify_sink` returns "strict" on
+        # device.icon_name=audio-speakers before it excludes bluez. So this
+        # list is not speakers-only.
         return None, [
             doctor.no_bt_address(
                 f"multiple speaker sinks found ({len(selected)}): "
@@ -114,10 +115,10 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
 
     # tier == "none"
     if not all_sinks:
-        # Told apart, because the two have nothing in common to do about them
-        # and an empty sink list looks identical either way. This one returns
-        # its reason rather than printing, so the package name cannot ride
-        # along — naming the tool is what lets the caller's hint be right.
+        # The two causes are told apart because their remedies share nothing,
+        # and an empty sink list looks identical either way. This function
+        # returns its reason rather than printing, so the package name cannot
+        # ride along. Naming the tool is what lets the caller's hint be right.
         if tool_env.which("pw-dump") is None:
             return None, ["pw-dump isn't installed, so this run can't see any "
                           "sinks"]
@@ -134,8 +135,8 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
 
 def _print_results(conf_path: Path, irs_path: Path | None,
                    *, dry_run: bool) -> None:
-    """Report where the conf (and copied IRS) landed — or, under --dry-run,
-    where they *would* land."""
+    """Report where the conf (and copied IRS) landed, or would land under
+    --dry-run."""
     # "impulse response (.irs)", not the bare acronym: it is never expanded
     # anywhere else a user reads (round 5).
     #
@@ -154,25 +155,26 @@ def _print_results(conf_path: Path, irs_path: Path | None,
 
 
 def _grep_expectation(tail: str = "") -> str:
-    """The line printed under a ``pw-cli ls Node | grep`` step, saying what
-    success looks like. Both finish paths render it from here, so the two
-    cannot tell a user different things about the same grep.
+    """Return the line printed under a ``pw-cli ls Node | grep`` step.
 
-    What success looks like (round 6): with no expected output stated, an
-    empty grep couldn't be told apart from "this step doesn't matter". And it
-    names the usual cause of an empty grep instead of blaming the restart —
-    when an LSP or Calf plugin is missing, module-filter-chain fails to load
-    the whole conf and no node ever appears, so a reader told only "the
-    restart didn't load it" re-restarts forever. The automated path says it
-    too, in its own words (``_verify_sinks``).
+    The line says what success looks like. Both finish paths render it from
+    here, so the two cannot tell a user different things about the same grep.
+
+    It states the expected output (round 6), because without it an empty grep
+    couldn't be told apart from "this step doesn't matter". It names the usual
+    cause of an empty grep instead of blaming the restart. When an LSP or Calf
+    plugin is missing, module-filter-chain fails to load the whole conf and no
+    node ever appears, so a reader told only "the restart didn't load it"
+    re-restarts forever. The automated path says it too, in its own words
+    (``_verify_sinks``).
 
     ``tail`` appends what happens *once* the line shows up: the only part that
     differs between the callers, and empty where the caller says nothing about
     it.
 
-    It names the *category*, not LSP and Calf by name. The converter now says
-    which packages this particular chain needs — a chain with no Calf stage is
-    told LSP only — and a generic "LSP or Calf" a few lines later reads as a
+    It names the *category*, not LSP and Calf by name. The converter says
+    which packages this particular chain needs: a chain with no Calf stage is
+    told LSP only. A generic "LSP or Calf" a few lines later would read as a
     second, contradictory requirement appearing from nowhere. The names belong
     in the message that knows which ones apply.
     """
@@ -187,10 +189,11 @@ def _print_next_steps(node_name: str,
                       selectable: bool = False) -> None:
     """The actions to take after a real (non-dry-run) write.
 
-    ``selectable`` mirrors the wrapper's ``_print_selection_step``: with
+    ``selectable`` mirrors the wrapper's ``_print_selection_step``. With
     --target-sink '' the chain is an ordinary output that processes nothing
-    until it is chosen, and this checklist used to end without saying so — the
-    exact gap the wrapper's traps exist to prevent, on the path that has none.
+    until it is chosen, and the checklist must say so. That is the exact gap
+    the wrapper's traps exist to prevent. On this path the trap is
+    ``test_next_steps_tell_a_v1_user_to_select_the_sink``.
     """
     console.cprint("head", "Next steps:")
     console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
@@ -206,7 +209,7 @@ def _print_next_steps(node_name: str,
                   f"{_sanitize_name(node_name)}")
     console.cprint("dim", _grep_expectation())
     # Counted rather than hard-coded: both tails below are optional, and as two
-    # literal "4."s they collided on the run that printed both.
+    # literal "4."s they would collide on a run that printed both.
     step = 4
     if selectable:
         console.cprint("cta", f"  {step}. Select it as output:     pactl "
@@ -239,8 +242,8 @@ QUIT_EE_HINT = ("If you also run EasyEffects on this device, quit it and "
 
 # What running the chain as its own output costs, in the words of the symptom it
 # produces. Measured for issue #63: the chain and the speaker are two sinks in
-# series, each with its own control, so the levels multiply — and the chain's
-# lands *ahead of* the filter graph (indistinguishable from turning the source
+# series, each with its own control, so the levels multiply. The chain's lands
+# *ahead of* the filter graph (indistinguishable from turning the source
 # content down), so on loud material it also changes how hard the tuning's
 # compressor and limiter work.
 #
@@ -254,7 +257,7 @@ V1_SECOND_VOLUME_HINT = ("it has a volume control of its own, on top of your "
 
 
 def speaker_attenuation() -> str:
-    """"your speakers are at 40% (-23.8 dB)" when they are turned down, else "".
+    """Return "your speakers are at 40% (-23.8 dB)" when turned down, else "".
 
     Telling someone to leave their speakers at 100 % is advice; telling them
     what those speakers are set to right now is a reading, and it is the half
@@ -272,14 +275,16 @@ def speaker_attenuation() -> str:
 
 
 def _print_undo(written: list[Path], style: str = "dim") -> None:
-    """How to get back. Everything else here asks the reader to restart their
-    sound server with a config file they can't read, and never said what to do
-    if the result is worse. Deleting the conf and restarting is the whole
+    """Print how to get back: delete the written files, restart PipeWire.
+
+    Everything else here asks the reader to restart their sound server with a
+    config file they can't read, and without this nothing would say what to
+    do if the result is worse. Deleting the conf and restarting is the whole
     answer; it just has to be written down.
 
-    `style` is "dim" on a run that worked — there, the way back is a footnote.
-    On a run that did not it is the most useful line on screen, and a footnote
-    is the wrong shape for it."""
+    `style` is "dim" on a run that worked, where the way back is a footnote.
+    On a run that did not, it is the most useful line on screen, and a
+    footnote is the wrong shape for it."""
     # Only files that exist: the .irs copy is skipped when the source
     # already sits at the target, and an rm over a missing file aborts the
     # pasted command halfway.
@@ -302,19 +307,19 @@ def _print_manual_activation(node_names: list[str],
     # EE in the critical path made them doubt they had.
     console.cprint("head", "[3/3] Activation skipped (--no-activate) — to finish:")
     console.cprint("cta", f"  1. Restart PipeWire:        {PIPEWIRE_RESTART_CMD}")
-    # Numbered per sink rather than all "2.": with --variant all this loop
-    # printed three consecutive steps sharing one number, under a note
+    # Numbered per sink rather than all "2.": with --variant all, one shared
+    # number would print three consecutive steps as "2.", under a note
     # referring back to "step 1".
     for i, name in enumerate(node_names, start=2):
         console.cprint("cta", f"  {i}. Verify the sink:         pw-cli ls Node | grep "
                       f"{name}")
-    # "Pinned ... automatically": the verify step proved existence, not
-    # routing, and nothing said whether to go pick it in Settings (round
-    # 10) — the smart filter pins it, so say so. This path carries a tail
-    # where _print_next_steps has none.
+    # "Pinned ... automatically": the verify step proves existence, not
+    # routing, and without the tail nothing says whether to go pick it in
+    # Settings (round 10). The smart filter pins it, so the tail says so. This
+    # path carries a tail where _print_next_steps has none.
     # "pinned automatically" is true of smart-filter routing only. Under
     # --target-sink '' the chain is an ordinary output that does nothing until
-    # it is selected, and this sentence promised the opposite.
+    # it is selected, and that sentence would promise the opposite.
     tail = ("once the line is there, pick it as your output in sound settings"
             if selectable else
             "once the line is there, it's pinned to your speakers automatically")
@@ -327,15 +332,16 @@ def _print_manual_activation(node_names: list[str],
 
 
 def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
-    """Poll pw-cli until every expected node shows up — the chain takes a
-    moment to load after the restart. Missing after the timeout usually
-    means a missing LV2 plugin."""
+    """Poll pw-cli until every expected node shows up.
+
+    The chain takes a moment to load after the restart. Missing after the
+    timeout usually means a missing LV2 plugin."""
     if tool_env.which("pw-cli") is None:
         # The check command comes *after* the install, not beside the "not
-        # found": this line used to say "check with: pw-cli ls Node" in the
-        # same breath as saying pw-cli was missing, which is an instruction
-        # the reader cannot follow. Nothing failed here either — say so, or an
-        # unverified chain reads as a broken one.
+        # found". Beside it, a "check with: pw-cli ls Node" (an earlier
+        # wording) would sit in the same breath as saying pw-cli was missing,
+        # an instruction the reader cannot follow. Nothing failed here either.
+        # Say so, or an unverified chain reads as a broken one.
         console.cprint("warn", "pw-cli isn't installed, so this run can't "
                        "confirm the sink loaded. Nothing failed — the chain "
                        "may well be running.")
@@ -347,9 +353,9 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     deadline = time.monotonic() + timeout
     missing = list(node_names)
     # Whether we ever got a graph back at all. `pw-cli` timing out or erroring
-    # leaves `listing` empty, which marks every node missing — indistinguishable
-    # from a chain that really didn't load, and the diagnosis below is only
-    # honest about the second.
+    # leaves `listing` empty, which marks every node missing. That is
+    # indistinguishable from a chain that really didn't load, and the diagnosis
+    # below is only honest about the second.
     answered = False
     while missing:
         try:
@@ -369,10 +375,11 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     if missing:
         # Before the per-sink error, not after it: `missing` is every node we
         # did not see, and a `pw-cli` that never answered leaves all of them
-        # in it. Printed first, "error: sink X did not appear" asserted as
-        # fact the very thing this branch exists to say we do not know — and
-        # the non-zero it returned had the wrapper promote "To undo: rm …" to
-        # the loudest line on screen, over a chain that is probably running.
+        # in it. Printed first, "error: sink X did not appear" would assert as
+        # fact the very thing this branch exists to say we do not know. Its
+        # non-zero return would also make the wrapper promote "To undo: rm …"
+        # to the loudest line on screen, over a chain that is probably running
+        # (test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain).
         if not answered:
             console.cprint("warn", "pw-cli never returned a node list, so "
                           "whether the chain loaded couldn't be checked — a "
@@ -383,11 +390,10 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
             console.cprint("err", f"error: sink {name} did not appear after the "
                           "restart")
         # What the absent sink *means*, in the reader's terms: the thing this
-        # run generated is not running. It stopped being ambiguous only
-        # recently — the conf now carries `nofail` (conf.format_conf), so a
-        # chain PipeWire cannot load is skipped rather than aborting the
-        # daemon, and before that this same message could equally have meant
-        # the machine had no sound at all.
+        # run generated is not running. The conf carries `nofail`
+        # (conf.format_conf), so a chain PipeWire cannot load is skipped
+        # rather than aborting the daemon. Without it, this same message could
+        # equally mean the machine had no sound at all.
         console.cprint("warn", "So the filter chain this run generated isn't "
                       "running. PipeWire skips a chain it can't load rather "
                       "than refusing to start, so your speakers still work — "
@@ -395,9 +401,10 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         # Both packages, and said to be both: this step sees only that a node
         # is absent, so it cannot narrow it to one the way the converter's
         # pre-write check does. Naming them without that sentence reads as a
-        # diagnosis, and contradicts a run that named only one — and why it
-        # cannot, because a run that names two plugins elsewhere and shrugs
-        # here reads as one of them holding something back.
+        # diagnosis, and contradicts a run that named only one. The message
+        # also says why it cannot narrow, because a run that names two plugins
+        # elsewhere and shrugs here reads as one of them holding something
+        # back.
         console.cprint("cta", "A missing LV2 plugin stops the whole conf "
                       "loading. All this step sees is a node that isn't "
                       "there, so install both — or run --doctor, which checks "
@@ -450,7 +457,7 @@ def _print_selection_step(node_names: list[str], selectable: bool) -> None:
         console.cprint("dim", "     (pinned to your speakers automatically — apps "
                       "keep playing to the speaker as usual)")
         # The chain is still listed as an output, so it can be selected by
-        # mistake — and it looks like an ordinary device in the list. Selecting
+        # mistake. It looks like an ordinary device in the list. Selecting
         # it works, but it is then two sinks in series (issue #63).
         #
         # The trailing clause is not padding. The [2/3] block offers

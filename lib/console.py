@@ -18,39 +18,28 @@ every helper below degrades to a plain ``print`` rather than failing.
 
 ``_HelpHintParser`` is here for the same reason as the rest: an argparse
 error is output too, and it is the one message two of the three entry points
-print from a class rather than a function. It lived on the generator and the
-wrapper imported it from there — the last import that crossed between two
-root scripts. ``_make_adder`` sits beside it as the other half of that story:
-not output at all, but the argparse plumbing both converters build their
-shared argument groups on, kept as two copies because importing the
-generator's was said to drag numpy/scipy into the converter's startup. Moving
-the generator's DSP imports into its ``main()`` made that false, so the double
-bought nothing and the copies collapse here — where neither root script has to
-import the other to reach it, and where, being closures over the parser it is
-handed, it imports nothing itself. The two bodies were identical; the two
-docstrings were not, and the surviving one is the generator's. The converter's
-called the filter key the "primary option string", which was wrong before the
-copies met: ``names[0]`` is the key whether or not it starts with a dash, and
+print from a class rather than a function. Here, no root script has to
+import another to reach it. ``_make_adder`` sits beside it: not output at
+all, but the argparse plumbing both converters build their shared argument
+groups on. Being a closure over the parser it is handed, it imports nothing
+itself. ``names[0]`` is its filter key whether or not it starts with a dash:
 the generator registers its ``xml_file`` positional through this very adder.
 ``add_color_and_version_args`` is the third of that cluster and the only one
-about this module's own subject: ``--no-color``
-is the switch every helper above obeys, and it was declared three times, once
-per entry point, beside a ``--version`` copied the same three times. Nothing
-had diverged — all three declarations of each flag were character-identical —
-so this collapses a count, not a repair. The one real difference between the
-sites is structural, and the helper's own docstring below explains it.
-``help_style`` is its other end — the flag has to be honoured a second time,
-before argparse renders ``--help``, and answering that means reading both
-private names above, which is a poor thing to make three callers do.
+about this module's own subject. It declares ``--no-color``, the switch every
+helper above obeys, and ``--version`` once for all three entry points. The
+one real difference between the three callers is structural, and the
+helper's own docstring below explains it. ``help_style`` is its other end. The flag has to
+be honoured a second time, before argparse renders ``--help``, and answering
+that means reading both private names above, which is a poor thing to make
+three callers do.
 
 ``run_guarded`` is the last of the cluster and the reason ``doctor`` is
-imported below. It is how a *failed* run looks, and it was the generator's
-alone: the two PipeWire entry points ended in a bare ``sys.exit(main())`` and
-let a converter failure traceback at the user. It sits beside
+imported below. It is how a *failed* run of any of the three entry points
+looks. It sits beside
 ``_HelpHintParser`` because the two are one message seen from either side of
-argparse — the argv was wrong (stderr, exit 2), or something the run reached
-raised (stdout, exit 1) — and they share ``_HELP_HINT``, the sentence both end
-on when nothing more specific is known.
+argparse. Either the argv was wrong (stderr, exit 2), or something the run
+reached raised (stdout, exit 1). They share ``_HELP_HINT``, the sentence both
+end on when nothing more specific is known.
 """
 
 import argparse
@@ -128,11 +117,11 @@ _COLOR_KEYS = {"rich": packages.RICH, "rich-argparse": packages.RICH_ARGPARSE}
 
 # The sentence both failure paths end on: argparse's, when the argv itself is
 # wrong, and run_guarded's, for any raiser that names no next step of its own.
-# One spelling, not two that read alike. The paths genuinely differ — argv
+# One spelling, not two that read alike. The paths genuinely differ: argv
 # parsing writes to stderr and exits 2, a raised failure prints to stdout and
-# exits 1 — but the claim is the same claim, and the parser below has always
-# promised in its docstring that the two nudges match. A promise like that
-# kept as a second copy of the string is what goes stale first.
+# exits 1. But the claim is the same claim, and the parser below promises in
+# its docstring that the two nudges match. A promise like that kept as a
+# second copy of the string is what goes stale first.
 _HELP_HINT = "Run with --help to see usage and all options."
 
 
@@ -199,11 +188,11 @@ def _choice_highlights(actions) -> list[str]:
 # unreadable directory, an XML or preset whose shape we reject — and for those
 # a traceback tells the reader nothing they can act on.
 #
-# OSError rather than FileNotFoundError, which is the only one of its family
-# the generator used to name: every one of these scripts writes files into
-# directories it does not own (~/.local/share/easyeffects, ~/.config/pipewire),
-# so a read-only mount, a root-owned leftover or a full disk is as ordinary a
-# failure as a missing XML, and Python never uses OSError for a logic bug.
+# OSError rather than only FileNotFoundError: every one of these scripts
+# writes files into directories it does not own (~/.local/share/easyeffects,
+# ~/.config/pipewire). So a read-only mount, a root-owned leftover or a full
+# disk is as ordinary a failure as a missing XML, and Python never uses
+# OSError for a logic bug.
 #
 # TypeError is deliberately absent, though the converter has two raise sites
 # for it (lib/pipewire/conf.py's _fmt_num / _fmt_value). Those cannot fire on
@@ -264,11 +253,10 @@ def refuse_root() -> None:
     put this*, not about anything it can check. It holds only while every
     entry point calls it directly after parse_args, ahead of its first mkdir.
 
-    --doctor is in fact the worst of them, because it answers: it probes root's
-    EasyEffects
-    directories and root's XDG_RUNTIME_DIR and reports what it finds as facts
-    about a user who is not the one running it — in a block written to be
-    pasted into an issue.
+    --doctor is in fact the worst of them, because it answers. It probes
+    root's EasyEffects directories and root's XDG_RUNTIME_DIR, and reports
+    what it finds as facts about a user who is not the one running it, in a
+    block written to be pasted into an issue.
 
     The message names no path on purpose. run_guarded renders it through
     doctor.tilde(), and under sudo $HOME *is* /root, so an interpolated
@@ -286,13 +274,13 @@ def refuse_root() -> None:
         "your HOME, in yours but owned by root, where your next run could not "
         "replace them.")
     # Two lines, and in this order, because both halves were misread when they
-    # were one. "run as root" opened the sentence as an instruction rather than
-    # a report of what just happened; the override, sharing the body with the
-    # explanation, read as the equal of the real fix; and its condition — first
-    # written "if root is the only user on this machine" — was taken to mean a
-    # single-user laptop, which is every reader who reaches this and precisely
-    # the one it must not license. The condition is now what actually makes the
-    # override safe: the session consuming these files is root's own.
+    # were one. An opening "run as root" reads as an instruction rather than a
+    # report of what just happened. The override, sharing the body with the
+    # explanation, read as the equal of the real fix. Its condition is what
+    # actually makes the override safe: the session consuming these files is
+    # root's own. An earlier wording of it, "if root is the only user on this
+    # machine", was taken to mean a single-user laptop, which is every reader
+    # who reaches this and precisely the one it must not license.
     exc.next_step = (
         "Re-run the same command as your normal user, without the sudo.\n"
         "  Only if you log into the desktop as root: prefix it with "
@@ -316,8 +304,8 @@ def _leftover_next_step(exc):
     after it dies on ``[Errno 13] Permission denied`` with the generic --help
     pointer under it — a flag list, for a problem no flag fixes.
 
-    Says only what the errno and one stat support — this path is owned by
-    root — and offers the sudo run as the mechanism that produces that, not as
+    Says only what the errno and one stat support: this path is owned by
+    root. It offers the sudo run as the mechanism that produces that, not as
     a history it cannot see. Asserted the other way round ("a root-owned file
     from an earlier sudo run"), a reader who did not remember running it with
     sudo read it as the tool claiming they had, in the one line they were
@@ -464,8 +452,8 @@ def _raw_epilog(base, epilog: str):
 
     argparse renders the epilog through the same ``_fill_text`` as the
     description: whitespace collapsed, then re-wrapped to the terminal. That
-    is right for prose and wrong for the one thing this epilog now carries —
-    an install command, which folds at its own spaces on an 80-column terminal
+    is right for prose and wrong for the one thing this epilog carries: an
+    install command, which folds at its own spaces on an 80-column terminal
     and stops being runnable. The same rule ``lib/doctor.py``'s ``emit_check``
     states: prose wraps, commands are printed as given.
 
@@ -527,12 +515,12 @@ def cprint(style: str, text: str = "") -> None:
     """Print `text` in the given semantic style, or plain if rich is absent.
 
     ``soft_wrap=True`` keeps the text exactly as written. Without it rich
-    reflows at the console width and folds anything longer — which silently
-    broke the report-back URL (103 chars) mid string on any 80-column terminal,
-    leaving the tool's main call to action unclickable and uncopyable. It also
-    made output depend on whether rich was installed at all, since the fallback
-    above never wraps. Prose that needs wrapping asks for it explicitly via
-    _cprint_wrapped.
+    reflows at the console width and folds anything longer. That silently
+    breaks the report-back URL (103 chars) mid string on any 80-column
+    terminal, leaving the tool's main call to action unclickable and
+    uncopyable. It also makes output depend on whether rich is installed at
+    all, since the fallback above never wraps. Prose that needs wrapping asks
+    for it explicitly via _cprint_wrapped.
     """
     if _CONSOLE is None:
         print(text)

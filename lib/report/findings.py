@@ -1,7 +1,7 @@
 """The one thing a run noticed, and the half of it that prints inline.
 
 `Finding` is the record every part of the run raises when it notices
-something — an unmodeled DSP block, a profile Dolby names but we don't build,
+something: an unmodeled DSP block, a profile Dolby names but we don't build,
 a stage whose gain nothing bounds. It is deliberately dumb: two strings, a
 slug and a kind. `.claude/rules/user-messages.md` is the contract for what
 goes in each half and where each half prints.
@@ -12,20 +12,17 @@ probes return them, and the closing block consumes them. A shared record type
 in any one of those makes the other two import a module they have no other
 business with.
 
-`_print_finding_detail` comes with it, because the two are one contract —
-Finding says what the halves are, this says where the first half lands — and
-because `_TAG_CONVENTION_SHOWN` has to sit in the same module as the function
+`_print_finding_detail` comes with it, because the two are one contract:
+Finding says what the halves are, and this says where the first half lands.
+`_TAG_CONVENTION_SHOWN` also has to sit in the same module as the function
 that writes it through `global`. main() resets that flag per run, through
 this module rather than its own globals, so an in-process second run (the
 `dolby_to_pipewire.py` wrapper, or a test calling main twice) starts fresh.
 
 The factories that build the findings raised outside `lib/dax/parse.py`'s own
-table came next, with `print_project_asks` and the `_print_ask` bullet
-renderer — the *second* half of the contract, where each finding's `ask` lands
-at the end of the run. The record type arrived here first, one slice early,
-because `lib/dax/parse.py` could not be extracted without it: `parse_xml` ends
-by building and printing findings, and a move commit may not re-point the call
-sites it carries across.
+table live here too, with `print_project_asks` and the `_print_ask` bullet
+renderer. They are the *second* half of the contract, where each finding's
+`ask` lands at the end of the run.
 """
 
 from __future__ import annotations
@@ -42,14 +39,14 @@ class Finding:
     """One thing a run noticed, printed in two halves with different readers.
 
     ``detail`` is the technical why. It prints inline, at the detection site,
-    next to the values it explains — the only place it has context. Keeping it
+    next to the values it explains, the only place it has context. Keeping it
     out of the closing block is what keeps that block scannable when several
     things fire at once.
 
     ``ask`` is what the user reads at the end: ONE short sentence in their
     terms, either the fix to try or the question we want answered. It is
     optional, and leaving it empty is the normal case for anything the user
-    cannot act on — a "nothing for you to do" line, in a block whose whole
+    cannot act on. A "nothing for you to do" line, in a block whose whole
     purpose is to prompt action, only teaches people to skip the block. Those
     findings still print their detail inline, so they still reach us in a
     pasted report.
@@ -57,12 +54,11 @@ class Finding:
     ``kind`` picks the section the ask lands in: "hint" fixes the user's own
     audio, "ask" is something the project needs from them.
 
-    ``slug`` ties the two halves together — it leads the inline line and
-    trails the end-block one, so either greps to the other — and is the
-    de-duplication key. Keying on rendered text (what main() did before)
-    silently missed repeats whose text embeds a per-profile value, so
-    --all-profiles could print one finding several times with different
-    numbers in it.
+    ``slug`` ties the two halves together: it leads the inline line and
+    trails the end-block one, so either greps to the other. It is also the
+    de-duplication key. Keying on rendered text would silently miss repeats
+    whose text embeds a per-profile value, so --all-profiles could print one
+    finding several times with different numbers in it.
     """
     slug: str
     detail: str
@@ -79,15 +75,16 @@ class Finding:
 
 # One-time [tag] orientation, printed with a run's first finding: the first
 # bracketed token a reader meets otherwise looks like an error code, and the
-# explanation only arrived in the closing block (round 2). Reset per main()
-# call so wrapper-driven and repeated in-process runs behave like fresh ones.
+# explanation would only arrive in the closing block (round 2). Reset per
+# main() call so wrapper-driven and repeated in-process runs behave like fresh
+# ones.
 _TAG_CONVENTION_SHOWN = False
 
 
 def _print_finding_detail(finding: Finding) -> None:
     """Print a finding's technical half where the condition was detected.
 
-    Prints on every detection — the position is the point, and it is what a
+    Prints on every detection: the position is the point, and it is what a
     reader scrolls back to from the closing block. The slug leads here (a
     left edge is what makes it findable when scanning back through a couple
     of hundred lines of tables) and trails there. The ask half is
@@ -111,10 +108,9 @@ def _print_finding_detail(finding: Finding) -> None:
 # The device-report issue form (.github/ISSUE_TEMPLATE/device-report.yml).
 # There is exactly one link in the output and this is it. Everything the
 # closing block asks about is device-specific, and acting on any of it needs
-# what this form requires — model, --speaker-info output, the generation log.
-# A second, generic /issues link used to ride the mid-run feature-gap
-# warnings; once those moved into the same closing block it was simply a rival
-# call to action, pointing somewhere reports arrive stripped of that context.
+# what this form requires: model, --speaker-info output, the generation log.
+# A second, generic /issues link would be a rival call to action, pointing
+# somewhere reports arrive stripped of that context.
 _REPORT_FORM_URL = (
     "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
     "/issues/new?template=device-report.yml"
@@ -125,14 +121,14 @@ _REPORT_FORM_URL = (
 #
 # Every finding raised outside the _UNMODELED_FEATURES table is built here,
 # one function each, rather than inline at its raise site. They are the single
-# definition of their wording: an earlier arrangement had the strings inline
-# and the contract tests restating them, which is the drift e3a7ee4 removed
-# from the doctor/warning pair — two copies, edited one at a time.
+# definition of their wording. Strings inline, with the contract tests
+# restating them, would be the drift e3a7ee4 removed from the doctor/warning
+# pair: two copies, edited one at a time.
 
 def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
     """Dolby names a different profile than the one we built."""
     # kind="ask": "tell us which sounds better" is something the project
-    # needs, and hint-routing left the one ending that solicits the
+    # needs, and hint-routing would leave the one ending that solicits the
     # comparison without the Help-the-project block or the attach path
     # (round 8). This is also the confirmation channel the parked
     # build-the-declared-default change waits on.
@@ -148,12 +144,14 @@ def _profile_mismatch_finding(declared: str, profile_used: str) -> Finding:
         # Names the action and what it gets you. An earlier wording led with
         # "worth an A/B against Windows", which read as though the user had to
         # go and do something in Windows.
-        # Names both sides. "the profile this device ships on" alone left the
-        # reader unable to tell what they'd be comparing against, and reading
-        # as though the tool had knowingly picked the wrong one.
-        # Says why the names matter and closes the loop: "re-run to compare"
-        # alone left a reviewer comparing with no idea what to do with the
-        # result, and the two names connected to nothing else in the block.
+        # Names both sides. An earlier "the profile this device ships on"
+        # alone left the reader unable to tell what they'd be comparing
+        # against, and read as though the tool had knowingly picked the
+        # wrong one.
+        # Says why the names matter and closes the loop: an earlier "re-run
+        # to compare" alone left a reviewer comparing with no idea what to do
+        # with the result, and the two names connected to nothing else in
+        # the block.
         # "the Windows default", not "Windows uses": default_profile is the
         # shipping default; what the user actually ran on Windows may
         # differ.
@@ -168,12 +166,11 @@ def _untamed_boost_ask() -> str:
     One template for one risk family (round 8: two wordings for the same risk
     left the reader unsure which explanation to trust).
 
-    This used to carry a second step offering `--enable coupled-bands`. That
-    step died when the mapping became the default (2026-08-11): a run that
-    reaches either finding has already either applied the coupled zones —
-    in which case the finding is suppressed — or cannot (no qualifying zone,
-    or the user disabled them). Offering the flag would name a switch that is
-    already on.
+    It offers no second `--enable coupled-bands` step, because that mapping is
+    on (default since 2026-08-11). A run that reaches either finding has either
+    applied the coupled zones, in which case the finding is suppressed, or
+    cannot (no qualifying zone, or the user disabled them). Offering the flag
+    would name a switch that is already on.
     """
     return "If loud parts distort, re-run with --disable volmax."
 
@@ -182,24 +179,24 @@ def _loudness_untamed_finding() -> Finding:
     """Every regulator band sits at or above 0 dBFS, so nothing is tamed."""
     return Finding(
         slug="loudness-untamed",
-        # Self-contained: it used to say "threshold_high above", pointing at
-        # a table that only prints with -v now. The field name stays in
-        # parentheses as the grep handle. No limiter noun at all (round 8):
-        # "brickwall" → "final safety limiter" → "the preset's own output
-        # limiter" each read as a second mystery stage; what the reader
-        # needs is the consequence, phrased identically to the
-        # boost-unlimited sibling — one template for one risk family.
+        # Self-contained: an earlier wording, "threshold_high above",
+        # pointed at a table that only prints with -v. The field name stays
+        # in parentheses as the grep handle. No limiter noun at all (round
+        # 8): the earlier "brickwall" → "final safety limiter" → "the
+        # preset's own output limiter" each read as a second mystery stage.
+        # What the reader needs is the consequence, phrased identically to
+        # the boost-unlimited sibling: one template for one risk family.
         # No raw field name (round 9): "threshold_high" read as leaked
         # code and undercut trust. The -v table still prints the field.
         # "band by band" is load-bearing, not filler: limiter#0 ships on
         # every preset, so the bare "nothing limits it" that dropping the
-        # noun left behind was false. The qualifier keeps the sentence
+        # noun would leave behind is false. The qualifier keeps the sentence
         # true without reintroducing a stage the reader has to look up.
         detail="This tuning's regulator never engages — every band's "
                "limit sits at or above full volume — so nothing trims "
                "the loudness boost band by band on its way out.",
-        # Same ask as boost-unlimited — one template for one risk family
-        # (round 9). Note this finding can only fire now on a tuning the
+        # Same ask as boost-unlimited: one template for one risk family
+        # (round 9). This finding can only fire on a tuning the
         # coupled-bands default does NOT cover: where it does, the all-inert
         # bands are limited and the gate above suppresses this outright.
         ask=_untamed_boost_ask())
@@ -211,14 +208,14 @@ def _boost_unlimited_finding(peak_db: float, freq,
     # Name everything riding on that band, not just volmax: under
     # --enable level-restore the peak itself is added back as gain, so
     # "with the volmax boost on top" would describe half the drive. The
-    # clause stays one phrase either way — this is a detail line, and the
+    # clause stays one phrase either way: this is a detail line, and the
     # flag's own menu entry and the [level-restore] finding carry the
     # distortion caveat.
     on_top = ("the volmax boost and the restored level on top" if restored
               else "the volmax boost on top")
     return Finding(
         slug="boost-unlimited",
-        # Same closing formula as loudness-untamed — one template for one
+        # Same closing formula as loudness-untamed: one template for one
         # risk family (round 8: two wordings for the same risk left the
         # reader unsure which explanation to trust).
         detail=f"The biggest correction boost ({peak_db:+.1f} dB at {freq} Hz) "
@@ -226,10 +223,10 @@ def _boost_unlimited_finding(peak_db: float, freq,
                f"{on_top} — nothing trims it band by band on its "
                "way out.",
         # Not "loud music": the vocabulary trap reserves "music" for the
-        # mbc symptom. No region word — the unlimited band's frequency is
+        # mbc symptom. No region word: the unlimited band's frequency is
         # device-specific and the detail above already names it. The wording
         # lives in _untamed_boost_ask, shared with loudness-untamed, along
-        # with why it no longer offers coupled-bands as a second step.
+        # with why it offers no coupled-bands second step.
         ask=_untamed_boost_ask())
 
 
@@ -260,7 +257,7 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
 
 
 def _level_restore_finding() -> Finding:
-    """--enable level-restore is on, and one device has now heard it.
+    """--enable level-restore is on, and one device has heard it.
 
     Deliberately not one of the EXPERIMENTAL_MARKERS paths above: those are
     reproduced-but-never-auditioned, and this one was auditioned on the dev
@@ -273,7 +270,7 @@ def _level_restore_finding() -> Finding:
     return Finding(
         slug="level-restore", kind="ask",
         # What comes back is the scalar peak make_fir normalised the curve
-        # by, not the curve — and "louder" holds because that peak is
+        # by, not the curve. "louder" holds because that peak is
         # positive on every tuning we hold (build.py only gates on != 0;
         # 0 of 3419 corpus XMLs trim by a negative peak, 2026-08-24).
         detail="Restored level is on: the level the correction curve was "
@@ -293,13 +290,13 @@ def _reload_unanswered_finding(target: str, asked_to_load: bool = True) -> Findi
 
     Its own slug (review round 2026-08-27): a refusal the tool confirmed and
     a silence it could not read are different situations, and the tag is
-    what a reporter quotes. The ask names the cause's fix — a socket that
+    what a reporter quotes. The ask names the cause's fix: a socket that
     stopped answering is the two programs drifting apart, which picking the
     preset by hand works around but does not cure.
 
     ``asked_to_load`` False: the unanswered question was which preset is
-    playing, and the run then sent no load on purpose — a detail claiming
-    one was sent described a request that never went out (copy audit
+    playing, and the run then sent no load on purpose. A detail claiming
+    one was sent would describe a request that never went out (copy audit
     2026-08-27).
     """
     if asked_to_load:
@@ -322,25 +319,24 @@ def _reload_refused_finding(target: str, loaded: str,
     """EasyEffects answered, but this run could not get it onto ``target``.
 
     ``loaded`` is what it reports after the load. "" is a file it found but
-    could not parse (it clears its key) — or one it never found while
+    could not parse (it clears its key), or one it never found while
     nothing was loaded before (it leaves the key alone; upstream
     presets_manager.cpp loadLocalPresetFile). Another name is a file it
     never found with that name still loaded. ``kernel_ok`` False with the
     right preset loaded: its convolver reports an impulse other than the
-    one this run wrote — reached only that way, since both right is the
-    "loaded" outcome.
+    one this run wrote. It is reached only that way, since both right is
+    the "loaded" outcome.
 
     A restart is never the ask: EasyEffects rebuilds from its own settings
     db on start, not from the preset file, and comes back exactly as it
     was (copy audit 2026-08-27; the db fact is in docs/design-notes.md).
     """
-    # Each cause gets the ask that fits it (review round 2026-08-27: "pick
-    # it from the menu" under a detail saying EasyEffects looks in another
-    # folder asked the impossible). All three end at --doctor: the one
-    # documented way EasyEffects and this run see different files is a
-    # Flatpak and a native install keeping separate trees
-    # (lib/ee_paths.py), and --doctor's install checks name which one this
-    # run wrote for.
+    # Each cause gets the ask that fits it (review round 2026-08-27: an earlier
+    # "pick it from the menu" under a detail saying EasyEffects looks in
+    # another folder asked the impossible). All three end at --doctor: the one
+    # documented way EasyEffects and this run see different files is a Flatpak
+    # and a native install keeping separate trees (lib/ee_paths.py), and
+    # --doctor's install checks name which one this run wrote for.
     doctor = "Run this script with --doctor: it shows which EasyEffects install the files went to"
     if loaded == "":
         detail = (f"EasyEffects is running but reports no preset loaded after "
@@ -365,8 +361,8 @@ def _reload_refused_finding(target: str, loaded: str,
 def _ee_bypassed_finding() -> Finding:
     """The preset is selected but EasyEffects' effects are switched off.
 
-    "Effects" is the control's name where a user looks for it — the header
-    button, tooltip "Turn effects on/off" (upstream Main.qml); "global
+    "Effects" is the control's name where a user looks for it: the header
+    button, tooltip "Turn effects on/off" (upstream Main.qml). "global
     bypass" is what the socket and the Shortcuts sheet call the same state,
     and a user hunting the UI for it finds the wrong switch (copy audit
     2026-08-27)."""
@@ -392,24 +388,25 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
                               disabled_by_flag: bool = False) -> Finding | None:
     """The Dolby leveler companion stages this converter cannot reproduce.
 
-    Unlike every other mapping these carry no parameters at all — the schema
+    Unlike every other mapping these carry no parameters at all. The schema
     has an on/off bit and nothing else, no threshold, ratio, attack or release
-    in either tuning block — so no stage can be derived from them, and
+    in either tuning block. So no stage can be derived from them, and
     inventing one is the per-device hand-tuning the XML-only rule forbids.
 
     Two strengths. Where the leveler ships bypassed (HDA default) the
     companions cannot be heard and there is nothing for anyone to do: detail
     only, no ask. Where the leveler runs (SoundWire default, or ``--enable
-    autogain``) it runs without the compressor Dolby pairs with it — a
-    plausible cause of exactly the pumping that state gets blamed for — so
+    autogain``) it runs without the compressor Dolby pairs with it. That is
+    a plausible cause of exactly the pumping that state gets blamed for, so
     that case asks for the one capture that could settle it, and names
     ``--disable autogain`` as the off-switch.
 
     "May be part of it", not "the most likely reason": the measured driver of
     quiet-swell/loud-duck is EE's own non-content-aware autogain (design-notes,
     "Why autogain is bypassed by default"), and the corpus doc records that the
-    companion compressor does not explain the issue-#25 overshoot — neither
-    device carrying it. The copy had promoted this docstring's own hedge.
+    companion compressor does not explain the issue-#25 overshoot: neither
+    device carries it. That stronger wording would promote this docstring's
+    own hedge into the copy.
 
     Every user-review round misread this copy until it said where the
     leveler itself stands: the parsed-XML block above prints the leveler's
@@ -432,8 +429,8 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # printed just above.
         #
         # --disable autogain also clears the marker, so without its own
-        # branch this blamed the tuning for the reader's own flag — while
-        # the leveler section a few lines up correctly credited the flag.
+        # branch this would blame the tuning for the reader's own flag,
+        # while the leveler section a few lines up correctly credits it.
         if disabled_by_flag:
             tail = ("--disable autogain switched the leveler off in this "
                     "preset, so they cannot be heard.")
@@ -462,7 +459,7 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # Deliberately does not ask them to go and do the capture, and does
         # not point at the measure_dax README: two rounds of reviewers read
         # the self-serve route as homework that gates help and said they'd
-        # give up there — the ask below owns the route ("tell us, we'll
+        # give up there. The ask below owns the route ("tell us, we'll
         # walk you through it"), and the procedure link belongs in that
         # conversation. It is a multi-step measurement on a second OS, and
         # most people run this script once. The walk-you-through offer also
@@ -470,10 +467,10 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
         # capture" arrived 40 lines before the offer and read as an
         # unexplained requirement).
         # Names Windows so anyone who doesn't dual-boot can skip the line
-        # rather than reading to the end to find out they can't help — the
+        # rather than reading to the end to find out they can't help. The
         # capture measures what DAX does, so it has to run there.
         # Vocabulary is the autogain row's ("swell then duck"), NOT the
-        # regulator's "wobbles or surges" — a round-2 reviewer hearing
+        # regulator's "wobbles or surges": a round-2 reviewer hearing
         # volume movement couldn't tell which of the two remedies to try
         # because both claimed "surges".
         ask="If quiet passages swell then duck, tell us — a Windows "
@@ -484,7 +481,7 @@ def _print_ask(style: str, finding: Finding) -> None:
     """One bullet: the sentence first, then the slug, dimmed.
 
     The slug trails because a first-time reader needs the sentence, not the
-    tag — it only matters once they want to scroll back to the detail it was
+    tag. It only matters once they want to scroll back to the detail it was
     raised with, so it should not be the first thing the eye lands on. Dim for
     the same reason.
 
@@ -495,7 +492,7 @@ def _print_ask(style: str, finding: Finding) -> None:
     """
     # Scope rides in the tag, not the sentence: it is bookkeeping, and the
     # sentence has a one-line budget to keep. Silent when the finding applies
-    # everywhere, which on a default single-profile run is always — so the
+    # everywhere, which on a default single-profile run is always, so the
     # common case pays nothing for it.
     tag = (f"[{finding.slug} · {finding.scope}]" if finding.scope
            else f"[{finding.slug}]")
@@ -518,15 +515,14 @@ def _print_ask(style: str, finding: Finding) -> None:
 def _print_attach_lines(xml_path) -> None:
     """The what-to-send lines, shared by both closing branches.
 
-    cta, not dim: this is the one concrete task the report needs, and it
-    printed fainter than the reassurance bullet above it (round-2 color
-    finding). "If you report", the intro line's vocabulary: unconditional
-    "attach this to your report" left a round-4 reviewer unsure whether
-    filing was mandatory. Download link preferred over attaching: a
-    driver-package link identifies the exact tuning build and carries
-    every sibling XML for the device; "(if you know it)" because a reader
-    who found the file on their Windows partition has no download to link
-    (round 8).
+    cta, not dim: this is the one concrete task the report needs, and dim
+    printed it fainter than the reassurance bullet above it (round-2 color
+    finding). "If you report", the intro line's vocabulary: an earlier
+    unconditional "attach this to your report" left a round-4 reviewer unsure
+    whether filing was mandatory. Download link preferred over attaching: a
+    driver-package link identifies the exact tuning build and carries every
+    sibling XML for the device; "(if you know it)" because a reader who found
+    the file on their Windows partition has no download to link (round 8).
     """
     if xml_path is None:
         return
@@ -539,7 +535,7 @@ def _print_attach_lines(xml_path) -> None:
     # Absolute and quoted. Dolby's own directory names contain '$'
     # (…/code$GetExtractPath$/…), so an unquoted relative path is
     # eaten by the shell the moment anyone types ls on it and the
-    # file looks missing. Same cta as its instruction — the copy
+    # file looks missing. Same cta as its instruction: the copy
     # target must not be the faintest line in the block.
     console.cprint("cta", f"    '{Path(xml_path).resolve()}'")
 
@@ -550,7 +546,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
 
     Always prints. Most people run this script once, on one machine, and
     never again, so whatever we want from them we get on this run or not at
-    all — there is no next run to defer to. On a clean run that means three
+    all. There is no next run to defer to. On a clean run that means three
     lines and no header; a rule and a heading over a bare "how does it sound"
     would be noise on the common path.
 
@@ -559,15 +555,16 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
     screen when the run ends.
 
     ``dry_run`` swaps the closing line, because nothing was installed and
-    "how does it sound?" is then an impossible instruction — the announcement
+    "how does it sound?" is then an impossible instruction. The announcement
     that this was a dry run is hundreds of lines up by the time anyone reads
     the end, so the last thing on screen has to carry it too.
     """
     asks = [f for f in findings if f.kind == "ask" and f.ask]
     # Every tag shown this run, not just the ones with an ask. A hint like
     # [loudness-untamed] is often the only finding that actually fired for
-    # the device, and listing only asks under "quote the tag in brackets"
-    # sent reporters to quote the speculative one and never mention it.
+    # the device. Listing only asks under an earlier "quote the tag in
+    # brackets" sent reporters to quote the speculative one and never
+    # mention it.
     tagged = [f for f in findings if f.slug]
     print()
     if asks:
@@ -575,14 +572,14 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         console.cprint("head", "Help the project")
         print()
         # Say what the bracketed tags are for. Read cold they look like debug
-        # labels that leaked out of the code, which is how they get ignored.
-        # "these most of all" introduced a list that is usually one item
-        # long, and its "these" pointed backwards at nothing on a top-down
+        # labels that leaked out of the code, which is how they get ignored. An
+        # earlier "these most of all" introduced a list that is usually one
+        # item long, and its "these" pointed backwards at nothing on a top-down
         # read.
         console._cprint_wrapped("dim", "Some of this only a real device can answer. "
                                "If you report, quote the [tag] so we know "
                                "which line you mean:")
-        # Plain, not cta: bold-magenta bullets read as warnings — a round-4
+        # Plain, not cta: bold-magenta bullets read as warnings. A round-4
         # reviewer took the peak-level reassurance ("should sound right")
         # for something being wrong, because it matched the report call's
         # color. The hierarchy is dim intro → plain bullets → cta
@@ -596,7 +593,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # one-sentence budget has no room for.
         # For every ask, not just ones whose wording mentions the XML
         # (round 6): the file helps triage whatever the report is about,
-        # and the old wording-sniffing gate was one rewording away from
+        # and a wording-sniffing gate would be one rewording away from
         # silently switching the path off.
         _print_attach_lines(xml_path)
         print()
@@ -605,8 +602,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # worth quoting, or the reader is left holding a bracketed token with
         # no reason to think it means anything to us. The attach lines print
         # here too (round 10, user-picked): a run whose only findings are ⚠
-        # warnings is exactly one the project wants the tuning source for,
-        # and this branch used to leave its reporter with nothing to attach.
+        # warnings is exactly one the project wants the tuning source for.
         console.cprint("head", "=" * 60)
         console._cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
                                "it tells us which finding you mean.")
@@ -614,13 +610,14 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         print()
 
     # Stages this tuning has that we drop. They carry no ask, because there is
-    # nothing anyone can do about them — but they printed two hundred lines
-    # up and never again, so the closing block read as the whole story when a
-    # piece of the tuning was missing from it. One line, no bullet list: it is
-    # context for a report, not another thing to action.
+    # nothing anyone can do about them. But their detail prints two hundred
+    # lines up and never again, so without this line the closing block would
+    # read as the whole story when a piece of the tuning is missing from it.
+    # One line, no bullet list: it is context for a report, not another thing
+    # to action.
     dropped = [f.slug for f in findings if f.kind == "ask" and not f.ask]
     if dropped:
-        # Not "Not reproduced on this device" — reviewers read that as
+        # Not "Not reproduced on this device": reviewers read that as
         # issue-tracker language ("we couldn't reproduce your bug"), the
         # opposite of what it says. And the mention needs a reason, or it is
         # a nothing-to-do entry that teaches readers to skip the block.
@@ -631,17 +628,18 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
                                  "them if you report so we know which "
                                  "devices have them.")
         print()
-    # The link prints either way. Suppressing it on a dry run left the block
-    # above saying "quote the tag in brackets if you report one" with nowhere
-    # to report to — worse than the impossible "how does it sound?" it was
-    # meant to fix, because that at least named a destination.
-    # For the wrapper's reader the repo name says "easyeffects" — the very
-    # thing they chose this path to avoid — and the only link in the run
-    # points there, so one clause says their report belongs here too.
+    # The link prints either way. Suppressing it on a dry run would leave the
+    # block above asking for a quoted tag (an earlier wording: "quote the tag
+    # in brackets if you report one") with nowhere to report to. That is worse
+    # than the impossible "how does it sound?" it was meant to fix, because
+    # that at least names a destination.
+    # For the wrapper's reader the repo name says "easyeffects", the very
+    # thing they chose this path to avoid. The only link in the run points
+    # there, so one clause says their report belongs here too.
     if dry_run:
         # Just the pointer. That nothing was written is said immediately
-        # above by whoever ran the dry run — print_what_now here, the [3/3]
-        # banner under dolby_to_pipewire.py — and saying it twice in
+        # above by whoever ran the dry run: print_what_now here, the [3/3]
+        # banner under dolby_to_pipewire.py. Saying it twice in
         # consecutive sentences reads like a stutter.
         lead = ("Reporting anything above? PipeWire-only reports are "
                 "welcome — here's where:" if pipewire_native else

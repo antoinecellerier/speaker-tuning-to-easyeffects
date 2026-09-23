@@ -46,7 +46,7 @@ from lib.report.findings import Finding
 
 
 def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | None:
-    """Warn — with copy-paste fixes — about any firmware-load gate that's off,
+    """Warn, with copy-paste fixes, about any firmware-load gate that's off,
     and return the ask for whether toggling it worked.
 
     Silent when no gate is off (the gate is either absent or already enabled,
@@ -73,18 +73,19 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     console.cprint("dim", "speaker, it can instead make everything thin, quiet or prone to")
     console.cprint("dim", "dropouts.")
     print()
-    # Enable now: no root needed — the active logind session already holds an
-    # ACL on /dev/snd/control*. Persist with `alsactl store`, which saves the
-    # state that alsa-restore.service replays at boot (the standard ALSA path).
+    # Enable now: no root needed, because the active logind session already
+    # holds an ACL on /dev/snd/control*. Persist with `alsactl store`, which
+    # saves the state that alsa-restore.service replays at boot (the standard
+    # ALSA path).
     console.cprint("dim", "1. Enable it now (no root needed), then listen for a change:")
     for g in off:
         console.cprint("cta", f"     {speakers.amixer_enable_cmd(g)}")
     print()
     # The card name is this machine's own (read from /proc/asound/cardN/id),
-    # so the command is right as printed — but a card that renumbers between
+    # so the command is right as printed. But a card that renumbers between
     # boots, or a copy-paste into a later session, lands on "cannot find
-    # card", and until now the only recovery text covered the command working
-    # and changing nothing.
+    # card", and the other recovery text below covers only the command
+    # working and changing nothing.
     console.cprint("dim", "   Errors with \"cannot find card\"? The card was renamed or")
     console.cprint("dim", "   renumbered since this run — list them with:  aplay -l")
     console.cprint("dim", f"   and use the name it shows in place of {g0.card_id}.")
@@ -96,9 +97,9 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     console.cprint("dim", "   that alsa-restore replays at boot:")
     console.cprint("cta", "     sudo alsactl store")
     print()
-    # No systemd-unit fallback here any more. It named one ("fall back to a
-    # systemd --user oneshot that runs the amixer command above at login")
-    # without the unit, the path or the enable command — a reviewer rated it
+    # No systemd-unit fallback here. An earlier wording named one ("fall back
+    # to a systemd --user oneshot that runs the amixer command above at login")
+    # without the unit, the path or the enable command. A reviewer rated it
     # unusable for the same reason as the old firmware-extraction line: a fix
     # you can name but not run. Writing the unit out is four more lines for a
     # case we have never seen reported, so the ask goes back to us instead.
@@ -109,7 +110,7 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     console.cprint("cta", f"     amixer -c {g0.card_id} cget "
                   f"\"iface={g0.iface},name='{g0.name}'\"")
     # No ".bin" suffix in the glob: distros may ship the blobs compressed
-    # (TAS2XXX….bin.zst on SteamOS — the kernel decompresses transparently)
+    # (TAS2XXX….bin.zst on SteamOS; the kernel decompresses transparently)
     # and the narrower pattern would report them "missing" (#39).
     console.cprint("cta", "     journalctl -k -b | grep -iE 'tas2|firmware'")
     console.cprint("cta", "     ls -l /lib/firmware/TAS2*")
@@ -125,15 +126,15 @@ def warn_speaker_firmware_gate(gates: list[speakers.FirmwareGate]) -> Finding | 
     # from your Windows driver or TI's TAS2781-LINUX package and drop it into
     # /lib/firmware") read as a step and stopped a reviewer dead: no tool, no
     # method, and nothing marking it as specialist work. It meant to record
-    # that a reporter had managed it — but that case is Cirrus (#27), whose
+    # that a reporter had managed it. But that case is Cirrus (#27), whose
     # file layout and naming don't transfer to TI, and TI's own package is
     # driver source and a calibration tool, not a source of per-machine
     # blobs. A hint that fits neither the reader's amp nor their skill level
     # costs more attention than it returns.
-    # The feedback ask (it gates whether we automate this) used to be two dim
-    # lines here, deliberately whispered so it wouldn't rival the closing call
-    # to action. It travels to that block instead now, where it can be a
-    # normal ask without competing with anything.
+    # The feedback ask (it gates whether we automate this) travels to the
+    # closing block, where it can be a normal ask without competing with
+    # anything. Here it would have to be whispered so it wouldn't rival the
+    # closing call to action.
     return report_findings._firmware_gate_finding()
 
 
@@ -152,10 +153,10 @@ def upgrade_prospect(quirk: speaker_pin_quirks.PinQuirk
     Three genuinely different situations, and telling the wrong one wastes a
     reader's evening: no release carries the fix yet; a release does and they
     are behind it; or they are already past it, in which case the fix is
-    reaching them and something else on the machine is stopping it — so
+    reaching them and something else on the machine is stopping it. Then
     "upgrade" would be advice to go and get what they already have.
 
-    Shared by the end-of-run block and --doctor so the two can't drift — which
+    Shared by the end-of-run block and --doctor so the two can't drift, which
     is why *release* is required and not defaulted to the running kernel. An
     optional one let each caller pick its own source and they picked
     differently: --doctor passed the kernel its report is about, the end-of-run
@@ -194,15 +195,15 @@ def upstream_change_lines(quirk: speaker_pin_quirks.PinQuirk
     """The link that lets a reader check the claim, as ``(style, text)`` lines.
 
     Both warnings assert that upstream carries a fix for this exact machine,
-    and until this nothing printed let anyone verify it. With a commit on the
-    row the link is that commit — blame's answer for the entry's line, usually
-    the change that added it, otherwise upstream's last edit of it. Without
-    one it is the table itself, with the id to search it for.
+    and without this nothing printed would let anyone verify it. With a commit
+    on the row the link is that commit: blame's answer for the entry's line,
+    usually the change that added it, otherwise upstream's last edit of it.
+    Without one it is the table itself, with the id to search it for.
 
     The URL is its own line, never wrapped: the one-link rule
     (`.claude/rules/user-messages.md`) exists because wrapped prose folds a
     URL mid-string, and a line printed verbatim keeps it clickable. The id is
-    the table's *key*, not the codec's id — on a PCI-keyed match the two
+    the table's *key*, not the codec's id: on a PCI-keyed match the two
     differ, and upstream's table lists the key. GitHub rather than
     git.kernel.org because it opens without an anti-bot wall.
     """
@@ -228,8 +229,8 @@ def _speaker_info_flag(lead: str, quirk: speaker_pin_quirks.PinQuirk
                        key: tuple[int, int]) -> list[str]:
     """The --speaker-info form of ``upstream_change_lines``: the flag and its
     link as two lines under the pin they belong to, so a pasted report
-    carries the link too. Appended to the entry instead, the flag was the
-    tail of a 130-column line and wrapped away from the clause it qualified."""
+    carries the link too. Appended to the entry instead, the flag would be the
+    tail of a 130-column line and wrap away from the clause it qualified."""
     vendor, device = key
     ident = f"0x{vendor:04x}, 0x{device:04x}"
     if quirk.commit:
@@ -242,7 +243,7 @@ def _speaker_info_flag(lead: str, quirk: speaker_pin_quirks.PinQuirk
 def _speaker_info_note(lead: str) -> list[str]:
     """A flag line with no link: the table-free warning has no upstream
     commit to cite. Wrapped, unlike ``_speaker_info_flag``, whose second line
-    is a URL that must survive verbatim — this one is prose and ran to 148
+    is a URL that must survive verbatim. This one is prose and ran to 148
     columns, the same fold-away-from-its-clause the flag was split to fix."""
     return textwrap.wrap(f"⚠ {lead}", width=console._wrap_width(),
                          initial_indent="      ",
@@ -251,7 +252,7 @@ def _speaker_info_note(lead: str) -> list[str]:
 
 
 def _pin_phrase(missing: list[str]) -> str:
-    """"pin 0x17" / "pins 0x14 and 0x17" — the copy has to work for both.
+    """"pin 0x17" / "pins 0x14 and 0x17": the copy has to work for both.
 
     A fixup declares one pin or two, and on a machine with none configured
     both of them are missing, so no message here may assume a count.
@@ -270,13 +271,13 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
     The shared core under ``speaker_pin_fix_steps`` and
     ``speaker_route_fix_steps``: both classes are remedied by the same
     modprobe option, so the procedure lives once and each caller supplies
-    only the three sentences that differ — what the fix should sound like
+    only the three sentences that differ: what the fix should sound like
     (*hear*), where to confirm the kernel side (*verify*), and the failure
     phrasing that opens the undo (*undo_lead*).
 
     Prose wraps to *width*; commands never do. A command wider than the
     terminal is soft-wrapped by the terminal and still pastes as one line,
-    where a folded one would not run at all — so the caller passes the width
+    where a folded one would not run at all. So the caller passes the width
     its own surface uses and no line here is broken by hand.
     """
     module, param = speakers.hda_model_module(uses_sof)
@@ -292,7 +293,7 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
         # One conf path for both quirk classes on purpose: two files each
         # writing "options <module> <param>=…" would set the same option twice
         # with undefined precedence, and the undo step shipped for #53 already
-        # names this path. The two warnings never fire together — a pin the
+        # names this path. The two warnings never fire together: a pin the
         # kernel is not configuring cannot also be observed mis-routed.
         ("cta", f"       | sudo tee {_MODPROBE_CONF}"),
         # The fixup's name is the kernel's, and several of them carry a model
@@ -301,8 +302,8 @@ def hda_model_fix_steps(model: str, uses_sof: bool, width: int,
         # reader who spots that in a line they are about to sudo stops there.
         # And the matching happened here, not at boot: hda_model= forces the
         # fixup by name with no hardware check of its own, so "it is matched
-        # to your machine by hardware id" read as a safety the option has not
-        # got.
+        # to your machine by hardware id" (an earlier wording) read as a
+        # safety the option has not got.
         *prose("   That name is the kernel's label for the fix, not your "
                "model — the kernel's own quirk table pairs it with your "
                "hardware id, which is how this run found it.",
@@ -329,7 +330,7 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
 
     Shared by the end-of-run warning and ``--doctor``'s check the way
     ``amixer_enable_cmd`` is shared, so the procedure can't drift between the
-    two surfaces — and empty where the fixup has no forcible name, since then
+    two surfaces. It is empty where the fixup has no forcible name, since then
     there is no procedure, only the upgrade route ``upgrade_prospect`` states.
 
     ``speaker_info_shown`` is the one thing that differs between the two
@@ -340,7 +341,7 @@ def speaker_pin_fix_steps(quirk: speaker_pin_quirks.PinQuirk,
     """
     if not quirk.model:
         return ()
-    # Where to look afterwards — the one sentence that differs by surface.
+    # Where to look afterwards: the one sentence that differs by surface.
     # "above": --doctor prints the hardware inventory before its checks
     # (.claude/rules/user-messages.md, "inventory leads, diagnosis trails"),
     # so the section this points at is up the screen, not down it.
@@ -375,10 +376,11 @@ def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
                             source: str, uses_sof: bool, width: int,
                             speaker_info_shown: bool = False,
                             ) -> tuple[tuple[str, str], ...]:
-    """Apply → confirm → undo for a mis-routed speaker pin — the routing
-    twin of ``speaker_pin_fix_steps``, empty on the same no-forcible-name
-    rule, delegating to the same ``hda_model_fix_steps`` core so the two
-    procedures cannot drift.
+    """Apply → confirm → undo for a mis-routed speaker pin.
+
+    The routing twin of ``speaker_pin_fix_steps``: empty on the same
+    no-forcible-name rule, and delegating to the same ``hda_model_fix_steps``
+    core so the two procedures cannot drift.
     """
     if not quirk.model:
         return ()
@@ -391,8 +393,8 @@ def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
               f'"driven from {where}" under "HDA internal speakers" instead '
               f"of {source}.")
     # Hedged like the warning above: what changes audibly depends on where
-    # the level was stuck — a fixed loud speaker gets quieter, a fixed quiet
-    # one louder — so the one thing every fixed machine shares is the pin
+    # the level was stuck. A fixed loud speaker gets quieter, a fixed quiet
+    # one louder, so the one thing every fixed machine shares is the pin
     # starting to track the control.
     return hda_model_fix_steps(
         quirk.model, uses_sof, width,
@@ -405,7 +407,7 @@ def speaker_route_fix_steps(quirk: speaker_route_quirks.RouteQuirk,
 def warn_hidden_speaker_pin(
         found: tuple[speaker_pin_quirks.PinQuirk, str, list[str]] | None,
         info: speakers.SpeakerInfo) -> Finding | None:
-    """Warn — with a copy-paste fix and its undo — that the kernel is leaving
+    """Warn, with a copy-paste fix and its undo, that the kernel is leaving
     one of this machine's speakers unconfigured.
 
     Silent when nothing matched, which is the overwhelming majority of
@@ -413,7 +415,7 @@ def warn_hidden_speaker_pin(
     2-driver device showing one pin is simply correct.
 
     The procedure below *is* this finding's detail, so the caller doesn't
-    reprint it — only the returned one-line ask travels to the closing block.
+    reprint it. Only the returned one-line ask travels to the closing block.
     """
     if not found:
         return None
@@ -434,7 +436,7 @@ def warn_hidden_speaker_pin(
         + (", and the preset shapes the rest alone." if others else "."))
     print()
     # Beside the claim it verifies, before the upgrade picture leads into the
-    # procedure — between the two it read as an interruption.
+    # procedure. Between the two it read as an interruption.
     for style, text in upstream_change_lines(quirk, key, console._wrap_width()):
         console.cprint(style, text)
     print()
@@ -460,7 +462,7 @@ def _hidden_pin_finding(quirk: speaker_pin_quirks.PinQuirk,
     Carries an ask only when the run printed a procedure to ask about. Where
     the fixup has no forcible name there is nothing the reader can do on this
     run, and `.claude/rules/user-messages.md` is explicit that such a finding
-    takes no ask — its detail still travels, so a pasted report still shows it.
+    takes no ask. Its detail still travels, so a pasted report still shows it.
     """
     phrase = _pin_phrase(missing)
     if not quirk.model:
@@ -481,8 +483,8 @@ def warn_speaker_routing(
         found: tuple[speaker_route_quirks.RouteQuirk, str, speakers.SpeakerPin,
                      str] | None,
         info: speakers.SpeakerInfo) -> Finding | None:
-    """Warn — with a copy-paste fix and its undo where the kernel accepts one
-    — that a speaker pin is being driven through a widget with no volume amp.
+    """Warn that a speaker pin is being driven through a widget with no volume
+    amp, with a copy-paste fix and its undo where the kernel accepts one.
 
     Silent when nothing matched *or* the fault isn't observable in the dump
     (``find_misrouted_speaker_pin`` gates on both): the table alone is an
@@ -490,13 +492,13 @@ def warn_speaker_routing(
     a user after a fixup that may not be their problem.
 
     The procedure below *is* this finding's detail, so the caller doesn't
-    reprint it — only the returned one-line ask travels to the closing block.
+    reprint it. Only the returned one-line ask travels to the closing block.
     """
     if not found:
         return None
     quirk, codec_ssid, pin, source, key = found
     # The control name is the dump's own ("Bass Speaker" on most rows, plain
-    # "Speaker" elsewhere) — never a role we inferred: the two 0x15 rows and
+    # "Speaker" elsewhere), never a role we inferred: the two 0x15 rows and
     # any oddly-named codec must not be promised a woofer.
     named = f' — "{pin.control_name}" —' if pin.control_name else ""
     console.cprint("warn", f"\n{'=' * 60}")
@@ -532,8 +534,8 @@ def _routing_finding(quirk: speaker_route_quirks.RouteQuirk) -> Finding:
     """Whether forcing the routing fixup actually freed the speaker's level.
 
     Same ask discipline as ``_hidden_pin_finding``: an ask only when the run
-    printed a procedure to ask about, which here is the minority of rows —
-    most reach their routing helper through an unnamed wrapper fixup.
+    printed a procedure to ask about, which here is the minority of rows.
+    Most reach their routing helper through an unnamed wrapper fixup.
     """
     if not quirk.model:
         return Finding(
@@ -586,10 +588,10 @@ def fixed_level_fix_steps(pin: str, source: str, width: int,
     # Resolved here, not as a default: a default binds the Path at def time.
     attribute = (lenovo_attribute if lenovo_attribute is not None
                  else _LENOVO_MIC_ATTRIBUTE)
-    # The free check leads where there is one. It used to hang off the BIOS
-    # step as a sub-bullet, so a reader going top to bottom rebooted into
-    # firmware setup before trying the thing that answers in a second and
-    # says whether the reboot is even worth it (user review).
+    # The free check leads where there is one. As a sub-bullet of the BIOS
+    # step, it would have a reader going top to bottom reboot into firmware
+    # setup before trying the thing that answers in a second and says whether
+    # the reboot is even worth it (user review).
     step = 1
     # Checked where this process reads the machine; printed as the path the
     # reader types, which host.path would re-root under a test's fake root.
@@ -622,9 +624,11 @@ def warn_fixed_level_speaker(
         found: tuple[str, speakers.SpeakerPin, str] | None,
         info: speakers.SpeakerInfo) -> Finding | None:
     """Warn that a speaker pin's whole path has no volume amp on a machine
-    neither table lists — hedged, since the table warnings' authority ("a
-    fix exists for this model") is what this machine lacks. Prints the
-    finding's detail itself; only the ask travels to the closing block.
+    neither table lists.
+
+    Hedged, since the table warnings' authority ("a fix exists for this
+    model") is what this machine lacks. Prints the finding's detail itself;
+    only the ask travels to the closing block.
     """
     if not found or _fixed_level_masked():
         return None
@@ -702,7 +706,7 @@ def unlisted_speaker_pin_finding(info: speakers.SpeakerInfo) -> Finding | None:
 
     The table above only knows machines upstream Linux has already been told
     about. A laptop whose woofers are hidden and whose subsystem id nobody has
-    reported yet looks exactly like a genuine 2-driver laptop from here — and
+    reported yet looks exactly like a genuine 2-driver laptop from here, and
     both are common. The manufacturer's spec sheet settles it in seconds, but
     only the owner can look it up, so the ask goes to them.
 
@@ -751,8 +755,8 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
     ``_gather_speaker_info`` deliberately: that one also shells out to
     ``amixer`` per card and to ``journalctl``/``dmesg`` (seconds, on a machine
     with a big journal), globs /lib/firmware, and honours the demo-injection
-    env vars — all of it for the amp-status report, which a default run never
-    prints. A normal conversion must not pay for it.
+    env vars. All of that serves the amp-status report, which a default run
+    never prints. A normal conversion must not pay for it.
     """
     info = speakers.SpeakerInfo(kernel=host.kernel_release())
     cards_path = host.path("/proc/asound/cards")
@@ -773,7 +777,7 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
 
 # Vendor rides along because nothing else in the report names the OEM: Lenovo
 # and ASUS spell it into Family/Product, but Framework's DMI reads "Laptop" /
-# "Laptop 13 Pro (…)" (issue #73) — and the device-confirmed workflow builds
+# "Laptop 13 Pro (…)" (issue #73). The device-confirmed workflow builds
 # the tested-table row from these three lines.
 _DMI_DIR = Path("/sys/class/dmi/id")
 _DMI_FIELDS = (("vendor", "sys_vendor"), ("product", "product_name"),
@@ -855,7 +859,7 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
         lines.append(f"  {len(bound)} amplifier(s) bound ({drivers}); {ch_str}")
     if unbound:
         # Neutral: an unbound slave may be a non-amp peripheral (jack codec,
-        # DMIC) or one still binding — not necessarily a silent speaker.
+        # DMIC) or one still binding, not necessarily a silent speaker.
         names = ", ".join(a.node for a in unbound)
         lines.append(f"  {len(unbound)} SoundWire device(s) with no driver bound "
                      f"(may be non-amp or still binding): {names}")
@@ -898,7 +902,7 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
                      f"(e.g. {info.amp_firmware[0]}{extra}); presence is generic — "
                      "the kernel log decides whether this model's blob loaded")
     elif info.amp_firmware_missing:
-        # Neutral: absence isn't proof — the blob may live outside the searched
+        # Neutral: absence isn't proof. The blob may live outside the searched
         # roots, or under an SSID-specific name we can't predict.
         lines.append("  Firmware: none found under /lib/firmware — could not "
                      "confirm (see the kernel log)")
@@ -918,7 +922,7 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
             lines.append("  ⚠ Kernel log — amp firmware/init error:")
             lines += [f"      {l}" for l in errors[:3]]
             # Surface the cap (no silent truncation) and the command to read the
-            # full log — the matched lines are a sample, not the whole story.
+            # full log: the matched lines are a sample, not the whole story.
             tail = f" (+{len(errors) - 3} more)" if len(errors) > 3 else ""
             lines.append(f"      see full log{tail}:  {grep_hint}")
         else:
@@ -927,7 +931,7 @@ def _amp_status_lines(info: speakers.SpeakerInfo) -> list[str]:
             lines.append(f"      {grep_hint}")
     elif info.amp_firmware_missing:
         # Firmware looked missing but the current boot log has no amp lines (e.g.
-        # rotated out) — still point at the log rather than dangle the reference.
+        # rotated out). Still point at the log rather than dangle the reference.
         lines.append(f"  Kernel log: no amp lines this boot — inspect:  {grep_hint}")
 
     return lines or ["  (no smart amplifier detected)"]
@@ -948,7 +952,7 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
     if info.distro:
         lines.append(f"  OS:      {info.distro}")
     kernel_line = f"  Kernel:  {info.kernel}"
-    # Age annotation (issue #33): makes a pasted report self-triaging — an old
+    # Age annotation (issue #33) makes a pasted report self-triaging: an old
     # series is a real bad-sound suspect regardless of the preset.
     series = environment.parse_kernel_series(info.kernel)
     aged = environment._kernel_series_age(series, date.today()) if series else None
@@ -967,11 +971,11 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
     # HDA codecs.
     #
     # "Codec subsystem", not "Subsystem": the PCI section below prints a
-    # different id under a label that used to be the same word. They coincide
-    # on many machines (17AA22E6 / 17AA:22E6 here) and diverge on others
-    # (issue #84: 0x17AA384F / 17AA:3835), which is the worst case — the
-    # reader who most needs to tell them apart is the one whose report makes
-    # them look like a contradiction. Keep both labels distinct.
+    # different id under "PCI audio subsystem". They coincide on many
+    # machines (17AA22E6 / 17AA:22E6 here) and diverge on others (issue #84:
+    # 0x17AA384F / 17AA:3835), which is the worst case: the reader who most
+    # needs to tell them apart is the one whose report makes them look like a
+    # contradiction. Keep both labels distinct.
     #
     # This one is the codec's own SSID: what the Dolby XML filenames carry
     # alongside DEV_, and what the speaker-pin and routing quirk tables are
@@ -986,7 +990,7 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                       [f"  Manufacturer: 0x{m}  Part: 0x{p}" for m, p in info.soundwire_devices]
                       or ["  (none)"]))
 
-    # PCI audio subsystem — the audio *controller*'s subsystem id, a property
+    # PCI audio subsystem: the audio *controller*'s subsystem id, a property
     # of the machine rather than of any codec (see the HDA note above). This
     # is the one SoundWire and Apple Boot Camp tunings are keyed on, and the
     # narrow fallback the quirk tables accept for a codec that owns speaker
@@ -1016,7 +1020,7 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                     # applied quirk and a BIOS-declared speaker are the same
                     # line (issue #53).
                     + (f" [{s.override}]" if s.override else ""))
-            # Printed on healthy pins too — the routing fix's confirm step
+            # Printed on healthy pins too: the routing fix's confirm step
             # points a rebooted reader at this very suffix, so it has to
             # exist before the fix as well as after. Omitted, not "unknown",
             # when the dump didn't say: an unreadable selector is not a
@@ -1028,9 +1032,9 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                 line += f" — driven from {route.selected}"
                 if routing.volume.get(route.selected) is False:
                     line += ", which has no volume control"
-            # Wrapped since the no-volume clause was added: it took the entry
-            # to 101 columns, and the clause is exactly the part a reader is
-            # sent here to find, so it must not be the half that falls off.
+            # Wrapped because the no-volume clause takes the entry to 101
+            # columns, and the clause is exactly the part a reader is sent
+            # here to find, so it must not be the half that falls off.
             speaker_lines += textwrap.wrap(
                 line, width=console._wrap_width(), initial_indent="",
                 subsequent_indent="      ", break_on_hyphens=False)
@@ -1046,7 +1050,7 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                 # not: under a software mixer PipeWire scales before the card
                 # and nothing is audible, so sending the reader into firmware
                 # setup is the one shape `_fixed_level_masked` exists to
-                # suppress — it just suppresses it in the run and --doctor,
+                # suppress. It suppresses it only in the run and --doctor,
                 # which this path is not.
                 speaker_lines += _speaker_info_note(
                     "nothing on its path carries a volume amp, and no fix "
@@ -1073,8 +1077,9 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
         if info.unconfigured_pins:
             # Raw evidence, and one verdict where we have one: these are
             # usually spare pins, but a speaker pin the BIOS wrongly calls
-            # unconnected looks identical (issue #53) — except on the machines
-            # upstream ships a fix for, where the quirk table names the pin.
+            # unconnected looks identical (issue #53). The exception is the
+            # machines upstream ships a fix for, where the quirk table names
+            # the pin.
             # Marking it is what keeps this section from talking a reader out
             # of a fix the same report just handed them.
             found = speakers.find_hidden_speaker_pin(info)
@@ -1089,9 +1094,9 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
                         found[0], found[3])
             # Said here because this section is what a reader stares at: spare
             # pins are ordinary, and a list of them is not a fault report.
-            # Wrapped to the terminal like the rest of this tool's prose —
-            # rich is handed soft_wrap=True and never reflows — with the
-            # continuation hanging under the opening bracket.
+            # Wrapped to the terminal like the rest of this tool's prose,
+            # with the continuation hanging under the opening bracket. rich is
+            # handed soft_wrap=True and never reflows.
             speaker_lines += textwrap.wrap(
                 ("(the unflagged ones are normal — a spare pin only matters "
                  "if your device has more speakers than are listed above)"
@@ -1108,12 +1113,12 @@ def _print_speaker_info(info: speakers.SpeakerInfo):
 
     # Merged, bus-agnostic amplifier status: per-amp bind/channels/runtime, the
     # #17 TI firmware gate, driver-keyed firmware presence, and kernel-log
-    # evidence — one section, kept terse (detail only when something's wrong).
+    # evidence. One section, kept terse (detail only when something's wrong).
     sections.append(("Speaker amplifier status", _amp_status_lines(info)))
 
     # Speaker layout estimate. It counts what Linux configured, so on a machine
     # with a pin fix missing it states the very number the warning above says
-    # is wrong — read as a bottom line, that talks the reader out of the fix.
+    # is wrong. Read as a bottom line, that talks the reader out of the fix.
     layout = f"  {info.layout_summary}"
     if info.bus_type == "hda" and speakers.find_hidden_speaker_pin(info):
         layout += " (what Linux drives — the flagged pin above would add more)"
@@ -1140,13 +1145,15 @@ def _doctor_steps(quirk: speaker_pin_quirks.PinQuirk
                   key: tuple[int, int], prospect: str,
                   fix_steps: tuple[tuple[str, str], ...],
                   ) -> tuple[tuple[str, str], ...]:
-    """The link, the upgrade picture, then the procedure — what the end-of-run
-    block prints, in its order. They ride in ``steps`` rather than the detail
-    because the printer wraps the detail, and a wrapped URL is the one thing
-    the copy rules forbid; the upgrade sentence moves with the link so the
-    link stays beside the claim it verifies rather than splitting "to apply
-    it on the kernel you have now:" from step 1. A model-less row, which has
-    no procedure, still gets both."""
+    """The link, the upgrade picture, then the procedure: what the end-of-run
+    block prints, in its order.
+
+    They ride in ``steps`` rather than the detail because the printer wraps
+    the detail, and a wrapped URL is the one thing the copy rules forbid. The
+    upgrade sentence moves with the link so the link stays beside the claim
+    it verifies rather than splitting "to apply it on the kernel you have
+    now:" from step 1. A model-less row, which has no procedure, still gets
+    both."""
     width = console._wrap_width() - 9
     link = upstream_change_lines(quirk, key, width)
     prose = tuple(("dim", line) for line in textwrap.wrap(
@@ -1159,8 +1166,10 @@ def _doctor_steps(quirk: speaker_pin_quirks.PinQuirk
 
 def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
     """Verdict line for a speaker pin the firmware hides, or None when this
-    machine isn't one upstream has had to fix (nearly all of them — a PASS for
-    a quirk that was never needed is noise).
+    machine isn't one upstream has had to fix.
+
+    That is nearly all of them, and a PASS for a quirk that was never needed
+    is noise.
 
     WARN, not FAIL, on the same reasoning as the kernel-age check: the match is
     machine-exact, but only the user can confirm they hear no bass, and a
@@ -1192,9 +1201,10 @@ def speaker_pin_status(info: speakers.SpeakerInfo) -> CheckResult | None:
 
 
 def speaker_route_status(info: speakers.SpeakerInfo) -> CheckResult | None:
-    """Verdict line for a speaker pin driven past its volume control, or None
-    when the fault isn't both listed for this machine and visible in its
-    codec dump — the same double gate the end-of-run warning sits behind.
+    """Verdict line for a speaker pin driven past its volume control, or None.
+
+    None when the fault isn't both listed for this machine and visible in its
+    codec dump: the same double gate the end-of-run warning sits behind.
 
     WARN on the same reasoning as ``speaker_pin_status``: the match is
     machine-exact and the mis-routing is read from the dump, but only the

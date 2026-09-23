@@ -9,15 +9,12 @@ hops, and each of those is a silent breakage waiting for the next move.
 So the walk-up is written once, here, and everything else asks. Stdlib-only,
 like the rest of what ``ee_to_pipewire.py`` imports at startup.
 
-**Nothing asks today.** The one caller was ``lib/pipewire/install.py``, which
-built ``tools/measure_pw/validate_conf.py`` from this to shell out to the
-converter's schema self-check; that check now runs in process against
-``lib.pipewire.validate`` and needs no path at all. What is left is elsewhere
-and stays elsewhere: the scripts under ``tools/`` each walk up from their own
+**Nothing asks.** The scripts under ``tools/`` each walk up from their own
 depth, because they also insert the result into ``sys.path`` before any
-``lib`` import can happen. So this module is a place to put the next such
-path, not something the code depends on — read the emptiness as that, rather
-than as a caller you have not found yet.
+``lib`` import can happen. So this module is the place for the next such path,
+not something the code depends on. Read the emptiness as that, rather than as
+a caller you have not found yet: docs/code-organisation.md "The rules that
+keep provenance".
 
 This is a *source* path, not a data path: it points at the checkout a user
 cloned or unzipped, which is the only place these files exist. Nothing is

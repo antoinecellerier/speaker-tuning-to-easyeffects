@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
-"""Convert an EasyEffects output preset (the JSON `dolby_to_easyeffects.py`
-emits) into a PipeWire `filter-chain` `.conf`.
+"""Convert an EasyEffects output preset into a PipeWire `filter-chain` `.conf`.
+
+The preset is the JSON `dolby_to_easyeffects.py` emits.
 
 Scope (see docs/ee-to-pipewire.md for full detail):
   - convolver, equalizer (PEQ), equalizer (dialog), multiband_compressor
@@ -37,8 +38,8 @@ from lib.pipewire import checks, install, validate, vbe
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
 
-# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete, this
-# module stays stdlib-only and behaves exactly as before.
+# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete,
+# this module stays stdlib-only and works the same without completion.
 try:
     import argcomplete
 except ImportError:
@@ -80,17 +81,17 @@ def add_routing_args(container, *, only=None):
 
 
 def default_conf_path(node_name: str) -> Path:
-    """Where the conf lands when ``--output`` doesn't say.
+    """Return where the conf lands when ``--output`` doesn't say.
 
     Three readers have to agree on this: the real write, the ``--dry-run``
-    preview — whose whole job is to name the file a real run would produce —
-    and the ``--output`` help text below. The help gets it from here too, by
-    passing the literal ``<node-name>`` as the stem: the placeholder survives
-    ``expanduser()`` untouched (it only ever rewrites a leading ``~``), so the
-    sentence a user reads is rendered by the code it describes instead of
-    restating it, and cannot drift from it. The help collapses $HOME back to
-    ``~`` on the way out — that is the help's business, not this function's,
-    which owes its other two readers a real ``Path``.
+    preview and the ``--output`` help text below. The preview's whole job is
+    to name the file a real run would produce. The help gets it from here
+    too, by passing the literal ``<node-name>`` as the stem. The placeholder
+    survives ``expanduser()`` untouched (it only ever rewrites a leading
+    ``~``), so the sentence a user reads is rendered by the code it describes
+    instead of restating it, and cannot drift from it. The help collapses
+    $HOME back to ``~`` on the way out. That is the help's business, not this
+    function's, which owes its other two readers a real ``Path``.
     """
     return (checks.DEFAULT_OUTPUT_DIR / f"{node_name}.conf").expanduser()
 
@@ -132,8 +133,10 @@ def add_output_args(container, *, only=None):
 
 
 def add_impulse_response_args(container, *, only=None):
-    """Impulse-response flags — never shared with the wrapper (it stages the
-    .irs in a tempdir and must keep the default copy-beside-conf behavior)."""
+    """Impulse-response flags, never shared with the wrapper.
+
+    The wrapper stages the .irs in a tempdir and must keep the default
+    copy-beside-conf behavior."""
     add, added = console._make_adder(container, only)
     add(
         "--irs-dir",
@@ -230,8 +233,10 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
 
 
 def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
-    """Tab-completion for --target-sink / --target-object: PipeWire node.name
-    values, from the same pw-dump boundary _autodetect_speaker_sink() uses."""
+    """Tab-completion for --target-sink / --target-object.
+
+    Offers PipeWire node.name values, from the same pw-dump boundary
+    _autodetect_speaker_sink() uses."""
     try:
         names = [s.get("name", "") for s in sinks._enumerate_audio_sinks()]
     except Exception:  # a wedged or absent PipeWire must never break TAB
@@ -240,9 +245,10 @@ def _complete_sink_names(prefix: str, **_kwargs) -> list[str]:
 
 
 def _attach_completers(parser: argparse.ArgumentParser) -> None:
-    """Tell argcomplete what each value-taking option means — argparse records
-    `type=Path` for the preset JSON, the output conf and the IRS directory
-    alike, and nothing at all for PipeWire node names."""
+    """Tell argcomplete what each value-taking option means.
+
+    argparse records `type=Path` for the preset JSON, the output conf and the
+    IRS directory alike, and nothing at all for PipeWire node names."""
     from argcomplete.completers import DirectoriesCompleter, FilesCompleter
 
     completers = {
@@ -277,12 +283,14 @@ _PLUGIN_VENDORS = (
 
 
 def _chain_vendors(stages) -> list[str]:
-    """The `lib.packages` keys this particular chain's plugins need.
+    """Return the `lib.packages` keys this particular chain's plugins need.
 
-    The no-tooling reminder used to hedge — "plus Calf if it includes
-    bass_enhancer / stereo_tools" — leaving the reader to work out what their
-    own chain includes from a preset they did not write. The stages are right
-    here, so the condition can be resolved instead of restated.
+    The stages are right here, so the no-tooling reminder resolves the
+    condition instead of restating it. An earlier wording hedged, "plus Calf
+    if it includes bass_enhancer / stereo_tools", leaving the reader to work
+    out what their own chain includes from a preset they did not write
+    (tests/test_ee_to_pipewire.py
+    test_main_reminds_about_plugins_when_lv2info_absent).
     """
     keys = []
     for uri in sorted(n.get("plugin") or "" for st in stages for n in st.nodes
@@ -312,10 +320,10 @@ def _print_missing_plugins(uris: tuple[str, ...],
     packages, and a chain missing LSP is usually missing every LSP plugin in
     it, which as a flat list reads as five separate problems.
 
-    `detail` is lv2info's own words, and it goes *after* the summary and dim:
-    it names each plugin by URI, which is the least readable identifier here
-    and was the first thing on screen. It stays because an issue report is
-    worth more with it than without.
+    `detail` is lv2info's own words, and it goes *after* the summary and dim.
+    It names each plugin by URI, which is the least readable identifier here,
+    so it should not be the first thing on screen. It stays because an issue
+    report is worth more with it than without.
     """
     fam = packages.family()
     groups: dict[str, list[str]] = {}
@@ -351,11 +359,13 @@ def _print_missing_plugins(uris: tuple[str, ...],
 
 
 def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
-    """``wrapped`` marks an in-process dolby_to_pipewire.py run: the wrapper
+    """Run the converter and return its exit code.
+
+    ``wrapped`` marks an in-process dolby_to_pipewire.py run. The wrapper
     owns all activation messaging ([3/3] activates, lists the steps, or says
-    dry run), so the --skip-next-steps "To activate:" fallback is dropped —
-    it printed the identical restart command two lines above [3/3]'s step 1
-    (user-review round 5)."""
+    dry run), so the --skip-next-steps "To activate:" fallback is dropped.
+    Kept, it would print the identical restart command two lines above
+    [3/3]'s step 1 (user-review round 5)."""
     parser = build_parser(argv)
     if argcomplete is not None:
         _attach_completers(parser)
@@ -449,7 +459,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                                "(pass --irs-dir)")
 
     # The generator's --enable virtual-bass records its values as a `_vbe`
-    # block; the branch itself only exists here — EasyEffects' serial
+    # block. The branch itself only exists here: EasyEffects' serial
     # pipeline can't express it, so this conf is the one place it plays.
     vbe_links: list[dict] = []
     vbe_meta = preset.get("_vbe")
@@ -489,12 +499,13 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                       "v1 virtual-sink conf (apps will target effect_input."
                       f"{safe_node_name} directly)")
         # Detail at the detection site, where the flag that caused it is still
-        # in view: this is the mode where the reader has to pick the chain as
-        # their output, which is what puts two volume controls in the path.
-        # The way out of the mode, but only for a chain nobody pinned: a
-        # pinned playback side is how dolby_to_pipewire.py installs several at
-        # once, and there dropping the flag is refused outright, so on that run
-        # this is advice the tool turns down — printed once per variant.
+        # in view. In this mode the reader has to pick the chain as their
+        # output, which is what puts two volume controls in the path.
+        # `undo` names the way out of the mode, but only for a chain nobody
+        # pinned. A pinned playback side is how dolby_to_pipewire.py installs
+        # several at once, and there dropping the flag is refused outright.
+        # On that run it would be advice the tool turns down, printed once per
+        # variant.
         # "the only control you touch", not "one volume control": the chain
         # sink keeps a volume in smart-filter mode too, and it still
         # attenuates. What changes is that nothing puts you on that slider.
@@ -513,7 +524,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                 "warn", f"  ({attenuated} — that comes off everything on top "
                 "of this sink's own control)", indent="   ")
         # Which control to use has a measured consequence, so say which half is
-        # affected: the speaker correction is linear and identical either way;
+        # affected. The speaker correction is linear and identical either way;
         # only the compressor's behaviour on loud content moves with it
         # (docs/design-notes.md, issue #63).
         # "compressor and limiter", not "the compressor": the measurement says
@@ -534,25 +545,26 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         for w in detect_warnings:
             console.cprint("warn", f"[smart-filter] {w}")
         # The reason `_autodetect_speaker_sink` returns names the tool but
-        # cannot carry a package — it returns strings, not styled lines. Which
-        # left the same missing tool answered two ways on one machine: named
-        # with its package by the generator's autoload path, and named alone
-        # here. Fedora, openSUSE and Alpine all ship it apart from the daemon,
-        # so this is a package a reader can actually be missing.
+        # cannot carry a package, because it returns strings, not styled
+        # lines. Without this hint the same missing tool would be answered two
+        # ways on one machine: named with its package by the generator's
+        # autoload path, and named alone here. Fedora, openSUSE and Alpine all
+        # ship it apart from the daemon, so this is a package a reader can
+        # actually be missing.
         if not target_sink and tool_env.which("pw-dump") is None:
             console.cprint("cta", "[smart-filter] install PipeWire's "
                            "command-line tools and this run can find it:")
             packages.print_install_hint([packages.PW_TOOLS], console.cprint)
         if target_sink:
             # Names the override (round 7): without it a reader whose
-            # detection picked the wrong device assumed their only path
-            # was filing a report. And how to find NAME (round 8): the
-            # flag alone left them with no way to discover a value.
+            # detection picked the wrong device would assume their only path
+            # was filing a report. The dim line says how to find NAME
+            # (round 8): the flag alone leaves no way to discover a value.
             # Redacted: this name came from the graph, not from the reader. A
             # Bluetooth speaker reaches the strict tier (lib/hardware/sinks.py
             # `_classify_sink`), so "your built-in speakers" can name a headset
             # and print its address. The `--target-sink` echo above is left
-            # verbatim on purpose — that one the reader typed.
+            # verbatim on purpose: that one the reader typed.
             console.cprint("ok", f"[smart-filter] your built-in speakers: "
                          f"{doctor.no_bt_address(target_sink)} "
                          "(autodetected — wrong device? --target-sink NAME "
@@ -565,8 +577,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                            f"{safe_node_name}); pass --target-sink "
                            "<node.name> to enable smart-filter routing.")
             # This path reaches the same v1 conf without the reader having asked
-            # for it, so it needs the consequence spelled out too — and it is
-            # the one path that never said the chain does nothing until picked.
+            # for it, so it needs the consequence spelled out too, including
+            # that the chain does nothing until picked.
             console._cprint_wrapped(
                 "dim", "  (until you pick it as your output it processes "
                 f"nothing, and {install.V1_SECOND_VOLUME_HINT})", indent="   ")
@@ -598,7 +610,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             console.cprint("dim", f"[validate] skipped: {report.reason}")
             # With lv2info this run would refuse to write a conf naming a
             # plugin that cannot load. Without it nothing checks, so the same
-            # missing package becomes a chain that quietly never loads — say
+            # missing package becomes a chain that quietly never loads. Say
             # what that looks like, and that installing one package buys the
             # check back. Not required: PipeWire loads plugins through the
             # lilv *library*, not this CLI, so a machine with LSP and Calf
@@ -617,16 +629,15 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                                "that never appears after the restart.")
             # Only the tools actually absent, all of them, in one command.
             # Read off the report rather than probed again here, so the remedy
-            # and the skip cannot disagree about which tool is missing; and
-            # telling someone whose PipeWire is plainly running to install
+            # and the skip cannot disagree about which tool is missing.
+            # Telling someone whose PipeWire is plainly running to install
             # PipeWire reads as a message that has not looked at their
-            # machine. `needed` may be empty above while this is not — a
+            # machine. `needed` may be empty above while `wanted` is not: a
             # builtin-only chain still can't run the check.
             # `lv2info` is worth offering only to a chain that has LV2
-            # nodes for it to look at; `spa-json-dump` always is, because
+            # nodes for it to look at. `spa-json-dump` always is, because
             # without it the conf is not parsed at all and *nothing* was
-            # checked — which is the case `needed` used to suppress, against
-            # what the comment above it promised.
+            # checked, so `needed` must not gate it.
             wanted = [key for tool, key, useful in (
                 ("lv2info", packages.LV2INFO, bool(needed)),
                 ("spa-json-dump", packages.SPA_TOOLS, True))
@@ -634,7 +645,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             if wanted:
                 # "a later run", not "before the conf is written": the conf is
                 # written a line later, and phrased as a precondition this
-                # read as a step to do first.
+                # would read as a step to do first.
                 console.cprint("cta", "[validate] a later run can check this for "
                                "you:")
                 # A tool this family has no package for is spoken by the
@@ -646,10 +657,10 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # conf is still written.
             console.cprint("dim", f"[validate] skipped (setup): {report.reason}")
         else:
-            # Warnings print on a pass too — most importantly "no lv2info
-            # schema available for <uri>" when a referenced LSP/Calf plugin
-            # isn't installed, so its ports couldn't be checked. Surface them;
-            # otherwise the conf writes "successfully" while the chain
+            # Warnings print on a pass too. The most important is "no lv2info
+            # schema available for <uri>", raised when a referenced LSP/Calf
+            # plugin isn't installed, so its ports couldn't be checked.
+            # Without them the conf writes "successfully" while the chain
             # silently fails to load for a missing runtime dependency.
             #
             # They print before the errors and in their own style, and say
@@ -661,8 +672,10 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             if report.status == validate.ERRORS:
                 # Always: a schema error is a separate defect from a missing
                 # package, and a run can carry both. Rendering them together
-                # under the package header hid the second one until the
-                # reader had installed the package and re-run.
+                # under the package header would hide the second one until
+                # the reader had installed the package and re-run
+                # (tests/test_ee_to_pipewire.py
+                # test_a_schema_error_survives_a_missing_package_in_the_same_run).
                 for err in report.errors:
                     console.cprint("err", f"[validate] error: {err}")
                 if report.unloadable:

@@ -1,15 +1,15 @@
 """The closing block: the run worked, and what to do if it does not sound right.
 
 Two screens, in the order a reader meets them. `print_troubleshooting` offers
-the symptom→flag menus — one row per stage this run actually emitted, keyed on
+the symptom→flag menus: one row per stage this run actually emitted, keyed on
 what someone can *hear* rather than on what the stage is called. `print_what_now`
 closes on success and the one instruction most people need, which is that a
 preset is a thing you go and select in EasyEffects.
 
 The two menu tables live here rather than beside the stages they switch, and
-that is load-bearing twice over. They are copy — a symptom in the user's words
+that is load-bearing twice over. They are copy: a symptom in the user's words
 and a one-clause effect, whose wording is the product of a dozen review rounds
-(`.claude/rules/user-messages.md`) — and they are read by `argparse` while it
+(`.claude/rules/user-messages.md`). And they are read by `argparse` while it
 builds `--disable`/`--enable`'s choices, which happens on the completion path
 where numpy has deliberately not been imported yet. Keeping them beside
 `lib/preset/plugins.py`'s builders would drag the DSP stack onto every TAB
@@ -18,15 +18,15 @@ press.
 `VOICING_CURVES` is here on the same argument one step further out. It is the
 Balanced/Detailed/Warm table, and no reader of it can be its home. The
 per-profile report and the emit loop are in packages that may not import each
-other, and both reach numpy — a shared table is no reason to drag scipy across
+other, and both reach numpy. A shared table is no reason to drag scipy across
 a package boundary. `dolby_to_pipewire.py`'s `--variant` choices are the third
 reader and reach neither: this module is numpy-free, which is what lets the
 wrapper derive those choices from the table with the DSP stack still out of
-its `sys.modules`. It
-is copy as much as it is data: `print_what_now` right below already names two
-of the three voicings in the hint it derives from what was built. Its
-insertion order is the order voicings are built in, so a reader that renders
-the list — `--variant`'s choices, and `--help` behind it — inherits it.
+its `sys.modules`. It is copy as much as it is data: `print_what_now` right
+below already names two of the three voicings in the hint it derives from
+what was built. Its insertion order is the order voicings are built in, so a
+reader that renders the list inherits it: `--variant`'s choices, and `--help`
+behind it.
 
 `Finding`'s asks print through `lib/report/findings.py`; this module renders
 the menus around them. `Finding` and `_print_ask` come in as bare names
@@ -45,10 +45,10 @@ from lib.report.findings import Finding, _print_ask
 # block; each emission branch in `make_preset` is responsible for
 # recording its name into the returned `emitted` set when it actually
 # runs, so there is no separate plugin-key → name map to keep in sync.
-# The symptoms must not overlap. They used to share vocabulary — volmax said
-# "pumping/squash", mbc "squashed character", regulator "spectral pumping" —
-# so a user who hears squashed sound gets three candidates and no way to
-# choose, which is the same as getting none. Each one now claims a distinct
+# The symptoms must not overlap. Shared vocabulary (earlier wordings: volmax
+# "pumping/squash", mbc "squashed character", regulator "spectral pumping")
+# gives a user who hears squashed sound three candidates and no way to
+# choose, which is the same as getting none. Each one claims a distinct
 # thing you can hear, in words someone who has never read an audio manual can
 # match against, and they are ordered most-likely-to-help first.
 DISABLEABLE_FILTERS = {
@@ -61,10 +61,10 @@ DISABLEABLE_FILTERS = {
     # Narrower than --disable regulator, which drops the whole per-band
     # limiter: this drops only the zones the tuning leaves at full scale and
     # marks non-isolated. Symptom has to be the *inverse* of the --enable
-    # wording it replaces ("loud music turns harsh"), because the reader is
-    # now hearing what the mapping does rather than what its absence does.
+    # wording it replaces ("loud music turns harsh"), because the reader
+    # hears what the mapping does rather than what its absence does.
     # No "distort"/"crushed" (volmax's), no "flat and lifeless" (mbc's), no
-    # "wobbles or surges" (regulator's) — the vocabulary must not collide or
+    # "wobbles or surges" (regulator's): the vocabulary must not collide or
     # the reader gets four candidates for one symptom.
     "coupled-bands": ("the loudest moments feel clamped or lose impact",
                       "drops the full-scale zones from the per-band limiter"),
@@ -84,34 +84,34 @@ DISABLEABLE_FILTERS = {
 # (--disable autogain switches it off) and bypassed on HDA (--enable autogain
 # switches it on). Its --disable row must key off the -active marker, not the
 # "autogain" marker that means "present but bypassed" and feeds the --enable
-# menu — otherwise every HDA run would offer to disable a stage that is
+# menu. Otherwise every HDA run would offer to disable a stage that is
 # already off.
 # coupled-bands is here for the same reason without the --enable half: it is
 # on by default but only *does* anything where the tuning has a full-scale
 # non-isolated zone, so the row keys off the -active marker to stay silent on
-# the tunings with nothing to couple in — 0.8% of corpus profiles, and one
+# the tunings with nothing to couple in: 0.8% of corpus profiles, and one
 # device outright (re-derived 2026-08-11: 37,675 of 37,976 profiles, 978 of
 # 979 devices).
 _DISABLE_MENU_MARKER = {"autogain": "autogain-active",
                         "coupled-bands": "coupled-bands-active"}
 
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
-# --enable NAME activates them on a rebuild. Same contract — adding an
+# --enable NAME activates them on a rebuild. Same contract: adding an
 # entry extends the argparse choices and the end-of-run hint block.
 # The caveat is one short clause, not an explanation: this menu sits beside
 # the one-line --disable menu and reads as its twin. What the stage actually
 # does, and why the mapping is what it is, live in the README and design-notes
-# behind the issue number — which stays, because switching a stage ON is the
-# direction that carries a risk worth naming before someone tries it.
+# behind the issue number. The number stays, because switching a stage ON is
+# the direction that carries a risk worth naming before someone tries it.
 ENABLEABLE_FILTERS = {
-    # "enabling may…" marks the second clause as the flag's side effect —
+    # "enabling may…" marks the second clause as the flag's side effect:
     # run together with the trigger it read as one continuous symptom. The
     # risk wording is the leveler family's one phrasing ("swell then
     # duck"); three variants for one risk read as three different risks
     # (round 3).
-    # Autogain says its piece three times in a run — here, at the stage that
-    # detects it, and in the closing block's guaranteed-differences line — and
-    # that is deliberate (user decision, round 12, after a reviewer called the
+    # Autogain says its piece three times in a run: here, at the stage that
+    # detects it, and in the closing block's guaranteed-differences line.
+    # That is deliberate (user decision, round 12, after a reviewer called the
     # third one padding). The three serve different readers: one scrolled back
     # to the detection site, one reading only the closing block, one scanning
     # this menu. Trimming any of them leaves that reader with nothing.
@@ -120,19 +120,20 @@ ENABLEABLE_FILTERS = {
                  "(issue #25)"),
     # Trigger says "than with the preset off", not "than on Windows": that
     # second phrasing is autogain's, and the two flags sit in the same menu.
-    # The distinction is the whole diagnosis — autogain closes a gap against
+    # The distinction is the whole diagnosis: autogain closes a gap against
     # Windows, this one closes a gap against bypass, which is the symptom
     # that identifies a curve whose peak outruns its volmax-boost.
-    # "loud content may distort" until 2026-08-18, when the dev device
-    # finally heard it and loud speech picked up audible artifacts. Keep the
-    # claim pinned to one device — nothing has been auditioned anywhere else
-    # — but state it as something that happened, not something that might.
+    # The caveat states what the dev device heard on 2026-08-18: loud speech
+    # picked up audible artifacts. It replaces an earlier "loud content may
+    # distort". Keep the claim pinned to one device, because nothing has been
+    # auditioned anywhere else, but state it as something that happened, not
+    # something that might.
     "level-restore": ("it sounds quieter than with the preset switched off",
                       "experimental; loud speech picked up artifacts on the "
                       "one device we listened to (issue #50)"),
     # The caveat names the path restriction, not a sound risk: the stage is
     # a parallel graph EasyEffects cannot express, so a standalone EE run
-    # gains nothing audible from the flag — only the PipeWire conf does.
+    # gains nothing audible from the flag. Only the PipeWire conf does.
     "virtual-bass": ("bass feels thinner than it did on Windows",
                      "experimental; only the PipeWire chain plays it "
                      "(issue #14)"),
@@ -141,17 +142,17 @@ ENABLEABLE_FILTERS = {
 # Emission paths that are numerically verified but not yet user-validated
 # on real hardware. Keys that overlap with DISABLEABLE_FILTERS are turned
 # off with --disable <key>; "mbc-1band" is a marker-only name (no separate
-# flag — users who want it off should pass --disable mbc instead). Used to
-# trigger a targeted "please report" prompt at end-of-run when any of these
+# flag: users who want it off should pass --disable mbc instead). The table
+# triggers a targeted "please report" prompt at end-of-run when any of these
 # fired for the current preset.
-# "coupled-bands-active" was here while the mapping was opt-in. It came out
-# when the mapping became the default (2026-08-11): the marker now fires on
-# essentially every run, and an ask that is never absent is an ask nobody
-# reads — the closing block is written for someone who runs this once. The
-# mapping's unvalidated status is recorded in docs/reference.md instead.
-# "level-restore-active" left on 2026-08-18 for the opposite reason: it HAS
-# been heard now — loud speech turned artefacty on the dev device — so the
-# shared "nobody has told us how they sound" wording became false for it. It
+# "coupled-bands-active" is not here, because the mapping is the default
+# (2026-08-11). The marker fires on essentially every run, and an ask that
+# is never absent is an ask nobody reads: the closing block is written for
+# someone who runs this once. The mapping's unvalidated status is recorded
+# in docs/reference.md instead.
+# "level-restore-active" is not here for the opposite reason: it HAS been
+# heard (2026-08-18, loud speech turned artefacty on the dev device), so the
+# shared "nobody has told us how they sound" wording is false for it. It
 # raises its own finding instead (findings.py `_level_restore_finding`),
 # which can say what was heard and ask a second device the same question.
 # Plain name first, the tuning's own token in parentheses (round 8:
@@ -163,7 +164,7 @@ EXPERIMENTAL_MARKERS = {
 }
 
 
-# The three IEQ voicings a run can build, in build order — single source
+# The three IEQ voicings a run can build, in build order: the single source
 # for the emit loop and every line of copy that names them. A voicing whose
 # curve the XML lacks is skipped, so copy derives its list from this ∩ the
 # parsed curves rather than promising all three (round 7).
@@ -193,19 +194,19 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     ``profile_used``/``n_modes`` let the closing say the presets voice one
     sound mode of several (round 5: the pick was explained at the top, but
     the closing never said the other modes exist or that this run built
-    only this one — --all-profiles is the answer, and it was never
+    only this one. --all-profiles is the answer, and it was never
     mentioned anywhere a user reads). ``default_unknown`` adds the guess
     caveat to that line (round 6: the caveat lived only at the top banner,
     which a Done-stopper never rereads). ``autogain_off`` adds the one
-    guaranteed audible difference from Windows — the tuning's leveler
-    shipping off — for the same reason: it never reached the last screen
+    guaranteed audible difference from Windows, the tuning's leveler
+    shipping off, for the same reason: it never reached the last screen
     (round 6).
 
     The run reports each file as it writes it, hundreds of lines before the
-    end, and then closed on troubleshooting advice for problems the user
-    hasn't had yet — so the last screen never confirmed success and never
-    said what to do with any of it. Someone running this once has no idea
-    that a preset is a thing you go and select in EasyEffects.
+    end. If the run closed on troubleshooting advice for problems the user
+    hasn't had yet, the last screen would never confirm success or say what
+    to do with any of it. Someone running this once has no idea that a preset
+    is a thing you go and select in EasyEffects.
 
     Silent under --autoload, which already wired the preset to the speakers
     and printed its own confirmation: repeating "go and select it" there
@@ -213,12 +214,12 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     what is playing, and this block would only repeat it.
 
     ``reloaded`` names the preset a running EasyEffects is audibly playing
-    after this run loaded it (lib/preset/reload.py); ``loaded`` the one it
-    holds when global bypass keeps that silent — "pick it" would then
-    describe a step already taken; ``reload_slug`` the finding raised when
-    a running EasyEffects refused or ignored the load — "pick it from the
-    menu" then contradicts an ask that just routed to --doctor (copy audit
-    2026-08-27). ``start_with`` is the preset the run points at everywhere
+    after this run loaded it (lib/preset/reload.py). ``loaded`` names the
+    one it holds when global bypass keeps that silent, where "pick it" would
+    describe a step already taken. ``reload_slug`` is the finding raised when
+    a running EasyEffects refused or ignored the load, where "pick it from
+    the menu" would contradict an ask that just routed to --doctor (copy
+    audit 2026-08-27). ``start_with`` is the preset the run points at everywhere
     (autoload.starting_preset); ``declared_default_preset`` the declared
     default profile's preset when --all-profiles built it, so the note that
     a single-profile run makes with ``profile_used`` can name it instead of
@@ -236,19 +237,19 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                      "turns it on (may make quiet passages swell then "
                      "duck).")
     # Same last-screen logic as autogain_note (reviewer round, 2026-08-21):
-    # the one admission that the flag's audible half is elsewhere printed
-    # mid-run, so a closing-block reader installs the presets, hears no
-    # bass change, and has no idea why.
-    # "not in these presets" was false of the values: the _vbe block IS
-    # written, for the converter to read — it is the audible stage EE can't
-    # express. And it is a stage, not a "fix".
+    # printed only mid-run, the one admission that the flag's audible half
+    # is elsewhere would leave a closing-block reader who installs the
+    # presets and hears no bass change with no idea why.
+    # An earlier "not in these presets" was false of the values: the _vbe
+    # block IS written, for the converter to read. It is the audible stage EE
+    # can't express. And it is a stage, not a "fix".
     vbass_note = ("  The virtual-bass stage you enabled is one EasyEffects "
                   "can't play — these presets only record its values; "
                   "dolby_to_pipewire.py builds it into a PipeWire chain "
                   "instead.")
-    # The mismatch echo mirrors the autogain-note pattern (round 10): the
-    # most actionable fix in the run lived only at the top and in the ask
-    # small-print, never on the screen people act from.
+    # The mismatch echo mirrors the autogain-note pattern (round 10): without
+    # it the most actionable fix in the run lives only at the top and in the
+    # ask small-print, never on the screen people act from.
     mismatch_note = None
     if (declared_default and profile_used
             and declared_default != profile_used):
@@ -289,10 +290,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # "do I hear the change after re-running, or is there another step?"
         # and had nothing to go on until the real run printed its answer.
         # Only reached without --autoload (the early return above owns that
-        # case), so "pick one yourself" is true here — and naming --autoload
+        # case), so "pick one yourself" is true here. Naming --autoload
         # gives the reader the self-loading default before the re-run, not
         # after it.
-        # "when it can": running is necessary, not sufficient — a Flatpak
+        # "when it can": running is necessary, not sufficient. A Flatpak
         # or pre-8.0.9 EasyEffects has no reachable socket, and the run
         # declines onto a non-speaker output or the bypass preset. The
         # steps clause is what holds in every one of those cases (copy
@@ -320,14 +321,14 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
             console._cprint_wrapped("dim", vbass_note, indent="  ")
         return
     # "starting in": each preset is two files and only the .json lands in
-    # output_dir — the .irs impulse response goes to --irs-dir, a different
-    # directory by default. "wrote N presets to <dir>" named half of what
-    # the run had just listed above.
+    # output_dir. The .irs impulse response goes to --irs-dir, a different
+    # directory by default. An earlier "wrote N presets to <dir>" named half
+    # of what the run had just listed above.
     console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
                  + (f", starting in {doctor.tilde(output_dir)}:"
                     if output_dir else ":"))
-    # Name them all — naming only the first left the reader wondering what
-    # the other two were — but on one comma-separated line (round 7): the
+    # Name them all: naming only the first left the reader wondering what
+    # the other two were. They go on one comma-separated line (round 7): the
     # vertical list ate the last screen's budget. No blank after (round
     # 10, user-picked): the closing had grown exactly one line past a
     # 26-line window, scrolling the green "Done" off the last screen.
@@ -335,8 +336,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
     # curves (Dolby-global) BEFORE the ieq-amount weight: detailed ≈ +4 dB
     # treble, warm ≈ −2.5 dB treble. After the corpus-universal amount=10
-    # (/100, Finding 9) that is ≈ +0.4 / −0.25 dB — the direction holds,
-    # which is all the sentence claims; the magnitude is subtle (#73), and
+    # (/100, Finding 9) that is ≈ +0.4 / −0.25 dB. The direction holds,
+    # which is all the sentence claims. The magnitude is subtle (#73), and
     # docs/reference.md "IEQ curve → FIR" says so. Round 5: the closing
     # named a starting preset but never said what the other two are for,
     # so nobody would try them.
@@ -379,7 +380,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # menu's existence on the last screen without re-breaking the round-3
     # order (success last, not troubleshooting).
     # "(re-running ... reprints it)": scrollback is gone once the terminal
-    # closes, and the pointer alone was a dead end then (round 9).
+    # closes, and the pointer alone is a dead end then (round 9).
     if menu_printed:
         console._cprint_wrapped("dim", "  Something sound off later? Scroll up to "
                                "\"If something doesn't sound right\" "
@@ -397,15 +398,15 @@ def _print_flag_hint(flag: str, comment: str, effect: str = "") -> None:
     """One row of a flag menu: the flag, its symptom, optionally its effect.
 
     Wrapped explicitly, because cprint hands text to the console verbatim so
-    that URLs survive — which means anything long enough to need folding has
-    to ask for it.
+    that URLs survive. So anything long enough to need folding has to ask
+    for it.
     """
     gutter = " " * _FLAG_GUTTER
     # Continuations indent two past the gutter so they land under the
-    # comment text, not under its "#" — flush with the marker they read as
+    # comment text, not under its "#". Flush with the marker they read as
     # stray fragments (round 2).
     # Plain, not dim (round 5): fully dimmed rows read as less important
-    # than the report asks below — these are the fix a user with bad audio
+    # than the report asks below, and these are the fix a user with bad audio
     # needs. Plain keeps them a step below the bold asks, which stay the
     # block's emphasis (user decision).
     console._cprint_wrapped("", f"    {flag:<{_FLAG_GUTTER - 4}}{comment}",
@@ -423,16 +424,17 @@ def print_troubleshooting(findings: list[Finding],
     """Print what the user can do about their own audio, most specific first.
 
     Someone with a symptom scans until something matches and stops reading, so
-    the findings this run actually raised come before the generic menu — and a
+    the findings this run actually raised come before the generic menu. A
     hint that says "re-run with --disable volmax" turns that menu into context
     rather than arriving as a repeat of it.
 
     The menu is the longest, least targeted block in the tail, so it is one
     line per filter: the symptom is what someone picks a flag by, and the
     effect clause ("drops the per-band limiter") restates what the flag name
-    already says. It used to carry that clause plus a per-profile scope note
-    and shrink only once a hint had named a flag — two renderings of one menu,
-    for a reason no single user could see, since each one sees one run.
+    already says. Carrying that clause plus a per-profile scope note, and
+    shrinking only once a hint had named a flag, would give two renderings of
+    one menu, for a reason no single user could see, since each one sees one
+    run.
 
     The symptom text stays rather than deferring to --help: --help lists the
     valid names and two examples, not the per-filter symptom, so pointing at
@@ -466,10 +468,10 @@ def print_troubleshooting(findings: list[Finding],
             _print_ask("warn", finding)
 
     # The menu lists every filter this run emitted, including any a hint above
-    # already named. Omitting those looked tidier and read as a bug: a hint
-    # says "re-run with --disable volmax" and the list of valid filters right
-    # under it doesn't contain volmax, so the reader concludes one of the two
-    # is stale and trusts neither.
+    # already named. Omitting those would look tidier and read as a bug: a
+    # hint says "re-run with --disable volmax" and the list of valid filters
+    # right under it doesn't contain volmax, so the reader concludes one of
+    # the two is stale and trusts neither.
     # Both autogain rows point at [leveler-gap] when that note fired: the
     # note names --disable autogain as the off-switch, and round 4 found
     # the pointer on the --enable row (leveler off by default) but missing
@@ -478,7 +480,7 @@ def print_troubleshooting(findings: list[Finding],
     if shown:
         print()
         # Opens on the condition, so the list reads as "only if you hear it"
-        # rather than as a to-do for a preset nobody has heard yet — on a
+        # rather than as a to-do for a preset nobody has heard yet. On a
         # clean device this is the first thing under the heading.
         console._cprint_wrapped("dim", "  If anything sounds off on your hardware, you "
                                "can rebuild without specific filters:",
@@ -491,8 +493,8 @@ def print_troubleshooting(findings: list[Finding],
             _print_flag_hint(f"--disable {name}", comment)
 
     # Same one-line shape as the --disable menu above, with the caveat folded
-    # into the same line rather than hanging under it. "Shipped present but
-    # inactive" was the old heading and could not be parsed cold — it names an
+    # into the same line rather than hanging under it. The old heading,
+    # "Shipped present but inactive", could not be parsed cold: it names an
     # internal state (the stage is in the preset, bypassed) rather than
     # anything the reader can act on.
     if enable_hints:
@@ -500,47 +502,47 @@ def print_troubleshooting(findings: list[Finding],
         console.cprint("dim", "  Optional extras, switched off by default:")
         # On a device whose tuning pairs the leveler with sub-stages we can't
         # reproduce, --enable autogain is the switch that turns them on. The
-        # run says so in the leveler-gap note far above; the menu offered the
-        # flag with no hint of it, so the two never met.
+        # run says so in the leveler-gap note far above, and the menu row
+        # below points back at it. Without that, the two would never meet.
         for name in enable_hints:
             symptom, caveat = ENABLEABLE_FILTERS[name]
             if name == "autogain" and gap:
                 # The flag cannot enable a stage the preset never contains.
                 # What it does is run our leveler without the companion
-                # compression Dolby pairs with it — which is what the inline
-                # [leveler-gap] note says, and what this row said backwards.
+                # compression Dolby pairs with it, which is what the inline
+                # [leveler-gap] note says.
                 caveat = ("on this device it runs without the companion "
                           "stage we can't reproduce, so quiet passages may "
                           "swell then duck — see [leveler-gap]")
             _print_flag_hint(f"--enable {name}", f"# {symptom} — {caveat}")
 
     # How to actually apply any of the above. Every suggestion here is a flag
-    # on a re-run, and the output never said what to re-run, that flags can be
-    # combined, or that EasyEffects keeps serving the old preset until it is
-    # reloaded — so a rebuild that silently didn't take effect reads as "the
-    # flag didn't help".
+    # on a re-run. Without this line the output would never say what to
+    # re-run, that flags can be combined, or that EasyEffects keeps serving
+    # the old preset until it is reloaded. A rebuild that silently didn't take
+    # effect would then read as "the flag didn't help".
     if shown or enable_hints:
         print()
         # Only mention reloading in EasyEffects when this run is the thing
         # that put a preset there. Under dolby_to_pipewire.py these presets
         # are staged and thrown away, and the reader picked that path
-        # precisely because they don't run EasyEffects — so the sentence that
-        # tells them how to apply a fix ended in something they can't do. The
-        # wrapper's own [3/3] steps cover applying it there.
+        # precisely because they don't run EasyEffects. The sentence that
+        # tells them how to apply a fix would end in something they can't
+        # do. The wrapper's own [3/3] steps cover applying it there.
         # And not when this run just loaded the preset into a running
         # EasyEffects: the re-run will too. `auto_reload` means it *did*, not
         # that the gate would pass — the socket's availability is the one
         # thing that can change before the re-run, and a promise we might
         # not keep is worse than a redundant instruction. Not under
         # --dry-run either: the closing block four lines down says what the
-        # real run does about loading, and this line contradicted it (copy
-        # audit 2026-08-27).
+        # real run does about loading, and this line would contradict it
+        # (copy audit 2026-08-27).
         tail = (" Then reload the preset in EasyEffects to hear the change."
                 if installs_presets and not auto_reload and not dry_run else "")
-        # Under --dry-run, "the same command you ran" would rebuild nothing —
-        # the reader is four lines from being told nothing was written, and
-        # telling them to reload a preset that doesn't exist read as the two
-        # blocks not knowing about each other.
+        # Under --dry-run, "the same command you ran" would rebuild nothing:
+        # the reader is four lines from being told nothing was written.
+        # Telling them to reload a preset that doesn't exist would read as the
+        # two blocks not knowing about each other.
         # "the flags above", not "these": on a terminal whose window folds
         # exactly at this sentence, "these" is the first visible word of the
         # last screen with its antecedent scrolled off (round 4). Naming the

@@ -16,8 +16,8 @@ XMLs exactly as the converters do: `walk_for_dolby_xml_dirs`,
 `xmls_directly_under`, `dirs_for_this_machine` and
 `is_dolby_tuning_filename`.
 
-`autoprobe_all_dolby_xmls` is the union form of the first question — every
-XML the same probes can see — for the corpus tier and `tools/corpus_audit.py`.
+`autoprobe_all_dolby_xmls` is the union form of the first question: every
+XML the same probes can see, for the corpus tier and `tools/corpus_audit.py`.
 
 `main()` reaches a third name, `is_soundwire_xml`, and it is the thing to know
 before editing: the bus is recorded nowhere inside the XML, only in its
@@ -42,7 +42,7 @@ from lib.hardware import codecs
 # Most subsystem IDs are hex (e.g. ``17AA22E6``) but Lenovo IdeaPad
 # installers use the marketing tag ``IDEA`` as a text vendor prefix
 # (e.g. ``IDEA4002``), so we accept ``[0-9A-Za-z]`` rather than restricting
-# to hex — see issue #4 (taprobane99). Companion files with suffixes that
+# to hex: see issue #4 (taprobane99). Companion files with suffixes that
 # share the filename pattern but do *not* hold DAX3 playback tunings are
 # filtered out at the call sites:
 #   ``_settings.xml`` — per-device simplified settings
@@ -56,16 +56,16 @@ _NON_DAX3_FILENAME_SUFFIXES = ("_settings.xml", "_dmic.xml", "_amic.xml")
 
 
 def is_dolby_tuning_filename(name: str) -> bool:
-    """True if *name* is a DAX3 playback tuning rather than one of the
-    companions that share its shape.
+    """True if *name* is a DAX3 playback tuning, not a same-shaped companion.
 
     The single definition of "a corpus XML". The probes below,
     ``tests/corpus/`` and ``tools/corpus_audit.py`` all route through it, so
     what the converter accepts and what the cross-device sweep counts cannot
-    drift apart. They had: the sweep tested for a ``DEV_``/``SOUNDWIRE``/
-    ``SDW`` filename *prefix*, which skipped the ``HDAUDIO_``/``INTELAUDIO_``/
-    ``PCI_``/``AUCD_`` DriverStore spellings of the same tunings and counted
-    the ``_dmic``/``_amic`` microphone files as speaker ones.
+    drift apart. A separate filename-prefix check (``DEV_``/``SOUNDWIRE``/
+    ``SDW``) would skip the ``HDAUDIO_``/``INTELAUDIO_``/``PCI_``/``AUCD_``
+    DriverStore spellings of the same tunings, and count the
+    ``_dmic``/``_amic`` microphone files as speaker ones.
+    ``tests/test_corpus_audit.py::test_is_dax3_xml_name_filter`` traps it.
     """
     if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
         return False
@@ -80,7 +80,7 @@ def is_dolby_tuning_filename(name: str) -> bool:
 # which is why the scans of a directory the user pointed at fall back to that
 # directory itself: ``_resolve_driver_store``, ``_candidate_has_matching_xml``
 # and ``find_tuning_xml``. ``autoprobe_dolby_source``'s mount probe is the one
-# that must not — it is deciding whether an NTFS mount is a Windows install
+# that must not. It is deciding whether an NTFS mount is a Windows install
 # worth offering unprompted, and a wrapper hit is the whole of that test.
 _INF_WRAPPER_GLOB = "dax3_ext_*.inf_*"
 
@@ -98,7 +98,7 @@ def _is_inf_wrapper(name: str) -> bool:
 def is_soundwire_xml(filename: str) -> bool:
     """True if the tuning filename marks a SoundWire (not HD-Audio) codec.
 
-    The bus is not recorded inside the XML — only the filename carries it,
+    The bus is not recorded inside the XML. Only the filename carries it,
     in two forms Dolby ships interchangeably: ``SOUNDWIRE_MAN_*`` and the
     shorter ``SDW_*``. Several emitted parameters key off this, so the
     derivation lives here rather than inline at each caller.
@@ -190,12 +190,13 @@ _CWD_PROBE_MAX_DEPTH = 10
 def _pci_subsys_token(pci_subsys: tuple[str, str] | None) -> str | None:
     """Render ``codecs.get_pci_audio_subsystem()``'s pair as a filename token.
 
-    Dolby's PCI-keyed filenames — SoundWire on newer Intel platforms, and
-    Apple Boot Camp tunings on Intel Macs (issue #21) — encode the subsystem
-    **device-first**, the reverse of the ``(vendor, device)`` order the pair
-    arrives in: PCI subsystem 17AA:2339 -> ``SUBSYS_233917AA``, or Apple
-    106B:1880 -> ``SUBSYS_1880106B``. (HDA codec filenames instead carry the
-    codec's own subsystem, vendor-first — a different token, not this one.)
+    Dolby's PCI-keyed filenames encode the subsystem **device-first**, the
+    reverse of the ``(vendor, device)`` order the pair arrives in. They are
+    SoundWire on newer Intel platforms, and Apple Boot Camp tunings on Intel
+    Macs (issue #21). PCI subsystem 17AA:2339 -> ``SUBSYS_233917AA``, or
+    Apple 106B:1880 -> ``SUBSYS_1880106B``. HDA codec filenames instead
+    carry the codec's own subsystem, vendor-first: a different token, not
+    this one.
 
     Returns ``None`` when no PCI subsystem was detected.
     """
@@ -206,17 +207,16 @@ def _pci_subsys_token(pci_subsys: tuple[str, str] | None) -> str | None:
 
 
 def _detect_expected_subsys_ids() -> set[str]:
-    """Return SUBSYS values (8 hex chars, uppercase) that would match this
-    machine's audio hardware in a Dolby XML filename.
+    """Return the SUBSYS filename tokens that match this machine's hardware.
 
-    Combines HDA codec subsystem IDs from ``/proc/asound`` with the PCI
-    audio subsystem token used by SoundWire and Apple filenames. May
-    return an empty set if no hardware is detected.
+    Each is 8 hex chars, uppercase. Combines HDA codec subsystem IDs from
+    ``/proc/asound`` with the PCI audio subsystem token used by SoundWire
+    and Apple filenames. May return an empty set if no hardware is detected.
     """
     ids: set[str] = set()
-    # HDMI/DP codecs ride along here. Harmless — no Dolby tuning filename
-    # carries a display SSID — so this stays a superset rather than growing a
-    # filter the callers would have to agree on.
+    # HDMI/DP codecs ride along here. That is harmless, since no Dolby tuning
+    # filename carries a display SSID. So this stays a superset rather than
+    # growing a filter the callers would have to agree on.
     for _vendor, subsys, _name in codecs.get_hda_codec_ids():
         ids.add(subsys.upper())
     pci_token = _pci_subsys_token(codecs.get_pci_audio_subsystem())
@@ -226,12 +226,12 @@ def _detect_expected_subsys_ids() -> set[str]:
 
 
 def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> bool:
-    """Return True iff ``candidate`` contains a Dolby XML whose filename
-    encodes any of the ``expected_subsys`` values.
+    """Return True iff ``candidate`` holds a Dolby XML for ``expected_subsys``.
 
-    Resolves ``candidate`` to a driver-store the same way ``find_tuning_xml``
-    does, then scans XMLs under ``dax3_ext_*.inf_*`` wrappers (if present)
-    or directly under the resolved dir.
+    Matches when an XML filename encodes any of the ``expected_subsys``
+    values. Resolves ``candidate`` to a driver-store the same way
+    ``find_tuning_xml`` does, then scans XMLs under ``dax3_ext_*.inf_*``
+    wrappers (if present) or directly under the resolved dir.
     """
     if not expected_subsys:
         return False
@@ -256,13 +256,12 @@ def _candidate_has_matching_xml(candidate: Path, expected_subsys: set[str]) -> b
 
 
 def dirs_for_this_machine(dirs: list[Path]) -> list[Path]:
-    """Narrow candidate directories to those holding a tuning XML for this
-    machine.
+    """Narrow candidate directories to those holding this machine's tuning XML.
 
     Public so ``tools/fetch_driver`` picks the right directory out of a
-    per-SKU fan-out the same way the autoprobe picks between extracted trees
-    — one implementation, so the two can't drift. Returns ``[]`` when no
-    hardware is detected, which callers read as "can't narrow".
+    per-SKU fan-out the same way the autoprobe picks between extracted
+    trees. One implementation means the two can't drift. Returns ``[]`` when
+    no hardware is detected, which callers read as "can't narrow".
     """
     expected = _detect_expected_subsys_ids()
     return [d for d in dirs if _candidate_has_matching_xml(d, expected)]
@@ -294,9 +293,9 @@ def walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -
 
 
 def xmls_directly_under(directory: Path) -> list[Path]:
-    """DAX3-shaped XML files directly under ``directory`` — no recursion,
-    and the same name filter as every other probe here.
+    """Return the DAX3-shaped XML files directly under ``directory``.
 
+    No recursion, and the same name filter as every other probe here.
     Public for the same reason as ``walk_for_dolby_xml_dirs``.
     """
     out: list[Path] = []
@@ -310,19 +309,18 @@ def xmls_directly_under(directory: Path) -> list[Path]:
 
 
 def autoprobe_all_dolby_xmls() -> list[Path]:
-    """Every Dolby tuning XML the probes in ``autoprobe_dolby_source`` can
-    reach — as a union, not a single winner.
+    """Return every Dolby tuning XML ``autoprobe_dolby_source``'s probes reach.
 
-    ``autoprobe_dolby_source`` answers "which one source is this machine's";
-    the corpus tier (``tests/corpus/``) and ``tools/corpus_audit.py`` want
-    everything the same probes can see. They share this function so the two
-    walks cannot drift apart (each used to mirror the other's):
+    A union, not a single winner. ``autoprobe_dolby_source`` answers "which
+    one source is this machine's"; the corpus tier (``tests/corpus/``) and
+    ``tools/corpus_audit.py`` want everything the same probes can see. They
+    share this function so the two walks cannot drift apart:
 
-    1. **Mount probe** — every NTFS-family mountpoint whose DriverStore
-       resolves, walked the way ``find_tuning_xml`` walks it: the
-       ``dax3_ext_*.inf_*`` wrappers, then the store directory itself
-       (hand-extracted layouts keep the XMLs flat).
-    2. **CWD probe** — every directory under the current directory (bounded
+    1. **Mount probe**: every NTFS-family mountpoint whose DriverStore
+       resolves, walked the way ``find_tuning_xml`` walks it. That is the
+       ``dax3_ext_*.inf_*`` wrappers, then the store directory itself, since
+       hand-extracted layouts keep the XMLs flat.
+    2. **CWD probe**: every directory under the current directory (bounded
        depth, hidden directories pruned) that directly contains a Dolby XML.
 
     Both probes always run: unlike the single-source pick, a mounted Windows
@@ -364,10 +362,10 @@ def autoprobe_dolby_source() -> Path:
 
     Tries, in order:
 
-    1. **Mount probe** — enumerate NTFS-family mountpoints from
+    1. **Mount probe**: enumerate NTFS-family mountpoints from
        ``/proc/mounts`` and keep any whose DriverStore contains at least one
        ``dax3_ext_*.inf_*`` subdir.
-    2. **CWD probe** (only if the mount probe finds nothing) — bounded walk
+    2. **CWD probe**, only if the mount probe finds nothing: bounded walk
        of the current working directory for any directory that directly
        contains a Dolby-shaped XML. Covers the ``innoextract`` default
        layout (``./driver-cache/code$GetExtractPath$/Dolby/03_dax_ext/``)
@@ -503,11 +501,11 @@ def _rank_by_tuning_version(candidates):
 
     Prefer the highest tuning version from the XML metadata. Parse each
     candidate once, recording both the numeric version (sort key) and the
-    raw value string (display); on a parse/decode failure both fall back to
-    0 / "?" so the malformed candidate sorts last and prints without
+    raw value string (display). On a parse/decode failure both fall back to
+    0 / "?", so the malformed candidate sorts last and prints without
     crashing the listing.
 
-    Returns the `(path, version, raw)` triples in display order — the
+    Returns the `(path, version, raw)` triples in display order. The
     caller owns the printing, because the order and wording of those lines
     are what a user reads. `sorted` is stable, so candidates sharing a
     version keep the order they arrived in.
@@ -561,18 +559,18 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
 
     # HDA match tokens for DEV_*_SUBSYS_*.xml files. The subsystem alone is
     # NOT unique: Lenovo reuses codec subsystem ids across different Realtek
-    # codecs (issue #33 — IdeaPad Pro 5 14APH8's ALC287 shares SUBSYS 17AA38C5
-    # with an ALC257 SKU, and both tunings ship in the same driver store). The
-    # filename's DEV token is the codec device id (the low 16 bits of the HDA
-    # vendor id, 10EC0287 → 0287), so the strong key is the (DEV, SUBSYS) pair;
-    # a subsystem-only match is kept as a fallback tier in case a filename's
-    # DEV token ever diverges from the codec id (mirrors the SoundWire
-    # FUNC-preferred-not-required tiering below).
+    # codecs. In issue #33, IdeaPad Pro 5 14APH8's ALC287 shares SUBSYS
+    # 17AA38C5 with an ALC257 SKU, and both tunings ship in the same driver
+    # store. The filename's DEV token is the codec device id (the low 16 bits
+    # of the HDA vendor id, 10EC0287 → 0287), so the strong key is the
+    # (DEV, SUBSYS) pair. A subsystem-only match is kept as a fallback tier
+    # in case a filename's DEV token ever diverges from the codec id. That
+    # mirrors the SoundWire FUNC-preferred-not-required tiering below.
     hda_subsys_ids = {s.upper() for _, s, _name in hda_codecs}
     hda_dev_subsys = {(v.upper()[-4:], s.upper()) for v, s, _name in hda_codecs}
 
-    # PCI subsystem match token — the key Dolby's SoundWire and Apple Boot Camp
-    # filenames are named by; ``_pci_subsys_token`` holds the byte order.
+    # PCI subsystem match token: the key Dolby's SoundWire and Apple Boot Camp
+    # filenames are named by. ``_pci_subsys_token`` holds the byte order.
     # Every SoundWire tier below keys on it, so on a SoundWire machine a
     # missing PCI subsystem is fatal rather than a silent no-match.
     if sdw_devices and pci_subsys is None:
@@ -582,18 +580,18 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
         )
     pci_subsys_id = _pci_subsys_token(pci_subsys)
 
-    # SoundWire match tokens. The strong key is (manufacturer, part) — Dolby's
+    # SoundWire match tokens. The strong key is (manufacturer, part): Dolby's
     # filename FUNC token usually equals the Linux SoundWire part id (all 29
-    # corpus Qualcomm MAN_025D tunings). But it need NOT: on Cirrus cs35l56
+    # corpus Qualcomm MAN_025D tunings). But it need NOT. On Cirrus cs35l56
     # platforms (issue #26) the filename is FUNC_3556 while sysfs reports parts
-    # 3557 (amps) / 4245 (codec), and the XML's own security-key confirms 3556
-    # is a device id, SUBSYS_<pci> the per-device key. So FUNC is *preferred,
+    # 3557 (amps) / 4245 (codec). The XML's own security-key confirms 3556 is
+    # a device id, and SUBSYS_<pci> the per-device key. So FUNC is *preferred,
     # not required*: we first match (man, part) exactly (sdw_man_func), and only
     # if nothing matches that way fall back to PCI-subsystem + manufacturer
-    # (sdw_man_ids). That keeps the old behaviour verbatim where FUNC equals a
-    # part — important because some Lenovo SKUs ship two tunings sharing
-    # MAN+SUBSYS but differing in FUNC (e.g. SUBSYS_383917AA: FUNC_0721 vs
-    # FUNC_1320); the exact (man, part) tier still disambiguates those.
+    # (sdw_man_ids). Where FUNC equals a part, the exact tier decides. That
+    # matters because some Lenovo SKUs ship two tunings sharing MAN+SUBSYS
+    # but differing in FUNC (e.g. SUBSYS_383917AA: FUNC_0721 vs FUNC_1320),
+    # and the exact (man, part) tier disambiguates those.
     sdw_man_func = {(m.upper(), p.upper()) for m, p in sdw_devices}
     sdw_man_ids = {m for m, _p in sdw_man_func}
 
@@ -642,7 +640,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
                 # (issue #21), e.g. PCI_DEV_1803_SUBSYS_1880106B_PCI_SUBSYS_...,
                 # whose first SUBSYS token is the audio function's PCI subsystem
                 # in device-first order (106B = Apple), not an HDA codec
-                # subsystem. Tentative — unverified on real T2-Mac Linux
+                # subsystem. Tentative: unverified on real T2-Mac Linux
                 # hardware. Additive and safe: HDA/SoundWire filenames use the
                 # opposite byte order, so this cannot mis-match them.
                 if match and pci_subsys_id and match.group(1) == pci_subsys_id:
@@ -653,7 +651,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
             # or SOUNDWIRE_SDCAFUNCTION_NN_MAN_XXXX_FUNC_YYYY_SUBSYS_ZZZZZZZZ.
             # ZZZZZZZZ is the PCI subsystem (device-first, unique per SKU).
             # Exact (man, part) is a strong match; a non-part FUNC drops to the
-            # PCI-subsystem fallback (sdw_pci_only) — see the token note above.
+            # PCI-subsystem fallback (sdw_pci_only). See the token note above.
             sdw_match = re.search(
                 r"MAN_([0-9A-F]{4})_FUNC_([0-9A-F]{4})_SUBSYS_([0-9A-F]{8})",
                 name,
@@ -713,7 +711,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
 
         # Authoritative content match: the security-key's own PCI subsystem
         # equals this machine's. As specific as a filename SUBSYS match, so use
-        # it automatically even without --best-guess — covers a tuning whose
+        # it automatically even without --best-guess. It covers a tuning whose
         # filename convention we don't parse but whose security-key we do.
         exact = [g for g in guesses if pci_subsys_id and g[2] == pci_subsys_id]
         if len(exact) == 1:

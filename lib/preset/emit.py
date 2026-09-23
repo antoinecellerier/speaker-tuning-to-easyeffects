@@ -8,13 +8,10 @@ asked for. Everything it needs beyond `lib/preset/fir.py`'s design math and
 `lib/preset/build.py`'s preset dict is here: the pass/fail gate for that check,
 and the WAV writer.
 
-`save_wav_stereo` sat in the generator through six slices for a reason that has
-since expired — binding `wavfile` in another module meant a second deferred
-import, which is new code rather than motion. It has nothing to defer to now:
-`lib/preset/fir.py` imports numpy at module scope already, so a module the
-generator only reaches from inside `main()` may import scipy the same way, in
-the top-level block a move commit is allowed to write. It is still the only
-caller of `lib/preset/autoload.py`'s `_atomic_write` outside that module.
+`lib/preset/fir.py` imports numpy at module scope, so a module the generator
+only reaches from inside `main()` may import scipy the same way, and this one
+does. `save_wav_stereo` is the only caller of `lib/preset/autoload.py`'s
+`_atomic_write` outside that module.
 
 Imported inside `dolby_to_easyeffects.py`'s `main()` rather than at the top of
 it, like `lib/report/profile.py` and for the same reason: numpy and scipy are
@@ -23,7 +20,7 @@ including a tab completion, which argcomplete re-runs the whole script for on
 every TAB press — must not reach them
 (`tests/test_layout.py::test_the_dsp_import_is_deferred_past_every_early_return`).
 
-`VOICING_CURVES` comes from `lib/report/messages.py` — the Balanced/Detailed/
+`VOICING_CURVES` comes from `lib/report/messages.py`. The Balanced/Detailed/
 Warm table is copy as much as it is data, and neither of its other readers is
 a place this module could reach it from: `lib/report/profile.py` sits in a
 package this one may not import, and `dolby_to_pipewire.py`'s `--variant`
@@ -49,8 +46,9 @@ from lib.report import messages
 
 
 def stereo_taps(fir_left: np.ndarray, fir_right: np.ndarray) -> np.ndarray:
-    """The exact float32 interleaved array save_wav_stereo writes — what
-    kernel_name() hashes, so the name follows the bytes on disk and nothing
+    """The exact float32 interleaved array save_wav_stereo writes.
+
+    kernel_name() hashes it, so the name follows the bytes on disk and nothing
     else."""
     return np.column_stack([fir_left, fir_right]).astype(np.float32)
 
@@ -66,12 +64,12 @@ def kernel_name(preset_name: str, taps: np.ndarray) -> str:
     """`{preset}-{8 hex}`: the impulse's name carries a hash of its samples.
 
     EasyEffects re-reads an .irs only when the convolver's kernel name
-    *changes* — its preset loader skips the setter on an equal name, and the
-    generated KConfig setter short-circuits again — so a same-name rewrite
-    left the old FIR playing after a reload, `easyeffects -l` or a GUI
-    re-pick until EasyEffects restarted. A name that follows the content
-    changes exactly when the sound does. Eight hex digits (git-short-SHA
-    odds). The samples' last bits can differ between numpy/BLAS builds, so
+    *changes*. Its preset loader skips the setter on an equal name, and the
+    generated KConfig setter short-circuits again. So a same-name rewrite
+    would leave the old FIR playing after a reload, `easyeffects -l` or a GUI
+    re-pick until EasyEffects restarts. A name that follows the content
+    changes exactly when the sound does. Eight hex digits give git-short-SHA
+    odds. The samples' last bits can differ between numpy/BLAS builds, so
     the name is stable on one machine, not across machines. Why, and the
     rejected alternative: docs/design-notes.md "Rejected approaches".
     """
@@ -79,24 +77,23 @@ def kernel_name(preset_name: str, taps: np.ndarray) -> str:
 
 
 def _impulse_referrers(stem: str, output_dir: Path) -> list[str]:
-    """Presets, PipeWire confs and EasyEffects' own saved settings still
-    naming `{stem}.irs`.
+    """Presets, PipeWire confs and EE saved settings that name `{stem}.irs`.
 
     A preset saved from EasyEffects' GUI keeps the kernel name of the preset
     it was derived from, so a file this run would call stale can be the only
-    impulse another preset has — and EasyEffects loads a missing kernel
-    without a word, leaving that preset convolving nothing. A conf written
+    impulse another preset has. EasyEffects loads a missing kernel without a
+    word, leaving that preset convolving nothing. A conf written
     with `ee_to_pipewire.py --no-copy-irs` pins the EE-side path the same
     way, and there a missing file stops the whole conf loading. And
     EasyEffects restores the convolver's kernel *name* from its config db on
     start, not from the preset JSON: with that file gone, a fresh instance
     logged "Kernel 'Dolby-Balanced' not found … Entering passthrough mode"
-    (dev machine, 2026-08-27) — silent until the next preset load, which
-    without autoload is never. Until a load names the new impulse, the one
-    the db names is what the next start plays.
+    (dev machine, 2026-08-27). That stays silent until the next preset load,
+    which without autoload is never. Until a load names the new impulse, the
+    one the db names is what the next start plays.
 
     Reads EasyEffects' own preset directory as well as this run's, and both
-    PipeWire conf directories — why, beside each scan.
+    PipeWire conf directories. The comment beside each scan says why.
     """
     users: list[str] = []
     try:
@@ -105,10 +102,10 @@ def _impulse_referrers(stem: str, output_dir: Path) -> list[str]:
             users.append("EasyEffects' saved settings")
     except OSError:
         pass
-    # This run's tree and EasyEffects' own — not the same directory when
-    # --output-dir alone was passed: --irs-dir then still means the live
-    # tree, and the presets naming a file there are the live ones, which
-    # this run never rewrote. A directory too many only ever keeps a file.
+    # This run's tree and EasyEffects' own. They differ when --output-dir
+    # alone was passed: --irs-dir then still means the live tree, and the
+    # presets naming a file there are the live ones, which this run never
+    # rewrote. A directory too many only ever keeps a file.
     preset_dirs = [output_dir]
     if ee_paths.DEFAULT_OUTPUT_DIR.resolve() != output_dir.resolve():
         preset_dirs.append(ee_paths.DEFAULT_OUTPUT_DIR)
@@ -132,8 +129,8 @@ def _impulse_referrers(stem: str, output_dir: Path) -> list[str]:
                              else f"{path.stem} in {doctor.tilde(preset_dir)}")
     # Lazy and one-way: nothing under lib/pipewire imports lib/preset, and
     # this is the one place the EasyEffects writer needs to know where the
-    # PipeWire confs live. Both directories a conf is live from — the
-    # daemon's and filter-chain.service's; docs/alternative-pipelines.md
+    # PipeWire confs live. It scans both directories a conf is live from:
+    # the daemon's and filter-chain.service's. docs/alternative-pipelines.md
     # hands out a skeleton for the second.
     from lib.pipewire import checks
     for conf_dir in checks.live_conf_dirs():
@@ -157,11 +154,11 @@ def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
     Ours only: `{preset_name}-<8 hex>` (an earlier build of the same preset)
     and the legacy unhashed `{preset_name}.irs`. The voicing is always the
     last name part, so nothing else this tool writes can match. A file some
-    preset or conf still names is kept, and the run says which — the reader
+    preset or conf still names is kept, and the run says which. The reader
     may want to know that preset now plays an older impulse. Never reached
     under --dry-run: the caller gates it, beside the write it pairs with, and
-    only after the preset JSON is on disk (until then that JSON itself still
-    named the old impulse).
+    only after the preset JSON is on disk. Until then that JSON itself still
+    names the old impulse.
     """
     try:
         stale = sorted(p for p in irs_dir.glob(f"{preset_name}*.irs")
@@ -190,12 +187,12 @@ FIR_VERIFY_OK_DB = 0.5
 
 def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
                        rows: bool) -> float:
-    """Worst |deviation| in dB between one built channel and the curve it was
-    asked for, at the XML's own band frequencies.
+    """Worst |deviation| in dB between one built channel and its curve.
 
-    Both sides are peak-normalised, so this grades the SHAPE only — the
-    absolute level is short by the curve's peak by design (make_fir
-    normalises, and level-restore hands that back downstream). Saying
+    The curve is the one the channel was asked for, probed at the XML's own
+    band frequencies. Both sides are peak-normalised, so this grades the
+    SHAPE only. The absolute level is short by the curve's peak by design:
+    make_fir normalises, and level-restore hands that back downstream. Saying
     "matches the curve" without "the shape of" would claim a level match the
     check never makes.
     """
@@ -218,12 +215,13 @@ def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
 def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
                       kernel_by_preset, warned: bool = False):
-    """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile:
-    build each combined FIR, write the .irs + .json, print the verification
-    table, and record emitted filters. Mutates ``all_preset_names``,
-    ``filters_by_profile`` and ``kernel_by_preset`` (preset name → the
-    impulse's stem) in place — main() passes three fields of its
-    ``RunTally`` and reads them back off it after the loop."""
+    """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile.
+
+    Builds each combined FIR, writes the .irs + .json, prints the
+    verification table, and records emitted filters. Mutates
+    ``all_preset_names``, ``filters_by_profile`` and ``kernel_by_preset``
+    (preset name → the impulse's stem) in place. main() passes three fields
+    of its ``RunTally`` and reads them back off it after the loop."""
     curves = tuning.curves
     peq_filters = tuning.peq_filters
     vol_leveler = tuning.vol_leveler
@@ -237,9 +235,9 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     # at 10% weight on top of the audio-optimizer correction, not as a
     # full-depth EQ. DAX steers the IEQ via Media Intelligence
     # (mi-ieq-steering-enable), so a small static weight approximates its
-    # steady-state; full weight (the old amount/10 reading) over-applied
-    # the IEQ and crashed the HF match to DAX by up to ~28 dB. See
-    # docs/design-notes.md "Finding 9".
+    # steady-state. Full weight, an earlier amount/10 reading, over-applied
+    # the IEQ and crashed the HF match to DAX by up to ~28 dB on the X1 Yoga.
+    # See docs/design-notes.md "Finding 9".
     scale = tuning.ieq_amount / 100.0
 
     # Audio-optimizer curves in dB
@@ -250,10 +248,10 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                    for label, key in messages.VOICING_CURVES.items()}
 
     # One hidden-tables hint per profile, at the spot the first table would
-    # have occupied — three identical lines read as a nag.
+    # have occupied. Three identical lines read as a nag.
     tables_hint_pending = not args.verbose
-    # (preset_name, worst-deviation) per built FIR — the default view prints
-    # one consolidated verdict after the loop; three identical green
+    # (preset_name, worst-deviation) per built FIR. The default view prints
+    # one consolidated verdict after the loop, because three identical green
     # "passed" lines read as three separate validations (round 6).
     check_results: list[tuple[str, float]] = []
 
@@ -280,13 +278,13 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # --enable level-restore: hand the chain back the level normalisation
         # removed. make_fir divides each channel by its own realised peak, so
         # a curve whose peak outruns its volmax-boost emits a preset quieter
-        # than bypass — the deficit is exactly peak_db - volmax_boost, and it
+        # than bypass. The deficit is exactly peak_db - volmax_boost, and it
         # is what issues #25/#46/#50 describe. The restored amount is the
         # peak make_fir measured, so nothing here is a tuned offset.
         #
         # Re-reference both channels to the louder peak first. Normalising
         # each channel to its own peak also flattens the L/R level
-        # relationship the two AO curves ask for — the two combined peaks
+        # relationship the two AO curves ask for. The two combined peaks
         # diverge on 19.1% of the corpus (median 0.93 dB, max 5.56;
         # re-derived 2026-08-04 over 3051 parsed XMLs). A common reference
         # keeps that relationship and still leaves every channel at or below
@@ -345,10 +343,10 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         console.cprint(style, f"{verb} {doctor.tilde(out_path)}")
         if not args.dry_run:
             _drop_stale_impulses(args.irs_dir, preset_name, irs_path, args.output_dir)
-        # The tables are behind -v: even marked skippable they were the
-        # bulk of the output, burying the findings between them, and their
-        # only reader is someone diagnosing a wrong-sounding preset — who
-        # is told to re-run with -v. The verdict line below prints either
+        # The tables are behind -v. Even marked skippable, they would be the
+        # bulk of the default output and bury the findings between them.
+        # Their only reader is someone diagnosing a wrong-sounding preset,
+        # who is told to re-run with -v. The verdict line below prints either
         # way, so the check itself is never hidden.
         if args.verbose:
             print(f"  {curve_key} combined IEQ+AO curve (left channel):")
@@ -360,8 +358,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             console.cprint("dim", "  (frequency tables hidden — re-run with -v to "
                           "print them)")
 
-        # Verify FIR frequency response — the math runs either way; -v only
-        # decides whether the per-frequency rows print.
+        # Verify the FIR frequency response. The math runs either way; -v
+        # only decides whether the per-frequency rows print.
         fft_freqs = np.fft.rfftfreq(fir.FIR_LENGTH, d=1.0 / fir.SAMPLE_RATE)
         if args.verbose:
             console.cprint("dim", "\n  FIR verification (left, normalized to "
@@ -370,15 +368,15 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                         left_offset_db, freqs, fft_freqs,
                                         rows=args.verbose)
         # The right channel carries its own audio-optimizer curve, so a fault
-        # can live there alone — grade it too. The rows stay left-only (the
-        # table is already sixty lines); the verbose verdict names both
-        # figures, so neither side is graded behind the reader's back.
+        # can live there alone, so grade it too. The rows stay left-only,
+        # because the table is already sixty lines. The verbose verdict names
+        # both figures, so neither side is graded behind the reader's back.
         worst_right = _worst_shape_error(fir_right, combined_right,
                                          right_offset_db, freqs, fft_freqs,
                                          rows=False)
         worst = max(worst_left, worst_right)
         # A table of sixty "error" rows with no verdict reads as a slow
-        # drift going wrong; nobody outside this file knows 0.03 dB is a
+        # drift going wrong, and nobody outside this file knows 0.03 dB is a
         # pass. The threshold is far above the minimum-phase design's
         # normal residual (~0.05 dB) and below anything audible.
         # "Correction check", not "FIR check": FIR was the one label in the
@@ -386,14 +384,15 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # audio-optimizer line's vocabulary for the same curve.
         # No "(inaudible)": printed a few lines under a ⚠ loudness warning,
         # the green all-clear read as canceling it (round 5). This line is
-        # about curve accuracy only — keep listening language out.
+        # about curve accuracy only, so keep listening language out.
         check_results.append((preset_name, worst))
         if args.verbose:
             # Next to its own table; the default view gets one verdict for
             # all three after the loop.
-            # "its target" named nothing a reader could point at. The target
-            # is the curve computed from their tuning — say that, since the
-            # whole value of the line is which side it certifies.
+            # An earlier wording, "its target", named nothing a reader could
+            # point at. The target is the curve computed from their tuning.
+            # Say that, since the whole value of the line is which side it
+            # certifies.
             if worst <= FIR_VERIFY_OK_DB:
                 console.cprint("ok", f"  Correction check passed: the built filter "
                              f"matches the shape of the curve your tuning "
@@ -414,7 +413,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             worst_all = max(w for _, w in check_results)
             # Dim, not green, when a ⚠ fired above: the celebratory color
             # read as cancelling the warning (round 9, user-picked
-            # rendering) — the check only covers curve accuracy.
+            # rendering). The check only covers curve accuracy.
             console.cprint("dim" if warned else "ok",
                    f"  Correction check passed: all "
                    f"{len(check_results)} filters match the shape of the curve "

@@ -4,18 +4,20 @@ Stdlib-only on purpose, like ``ee_paths.py``: the socket is reached from the
 ``--doctor`` report and from the end of a generator run, and neither should
 pull DSP in to ask a running EasyEffects a question.
 
-EasyEffects' daemon listens on a QLocalServer named ``EasyEffectsServer``
-under ``$XDG_RUNTIME_DIR`` (native EE ≥ 8.0.9; ``/tmp`` before, and inside
-the sandbox — out of reach — on Flatpak) and answers newline-terminated
-ASCII requests —
-its documented "Local Server"
-(https://wwmm.github.io/easyeffects/user_interface/local_server.html — the
-server shipped in EE 8.0.0, that page from 8.0.7; the tags are upstream's
-src/tags_local_server.hpp). Callers get typed
-functions, never a raw request string: ``--doctor`` sends only the two reads,
-and a generator run sends one hide before it writes (issue #95) and one load
-at the end, reading that one's receipt. Why the socket and not the ``easyeffects``
-CLI, and the version history: docs/design-notes.md, "Rejected approaches".
+EasyEffects' daemon listens on a QLocalServer named ``EasyEffectsServer`` and
+answers newline-terminated ASCII requests. Native EE ≥ 8.0.9 listens under
+``$XDG_RUNTIME_DIR``, and earlier native versions under ``/tmp``. On Flatpak
+the socket is inside the sandbox, out of reach. This is EasyEffects'
+documented "Local Server"
+(https://wwmm.github.io/easyeffects/user_interface/local_server.html).
+The server shipped in EE 8.0.0, that page from 8.0.7, and the tags are
+upstream's src/tags_local_server.hpp.
+
+Callers get typed functions, never a raw request string. ``--doctor`` sends
+only the two reads. A generator run sends one hide before it writes (issue
+#95) and one load at the end, reading that one's receipt. Why the socket and
+not the ``easyeffects`` CLI, and the version history: docs/design-notes.md,
+"Rejected approaches".
 """
 
 from __future__ import annotations
@@ -30,10 +32,10 @@ from lib import tool_env
 
 SERVER_NAME = "EasyEffectsServer"   # upstream tags::local_server::server_name
 # The two read-only requests. get_last_loaded_preset is on the documented
-# page (since 8.0.7); get_global_bypass is source-only (tags_local_server.hpp)
-# — what `easyeffects -b 3` itself sends — answers 1/2 with no newline, and
-# exists only since 8.1.3: an 8.0.9–8.1.2 daemon answers nothing, which a
-# caller must read as unknown, never as "off".
+# page (since 8.0.7). get_global_bypass is source-only (tags_local_server.hpp);
+# it is what `easyeffects -b 3` itself sends, and it answers 1/2 with no
+# newline. It exists only since 8.1.3: an 8.0.9–8.1.2 daemon answers nothing,
+# which a caller must read as unknown, never as "off".
 PRESET_REQUEST = "get_last_loaded_preset:output\n"
 BYPASS_REQUEST = "get_global_bypass\n"
 
@@ -84,9 +86,9 @@ class EEReply:
     visible, because the alternative is serving a stale config value as
     though it were current for as long as nobody notices.
 
-    ``answered`` with an empty ``value`` is a real answer — over the socket EE
-    sends the raw preset name, so "" means no preset is loaded. (Its CLI
-    substitutes the string "None" there; the socket does not.)
+    ``answered`` with an empty ``value`` is a real answer: over the socket EE
+    sends the raw preset name, so "" means no preset is loaded. Its CLI
+    substitutes the string "None" there; the socket does not.
     """
     value: str = ""
     reached: bool = False

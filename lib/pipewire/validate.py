@@ -6,11 +6,11 @@ the conf's `control = { ... }` block against it. Catches:
 
   - unknown ports (typo in symbol name, schema drift)
   - out-of-range values
-  - inverted-bool traps on toggled ports (e.g. xm = MUTE not enable — if a
+  - inverted-bool traps on toggled ports (e.g. xm = MUTE, not enable: if a
     non-Off filter type pairs with xm=1, the band is silently muted; flagged
     as an error)
 
-Audio testing is still the final gate. This is the cheap up-front check that
+Audio testing is the final gate. This is the cheap up-front check that
 catches schema-level mistakes before anyone spends ten minutes on a capture
 battery, and `ee_to_pipewire.py` runs it on every conf it generates.
 
@@ -44,7 +44,7 @@ from lib import tool_env
 # Frozen because a caller may memoize these across confs (`run`'s `schemas`
 # argument): one `Port` can end up shared by every validation in a session, so
 # a mutation anywhere would rewrite the schema everything else is checked
-# against. Value-only already — nothing has ever written to one.
+# against. It is value-only anyway: nothing writes to one.
 @dataclass(frozen=True)
 class Port:
     symbol: str
@@ -56,7 +56,7 @@ class Port:
     toggled: bool
     # Which of Minimum/Maximum `lv2info` printed as something other than a
     # float, so the bound is `None` for a reason worth reporting. A bound
-    # `lv2info` simply omits is *not* recorded — nothing was skipped there, the
+    # `lv2info` simply omits is *not* recorded: nothing was skipped there, the
     # port just has no such limit. Nor is `Default`, which no check reads.
     unparsed: tuple[str, ...] = ()
 
@@ -93,32 +93,32 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
         symbol = grab("Symbol")
         if not symbol:
             continue
-        # The Type field in lv2info is multi-line — a port that is
+        # The Type field in lv2info is multi-line: a port that is
         # both ControlPort and InputPort lists each on its own line,
-        # often with the InputPort first. We don't care about the
-        # order; we just need it to be a writable control port.
+        # often with the InputPort first. The order doesn't matter;
+        # the port just needs to be a writable control port.
         if "ControlPort" not in block:
             continue
         type_ = "ControlPort"
         name = grab("Name") or ""
 
-        # A bound that is present but not a bare float — a unit suffix, a
-        # spelling of infinity we don't expect, a future format change, a
-        # decimal comma from a build that formats under the locale (ours runs
+        # A bound can be present but not a bare float: a unit suffix, a
+        # spelling of infinity we don't expect, a future format change, or a
+        # decimal comma from a build that formats under the locale. Ours runs
         # lv2info under tool_env.c_locale(), so that one is a defence, not
-        # the expected path) — used to raise `ValueError` out of
-        # here and abort the whole run, taking the user's conf with it. One
-        # unreadable number is not a reason to write no conf, so it degrades
-        # to "this bound is unknown" and is recorded rather than swallowed.
+        # the expected path. Raising `ValueError` out of here would abort the
+        # whole run, taking the user's conf with it. One unreadable number is
+        # not a reason to write no conf, so it degrades to "this bound is
+        # unknown" and is recorded rather than swallowed
+        # (test_parse_lv2info_records_a_bound_it_cannot_read).
         unparsed: list[str] = []
 
         def grab_float(field: str, *, checked: bool) -> float | None:
-            """`lv2info`'s value for `field`, or None if it isn't a usable
-            float.
+            """`lv2info`'s value for `field`, or None if not a usable float.
 
             `checked` says whether `validate` range-checks a control value
             against this field. Only those are recorded in `unparsed`, because
-            that list answers one question — which check did we forgo? Nothing
+            that list answers one question: which check did we forgo? Nothing
             reads `Port.default`, so noting an unreadable Default would report
             a range as unchecked when it had in fact been checked in full.
             """
@@ -133,8 +133,8 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
                 return None
             # NaN parses fine and then compares False against everything, so a
             # NaN bound would let the range check below pass every value while
-            # reporting nothing — the same false clearance an unreadable bound
-            # used to cause, by a quieter door. `inf` is deliberately left
+            # reporting nothing. That is the same false clearance an unreadable
+            # bound would cause, by a quieter door. `inf` is deliberately left
             # alone: it is a legitimate LV2 bound and it compares correctly.
             if parsed != parsed:
                 if checked:
@@ -165,8 +165,10 @@ def _parse_lv2info(text: str) -> dict[str, Port]:
 
 
 class Lv2infoUnavailable(RuntimeError):
-    """`lv2info` never got to answer: a timeout, a binary that went away
-    between the PATH check and the fork, a fork that couldn't allocate.
+    """`lv2info` never got to answer.
+
+    A timeout, a binary that went away between the PATH check and the fork,
+    or a fork that couldn't allocate.
 
     Split from the plain `RuntimeError` a non-zero exit raises because the two
     differ in the two ways that matter. Whether the answer can be cached: a
@@ -184,10 +186,10 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
 
     Every way the exec itself can fail arrives as one `RuntimeError` naming the
     URI. The ones that never reached a verdict arrive as the
-    `Lv2infoUnavailable` subclass — the distinction the caller acts on, since
+    `Lv2infoUnavailable` subclass. The caller acts on that distinction, since
     a plain non-zero exit is lilv saying it cannot resolve this plugin and the
     daemon uses the same lilv. Only the exec is wrapped. A failure to parse
-    what `lv2info` did print is our bug, and still propagates.
+    what `lv2info` did print is our bug, and propagates.
     """
     try:
         rc = tool_env.run(
@@ -208,8 +210,7 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
 # ---------------------------------------------------------------------------
 
 def parse_conf(text: str) -> list[dict]:
-    """Return a list of {name, plugin, type, control} for each filter
-    node found in the conf.
+    """Return a list of {name, plugin, type, control}, one per filter node.
 
     Uses `spa-json-dump` to translate the SPA-JSON syntax into plain
     JSON, then walks the structure.
@@ -265,9 +266,10 @@ _FILTER_TYPE_OFF = 0
 
 
 def _check_peq_mute(node: dict) -> list[str]:
-    """Cross-check for the xm-MUTE inversion trap on an LSP para_equalizer:
-    a band with an active (non-Off) filter type but `xm=1` is silently muted.
-    `xm` is MUTE (0=active, 1=muted), not enable — inverting it passes the
+    """Cross-check an LSP para_equalizer for the xm-MUTE inversion trap.
+
+    A band with an active (non-Off) filter type but `xm=1` is silently muted.
+    `xm` is MUTE (0=active, 1=muted), not enable, so inverting it passes the
     whole PEQ through. Returns one error string per offending band.
     """
     errors: list[str] = []
@@ -318,9 +320,9 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]],
         # Bounds `lv2info` printed unreadably, collected across this node's
         # ports and reported as one line: a check that stops checking without
         # stopping reads exactly like a pass. Raised here rather than in the
-        # parser for two reasons — only a port the conf actually writes has a
-        # check to forgo (a plugin exposes hundreds this conf never touches),
-        # and the same misformatting usually hits every port at once, so
+        # parser for two reasons. Only a port the conf actually writes has a
+        # check to forgo (a plugin exposes hundreds this conf never touches).
+        # And the same misformatting usually hits every port at once, so
         # per-port lines would bury the rest of the run.
         unparsed: list[str] = []
 
@@ -373,7 +375,7 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]],
             )
 
         # Cross-check: filter-type non-Off must have xm=0 (active). Targets
-        # the bug where xm was inverted and silently muted every band.
+        # the trap where an inverted xm silently mutes every band.
         if "para_equalizer" in uri:
             errors.extend(_check_peq_mute(node))
 
@@ -384,20 +386,22 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]],
 # The whole check, as one call
 # ---------------------------------------------------------------------------
 
-# What a run can end as. Four states, named rather than numbered: they were a
-# subprocess's exit codes when the check was one, and -1/0/1/2 at a call site
-# said nothing about which of them must stop a conf being written.
+# What a run can end as. Four states, named rather than numbered: -1/0/1/2 at
+# a call site would say nothing about which of them must stop a conf being
+# written.
 NO_TOOLING = "no-tooling"   # neither CLI is installed, so nothing was checked
-UNCHECKED = "unchecked"     # the check could not run — a skip, not a verdict
+UNCHECKED = "unchecked"     # the check could not run: a skip, not a verdict
 CLEAN = "clean"             # every control value matched its port
 ERRORS = "errors"           # at least one did not; the conf must not be used
 
 
 @dataclass
 class Report:
-    """One run's outcome, for the caller to render — the shape of
-    ``lib.doctor.CheckResult``, and for the same reason: a module that cannot
-    import ``lib.console`` can still say everything it found.
+    """One run's outcome, for the caller to render.
+
+    It has the shape of ``lib.doctor.CheckResult``, for the same reason: a
+    module that cannot import ``lib.console`` can still say everything it
+    found.
 
     ``errors`` and ``warnings`` are separate lists rather than one stream of
     tagged lines, so the caller can style them apart. They arrive already
@@ -427,14 +431,14 @@ class Report:
     missing_tools: tuple[str, ...] = ()
 
 
-# The budget for the whole check, not for each `lv2info` inside it. It used to
-# come free: the check ran in a subprocess with a 30 s timeout around all of
-# it. In process only the per-exec timeouts above are left, and those multiply
-# by the number of distinct plugin URIs in the conf — six of them at ten
-# seconds each is a minute of a user staring at nothing. The deadline is read
-# between execs rather than threaded into them, so the worst case is this
-# budget plus one hung `lv2info`, and a URI the budget cuts off is reported
-# like any other schema we could not read.
+# The budget for the whole check, not for each `lv2info` inside it. The check
+# runs in process, so without this budget only the per-exec timeouts above
+# would bound it, and those multiply by the number of distinct plugin URIs in
+# the conf.
+# Six of them at ten seconds each is a minute of a user staring at nothing.
+# The deadline is read between execs rather than threaded into them, so the
+# worst case is this budget plus one hung `lv2info`, and a URI the budget cuts
+# off is reported like any other schema we could not read.
 _BUDGET_S = 30
 
 
@@ -451,9 +455,9 @@ def run(conf_text: str, *,
     them) can pass a session dict and pay for each URI once. It is passed in
     rather than cached in here on purpose: the converter and the CLI validate
     one conf each and would never see a hit, so an `lru_cache` at module scope
-    would be process-global mutable state kept for a test's benefit — the same
-    dependency injection `validate(nodes, schemas)` already uses one layer up.
-    Omit it and the call is exactly as it was: a fresh dict, no shared state.
+    would be process-global mutable state kept for a test's benefit. This is
+    the same dependency injection `validate(nodes, schemas)` uses one layer
+    up. Omit it and each call gets a fresh dict, no shared state.
 
     Each entry is `(schema_or_None, note)`, not a bare schema: a URI `lv2info`
     answered *about* — a non-zero exit, so the plugin is missing or its TTL
@@ -467,7 +471,7 @@ def run(conf_text: str, *,
     maps to it: a caller prints it dim and goes on to write the conf, and the
     corpus tier turns it into `pytest.skip`, so a bug reaching this arm would
     approve every XML in the corpus with the run still green. It is reserved
-    for the failures that genuinely mean *could not run* — `spa-json-dump`
+    for the failures that genuinely mean *could not run*: `spa-json-dump`
     missing, failing, or handing back something that is not JSON. A single URI
     whose `lv2info` times out or never answers is narrower than that: it
     degrades to a warning and that plugin's ports go unchecked. A bound
@@ -481,11 +485,12 @@ def run(conf_text: str, *,
     of `errors`, which stays the list of separate defects the reader must fix
     one by one. See the `unloadable` note in `run`.
     """
-    # Named individually, and without package names: this line used to read
-    # "(install lilv-utils and pipewire)" whichever of the two was missing,
-    # which told a reader whose PipeWire is plainly running to install
-    # PipeWire, and disagreed with the caller's own remedy. The caller owns
-    # the remedy; this says only what is not here.
+    # Named individually, and without package names. An earlier wording,
+    # "(install lilv-utils and pipewire)", printed whichever of the two was
+    # missing. It told a reader whose PipeWire is plainly running to install
+    # PipeWire, and disagreed with the caller's own remedy
+    # (test_skip_remedy_names_the_tool_that_is_actually_missing). The caller
+    # owns the remedy; this says only what is not here.
     absent = [t for t in ("lv2info", "spa-json-dump") if not tool_env.which(t)]
     if absent:
         return Report(NO_TOOLING,
@@ -525,7 +530,7 @@ def run(conf_text: str, *,
                 # Not memoized, for the same reason as the budget above: an
                 # exec that never reached a verdict is a property of this run.
                 # Caching it would leave the URI unchecked for every later conf
-                # in the process — one `lv2info` timing out under a loaded
+                # in the process. One `lv2info` timing out under a loaded
                 # `-n auto` corpus walk would disable the schema check for the
                 # rest of the walk, with every conf still reporting CLEAN.
                 tool_warnings.append(str(e))
@@ -541,7 +546,7 @@ def run(conf_text: str, *,
                 memo[uri] = (None, str(e))
         schema, note = memo[uri]
         if note:
-            # An answer, not a failure to ask — so it decides the run rather
+            # An answer, not a failure to ask, so it decides the run rather
             # than annotating it. `lv2info` and PipeWire's filter-chain load
             # plugins through the same lilv; a URI lilv will not resolve here
             # is one the daemon will not resolve either, whether the plugin is

@@ -2,12 +2,12 @@
 # PYTHON_ARGCOMPLETE_OK
 """One command from Dolby DAX3 tuning XML to an active PipeWire filter chain.
 
-Orchestrates the two existing converters without duplicating them:
+Orchestrates the two existing converters without duplicating them.
 dolby_to_easyeffects.py generates the EasyEffects preset + impulse response
-into a throwaway temporary directory (nothing is installed under the
-EasyEffects tree), ee_to_pipewire.py converts the chosen variant(s) into a
-self-contained PipeWire filter-chain conf (the .irs is copied beside it),
-then PipeWire is restarted and the sink verified (--no-activate opts out).
+into a throwaway temporary directory, so nothing is installed under the
+EasyEffects tree. ee_to_pipewire.py converts the chosen variant(s) into a
+self-contained PipeWire filter-chain conf, with the .irs copied beside it.
+Then PipeWire is restarted and the sink verified (--no-activate opts out).
 See docs/ee-to-pipewire.md.
 """
 
@@ -32,14 +32,14 @@ from lib.report import messages
 
 # The --variant choices: messages.VOICING_CURVES' labels, lowercased into flag
 # values. Derived rather than restated, because that table calls itself the
-# single source for the voicings and this was the copy contradicting it — a
-# wrapper offering a voicing the emit loop no longer builds would fail two
-# steps later, on a name it had itself promised. Its insertion order is build
-# order, and carries through to --help's choices below.
+# single source for the voicings. A wrapper offering a voicing the emit loop
+# doesn't build would fail two steps later, on a name it had itself promised.
+# The table's insertion order is build order, and carries through to --help's
+# choices below.
 #
 # The curves are Dolby-global constants (identical arrays on every device in
 # the corpus; see docs/cross-device-findings.md), and ieq_balanced is the curve
-# every device's profile selects by default — hence the default below.
+# every device's profile selects by default, hence the default below.
 VARIANT_STEMS = {label.lower(): label for label in messages.VOICING_CURVES}
 
 
@@ -83,9 +83,10 @@ def _reword_for_this_surface(actions) -> None:
 
 
 def _compose_parser(argv=None):
-    """Build the wrapper parser from the two converters' shared argument
-    builders. Returns (parser, step1_actions, step2_actions) — the action
-    lists drive rebuild_argv() so forwarding can't drift from the CLI."""
+    """Build the wrapper parser from both converters' shared argument builders.
+
+    Returns (parser, step1_actions, step2_actions). The action lists drive
+    rebuild_argv(), so forwarding can't drift from the CLI."""
     formatter_class, epilog = console.help_style(argv)
     parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to an active PipeWire "
@@ -171,18 +172,20 @@ def _compose_parser(argv=None):
 
 
 def build_parser(argv=None) -> argparse.ArgumentParser:
-    """The parser alone — the introspection seam tests/test_readme_cli_sync.py
-    uses."""
+    """Return the parser alone.
+
+    This is the introspection seam tests/test_readme_cli_sync.py uses."""
     parser, _, _ = _compose_parser(argv)
     return parser
 
 
 def rebuild_argv(actions, args) -> list[str]:
-    """Rebuild a child argv for the shared flags in ``actions`` from the
-    parsed namespace — the inverse of parse_args for the action shapes the
-    shared groups use (positional, store, store_true/false, append). Values
-    equal to the default are omitted so each child parser keeps authority
-    over its own defaults."""
+    """Rebuild a child argv for the shared flags in ``actions`` from ``args``.
+
+    ``args`` is the parsed namespace. This is the inverse of parse_args for
+    the action shapes the shared groups use (positional, store,
+    store_true/false, append). Values equal to the default are omitted so
+    each child parser keeps authority over its own defaults."""
     positionals = []
     options = []
     for action in actions:
@@ -214,7 +217,7 @@ def _run_generator(child_argv: list[str], closing=None,
                                             staged=staged)
     except SystemExit as e:
         # The child argv is wrapper-constructed, so its parser should never
-        # error — but never let a stray sys.exit tear down the tempdir scope.
+        # error. Still, never let a stray sys.exit tear down the tempdir scope.
         return e.code if isinstance(e.code, int) else 2
 
 
@@ -243,14 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     # WirePlumber, not offered as alternatives: get_filter_from_target
     # returns the first filter matching the target and get_filter_target
     # "the next filter with matching target" (scripts/lib/filter-utils.lua,
-    # 0.5.15). Measured — three voicings installed that way gave
+    # 0.5.15). Measured: three voicings installed that way gave
     # app → Balanced → Detailed → Warm → speakers, so every stage ran three
     # times. Marking them filter.smart.targetable doesn't help: picking one
     # in sound settings resolves back to its target and re-enters at the
     # first. Turning smart-filter routing off is what makes them independent
-    # sinks you can actually choose between, so anything that installs more
-    # than one chain requires it — this is about the count, not about which
-    # flag produced it.
+    # sinks you can actually choose between. So anything that installs more
+    # than one chain requires it, whichever flag produced the count.
     multi = [f for f, on in (("--variant all", args.variant == "all"),
                              ("--all-profiles", args.all_profiles)) if on]
     if multi and args.target_sink != "":
@@ -269,8 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         step1_common.append("--no-color")
 
     # --doctor goes to the PipeWire-side doctor, not the generator's.
-    # EasyEffects on this path is a temporary implementation detail — the
-    # preset is staged in a tempdir and deleted — so the generator's checks
+    # EasyEffects on this path is a temporary implementation detail: the
+    # preset is staged in a tempdir and deleted. So the generator's checks
     # don't just read as noise here, they give wrong advice: "no presets found
     # in ~/.local/share/easyeffects/output — run the script on your tuning XML
     # first" describes a directory this script will never write to. The
@@ -286,11 +288,11 @@ def main(argv: list[str] | None = None) -> int:
                 else [VARIANT_STEMS[args.variant]])
 
     # Virtual sinks whose playback streams have no target of their own follow
-    # the *default* sink — so the moment you pick one of them as your output,
+    # the *default* sink. So the moment you pick one of them as your output,
     # the others follow it and chain into it (measured: Balanced → Warm and
     # Detailed → Warm, which is every stage twice). Pinning each playback
-    # side to the real speaker sink is what keeps them independent, and
-    # picking one is the whole point of the mode, so it can't be left to the
+    # side to the real speaker sink is what keeps them independent. Picking
+    # one is the whole point of the mode, so the pin can't be left to the
     # reader to remember. Resolved before anything is generated: a run that
     # can't keep them apart should fail before it writes.
     pin_target = args.target_object
@@ -310,10 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     # Where each conf landed, so the run can say how to undo itself.
     written: list[Path] = []
     closing: list = []
-    # The fix-flags menu travels the same way as the closing findings:
-    # printed at [1/3] it told the reader what to re-run before setup had
-    # even finished (round 4), so the generator stashes its inputs here and
-    # we render it at the end, after the [3/3] steps.
+    # The fix-flags menu travels the same way as the closing findings. The
+    # generator stashes its inputs here and we render it at the end, after
+    # the [3/3] steps. Printed at [1/3], it would tell the reader what to
+    # re-run before setup had even finished (round 4).
     troubleshooting: dict = {}
     # The XML may have been auto-discovered on a mounted Windows partition, so
     # only the generator knows which file this run actually read. The closing
@@ -329,16 +331,16 @@ def main(argv: list[str] | None = None) -> int:
         console.cprint("head", "[1/3] Generating tuning presets (staged in "
                        f"{doctor.tilde(tmp)}; deleted when done — nothing is "
                        "installed on your system in this step)")
-        # Echo the invocation (round 8): the closing's "add any of the
-        # flags above to the same command you ran" had no referent unless
-        # the reader saved their own command line. shlex keeps Dolby's
+        # Echo the invocation (round 8). Without it, the closing's "add any
+        # of the flags above to the same command you ran" has no referent
+        # unless the reader saved their own command line. shlex keeps Dolby's
         # $-laden paths copy-pasteable.
-        # sys.executable, not a guessed "python3" and not the bare basename:
-        # echoing Path(sys.argv[0]).name dropped whatever launched us, so the
-        # line wasn't runnable as shown, and hardcoding an interpreter would
-        # just invent a different command from the one that was typed (the
+        # sys.executable, not a guessed "python3" and not the bare basename.
+        # Echoing Path(sys.argv[0]).name would drop whatever launched us, so
+        # the line wouldn't be runnable as shown. Hardcoding an interpreter
+        # would invent a different command from the one that was typed: the
         # scripts are executable, so ./dolby_to_pipewire.py is equally
-        # likely). argv[0] keeps the path the reader used.
+        # likely. argv[0] keeps the path the reader used.
         console.cprint("dim", "      (your command: "
                       + shlex.join([sys.executable, *sys.argv]) + ")")
         rc = _run_generator(step1_common
@@ -359,17 +361,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         # Name what is being converted and what isn't. Step 1 lists all three
-        # voicings as generated, so converting one without saying which — or
-        # that the others are reachable — read as two of them being silently
+        # voicings as generated. Converting one without saying which, or that
+        # the others are reachable, would read as two of them being silently
         # dropped, with no way to try Warm if Balanced sounds wrong.
         if len(presets) == 1:
             console.cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
                            "filter-chain conf")
             # Why this one (round 7): the profile pick explains itself, so
-            # an unexplained Balanced default read as arbitrary next to it.
+            # an unexplained Balanced default reads as arbitrary next to it.
             # "Dolby's default voicing", not "the voicing Windows engages by
             # default": on the ~45% of profiles that set ieq-enable=0,
-            # Windows engages no voicing at all, so the stronger claim was
+            # Windows engages no voicing at all, so the stronger claim is
             # wrong for them.
             if args.variant == "balanced":
                 console.cprint("dim", "      (Balanced is Dolby's default voicing)")
@@ -389,18 +391,20 @@ def main(argv: list[str] | None = None) -> int:
                               "through it)")
         if args.variant != "all":
             others = [v for v in VARIANT_STEMS if v != args.variant]
-            # --all-profiles used to suppress this, on the run that needs it
-            # most: 27 presets staged, 9 converted, and the two voicings left
-            # behind were the least visible thing on a screen full of names.
+            # Printed under --all-profiles too, the run that needs it most:
+            # 27 presets staged, 9 converted, and without this line the two
+            # voicings left behind would be the least visible thing on a
+            # screen full of names (tests/test_dolby_to_pipewire.py
+            # test_all_profiles_still_names_the_voicings_it_dropped).
             scope = " for any profile" if args.all_profiles else ""
             each = " of each profile" if args.all_profiles else ""
             # Prose gets the capitalized names; the Pass sentence keeps
             # the lowercase flag values (round 10).
             console.cprint("dim", f"      The other voicings are not converted{scope}: "
                           + ", ".join(o.capitalize() for o in others) + ".")
-            # Says what --variant all gets the user ("a sink each" named an
-            # internal object; what they see is another output to switch to
-            # in sound settings) and covers both alternatives, not just the
+            # Says what --variant all gets the user: another output to switch
+            # to in sound settings. An earlier wording, "a sink each", named
+            # an internal object. Covers both alternatives, not just the
             # first.
             alts = " or ".join(f"--variant {o}" for o in others)
             # "another voicing" ties the --variant flag to the word every
@@ -447,9 +451,9 @@ def main(argv: list[str] | None = None) -> int:
             node_names.append(node_name)
 
     if args.dry_run:
-        # "installed", not "written": staging really does write the presets
-        # (to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
-        # appear above), and claiming nothing was written contradicted them.
+        # "installed", not "written": staging really does write the presets,
+        # to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
+        # appear above. Claiming nothing was written would contradict them.
         console.cprint("head", "[3/3] Dry run — nothing was installed; re-run without "
                        "--dry-run to install and activate")
         rc = 0
@@ -465,7 +469,7 @@ def main(argv: list[str] | None = None) -> int:
         print()
         install._print_undo(written, style="dim" if rc == 0 else "cta")
 
-    # The generator's closing output, held back from [1/3] so it lands here —
+    # The generator's closing output, held back from [1/3] so it lands here,
     # last on screen, whichever of the three ways this run ended. Menu before
     # asks, the generator's own order, so the one link stays last. Not on the
     # failure paths above: they return early, and an ask is the wrong thing to
@@ -488,13 +492,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_cli(argv: list[str] | None = None) -> int:
-    """main() under the shared failure rendering, as in both converters.
+    """Run main() under the shared failure rendering, as both converters do.
 
-    The outermost guard of the three: step 1's failures are already rendered
-    inside dolby_to_easyeffects.run_cli and arrive here as a return code, so
-    what this one catches is the wrapper's own work and step 2's — an
-    ee_to_pipewire.main() called with ``wrapped=True``, which has no guard of
-    its own precisely so that its failures land here, once."""
+    This is the outermost guard of the three. Step 1's failures are already
+    rendered inside dolby_to_easyeffects.run_cli and arrive here as a return
+    code. So what this one catches is the wrapper's own work and step 2's:
+    an ee_to_pipewire.main() called with ``wrapped=True``, which has no guard
+    of its own precisely so that its failures land here, once."""
     return console.run_guarded(lambda: main(argv))
 
 

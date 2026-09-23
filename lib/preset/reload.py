@@ -1,16 +1,15 @@
 """Make what a run just wrote audible: load it into a running EasyEffects.
 
-EasyEffects does not watch preset files — the running instance keeps its
-in-memory chain until a preset is loaded again — so a run used to end on
-"then reload the preset in EasyEffects". With the impulse's name now
-following its content (``lib/preset/emit.py`` ``kernel_name``), one load
-over EasyEffects' local socket (``lib/ee_socket.py``) makes the change
-audible, and this module decides when that load is the right thing to do.
-The policy and its declines: docs/design-notes.md "Rejected approaches".
+EasyEffects does not watch preset files. The running instance keeps its
+in-memory chain until a preset is loaded again. The impulse's name follows
+its content (``lib/preset/emit.py`` ``kernel_name``), so one load over
+EasyEffects' local socket (``lib/ee_socket.py``) makes the change audible.
+This module decides when that load is the right thing to do. The policy and
+its declines: docs/design-notes.md "Rejected approaches".
 
-Beside ``autoload.py`` — the other thing a run does to EasyEffects itself —
-and apart from ``--doctor``, which never sends a mutating request;
-``tests/test_layout.py`` keeps that so by name.
+It sits beside ``autoload.py``, the other thing a run does to EasyEffects
+itself. It is kept apart from ``--doctor``, which never sends a mutating
+request, and ``tests/test_layout.py`` keeps that so by name.
 """
 
 from __future__ import annotations
@@ -28,12 +27,13 @@ from lib.report.findings import (Finding, _ee_bypassed_finding,
 
 @dataclass
 class Reloaded:
-    """What the run got EasyEffects to do. ``loaded`` is the preset it now
-    reports; ``playing`` the same name only when that is audible — global
-    bypass leaves a preset loaded and silent. ``finding`` only when there is
-    something for the user to do: a success has no action, and
-    .claude/rules/user-messages.md forbids a no-action entry in a block that
-    exists to prompt action."""
+    """What the run got EasyEffects to do.
+
+    ``loaded`` is the preset it now reports. ``playing`` is the same name
+    only when that is audible: global bypass leaves a preset loaded and
+    silent. ``finding`` is set only when there is something for the user to
+    do. A success has no action, and .claude/rules/user-messages.md forbids
+    a no-action entry in a block that exists to prompt action."""
     loaded: str = ""
     playing: str = ""
     finding: Finding | None = None
@@ -53,8 +53,10 @@ _LAST_EE_RELEASE_WITH_CONVOLVER_CRASH = (8, 2, 9)
 
 
 def _easyeffects_fixed_the_convolver_crash() -> bool:
-    """True only when a version answered *and* is past the last release whose
-    Convolver page crashes. Fails closed, because an unreadable version is
+    """True only when the answered version is past the Convolver crash.
+
+    A version must answer *and* be past the last release whose Convolver
+    page crashes. Fails closed, because an unreadable version is
     ordinary: ``easyeffects --version`` wants a display and Flatpak answers
     through ``flatpak info``, so None means "don't know", never "fixed"."""
     from lib.report import doctor_run  # local: the run path is not the doctor
@@ -70,11 +72,12 @@ def hide_window_before_writing(args) -> bool:
     that page: the rc records the last-shown page on a 30 s timer that runs
     only while the window is open, so a page opened moments ago still reads as
     the old one, and that error is the one that costs the crash. Hiding a
-    hidden window is a no-op — EasyEffects calls ``hide()`` without checking —
-    and nothing reports whether the window was open, so never show it again.
+    hidden window is a no-op, since EasyEffects calls ``hide()`` without
+    checking. Nothing reports whether the window was open, so never show it
+    again.
     Skipped on an EasyEffects past the last release that crashes.
     Silent under ``--dry-run``, and when neither directory is EasyEffects'
-    own. Returns True when a daemon took the request — which is not the same
+    own. Returns True when a daemon took the request. That is not the same
     as a window having been open, so the copy hedges.
     """
     if args.dry_run or getattr(args, "staged", False):
@@ -120,11 +123,11 @@ def reload_generated_preset(args, preset_names: list[str],
     reachable, because the closing block's "open EasyEffects and pick it" is
     then exactly right.
 
-    Refresh what is playing if it is one of ours; otherwise load
-    ``starting`` — the preset the run points at everywhere
+    Refresh what is playing if it is one of ours. Otherwise load
+    ``starting``, the preset the run points at everywhere
     (``autoload.starting_preset``, resolved once by the caller so a bare
-    ``--autoload`` and this load can't name different presets) — unless
-    EasyEffects is on the `Nothing` bypass preset (`--autoload`'s
+    ``--autoload`` and this load can't name different presets). That load is
+    skipped when EasyEffects is on the `Nothing` bypass preset (`--autoload`'s
     non-speaker fallback) or its default sink is visibly not an internal
     speaker: a speaker tuning on a headset is harm this run would have
     caused. An unknown sink loads: the reader just ran a speaker-tuning
@@ -132,7 +135,7 @@ def reload_generated_preset(args, preset_names: list[str],
 
     ``DEMO_EE_RELOAD`` = refreshed | loaded | bypassed | mismatch | silent
     fabricates that outcome without touching a socket, and waives only the
-    live-tree gate — the review tooling renders the copy from a tempdir.
+    live-tree gate. The review tooling renders the copy from a tempdir.
     """
     demo = (os.environ.get("DEMO_EE_RELOAD") or "").strip().lower()
     if demo not in _DEMO_OUTCOMES:
@@ -152,7 +155,7 @@ def reload_generated_preset(args, preset_names: list[str],
     target = starting
     if not current.answered:
         # Listening but silent: we cannot know what is playing, so nothing
-        # is sent — a load onto an unknown state is not a refresh.
+        # is sent. A load onto an unknown state is not a refresh.
         return Reloaded(finding=_reload_unanswered_finding(target, asked_to_load=False))
     refreshed = current.value in preset_names
     if refreshed:
@@ -169,7 +172,7 @@ def reload_generated_preset(args, preset_names: list[str],
         sink = sinks.live_default_sink()
         if sink and sinks.sink_kind(sink) == "other":
             # PipeWire's default sink, which EasyEffects follows unless
-            # pinned in its own settings — so name it as the user's, not
+            # pinned in its own settings. So name it as the user's, not
             # as EasyEffects' (copy audit 2026-08-27).
             print()
             console._cprint_wrapped("dim", f"Your default output is '{sink}' — "
@@ -206,8 +209,8 @@ def reload_generated_preset(args, preset_names: list[str],
                        "can't say whether its effects are switched on).")
         return Reloaded(loaded=target)
     # One sentence shape for both outcomes (review round 2026-08-27: two
-    # wordings for "it is on our preset now" read as inconsistent behaviour);
-    # the clause after the dash is what differs — a refresh, or a switch away
+    # wordings for "it is on our preset now" read as inconsistent behaviour).
+    # The clause after the dash is what differs: a refresh, or a switch away
     # from what was playing.
     if refreshed:
         console.cprint("ok", f"\nEasyEffects is playing '{target}' again — reloaded "
@@ -220,7 +223,9 @@ def reload_generated_preset(args, preset_names: list[str],
 
 
 def _say_what_to_pick(args, preset_names: list[str], starting: str) -> None:
-    """--no-reload still owes the reader the state it leaves: a running
+    """Tell a --no-reload run what to pick to hear the changes.
+
+    --no-reload still owes the reader the state it leaves: a running
     EasyEffects keeps its in-memory chain, and under --autoload the closing
     block is silent, so this is the only line that says what to do. Reads
     what is playing; never loads."""
@@ -229,7 +234,7 @@ def _say_what_to_pick(args, preset_names: list[str], starting: str) -> None:
         return
     # A restart only helps when something will load ours: autoload. On its
     # own EasyEffects rebuilds from its settings db, not the preset file,
-    # and comes back as it was — even on the preset it was already playing
+    # and comes back as it was, even on the preset it was already playing
     # (copy audit 2026-08-27).
     restart = ", or restart it," if args.autoload else ""
     if current.answered and current.value in preset_names:
