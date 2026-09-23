@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from lib import version
+from lib import tool_env, version
 from lib.version import get_version
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +47,7 @@ def test_no_git_cli_returns_unknown(tmp_path, monkeypatch, no_archive_stamp):
     def raise_not_found(*args, **kwargs):
         raise FileNotFoundError("git")  # mimics git absent from PATH
 
-    monkeypatch.setattr(version.subprocess, "run", raise_not_found)
+    monkeypatch.setattr(tool_env, "run", raise_not_found)
     assert get_version(tmp_path) == "unknown"
 
 
@@ -55,7 +55,7 @@ def test_git_nonzero_exit_returns_unknown(tmp_path, monkeypatch, no_archive_stam
     def fail(*args, **kwargs):
         return subprocess.CompletedProcess(args, returncode=128, stdout="", stderr="fatal")
 
-    monkeypatch.setattr(version.subprocess, "run", fail)
+    monkeypatch.setattr(tool_env, "run", fail)
     assert get_version(tmp_path) == "unknown"
 
 

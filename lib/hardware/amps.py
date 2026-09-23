@@ -193,9 +193,8 @@ def _read_kernel_log() -> str | None:
     """
     for cmd in (["journalctl", "-k", "-b", "-o", "cat", "--no-pager"], ["dmesg"]):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               errors="replace", timeout=4,
-                               env=tool_env.c_locale())
+            r = tool_env.run(cmd, capture_output=True, text=True,
+                             errors="replace", timeout=4)
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0 and r.stdout.strip():

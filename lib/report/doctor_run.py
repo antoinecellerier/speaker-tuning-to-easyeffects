@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import textwrap
 from dataclasses import dataclass, field
@@ -309,8 +308,7 @@ def _distro_easyeffects_major(fam: str) -> int | None:
     if not argv:
         return None
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=5,
-                              env=tool_env.c_locale())
+        proc = tool_env.run(argv, capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return None
     if proc.returncode != 0:
@@ -416,8 +414,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         Whether an install exists is the caller's to decide, from evidence
         that isn't an exit code."""
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                               env=tool_env.c_locale())
+            r = tool_env.run(cmd, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError:
             return None, f"there is no {cmd[0]} command here"
         except subprocess.TimeoutExpired:
@@ -450,7 +447,7 @@ def _probe_ee_version(deep: bool = False) -> EEProbe:
         # claimed "installed but silent" about a binary that does not exist on
         # Flatpak-only machines, and that claim then took over the version
         # line's source label (issue #93). issue #46's case rides on `which`.
-        installed = bool(shutil.which("easyeffects")) or (
+        installed = bool(tool_env.which("easyeffects")) or (
             not flatpak_installed and bool(ee_socket.easyeffects_running()))
         return None, False, (failure or "no output") if installed else None
 

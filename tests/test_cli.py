@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, doctor, version
+from lib import console, doctor, tool_env, version
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.dax import discover, parse
@@ -890,7 +890,9 @@ def _run_isolated(script, *args, home, extra_path=None):
     for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME"):
         env.pop(var, None)
     if extra_path is not None:
-        env["PATH"] = os.pathsep.join([str(extra_path), env.get("PATH", "")])
+        # Not PATH: every tool is off for a test's child (lib/tool_env.py),
+        # and this directory is the one place the gate still looks.
+        env[tool_env.FAKE_TOOLS_DIR] = str(extra_path)
     return subprocess.run(
         [sys.executable, str(script), "--no-color", *args],
         capture_output=True, text=True, timeout=300,
@@ -982,8 +984,12 @@ def _case_generate(tmp_path, home):
     return _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), home=home)
 
 
+@_shows("~/.local/share/easyeffects/autoload/output/")
 def _case_generate_autoload(tmp_path, home):
-    """…plus the autoload entry, the fallback preset, and the rc file."""
+    """…plus the autoload entry, the fallback preset, and the rc file. The
+    entry is written only once the fake pw-dump is reached; with the tool
+    gated off the run warns instead and still prints `~/`, so the marker names
+    the entry's own path."""
     return _run_isolated(SCRIPT, str(_synthetic_xml(tmp_path)), "--autoload",
                          home=home, extra_path=_fake_pw_dump(tmp_path))
 

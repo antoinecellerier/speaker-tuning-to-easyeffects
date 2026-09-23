@@ -50,10 +50,10 @@ def easyeffects_running() -> bool | None:
     ``None`` as falsy and stay silent.
     """
     try:
-        proc = subprocess.run(["pgrep", "-x", "easyeffects"],
-                              stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=2,
-                              check=False, env=tool_env.c_locale())
+        proc = tool_env.run(["pgrep", "-x", "easyeffects"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=2,
+                            check=False)
     except (subprocess.SubprocessError, OSError):
         return None
     if proc.returncode == 0:

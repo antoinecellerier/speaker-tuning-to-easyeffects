@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -341,10 +340,9 @@ def _detect_soundwire_speakers(info: SpeakerInfo):
     amp_alt = "|".join(re.escape(t) for t in amps._AMP_DRIVER_TOKENS)
     amp_control_re = re.compile(rf"'((?:{amp_alt})[^']*)\s+DAC'", re.I)
     try:
-        result = subprocess.run(
+        result = tool_env.run(
             ["amixer", "-c0", "scontrols"],
             capture_output=True, text=True, timeout=5,
-            env=tool_env.c_locale(),
         )
         for line in result.stdout.splitlines():
             m = amp_control_re.search(line)
@@ -876,7 +874,7 @@ def amixer_present() -> bool:
     Debian it arrives as a Recommends of the desktop task — so a minimal or
     container install genuinely has no amixer.
     """
-    return shutil.which("amixer") is not None
+    return tool_env.which("amixer") is not None
 
 
 def detect_speaker_firmware_gates() -> list[FirmwareGate]:
@@ -909,10 +907,9 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
         id_file = card_dir / "id"
         card_id = id_file.read_text().strip() if id_file.is_file() else idx
         try:
-            result = subprocess.run(
+            result = tool_env.run(
                 ["amixer", "-c", idx, "contents"],
                 capture_output=True, text=True, timeout=5,
-                env=tool_env.c_locale(),
             )
         except FileNotFoundError:
             return gates  # amixer not installed — nothing more to scan

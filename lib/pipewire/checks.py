@@ -49,7 +49,6 @@ from __future__ import annotations
 import json
 import math
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -183,8 +182,8 @@ def _pw_dump() -> list | None:
     need filter.smart*, node.link-group and target.object on every node.
     """
     try:
-        result = subprocess.run(["pw-dump"], capture_output=True, text=True,
-                                timeout=5, env=tool_env.c_locale())
+        result = tool_env.run(["pw-dump"], capture_output=True, text=True,
+                              timeout=5)
         data = json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         return None
@@ -212,14 +211,13 @@ def parse_conf(path: Path) -> InstalledConf:
         return conf
     m = re.search(r"^# version:\s*(\S+)", head, re.MULTILINE)
     conf.version = m.group(1) if m else ""
-    if shutil.which("spa-json-dump") is None:
+    if tool_env.which("spa-json-dump") is None:
         conf.readable = False
         conf.unreadable = NO_SPA_JSON_DUMP
         return conf
     try:
-        dumped = subprocess.run(["spa-json-dump", str(path)],
-                                capture_output=True, text=True, timeout=10,
-                                env=tool_env.c_locale())
+        dumped = tool_env.run(["spa-json-dump", str(path)],
+                              capture_output=True, text=True, timeout=10)
         data = json.loads(dumped.stdout)
         args = data["context.modules"][0]["args"]
     except (subprocess.SubprocessError, OSError, json.JSONDecodeError,
@@ -369,7 +367,7 @@ def default_sinks(dump) -> DefaultSink:
         # "not found" and "didn't answer" send a reader to different fixes:
         # a package, or a daemon (or a root/ssh shell outside the session).
         return DefaultSink(reason="pw-dump not found"
-                           if shutil.which("pw-dump") is None
+                           if tool_env.which("pw-dump") is None
                            else NO_DUMP_REASON)
     found = DefaultSink()
     for obj in dump or []:
@@ -1022,14 +1020,13 @@ def _probe_plugins() -> PluginProbe:
     subprocesses: the Environment block and `check_plugins_present` are two
     readers of one answer, not two spawns.
     """
-    if shutil.which("lv2info") is None:
+    if tool_env.which("lv2info") is None:
         return PluginProbe(has_lv2info=False)
     entries = []
     for label, uri in _PLUGIN_URIS:
         try:
-            rc = subprocess.run(["lv2info", uri], capture_output=True,
-                                text=True, timeout=10,
-                                env=tool_env.c_locale()).returncode
+            rc = tool_env.run(["lv2info", uri], capture_output=True,
+                              text=True, timeout=10).returncode
         except (subprocess.SubprocessError, OSError):
             # An lv2info that cannot run at all is not a plugin that is there.
             rc = 1

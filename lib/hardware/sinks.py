@@ -21,7 +21,6 @@ it without paying for numpy.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 
@@ -70,9 +69,8 @@ def _enumerate_audio_sinks() -> list[dict]:
 def _read_pw_dump():
     """One ``pw-dump``, parsed, or None when there is no session to read."""
     try:
-        result = subprocess.run(
+        result = tool_env.run(
             ["pw-dump"], capture_output=True, text=True, timeout=5,
-            env=tool_env.c_locale(),
         )
         return json.loads(result.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError):
@@ -487,7 +485,7 @@ def _resolve_autoload_sinks(override_names: list[str], dry_run: bool) -> list[di
         # distinction lib/pipewire/install.py's `answered` flag draws for
         # pw-cli: a tool that never ran is a check that could not happen, not
         # a machine with no sinks.
-        if shutil.which("pw-dump") is None:
+        if tool_env.which("pw-dump") is None:
             console.cprint("warn", "\nWarning: pw-dump isn't installed, so this "
                            "run can't see your sinks; cannot configure autoload.")
             console.cprint("cta", "  Install PipeWire's command-line tools:")

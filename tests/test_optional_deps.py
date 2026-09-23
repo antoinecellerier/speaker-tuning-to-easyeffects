@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import difflib
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -166,9 +165,6 @@ def test_sink_completer_degrades_when_pipewire_is_absent(monkeypatch):
     assert dolby_to_easyeffects._complete_sink_names("") == []
 
 
-@pytest.mark.skipif(shutil.which("pactl") is None and
-                    shutil.which("pw-dump") is None,
-                    reason="no PipeWire tooling present")
 def test_sink_completer_filters_by_prefix(monkeypatch):
     monkeypatch.setattr(
         sinks, "_enumerate_audio_sinks",

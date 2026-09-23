@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from lib import tool_env
 from lib.preset.build import make_preset
 from lib.preset.emit import save_wav_stereo
 from lib.report.messages import (
@@ -1166,6 +1167,7 @@ def test_format_conf_empty_includes_warnings():
 # Self-validation pass via main()
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live_tools
 def test_main_validate_runs_on_dry_run(generated, tmp_path, monkeypatch,
                                        capsys):
     """End-to-end: with `lv2info`/`spa-json-dump` available, the
@@ -1305,13 +1307,10 @@ def test_a_missing_pw_dump_names_its_package_here_too(generated, tmp_path,
     Alpine all ship the command-line tools apart from the daemon, so a reader
     running PipeWire can be missing exactly this.
     """
-    import ee_to_pipewire as ee2pw
     from lib import packages
     from lib.pipewire import install as pw_install
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.FEDORA)
-    monkeypatch.setattr(ee2pw.shutil, "which",
-                        lambda n, *a, **k: None if n == "pw-dump" else "/usr/bin/x")
-    monkeypatch.setattr(pw_install.shutil, "which",
+    monkeypatch.setattr(tool_env, "which",
                         lambda n, *a, **k: None if n == "pw-dump" else "/usr/bin/x")
     monkeypatch.setattr(pw_install.sinks, "select_speaker_sinks",
                         lambda: {"tier": "none", "selected": [], "all_sinks": []})
@@ -2635,6 +2634,7 @@ def _lv2info_defaults(uri: str) -> dict[str, float]:
 
 
 @pytest.mark.slow
+@pytest.mark.live_tools
 def test_untranslated_lv2_defaults_match_live_lv2info():
     """Environment drift check: the pinned LV2 defaults above must match
     the installed plugins' actual .ttl. A distro shipping an LSP version
@@ -3098,6 +3098,7 @@ def test_pipewire_drop_in_dirs_follow_xdg_config_home(tmp_path):
     assert unscanned == config / "pipewire" / "filter-chain.conf.d"
 
 
+@pytest.mark.live_tools
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
@@ -3267,6 +3268,7 @@ def test_vbe_smart_filter_props_unaffected():
 
 
 @pytest.mark.slow
+@pytest.mark.live_tools
 def test_vbe_conf_validates_against_lv2info(generated):
     """The wrapped conf passes the same lv2info validation gate as the dry
     chain: every control symbol exists on the installed plugins and every

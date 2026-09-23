@@ -21,7 +21,7 @@ import subprocess
 import pytest
 
 from lib.pipewire import install as pw
-from lib import console, doctor
+from lib import console, doctor, tool_env
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.doctor import DOCTOR_WARN
@@ -321,7 +321,7 @@ def test_enumerate_parses_pwdump(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     sinks = hw_sinks._enumerate_audio_sinks()
     assert len(sinks) == 1
     # No Device object in the dump, so the route can't be resolved → "".
@@ -426,7 +426,7 @@ def test_enumerate_resolves_route_for_analog_stereo(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     sinks = hw_sinks._enumerate_audio_sinks()
     assert len(sinks) == 1
     assert sinks[0]["profile"] == "Analog Stereo"
@@ -456,7 +456,7 @@ def test_enumerate_route_matches_profile_on_ucm_hifi(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     sinks = hw_sinks._enumerate_audio_sinks()
     assert sinks[0]["profile"] == "Speaker"
     assert sinks[0]["route"] == "Speaker"
@@ -488,7 +488,7 @@ def test_enumerate_route_empty_when_unresolved(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout=json.dumps(dump), stderr="")
 
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     sinks = hw_sinks._enumerate_audio_sinks()
     assert sinks[0]["profile"] == "Analog Stereo"
     assert sinks[0]["route"] == ""
@@ -501,14 +501,14 @@ def test_enumerate_route_empty_when_unresolved(monkeypatch):
 def test_enumerate_subprocess_errors_return_empty(monkeypatch, exc):
     def fake_run(*a, **k):
         raise exc
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     assert hw_sinks._enumerate_audio_sinks() == []
 
 
 def test_enumerate_bad_json_returns_empty(monkeypatch):
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout="not json", stderr="")
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     assert hw_sinks._enumerate_audio_sinks() == []
 
 
@@ -516,7 +516,7 @@ def test_enumerate_non_list_json_returns_empty(monkeypatch):
     """Valid JSON that isn't an array (e.g. an error object) must not crash."""
     def fake_run(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout='{"error": "oops"}', stderr="")
-    monkeypatch.setattr(hw_sinks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     assert hw_sinks._enumerate_audio_sinks() == []
 
 
@@ -715,7 +715,7 @@ def test_detect_firmware_gates_no_amixer(monkeypatch):
     """A missing `amixer` binary must yield [] rather than raising."""
     def fake_run(*a, **k):
         raise FileNotFoundError("amixer")
-    monkeypatch.setattr(speakers.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     assert speakers.detect_speaker_firmware_gates() == []
 
 
@@ -1010,14 +1010,14 @@ def _no_amixer(monkeypatch):
     """
     def fake_run(*a, **k):
         raise FileNotFoundError("amixer")
-    monkeypatch.setattr(speakers.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
 
 
 def _amixer(monkeypatch, *controls):
     """Stand in for `amixer -c0 scontrols` with the given control lines."""
     class R:
         stdout = "\n".join(f"Simple mixer control '{c}',0" for c in controls)
-    monkeypatch.setattr(speakers.subprocess, "run", lambda *a, **k: R())
+    monkeypatch.setattr(tool_env, "run", lambda *a, **k: R())
 
 
 @pytest.mark.parametrize("control,is_amp", [

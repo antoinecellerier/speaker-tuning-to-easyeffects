@@ -110,22 +110,25 @@ def no_live_easyeffects_socket(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def no_live_pipewire_window(monkeypatch):
-    """Every doctor render reads dropouts over a live `pw-top` window: five
-    seconds of waiting each, 120 of them across the fast tier (~600 s of
-    worker time, 2026-09-23), and counts from this machine's graph rather than
-    the test's. Only `pw-top` is answered, as "didn't answer" — the other
-    PipeWire probes are quick. Tests that feed canned pw-top output stub
-    `session._run` themselves, which replaces this wrapper whole."""
-    from lib.pipewire import session
-    real_run = session._run
+def no_live_tools(request, monkeypatch):
+    """No test asks this machine's tools anything unless it says so.
 
-    def run(cmd, timeout=session._TIMEOUT):
-        if cmd[:1] == ["pw-top"]:
-            return None
-        return real_run(cmd, timeout=timeout)
+    Before this, ~1,800 in-process calls per fast run reached the real
+    `amixer`, `pw-dump`, `pw-top`, `easyeffects --version`… (2026-09-23), so
+    a rendered report depended on the audio stack of whoever ran the suite,
+    and a doctor render sat out a live five-second `pw-top` window. Set as an
+    environment variable, not a patch, so the scripts a test starts as child
+    processes are covered too; `lib/tool_env.py` honours it. Every tool then
+    looks uninstalled, which is the state CI has always run in.
 
-    monkeypatch.setattr(session, "_run", run)
+    A test that needs a tool's answer replaces `tool_env.run` / `tool_env.which`
+    (or a narrower seam above them). A test that exists to exercise the real
+    tool takes `@pytest.mark.live_tools`, and skips where the tool is absent."""
+    from lib import tool_env
+    if request.node.get_closest_marker("live_tools") is None:
+        monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
+    else:
+        monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
 
 
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own

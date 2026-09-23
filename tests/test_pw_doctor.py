@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 import ee_to_pipewire
-from lib import console, packages
+from lib import console, packages, tool_env
 from lib.pipewire import checks, conf, session
 
 
@@ -220,10 +220,10 @@ def test_default_sinks_ignores_other_metadata_objects():
 def test_default_sinks_tolerates_no_daemon(monkeypatch):
     """None (nothing answered) carries the why; [] is a daemon answering
     with an empty graph — "none", not "not read"."""
-    monkeypatch.setattr(checks.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
     assert checks.default_sinks(None) == checks.DefaultSink(
         reason=checks.NO_DUMP_REASON)
-    monkeypatch.setattr(checks.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
     assert checks.default_sinks(None).reason == "pw-dump not found"
     assert checks.default_sinks([]) == checks.DefaultSink()
 
@@ -563,8 +563,8 @@ def test_plugin_presence_covers_every_uri_the_converter_can_emit(monkeypatch):
         asked.append(cmd[1])
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(checks.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", fake_run)
 
     lines = checks._plugin_presence()
     expected = {plugins.LSP_PEQ_URI, plugins.LSP_MBC_URI, plugins.LSP_LIM_URI,
@@ -580,13 +580,13 @@ def test_plugin_presence_says_missing_when_lv2info_says_no(monkeypatch):
     """A non-zero exit is the whole point of the probe, so it has to survive
     the exception path too: `lv2info` that cannot run at all must not read as
     a plugin that is there."""
-    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(checks.subprocess, "run",
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run",
                         lambda cmd, **kw: SimpleNamespace(returncode=255))
     assert all(line.endswith(": MISSING")
                for line in checks._plugin_presence())
 
-    monkeypatch.setattr(checks.subprocess, "run",
+    monkeypatch.setattr(tool_env, "run",
                         lambda cmd, **kw: (_ for _ in ()).throw(OSError("boom")))
     assert all(line.endswith(": MISSING")
                for line in checks._plugin_presence())
@@ -960,7 +960,7 @@ def test_an_unreadable_conf_says_why_it_could_not_be_read(tmp_path,
     path = tmp_path / "Dolby_Balanced.conf"
     path.write_text(conf.CONF_HEADER_MARK + " — see\n# version: vtest\n"
                     "context.modules = []\n")
-    monkeypatch.setattr(checks.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
 
     parsed = checks.parse_conf(path)
     assert not parsed.readable
@@ -981,8 +981,8 @@ def test_a_conf_that_could_not_be_parsed_is_not_the_missing_tool(tmp_path,
     as one string, the doctor would offer a package for a damaged file."""
     path = tmp_path / "Dolby_Balanced.conf"
     path.write_text(conf.CONF_HEADER_MARK + " — see\ncontext.modules = []\n")
-    monkeypatch.setattr(checks.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(checks.subprocess, "run",
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run",
                         lambda cmd, **kw: SimpleNamespace(stdout="not json"))
 
     parsed = checks.parse_conf(path)
@@ -1105,12 +1105,12 @@ def test_wireplumber_version_keeps_the_patch_level(monkeypatch, answer,
                                                    parts, reason):
     """The version is pasted into issues as well as compared, and 0.5 reads
     as 0.5.0 — a different build from the 0.5.15 that answered."""
-    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(session.subprocess, "run",
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "run",
                         lambda *a, **k: SimpleNamespace(stdout=answer))
     v = session.wireplumber_version()
     assert (v.parts, v.reason) == (parts, reason)
-    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
     assert session.wireplumber_version().reason == "wireplumber not found"
 
 
@@ -1118,14 +1118,14 @@ def test_pipewire_version_reads_the_running_daemons_core(monkeypatch):
     """`pw-cli info 0` answers for the daemon that is actually running —
     `pipewire --version` is the installed binary's number, the wrong one
     after an upgrade nobody restarted."""
-    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
     core = 'type: PipeWire:Interface:Core/4\n\tversion: "1.6.8"\n\tname: "pipewire-0"\n'
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: core)
     v = session.pipewire_version()
     assert (v.text, v.parts) == ("1.6.8", (1, 6, 8))
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: None)
     assert session.pipewire_version().reason == "no answer from pw-cli"
-    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
     assert session.pipewire_version().reason == "pw-cli not found"
 
 
@@ -1347,8 +1347,8 @@ def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
     # Which of the two reasons default_sinks picks is which()'s answer, so a
     # runner without pw-dump installed reads "not found" here. Pin the tool
     # present: the state under test is a daemon that isn't answering.
-    real_which = shutil.which
-    monkeypatch.setattr(checks.shutil, "which",
+    real_which = tool_env.which
+    monkeypatch.setattr(tool_env, "which",
                         lambda name: "/usr/bin/pw-dump" if name == "pw-dump"
                         else real_which(name))
     monkeypatch.setattr(
@@ -1479,6 +1479,7 @@ context.modules = [
 ''')
 
 
+@pytest.mark.live_tools
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
@@ -1497,6 +1498,7 @@ def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
     assert "one after another" in out
 
 
+@pytest.mark.live_tools
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
@@ -1515,6 +1517,7 @@ def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
     assert capsys.readouterr().out == ""
 
 
+@pytest.mark.live_tools
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,
@@ -1551,7 +1554,7 @@ def test_no_easyeffects_process_stays_silent(silence_console, capsys,
     # None reaches the same silent branch as False.
     def _no_pgrep(*_a, **_kw):
         raise FileNotFoundError("pgrep")
-    monkeypatch.setattr(ee_socket.subprocess, "run", _no_pgrep)
+    monkeypatch.setattr(tool_env, "run", _no_pgrep)
     assert unpatched_ee_probe() is None
     checks.warn_if_easyeffects_running(running=None)
     assert capsys.readouterr().out == ""
@@ -1782,7 +1785,7 @@ def test_parse_pwtop_splits_snapshots_and_reads_the_columns_by_position():
 
 
 def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatch):
-    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: PW_TOP_BATCH)
     d = session.read_xruns(sink=_SPEAKER_NODE)
     assert d.ok
@@ -1824,9 +1827,9 @@ def test_read_xruns_windows_the_counters_from_the_first_real_snapshot(monkeypatc
 def test_read_xruns_says_why_when_it_cannot(monkeypatch):
     """TRAP: an unreadable count must never render as zero — in a pasted
     report the two are indistinguishable, and the reassuring one wins."""
-    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
     assert session.read_xruns().reason == "pw-top not found"
-    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: None)
     assert session.read_xruns().reason == "pw-top didn't answer"
     no_ee = "\n".join(
@@ -1859,9 +1862,9 @@ def test_format_age_uses_the_two_largest_units():
 
 
 def test_read_settings_soft_fails_in_the_reports_own_words(monkeypatch):
-    monkeypatch.setattr(session.shutil, "which", lambda name: None)
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
     assert session.read_settings().reason == "pw-metadata not found"
-    monkeypatch.setattr(session.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: "")
     assert session.read_settings().reason == "no answer from pw-metadata"
     monkeypatch.setattr(session, "_run", lambda cmd, timeout=0: PW_METADATA_SETTINGS)

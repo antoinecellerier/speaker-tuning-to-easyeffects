@@ -58,12 +58,11 @@ def _git_describe(base: Path) -> str | None:
     back as None.
     """
     try:
-        result = subprocess.run(
+        result = tool_env.run(
             ["git", "-C", str(base), "describe", "--tags", "--always", "--dirty"],
             capture_output=True,
             text=True,
             timeout=5,
-            env=tool_env.c_locale(),
         )
     except (OSError, subprocess.SubprocessError):
         # FileNotFoundError (no git binary) is an OSError; timeouts etc. too.

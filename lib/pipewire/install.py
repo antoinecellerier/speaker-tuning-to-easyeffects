@@ -36,7 +36,6 @@ the wrapper's tests patch through.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -119,7 +118,7 @@ def _autodetect_speaker_sink() -> tuple[str | None, list[str]]:
         # and an empty sink list looks identical either way. This one returns
         # its reason rather than printing, so the package name cannot ride
         # along — naming the tool is what lets the caller's hint be right.
-        if shutil.which("pw-dump") is None:
+        if tool_env.which("pw-dump") is None:
             return None, ["pw-dump isn't installed, so this run can't see any "
                           "sinks"]
         return None, [
@@ -331,7 +330,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     """Poll pw-cli until every expected node shows up — the chain takes a
     moment to load after the restart. Missing after the timeout usually
     means a missing LV2 plugin."""
-    if shutil.which("pw-cli") is None:
+    if tool_env.which("pw-cli") is None:
         # The check command comes *after* the install, not beside the "not
         # found": this line used to say "check with: pw-cli ls Node" in the
         # same breath as saying pw-cli was missing, which is an instruction
@@ -354,9 +353,9 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     answered = False
     while missing:
         try:
-            listing = subprocess.run(["pw-cli", "ls", "Node"],
-                                     capture_output=True, text=True,
-                                     timeout=10, env=tool_env.c_locale()).stdout
+            listing = tool_env.run(["pw-cli", "ls", "Node"],
+                                   capture_output=True, text=True,
+                                   timeout=10).stdout
         except (subprocess.TimeoutExpired, OSError):
             listing = ""
         answered = answered or bool(listing.strip())
@@ -422,7 +421,7 @@ def _activate(node_names: list[str], selectable: bool) -> int:
                    "session either way, so anything it was applying goes "
                    "with it.")
     try:
-        proc = subprocess.run(PIPEWIRE_RESTART_CMD.split(), env=tool_env.c_locale())
+        proc = tool_env.run(PIPEWIRE_RESTART_CMD.split())
     except FileNotFoundError:
         console.cprint("warn", "systemctl not found (not a systemd system?) — "
                        "restart PipeWire yourself; the systemd equivalent "

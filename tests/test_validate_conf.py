@@ -13,6 +13,7 @@ import subprocess
 
 import pytest
 
+from lib import tool_env
 from lib.pipewire import validate
 
 LSP_PEQ_URI = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"
@@ -164,7 +165,7 @@ def _one_peq_conf(monkeypatch):
     Both CLIs are faked present because that gate returns `NO_TOOLING` before
     any of this, and these tests are about what happens after it.
     """
-    monkeypatch.setattr(validate.shutil, "which",
+    monkeypatch.setattr(tool_env, "which",
                         lambda name, *a, **k: f"/usr/bin/{name}")
     monkeypatch.setattr(validate, "parse_conf", lambda text: [
         {"type": "lv2", "name": "peq", "plugin": LSP_PEQ_URI, "control": {}}])
@@ -181,7 +182,7 @@ def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):
                 subprocess.SubprocessError("fork failed")):
         def boom(*a, _exc=exc, **k):
             raise _exc
-        monkeypatch.setattr(validate.subprocess, "run", boom)
+        monkeypatch.setattr(tool_env, "run", boom)
         with pytest.raises(validate.Lv2infoUnavailable,
                            match="lv2info 'urn:x' failed"):
             validate.lv2info_schema("urn:x")
@@ -210,7 +211,7 @@ def test_an_exec_that_never_answered_is_not_memoized(monkeypatch):
         execs += 1
         raise subprocess.TimeoutExpired(cmd="lv2info", timeout=10)
 
-    monkeypatch.setattr(validate.subprocess, "run", counting_timeout)
+    monkeypatch.setattr(tool_env, "run", counting_timeout)
     _one_peq_conf(monkeypatch)
     memo: dict = {}
     for i in range(3):
@@ -244,7 +245,7 @@ def test_a_nonzero_exit_is_memoized_and_refuses_the_conf(monkeypatch):
         return subprocess.CompletedProcess(
             a[0], 255, stdout="", stderr="Plugin not found.")
 
-    monkeypatch.setattr(validate.subprocess, "run", counting_not_found)
+    monkeypatch.setattr(tool_env, "run", counting_not_found)
     _one_peq_conf(monkeypatch)
     memo: dict = {}
     for i in range(3):
@@ -279,7 +280,7 @@ def test_run_maps_only_a_tool_failure_to_unchecked(monkeypatch):
     Both CLIs are faked as present because the missing-tooling gate runs
     first, and this is about what happens past it.
     """
-    monkeypatch.setattr(validate.shutil, "which",
+    monkeypatch.setattr(tool_env, "which",
                         lambda name, *a, **k: f"/usr/bin/{name}")
 
     def raising(exc):

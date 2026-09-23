@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -140,8 +139,8 @@ def parse_settings(text: str) -> dict[str, str]:
 def _run(cmd: list[str], timeout: float = _TIMEOUT) -> str | None:
     """The subprocess boundary — stdout, or None when the tool couldn't run."""
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                timeout=timeout, env=tool_env.c_locale())
+        result = tool_env.run(cmd, capture_output=True, text=True,
+                              timeout=timeout)
     except (subprocess.SubprocessError, OSError):
         return None
     return result.stdout
@@ -188,7 +187,7 @@ def pipewire_version() -> Version:
     which is the wrong answer in exactly the case a crackle report cares
     about — an upgraded package under a daemon nobody restarted.
     """
-    if shutil.which("pw-cli") is None:
+    if tool_env.which("pw-cli") is None:
         return Version(reason="pw-cli not found")
     out = _run(["pw-cli", "info", "0"])
     m = re.search(r'^\s*version:\s*"([^"]+)"', out or "", re.MULTILINE)
@@ -201,7 +200,7 @@ def wireplumber_version() -> Version:
     running daemon's own number (its Client object in a pw-dump, read by
     the filter-chain doctor) isn't in hand, and the row says "installed"
     because that is all this probe can claim."""
-    if shutil.which("wireplumber") is None:
+    if tool_env.which("wireplumber") is None:
         return Version(reason="wireplumber not found")
     return _version(_run(["wireplumber", "--version"]),
                     "no answer from wireplumber --version",
@@ -241,7 +240,7 @@ def read_settings() -> ClockSettings:
     demo = _maybe_demo_clock()
     if demo is not None:
         return demo
-    if shutil.which("pw-metadata") is None:
+    if tool_env.which("pw-metadata") is None:
         return ClockSettings(reason="pw-metadata not found")
     values = parse_settings(_run(["pw-metadata", "-n", "settings"]) or "")
     if not values:
@@ -315,7 +314,7 @@ def read_xruns(sink: str = "",
     ``sink`` is the exact name of the sink they play into, counted and
     reported on its own — a dropout there is heard just the same.
     """
-    if shutil.which("pw-top") is None:
+    if tool_env.which("pw-top") is None:
         return Dropouts(reason="pw-top not found")
     started = time.monotonic()
     out = _run(["pw-top", "-b", "-n", str(iterations)],
@@ -394,7 +393,7 @@ def age_from_stat(stat: str, uptime_s: float, clk_tck: int) -> float | None:
 
 def process_age(name: str) -> float | None:
     """Seconds since the oldest process called *name* started, or None."""
-    if shutil.which("pgrep") is None:
+    if tool_env.which("pgrep") is None:
         return None
     pid = (_run(["pgrep", "-x", "-o", name]) or "").strip()
     if not pid.isdigit():

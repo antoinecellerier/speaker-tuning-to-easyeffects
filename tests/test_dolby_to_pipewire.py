@@ -26,7 +26,7 @@ import dolby_to_pipewire
 import ee_to_pipewire
 from lib.pipewire import conf as pw_conf
 from lib.pipewire import install
-from lib import version
+from lib import tool_env, version
 from dolby_to_pipewire import main as wrapper_main
 from tests.conftest import write_synthetic_tuning_xml
 from lib.report import findings as report_findings
@@ -205,9 +205,9 @@ def recorders(monkeypatch):
     # the real pw-dump. Stub it so these stay hermetic.
     monkeypatch.setattr(install, "_autodetect_speaker_sink",
                         lambda: ("alsa_output.stub_Speaker__sink", []))
-    monkeypatch.setattr(install.subprocess, "run",
+    monkeypatch.setattr(tool_env, "run",
                         fake_subprocess_run)
-    monkeypatch.setattr(install.shutil, "which",
+    monkeypatch.setattr(tool_env, "which",
                         lambda name: f"/usr/bin/{name}")
     return calls
 
@@ -382,7 +382,7 @@ def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
     and exit 0."""
     def raise_missing(cmd, **kwargs):
         raise FileNotFoundError(cmd[0])
-    monkeypatch.setattr(install.subprocess, "run", raise_missing)
+    monkeypatch.setattr(tool_env, "run", raise_missing)
     assert wrapper_main([]) == 0
     out = capsys.readouterr().out
     assert "systemctl not found" in out
@@ -391,7 +391,7 @@ def test_routing_systemctl_absent_soft_fails(recorders, monkeypatch, capsys):
 
 def test_routing_restart_failure_is_an_error(recorders, monkeypatch, capsys):
     monkeypatch.setattr(
-        install.subprocess, "run",
+        tool_env, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=1, stdout=""))
     assert wrapper_main([]) == 1
     assert "restart failed" in capsys.readouterr().out
@@ -407,7 +407,7 @@ def test_routing_missing_sink_after_restart_is_an_error(recorders,
     it checks was being printed on a state that cannot support it.
     """
     monkeypatch.setattr(
-        install.subprocess, "run",
+        tool_env, "run",
         lambda cmd, **kwargs: SimpleNamespace(
             returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
     monkeypatch.setattr(install.time, "sleep", lambda s: None)
@@ -466,7 +466,7 @@ def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
     the loudest line on screen — over a chain that is probably running.
     """
     monkeypatch.setattr(
-        install.subprocess, "run",
+        tool_env, "run",
         lambda cmd, **kwargs: SimpleNamespace(returncode=0, stdout=""))
     monkeypatch.setattr(install.time, "sleep", lambda s: None)
     assert wrapper_main([]) == 0

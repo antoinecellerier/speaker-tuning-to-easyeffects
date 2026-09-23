@@ -65,6 +65,7 @@ from pathlib import Path
 
 import pytest
 
+from lib import tool_env
 from tests.conftest import write_synthetic_tuning_xml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -976,44 +977,101 @@ def test_the_doctor_never_sends_a_mutating_socket_request():
     assert "load_output_preset" not in source
 
 
-def test_every_subprocess_call_in_lib_pins_the_locale():
-    """Every shell-out in lib/ runs under `tool_env.c_locale()`.
+def test_every_external_tool_goes_through_tool_env():
+    """lib/ and the entry scripts reach a tool only through `tool_env.run` and
+    `tool_env.which` — never `subprocess` or `shutil.which` of their own.
 
-    The parsers key on English labels (`Version:`, `Candidate:`) and on
-    decimal points, and gettext translates the labels with everything else:
-    issue #93's zh_CN shell turned `flatpak info`'s `Version:` into `版本：`
-    and the version went unknown. The rule is every call, not the ones known
-    to parse prose today — the next probe is written by someone who has not
-    met the bug, and an exit-code-only call that later grows a parse would
-    otherwise start life inheriting the user's language.
+    Two properties hang off that one door. The locale: the parsers key on
+    English labels (`Version:`, `Candidate:`) and on decimal points, and
+    gettext translates the labels with everything else — issue #93's zh_CN
+    shell turned `flatpak info`'s `Version:` into `版本：` and the version went
+    unknown. And the test suite's isolation: `ATMOS_NO_LIVE_TOOLS` is honoured
+    there and nowhere else, so a call that bypasses the door asks the real
+    machine from inside a test, and from the child process of one, where no
+    fixture can reach it. The rule is every call, not the ones known to parse
+    prose or to be slow today — the next probe is written by someone who has
+    met neither problem.
     """
     subprocess_calls = {"run", "Popen", "check_output", "check_call", "call"}
-    unpinned, seen = [], 0
-    for path in sorted((ROOT / "lib").rglob("*.py")):
+    sources = sorted((ROOT / "lib").rglob("*.py")) + [
+        ROOT / f"{name}.py" for name in ROOT_MODULES]
+    bypasses, through = [], 0
+    for path in sources:
+        if path == ROOT / "lib" / "tool_env.py":
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)):
                 continue
-            func = node.func
-            if not (isinstance(func, ast.Attribute)
-                    and func.attr in subprocess_calls
-                    and isinstance(func.value, ast.Name)
-                    and func.value.id == "subprocess"):
-                continue
-            seen += 1
-            env = next((kw.value for kw in node.keywords if kw.arg == "env"),
-                       None)
-            pinned = (isinstance(env, ast.Call)
-                      and isinstance(env.func, ast.Attribute)
-                      and env.func.attr == "c_locale"
-                      and isinstance(env.func.value, ast.Name)
-                      and env.func.value.id == "tool_env")
-            if not pinned:
-                unpinned.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+            owner, attr = node.func.value.id, node.func.attr
+            if owner == "tool_env" and attr in ("run", "which"):
+                through += 1
+            elif ((owner == "subprocess" and attr in subprocess_calls)
+                  or (owner == "shutil" and attr == "which")):
+                bypasses.append(f"{path.relative_to(ROOT)}:{node.lineno} "
+                                f"{owner}.{attr}")
     # A sweep that found nothing would pass vacuously; lib/ shells out from
     # a dozen places and always will.
-    assert seen >= 10, f"only {seen} subprocess calls found under lib/"
-    assert not unpinned, (
-        "subprocess calls inheriting the shell's locale — pass "
-        f"env=tool_env.c_locale(): {', '.join(unpinned)}"
+    assert through >= 20, f"only {through} tool_env calls found"
+    assert not bypasses, (
+        "external tools reached around lib/tool_env.py — use tool_env.run / "
+        f"tool_env.which: {', '.join(bypasses)}"
     )
+
+
+def test_tool_env_run_pins_the_locale(monkeypatch):
+    """The locale half of the door: `LC_ALL` pinned, `LANGUAGE` dropped
+    rather than overridden (it outranks `LC_ALL` for GLib's language list)."""
+    monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
+    monkeypatch.setenv("LANGUAGE", "zh_CN:zh")
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(tool_env.subprocess, "run", fake_run)
+    tool_env.run(["flatpak", "info"], capture_output=True)
+    assert seen["env"]["LC_ALL"] == "C.UTF-8"
+    assert "LANGUAGE" not in seen["env"]
+    assert seen["capture_output"] is True
+
+
+def test_tool_env_answers_as_a_machine_without_the_tool_while_live_tools_are_off(
+        monkeypatch):
+    """The isolation half: every tool looks uninstalled — the state each
+    caller already handles, and the one CI runs in — except git, which
+    answers about this checkout rather than the machine."""
+    monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
+    calls = []
+    monkeypatch.setattr(tool_env.subprocess, "run",
+                        lambda argv, **kw: calls.append(argv))
+    monkeypatch.setattr(tool_env.shutil, "which",
+                        lambda name: f"/usr/bin/{name}")
+    assert tool_env.which("pw-top") is None
+    with pytest.raises(FileNotFoundError):
+        tool_env.run(["pw-top", "-b", "-n", "7"])
+    with pytest.raises(FileNotFoundError):
+        tool_env.run(["/usr/bin/pw-dump"])
+    assert calls == []
+    assert tool_env.which("git") == "/usr/bin/git"
+    tool_env.run(["git", "describe"])
+    assert calls == [["git", "describe"]]
+
+
+def test_a_stand_in_is_the_one_tool_the_gate_still_finds(monkeypatch, tmp_path):
+    """A child process can't be monkeypatched, so a test hands it fakes by
+    directory; anything not in it stays uninstalled."""
+    fake = tmp_path / "pw-dump"
+    fake.write_text("#!/bin/sh\necho '[]'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
+    monkeypatch.setenv(tool_env.FAKE_TOOLS_DIR, str(tmp_path))
+    assert tool_env.which("pw-dump") == str(fake)
+    assert tool_env.which("amixer") is None
+    assert tool_env.run(["pw-dump"], capture_output=True,
+                        text=True).stdout == "[]\n"
+    with pytest.raises(FileNotFoundError):
+        tool_env.run(["amixer", "-c0", "contents"])

@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
+from lib import tool_env
 from lib import console, doctor as doctor_module, ee_paths, ee_socket, packages
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, so the probe itself stays testable.
@@ -2694,8 +2695,8 @@ def test_probe_ee_version_degrades_on_missing_binary(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError("no such binary")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", boom)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
@@ -2717,7 +2718,7 @@ def test_probe_ee_version_prefers_parseable_over_unreadable(monkeypatch):
             return R(0, "ID: x\nVersion: 8.2.1\nInstalled: 458.6 MB\n")
         return R(1, "")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version == (8, 2, 1) and probe.found is True
@@ -2745,7 +2746,10 @@ def test_probe_ee_version_asks_in_the_c_locale(monkeypatch):
 
     monkeypatch.setenv("LANGUAGE", "zh_CN:en")
     monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    # Faked beneath the door, not at it: the locale is the door's to add, and
+    # this is the end-to-end proof that the probe's calls go through it.
+    monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
+    monkeypatch.setattr(tool_env.subprocess, "run", fake_run)
     _no_flatpak(monkeypatch)
     doctor_run._probe_ee_version()
     assert set(envs) == {"easyeffects", "flatpak"}
@@ -2757,8 +2761,8 @@ def test_probe_ee_version_degrades_on_timeout(monkeypatch):
     def slow(*a, **k):
         raise doctor_run.subprocess.TimeoutExpired(cmd="easyeffects", timeout=5)
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", slow)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", slow)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.version is None and probe.found is False
@@ -2893,8 +2897,8 @@ def test_probe_ee_version_installed_but_headless(monkeypatch):
             return R(1, "", "qt.qpa.plugin: could not connect to display\n")
         return R(1, "", "error: com.github.wwmm.easyeffects not installed\n")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda name: "/usr/bin/easyeffects"
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which", lambda name: "/usr/bin/easyeffects"
                         if name == "easyeffects" else None)
     _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
@@ -2919,9 +2923,9 @@ def test_probe_ee_version_absent_flatpak_is_not_silent(monkeypatch):
         def __init__(self, rc, out="", err=""):
             self.returncode, self.stdout, self.stderr = rc, out, err
 
-    monkeypatch.setattr(doctor_run.subprocess, "run",
+    monkeypatch.setattr(tool_env, "run",
                         lambda cmd, **k: R(1, "", "not installed\n"))
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _no_flatpak(monkeypatch)
     probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.silent is None
@@ -2949,8 +2953,8 @@ def test_probe_ee_version_a_running_flatpak_is_not_a_native_install(
             raise FileNotFoundError("no such binary")
         raise doctor_run.subprocess.TimeoutExpired(cmd="flatpak", timeout=5)
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     monkeypatch.setattr(doctor_run.ee_socket, "easyeffects_running", lambda: True)
     _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
     probe = doctor_run._probe_ee_version()
@@ -2985,8 +2989,8 @@ def test_probe_ee_version_keeps_the_flatpak_source_when_native_is_silent(
             return R(1, "", "qt.qpa.plugin: could not connect to display\n")
         return R(0, "ID: x\nInstalled: 458.6 MB\n")      # answered, no Version:
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
-    monkeypatch.setattr(doctor_run.shutil, "which",
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which",
                         lambda name: "/usr/bin/easyeffects" if name == "easyeffects" else None)
     _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
     monkeypatch.setattr(ee_paths, "USE_FLATPAK", True)
@@ -3003,8 +3007,8 @@ def test_probe_ee_version_reads_the_version_off_the_deploy_metadata(
     def boom(*a, **k):
         raise FileNotFoundError("no such binary")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", boom)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9")
     probe = doctor_run._probe_ee_version()
     assert probe.version == (8, 2, 9) and probe.found is True
@@ -3023,8 +3027,8 @@ def test_probe_ee_version_flatpak_installed_but_unaskable_is_silent(
     def boom(*a, **k):
         raise FileNotFoundError("no such binary")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", boom)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
     probe = doctor_run._probe_ee_version()
     assert probe.found is False and probe.version is None
@@ -3053,8 +3057,8 @@ def test_probe_ee_version_sandbox_probe_is_the_doctor_s_last_resort(
             return R(0, "easyeffects 8.2.9\n")
         return R(0, "ID: x\nInstalled: 458.6 MB\n")      # answered, no Version:
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _flatpak_deployed(monkeypatch, tmp_path, metainfo=False)
 
     assert doctor_run._probe_ee_version().version is None
@@ -3079,8 +3083,8 @@ def test_probe_ee_version_sandbox_probe_stays_out_of_the_way_when_asked(
         calls.append(cmd)
         boom()
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
-    monkeypatch.setattr(doctor_run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(tool_env, "which", lambda _name: None)
     _flatpak_deployed(monkeypatch, tmp_path, version="8.2.9")
     assert doctor_run._probe_ee_version(deep=True).version == (8, 2, 9)
     assert not any(c[:2] == ["flatpak", "run"] for c in calls)
@@ -3111,7 +3115,7 @@ def test_easyeffects_running_is_unknown_on_missing_pgrep(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError("no pgrep")
 
-    monkeypatch.setattr(ee_socket.subprocess, "run", boom)
+    monkeypatch.setattr(tool_env, "run", boom)
     assert unpatched_ee_probe() is None
 
 
@@ -3181,7 +3185,7 @@ def test_the_available_version_query_reads_each_package_manager(fam, monkeypatch
         seen.append(list(cmd))
         return _Ran(0, _AVAILABLE_VERSION_OUTPUT[fam])
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(tool_env, "run", fake_run)
     assert doctor_run._distro_easyeffects_major(fam) == 8
     # …asked through this family's own tool, and about the package name this
     # family uses — the two must not drift apart.
@@ -3213,7 +3217,9 @@ def test_the_available_version_query_runs_in_the_c_locale(monkeypatch):
                        "  Table de version :\n")
 
     monkeypatch.setenv("LANGUAGE", "fr")
-    monkeypatch.setattr(doctor_run.subprocess, "run", fake_run)
+    # Faked beneath the door, as in test_probe_ee_version_asks_in_the_c_locale.
+    monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
+    monkeypatch.setattr(tool_env.subprocess, "run", fake_run)
     # Strict on purpose: no guessed label, no wrong package.
     assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None
     assert envs and all(e["LC_ALL"] == "C.UTF-8" and "LANGUAGE" not in e
@@ -3231,7 +3237,7 @@ def test_apt_policy_answers_with_the_candidate_not_the_installed_version(
     machines where naming it is the fix.
     """
     monkeypatch.setattr(
-        doctor_run.subprocess, "run",
+        tool_env, "run",
         lambda *a, **k: _Ran(0, _AVAILABLE_VERSION_OUTPUT[packages.DEBIAN]))
     assert doctor_run._distro_easyeffects_major(packages.DEBIAN) == 8
 
@@ -3265,14 +3271,14 @@ def test_every_way_of_not_knowing_the_distro_version_is_none(monkeypatch):
     for failure in (OSError("no apt-cache"),                 # tool absent
                     doctor_run.subprocess.TimeoutExpired(cmd="apt-cache",
                                                          timeout=5)):
-        monkeypatch.setattr(doctor_run.subprocess, "run", raises(failure))
+        monkeypatch.setattr(tool_env, "run", raises(failure))
         assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None
 
     for proc in (_Ran(1, "  Candidate: 8.2.8+ds-1\n"),   # exit code wins
                  _Ran(0, "N: Unable to locate package easyeffects\n"),
                  _Ran(0, "easyeffects:\n"),
                  _Ran(0, "")):
-        monkeypatch.setattr(doctor_run.subprocess, "run",
+        monkeypatch.setattr(tool_env, "run",
                             lambda *a, _p=proc, **k: _p)
         assert doctor_run._distro_easyeffects_major(packages.DEBIAN) is None, \
             proc.stdout
@@ -3284,7 +3290,7 @@ def _forbid_subprocess(monkeypatch):
     def boom(*a, **k):
         raise AssertionError(f"must not run a subprocess: {a}")
 
-    monkeypatch.setattr(doctor_run.subprocess, "run", boom)
+    monkeypatch.setattr(tool_env, "run", boom)
 
 
 def test_ee_query_refuses_a_request_that_is_not_read_only():
@@ -4861,7 +4867,7 @@ def test_easyeffects_running_is_unknown_on_permission_error(monkeypatch):
     def denied(*a, **k):
         raise PermissionError("operation not permitted")
 
-    monkeypatch.setattr(ee_socket.subprocess, "run", denied)
+    monkeypatch.setattr(tool_env, "run", denied)
     assert unpatched_ee_probe() is None
 
 
@@ -4869,7 +4875,7 @@ def test_easyeffects_running_maps_pgrep_exits_honestly(monkeypatch):
     """pgrep exits 1 for "no process" and 2/3 for its own errors — only the
     first is a real "no" (/copy-audit 2026-08-30)."""
     def fake(rc):
-        monkeypatch.setattr(ee_socket.subprocess, "run",
+        monkeypatch.setattr(tool_env, "run",
                             lambda *a, **k: ee_socket.subprocess.CompletedProcess([], rc))
     fake(0); assert unpatched_ee_probe() is True
     fake(1); assert unpatched_ee_probe() is False

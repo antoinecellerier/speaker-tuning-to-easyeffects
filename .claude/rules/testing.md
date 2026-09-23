@@ -3,12 +3,14 @@ paths:
   - "tests/**/*.py"
   - "tests/golden_preset_baseline.json"
   - "pyproject.toml"
+  - "lib/tool_env.py"
 ---
 
-# The two guarded tiers: the golden digest, and the corpus
+# Tests that can pass while checking nothing
 
-The fast tier (`pytest tests/`) is ordinary unit testing and needs no rule.
-These two do, because both have a failure mode that looks like success.
+The fast tier (`pytest tests/`) is mostly ordinary unit testing. Three things
+in it are not, because each has a failure mode that looks like success: the
+golden digest, the corpus tier, and the machine's own tools.
 
 ## `tests/test_golden_preset.py` — every emitted parameter, by digest
 
@@ -60,3 +62,25 @@ So a refactor verified only in a worktree is **not** verified against the
 corpus. Pass `ATMOS_CORPUS_DIR=<main-checkout>/localresearch`, take digests
 only from a run whose stderr you saw, and baseline test counts in the same
 checkout you compare them against.
+
+## External tools: off in every test, one live check each
+
+`tests/conftest.py` sets `ATMOS_NO_LIVE_TOOLS` for every test, so
+`lib/tool_env.py` — the only way `lib/` and the entry scripts reach a tool
+(`tests/test_layout.py` enforces it) — reports every tool uninstalled. That is
+CI's state, and it keeps a result from depending on the audio stack of
+whoever runs the suite. Child processes a test starts inherit it.
+
+- **A test that needs a tool's answer** patches `tool_env.run` /
+  `tool_env.which` (or a narrower seam above them). For a child process, put
+  an executable of the tool's name in `ATMOS_FAKE_TOOLS_DIR`; a PATH shim is
+  never reached. Make the case assert the branch the fake exists for — with
+  the tool gated off, most runs still pass down the "not installed" branch.
+- **A test that exists to exercise the real tool** takes
+  `@pytest.mark.live_tools` and skips where the tool is absent.
+- **Fakes drift silently.** `tests/test_live_tools.py` runs each tool `lib/`
+  parses for real, through the function that parses it, asserting the parse
+  rather than the values. A new tool in `lib/` fails
+  `test_every_tool_lib_runs_has_a_live_check` until it has a test there or a
+  reasoned `_NO_LIVE_CHECK` entry. On a dev machine, read that file's skips:
+  each is a tool with no drift check on this machine.

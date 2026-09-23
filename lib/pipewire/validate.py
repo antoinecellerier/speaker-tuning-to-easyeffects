@@ -30,7 +30,6 @@ CLIs, and no PipeWire daemon is required.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -191,9 +190,8 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
     what `lv2info` did print is our bug, and still propagates.
     """
     try:
-        rc = subprocess.run(
+        rc = tool_env.run(
             ["lv2info", uri], capture_output=True, text=True, timeout=10,
-            env=tool_env.c_locale(),
         )
     except (OSError, subprocess.SubprocessError) as e:
         # subprocess.TimeoutExpired is a SubprocessError, so it lands here.
@@ -222,10 +220,9 @@ def parse_conf(text: str) -> list[dict]:
     with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=True) as tf:
         tf.write(text)
         tf.flush()
-        rc = subprocess.run(
+        rc = tool_env.run(
             ["spa-json-dump", tf.name],
             capture_output=True, text=True, timeout=10,
-            env=tool_env.c_locale(),
         )
     if rc.returncode != 0:
         raise RuntimeError(
@@ -489,7 +486,7 @@ def run(conf_text: str, *,
     # which told a reader whose PipeWire is plainly running to install
     # PipeWire, and disagreed with the caller's own remedy. The caller owns
     # the remedy; this says only what is not here.
-    absent = [t for t in ("lv2info", "spa-json-dump") if not shutil.which(t)]
+    absent = [t for t in ("lv2info", "spa-json-dump") if not tool_env.which(t)]
     if absent:
         return Report(NO_TOOLING,
                       reason=f"{' and '.join(absent)} not in PATH",

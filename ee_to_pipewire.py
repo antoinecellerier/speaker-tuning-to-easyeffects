@@ -30,7 +30,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, packages
+from lib import console, doctor, ee_paths, packages, tool_env
 from lib.hardware import sinks
 from lib.pipewire import checks, install, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -539,7 +539,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # with its package by the generator's autoload path, and named alone
         # here. Fedora, openSUSE and Alpine all ship it apart from the daemon,
         # so this is a package a reader can actually be missing.
-        if not target_sink and shutil.which("pw-dump") is None:
+        if not target_sink and tool_env.which("pw-dump") is None:
             console.cprint("cta", "[smart-filter] install PipeWire's "
                            "command-line tools and this run can find it:")
             packages.print_install_hint([packages.PW_TOOLS], console.cprint)
