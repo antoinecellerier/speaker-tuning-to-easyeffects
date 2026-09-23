@@ -2,9 +2,9 @@
 
 The README carries three hand-written per-distribution package lists, and the
 scripts print the same facts from `lib/packages.py` at the moment a dependency
-turns up missing. The README itself promises they agree — "The converter prints
-whichever of these matches your `/etc/os-release`, so you shouldn't need this
-table on a run that fails" — and nothing checked it.
+turns up missing. The README itself promises they agree — "You shouldn't need
+these lists on a run that fails. The converter prints whichever line matches
+your `/etc/os-release`" — and nothing checked it.
 
 Drift here is not a documentation nit. `.claude/rules/claims.md` records that a
 *fabricated package-name expansion* is what prompted `lib/packages.py`, and the

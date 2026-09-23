@@ -1,7 +1,7 @@
 """The optional dependencies stay optional, end to end.
 
-`rich` and `rich-argparse` are optional — the README promises that "without
-them everything still works in plain monochrome" — and two guarded imports in
+`rich` and `rich-argparse` are optional — the README promises that "Without
+them, everything works in plain monochrome" — and two guarded imports in
 `lib/console.py` carry that promise: the themed `Console`, and the
 `RichHelpFormatter` each `build_parser` hands to argparse. `argcomplete` is
 the third, guarded the same way at the top of all three scripts. Nothing else
