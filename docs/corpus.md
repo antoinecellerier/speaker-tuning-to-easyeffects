@@ -6,42 +6,46 @@
 across Dolby DAX3 tunings and what varies by device. Every figure in it is
 measured over a collection of tuning XMLs assembled from OEM driver packages.
 Those XMLs are third-party data this project does not own, so the collection is
-not in the repository and will not be — which leaves the findings impossible to
-check unless someone can tell what was in it.
+not in the repository and will not be. Without a description of what was in it,
+nobody can check the findings.
 
 This page is that description: how a file is counted, what the collection holds,
 which download each part came from, and what it is skewed towards. It is not a
-guide to obtaining tuning XMLs — the [README](../README.md#extracting-the-xml)
+guide to obtaining tuning XMLs. The [README](../README.md#extracting-the-xml)
 covers extracting the one for your own device.
 
-> **Figures below are from a `tools/corpus_audit.py --composition` run on
-> 2026-08-28**, and are re-derived on their own date. They will not match
+> Figures below are from a `tools/corpus_audit.py --composition` run on
+> **2026-08-28**, and are re-derived on their own date. They will not match
 > [cross-device-findings.md](cross-device-findings.md), which freezes its
-> per-parameter figures against a dated cohort — see "Reconciling the counts".
+> per-parameter figures against a dated cohort. See "Reconciling the counts".
 
 ## How a file is counted
 
-A corpus XML is one per-SKU Dolby playback tuning. They are named after the
-audio device they bind to, in one of two families:
+A corpus XML is one per-SKU Dolby playback tuning. Each is named after the audio
+device it binds to, in one of two families:
 
-- **HD Audio** — `DEV_<codec>_SUBSYS_<vendor><device>_PCI_SUBSYS_<device><vendor>.xml`.
-  The same tuning also appears as `HDAUDIO_DEV_…`, `INTELAUDIO_DEV_…`,
-  `PCI_DEV_…`, and as `AUCD_DEV_…_ADCM_SUBSYS_…` on Qualcomm Aqstic. Those
-  prefixes are the Windows hardware-ID namespace the tuning's `.inf` binds it
-  under, and the **OEM package ships them** — they are not produced by
-  installing it. See [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two)
-  for the evidence and for what it means when two of them match one device.
-- **SoundWire** — `SOUNDWIRE_[SDCAFUNCTION_NN_]MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml`,
+- **HD Audio**:
+  `DEV_<codec>_SUBSYS_<vendor><device>_PCI_SUBSYS_<device><vendor>.xml`. The
+  same tuning also appears as `HDAUDIO_DEV_…`, `INTELAUDIO_DEV_…`, `PCI_DEV_…`,
+  and as `AUCD_DEV_…_ADCM_SUBSYS_…` on Qualcomm Aqstic. Those prefixes are the
+  Windows hardware-ID namespace the tuning's `.inf` binds it under. The **OEM
+  package ships them**. Installing it does not produce them.
+  [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two)
+  holds the evidence, and what it means when two of them match one device.
+- **SoundWire**:
+  `SOUNDWIRE_[SDCAFUNCTION_NN_]MAN_<man>_FUNC_<func>_SUBSYS_<device><vendor>.xml`,
   and a shorter `SDW_…` spelling.
 
-Three companions share that shape and are excluded: `_settings.xml` (UI and
-profile defaults, no DSP), and `_dmic.xml` / `_amic.xml`, which are Dolby Fusion
-microphone-AEC tunings rather than playback ones. What is left is what the
-converter itself would accept — `is_dolby_tuning_filename` in
-[`lib/dax/discover.py`](../lib/dax/discover.py) is the single definition, shared
-by the converter's auto-discovery, `tests/corpus/`, and the sweep tool, so the
-population the tests walk (one copy of each distinct file) and the population
-the figures are measured over cannot drift apart.
+Three companions share that shape and are excluded. `_settings.xml` holds UI
+and profile defaults, with no DSP. `_dmic.xml` and `_amic.xml` are Dolby Fusion
+microphone-AEC tunings rather than playback ones.
+
+What is left is what the converter itself would accept.
+`is_dolby_tuning_filename` in [`lib/dax/discover.py`](../lib/dax/discover.py) is
+the single definition, shared by the converter's auto-discovery,
+`tests/corpus/` and the sweep tool. The population the tests walk therefore
+cannot drift apart from the population the figures are measured over. The tests
+walk one copy of each distinct file.
 
 ## What it holds
 
@@ -56,15 +60,14 @@ the figures are measured over cannot drift apart.
 | Driver packages | 16 |
 
 Per-codec counts and everything downstream of them are in
-[cross-device-findings.md](cross-device-findings.md); this page does not repeat
-them.
+[cross-device-findings.md](cross-device-findings.md).
 
-The gap between 3641 files and 898 distinct tunings is the shape of the data:
-one tuning ships to every SKU it fits, in every package that supports that SKU.
-The most-repeated tuning appears 66 times, and only 244 files are the sole copy
-of their content. Counting files therefore overstates coverage by roughly 4×,
-which is why the findings doc counts files, rows and devices separately rather
-than quoting one number for a prevalence.
+One tuning ships to every SKU it fits, in every package that supports that SKU.
+That is the gap between 3641 files and 898 distinct tunings. The most-repeated
+tuning appears 66 times. Only 244 files are the sole copy of their content.
+Counting files therefore overstates coverage by roughly 4×. For that reason the
+findings doc counts files, rows and devices separately, rather than quoting one
+number for a prevalence.
 
 ## Where the files come from
 
@@ -76,24 +79,25 @@ Every file has one of three origins:
 | The development machine's Windows partition | 219 | 202 |
 | Attached to a GitHub issue | 7 | 7 |
 
-The rows are disjoint and sum to the 3641 above; a file attached to an issue is
-counted only there, never also as a package file.
+The rows are disjoint and sum to the 3641 above. A file attached to an issue is
+counted only in that row, never also as a package file.
 
-Only the middle row is something nobody else can fetch — and it contributes
-nothing that isn't fetchable anyway: **all 202 of its tunings also ship in one of
-the public packages below.** What no download yields is five tunings, each
-attached to an issue by the person reporting the device. Everything else here is
-reproducible by anyone willing to pull the same packages.
+Anyone willing to pull the same packages can reproduce everything here except
+five tunings. Each of those five was attached to an issue by the person
+reporting the device. Only the middle row is something nobody else can fetch.
+It contributes nothing that isn't fetchable anyway: **all 202 of its tunings**
+also ship in one of the public packages below.
 
 ### Publicly downloadable driver packages
 
 Each was downloaded as a self-extracting installer from the vendor's support
-site and unpacked with [`innoextract`](https://constexpr.org/innoextract/install)
-— except Framework's, a 7-Zip SFX that `7z x` opens.
-The layout inside varies (`Source/Dolby/…`, `Source/ThirdParty/…`, `Dolby/…`,
-and Samsung's `APO/Dolby/` with the `.inf` flat beside the tunings), so there is
-no fixed path to them. The last column records **which download the package came
-from**, not a claim about that model.
+site and unpacked with
+[`innoextract`](https://constexpr.org/innoextract/install). The exception is
+Framework's, a 7-Zip SFX that `7z x` opens. The layout inside varies, so there
+is no fixed path to the tunings: `Source/Dolby/…`, `Source/ThirdParty/…`,
+`Dolby/…`, and Samsung's `APO/Dolby/` with the `.inf` flat beside the tunings.
+The last column records **which download the package came from**, not a claim
+about that model.
 
 | Dolby package | XMLs | Source download | Downloaded for |
 |---|---|---|---|
@@ -114,31 +118,34 @@ from**, not a claim about that model.
 | `ext_thinkpad_AIO_rtk_rs5_19h1_v5.204.651.25` | 57 | `r12ar18w.exe` | ThinkPad T495 |
 
 The table sums to 3346. The other 69 files of this source are duplicate copies
-held elsewhere in the working tree — a re-organised copy of the X1 Carbon
-package, and staged copies left by a test harness — not additional tunings.
+held elsewhere in the working tree, not additional tunings. They are a
+re-organised copy of the X1 Carbon package, and staged copies left by a test
+harness.
 
-`ext_realtek_lenovo_ideapad` is not one folder: it holds fifteen per-model
-subfolders, one per SKU that download covers. That layout is why it is the only
-package here that ships two bus-prefixed spellings of the *same* device — see
+`ext_realtek_lenovo_ideapad` holds fifteen per-model subfolders, one per SKU
+that download covers. That layout is why it is the only package here that ships
+two bus-prefixed spellings of the *same* device. See
 [cross-device-findings.md](cross-device-findings.md#17-bus-prefixed-filenames-are-one-tuning-not-two).
 
-Not every audio driver package carries a tuning, and for some vendors none of
-the downloadable ones do: ASUS ships them through Windows Update only, which is
-why its entry below arrived through an issue rather than as a package.
+Not every audio driver package carries a tuning. For some vendors, none of the
+downloadable ones do. ASUS ships them through Windows Update only, which is why
+its entry below arrived through an issue rather than as a package.
 
 ### The development machine's Windows partition
 
-219 files, in the `dax3_ext_rtk.inf_amd64_*` package that Windows installed on
-the ThinkPad X1 Yoga Gen 7 this project is developed on. Reachable only by
-mounting that partition, which is why the corpus tier and the sweep both walk
-NTFS mounts as well as directories you point them at. Nothing is lost by not
-having it — Lenovo's downloadable packages carry all 202 of these tunings.
+Nothing is lost by not having this source: Lenovo's downloadable packages carry
+all 202 of its tunings. It is 219 files, in the `dax3_ext_rtk.inf_amd64_*`
+package that Windows installed on the ThinkPad X1 Yoga Gen 7 this project is
+developed on. They are reachable only by mounting that partition. That is why
+the corpus tier and the sweep both walk NTFS mounts as well as directories you
+point them at.
 
 ### Attached to a GitHub issue
 
-Seven files, seven distinct tunings, five of which appear in no package here.
-These arrive when someone reports a device whose vendor doesn't publish the
-tuning, or whose driver this project has no download for.
+This source holds seven files and seven distinct tunings. Five of those tunings
+appear in no package here. Files arrive this way when someone reports a device
+whose vendor doesn't publish the tuning, or whose driver this project has no
+download for.
 
 | Device | Key | Issue |
 |---|---|---|
@@ -154,25 +161,25 @@ tuning, or whose driver this project has no download for.
 - **One vendor.** 849 of the 861 device ids carry Lenovo's `17AA`. The other
   twelve are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
   Framework (`F111`, the only non-Lenovo *package*), two ASUS (`1043`), and one
-  Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
-  holds across the corpus is a finding that holds across *Lenovo's* tuning
-  practice; it is evidence about the DAX3 schema, and much weaker evidence about
-  what other OEMs do with it.
+  Lenovo Qualcomm entry keyed `IDEA4002`. A finding that holds across the corpus
+  is a finding that holds across *Lenovo's* tuning practice. It is evidence
+  about the DAX3 schema, and much weaker evidence about what other OEMs do with
+  it.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.
-- **Breadth by accident, not design.** Fifteen downloads yield 861 device ids
-  because a Lenovo audio package carries the tunings for every SKU it supports,
-  not just the machine you downloaded it for. Coverage is therefore wide across
-  SKUs and narrow across vendors, kernels, and codec generations.
+- **Breadth by accident, not design.** Fifteen downloads yield 861 device ids.
+  That is because a Lenovo audio package carries the tunings for every SKU it
+  supports, not just the machine you downloaded it for. Coverage is therefore
+  wide across SKUs and narrow across vendors, kernels, and codec generations.
 - **Parameters, not sound.** These are declared values. Nothing here is a
-  measurement of what a device actually produces; that comes from the on-device
+  measurement of what a device actually produces. That comes from the on-device
   captures in [design-notes.md](design-notes.md).
 
 ## Comparing your own collection
 
-Point the sweep at any directory of tuning XMLs — an extracted driver tree, a
-mounted Windows `DriverStore`, or a hand-organised folder — and it prints the
+Point the sweep at any directory of tuning XMLs, such as an extracted driver
+tree, a mounted Windows `DriverStore` or a hand-organised folder. It prints the
 same makeup block as the tables above:
 
 ```bash
@@ -180,34 +187,33 @@ python3 tools/corpus_audit.py --composition /path/to/xmls
 ```
 
 Drop `--composition` for the full per-parameter sweep behind
-[cross-device-findings.md](cross-device-findings.md), and see
-[Running the tests](../README.md#running-the-tests) for pointing the
+[cross-device-findings.md](cross-device-findings.md).
+[Running the tests](../README.md#running-the-tests) covers pointing the
 `tests/corpus/` tier at the same directory.
 
 ## Reconciling the counts
 
-Corpus totals quoted around this repository differ, for three reasons worth
-knowing before comparing any two of them:
+Corpus totals quoted around this repository differ, for three reasons:
 
 1. **They are dated.** The collection grows as driver packages are pulled.
-   Figures carry the date they were derived; the findings doc freezes a cohort
+   Figures carry the date they were derived. The findings doc freezes a cohort
    and states which one.
 2. **They may include the development machine's mounted Windows partition.**
-   Both the sweep tool and `tests/corpus/` walk whatever roots they are given,
-   and with none they run the converter's own probe — every mounted Windows
-   partition's DriverStore plus the working directory, hidden directories
-   pruned — and that partition holds an installed DAX3 package of its own.
-   The figures on this page include it; a run with the partition unmounted
-   comes out 219 files short.
+   That partition holds an installed DAX3 package of its own. Both the sweep
+   tool and `tests/corpus/` walk whatever roots they are given. With none given,
+   they run the converter's own probe: every mounted Windows partition's
+   DriverStore plus the working directory, with hidden directories pruned. The
+   figures on this page include the partition. A run with it unmounted comes out
+   219 files short.
 3. **The filter was wrong until 2026-08-09.** The sweep tool tested for a
    `DEV_`/`SOUNDWIRE`/`SDW` filename prefix of its own rather than the
-   converter's definition. That counted the `_dmic`/`_amic` microphone
-   companions as speaker tunings — six of the packages it listed turned out to
-   hold nothing else — and skipped the `HDAUDIO_`/`INTELAUDIO_`/`PCI_`/`AUCD_`
-   spellings entirely. On the current collection the correction removes 186
-   microphone companions (plus one synthetic test fixture) and adds 176 speaker
-   tunings carrying 2136 profile rows, a 4.8% increase in the analysed
-   population. **Every file and row count in
-   [cross-device-findings.md](cross-device-findings.md) predates the fix** and is
-   pending re-derivation; the per-parameter distributions are computed over rows
-   and shift only by whatever the added devices contribute.
+   converter's definition. That test counted the `_dmic`/`_amic` microphone
+   companions as speaker tunings. Six of the packages it listed held nothing
+   else. It also skipped the `HDAUDIO_`/`INTELAUDIO_`/`PCI_`/`AUCD_` spellings
+   entirely. On the current collection, the correction removes 186 microphone
+   companions and one synthetic test fixture. It adds 176 speaker tunings
+   carrying 2136 profile rows, a 4.8% increase in the analysed population.
+   Every file and row count in
+   [cross-device-findings.md](cross-device-findings.md) **predates the fix** and
+   is pending re-derivation. The per-parameter distributions are computed over
+   rows, and shift only by whatever the added devices contribute.
