@@ -28,7 +28,8 @@ from lib.dax.parse import (
     resolve_channel_or_direct,
     collect_unmodeled_features,
 )
-from tests.conftest import SYNTHETIC_FREQS_20, synthetic_mb_comp
+from tests.conftest import (SYNTHETIC_FREQS_20, synthetic_mb_comp,
+                            write_synthetic_tuning_xml)
 
 
 # Reference values computed offline from the documented spec
@@ -649,3 +650,22 @@ class TestRegulatorPerChannelSchema:
         out = capsys.readouterr().out
         assert "no per-band limiting" in out
         assert result.regulator["threshold_high"] == [0.0] * 5
+
+
+def test_a_rewritten_tuning_xml_is_read_afresh(tmp_path):
+    """The parsed-root cache is keyed on the file's content, so a tuning
+    rewritten in place is never served from the old parse — including the
+    rewrite a stat-based key misses: same size, old mtime put back (what
+    `shutil.copy2` does, and what a coarse-clock filesystem does by itself
+    within one tick)."""
+    import os
+    xml = write_synthetic_tuning_xml(tmp_path / "t.xml")
+    first = parse._read_root(xml)
+    assert parse._read_root(xml) is first
+    before = xml.stat()
+    data = xml.read_bytes()
+    xml.write_bytes(data.replace(b"\n", b" ", 1))
+    os.utime(xml, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert xml.stat().st_size == before.st_size
+    assert parse._read_root(xml) is not first
+

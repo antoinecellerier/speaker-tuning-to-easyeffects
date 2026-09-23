@@ -20,6 +20,7 @@ monkeypatch hazard"): a frozen dataclass, and a printer that reads
 
 from __future__ import annotations
 
+import functools
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -30,10 +31,28 @@ from lib import console
 from lib.report.findings import Finding, _print_finding_detail
 
 
+@functools.lru_cache(maxsize=4)
+def _parsed_root(data: bytes) -> ET.Element:
+    return ET.fromstring(data)
+
+
+def _read_root(path: Path) -> ET.Element:
+    """The XML's root element, parsed once per content of the file.
+
+    One run reads the same tuning several times — `get_profile_types`, then
+    `parse_xml` once per profile under `--all-profiles` — and the corpus
+    tier's every-profile walk did it ~40,000 times, most of that tier's run
+    (2026-09-23). Keyed on the bytes, not on mtime and size: a same-size
+    rewrite within one timestamp tick, or one that kept the old mtime, would
+    otherwise be served the old parse, and reading a file costs a fraction of
+    parsing it. Shared, so read-only: nothing in this module mutates the tree.
+    """
+    return _parsed_root(Path(path).read_bytes())
+
+
 def list_endpoints(path: Path):
     """Print available endpoints and profiles in the XML."""
-    tree = ET.parse(path)
-    root = tree.getroot()
+    root = _read_root(path)
     for ep in root.findall(".//endpoint"):
         ep_type = ep.get("type")
         op_mode = ep.get("operating_mode")
@@ -61,8 +80,7 @@ def sanitize_profile_type(t: str) -> str:
 
 def get_profile_types(path: Path, endpoint_type: str, operating_mode: str) -> list[str]:
     """Return all profile type names for the given endpoint/mode, excluding 'off'."""
-    tree = ET.parse(path)
-    root = tree.getroot()
+    root = _read_root(path)
     ep = root.find(
         f".//endpoint[@type='{endpoint_type}'][@operating_mode='{operating_mode}']"
     )
@@ -215,8 +233,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     The pre-parse banner can only name the request, and "Profile: first in
     the file" with the real name arriving lines later read as broken output
     (two review rounds)."""
-    tree = ET.parse(path)
-    root = tree.getroot()
+    root = _read_root(path)
     constant = root.find("constant")
 
     if constant is None:
