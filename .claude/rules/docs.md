@@ -9,33 +9,31 @@ paths:
 
 # Writing docs in this repo
 
-## Audience & placement — match the file to the reader
+## Audience & placement
 
-Put new content where its reader looks, and keep the others' content out. (The
-per-file *content* map is in CLAUDE.md "Docs are layered"; this is the *audience*
-and the placement discipline.)
+Put new content where its reader looks, and keep the others' content out.
+CLAUDE.md "Docs are layered" maps what each file holds. This section covers each
+file's *audience* and the placement discipline.
 
-- **README** = the end user: discover → install → use → troubleshoot → stay
-  current. Keep it to that journey — deep DSP/XML internals do **not** go here;
-  link to the docs instead. Keep safety-critical or searchable text outside
-  `<details>` (collapsed text isn't matched by in-page find and anchors into it
-  are unreliable).
-  - **Flags list / troubleshooting rows are one line each**, objectively: a flag
-    entry = *what it does* + *when you'd reach for it* (+ default, if any);
-    a troubleshooting row = *symptom* → *which flag*. No DSP mechanism, no
-    measurement numbers, no device IDs — link to reference/design-notes for the
-    why. If you're writing a second sentence of mechanism, it belongs in the
-    docs, not the README.
-- **docs/reference.md** = a technically-inclined user asking "what does the
-  converter do *now*" — settled facts only (mappings, chain, units,
-  not-implemented).
-- **docs/design-notes.md** = a contributor asking "*why*, and what was tried" —
-  the research log; new findings and rejected approaches land here.
-- **docs/cross-device-findings.md** = corpus-wide empirics across devices.
-- **tools/measure_*/** = on-device measurement workflows.
+- **README** serves the end user: discover, install, use, troubleshoot, stay
+  current. Keep it to that journey. Link to the docs for deep DSP/XML internals
+  instead of putting them here. Keep safety-critical or searchable text outside
+  `<details>`, because in-page find doesn't match collapsed text and anchors
+  into it are unreliable.
+  - **Flags list and troubleshooting rows are one line each**, objectively. A
+    flag entry is *what it does* plus *when you'd reach for it*, plus the
+    default if there is one. A troubleshooting row maps a *symptom* to *which
+    flag*. No DSP mechanism, no measurement numbers, no device IDs: link to
+    reference/design-notes for the why. A second sentence of mechanism belongs
+    in the docs, not the README.
+- **docs/reference.md** serves a technically-inclined user asking "what does the
+  converter do *now*". It holds settled facts only.
+- **docs/design-notes.md** serves a contributor asking "*why*, and what was
+  tried".
+- **tools/measure_*/** holds on-device measurement workflows.
 
-Rule of thumb when unsure: user-facing how-to → README; "what it does now" →
-reference; "why / evidence / history" → design-notes.
+When unsure, "what it does now" goes to reference, "why / evidence / rejected
+approaches" to design-notes, and user-facing how-to to README.
 
 ## Sentences
 

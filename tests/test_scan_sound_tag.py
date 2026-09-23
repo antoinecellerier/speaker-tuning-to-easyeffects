@@ -274,8 +274,9 @@ def test_a_range_with_nothing_dropped_keeps_the_plain_count():
 # --- the rendered section ---------------------------------------------------
 
 def test_a_capped_list_says_what_it_dropped():
-    """CLAUDE.md: never a silent cap. A truncated list with no count reads as
-    the whole of it."""
+    """Never a silent cap, per the `_MAX_SUBJECTS` comment in
+    tools/scan_sound_tag.py. A truncated list with no count reads as the whole
+    of it."""
     commits = [{"sha": f"{i:012d}", "subject": f"ALSA: hda/realtek: q{i}",
                 "message": "x"} for i in range(scan._MAX_SUBJECTS + 5)]
     out = render("sound-7.3-rc1", "sound-7.2", commits, [])

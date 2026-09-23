@@ -6,52 +6,43 @@ paths:
 
 # Every emitted parameter traces to an XML field
 
-This is where that invariant is actually kept: `lib/dax/` reads the DAX3 XML,
-`lib/preset/` turns what it read into the numbers a plugin gets. Nothing
-between the two may introduce a value that came from somewhere else.
+This is where that invariant is kept. `lib/dax/` reads the DAX3 XML, and
+`lib/preset/` turns what it read into the numbers a plugin gets. Nothing between
+the two may introduce a value that came from somewhere else.
 
-**The value prop is that the tuning is the device's own.** A per-device
-hand-tuned offset inverts it: the output stops being derived and starts being
-curated, and the next device — which nobody has — gets nothing. So no
-constant here is allowed to exist because it sounded better on one laptop.
+No constant here may exist because it sounded better on one laptop. The value
+prop is that **the tuning is the device's own**. A per-device hand-tuned offset
+inverts it. The output stops being derived and starts being curated, and the
+next device gets nothing, since nobody has it.
 
-## The mappings are hypotheses, not revealed truth
+## The mappings are hypotheses
 
-Every XML→parameter mapping in these two packages is a guess about what
-Dolby's schema means. Several have been wrong. The consequence for editing
-them:
+Every XML-to-parameter mapping in these two packages is a guess about what
+Dolby's schema means. Several have been wrong. When you edit one:
 
-- **DAX captures are the only signal that can falsify a mapping.** Listening,
-  analytical scoring and "this looks more like what the field name suggests"
-  are not. `docs/design-notes.md` records which readings a capture has already
+- Only a DAX capture can falsify a mapping. Listening, analytical scoring and
+  "this looks more like what the field name suggests" cannot.
+  `docs/design-notes.md` records which readings a capture has already
   overturned.
-- **The bar to change a *default* mapping is high: ≥1 second-device capture**
-  confirming the new reading generalises across all bands. One device's
-  capture explains that device; it does not establish a schema.
-- Below that bar, ship the finding as an **opt-in** (`--enable …`) so the
-  XML-only path stays the default and the hypothesis is testable by whoever
-  has the second device.
-- Unit conversions count as mappings. 1/16 dB, percent-vs-fraction and Q15
-  fixed point have each been read wrong at least once, and each one is a
-  silent factor error rather than a crash.
+- The bar to change a *default* mapping is high: **≥1 second-device capture**
+  confirming the new reading generalises across all bands. One device's capture
+  explains that device, not the schema.
+- Below that bar, ship the finding as an `--enable …` opt-in. The XML-only path
+  then stays the default, and whoever has the second device can test the
+  hypothesis.
+- Unit conversions count as mappings. 1/16 dB, percent-vs-fraction and Q15 fixed
+  point have each been read wrong at least once. Each misreading is a silent
+  factor error, not a crash.
 
-Current per-parameter status — which mappings are capture-validated and which
-are still unvalidated — is `docs/reference.md` "Validated vs unvalidated
-mappings". The evidence behind each, plus the empirical-shortcut and
-unvalidated-scaling lists, is `docs/design-notes.md`.
+`docs/reference.md` "Validated vs unvalidated mappings" gives each parameter's
+status: capture-validated or unvalidated. `docs/design-notes.md` holds the
+evidence behind each, and the empirical-shortcut and unvalidated-scaling lists.
 
 ## What is *not* a source of parameters
 
-`filter_coefficients` — the base64 biquad blob in `tuning-vlldp` — is
-VLLDP-internal analysis filtering, **not** an audio-path equaliser. It has
-been decoded, and the coefficients do not produce sensible audio curves. The
-speaker correction it looks like it might carry is already captured by the
-audio-optimizer and speaker-PEQ parameters, so parsing it here would add a
-second, wrong source for values that are already right. Recorded in
-`docs/reference.md` "Not implemented" and `docs/design-notes.md` "Rejected
-approaches" so it stops being re-proposed.
-
-Two things this rule does **not** cover, because they have no XML provenance
-to trace and never did: PipeWire node/sink selection (`lib/hardware/sinks.py`)
-and hardware probing generally. Those are heuristics over the running system,
-always user-overridable by a flag.
+Parse no parameter from the base64 biquad blob `filter_coefficients` in
+`tuning-vlldp`. It is VLLDP-internal analysis filtering, **not** an audio-path
+equaliser. The audio-optimizer and speaker-PEQ parameters already capture the
+speaker correction it looks like it might carry. `docs/reference.md` "Not
+implemented" and `docs/design-notes.md` "Rejected approaches" record the
+evidence.

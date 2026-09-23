@@ -1,62 +1,63 @@
 # Windows-side Claude session context
 
-You are running on Windows assisting the user with **`capture_dax.py`**.
-The companion Linux machine is offline; everything you need is in this
-file. Don't ask the user to reboot.
+You are running on Windows, assisting the user with `capture_dax.py`. The
+companion Linux machine is offline, so everything you need is in this file.
+Don't ask the user to reboot.
 
 ## What this is, in 30 seconds
 
-The user maintains a Linux tool that converts Dolby DAX3 tuning XMLs
-into EasyEffects presets. DAX3 ships only on Windows; the Linux tool
-generates a minimum-phase FIR per channel (cepstral homomorphic
-processing), among other things, to approximate what DAX3 does to
-audio. There's an open question — does DAX3's actual implementation
-use minimum-phase, linear-phase, or something else? We can't tell
-from the published XML (it's magnitude-only), so we measure DAX3's
-output empirically on Windows.
+The user maintains a Linux tool that converts Dolby DAX3 tuning XMLs into
+EasyEffects presets. DAX3 ships only on Windows. Among other things, the
+Linux tool generates a minimum-phase FIR per channel by cepstral homomorphic
+processing, to approximate what DAX3 does to audio. An open question is
+whether DAX3's actual implementation uses minimum-phase, linear-phase or
+something else. The published XML is magnitude-only and cannot tell us, so
+we measure DAX3's output empirically on Windows.
 
-**Your job, on Windows:** run `capture_dax.py` to play a swept-sine
-stimulus through DAX3 and record WASAPI loopback. The captured
-`loopback_*.wav` files go back to Linux for deconvolution and
-comparison.
+Your job on Windows is to run `capture_dax.py` to play a swept-sine stimulus
+through DAX3 and record WASAPI loopback. The captured `loopback_*.wav` files
+go back to Linux for deconvolution and comparison.
 
 **Out of scope on Windows:**
-- Changing the Linux-side conversion script (you don't have it
-  anyway). Even if the captures reveal that DAX3 is linear-phase,
-  the user has explicitly said we don't switch — there's a hard
-  no-added-latency constraint (linear-phase = ~42 ms group delay).
-- Modifying `capture_dax.py`'s post-processing math. The
-  deconvolution and comparison run on Linux.
+
+- Changing the Linux-side conversion script. You don't have it anyway. Even
+  if the captures reveal that DAX3 is linear-phase, the user has explicitly
+  said we don't switch. Linear-phase means ~43 ms group delay, and there is
+  a hard no-added-latency constraint.
+- Modifying `capture_dax.py`'s post-processing math. The deconvolution and
+  comparison run on Linux.
 - Reverse-engineering Dolby's binaries.
 
 ## What "the user" wants from you
 
-If `capture_dax.py` works, just run it for each profile and confirm
-the captures look reasonable. Saved feedback says the user prefers
-terse confirmations.
+If `capture_dax.py` works, just run it for each profile and confirm the
+captures look reasonable. The user prefers terse confirmations.
 
-If something breaks, **fix capture_dax.py** to get the captures
-recorded. Don't redesign the experiment, don't suggest a different
-tool, don't ask them to reboot — debug the script.
+If something breaks, **fix capture_dax.py** to get the captures recorded.
+Debug the script. Don't redesign the experiment, and don't suggest a
+different tool.
 
 ## Files in this directory
 
-- `capture_dax.py` — the script you're running and may need to fix.
-  Reads `--stimulus <path>` plus its sidecar `<basename>.json`, plays it
-  through the speaker output, records WASAPI loopback. Pre-capture
-  validation: endpoint format (48 kHz, any bit depth), Dolby APO
-  presence. Post-capture: level checks, similarity vs the matching
-  per-kind OFF baseline. ~600 lines.
-- **5 stimulus files** (each with a matching `.json` sidecar):
-  - `stimulus_sweep.wav` — exponential sweep, −18 dBFS peak (10 s + 1 s tail)
-  - `stimulus_sweep_quiet.wav` — same sweep at −42 dBFS peak
-  - `stimulus_pink.wav` — pink noise, −18 dBFS RMS (12 s + 1 s tail)
-  - `stimulus_pink_quiet.wav` — pink noise at −42 dBFS RMS
-  - `stimulus_multitone.wav` — 20 band-center tones, −18 dBFS RMS
-- `captures/` — output dir. Each capture writes
-  `loopback_<kind>_<label>.wav` (e.g., `loopback_pink_dynamic.wav`)
-  plus a matching `.json` sidecar.
-- `CLAUDE_WINDOWS.md` — this file.
+- `capture_dax.py`: the script you're running and may need to fix. It reads
+  `--stimulus <path>` plus its sidecar `<basename>.json`, plays it through
+  the speaker output and records WASAPI loopback. Before capture it
+  validates Dolby APO presence and the endpoint format: 48 kHz, any bit
+  depth. After capture it checks levels and the similarity vs the matching
+  per-kind OFF baseline.
+- 5 stimulus files, each with a matching `.json` sidecar:
+  - `stimulus_sweep.wav`: exponential sweep, −18 dBFS peak, 10 s + 1 s tail
+  - `stimulus_sweep_quiet.wav`: same sweep at −42 dBFS peak
+  - `stimulus_pink.wav`: pink noise, −18 dBFS RMS, 12 s + 1 s tail
+  - `stimulus_pink_quiet.wav`: pink noise at −42 dBFS RMS
+  - `stimulus_multitone.wav`: 20 band-center tones, −18 dBFS RMS
+- The stimuli the later runs use, if the user copied them, each with its
+  `.json` sidecar: the ladder rungs `stimulus_pink{60,48,30,24,14}.wav`,
+  `stimulus_stepped_loud.wav` and `stimulus_bass_burst[_quiet].wav`.
+- `captures/`: the output dir. Each capture writes
+  `loopback_<kind>_<label>.wav`, e.g. `loopback_pink_dynamic.wav`, plus a
+  matching `.json` sidecar.
+- `CLAUDE_WINDOWS.md`: this file.
 
 ## Run sequence
 
@@ -77,31 +78,29 @@ foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone') {
 ```
 
 5 stimuli × 6 profile labels = 30 captures, ~13 s each ≈ 6 min of pure
-capture time + manual Dolby Access toggling between profile groups.
+capture time, plus manual Dolby Access toggling between profile groups.
 
-The **OFF baseline is critical** — `analyze.py` on Linux uses it both
-to validate the capture chain (a true identity passthrough should
-deconvolve to a clean bandlimited Dirac) and as the per-stimulus
-reference for the "forgot to switch profile" similarity check. Always
-capture `--label off` first for each stimulus; otherwise the post-capture
-similarity check has no baseline.
+Always capture `--label off` first for each stimulus. Otherwise the
+post-capture similarity check has no baseline. The **OFF baseline is
+critical**: `analyze.py` on Linux uses it both to validate the capture chain
+and as the per-stimulus reference for the "forgot to switch profile"
+similarity check. For the chain check, a true identity passthrough should
+deconvolve to a clean bandlimited Dirac.
 
-The `--label off` capture should be done with **Dolby Atmos toggled
-OFF** in Dolby Access (or with all enhancements disabled). The script
-warns rather than aborts in that case if the Dolby APO is still
-inserted on the endpoint.
+Do the `--label off` capture with Dolby Atmos toggled OFF in Dolby Access,
+or with all enhancements disabled. If the Dolby APO is still inserted on
+the endpoint in that case, the script warns rather than aborts.
 
 ## Priority run: the volume-leveler level ladder
 
-This is the run to do first if time is short — it is currently the
-largest unmeasured gap between DAX and the Linux chain.
+If time is short, do this run first. It is currently the largest unmeasured
+gap between DAX and the Linux chain.
 
-DAX applies a gain that depends on how loud the input is, and only two
-points on that curve have ever been measured (on the dev device,
-DAX-on minus DAX-off: **+7.1 dB** at −17.8 dBFS and **+16.4 dB** at
-−41.8 dBFS). The Linux side approximates that curve with chosen
-constants rather than measured ones. Seven rungs turn two points into a
-curve.
+DAX applies a gain that depends on how loud the input is. Only two points on
+that curve have ever been measured, both on the dev device. As DAX-on minus
+DAX-off, they are +7.1 dB at −17.8 dBFS and +16.4 dB at −41.8 dBFS. The Linux
+side approximates that curve with chosen constants rather than measured ones.
+Seven rungs turn two points into a curve.
 
 ```powershell
 # Ladder rungs, quietest first. pink/pink_quiet are the two you already
@@ -115,21 +114,20 @@ foreach ($s in $ladder) { python capture_dax.py --stimulus stimulus_$s.wav --lab
 foreach ($s in $ladder) { python capture_dax.py --stimulus stimulus_$s.wav --label dynamic }
 ```
 
-14 captures, ~13 s each. Two are already done (`pink`, `pink_quiet` on
-both labels) and re-capturing them is harmless — it also confirms the
+14 captures, ~13 s each. Two rungs, `pink` and `pink_quiet`, are already
+done on both labels. Re-capturing them is harmless, and it confirms the
 session is comparable to the archived one.
 
-**Why `off` at every rung and not just once:** it is the control for
-this measurement, not just a validity check. The whole result is
-on-minus-off *at the same input level*, so a missing rung loses that
-rung entirely. It is also the only way to confirm the off path is
-level-linear; if it is, that is worth knowing, but assume it and the
-ladder measures nothing.
+Capture `off` at every rung, not just once. It is the control for this
+measurement, not just a validity check. The whole result is on-minus-off *at
+the same input level*, so a missing rung loses that rung entirely. It is
+also the only way to confirm the off path is level-linear. If it is, that
+is worth knowing. Assume it instead, and the ladder measures nothing.
 
-**Loud end.** Do not add pink rungs above −14 dBFS RMS: pink noise has
-~13 dB of crest factor, so −12 dBFS RMS already peaks past full scale
-and `make_stimulus.py` will refuse it. For the loud end use the
-stepped-sine stimulus built for it:
+**Loud end.** Do not add pink rungs above −14 dBFS RMS. Pink noise has
+~13 dB of crest factor, so −12 dBFS RMS already peaks past full scale and
+`make_stimulus.py` will refuse it. For the loud end, use the stepped-sine
+stimulus built for it:
 
 ```powershell
 foreach ($lbl in 'off','dynamic') {
@@ -137,10 +135,10 @@ foreach ($lbl in 'off','dynamic') {
 }
 ```
 
-## Already in the archive — don't re-capture these
+## Already in the archive
 
-Checked 2026-08-05 against the dev-device archives. The stepped battery is
-**complete at all three levels, with its OFF pairs**:
+The stepped battery is **complete at all three levels, with its OFF
+pairs**, checked 2026-08-05 against the dev-device archives:
 
 | stimulus | `dynamic` | `off` |
 |---|---|---|
@@ -148,31 +146,32 @@ Checked 2026-08-05 against the dev-device archives. The stepped battery is
 | `stepped_quiet` (−42 dBFS) | yes | yes |
 | `stepped_loud` (−2 dBFS) | yes | yes |
 
-That is the regime the regulator actually engages in — on the dev device
-`stepped_loud` drives DAX over its threshold on 3 of 4 active bands (141 Hz
-+4.7, 234 Hz +5.0, 328 Hz +1.8 dB). The open regulator questions
-(design-notes entries 6/11) are therefore an **analysis** gap, not a capture
-gap; re-capturing them buys nothing.
+Stepped is the regime the regulator actually engages in. On the dev device,
+`stepped_loud` drives DAX over its threshold on 3 of 4 active bands: 141 Hz
++4.7, 234 Hz +5.0, 328 Hz +1.8 dB. The open regulator questions in
+design-notes entries 6/11 are therefore an analysis gap, not a capture gap.
+Don't re-capture the stepped battery: it buys nothing.
 
-Note also what the pink ladder cannot reach: pink tops out at −14 dBFS RMS
-before it clips, which on the dev device still leaves DAX several dB short of
-its lowest regulator threshold. The ladder measures the volume leveler. It
-will not incidentally measure the regulator, and stepped is the stimulus for
-that.
+The pink ladder measures the volume leveler. It will not incidentally
+measure the regulator: pink tops out at −14 dBFS RMS before it clips, which
+on the dev device still leaves DAX several dB short of its lowest regulator
+threshold. Stepped is the stimulus for the regulator.
 
-**Per-session check, cheap and worth it:** whatever you capture, the `off`
-baseline is the session's own reference. Endpoint volume lands inside the
-loopback on some machines and not others — the dev device reads −0.02 dB with
-its endpoint at −18.8 dB, while another reporter's machine read −10.01 dB with
-its endpoint at −10.5 dB. Sessions are only comparable through their own OFF
-capture, so never skip it and never assume last session's holds.
+Whatever you capture, the `off` baseline is the session's own reference: a
+cheap per-session check, and worth it. Endpoint volume lands inside the
+loopback on some machines and not others. The dev device reads −0.02 dB with
+its endpoint at −18.8 dB. Another reporter's machine read −10.01 dB with its
+endpoint at −10.5 dB. The `_dax_off_reference` docstring in
+`tools/measure_ee/compare_ee_vs_dax.py` records both readings. Sessions are
+only comparable through their own OFF capture, so never skip it and never
+assume last session's holds.
 
 ## Also worth capturing: bass burst, OFF
 
-`stimulus_bass_burst.wav` and `stimulus_bass_burst_quiet.wav` were
-captured on `dynamic` only, so the on-minus-off delta — the bass
-measurement the Linux side wants — cannot be computed from the archive.
-Two captures fixes that:
+`stimulus_bass_burst.wav` and `stimulus_bass_burst_quiet.wav` were captured
+on `dynamic` only. The on-minus-off delta is the bass measurement the Linux
+side wants, and it cannot be computed from the archive. Two captures fix
+that:
 
 ```powershell
 foreach ($s in 'bass_burst','bass_burst_quiet') {
@@ -182,32 +181,31 @@ foreach ($s in 'bass_burst','bass_burst_quiet') {
 
 ## Hard requirements before capture
 
-1. **Speaker endpoint sample rate = 48 kHz** (shared mode). Set in
-   `Settings → System → Sound → All sound devices → [your speakers] →
-   Output settings → Format`. Bit depth (16- or 24-bit) doesn't matter:
-   WASAPI loopback taps the float32 engine mix bus regardless. Some
-   Realtek drivers don't expose a 32-bit float option at all — pick
-   any 48 kHz entry. The script aborts if the sample rate is wrong.
-2. **Dolby Access installed** with the user's speakers as the active
-   endpoint. Verify by playing music with Dolby on/off and listening
-   for an obvious change.
-3. **Volume reasonable** — −18 dBFS stimulus through the system
-   volume should produce audible but not loud playback. If the
-   capture clips, lower system volume; if it's <−60 dBFS peak,
-   raise it.
+1. Speaker endpoint sample rate = 48 kHz, in shared mode. Set it in
+   `Settings → System → Sound → All sound devices → [your speakers] → Output settings → Format`.
+   Bit depth doesn't matter, 16- or 24-bit alike: WASAPI loopback taps the
+   float32 engine mix bus regardless. Some Realtek drivers don't expose a 32-bit
+   float option at all, so pick any 48 kHz entry. The script aborts if the
+   sample rate is wrong.
+2. Dolby Access installed, with the user's speakers as the active endpoint.
+   Verify by playing music with Dolby on/off and listening for an obvious
+   change.
+3. Volume reasonable: −18 dBFS stimulus through the system volume should
+   produce audible but not loud playback. If the capture clips, lower system
+   volume. If it's <−60 dBFS peak, raise it.
 
 ## Known fragile spots in capture_dax.py
 
-These are places where it might fail on a particular Windows
+These are places where the script might fail on a particular Windows
 configuration. Fix in order of likelihood:
 
 ### 1. `sounddevice.WasapiSettings(loopback=True)` may not exist
 
-The `WasapiSettings(loopback=...)` kwarg requires a recent
-`sounddevice` (≥ 0.4.6) backed by a recent PortAudio. If you get
+The `WasapiSettings(loopback=...)` kwarg requires `sounddevice` ≥ 0.4.6,
+backed by a recent PortAudio. If you get
 `TypeError: __init__() got an unexpected keyword argument 'loopback'`
-or the input stream produces silence, fall back to **`pyaudiowpatch`**
-(a maintained fork of PyAudio with explicit WASAPI loopback support):
+or the input stream produces silence, fall back to `pyaudiowpatch`, a
+maintained fork of PyAudio with explicit WASAPI loopback support:
 
 ```powershell
 pip install pyaudiowpatch
@@ -247,72 +245,70 @@ unchanged. Just swap the audio I/O backend.
 
 ### 2. Dolby presence check: three layered signals
 
-`detect_dolby()` looks for Dolby via three independent sources, in
-order, and considers any single hit sufficient:
+`detect_dolby()` looks for Dolby in three independent sources, in order,
+and considers any single hit sufficient:
 
-1. **Per-endpoint MMDevices property store** at
+1. The per-endpoint MMDevices property store at
    `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\<endpoint-id>\Properties`.
    Format-id `{a45429a4-aa63-4480-b7f8-3f2552daee93}` holds the
-   spatial-mode display names (e.g. "Dolby Atmos for built-in
-   speakers"). The active spatial-mode CLSID is the REG_SZ value at
-   `{9637b4b9-11ee-4c35-b43c-7b2452c993cc},1` and is captured into the
-   metadata sidecar regardless of detection outcome.
-2. **System-wide APO registry** at
+   spatial-mode display names, e.g. "Dolby Atmos for built-in speakers".
+   The active spatial-mode CLSID is the REG_SZ value at
+   `{9637b4b9-11ee-4c35-b43c-7b2452c993cc},1`. The script captures it into
+   the metadata sidecar regardless of detection outcome.
+2. The system-wide APO registry at
    `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AudioEngine\AudioProcessingObjects`.
-   This key is **absent on Win11 24H2** and only exists on older Win10
-   builds — its absence is not an error, just a no-op fallback.
-3. **Dolby Access UWP package** under
+   This key is absent on Win11 24H2 and only exists on older Win10 builds.
+   Its absence is not an error, just a no-op fallback.
+3. The Dolby Access UWP package under
    `%LOCALAPPDATA%\Packages\DolbyLaboratories.DolbyAccess_*`.
 
-If all three miss, the script aborts (`--label off` warns instead of
-aborting). If you *know* Dolby Atmos is the active spatial mode but
-detection still fails, pass `--no-apo-check` to bypass — the captured
-metadata sidecar still records what the detector saw, so the bypass
-is auditable later.
+If all three miss, the script aborts, except that `--label off` warns
+instead of aborting. If you *know* Dolby Atmos is the active spatial mode
+but detection still fails, pass `--no-apo-check` to bypass it. The captured
+metadata sidecar still records what the detector saw, so the bypass is
+auditable later.
 
-Don't disable the check unconditionally — it's there to catch the
-"wrong endpoint selected" / "Dolby Access uninstalled" mistakes.
+Don't disable the check unconditionally. It is there to catch the "wrong
+endpoint selected" and "Dolby Access uninstalled" mistakes.
 
 ### 3. Endpoint resolution
 
-`resolve_endpoint()` auto-picks the default WASAPI output if no
-`--device` is given. If the laptop has multiple audio devices (HDMI,
-Bluetooth, dock), the user may have a non-speaker as the system
-default. Symptom: capture is silent or doesn't include DAX3.
-Fix: `python capture_dax.py --label off --device "Speakers"` (any
-substring of the friendly name).
+`resolve_endpoint()` auto-picks the default WASAPI output if no `--device`
+is given. If the laptop has multiple audio devices, such as HDMI, Bluetooth
+or a dock, the user may have a non-speaker as the system default. Symptom:
+capture is silent or doesn't include DAX3. Fix:
+`python capture_dax.py --label off --device "Speakers"`. Any substring of
+the friendly name works.
 
 ### 4. Dolby Access state file read
 
-`best_effort_dolby_state()` looks for the user's currently selected
-profile inside `%LOCALAPPDATA%\Packages\DolbyLaboratories.DolbyAccess_*\
-LocalState\`. The format is **undocumented** — the script does
-substring matching against profile names in `*.json` and `*.dat`
-files. False positives and negatives are both possible. If the script
-fires the "Dolby Access shows X but you passed Y" warning when both
-look correct, just answer "y" and continue.
+`best_effort_dolby_state()` looks for the user's currently selected profile
+inside `%LOCALAPPDATA%\Packages\DolbyLaboratories.DolbyAccess_*\LocalState\`.
+The format is undocumented, so the script does substring matching against
+profile names in `*.json` and `*.dat` files. False positives and negatives
+are both possible. If the script fires the "Dolby Access shows X but you
+passed Y" warning when both look correct, just answer "y" and continue.
 
-This check is a nice-to-have, not load-bearing. If it's noisy you
-can comment out the call to `best_effort_dolby_state(args.label)` in
-`main()`.
+This check is a nice-to-have, not load-bearing. If it's noisy, you can
+comment out the call to `best_effort_dolby_state(args.label)` in `main()`.
 
 ### 5. Resampling silently engaged
 
-If the OFF baseline capture deconvolves (on the Linux side) to
-something with sidelobes worse than −25 dB, the most common cause
-is silent resampling somewhere in the audio path:
-- The endpoint format check passed but Windows is downsampling
-  internally (rare).
-- The user has "Loudness Equalization", "Bass Boost", or other
-  third-party enhancements enabled. Disable in
-  `Settings → System → Sound → [speakers] → Properties → Enhancements
-  → Disable all sound effects`.
+If the OFF baseline capture deconvolves on the Linux side to something with
+sidelobes worse than −25 dB, the most common cause is silent resampling
+somewhere in the audio path:
+
+- The endpoint format check passed but Windows is downsampling internally.
+  This is rare.
+- The user has "Loudness Equalization", "Bass Boost", or other third-party
+  enhancements enabled. Disable them in
+  `Settings → System → Sound → [speakers] → Properties → Enhancements → Disable all sound effects`.
 - An ASIO driver is grabbing the device exclusively.
 
-The user will see this only after running `deconvolve.py` on Linux,
-so it's a "next reboot" issue rather than something to debug here.
-But if levels look weird in the capture (RMS very low, peak clipping),
-flag it before they leave Windows.
+The user will see this only after running `analyze.py` on Linux, so it's
+a "next reboot" issue rather than something to debug here. But if levels
+look weird in the capture, such as very low RMS or peak clipping, flag it
+before they leave Windows.
 
 ## Output expectations
 
@@ -337,33 +333,33 @@ DAX3 IR capture — label: dynamic
 ```
 
 Reasonable values:
-- **Capture peak**: −20 to −10 dBFS. Outside that range, adjust system
-  volume (lower if clipping, higher if very quiet).
-- **Similarity to loopback_off.wav**: ≤ 0.95 for any DAX3-on capture.
-  Higher = profile didn't change. The script warns at > 0.98.
-- **Clip samples = 0**. Anything else means clipping during capture
-  (DAX3's regulator may have engaged) — lower system volume and
-  re-run.
+
+| value | reasonable | otherwise |
+|---|---|---|
+| Capture peak | −20 to −10 dBFS | Adjust system volume: lower if clipping, higher if very quiet. |
+| Similarity to loopback_off.wav | ≤ 0.95 for any DAX3-on capture | Higher = profile didn't change. The script warns at > 0.98. |
+| Clip samples | 0 | Anything else means clipping during capture. DAX3's regulator may have engaged. Lower system volume and re-run. |
 
 ## Saved user preferences (these apply to you too)
 
-- **Don't push to git or modify shared state.** Local file edits are
-  fine. Anything that creates a commit, opens a PR, or writes outside
-  this directory: ask first.
-- **No emojis in output unless explicitly asked.**
-- **Terse confirmations preferred.** End-of-turn summary should be
-  one or two sentences, no headers, no bullets.
-- **For GitHub interactions** (unlikely on Windows but if it comes
-  up): `gh issue/pr comment` bodies need a Claude Code attribution
-  footer matching commits' `Co-Authored-By` line.
+- Don't push to git or modify shared state. Local file edits are fine.
+  Anything that creates a commit, opens a PR, or writes outside this
+  directory: **ask first**.
+- No emojis in output unless explicitly asked.
+- Terse confirmations are preferred. The end-of-turn summary should be one
+  or two sentences, with no headers and no bullets.
+- GitHub interactions are unlikely on Windows. If one comes up,
+  `gh issue/pr comment` bodies need a Claude Code attribution footer
+  matching commits' `Co-Authored-By` line.
 
 ## What to do when captures are complete
 
 Tell the user:
-1. Which `loopback_<label>.wav` files were produced and their
-   reasonable levels.
-2. Any warnings (e.g., similarity to OFF too high → suggest re-run).
-3. To copy the `captures/` directory back to Linux for the next
-   stage (`deconvolve.py` + `compare.py` live there).
+
+1. Which `loopback_<label>.wav` files were produced, and their reasonable
+   levels.
+2. Any warnings, e.g. similarity to OFF too high → suggest a re-run.
+3. To copy the `captures/` directory back to Linux, where `analyze.py` runs
+   the next stage.
 
 End your turn there. The Linux side picks it up.
