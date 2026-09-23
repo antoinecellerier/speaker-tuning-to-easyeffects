@@ -32,7 +32,7 @@ the loud bass_burst / stepped_loud variants; the LTI battery leaves them
 dormant (see docs/design-notes.md "dynamics plugins are dormant").
 
 Stereo stimuli are L=R (centered mono) except the stereo_* probes;
-analyze.py / compare.py key off each sidecar's `stereo_mode`.
+analyze.py keys off each sidecar's `stereo_mode`.
 """
 from __future__ import annotations
 

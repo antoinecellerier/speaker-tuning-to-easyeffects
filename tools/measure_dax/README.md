@@ -98,16 +98,16 @@ The Windows side needs:
 - [`CLAUDE_WINDOWS.md`](CLAUDE_WINDOWS.md), only if Claude Code will be
   helping on Windows.
 
-`make_stimulus.py` writes thirteen stimuli, ~108 MB in total. Copy the subset
+`make_stimulus.py` writes the whole suite, ~250 MB in total. Copy the subset
 your question needs rather than all of it:
 
 | question | stimuli to copy | size |
 |---|---|---|
-| Steady-state EQ, the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~12 MB |
+| Steady-state EQ, the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~22 MB |
 | Anything level-dependent: does a stage's gain change with input level? | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud`: the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
 | Bass-specific behaviour | `stimulus_bass_burst[_quiet]`: sustained 50/80/120/180 Hz bursts | ~10 MB |
-| Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~24 MB |
-| Leveler behaviour on real content | `stimulus_speech` | ~2 MB |
+| Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~10 MB |
+| Leveler behaviour on real content | `stimulus_speech` | ~5 MB |
 
 `analyze.py` handles `sweep`, `pink` and its two `stereo_*` variants,
 `speech`, `multitone` and `stepped`. `bass_burst` has no analyzer branch yet.
@@ -151,8 +151,9 @@ foreach ($s in 'sweep','sweep_quiet','pink','pink_quiet','multitone','stepped','
 # … repeat for movie, music, game, voice
 ```
 
-5 stimuli × 6 profile labels = 30 captures, at ~13 s each. That is ~6 min of
-pure capture time, plus manual profile-toggle time. Plan ~30 min on Windows.
+7 stimuli × 6 profile labels = 42 captures. Each records its stimulus plus
+1.5 s. That is ~6.7 min per profile and ~40 min of pure capture time, plus
+manual profile-toggle time. Plan more than 40 min on Windows.
 
 Each capture produces `captures/loopback_<kind>_<label>.wav` plus a matching
 `.json` sidecar in schema v1. The sidecar records everything that was active
@@ -185,9 +186,19 @@ dispatches:
   by the same window of the stimulus to recover the steady-state EQ. The
   window defaults to 6–11 s into the capture. Result in
   `spectrum_<kind>_<label>_<channel>.npz`.
+- **kind=speech** → the same pink analysis. Pauses and modulation cancel in
+  the ratio, because the stimulus and the capture carry the same envelope.
+- **kind=stereo_pink** and **kind=stereo_correlated_pink** → the same pink
+  analysis, plus the side/mid widening transfer: the capture's S/M minus the
+  stimulus's S/M. The `.npz` carries it as `sm_delta_db`, and the summary
+  prints its median over 200 Hz–18 kHz.
 - **kind=multitone** → single-bin DFT at each of the 20 band-center
   frequencies. It recovers per-band amplitude *and phase*, subtracting the
   known stimulus phase. Result in `tones_<kind>_<label>_<channel>.npz`.
+- **kind=stepped** → single-bin DFT amplitude of each held tone, read after a
+  settle skip and grouped by pass. Per probe frequency, the cross-pass mean is
+  the static EQ and the cross-pass span is the adaptive dynamics. Result in
+  `stepped_<kind>_<label>_<channel>.npz`.
 
 With `--xml`, it also writes a
 `compare_<basename>_<profile>_<curve>_<channel>.png` and a textual residual
@@ -202,7 +213,7 @@ views.
 - "minimum-phase (post-peak energy dominates)" → DAX3 IR concentrates energy
   after the peak, like our generated FIR. Phase choice matches.
 - "linear-phase or symmetric (post ≈ pre)" → DAX3 uses linear-phase. Our
-  converter trades phase accuracy for ~42 ms latency reduction. This finding
+  converter trades phase accuracy for ~43 ms latency reduction. This finding
   doesn't motivate a code change, because the no-added-latency constraint
   applies regardless. It does answer the open question.
 - "hybrid (post > pre)" → mixed-phase or non-LTI artifact.
@@ -243,9 +254,11 @@ views.
 
 - **No automated profile toggle.** Dolby Access has no public API. We switch
   profiles in its GUI between captures.
-- **L=R stereo stimulus only.** It recovers DAX3's diagonal IR. Cross-channel
-  processing, such as the surround virtualizer or dialog steering, isn't
-  measured. If needed, do separate L-only and R-only sweeps as a follow-up.
+- **L=R sweep only.** It recovers DAX3's diagonal IR. Cross-channel
+  processing, such as the surround virtualizer or dialog steering, shows up
+  only as the side/mid magnitude change the `stereo_*` probes measure. No
+  cross-channel IR is measured. If needed, do separate L-only and R-only sweeps
+  as a follow-up.
 - **Speaker-endpoint dependent.** The captured IR is what DAX3 does to the
   digital signal. It doesn't include the physical speaker's response, which
   loopback can't measure.

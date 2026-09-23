@@ -8,8 +8,8 @@ Windows, at zero added latency.
 
 > **EasyEffects 8.x required.** If your distro ships EasyEffects 7, install the
 > [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects). The EE 7 and
-> EE 8 preset formats aren't compatible. Debian trixie, Ubuntu 24.04+, and
-> Fedora 43 and earlier ship EE 7.
+> EE 8 preset formats aren't compatible. Debian trixie, Ubuntu 24.04 and
+> 25.10, and Fedora 43 and earlier ship EE 7.
 
 Don't want to run EasyEffects? The same tuning also runs as a self-contained
 PipeWire filter-chain, with no GUI and no extra daemon. See
@@ -59,10 +59,11 @@ the top of the GitHub page.
 Entries tagged **[AUDIBLE]** change the *sound* of the generated preset. When
 you see one, pull the latest and **re-run the script** to regenerate and reload
 your preset. The run loads it into a running EasyEffects when it can, and says
-what to pick otherwise. Filter-chain users re-run `ee_to_pipewire.py` too,
-since a conf keeps the impulse it was converted with. Other entries are tooling,
-packaging, docs, or new-device support that doesn't alter existing devices'
-output, so there's nothing to regenerate.
+what to pick otherwise. Users of the `dolby_to_pipewire.py` wrapper re-run the
+wrapper instead. Filter-chain users of the manual two-step re-run
+`ee_to_pipewire.py` too, since a conf keeps the impulse it was converted with.
+Other entries are tooling, packaging, docs, or new-device support that doesn't
+alter existing devices' output, so there's nothing to regenerate.
 
 Each generated preset and `.conf` is stamped with the version that produced it,
 so you can always tell what made a file when reporting an issue. The preset
@@ -323,17 +324,17 @@ file, and a target sink that's gone.
 ### Troubleshooting: correct but too quiet
 
 If the preset sounds right but quieter than Windows, part of the gap is
-expected. Dolby's dynamic volume leveler ships bypassed here, because without
-Dolby's content analysis it distorts on quiet→loud transitions
+expected. On HDA speakers, Dolby's dynamic volume leveler ships bypassed,
+because without Dolby's content analysis it distorts on quiet→loud transitions
 ([why](docs/design-notes.md#why-autogain-is-bypassed-by-default)). Try these in
 order:
 
-- **Re-run the script with `--enable autogain`.** The volume leveler ships
-  bypassed by default and carries most of the loudness gap: ~+9 dB measured on
-  program material. The trade-off: without Dolby's content analysis, it can
-  audibly saturate when loud sound arrives over a quiet background. That is why
-  it isn't the default. If you hear that, drop the flag again. For still more
-  loudness, raise the Autogain *Target* a few dB in the EasyEffects GUI, at
+- **Re-run the script with `--enable autogain`.** On HDA speakers, the volume
+  leveler ships bypassed by default and carries most of the loudness gap: ~+9 dB
+  measured on program material. The trade-off: without Dolby's content analysis,
+  it can audibly saturate when loud sound arrives over a quiet background. That
+  is why it isn't the default. If you hear that, drop the flag again. For still
+  more loudness, raise the Autogain *Target* a few dB in the EasyEffects GUI, at
   increased saturation risk. If you instead enable Autogain by hand on a preset
   generated before this option existed, also raise its *Silence threshold* to
   about −50 dB. Otherwise, sounds arriving after silence will crackle.
@@ -385,7 +386,7 @@ uncomfortable stereo width. Repeat `--disable NAME` as many times as needed:
 | `volmax` | Loud parts distort or sound crushed. Drops the static ~+6 dB `volmax-boost` loudness gain. *The default `--volmax-slot input-gain` already handles distortion on loud **low** frequencies. If the preset instead sounds bass-light, with more bass when you switch it off, try `--volmax-slot output-gain`, confirmed by ear on one device ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).* |
 | `mbc` | A compressed or "squashed" character you don't like. Drops the multi-band dynamics processor, which has 1–4 bands depending on profile. |
 | `regulator` | The volume audibly wobbles or surges on its own. Drops the per-band limiter. If `volmax` is enabled, it falls back to the brickwall limiter's input-gain. |
-| `coupled-bands` | The loudest moments feel clamped or lose impact. Drops the zones the tuning leaves at full scale but marks non-isolated, which the per-band limiter covers by default. **Not yet validated by ear**: the engaged path has been neither captured nor heard ([docs/reference.md](docs/reference.md)). |
+| `coupled-bands` | The loudest moments feel clamped or lose impact. Drops the zones the tuning leaves at full scale but marks non-isolated, which the per-band limiter covers by default. **Not yet validated by ear**: the engaged path has been neither DAX-captured nor heard ([docs/reference.md](docs/reference.md)). |
 | `autogain` | Loudness pumping tied to the content: quiet passages swell, then duck when things get loud. Drops the volume leveler, which runs by default only on SoundWire speakers. This mirrors `--enable autogain` below. |
 | `bass-enhancer` | Bass sounds artificial or distorted on SoundWire devices. Only emitted for SoundWire speakers. |
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
@@ -538,8 +539,7 @@ translated too. Only 4-channel upmix isn't. See
 
 The wrapper is a thin orchestrator over the two converters. Run them yourself to
 keep the preset JSON and `.irs` under `~/.local/share/easyeffects`, or for flags
-the wrapper doesn't expose: `--node-name`, `--target-object`, `--no-copy-irs`
-and autoload.
+the wrapper doesn't expose: `--node-name`, `--no-copy-irs` and autoload.
 
 ```bash
 # 1. Generate the preset JSON (no EasyEffects install required)

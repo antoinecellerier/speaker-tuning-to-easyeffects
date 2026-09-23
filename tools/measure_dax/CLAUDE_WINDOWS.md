@@ -317,7 +317,7 @@ Per capture, you should see something like:
 
 ```
 ============================================================
-DAX3 IR capture — label: dynamic
+DAX3 capture — tag: pink (kind: pink), label: dynamic
 ============================================================
   Resolved endpoint: 'Speakers (Realtek(R) Audio)' (sounddevice index 4)
     default samplerate: 48000 Hz

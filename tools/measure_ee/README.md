@@ -125,9 +125,10 @@ When auditing whether EE is applying the current preset:
 ## Usage
 
 ```sh
+# Run from the repo root. Everything lands under ./localresearch/measure_ee/.
 # 0. one-time: generate stimuli (see tools/measure_dax/README.md)
-mkdir -p ~/dax-measure && cd ~/dax-measure
-python /path/to/repo/tools/measure_dax/make_stimulus.py
+mkdir -p localresearch/measure_ee
+(cd localresearch/measure_ee && python3 ../../tools/measure_dax/make_stimulus.py)
 
 # 1. set up the null-sink route (mutes your speakers temporarily)
 bash tools/measure_ee/setup_null_sink.sh
@@ -138,23 +139,23 @@ python3 tools/measure_ee/smoke.py --target ee_capture.monitor --label v3
 
 # 3. run the full battery with the real preset
 python3 tools/measure_ee/capture_battery.py \
-    --stimulus-dir ~/dax-measure \
+    --stimulus-dir localresearch/measure_ee \
     --preset Dolby-Balanced \
     --label ee_dolby_balanced \
     --target ee_capture.monitor \
-    --out-dir ~/dax-measure/ee_captures
+    --out-dir localresearch/measure_ee/ee_captures
 
 # 4. analyze (same analyzer DAX captures use)
-cd ~/dax-measure/ee_captures
-python3 /path/to/repo/tools/measure_dax/analyze.py loopback_*.wav \
+python3 tools/measure_dax/analyze.py \
+    localresearch/measure_ee/ee_captures/loopback_*.wav \
     --xml /path/to/DEV_xxxx.xml \
     --profile dynamic --curve balanced
 
 # 5. overlay EE vs DAX captures (DAX captures from Windows side)
 python3 tools/measure_ee/compare_ee_vs_dax.py \
-    --ee-dir ~/dax-measure/ee_captures \
-    --dax-dir ~/dax-measure/captures \
-    --out-dir ~/dax-measure/three_way \
+    --ee-dir localresearch/measure_ee/ee_captures \
+    --dax-dir localresearch/measure_ee/captures \
+    --out-dir localresearch/measure_ee/three_way \
     --xml /path/to/DEV_xxxx.xml --profile dynamic --curve balanced
 
 # 6. restore your speakers
@@ -165,11 +166,11 @@ bash tools/measure_ee/teardown.sh
 
 - **Don't play other audio during a capture.** Anything writing to
   `easyeffects_sink` mixes into the EE output and contaminates the
-  measurement. The null-sink route silences your speakers for the duration, so
-  you'll notice if a media app is making noise.
+  measurement. The null-sink route sends EasyEffects' output to `ee_capture`, so
+  your speakers stay silent for the run and you won't hear an app that is still
+  playing. Pause other playback before you start.
 - **EE restart is one-time per setup.** GNOME's mic indicator pops briefly
   because EE re-attaches its input pipeline. Later preset switches use
   `easyeffects -l <preset>` and don't re-pop.
 - **Sample rate is locked at 48 kHz.** The null sink and all stimuli are
-  48 kHz f32. If your default rate differs, set it in your audio panel or pass
-  `--rate` to the helper scripts.
+  48 kHz f32. If your default rate differs, set it in your audio panel.

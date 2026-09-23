@@ -1051,7 +1051,7 @@ magnitude.
 character has minor influence on the magnitude residual (as expected
 — pink noise is a steady-state magnitude measurement; the small
 delta is leveler interaction with the changed temporal envelope).
-Linear-phase doesn't help magnitude match; it costs ~42 ms group
+Linear-phase doesn't help magnitude match; it costs ~43 ms group
 delay; it's diagnostic only.
 
 Per-band residuals on `add+min` reveal the gap structure:
@@ -1102,7 +1102,7 @@ quantization) — the math is correct. What we cannot reproduce on Linux
 without additional reverse-engineering:
 
 1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
-   ~42 ms of group delay, ruled out by the no-added-latency constraint.
+   ~43 ms of group delay, ruled out by the no-added-latency constraint.
 2. **DAX3's apparent flatter HF response — since closed by Finding 9.**
    Findings 5/6 narrowed this to "a fixed DAX-internal stage outside
    the XML" (after rejecting the AO-sign hypothesis (b) via the variant

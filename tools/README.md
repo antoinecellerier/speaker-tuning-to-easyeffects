@@ -17,12 +17,13 @@ runtime dependency of the converter, though. That check's runtime core is
 here is a front end you can point at a conf yourself. See "Three files that
 look misplaced" below before touching it.
 
-**The capture and comparison scripts touch your audio devices.** They mute
-speakers, reroute sinks and swap presets. So they run behind the audio handoff
-in CLAUDE.md: use the /audio-validate skill rather than invoking them ad hoc.
-`validate_conf.py`, `measure_ee/render_vbe_chain.py` and
-`measure_ee/analyze_vbe_chain.py` are the exceptions. They are
-file-in/file-out, with no audio and no PipeWire daemon.
+**The capture scripts touch your audio devices.** So do the scripts that set
+up and tear down a capture sink or chain. They mute speakers, reroute sinks and
+swap presets. So they run behind the audio handoff in CLAUDE.md: use the
+/audio-validate skill rather than invoking them ad hoc. The comparison
+scripts, and those `measure_ee/README.md` marks read-only or offline, are
+file-in/file-out, with no audio and no PipeWire daemon. So is
+`validate_conf.py`.
 
 ## Root scripts
 
@@ -34,8 +35,10 @@ file-in/file-out, with no audio and no PipeWire daemon.
 | [`check_move_purity.py`](check_move_purity.py) | `git blame -C -C` history across an extraction. It proves a commit is *pure code motion*: every line it adds under `lib/` was already there, byte-for-byte, in a line it removed | You, by hand, against one commit, before pushing an extraction. It is wired to nothing. The rule it enforces is in `docs/code-organisation.md`, "Splitting the single-file scripts" |
 | [`corpus_audit.py`](corpus_audit.py) | Every cross-device figure in `docs/cross-device-findings.md` and `docs/design-notes.md`. Those numbers are meant to be re-derived from this, never carried forward | You, after pulling new driver packages. The /copy-audit skill also captures its output as the evidence reviewers check numbers against. It is also imported as a library, see below. `tests/test_corpus_audit.py` guards it |
 | [`extract_claims.py`](extract_claims.py) | The inventory of user-visible strings the /copy-audit skill reviews. Each is tagged with whether a given git range changed it | That skill, at the start of an audit. `tests/test_extract_claims.py` guards it, because this tool has twice failed by *shrinking* rather than erroring |
+| [`preview_doctor.py`](preview_doctor.py) | The `--doctor` copy under states this machine isn't in, such as an output that isn't the speakers or an install that isn't there. Each scenario stubs the probes and nothing else, so the checks, wording and verdict are the shipped ones | `tools/user_review_capture.py`, for the /user-review skill. `--list` prints the scenarios. `tests/test_preview_doctor.py` guards it |
 | [`preview_output.py`](preview_output.py) | The end-of-run copy. For each finding a run can raise, it locates a corpus XML that actually raises it and prints a real run's tail. Every run is `--dry-run`, so nothing is written | You, after changing any message a user reads, and the /user-review and /copy-audit skills. `--list` says which XML matches what |
 | [`render_forced_conditions.py`](render_forced_conditions.py) | The other half of that: the conditional messages *no* corpus device reaches, where `preview_output.py` can find no example. It patches one XML field off its otherwise-universal value and runs the generator on the result | The /copy-audit skill, beside `preview_output.py`. A non-zero exit means a condition stopped firing because the patch no longer matches the schema. It does not mean the copy is fine |
+| [`scan_sound_tag.py`](scan_sound_tag.py) | The kernel-sound-watch comment for a sound-tree pull tag. It scans the tag's commits for `.github/kernel-watchlist.txt` terms, because a merge-window `-rc1` annotation names none of the per-device quirks behind it | `.github/workflows/kernel-sound-watch.yml`, weekly, once per new tag. `tests/test_scan_sound_tag.py` guards it |
 | [`update_kernel_releases.py`](update_kernel_releases.py) | `_KERNEL_SERIES_RELEASES` in `lib/data/kernel_releases.py`, the release-month table behind the old-kernel hint | `.github/workflows/kernel-release-table.yml`, weekly, opening a PR per new series. It is append-only, and report-only without `--write`. `tests/test_kernel_releases.py` guards it |
 | [`update_speaker_pin_quirks.py`](update_speaker_pin_quirks.py) | `_SPEAKER_PIN_QUIRKS` in `lib/data/speaker_pin_quirks.py`, the machines whose BIOS hides a woofer pin | `.github/workflows/speaker-quirks.yml`, weekly. It rebuilds the table wholesale each run, because entries do disappear upstream and a stale one tells a user to force a fixup their kernel no longer has. `--blame` also resolves the upstream commit that last wrote each row's line, so the warning links the fix rather than the whole driver. `--blame` needs a token in `GH_TOKEN`. The commit is carried forward like `since`, at one GitHub query per file. `tests/test_speaker_pin_quirks.py` guards it |
 | [`update_speaker_route_quirks.py`](update_speaker_route_quirks.py) | `_SPEAKER_ROUTE_QUIRKS` in `lib/data/speaker_route_quirks.py`, the machines whose speaker pin is routed through a widget with no volume amp | The same workflow and run discipline as the pin table above. It shares that script's parser primitives, `since` walk and `--blame` commit resolver by import. Membership is the hand-verified `_FUNC_FIXUP_ROUTES` allowlist only. `tests/test_speaker_route_quirks.py` guards it |

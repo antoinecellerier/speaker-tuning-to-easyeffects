@@ -44,7 +44,9 @@ hold:
 
 - cycles were counted
 - the tracked PIDs stayed alive
-- the processing nodes were actually running, with `pw-top` BUSY>0
+- the processing nodes were actually running, with `pw-top` BUSY>0 in at least
+  half the window's snapshots. `bypass` skips this check, since it runs no
+  processing node.
 - the captured output was non-silent
 
 **Expected-response gate.** Every condition renders into the `ee_capture` null
@@ -146,6 +148,6 @@ as the reference point, not a universal claim.
 - The spectral response-check is a *shape* sanity check: `pw≈ee`, both≠bypass.
   It is not the ±0.5 dB equivalence battery, which lives in
   `tools/measure_pw/`.
-- This harness uses its own lean loader instead of `setup_chain.sh`. That
-  script is rotted: its `--target-object` without `--target-sink ''` generates
-  a conflicting smart-filter conf.
+- This harness loads the chain with its own lean loader, not
+  `tools/measure_pw/setup_chain.sh`. It brings the chain up and down around
+  each `pw` window and hands the child's PID to `perf`.
