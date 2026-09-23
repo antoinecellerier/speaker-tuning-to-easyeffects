@@ -80,103 +80,39 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
-### Fixed
+## v2026.09 — Sharper Diagnosis and Fixes for Uncommon Setups
 
-- A run now asks a running EasyEffects to hide its window before writing,
-  and says so: its Convolver page crashes EasyEffects up to 8.2.9 on the
-  impulse-file writes (reproduced; fixed upstream since, but not in a
-  released version yet), and the record of which page is showing can be 30
-  seconds stale. An EasyEffects newer than 8.2.9 keeps its window, where the
-  version can be read. EasyEffects keeps running and your audio with it;
-  reopen the window from your app menu if it was showing.
-  ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
-
-- On a Flatpak EasyEffects, presets and impulse responses now go straight to
-  the folder EasyEffects 8 reads, not the pre-8 one it empties on its next
-  start — so a run no longer needs a restart to take effect, and `--doctor`
-  no longer reports no presets. Re-run the script to write them there.
-  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
-- If you set `XDG_DATA_HOME` or `XDG_CONFIG_HOME`, presets, impulse responses
-  and EasyEffects' settings now go where your EasyEffects reads them, instead
-  of to `~/.local/share` and `~/.config` regardless. Re-run the script to write
-  them there. (why in docs/design-notes.md)
-- The PipeWire filter-chain conf now lands in `$XDG_CONFIG_HOME/pipewire/`
-  rather than always in `~/.config/pipewire/`, so the daemon scans it on a
-  machine that has moved that root. Re-run the converter to write it there.
-- `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
-  of reporting it unknown, and names the install it couldn't ask.
-  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
-- On a non-English system, the EasyEffects version and the package-manager
-  check no longer come back unknown: the tools we ask (`flatpak info`,
-  `apt-cache policy`, …) now answer in English whatever the shell's
-  language, so their output parses.
-  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
-
-### Changed
-
-- Both `--doctor` reports are easier to read: they name your output
-  device rather than only its PipeWire node id, and the EasyEffects one
-  labels the `Selected preset:` and `Global bypass:` rows for what they
-  are. Bluetooth devices show a fixed label instead of their own name. The
-  inventory is now two sections — `PipeWire` (output sink, clock,
-  dropouts) and `EasyEffects setup` — with the install above what is
-  playing now.
-- A run now loads the preset into a running EasyEffects, so a first install
-  or a re-run is audible without picking anything in its menu. It reloads
-  the preset EasyEffects is playing, or loads the starting one.
-  `--no-reload` opts out. (why in docs/design-notes.md)
-- A regenerated preset's speaker-correction impulse now takes effect when
-  EasyEffects reloads or re-picks the preset — the rest always did, the
-  impulse stayed as first loaded. Impulse files are named after their
-  contents, so a changed one is read afresh; earlier ones of the same preset
-  are removed unless something still uses them. (why in
-  docs/design-notes.md)
-- A conf written with `ee_to_pipewire.py --no-copy-irs` no longer picks up a
-  regenerated preset by itself: it points at one impulse file by name, and a
-  regeneration that changed the sound writes a new name — re-run the
-  converter after one, as the default copy always needed. (why in
-  docs/design-notes.md)
+Deeper checks in the run and `--doctor` — PipeWire's clock and dropouts,
+graphs above 48 kHz, speakers the kernel leaves without volume control —
+plus fixes for Flatpak, custom XDG paths and non-English systems, and a way
+to fetch a Lenovo tuning XML without Windows.
 
 ### Added
 
-- A run, and `--doctor`, now warn when your PipeWire graph is set above
-  48 kHz, the rate these presets are built at. EasyEffects stretches the
-  speaker-correction filter to match the graph without compensating its gain,
-  so the preset plays hot by the ratio of the two rates. The warning offers a
-  session-only test, and the PipeWire filter-chain path doesn't have the
-  problem.
+- A run and `--doctor` warn when your PipeWire graph runs above 48 kHz,
+  which makes EasyEffects play the preset louder than intended, and offer a
+  session-only test; the filter-chain path isn't affected.
   ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84);
-  measurements in docs/design-notes.md)
-
-- Flag a speaker Linux is driving past its volume control. `--speaker-info`
-  now shows where each speaker pin takes its signal from, and a run warns —
-  with the modprobe fix where the kernel accepts one — when upstream carries
-  a routing fix for your exact model that your kernel isn't applying.
-  (why and the membership bar in docs/design-notes.md)
-- A run and `--doctor` now warn when a speaker is driven from a widget with
-  no volume control, no kernel fix is listed for your machine's id, and
-  nothing else on the machine supplies that volume — and say what to check.
-  On the one machine seen so far a port disabled in the BIOS was the cause.
-  `--speaker-info` also prints the firmware defaults of the codec your
-  speakers are on.
+  measurements in `docs/design-notes.md`)
+- A run warns when your kernel lacks an upstream speaker-routing fix for
+  your model, leaving a speaker past its volume control, and gives the
+  modprobe fix where the kernel accepts one. (why in `docs/design-notes.md`)
+- A run and `--doctor` warn when nothing on the machine gives a speaker a
+  volume control and no kernel fix lists your model, and say what to check.
   ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
-- The hidden-speaker-pin and speaker-routing warnings now link the upstream
-  kernel commit that lists your model — in the run, in `--doctor` and under
-  the flagged pin in `--speaker-info` — so the claim can be checked instead
-  of trusted. (how the link is derived in docs/design-notes.md)
-- Both `--doctor`s now print a `PipeWire` section — the versions the
-  report ran against, the output sink, the clock (session defaults and
-  what your output actually ran at), and dropout counts with ages and a
-  live window: the numbers a crackling report needs
-  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
-- `--doctor` now warns when the EasyEffects presets in your folder were
-  written by another version of this tool, as it already did for PipeWire
-  confs — re-run the script on your tuning XML so they match the version
-  you run.
-- Fetch a Lenovo laptop's DAX3 tuning XML without a Windows partition —
-  resolves the driver package from Lenovo's update catalog, verifies and
-  unpacks it.
+- The hidden-speaker-pin and speaker-routing warnings link the upstream
+  kernel commit behind them.
+- `--speaker-info` shows each speaker pin's signal source and the speaker
+  codec's firmware defaults.
+- Both `--doctor`s print a new `PipeWire` section — versions, output sink,
+  clock and dropouts, what a crackling report needs.
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+- New `tools/fetch_driver/get_lenovo_dax_xml.py` gets a Lenovo laptop's
+  tuning XML without Windows, from Lenovo's own driver package, checksum
+  verified.
   ([#81](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/81))
+- `--doctor` warns when your EasyEffects presets came from another version
+  of this tool; re-run the script to update them.
 - Mark additional tested devices: Framework Laptop 13 Pro (Intel Core Ultra
   Series 3)
   ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)),
@@ -213,44 +149,63 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
-- `--doctor` now prints the `Output sink:` row even when it can't name one,
-  saying whether PipeWire couldn't be read or simply has no default output
-  selected. Both doctors used to drop the row, while the `Dropouts:` line
-  below went on talking about "the output sink"
-  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
-- `--doctor` no longer runs its speaker-correction checks on presets it
-  didn't write. Your other EasyEffects presets in the same folder — a
-  headphone preset, say — were reported as missing that filter and the
-  verdict pointed at them as what to fix first; they are now counted, not
-  judged. The selected-preset check no longer passes when one of them is
-  what EasyEffects has loaded
-  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
-- `--speaker-info` no longer calls a speaker pin a tweeter when Linux shows
-  no separate woofer pin beside it, which contradicted the layout estimate
-  printed below
-  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84)).
-- `--doctor` no longer warns that the silent `Nothing` preset is selected when
-  your output is a headset, HDMI or Bluetooth — that is the bypass fallback
-  `--autoload` installs on purpose. It now reports which preset your speakers
-  autoload instead, and still warns when `Nothing` is selected on the speakers.
-- `ee_to_pipewire.py --output` with a relative path baked that relative path
-  into the conf's impulse-file reference, which PipeWire resolves against its
-  own working directory — the whole conf was then silently skipped. Re-run
-  the converter to regenerate an affected conf.
-- The hidden-speaker-pin warning now covers the HP Envy x360 13-ar0xxx, which
-  was missing from the quirk table: its kernel fixup declares both speaker
-  pins from a helper the table generator had never been told to read.
+- On a Flatpak EasyEffects, presets now go to the folder EasyEffects 8
+  reads, so a run takes effect without a restart and `--doctor` no longer
+  reports no presets. Re-run the script.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- On EasyEffects 8.2.9 and older, or when its version can't be read, a run
+  hides the EasyEffects window before writing — its Convolver page can crash
+  on the write. Audio keeps playing; reopen the window from your app menu.
+  ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95))
+- A custom `XDG_DATA_HOME` or `XDG_CONFIG_HOME` is now honoured for presets,
+  EasyEffects settings and the filter-chain conf. Re-run to rewrite them.
+  (exceptions in `docs/design-notes.md`)
+- `ee_to_pipewire.py --output` with a relative path no longer writes a conf
+  PipeWire silently skips. Re-run the converter to fix one.
+- On a non-English system, the EasyEffects version and package-manager check
+  no longer come back unknown: the tools we query now run in English, your
+  shell doesn't.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- `--doctor` reads the EasyEffects version on a Flatpak-only machine instead
+  of reporting it unknown.
+  ([#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93))
+- `--doctor` now judges only presets this tool wrote, so another preset (a
+  headphone one, say) is neither flagged as broken nor passed as the speaker
+  preset.
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+- `--doctor` no longer warns about the `Nothing` bypass preset on a headset,
+  HDMI or Bluetooth output, where `--autoload` selects it on purpose; it
+  still warns when it is selected on the speakers.
+- `--doctor` prints the `Output sink:` row even when it can't name the sink,
+  and says why.
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+- The hidden-speaker-pin warning now covers the HP Envy x360 13-ar0xxx.
+- `--speaker-info` no longer calls a speaker pin a tweeter when there is no
+  woofer pin beside it.
+  ([#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84))
+
+### Changed
+
+- A run now loads the preset into a running EasyEffects — the one it is
+  playing, or the starting one — so you hear it without picking it from the
+  menu. `--no-reload` opts out.
+- A regenerated speaker-correction impulse now takes effect when EasyEffects
+  reloads the preset. Impulse files are named after their contents, and old
+  ones are deleted once nothing uses them.
+- An `ee_to_pipewire.py --no-copy-irs` conf no longer picks up a regenerated
+  preset by itself: re-run the converter after regenerating, as the default
+  copy always required. (why in `docs/design-notes.md`)
+- Both `--doctor` reports name your output device, not just its PipeWire
+  node id (Bluetooth devices get a fixed label).
 
 ### Docs
 
-- On a device whose speaker-protection limiter is aggressive,
-  `--volmax-slot output-gain` brings back the bass the default placement takes
-  away — confirmed by ear as on par with Windows, and by the reporter's Windows
-  measurement, where Dolby keeps loud bass near bypass while the default
-  placement drops it sharply. The default stays `input-gain`, which another
-  reported device needs to stay clean
+- On a device with an aggressive speaker-protection limiter,
+  `--volmax-slot output-gain` restores the bass the default takes away — on
+  par with Windows by ear and by measurement. The default stays
+  `input-gain`, which another device needs to stay clean.
   ([#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44);
-  measurements in `docs/design-notes.md`).
+  measurements in `docs/design-notes.md`)
 
 ## v2026.08 — Clearer Runs and a Standalone PipeWire Path
 
