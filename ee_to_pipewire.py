@@ -56,26 +56,25 @@ def add_routing_args(container, *, only=None):
     add(
         "--target-sink",
         default=None,
-        help="hardware sink (node.name) the filter should attach to as "
-             "a WirePlumber smart filter. When set, apps target this "
-             "sink as usual and the filter inserts itself into the path; "
-             "no virtual-sink stacking, automatic bypass on HDMI / "
-             "Bluetooth / USB outputs. Default: auto-detect the "
-             "internal-speaker sink via pw-dump (same probe "
-             "dolby_to_easyeffects.py --autoload uses). Pass an empty "
-             "string ('') to disable smart-filter mode and emit the "
-             "v1 virtual-sink conf (apps target effect_input.<name> "
-             "directly).",
+        help="hardware sink node.name to attach the filter to as a "
+             "WirePlumber smart filter (default: the internal-speaker sink, "
+             "auto-detected via pw-dump). Apps target this sink as usual and "
+             "the filter inserts itself into the path. There is a single "
+             "volume control, as long as your speakers stay the selected "
+             "output. HDMI, Bluetooth and USB outputs bypass the filter "
+             "automatically. Pass '' for the v1 virtual-sink conf, for "
+             "WirePlumber < 0.5 or a non-standard policy. Apps then target "
+             "effect_input.<name> directly.",
     )
     add(
         "--target-object",
         default=None,
-        help="bind the chain's playback to a specific downstream node "
-             "(node.name) instead of letting WirePlumber choose. Useful "
-             "for routing into a measurement null sink. End users "
-             "usually want --target-sink instead, which is set by "
-             "default and uses WirePlumber 0.5+ smart-filter routing "
-             "so apps don't see the chain as a separate sink.",
+        help="bind the chain's playback to a specific downstream node.name "
+             "instead of letting WirePlumber choose. Useful for routing into "
+             "a measurement null sink. End users usually want the default "
+             "--target-sink routing instead. It attaches the chain to the "
+             "auto-detected speaker sink as a WirePlumber 0.5+ smart filter, "
+             "so apps keep targeting your speakers as usual.",
     )
     return added
 
@@ -109,20 +108,19 @@ def add_output_args(container, *, only=None):
     add(
         "--node-name",
         default=None,
-        help=f"PipeWire node-name suffix; sanitised to [A-Za-z0-9_]. "
-             f"Default: derived from the preset filename stem "
-             f"(e.g. Dolby-Balanced.json → Dolby_Balanced), so "
-             f"converting multiple presets produces distinct sink "
-             f"names without collision. Falls back to "
-             f"{pw_conf.DEFAULT_NODE_NAME!r} if the stem is empty after "
-             f"sanitisation.",
+        help=f"PipeWire node-name suffix, sanitised to [A-Za-z0-9_]. "
+             f"Default: derived from the preset filename stem, such as "
+             f"Dolby-Balanced.json → Dolby_Balanced. Converting multiple "
+             f"presets then produces distinct sink names without collision. "
+             f"Falls back to {pw_conf.DEFAULT_NODE_NAME!r} if the stem is "
+             f"empty after sanitisation.",
     )
     add(
         "--node-description",
         default=None,
-        help=f"human-readable node description. Default: derived "
-             f"from the preset filename stem (e.g. \"Dolby-Balanced\"), "
-             f"falling back to {pw_conf.DEFAULT_NODE_DESCRIPTION!r}.",
+        help=f"human-readable node description. Default: derived from the "
+             f"preset filename stem, such as \"Dolby-Balanced\", falling "
+             f"back to {pw_conf.DEFAULT_NODE_DESCRIPTION!r}.",
     )
     add(
         "--force",
@@ -148,15 +146,13 @@ def add_impulse_response_args(container, *, only=None):
     add(
         "--no-copy-irs",
         action="store_true",
-        help="don't copy the .irs next to the generated conf. By default "
-             "the converter copies the impulse response from --irs-dir "
-             "into the conf's directory and rewrites the convolver "
-             "filename, so the PipeWire chain has no runtime dependency "
-             "on the EasyEffects path layout. Pass this flag to keep the "
-             "conf pointing at the original EE-side .irs — the conf then "
-             "pins that one file, so re-run this converter after "
-             "regenerating a preset whose sound changed (its impulse "
-             "gets a new name).",
+        help="keep the conf pointing at the original EE-side .irs instead "
+             "of copying it next to the generated conf. By default the "
+             "converter copies the impulse response from --irs-dir into the "
+             "conf's directory and rewrites the convolver filename. The "
+             "PipeWire chain then has no runtime dependency on the "
+             "EasyEffects path layout. With this flag the conf pins that "
+             "one file by name.",
     )
     return added
 
@@ -169,32 +165,34 @@ def add_general_args(container, *, only=None):
         action="store_true",
         help="skip the schema self-check against lv2info port metadata. "
              "By default, when lv2info and spa-json-dump are installed, "
-             "ee_to_pipewire reads the port metadata of the LV2 plugins the "
-             "conf names (within a time budget) and checks the conf's control "
-             "values against it — catching unknown port symbols and "
-             "out-of-range values, and refusing to write a conf naming a "
+             "ee_to_pipewire checks the conf's control values against the "
+             "port metadata of the LV2 plugins the conf names, within a time "
+             "budget. The check catches unknown port symbols and "
+             "out-of-range values. It refuses to write a conf naming a "
              "plugin lv2info cannot load at all. Without both tools nothing "
-             "can be checked; this flag then only silences the reminder "
+             "can be checked, and this flag only silences the reminder "
              "saying so. Pass it to build a conf for a different machine, or "
              "when the check is wrong about a plugin you know works.",
     )
     add(
         "--dry-run",
         action="store_true",
-        help="report where the conf and impulse response would be written "
-             "without writing them; a missing impulse file is reported "
+        help="report where the conf and impulse response would be written, "
+             "without writing them. A missing impulse file is reported "
              "instead of stopping the run. To get the conf itself without "
              "installing it, run without this flag and point --output at a "
-             "path of your own",
+             "path of your own.",
     )
     add(
         "--skip-next-steps",
         action="store_true",
-        help="drop the post-write next-steps checklist (restart PipeWire, "
-             "verify the sink, quit EasyEffects) — for callers that handle "
-             "activation themselves. Standalone, a one-line activation "
-             "pointer replaces it; dolby_to_pipewire.py passes this "
-             "automatically and prints its own steps instead",
+        help="drop the post-write next-steps checklist, for callers that "
+             "handle activation themselves. The checklist says to restart "
+             "PipeWire, verify the sink and quit EasyEffects. When this "
+             "converter runs standalone, a one-line activation pointer "
+             "replaces it. "
+             "dolby_to_pipewire.py passes this flag automatically and prints "
+             "its own steps instead.",
     )
     console.add_color_and_version_args(add)
     return added
@@ -204,7 +202,10 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     formatter_class, epilog = console.help_style(argv)
     parser = argparse.ArgumentParser(
         description="Convert an EasyEffects output preset to a PipeWire "
-                    "filter-chain .conf (see docs/ee-to-pipewire.md).",
+                    "filter-chain .conf. The conf keeps the preset as "
+                    "converted, so re-run this converter after regenerating "
+                    "a preset whose sound changed. See "
+                    "docs/ee-to-pipewire.md.",
         formatter_class=formatter_class,
         epilog=epilog,
     )
@@ -212,18 +213,19 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         "preset",
         type=Path,
         nargs="?",
-        help="path to the EasyEffects preset JSON (the output of "
-             "dolby_to_easyeffects.py, e.g. ~/.local/share/easyeffects/output/"
-             "Dolby-Balanced.json)",
+        help="path to the EasyEffects preset JSON that "
+             "dolby_to_easyeffects.py writes, such as "
+             "~/.local/share/easyeffects/output/Dolby-Balanced.json",
     )
     group = parser.add_argument_group("inspection")
     group.add_argument(
         "--doctor",
         action="store_true",
-        help="report the state of the installed filter chain — stacked "
-             "chains, confs that didn't load, a missing impulse response, a "
-             "target sink that no longer exists — then exit. Takes no preset; "
-             "it inspects what is already installed.",
+        help="report the state of the installed filter chain, then exit. It "
+             "covers stacked chains, confs that didn't load, a missing "
+             "impulse response and a target sink that no longer exists. It "
+             "takes no preset, because it inspects what is already "
+             "installed.",
     )
     add_routing_args(parser.add_argument_group("routing"))
     add_output_args(parser.add_argument_group("output"))

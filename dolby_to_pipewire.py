@@ -54,18 +54,18 @@ VARIANT_STEMS = {label.lower(): label for label in messages.VOICING_CURVES}
 # tests/test_dolby_to_pipewire.py traps the rendered result, which is what
 # catches a pair whose phrase the owner has since edited away.
 _WRAPPER_HELP = {
-    "doctor": "report the state of the installed PipeWire filter chain — "
-              "confs, live chains, plugins, impulse files, routing, "
-              "WirePlumber — and exit; paste the output into an issue",
+    "doctor": "report the state of the installed PipeWire filter chain and "
+              "exit. It covers confs, live chains, plugins, impulse files, "
+              "routing and WirePlumber. Paste the output into an issue.",
     "all_profiles": "convert every profile in the selected endpoint/mode, "
-                    "each as its own sink (needs --target-sink ''); the "
-                    "profile name is part of each sink name",
+                    "each as its own sink. The profile name is part of each "
+                    "sink name. Needs --target-sink ''.",
     "prefix": "prefix for the generated sink and conf names "
               "(default: Dolby → Dolby_Balanced, etc.)",
     "disable": (("from the generated preset", "from the generated chain"),),
     "enable": (("the preset leaves off", "the chain leaves off"),
                ("if the preset sounds right", "if the chain sounds right"),
-               ("if the preset is quieter", "if the chain is quieter")),
+               ("quieter with the preset than", "quieter with the chain than")),
 }
 
 
@@ -90,8 +90,8 @@ def _compose_parser(argv=None):
     formatter_class, epilog = console.help_style(argv)
     parser = console._HelpHintParser(
         description="Convert Dolby DAX3 tuning XML to an active PipeWire "
-                    "filter-chain sink — no EasyEffects files installed "
-                    "(see docs/ee-to-pipewire.md).",
+                    "filter-chain sink. No EasyEffects files are installed. "
+                    "See docs/ee-to-pipewire.md.",
         formatter_class=formatter_class,
         epilog=epilog,
     )
@@ -114,12 +114,12 @@ def _compose_parser(argv=None):
         "--variant",
         choices=[*VARIANT_STEMS, "all"],
         default="balanced",
-        help="which IEQ voicing to convert (default: balanced — Dolby's "
-             "default voicing; the three voicings are Dolby-global, the "
-             "device-specific correction applies under every one). 'all' "
-             "converts each into its own PipeWire sink so you can A/B them "
-             "from sound settings, and requires --target-sink '' (see that "
-             "flag).",
+        help="which IEQ voicing to convert (default: balanced, Dolby's "
+             "default voicing). The three voicings are Dolby-global. The "
+             "device-specific correction applies under every one. 'all' "
+             "converts each into its own PipeWire sink, so you can A/B them "
+             "from sound settings. 'all' requires --target-sink '' (see "
+             "that flag).",
     )
 
     group = parser.add_argument_group("routing")
@@ -134,8 +134,8 @@ def _compose_parser(argv=None):
         type=Path,
         default=None,
         help=f"directory for the generated .conf and .irs copy (default: "
-             f"{doctor.tilde(checks.DEFAULT_OUTPUT_DIR)}); filenames derive from "
-             f"the preset name (e.g. Dolby_Balanced.conf)",
+             f"{doctor.tilde(checks.DEFAULT_OUTPUT_DIR)}). Filenames derive "
+             f"from the preset name, such as Dolby_Balanced.conf.",
     )
     step2_actions += ee_to_pipewire.add_output_args(group, only={"--force"})
 
@@ -143,8 +143,8 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--no-activate",
         action="store_true",
-        help="don't restart PipeWire or verify the sink after writing; "
-             "print the manual activation steps instead",
+        help="don't restart PipeWire or verify the sink after writing. "
+             "Print the manual activation steps instead.",
     )
 
     group = parser.add_argument_group("filter tweaks")
@@ -156,11 +156,12 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--dry-run",
         action="store_true",
-        help="stage and convert without touching the system: report where "
-             "each conf would be written, write nothing outside the "
-             "temporary staging directory, and don't restart PipeWire. To "
-             "get the confs themselves without installing them, replace "
-             "this flag with --output-dir DIR --no-activate",
+        help="stage and convert without touching the system, then report "
+             "where each conf would be written. Nothing is written outside "
+             "the temporary staging directory, and PipeWire is not "
+             "restarted. To get the confs themselves without installing "
+             "them, use --output-dir DIR --no-activate in place of this "
+             "flag.",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})

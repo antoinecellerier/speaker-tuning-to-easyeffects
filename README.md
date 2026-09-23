@@ -185,11 +185,11 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `DEV_0287_SUBSYS_*.xml`
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`
-- `--best-guess` — if auto-detection finds no exact hardware match, fall back to
-  the only internal-speaker tuning whose manufacturer is present. When more than
-  one qualifies, it lists the candidates to pick one with the positional XML
-  path. Reach for it when a SoundWire device reports "No matching DAX3 tuning
-  XML found".
+- `--best-guess` — on a SoundWire machine, if auto-detection finds no exact
+  hardware match, fall back to the only internal-speaker tuning whose
+  manufacturer is present. When more than one qualifies, it lists the candidates
+  to pick one with the positional XML path. Reach for it when a SoundWire device
+  reports "No matching DAX3 tuning XML found".
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
@@ -643,8 +643,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `DEV_0287_SUBSYS_*.xml`
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`
-- `--best-guess` — fall back to a manufacturer-matched tuning when
-  auto-detection finds no exact hardware match
+- `--best-guess` — on a SoundWire machine, fall back to a manufacturer-matched
+  tuning when auto-detection finds no exact hardware match
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit

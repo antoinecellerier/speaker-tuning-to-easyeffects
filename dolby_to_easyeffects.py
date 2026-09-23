@@ -61,9 +61,9 @@ _print_finding_detail = report_findings._print_finding_detail
 
 
 TUNING_INPUT_DESCRIPTION = (
-    "with neither an XML path nor --windows, the script auto-discovers: it "
-    "probes mounted Windows partitions (/proc/mounts) and the current "
-    "directory for a tuning source"
+    "the script auto-discovers a tuning source when you pass neither an XML "
+    "path nor --windows. It probes the mounted Windows partitions in "
+    "/proc/mounts and the current directory."
 )
 
 
@@ -75,25 +75,27 @@ def add_tuning_input_args(container, *, only=None):
         nargs="?",
         type=Path,
         default=None,
-        help="path to the Dolby DAX3 tuning XML (e.g. DEV_0287_SUBSYS_*.xml)",
+        help="path to the Dolby DAX3 tuning XML, such as DEV_0287_SUBSYS_*.xml",
     )
     add(
         "--windows",
         type=Path,
         default=None,
         metavar="DIR",
-        help="path to a mounted Windows directory (e.g. /mnt/windows/Windows); "
-             "auto-discovers the correct tuning XML by matching the audio "
-             "codec subsystem ID from /proc/asound",
+        help="auto-discover the tuning XML from a mounted Windows directory, "
+             "such as /mnt/windows/Windows. It matches the audio codec "
+             "subsystem ID from /proc/asound.",
     )
     add(
         "--best-guess",
         action="store_true",
-        help="if auto-detection finds no exact hardware match, fall back to the "
-             "only internal-speaker tuning whose manufacturer is present "
-             "(unverified — matched by manufacturer, not device id). With "
-             "several such candidates it lists them so you can pass one as the "
-             "positional XML path. No effect when an exact match is found",
+        help="on a SoundWire machine, fall back to the only internal-speaker "
+             "tuning whose manufacturer is present, when auto-detection finds "
+             "no exact hardware match. "
+             "The fallback is unverified: it matches by manufacturer, not "
+             "device id. With several such candidates it lists them, so you "
+             "can pass one as the positional XML path. No effect when an "
+             "exact match is found.",
     )
     return added
 
@@ -115,10 +117,11 @@ def add_inspection_args(container, *, only=None):
         "--doctor", "--diagnose",
         dest="doctor",
         action="store_true",
-        help="run environment self-diagnostics (EasyEffects version, install "
-             "location, preset/impulse-file integrity, selected preset, "
-             "background service mode + autostart, hardware) and exit — "
-             "paste the output into an issue if a preset seems inaudible",
+        help="run environment self-diagnostics and exit. It checks the "
+             "EasyEffects version, install location, preset and impulse-file "
+             "integrity, the selected preset, background service mode and "
+             "autostart, and hardware. If a preset seems inaudible, paste the "
+             "output into an issue.",
     )
     return added
 
@@ -139,13 +142,14 @@ def add_profile_selection_args(container, *, only=None):
     add(
         "--profile",
         default=None,
-        help="profile type, e.g. dynamic, music, voice (default: first profile)",
+        help="profile type, such as dynamic, music or voice "
+             "(default: first profile)",
     )
     add(
         "--all-profiles",
         action="store_true",
-        help="generate presets for all profiles in the selected endpoint/mode "
-             "(profile names are included in the preset names)",
+        help="generate presets for all profiles in the selected "
+             "endpoint/mode. The preset names include the profile name.",
     )
     return added
 
@@ -159,8 +163,8 @@ def add_autoload_args(container, *, only=None):
         const=True,
         metavar="PRESET",
         help="write EasyEffects autoload config for speaker outputs. "
-             "Optionally specify the preset name to autoload; "
-             "defaults to the first Balanced preset generated",
+             "PRESET optionally names the preset to autoload. It defaults to "
+             "the first Balanced preset generated.",
     )
     add(
         "--autoload-dir",
@@ -174,23 +178,24 @@ def add_autoload_args(container, *, only=None):
         action="append",
         default=[],
         metavar="NODE_NAME",
-        help="explicit PipeWire sink node.name to bind autoload to, bypassing "
-             "speaker-sink detection (repeatable). Use this when auto-detection "
-             "picks the wrong output or finds none — e.g. a device whose "
-             "internal speaker is mis-tagged (no audio-speakers device icon). "
-             "Find the name with 'pw-dump | grep node.name', or run with "
-             "--autoload, which names the sink it picked (and lists the "
-             "candidates when it isn't sure). Mirrors "
-             "ee_to_pipewire.py's --target-sink.",
+        help="bind autoload to the PipeWire sink with this node.name, bypassing "
+             "speaker-sink detection (repeatable). Use it when auto-detection "
+             "picks the wrong output or finds none. One example is a device "
+             "whose internal speaker is mis-tagged, without the "
+             "audio-speakers device icon. Find the name with "
+             "'pw-dump | grep node.name'. A run with --autoload also names "
+             "the sink it picked, and lists the candidates when it isn't "
+             "sure. This flag mirrors ee_to_pipewire.py's --target-sink.",
     )
     add(
         "--no-autoload-bypass",
         dest="autoload_bypass",
         action="store_false",
-        help=f"with --autoload, do not write a '{autoload.BYPASS_PRESET_NAME}' bypass "
-             "preset or enable EasyEffects' global Fallback Preset. Use if "
-             "you manage the fallback yourself. An already-enabled fallback "
-             "preset is left alone even without this flag.",
+        help="with --autoload, skip writing the "
+             f"'{autoload.BYPASS_PRESET_NAME}' bypass preset and enabling "
+             "EasyEffects' global Fallback Preset, which --autoload otherwise "
+             "does. Use it if you manage the fallback yourself. An "
+             "already-enabled fallback preset is never changed.",
     )
     return added
 
@@ -234,9 +239,10 @@ def add_filter_tweak_args(container, *, only=None):
         # must not cite #44. Its fix was --volmax-slot output-gain, which E-022 below names.
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
-             "Try --disable volmax if output sounds too loud / saturated, "
-             "--disable mbc if you dislike the compressor character, or "
-             "--disable coupled-bands if the loudest moments feel clamped.",
+             "Try --disable volmax if output sounds too loud or saturated. "
+             "Try --disable mbc if you dislike the compressor character. "
+             "Try --disable coupled-bands if the loudest moments feel "
+             "clamped.",
     )
     add(
         "--enable",
@@ -251,26 +257,26 @@ def add_filter_tweak_args(container, *, only=None):
         help="switch on an optional stage the preset leaves off "
              f"(repeatable). Valid names: {', '.join(messages.ENABLEABLE_FILTERS)}. "
              "Try --enable autogain if the preset sounds right but quieter "
-             "than Windows (issue #25), or --enable level-restore "
-             "(experimental) if the preset is quieter than switching it off "
-             "altogether (issue #50).",
+             "than Windows (issue #25). Try the experimental --enable "
+             "level-restore if audio is quieter with the preset than without "
+             "it (issue #50). virtual-bass is experimental and plays only in "
+             "the PipeWire chain (issue #14). When the tuning has a volume "
+             "leveler, autogain ships off on HDA and on for SoundWire. "
+             "--disable autogain removes it either way.",
     )
     add(
         "--volmax-slot",
         choices=["input-gain", "output-gain"],
         default="input-gain",
-        help="which regulator gain slot carries the static volmax-boost. "
-             "'input-gain' (default) applies it pre-band-limiting so the "
-             "regulator's per-band compression tames the boosted low end before "
-             "the brickwall — avoids the loud-low-frequency distortion of the "
-             "older placement (issue #23). 'output-gain' opts back into "
-             "post-band-limiting placement (the full loudness makeup straight "
-             "into the brickwall); use it for A/B comparison, or if input-gain "
-             "costs too much loudness on a device with an aggressive regulator "
-             "(issue #44 measured it, and the reporter confirmed by ear, as the "
-             "fix for bass the default placement loses). "
-             "Neither placement is Dolby-documented; no effect when the regulator "
-             "is disabled/absent (the boost then lands on limiter#0 input-gain).",
+        help="where the static volmax-boost loudness gain goes. "
+             "'input-gain' (default) runs it through the per-band regulator, "
+             "so loud bass doesn't distort (issue #23). 'output-gain', the "
+             "older placement, is for A/B comparison, or for a device whose "
+             "aggressive regulator takes bass and loudness away. Issue #44 "
+             "measured it as that fix, and the reporter confirmed it by ear. "
+             "Neither placement is "
+             "Dolby-documented. No effect when the regulator is disabled or "
+             "absent.",
     )
     return added
 
@@ -285,37 +291,39 @@ def add_general_args(container, *, only=None):
     add(
         "--verbose", "-v",
         action="store_true",
-        help="print the full frequency tables (hidden by default); include "
-             "a -v log when reporting a sound problem",
+        help="print the full frequency tables, which are hidden by default. "
+             "Include a -v log when reporting a sound problem.",
     )
     add(
         "--dry-run",
         action="store_true",
-        help="run without writing any files to disk (presets, IRs, autoload); "
-             "useful for debugging script execution and output",
+        help="run without writing any files to disk: no presets, IRs or "
+             "autoload config. Useful for debugging script execution and "
+             "output.",
     )
     add(
         "--no-reload",
         action="store_true",
         help="don't ask a running EasyEffects to load the preset when the run "
-             "finishes; presets are still written (no effect with --dry-run, "
+             "finishes. Presets are still written. No effect with --dry-run, "
              "or when --output-dir/--irs-dir point outside EasyEffects' own "
-             "folders)",
+             "folders.",
     )
     add(
         "--skip-ee-check",
         action="store_true",
-        help="skip the end-of-run EasyEffects environment check (version and "
-             "install-location warnings) — for workflows that don't target an "
-             "EasyEffects install; dolby_to_pipewire.py passes this "
-             "automatically",
+        help="skip the end-of-run EasyEffects environment check, for "
+             "workflows that don't target an EasyEffects install. The check "
+             "warns about the EasyEffects version, its install location and "
+             "the PipeWire graph's sample rate. "
+             "dolby_to_pipewire.py passes this flag automatically.",
     )
     add(
         "--skip-closing",
         action="store_true",
-        help="skip the end-of-run closing blocks (what was written and how to "
-             "use it, and the report-back block) — for wrappers that install "
-             "elsewhere and present their own",
+        help="skip the end-of-run closing blocks, for wrappers that install "
+             "elsewhere and present their own. The blocks are what was "
+             "written and how to use it, plus the report-back block.",
     )
     console.add_color_and_version_args(add)
     return added
