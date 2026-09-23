@@ -53,6 +53,19 @@ only which question the directory answers.
 | [`measure_perf/`](measure_perf/) | The README's "which should I use?" guidance: CPU cycles and memory for the same preset through EasyEffects vs the PipeWire filter-chain | You, when that cost claim needs re-measuring on a device |
 | [`measure_pw/`](measure_pw/) | That the PipeWire `filter-chain` conf is equivalent to the EasyEffects chain in both frequency and time domain — and, through `validate_conf.py`, that it is schema-valid at all | The comparisons: you, through the handoff. `validate_conf.py`: you, against a conf already on disk — `ee_to_pipewire.py` runs the same check in process on every run |
 
+## docs/ — gates for a prose rewrite
+
+These check that a rewrite of the docs, the README or code comments loses no
+data. You run them by hand before committing a rewrite; nothing else calls
+them. `tests/test_docs_tools.py` guards all four.
+
+| script | what it keeps correct | who runs it, and when |
+|---|---|---|
+| [`docs/docinv.py`](docs/docinv.py) | The data in a text: figures with units, dates, hashes, issue refs, flags, paths and code spans. `diff OLD NEW` lists what a rewrite dropped, `diff NEW OLD` what it invented; `--counts` adds tokens, hedges and quantifiers whose count moved; `--py` reads only comments and docstrings | You, on every rewrite, in both directions |
+| [`docs/docstats.py`](docs/docstats.py) | Nothing — a metric. Sentence length, asides, parentheticals and long lines per file, with `-b REV` for before and after | You, to see what a rewrite changed |
+| [`docs/docwrap.py`](docs/docwrap.py) | 80-column prose. `check` reports long, ragged or split lines; `fix` rewraps them and refuses any change beyond whitespace | You, after editing prose |
+| [`docs/check_comment_only.py`](docs/check_comment_only.py) | That a change to `.py` files touched only comments and docstrings, by comparing the `ast` of both versions | You, before committing a comment or docstring rewrite |
+
 ## fetch_driver/ — a staging area, not a new category
 
 [`fetch_driver/get_lenovo_dax_xml.py`](fetch_driver/get_lenovo_dax_xml.py) is
@@ -143,6 +156,9 @@ expensive to rediscover:
 - **The grouping would be invented.** Ten scripts doing ten unrelated jobs do
   not fall into categories that would still look right in six months, and a
   wrong grouping is worse than none: it tells you where a script *isn't*.
+
+This holds for the loose scripts. A self-contained kit with its own section
+in this file gets a directory, as `measure_*/`, `fetch_driver/` and `docs/` do.
 
 What the flat directory actually lacked was a map and a check that its paths
 resolve. Both now exist — this file, and the `tools/` assertions in
