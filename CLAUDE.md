@@ -1,18 +1,12 @@
 # CLAUDE.md
 
 <!-- House rules for THIS file. Block-level HTML comments are stripped
-  before CLAUDE.md is injected into context, so this note is free — it
-  costs no session tokens and is visible only when the file is opened.
-  - Keep it lean. Claude Code docs cap CLAUDE.md at < 200 lines; we target
-    ≤ ~120 lines of *loaded* content — this stripped comment is free and
-    doesn't count. Shorter files get better adherence (bloat → ignored
-    rules). Prune one stale line before adding one.
-  - Each bullet is a rule NOT derivable from the code and worth re-stating.
-    Long rationale → docs/; multi-step procedures → a skill; guidance that
-    only matters for some files → a path-scoped .claude/rules/ file.
-  - Run /claude-md-audit before committing any change to this file. -->
-
-A few things about this repo that aren't obvious from the code.
+  before CLAUDE.md is injected into context, so this note costs nothing.
+  - Budget: ≤ ~120 lines of loaded content (Claude Code's docs target < 200).
+    Shorter files get better adherence. Prune one stale line before adding
+    one.
+  - What a line holds, where else it could go, and the audit to run before
+    committing: .claude/rules/instructions.md. -->
 
 ## Core invariants — don't break these
 
@@ -26,12 +20,16 @@ A few things about this repo that aren't obvious from the code.
   (video lip-sync, interactive use), so the FIR stays **minimum-phase** and
   nothing in the chain takes look-ahead. Why that is load-bearing, and what
   the levers are: `.claude/rules/dsp-fir.md`.
+- **Every claim traces to evidence**, as every parameter traces to the XML,
+  in docs, copy, comments, replies and commits. Assert a number only once it
+  is re-derived from data. Rewording carries numbers over exactly and keeps
+  each claim's scope: validated or hypothesis, which devices, what n.
+  Checklist: `.claude/rules/claims.md`.
 
 ## Testing
 
-- `pytest tests/` — fast (DSP math, output schema, the trap-regression
-  suite that locks in every shipped bug, `--disable`/argparse). The traps
-  live in `tests/test_preset.py`.
+- `pytest tests/` is the fast tier. The trap-regression suite that locks in
+  every shipped bug lives in `tests/test_preset.py`.
 - **The golden digest and the corpus tier** both fail quietly — a digest
   re-recorded green, a corpus walk that skipped: `.claude/rules/testing.md`.
 - Changing math (FIR, coefficient decoding, gain staging, unit
@@ -41,9 +39,6 @@ A few things about this repo that aren't obvious from the code.
   appear under `~/.local/share/easyeffects/`.
 
 ## Validating audio changes
-
-The suite catches **structural** regressions, not **audible** ones — past
-sessions shipped bugs that only showed on real content.
 
 - **Validate on device.** Measured ground truth (DAX captures + live-EE
   loopback) decides adoption. Offline analytical scoring (`tools/measure_ee/`)
@@ -75,17 +70,15 @@ sessions shipped bugs that only showed on real content.
   no-dependency path keeps working.
 - **Device-issue triage updates the kernel watchlist** — opening or closing
   a device investigation → update `.github/kernel-watchlist.txt` in the same
-  commit (`# watch: #NN` headers; `standing` = outlives the issue). The
-  kernel-sound-watch workflow greps new sound-tree pull tags with it, one hit
-  comment per tag; **analysing a hit → load the /kernel-watch-triage skill
-  first**, and record the verdict by editing that comment, not as a reply.
+  commit (its header has the format). **Analysing a kernel-sound-watch hit →
+  load the /kernel-watch-triage skill first.**
 - **Never push without explicit per-push permission.** One "commit and
   push" authorizes that push only — re-ask for the next. Same for
   `--force`, tags, and opening/merging PRs.
 - **Keep commit messages short.** Subject ≤72 chars; a body only where the
-  *why* isn't evident from the diff, and then the reason — not the
-  investigation behind it. A commit body is read once; rationale and rejected
-  alternatives go in `docs/`, where they stay findable.
+  *why* isn't evident from the diff, and then just the reason. The
+  investigation, rationale and rejected alternatives go in `docs/`, where
+  they stay findable.
 - **A meaningful user-facing functional change, a newly reported/tested
   device, or an in-depth research conclusion ships → add a `CHANGELOG.md`
   entry** under `## Unreleased`; other plain docs edits don't. What counts and
@@ -95,13 +88,14 @@ sessions shipped bugs that only showed on real content.
   finding in design-notes. Exceptions: a user-facing opt-in the finding
   justifies (`--enable autogain`), and the `tools/` measurement harness.
 - **Issue triage & GitHub comments:** load the **/issue-replies** skill when
-  starting issue triage and before drafting any reply — the draft-for-review
-  flow, assertion/citation rules, and triage asks live there; don't post
-  without it.
+  starting triage and before drafting or posting any reply.
 - **Comparison plots:** verify every curve is actually visible — a hidden
   curve reads as agreement. How: `.claude/rules/plots.md`.
 - **Co-locate definitions with use** — a constant or helper sits by its user,
   grouped by meaning, not piled at module top (module-wide values excepted).
+- **Comments and docstrings state the current fact and its why**, citing the
+  doc that holds the evidence (design-notes Finding N) instead of restating
+  it. History belongs in git. A docstring's first line says what it does.
 - **Repo root = command surface** — only the three entry-point scripts, every
   other module in `lib/`; `tests/test_layout.py` enforces it. Extraction
   recipe: `docs/code-organisation.md` "Splitting the single-file scripts".

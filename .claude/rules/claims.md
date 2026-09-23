@@ -15,13 +15,13 @@ paths:
 # Claims
 
 Every sentence that states a fact rests on evidence: docs, terminal copy,
-comments, issue replies, commit messages.
+comments, issue replies, commit messages. CLAUDE.md "Core invariants" states
+the principle; this file is the checklist.
 
 ## What each claim rests on
 
-Plain language is the goal, but a sentence a first-time reader understands
-perfectly can still be false, and nothing in `/user-review` is positioned to
-notice. Before shipping a message, name what each claim rests on:
+A sentence a first-time reader understands perfectly can still be false.
+Before one ships, name what each claim rests on:
 
 - **What the tool does** → the gate that decides it. If the predicate is
   broader or narrower than the sentence, the sentence is wrong: a section
@@ -58,6 +58,33 @@ unchecked, and don't expand an abbreviation/name you can't verify.
 - When a count changes, re-check the *claim* it supports — a number shift can
   flip a qualitative conclusion.
 
-Why: both the 2026-06 doc review and the 2026-06 corpus re-derivation shipped
-numbers that were assumed rather than re-derived (plus one fabricated
-package-name expansion). Carried-over claims are the risk surface.
+Carried-over and agent-computed figures, and one fabricated package-name
+expansion, are where wrong numbers have shipped.
+
+## Rewording keeps the scope
+
+1. Keep every qualifier, as above. Validated stays validated, a hypothesis
+   stays a hypothesis, a one-device result stays scoped to that device, and
+   n stays attached. A frequency word ("most", "usually") needs the count
+   behind it.
+2. Carry every number over exactly. A rewrite asserts no new figure, so it
+   re-derives none: a figure that looks stale goes to the maintainer.
+
+## Rewriting existing text
+
+The wording may change; the data and the claims may not. Gate each rewrite:
+
+- `tools/docs/docinv.py diff --counts OLD NEW`: restore each missing or
+  rarer token, or list it with a reason for the maintainer to veto. A
+  dropped hedge or quantifier shows here too. Add `--py` for comments and
+  docstrings.
+- `tools/docs/docinv.py diff --counts NEW OLD`: each new token, and each
+  quantifier that became more common, traces to an old sentence, or goes.
+- Replacing a restatement with a link: run the first check on the removed
+  text against the link's target.
+- A comment-only change to Python passes
+  `tools/docs/check_comment_only.py`, and `tests/test_golden_preset.py` does
+  not move.
+- Moves and rewording go in separate commits, so each diff can be read.
+- A second reader compares old with new for altered claims and lost
+  qualifiers before the commit.
