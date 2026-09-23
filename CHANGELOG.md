@@ -1,61 +1,70 @@
 <!--
-Maintainers — to cut a release:
-  1. Move the Unreleased entries into a new "## vYYYY.MM" heading at the
-     top of the version list (use the current year.month; add a .1/.2
-     suffix if there's already a release this month). No date in the
-     heading — it lives on the tag and the GitHub Release.
-  2. Draft the tagline and summary (below) unless the release has no theme,
-     and have the maintainer validate both before tagging.
+Maintainers' release steps:
+  1. Move the Unreleased entries under a new "## vYYYY.MM" heading at the
+     top of the version list. Use the current year.month. Add a .1/.2 suffix
+     if there's already a release this month. Put no date in the heading;
+     the tag and the GitHub Release carry it.
+  2. Draft the tagline and summary below, unless the release has no theme.
+     Have the maintainer validate both before tagging.
   3. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
-  4. .github/workflows/release.yml publishes the GitHub Release, pulling
+  4. .github/workflows/release.yml publishes the GitHub Release. It pulls
      the title and notes from this file's matching section.
 
-Release tagline & summary — both or neither; omit both when the release
-has no theme:
-  - Heading "## vYYYY.MM — <tagline>": <= 8 words naming what the release
-    changes in scope or intent ("Treble Restored and a PipeWire Path") —
-    not a feature list, not a slogan. It becomes the GitHub Release title.
+Release tagline & summary: both or neither; omit both when the release
+has no theme.
+  - Heading: "## vYYYY.MM — <tagline>". The tagline names what the release
+    changes in scope or intent, in <= 8 words, as in "Treble Restored and a
+    PipeWire Path". It is neither a feature list nor a slogan. It becomes
+    the GitHub Release title.
   - Summary: one or two sentences directly under the heading, before the
-    first ###, naming the intent and the main areas touched; it opens the
-    release notes. Exempt from the entry shape below, but it may only
-    restate what those entries say — /copy-audit reads the Unreleased
+    first ###. It names the intent and the main areas touched, and opens
+    the release notes. It is exempt from the entry shape below, but it may
+    only restate what those entries say. /copy-audit reads the Unreleased
     section only, so prose added at cut time is never fact-checked.
 
-Keep entries reverse-chronological (newest at the top). Within each ### section,
-order most-impactful first — [AUDIBLE] and user-facing changes above minor or
-internal ones. Section order follows the same idea: lead with the section
-carrying the most user-facing change (as v2026.05 leads with Changed).
+Keep entries newest at the top. Within each ### section, put the most
+impactful first, with [AUDIBLE] and user-facing changes above minor or
+internal ones. Order sections the same way: lead with the one carrying the
+most user-facing change, as v2026.05 leads with Changed.
 
-Each entry has a FIXED SHAPE, in this order, and stops there:
-  1. WHAT changed, in user-facing terms. For [AUDIBLE]: the effect a listener
-     notices (dull, harsh, louder, clearer). Otherwise: the flag, feature, or
-     fixed symptom.
-  2. (optional) ONE clause of mechanism — the "how", never the "why".
-  3. (optional) the user knob — flag name / how to opt out / "re-run to regenerate".
-  4. (optional) a link — issue/PR number, plus docs/design-notes.md for the
-     full why. Include one when a report prompted the change, or when the
-     ceiling below forced something a reader would want out of the entry.
-     Skip it when the change is obvious and nothing was reported: a link to
-     a page that only restates the entry costs a click and teaches readers
-     the links aren't worth following.
-Hard ceiling: <= 3 sentences (~50 words). If it won't fit, the overflow IS the
-"deep why" — move it to docs/design-notes.md and link; do not inline it.
+Each entry has a fixed shape, in this order, and stops there:
+  1. WHAT changed, in user-facing terms. For [AUDIBLE], the effect a
+     listener notices, such as dull, harsh, louder, clearer. Otherwise, the
+     flag, feature, or fixed symptom.
+  2. Optional: ONE clause of mechanism, giving the "how", never the "why".
+  3. Optional: the user knob, as the flag name, how to opt out, or
+     "re-run to regenerate".
+  4. Optional: a link, with the issue/PR number, plus docs/design-notes.md
+     for the full why. Include one when a report prompted the change, or when
+     the ceiling below forced out something a reader would want. Skip it when
+     the change is obvious and nothing was reported. A link to a page that
+     only restates the entry costs a click and teaches readers the links
+     aren't worth following.
+Hard ceiling: <= 3 sentences, ~50 words. If it won't fit, the overflow is
+the "deep why". Move that to docs/design-notes.md and link it; do not
+inline it.
 
-Keep these OUT of the entry (they live in design-notes / reference, behind the
-link): measurement numbers (THD, LUFS, dB), specific device IDs / PCI-subsystem
-codes, corpus statistics, plugin/library internals (LSP/Calf node names,
-lkahead, libebur128…), and DSP derivation. Provenance ("confirmed on a ThinkPad
-X13") is already in the linked issue/commit — don't restate it.
+Keep these out of the entry. They live behind the link, in design-notes or
+reference:
+  - measurement numbers, such as THD, LUFS, dB;
+  - specific device IDs or PCI-subsystem codes;
+  - corpus statistics;
+  - plugin/library internals, such as LSP/Calf node names, lkahead,
+    libebur128…;
+  - DSP derivation.
+Don't restate provenance, such as "confirmed on a ThinkPad X13". The linked
+issue/commit already holds it.
 
-[AUDIBLE] honesty: claim a listening impression ONLY if it was actually heard
-on-device; if the output changed but wasn't listened to, say so plainly.
+[AUDIBLE] honesty: claim a listening impression ONLY if it was actually
+heard on-device. If the output changed but wasn't listened to, say so
+plainly.
 
-Worked example — too long (deep why inline, fails the ceiling):
+Worked example, too long: it inlines the deep why and fails the ceiling.
   - **[AUDIBLE]** Cleaner low end on loud bass. volmax-boost now rides the
     regulator input so per-band compression tames it before the brickwall; on
     the dev device this cut a 234 Hz tone from 11.6% to 0.06% THD with broadband
     loudness unchanged, and a corpus audit of threshold_high (median -18 dB)…
-Same change, tight (overflow moved behind the link):
+The same change, tight: the overflow moved behind the link.
   - **[AUDIBLE]** Cleaner low end on loud, bass-heavy content with volmax. The
     boost now runs through the per-band regulator, which tames it before the
     final limiter instead of distorting. --volmax-slot output-gain restores the
