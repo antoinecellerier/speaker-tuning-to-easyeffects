@@ -77,6 +77,9 @@ FORBIDDEN = ("numpy", "scipy", "rich", "rich_argparse")
 
 STDLIB_ONLY = (
     "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
+    # The two doors to the machine — its tools and its /proc, /sys, /etc —
+    # which stdlib-only modules above and below reach.
+    "lib.tool_env", "lib.host",
     # The two XDG base directories, read from the environment. Reached at
     # startup by everything that resolves a path default.
     "lib.xdg",
@@ -1039,7 +1042,7 @@ def test_tool_env_run_pins_the_locale(monkeypatch):
     assert seen["capture_output"] is True
 
 
-def test_tool_env_answers_as_a_machine_without_the_tool_while_live_tools_are_off(
+def test_tool_env_answers_as_a_machine_without_the_tool_while_live_machine_are_off(
         monkeypatch):
     """The isolation half: every tool looks uninstalled — the state each
     caller already handles, and the one CI runs in — except git, which

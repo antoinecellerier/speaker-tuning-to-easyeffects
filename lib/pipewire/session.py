@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterable, NamedTuple
 
-from lib import tool_env
+from lib import host, tool_env
 
 # Names PipeWire gives EasyEffects' playback-path nodes: its virtual
 # sink/source pair and the `ee_soe_*` (stream output effects) / `ee_sie_*`
@@ -399,8 +399,9 @@ def process_age(name: str) -> float | None:
     if not pid.isdigit():
         return None
     try:
-        stat = open(f"/proc/{pid}/stat", encoding="utf-8").read()
-        uptime = float(open("/proc/uptime", encoding="utf-8").read().split()[0])
+        stat = host.path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        uptime = float(host.path("/proc/uptime").read_text(
+            encoding="utf-8").split()[0])
         clk_tck = os.sysconf("SC_CLK_TCK")
     except (OSError, ValueError, AttributeError):
         return None

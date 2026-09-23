@@ -109,26 +109,103 @@ def no_live_easyeffects_socket(monkeypatch):
     monkeypatch.setattr(ee_socket, "_socket_path", lambda: None)
 
 
-@pytest.fixture(autouse=True)
-def no_live_tools(request, monkeypatch):
-    """No test asks this machine's tools anything unless it says so.
+# The host locations lib/ reads machine state from (lib/host.py), as the
+# audit hook below sees them — `/sys/devices/pci…` is where the sound-class
+# symlinks resolve to. Deliberately not all of /proc and /sys: Python and
+# xdist read their own (`/proc/self`, the CPU topology) and those aren't ours.
+_HOST_STATE = ("/proc/asound", "/proc/mounts", "/proc/uptime",
+               "/proc/sys/kernel", "/sys/class/sound", "/sys/class/dmi",
+               "/sys/class/firmware-attributes", "/sys/bus/soundwire",
+               "/sys/module", "/sys/devices/pci", "/etc/os-release",
+               "/lib/firmware", "/var/lib/flatpak")
+_host_reads: list[str] = []
+_watching_host = False
 
-    Before this, ~1,800 in-process calls per fast run reached the real
-    `amixer`, `pw-dump`, `pw-top`, `easyeffects --version`… (2026-09-23), so
-    a rendered report depended on the audio stack of whoever ran the suite,
-    and a doctor render sat out a live five-second `pw-top` window. Set as an
-    environment variable, not a patch, so the scripts a test starts as child
-    processes are covered too; `lib/tool_env.py` honours it. Every tool then
-    looks uninstalled, which is the state CI has always run in.
+
+def _record_host_reads(event, args):
+    if not _watching_host or event not in ("open", "os.listdir", "os.scandir"):
+        return
+    target = args[0] if args else None
+    if isinstance(target, os.PathLike):
+        target = os.fspath(target)
+    if isinstance(target, bytes):
+        target = target.decode(errors="replace")
+    if isinstance(target, str) and target.startswith(_HOST_STATE):
+        _host_reads.append(target)
+
+
+# Once per process: an audit hook can't be removed, so it stays in and is
+# armed per test by the fixture below.
+sys.addaudithook(_record_host_reads)
+
+
+@pytest.fixture(scope="session")
+def _empty_host_root(tmp_path_factory):
+    return tmp_path_factory.mktemp("host-root")
+
+
+@pytest.fixture
+def fake_host(tmp_path, monkeypatch):
+    """A host root of the test's own, for `lib/host.py` to read (child
+    processes too): `fake_host("/etc/os-release", "ID=debian\\n")` puts a file
+    where the code will look for that host path."""
+    from lib import host
+    root = tmp_path / "host-root"
+    root.mkdir()
+    monkeypatch.setenv(host.HOST_ROOT, str(root))
+
+    def put(location: str, text: str) -> Path:
+        target = root / location.lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        return target
+
+    return put
+
+
+@pytest.fixture(autouse=True)
+def no_live_machine(request, monkeypatch, _empty_host_root):
+    """No test reads this machine's tools or hardware unless it says so.
+
+    Before this, ~1,800 in-process tool calls per fast run reached the real
+    `amixer`, `pw-dump`, `pw-top`, `easyeffects --version`…, and 680 reads
+    went to the real `/proc/asound/card*/codec#*` (2026-09-23). A rendered
+    report depended on the audio stack of whoever ran the suite, a doctor
+    render sat out a live five-second `pw-top` window, and the codec reads —
+    which the kernel serialises — left the workers queued for 456 of the 518
+    seconds they spent waiting. Both switches are environment variables, not
+    patches, so the scripts a test starts as child processes are covered too:
+    `lib/tool_env.py` then reports every tool uninstalled (CI's state), and
+    `lib/host.py` reads `/proc`, `/sys`, `/etc` under an empty root — a machine
+    with no sound hardware and nothing identifying.
 
     A test that needs a tool's answer replaces `tool_env.run` / `tool_env.which`
-    (or a narrower seam above them). A test that exists to exercise the real
-    tool takes `@pytest.mark.live_tools`, and skips where the tool is absent."""
-    from lib import tool_env
-    if request.node.get_closest_marker("live_tools") is None:
-        monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
-    else:
+    (children: `ATMOS_FAKE_TOOLS_DIR`); one that needs hardware passes its own
+    tree as a parameter, patches the module's path constant, or points
+    `ATMOS_HOST_ROOT` at a fake root. A test that exists to exercise the real
+    machine takes `@pytest.mark.live_machine`, and skips where it can't.
+
+    Anything that still opens a real host location during a test fails that
+    test, naming the path: that read has gone around `lib/host.py`."""
+    global _watching_host
+    from lib import host, tool_env
+    if request.node.get_closest_marker("live_machine") is not None:
         monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
+        monkeypatch.delenv(host.HOST_ROOT, raising=False)
+        yield
+        return
+    monkeypatch.setenv(tool_env.NO_LIVE_TOOLS, "1")
+    monkeypatch.setenv(host.HOST_ROOT, str(_empty_host_root))
+    _host_reads.clear()
+    _watching_host = True
+    try:
+        yield
+    finally:
+        _watching_host = False
+    assert not _host_reads, (
+        "this test read the real machine, around lib/host.py: "
+        f"{', '.join(sorted(set(_host_reads))[:5])} — route the read through "
+        "host.path(), or mark the test live_machine")
 
 
 # Representative 20-band frequency table. Real DAX3 XMLs ship their own

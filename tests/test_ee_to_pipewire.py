@@ -1167,7 +1167,7 @@ def test_format_conf_empty_includes_warnings():
 # Self-validation pass via main()
 # ---------------------------------------------------------------------------
 
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 def test_main_validate_runs_on_dry_run(generated, tmp_path, monkeypatch,
                                        capsys):
     """End-to-end: with `lv2info`/`spa-json-dump` available, the
@@ -1243,11 +1243,14 @@ def test_main_surfaces_validate_warnings_on_pass(generated, tmp_path,
 
 
 def test_main_reminds_about_plugins_when_lv2info_absent(generated, tmp_path,
-                                                        monkeypatch, capsys):
+                                                        monkeypatch, capsys,
+                                                        fake_host):
     """When the self-check is skipped because lv2info isn't installed, the
     converter can't verify the plugin set is present — so it must remind the
     user to install LSP / Calf, or the chain silently won't load in PipeWire.
+    The package it names is the distro's, so the distro is pinned.
     """
+    fake_host("/etc/os-release", "ID=debian\n")
     from lib.pipewire import validate
     monkeypatch.setattr(
         validate, "run",
@@ -2634,7 +2637,7 @@ def _lv2info_defaults(uri: str) -> dict[str, float]:
 
 
 @pytest.mark.slow
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 def test_untranslated_lv2_defaults_match_live_lv2info():
     """Environment drift check: the pinned LV2 defaults above must match
     the installed plugins' actual .ttl. A distro shipping an LSP version
@@ -3098,7 +3101,7 @@ def test_pipewire_drop_in_dirs_follow_xdg_config_home(tmp_path):
     assert unscanned == config / "pipewire" / "filter-chain.conf.d"
 
 
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_doctor_reads_back_a_generated_conf(tmp_path, generated):
@@ -3268,7 +3271,7 @@ def test_vbe_smart_filter_props_unaffected():
 
 
 @pytest.mark.slow
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 def test_vbe_conf_validates_against_lv2info(generated):
     """The wrapped conf passes the same lv2info validation gate as the dry
     chain: every control symbol exists on the installed plugins and every

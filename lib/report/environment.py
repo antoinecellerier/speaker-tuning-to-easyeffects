@@ -32,12 +32,11 @@ one this doctor has to recognise, because having it selected is itself a
 from __future__ import annotations
 
 import math
-import platform
 import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from lib import console, doctor, packages
+from lib import console, doctor, host, packages
 from lib.data import kernel_releases
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -734,7 +733,7 @@ def warn_old_kernel(release: str | None = None) -> None:
     kernel upgrade, not a preset change. Silent unless the running series is
     older than _KERNEL_OLD_MONTHS. Mirrors warn_ee_environment."""
     if release is None:
-        release = platform.release()
+        release = host.kernel_release()
     if kernel_age_status(release).status != DOCTOR_WARN:
         return
     series = parse_kernel_series(release)

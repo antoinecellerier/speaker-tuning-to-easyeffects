@@ -12,6 +12,6 @@ python_files = ["test_*.py"]
 # the other workers then idle behind them (fast tier 110s -> 75s here).
 addopts = "-ra -n auto --dist worksteal"
 markers = [
-    "live_tools: asks this machine's real tools (lv2info, pw-dump, …) instead of the default where every tool looks uninstalled; see lib/tool_env.py. Skip where the tool is absent.",
+    "live_machine: asks this machine's real tools (lv2info, pw-dump, …) instead of the default where every tool looks uninstalled; see lib/tool_env.py. Skip where the tool is absent.",
     "slow: expensive test (e.g. the ee_to_pipewire corpus tier, which runs every distinct discovered XML's PW conf through lv2info). Skipped unless --run-slow or ATMOS_RUN_SLOW=1.",
 ]

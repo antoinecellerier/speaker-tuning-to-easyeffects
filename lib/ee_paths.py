@@ -33,7 +33,7 @@ rather than two that merely agree today.
 
 from pathlib import Path
 
-from lib import xdg
+from lib import host, xdg
 
 __all__ = ["FLATPAK_APP_ID", "FLATPAK_BASE", "FLATPAK_CONFIG_BASE",
            "NATIVE_BASE", "flatpak_install_roots", "flatpak_app_installed",
@@ -76,7 +76,7 @@ def flatpak_install_roots() -> tuple[Path, ...]:
     of its metainfo file and needs the same two roots to find it. It had its
     own copy of this walk, and that copy is how the two came to disagree.
     """
-    return (Path("/var/lib/flatpak/app"),
+    return (host.path("/var/lib/flatpak/app"),
             xdg.data_home() / "flatpak" / "app")
 
 

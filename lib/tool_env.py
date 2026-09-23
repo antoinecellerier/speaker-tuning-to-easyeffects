@@ -22,7 +22,7 @@ it, which is the reach a monkeypatch lacks. Tests that need a tool's answer
 replace ``run``/``which`` here in-process; a test whose child process needs
 one puts an executable of the tool's name in ``ATMOS_FAKE_TOOLS_DIR``, the one
 directory the gate still looks in. The few tests that exist to exercise the
-real tool opt out with ``@pytest.mark.live_tools``.
+real tool opt out with ``@pytest.mark.live_machine``.
 
 ``tests/test_layout.py`` holds ``lib/`` and the entry scripts to this module:
 no ``subprocess`` call and no ``shutil.which`` of their own.

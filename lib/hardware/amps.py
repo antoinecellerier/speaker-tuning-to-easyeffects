@@ -32,7 +32,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from lib import tool_env
+from lib import host, tool_env
 
 
 # --- Smart-amp status: bus-agnostic evidence (issue #27) --------------------
@@ -162,7 +162,7 @@ def _amp_firmware_profile(driver: str) -> tuple[list[str], list[str]] | None:
 
 def _loaded_amp_drivers() -> list[str]:
     """Loaded kernel modules that look like smart-amp drivers (any bus)."""
-    moddir = Path("/sys/module")
+    moddir = host.path("/sys/module")
     if not moddir.is_dir():
         return []
     return sorted(m.name for m in moddir.iterdir()
@@ -172,7 +172,7 @@ def _loaded_amp_drivers() -> list[str]:
 def _list_firmware_files(globs: list[str], roots=None) -> list[str]:
     """Existing firmware files matching globs under /lib/firmware (+ updates/)."""
     if roots is None:
-        roots = (Path("/lib/firmware"), Path("/lib/firmware/updates"))
+        roots = (host.path("/lib/firmware"), host.path("/lib/firmware/updates"))
     found = set()
     for root in roots:
         for g in globs:

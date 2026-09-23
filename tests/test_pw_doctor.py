@@ -1479,7 +1479,7 @@ context.modules = [
 ''')
 
 
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
@@ -1498,7 +1498,7 @@ def test_second_variant_warns_that_it_stacks(tmp_path, silence_console,
     assert "one after another" in out
 
 
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
@@ -1517,7 +1517,7 @@ def test_first_conf_and_virtual_sinks_do_not_warn(tmp_path, silence_console,
     assert capsys.readouterr().out == ""
 
 
-@pytest.mark.live_tools
+@pytest.mark.live_machine
 @pytest.mark.skipif(shutil.which("spa-json-dump") is None,
                     reason="spa-json-dump not installed")
 def test_chains_on_different_sinks_do_not_warn(tmp_path, silence_console,

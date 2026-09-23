@@ -31,12 +31,11 @@ I/O that assembles both sits above the two.
 
 from __future__ import annotations
 
-import platform
 import textwrap
 from datetime import date
 from pathlib import Path
 
-from lib import console, packages, version
+from lib import console, host, packages, version
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.doctor import DOCTOR_WARN, CheckResult
@@ -592,7 +591,9 @@ def fixed_level_fix_steps(pin: str, source: str, width: int,
     # firmware setup before trying the thing that answers in a second and
     # says whether the reboot is even worth it (user review).
     step = 1
-    if attribute.is_dir():
+    # Checked where this process reads the machine; printed as the path the
+    # reader types, which host.path would re-root under a test's fake root.
+    if host.path(attribute).is_dir():
         lines += [
             *prose(f"{step}. On this Lenovo the microphone switch reads from "
                    "Linux, no reboot needed (Enable is the working state):",
@@ -740,17 +741,7 @@ def get_distro_pretty_name(os_release=Path("/etc/os-release")) -> str:
     Only PRETTY_NAME — no hostname, machine-id, or serials. A missing or
     unreadable file, or an absent key, yields "" so the caller drops the line.
     """
-    try:
-        text = Path(os_release).read_text()
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        if line.startswith("PRETTY_NAME="):
-            value = line.split("=", 1)[1].strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-                value = value[1:-1]
-            return value
-    return ""
+    return packages.read_os_release(os_release).get("PRETTY_NAME", "")
 
 
 def _gather_speaker_pins() -> speakers.SpeakerInfo:
@@ -763,8 +754,8 @@ def _gather_speaker_pins() -> speakers.SpeakerInfo:
     env vars — all of it for the amp-status report, which a default run never
     prints. A normal conversion must not pay for it.
     """
-    info = speakers.SpeakerInfo(kernel=platform.release())
-    cards_path = Path("/proc/asound/cards")
+    info = speakers.SpeakerInfo(kernel=host.kernel_release())
+    cards_path = host.path("/proc/asound/cards")
     if cards_path.exists():
         info.sound_cards = [l.strip() for l
                             in cards_path.read_text().strip().splitlines()]
@@ -791,16 +782,17 @@ _DMI_FIELDS = (("vendor", "sys_vendor"), ("product", "product_name"),
 
 def _gather_speaker_info() -> speakers.SpeakerInfo:
     """Collect all audio hardware information into a SpeakerInfo."""
-    info = speakers.SpeakerInfo(kernel=platform.release(), distro=get_distro_pretty_name())
+    info = speakers.SpeakerInfo(kernel=host.kernel_release(),
+                                distro=get_distro_pretty_name())
 
     # System identity
     for attr, name in _DMI_FIELDS:
-        p = _DMI_DIR / name
+        p = host.path(_DMI_DIR) / name
         if p.exists():
             setattr(info, attr, p.read_text().strip())
 
     # Sound cards
-    cards_path = Path("/proc/asound/cards")
+    cards_path = host.path("/proc/asound/cards")
     if cards_path.exists():
         info.sound_cards = [l.strip() for l in cards_path.read_text().strip().splitlines()]
 
@@ -810,7 +802,7 @@ def _gather_speaker_info() -> speakers.SpeakerInfo:
     info.pci_subsystem = codecs.get_pci_audio_subsystem()
 
     # PCM playback devices
-    for card_dir in sorted(Path("/proc/asound").glob("card*")):
+    for card_dir in sorted(host.path("/proc/asound").glob("card*")):
         for pcm_dir in sorted(card_dir.glob("pcm*p")):
             info_path = pcm_dir / "info"
             if not info_path.exists():

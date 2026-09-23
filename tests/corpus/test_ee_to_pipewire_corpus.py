@@ -49,9 +49,9 @@ from tests.corpus.test_corpus import CORPUS, _skip_if_no_corpus
 # thousands of FIR builds on a populated corpus. Gated behind `slow`: `pytest
 # --run-slow` or ATMOS_RUN_SLOW=1. The fast structural invariants still run by
 # default via `tests/test_ee_to_pipewire.py` on the synthetic fixture.
-# `live_tools`: validating each conf against the installed plugins through the
+# `live_machine`: validating each conf against the installed plugins through the
 # real `lv2info` / `spa-json-dump` is the point of the tier.
-pytestmark = [pytest.mark.slow, pytest.mark.live_tools]
+pytestmark = [pytest.mark.slow, pytest.mark.live_machine]
 
 VALIDATE_CONF_SCRIPT = (
     Path(__file__).resolve().parents[2]

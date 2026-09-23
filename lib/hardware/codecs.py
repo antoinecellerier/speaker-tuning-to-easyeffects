@@ -19,6 +19,8 @@ Standard library only, and no subprocesses: a handful of reads under
 import re
 from pathlib import Path
 
+from lib import host
+
 
 def get_hda_codec_ids():
     """Read HDA codec names and subsystem IDs from /proc/asound.
@@ -27,7 +29,7 @@ def get_hda_codec_ids():
     [("10EC0287", "17AA22E6", "Realtek ALC287")].
     """
     results = []
-    for codec_path in sorted(Path("/proc/asound").glob("card*/codec*")):
+    for codec_path in sorted(host.path("/proc/asound").glob("card*/codec*")):
         try:
             text = codec_path.read_text()
         except OSError:
@@ -72,9 +74,10 @@ def get_soundwire_ids():
     strings, e.g. [("025D", "1318")].
     """
     results = []
-    if not SDW_BUS.is_dir():
+    bus = host.path(SDW_BUS)
+    if not bus.is_dir():
         return results
-    for dev_dir in sorted(SDW_BUS.iterdir()):
+    for dev_dir in sorted(bus.iterdir()):
         match = SDW_SLAVE_RE.match(dev_dir.name)
         if match:
             man_id = match.group(1).upper()
@@ -151,6 +154,8 @@ def get_pci_audio_subsystem(
     """
     if sdw_bus is None:
         sdw_bus = SDW_BUS
+    sdw_bus = host.path(sdw_bus)
+    sound_class, proc_asound = host.path(sound_class), host.path(proc_asound)
     if sdw_bus.is_dir():
         for dev_dir in sorted(sdw_bus.iterdir()):
             result = _walk_to_pci_subsys(dev_dir)

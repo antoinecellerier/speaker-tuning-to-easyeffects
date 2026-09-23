@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lib import host
+
 DEBIAN = "debian"
 FEDORA = "fedora"
 SUSE = "suse"
@@ -257,7 +259,7 @@ def read_os_release(path=Path("/etc/os-release")) -> dict[str, str]:
     without the machine the test runs on deciding the answer.
     """
     try:
-        text = Path(path).read_text()
+        text = host.path(path).read_text()
     except OSError:
         return {}
     out = {}

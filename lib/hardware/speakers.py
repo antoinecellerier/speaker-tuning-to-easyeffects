@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
-from lib import tool_env
+from lib import host, tool_env
 from lib.data import speaker_pin_quirks
 from lib.data import speaker_route_quirks
 from lib.hardware import amps
@@ -633,6 +633,7 @@ def read_pin_config_overrides(codec_path: Path,
     machine whose kernel applies nothing reads exactly like one with an empty
     list.
     """
+    sysfs_class_sound = host.path(sysfs_class_sound)
     card = re.search(r"card(\d+)", codec_path.parent.name)
     addr = re.search(r"(\d+)$", codec_path.name)
     if not (card and addr):
@@ -806,6 +807,7 @@ def _detect_hda_speakers(info: SpeakerInfo,
                          proc_asound=Path("/proc/asound"),
                          sysfs_class_sound=Path("/sys/class/sound")):
     """Detect internal speakers from HDA codec pin configurations."""
+    proc_asound = host.path(proc_asound)
     for codec_path in sorted(proc_asound.glob("card*/codec*")):
         try:
             text = codec_path.read_text()
@@ -899,7 +901,7 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
                              name="Speaker Force Firmware Load", on=on)]
 
     gates: list[FirmwareGate] = []
-    for card_dir in sorted(Path("/proc/asound").glob("card*")):
+    for card_dir in sorted(host.path("/proc/asound").glob("card*")):
         m = re.match(r"card(\d+)$", card_dir.name)
         if not m:
             continue  # skips the /proc/asound/cards file and oddly-named dirs
@@ -973,6 +975,7 @@ def hda_model_module(uses_sof: bool,
     ``snd_sof_intel_hda_generic`` today, ``snd_sof_intel_hda_common`` before
     the generic split.
     """
+    module_root = host.path(module_root)
     if uses_sof:
         for params in sorted(module_root.glob("*/parameters/hda_model")):
             return params.parent.parent.name, "hda_model"

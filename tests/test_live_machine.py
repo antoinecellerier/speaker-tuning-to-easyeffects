@@ -1,11 +1,14 @@
-"""The real tools still say what the parsers read.
+"""The real machine still says what the parsers read — its tools, and its
+/proc, /sys and /etc.
 
 Every other test runs with this machine's tools switched off
-(`lib/tool_env.py`): the parsers are fed recorded or hand-written output, and
+(`lib/tool_env.py`) and its host files re-rooted under an empty directory
+(`lib/host.py`): the parsers are fed recorded or hand-written output, and
 nothing in a hermetic suite notices when a tool's real output drifts away from
 those fakes — a new `pw-top` column, a `pw-dump` schema change, `amixer`
-quoting a name differently. This file is the one place each tool the code
-parses runs for real, through the same function the code calls, so a drift
+quoting a name differently, a kernel reshaping the `/proc/asound` codec dump.
+This file is the one place each of those is read for real, through the same
+function the code calls, so a drift
 fails here on the developer's machine instead of reaching a user as a row that
 reads "not read".
 
@@ -20,24 +23,27 @@ Deliberately absent: `systemctl --user restart pipewire` (`install._activate`),
 which would restart the developer's audio — fakes only. `git describe` is
 never gated and runs for real in `tests/test_version.py`. `lv2info` and
 `spa-json-dump` inside `validate` and `checks.parse_conf` have their own
-`live_tools` tests beside the code they serve.
+`live_machine` tests beside the code they serve.
 """
 
 import os
+import platform
 import re
 from pathlib import Path
 
 import pytest
 
-from lib import ee_paths, packages, tool_env
+from lib import ee_paths, host, packages, tool_env
 # Bound before the autouse `no_live_easyeffects_probe` fixture patches the
 # module attribute, as tests/test_pw_doctor.py does.
 from lib.ee_socket import easyeffects_running as unpatched_ee_probe
-from lib.hardware import amps, sinks, speakers
+from lib.dax import discover
+from lib.hardware import amps, codecs, sinks, speakers
 from lib.pipewire import checks, session
 from lib.report import doctor_run
+from lib.report import speaker as report_speaker
 
-pytestmark = pytest.mark.live_tools
+pytestmark = pytest.mark.live_machine
 
 
 def _need(*tools: str) -> None:
@@ -191,6 +197,78 @@ def test_the_package_manager_still_names_an_easyeffects_candidate():
     assert major is not None and major >= 6, (fam, argv, major)
 
 
+# --- host files -----------------------------------------------------------
+
+
+def test_the_codec_dump_still_parses_into_codecs_and_speaker_pins():
+    dumps = sorted(Path("/proc/asound").glob("card*/codec#*"))
+    if not dumps:
+        pytest.skip("no HDA codec")
+    ids = codecs.get_hda_codec_ids()
+    assert ids and all(vendor and subsystem for vendor, subsystem, _ in ids), ids
+    text = "".join(dump.read_text() for dump in dumps)
+    if re.search(r"Pin Default .*\] Speaker", text):
+        info = report_speaker._gather_speaker_pins()
+        assert info.speakers, "the codec lists a speaker pin; none was parsed"
+
+
+def test_sound_cards_still_resolve_to_a_pci_subsystem():
+    if not list(Path("/sys/class/sound").glob("card*")):
+        pytest.skip("no sound card in /sys/class/sound")
+    pci = codecs.get_pci_audio_subsystem()
+    assert pci and all(re.fullmatch(r"[0-9A-F]{4}", part) for part in pci), pci
+
+
+def test_soundwire_devices_still_parse():
+    bus = Path("/sys/bus/soundwire/devices")
+    if not bus.is_dir() or not any(bus.iterdir()):
+        pytest.skip("no SoundWire devices")
+    assert codecs.get_soundwire_ids()
+
+
+def test_the_proc_asound_card_list_still_reads():
+    cards = Path("/proc/asound/cards")
+    if not cards.exists() or not cards.read_text().strip():
+        pytest.skip("no ALSA cards")
+    assert report_speaker._gather_speaker_pins().sound_cards
+
+
+def test_dmi_still_carries_the_fields_the_report_names():
+    if not Path("/sys/class/dmi/id").is_dir():
+        pytest.skip("no DMI")
+    missing = [name for _, name in report_speaker._DMI_FIELDS
+               if not (report_speaker._DMI_DIR / name).exists()]
+    assert missing == []
+
+
+def test_os_release_still_identifies_the_distro():
+    if not Path("/etc/os-release").exists():
+        pytest.skip("no /etc/os-release")
+    assert "ID" in packages.read_os_release()
+    assert report_speaker.get_distro_pretty_name()
+
+
+def test_the_kernel_release_still_reads_from_proc():
+    assert host.kernel_release() == platform.release()
+
+
+def test_proc_mounts_still_lists_a_windows_partition_that_is_mounted():
+    text = Path("/proc/mounts").read_text()
+    mounted = re.search(r"^\S+ \S+ (ntfs3?|fuseblk) ", text, re.MULTILINE)
+    found = discover._ntfs_family_mountpoints()
+    assert isinstance(found, list)
+    if mounted:
+        assert found, mounted.group(0)
+
+
+def test_module_and_firmware_trees_are_still_where_they_are_read():
+    assert Path("/sys/module").is_dir()
+    assert isinstance(amps._loaded_amp_drivers(), list)
+    if not Path("/lib/firmware").is_dir():
+        pytest.skip("no /lib/firmware")
+    assert isinstance(amps._list_firmware_files(["*"]), list)
+
+
 # A tool with no test above, and why. Everything else lib/ runs must be named
 # in this file — the guard below reads the source for the quoted name.
 _NO_LIVE_CHECK = {
@@ -249,7 +327,78 @@ def test_every_tool_lib_runs_has_a_live_check():
     missing = sorted(f"{tool} ({where})" for tool, where in tools.items()
                      if tool not in _NO_LIVE_CHECK and f'"{tool}"' not in source)
     assert not missing, (
-        "tools lib/ runs with no live_tools test in this file: "
+        "tools lib/ runs with no live_machine test in this file: "
         + ", ".join(missing))
     stale = sorted(set(_NO_LIVE_CHECK) - set(tools) - {"systemctl"})
     assert not stale, f"_NO_LIVE_CHECK names tools lib/ no longer runs: {stale}"
+
+
+# Every host location lib/ reads, and what checks it — a test above, or why
+# nothing needs to. Kept as an explicit map rather than a source search:
+# these strings also turn up in comments and printed commands.
+_HOST_LOCATIONS = {
+    "/proc/asound": "test_the_codec_dump_still_parses_into_codecs_and_speaker_pins",
+    "/proc/asound/cards": "test_the_proc_asound_card_list_still_reads",
+    "/sys/class/sound": "test_sound_cards_still_resolve_to_a_pci_subsystem",
+    "/sys/bus/soundwire/devices": "test_soundwire_devices_still_parse",
+    "/sys/class/dmi/id": "test_dmi_still_carries_the_fields_the_report_names",
+    "/etc/os-release": "test_os_release_still_identifies_the_distro",
+    "/proc/sys/kernel/osrelease": "test_the_kernel_release_still_reads_from_proc",
+    "/proc/mounts": "test_proc_mounts_still_lists_a_windows_partition_that_is_mounted",
+    "/sys/module": "test_module_and_firmware_trees_are_still_where_they_are_read",
+    "/lib/firmware": "test_module_and_firmware_trees_are_still_where_they_are_read",
+    "/lib/firmware/updates": "test_module_and_firmware_trees_are_still_where_they_are_read",
+    "/proc//stat": "test_pgrep_still_answers_for_a_running_process (process_age)",
+    "/proc/uptime": "test_pgrep_still_answers_for_a_running_process (process_age)",
+    "/var/lib/flatpak/app": "exempt: an existence check, nothing parsed",
+    "/sys/class/firmware-attributes/thinklmi/attributes/MicrophoneAccess":
+        "exempt: an existence check, nothing parsed",
+    "/etc/modprobe.d/speaker-pin-fix.conf":
+        "exempt: named in a command we print, never read",
+}
+
+
+def _host_locations_lib_names() -> set[str]:
+    """Every string in lib/ and the entry scripts that starts like a host
+    location (`host.HOST_PREFIXES`), docstrings aside; an f-string's literal
+    parts are joined, so `f"/proc/{pid}/stat"` reads as `/proc//stat`."""
+    import ast
+    root = Path(__file__).resolve().parent.parent
+    found = set()
+    for path in sorted((root / "lib").rglob("*.py")) + sorted(root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        # lib/host.py's own prefix table names where locations start, not one.
+        prefix_table = {id(element) for node in ast.walk(tree)
+                        if isinstance(node, ast.Assign)
+                        and any(getattr(target, "id", None) == "HOST_PREFIXES"
+                                for target in node.targets)
+                        for element in ast.walk(node.value)}
+        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                      if isinstance(node, (ast.Module, ast.FunctionDef,
+                                           ast.AsyncFunctionDef, ast.ClassDef))
+                      and node.body and isinstance(node.body[0], ast.Expr)
+                      and isinstance(node.body[0].value, ast.Constant)}
+        joined_parts = {id(v) for node in ast.walk(tree)
+                        if isinstance(node, ast.JoinedStr) for v in node.values}
+        for node in ast.walk(tree):
+            if id(node) in docstrings | joined_parts | prefix_table:
+                continue
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+            elif isinstance(node, ast.JoinedStr):
+                text = "".join(v.value for v in node.values
+                               if isinstance(v, ast.Constant))
+            else:
+                continue
+            if text.startswith(host.HOST_PREFIXES) and " " not in text:
+                found.add(text)
+    return found
+
+
+def test_every_host_location_lib_reads_has_a_live_check():
+    """As for tools: a new location in lib/ needs a check above, or an entry
+    in `_HOST_LOCATIONS` saying why it can't have one."""
+    names = _host_locations_lib_names()
+    assert {"/proc/asound", "/sys/class/sound", "/etc/os-release"} <= names
+    assert sorted(names - set(_HOST_LOCATIONS)) == []
+    assert sorted(set(_HOST_LOCATIONS) - names) == [], "stale entries"

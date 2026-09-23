@@ -32,7 +32,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from lib import console, doctor
+from lib import console, doctor, host
 from lib.hardware import codecs
 
 
@@ -170,7 +170,7 @@ def _unescape_proc_mount(s: str) -> str:
 def _ntfs_family_mountpoints() -> list[Path]:
     """Return mountpoints from /proc/mounts whose fstype can hold Windows."""
     try:
-        data = Path("/proc/mounts").read_text()
+        data = host.path("/proc/mounts").read_text()
     except OSError:
         return []
     mounts: list[Path] = []
