@@ -375,8 +375,9 @@ can't reach.
   `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct.
   The *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block,
   because a DAX capture falsified the `surround-boost → stereo_tools` widening
-  (design-notes entry 2). The `stereo_tools#0` translator applies to any
-  hand-edited or legacy preset that carries a `stereo_tools` block.
+  ([surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base)).
+  The `stereo_tools#0` translator applies to any hand-edited or legacy preset
+  that carries a `stereo_tools` block.
 - **`_vbe` (top-level metadata, `--enable virtual-bass` only).**
   `lib/pipewire/vbe.py` sandwiches the whole translated chain between a copy
   fan-out and a dry+wet mixer. See "No VBE by default" under limitations.
@@ -628,7 +629,7 @@ activation step's sink check and `--doctor`'s "Chains loaded" report that.
   into Calf Saturators between them. All filters run the IIR engine with no
   look-ahead, and the mixers/copies are builtin pass-throughs, so the branch
   adds zero latency. Evidence and the measured score are in
-  `docs/design-notes.md` Finding 8.
+  the [DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass).
 - **Not alongside EasyEffects.** The chain is a replacement for the EasyEffects
   preset, not an add-on. In smart-filter mode EasyEffects' own output plays into
   the very sink the chain attaches to. Everything then carries the EE preset

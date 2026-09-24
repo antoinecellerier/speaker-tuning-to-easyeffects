@@ -62,9 +62,9 @@ their question, then stop. A short section is never the defect.
 7. Bold marks at most one headline figure or warning per section, never a
    whole sentence. A bold label opening a list item, such as a
    troubleshooting symptom, is a label, not emphasis, so it is allowed.
-8. A heading names what the section holds: no verdict, no URL. Citation
-   numbers never change (`Finding N:`, `## N.`, numbered entries and
-   items), because code and other docs cite them.
+8. A heading names what the section holds: no verdict, no URL. A unit's
+   `r-` tag and a cross-device `## N.` number never change, because code
+   and other docs cite them.
 9. Each fact has one home, and other places link to it. A link replaces a
    restatement only when its target holds the fact.
 10. Judge length against the neighbours: a section longer than neighbours

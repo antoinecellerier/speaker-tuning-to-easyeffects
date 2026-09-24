@@ -34,9 +34,9 @@ line(s) and a proposed fix.
 
 Every file path, test name, script, `docs/` link, commit hash, function name,
 env var and CLI flag named in an audited file must still resolve. Run
-`tests/test_doc_refs.py`, which checks doc links, anchors, Finding/§/entry
-numbers and quoted headings, and `tests/test_layout.py`, which checks `tools/`
-paths. Verify the rest by hand:
+`tests/test_doc_refs.py`, which checks doc links, anchors, `r-` tags,
+Finding/§/entry numbers and quoted headings, and `tests/test_layout.py`, which
+checks `tools/` paths. Verify the rest by hand:
 
 - paths, files and dirs exist: `ls`, `test -e`;
 - function and symbol names exist in the scripts or `lib/`: `rg`;

@@ -875,8 +875,8 @@ Yoga's live driver key carries `DolbySlidingBass = 0`. This is the only
 per-device bass feature gate found anywhere in the corpus INFs' registry
 surface. It makes sliding bass Dolby's demonstrated pattern for gating bass
 behaviour outside the tuning XML. An implementation would face the same
-does-Windows-actually-run-it question as Virtual Bass Enhancement (design-notes
-Finding 8 deep audit).
+does-Windows-actually-run-it question as Virtual Bass Enhancement (the
+[DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass) deep audit).
 
 Sliding bass is deliberately not surfaced to users either (2026-08-04). It is
 absent from `_UNMODELED_FEATURES`, so no run mentions it, including on the 63
@@ -1039,8 +1039,10 @@ undocumented Dolby DSP internals:
   `output-mode-partial-*-virtualizer-enable` blocks were once approximated as a
   stereo widener via `surround-boost → stereo_tools`. A 2026-06 DAX capture
   showed Dolby applies no stereo widening on 2-channel content, so that mapping
-  was removed (design-notes entry 2). The advanced variant is the same
-  unreproducible spatializer one generation later.
+  was removed
+  ([surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base)).
+  The advanced variant is the same unreproducible spatializer one generation
+  later.
 
 The warning is the honest outcome. The user knows what's being dropped, and a
 future device-level investigation can wire in something better.
@@ -1169,7 +1171,8 @@ claims. Firing means the taming rationale doesn't apply, not proven squash.
 
 The default-on SoundWire `bass_enhancer` also adds harmonics on top of an amp
 that now does real bass management. This is the second field report against that
-default, after issue #29 (design-notes unvalidated-scaling entry 9).
+default, after issue #29 (the unvalidated
+[SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)).
 
 ---
 
@@ -1372,11 +1375,16 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    makes it a clean §15-matching datapoint once the XML filename is confirmed.
    The reporter's symptoms were "too bass boosted", chassis resonance and wonky
    dynamics, with the music profile better than dynamic. They drove the
-   2026-07-03 removal of two vestigial SoundWire boosts (design-notes
-   unvalidated-scaling entries 1/3). They are also the pending A/B for the
-   bass-enhancer default (entry 9 / issue #14), and a candidate second-device
-   loud capture for entries 6/11. **XML received 2026-08-27.** It was pasted
-   inline on the issue, with security key
+   2026-07-03 removal of two vestigial SoundWire boosts
+   ([dialog-enhancer gain ceiling](design-notes.md#r-dialog-enhancer-gain-ceiling),
+   [convolver headroom restore](design-notes.md#r-convolver-headroom-restore)).
+   They are also the pending A/B for the bass-enhancer default
+   ([SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)
+   / issue #14), and a candidate second-device loud capture for the
+   [MBC ratio and time constants](design-notes.md#r-mbc-ratio-time-constants)
+   and [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants).
+   **XML received 2026-08-27.** It was pasted inline on the issue, with security
+   key
    `SOUNDWIRE\SDCA_06&MAN_01FA&FUNC_3556&…&SUBSYS_1E131043&AGGREGATEDSPEAKER=…`,
    `xml_version 3.7.1`, tuned 2024-12-10. It confirms the §15 datapoint:
    `FUNC_3556` *equals* the cs35l56 part id here, unlike the Galaxy Book6
@@ -1390,5 +1398,7 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    with no steering. That is the failure mode that made the HDA leveler opt-in
    (issue #25). `--disable autogain` (008b4d6, v2026.08) did not exist when the
    reporter tested. So the `dynamic` A/B with it off is the pending ask. The DAX
-   capture still decides the bass-enhancer default (entry 9). Still pending from
-   the reporter: that A/B, the capture and the generation stdout.
+   capture still decides the bass-enhancer default
+   ([SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)).
+   Still pending from the reporter: that A/B, the capture and the generation
+   stdout.

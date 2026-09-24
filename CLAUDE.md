@@ -91,8 +91,8 @@
   curve reads as agreement. How: `.claude/rules/plots.md`.
 - **Co-locate definitions with use.** A constant or helper sits by its user,
   grouped by meaning, not piled at module top. Module-wide values are exempt.
-- **Comments and docstrings state the current fact and its why.** Cite the doc
-  that holds the evidence, such as design-notes Finding N, instead of restating
+- **Comments and docstrings state the current fact and its why.** Cite where
+  the evidence lives, such as its research unit's `r-` tag, instead of restating
   it. History belongs in git. A docstring's first line says what it does.
 - **Docs are layered**; README "Further reading" links all. `docs/reference.md`
   is the current-state reference: mappings, plugin chain, units,

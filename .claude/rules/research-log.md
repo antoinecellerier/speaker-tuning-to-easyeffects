@@ -17,7 +17,8 @@ does. The data is append-only.
 1. The heading names the subject.
    Yes: `<a id="r-smart-amp-families"></a>`, a blank line, then
    `## What counts as a smart amp, and which ones we watch for`.
-   No: `### Finding 6: Hypothesis (b) is rejected; …`.
+   No: `### Hypothesis (b) is rejected; …`, a verdict, where the subject is
+   "Testing hypotheses (a) and (b)".
 2. The first sentence is the result.
 3. A conditions line follows: device, capture or corpus, date, and the
    commit or issue.
@@ -25,7 +26,7 @@ does. The data is append-only.
    capture name, an issue, a `tools/` script, a commit.
 5. At most one paragraph of interpretation, then an `Open:` list of what
    the entry leaves unmeasured.
-6. A superseded entry keeps its place and number under a one-line banner
+6. A superseded entry keeps its place and its `r-` tag under a one-line banner
    naming what replaced it.
 7. A rejected approach gets one sentence each for the hypothesis, the
    evidence and the verdict.

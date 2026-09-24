@@ -92,34 +92,49 @@ When auditing whether EE is applying the current preset:
 - `dynamics_gap.py`: read-only, no capture. It shows why EE's per-band gain
   reduction falls short of DAX's on the same stepped battery. It separates a
   wrong MBC decode from the upstream level gap and from the regulator
-  under-engaging. It is the analysis behind the open design-notes entries 6/11.
+  under-engaging. It is the analysis behind the open questions in the
+  [MBC ratio and time constants](../../docs/design-notes.md#r-mbc-ratio-time-constants)
+  and
+  [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants).
   Re-run it when a new device's stepped captures land.
 - `leveler_curve.py`: read-only, no capture. It measures DAX's volume-leveler
   gain versus input level, as DAX-on minus DAX-off at each rung of the pink
-  ladder. The autogain constants of design-notes entries 7/10 approximate this
-  measurement. It works on a two-rung archive and says so.
+  ladder. The autogain constants of the
+  [leveler→autogain window](../../docs/design-notes.md#r-leveler-autogain-window)
+  and
+  [conservative-autogain offsets](../../docs/design-notes.md#r-conservative-autogain-offsets)
+  approximate this measurement. It works on a two-rung archive and says so.
   `tools/measure_dax/CLAUDE_WINDOWS.md` has the capture procedure for the full
   ladder.
 - `scaling_report.py`: read-only, no capture. It reproduces the named
-  scaling-campaign results from one session's EE + DAX captures: Finding 9,
-  entries 2/6/11 and q-mode. Point it at a new session with
+  scaling-campaign results from one session's EE + DAX captures: the
+  [`ieq-amount` scaling finding](../../docs/design-notes.md#r-ieq-amount-scaling),
+  the
+  [surround→stereo-base factor](../../docs/design-notes.md#r-surround-boost-stereo-base),
+  [MBC ratio and time constants](../../docs/design-notes.md#r-mbc-ratio-time-constants),
+  [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants)
+  and q-mode. Point it at a new session with
   `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another
   device.
 - `render_vbe_chain.py`: offline, no capture, no audio. It renders the issue-#14
   virtual-bass chain: LSP brick-wall band-pass → Calf Saturator → brick-wall
   post-band. It runs one `lv2apply` subprocess per stage and writes every
   intermediate plus a provenance sidecar. Its defaults reproduce the 2026-05-06
-  PoC bit-for-bit, as recorded in design-notes Finding 8.
+  PoC bit-for-bit, as recorded in the
+  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass).
 - `analyze_vbe_chain.py`: read-only, no capture. It builds harmonic tables for
   bass-burst WAVs on any labeled set of renders/captures: per-tone harmonic
   magnitudes, Δ3/Δ5/Δ7, odd/even ratio, crest factor. The metric definitions
-  match the Finding 8 investigation, so numbers stay comparable.
+  match the
+  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass)
+  investigation, so numbers stay comparable.
 - `score_vbe_chain.py`: read-only, no capture. It scores bass-burst captures
-  against a device's own DAX capture with the Finding 8 phase-2 protocol. That
-  protocol is the S metric plus the capture-runnable guard subset. The S metric
-  uses a floor clamp, ×2 overshoot ≥200 Hz and macro averaging. `--dax-capture`
-  is the reference, and `--capture LABEL=PATH` names the chains to judge.
-  `--dry-capture` anchors what doing nothing scores.
+  against a device's own DAX capture with the
+  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass)
+  phase-2 protocol. That protocol is the S metric plus the capture-runnable
+  guard subset. The S metric uses a floor clamp, ×2 overshoot ≥200 Hz and macro
+  averaging. `--dax-capture` is the reference, and `--capture LABEL=PATH` names
+  the chains to judge. `--dry-capture` anchors what doing nothing scores.
   `tests/test_score_vbe_chain.py` locks the math.
 
 ## Usage

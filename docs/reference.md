@@ -60,8 +60,8 @@ working through it.
   `gain="-4.000000"`.
 - `ieq-amount` is a percentage weight on the IEQ voicing: `scale = amount/100`.
   `10` applies the IEQ curve at 10 % on top of the audio-optimizer correction,
-  not at full depth. This `/100` reading is DAX-capture-validated (design-notes
-  Finding 9).
+  not at full depth. This `/100` reading is DAX-capture-validated (the
+  [`ieq-amount` scaling finding](design-notes.md#r-ieq-amount-scaling)).
 
 ## Input: Dolby DAX3 XML
 
@@ -103,7 +103,8 @@ the bass enhancer is SoundWire-only.
 `surround-boost` is not mapped to stereo widening. A 2026-06 DAX capture showed
 no stereo-width change on 2-channel content. It's a multichannel-virtualization
 control, dormant without a surround/object bed. Earlier versions added a Calf
-Stereo Tools widener here; see design-notes "unvalidated-scaling entry 2".
+Stereo Tools widener here; see the
+[surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base).
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}-<8 hex>.irs`
@@ -151,10 +152,12 @@ attempt". On SoundWire it ships active with gentler settings. Settings are
 always preserved so users can toggle it in the GUI.
 - `volume-leveler-out-target` -320 (1/16 dB = -20 dBFS) → -20 LUFS target. The
   SoundWire path subtracts a further 6 dB of safety headroom. That offset is
-  invented: design-notes entry 10.
+  invented:
+  [conservative-autogain offsets](design-notes.md#r-conservative-autogain-offsets).
 - `volume-leveler-amount` (0–10) → `maximum-history` window. HDA:
   `max(30 − 5·amount, 10)` s. SoundWire: `max(40 − 4·amount, 15)` s. Both
-  formulas are invented: design-notes entry 7.
+  formulas are invented:
+  [leveler→autogain window](design-notes.md#r-leveler-autogain-window).
 - `silence-threshold` = -50 dB on both paths. It is invented but field-confirmed
   in issue
   [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25),
@@ -344,8 +347,8 @@ Validated against DAX captures:
 
 | Mapping | Evidence |
 |---|---|
-| The `ieq-amount` `/100` reading | DAX capture: design-notes Finding 9, issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13) |
-| The simplified-schema `gain_l`/`gain_r` audio-optimizer: 1/16-dB units and per-channel L/R assignment | DAX capture on a second device: matches its measured Dolby on/off delta to ~0.7 dB mean (design-notes Finding 10, issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)) |
+| The `ieq-amount` `/100` reading | DAX capture: [`ieq-amount` scaling finding](design-notes.md#r-ieq-amount-scaling), issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13) |
+| The simplified-schema `gain_l`/`gain_r` audio-optimizer: 1/16-dB units and per-channel L/R assignment | DAX capture on a second device: matches its measured Dolby on/off delta to ~0.7 dB mean ([simplified-schema AO units finding](design-notes.md#r-simplified-schema-ao-units), issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)) |
 | The min-phase FIR realising the composite target | Synthetic LTI check, no DAX capture: realises it to <0.1 dB RMS |
 
 Unvalidated, the "`ieq-amount` class": these all ship by default but are
@@ -354,8 +357,10 @@ Unvalidated, the "`ieq-amount` class": these all ship by default but are
 - The surround `/20`.
 - The regulator slope/knee mappings.
 - The MBC Q15 decode.
-- The autogain window formulas and offsets (design-notes entries 7/10). The
-  −50 dB silence gate within them *is* field-confirmed and capture-measured,
+- The autogain window formulas and offsets
+  ([leveler→autogain window](design-notes.md#r-leveler-autogain-window),
+  [conservative-autogain offsets](design-notes.md#r-conservative-autogain-offsets)).
+  The −50 dB silence gate within them *is* field-confirmed and capture-measured,
   in issue
   [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25).
 
@@ -368,8 +373,8 @@ dev device's DAX bass-burst battery. On that scale 0 = identical to DAX at the
 method's noise floor, and emitting nothing scores 10.0. All cleanliness guards
 are green, with one acoustic on-device confirmation (2026-08-21). It ships
 default-off for two reasons: it was scored on one device only, and the two
-saturator constants are
-measurement-calibrated rather than XML-derived (design-notes Finding 8, issue
+saturator constants are measurement-calibrated rather than XML-derived
+([DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass), issue
 [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
 
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
@@ -377,12 +382,15 @@ Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
 scale, rather than being read as "never triggers". This is on by default since
 2026-08-11, and `--disable coupled-bands` opts out. No DAX capture confirms it,
 and none can at battery levels. The mapping only acts above ≈−5 dBFS in-band,
-where the captures do not reach. It is the default for two reasons. The
-opposite reading leaves the volmax boost feeding the brickwall untamed on the
-tunings where it fires, the failure issue
+where the captures do not reach. It is the default for two reasons. The opposite
+reading leaves the volmax boost feeding the brickwall untamed on the tunings
+where it fires, the failure issue
 [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)
 measured. And an A/B on both a one-zone and a full-band device measured the
-level cost at ≤1 dB (design-notes Finding 10 / entry 11 (f), issue
+level cost at ≤1 dB
+([simplified-schema AO units finding](design-notes.md#r-simplified-schema-ao-units)
+/ [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants) (f),
+issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
 
 ## Not implemented (and why)
@@ -420,9 +428,9 @@ level cost at ≤1 dB (design-notes Finding 10 / entry 11 (f), issue
   this opt-in under the XML-only invariant. Two saturator constants (`drive=4`,
   `blend=−10`) are measurement-calibrated against the DAX capture, not
   XML-derived. The chain is all-IIR with no look-ahead, so it adds zero latency.
-  design-notes Finding 8 holds the measured score, guards, and the on-device
-  listening result. The offline reproduction is
-  `tools/measure_ee/render_vbe_chain.py`.
+  The [DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass) holds the
+  measured score, guards, and the on-device listening result. The offline
+  reproduction is `tools/measure_ee/render_vbe_chain.py`.
 - **Always-inert / out-of-scope XML fields**: deliberately ignored. They're
   always zero/disabled on the modelled endpoints, are DSP internals with no
   EasyEffects equivalent, or concern multichannel/subwoofer routing irrelevant
