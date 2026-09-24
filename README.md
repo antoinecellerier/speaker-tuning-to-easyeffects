@@ -995,9 +995,10 @@ For the full detail, see the docs:
   every XML→parameter mapping, the plugin chain in detail, units, profile
   differences, which mappings are DAX-validated, and what's deliberately not
   implemented, and why.
-- **[docs/design-notes.md](docs/design-notes.md)** — the research log: why the
-  chain is ordered this way, the FIR cepstral construction, what was attempted
-  and rejected, and the open threads worth picking up.
+- **[docs/design-notes.md](docs/design-notes.md)** and
+  **[docs/research/](docs/research/)** — the research log: why the chain is
+  ordered this way, the FIR cepstral construction, what was attempted and
+  rejected, and the open threads worth picking up.
 - **[docs/cross-device-findings.md](docs/cross-device-findings.md)** — empirical
   analysis across ~2,800 DAX3 files: which DSP blocks are universal vs.
   device-specific. [docs/corpus.md](docs/corpus.md) describes what that
@@ -1051,12 +1052,13 @@ In-tree docs and tooling with more context:
 - [docs/reference.md](docs/reference.md) — current-state reference:
   XML→parameter mappings, the plugin chain, units, profile differences, and
   what's not implemented
-- [docs/design-notes.md](docs/design-notes.md) — research log: why the plugin
-  chain is ordered the way it is, gain-staging rationale, why autogain is
-  bypassed by default, and an empirical comparison of our generated FIR against
-  DAX3's actual response on Windows
-- [docs/research/hardware-and-drivers.md](docs/research/hardware-and-drivers.md)
-  — hardware and driver faults: kernel, codec pins, smart amps and firmware
+- [docs/design-notes.md](docs/design-notes.md) — research log index: why the
+  plugin chain is ordered the way it is, the unvalidated scaling factors, and
+  which research file holds what
+- [docs/research/](docs/research/) — the research log, one file per problem
+  class: gain-staging rationale, why autogain is bypassed by default, an
+  empirical comparison of our generated FIR against DAX3's actual response on
+  Windows, hardware and drivers, and more
 - [docs/code-organisation.md](docs/code-organisation.md) — how the two entry
   points were split into `lib/`: the module shape it landed in, and the git
   discipline that keeps `git blame -C` tracing code back through an extraction
@@ -1074,8 +1076,9 @@ In-tree docs and tooling with more context:
   conf layout, plugin coverage, and equivalence guarantees
 - [tools/measure_dax/](tools/measure_dax/) — Windows-side capture + Linux-side
   analysis scripts for measuring DAX3's actual response via WASAPI loopback.
-  They reproduce the empirical comparison in `design-notes.md` on any
-  Lenovo/ThinkPad with DAX3 installed.
+  They reproduce the empirical comparison in
+  `docs/research/measuring-against-windows.md` on any Lenovo/ThinkPad with DAX3
+  installed.
 - [tools/measure_ee/](tools/measure_ee/) — Linux-side counterpart: captures the
   live EasyEffects pipeline, with our generated preset applied, into the same
   `loopback_*.{wav,json}` schema. `tools/measure_dax/analyze.py` and
