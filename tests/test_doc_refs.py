@@ -36,17 +36,20 @@ NUMBERED = (
              rf"§(?P<n>{NUMS})",
              CROSS_DEVICE, None, r"## (\d+)\. ", r"(?i)cross-device"),
     Numbered("cross-device follow-up #N",
-             r"§\d+\s*[/,]\s*follow-ups?\s+#(?P<n>\d+)",
+             r"§\d+\s*[/,]\s*follow-ups?(?:-|\s+)#(?P<n>\d+)",
              CROSS_DEVICE, "Open follow-ups", r"(\d+)\.\s", r"(?i)cross-device"),
 )
 
 # The research log's retired numbers. Each unit now carries an `r-` tag, and
 # design-notes "Legacy numbers" maps each old number to it. `kind` is the
 # number's spelling in that table. The patterns take every spelling the
-# numbers were cited in, in any case. A cite may wrap at one line break but
-# never crosses a blank line.
+# numbers were cited in, in any case. A word and its number are joined by a
+# hyphen or by whitespace, which may wrap at one line break but never crosses
+# a blank line. With nothing between them, as in a file or function name
+# like `finding9()`, they are not a cite.
 SEP = r"[^\S\n]*\n?[^\S\n]*"
 WRAP = r"(?:[^\S\n]+\n?|\n)[^\S\n]*"
+GAP = rf"(?:-|{WRAP})"
 RETIRED_NUMS = (rf"\d{{1,2}}(?!\d)(?:{SEP}(?:/|,|and|&|–|-){SEP}"
                 r"\d{1,2}(?!\d))*")
 
@@ -54,13 +57,13 @@ Retired = namedtuple("Retired", "shape cite kind")
 
 RETIRED = (
     Retired("Finding N",
-            rf"(?i)(?<!\w)findings?(?:-|{WRAP})#?(?P<n>{RETIRED_NUMS})",
+            rf"(?i)(?<!\w)findings?{GAP}#?(?P<n>{RETIRED_NUMS})",
             "Finding"),
     Retired("scaling entry N",
-            rf"(?i)(?<![\w-])entr(?:y|ies){WRAP}\(?#?(?P<n>{RETIRED_NUMS})",
+            rf"(?i)(?<![\w-])entr(?:y|ies){GAP}\(?#?(?P<n>{RETIRED_NUMS})",
             "entry"),
     Retired("Follow-ups item N",
-            rf"(?i)(?<![\w-])follow-ups?{WRAP}(?:items?{WRAP})?#?"
+            rf"(?i)(?<![\w-])follow-ups?{GAP}(?:items?{GAP})?#?"
             rf"(?P<n>{RETIRED_NUMS})", "Follow-ups item"),
 )
 
@@ -1207,10 +1210,20 @@ def test_a_retired_number_goes_red_naming_its_tag(tmp_path):
     "entry 1", "(entry 1 (b))", "entry 1(b)", "entries 1–2", "Scaling entry 1",
     "scaling-factor entry 1", "finding 1", "Finding #1", "FINDING 1",
     "Findings-1", "Follow-up 1", "Follow-up #1", "follow-ups item 1",
-    "Follow-up item 1", "Finding\n1", "Findings\n1 and 2"])
+    "Follow-up item 1", "Finding\n1", "Findings\n1 and 2", "entry-1",
+    "entries-1/2", "Entries-1 and 2", "entry-#1", "Follow-up-1",
+    "Follow-up-#1", "follow-ups-item-1", "Follow-ups item-1"])
 def test_every_past_spelling_of_a_retired_number_goes_red(tmp_path, text):
     broken = _retired(tmp_path, f"See {text}.")
     assert len(broken) == 1 and "a retired number" in broken[0], broken
+
+
+def test_a_hyphenated_compound_cite_names_every_number(tmp_path):
+    assert _retired(tmp_path, "See entry-2 and entries-6/11.") == [
+        "docs/other.md:7: entry-2 → a retired number, and design-notes "
+        '"Legacy numbers" has no entry 2',
+        "docs/other.md:7: entries-6/11 → a retired number, and design-notes "
+        '"Legacy numbers" has no entry 6, entry 11']
 
 
 def test_a_retired_number_never_spans_a_blank_line(tmp_path):
@@ -1223,7 +1236,9 @@ def test_a_retired_number_never_spans_a_blank_line(tmp_path):
 @pytest.mark.parametrize("text", [
     "Entry 2 of the boot menu", "Menu Entry 3", "quirk catalogue entry 3",
     "pick menu entry 2", "the table entry 4", "cross-device §17 entry 3",
-    "cross-device §3 / follow-up #2", "the finding10 anchor"])
+    "cross-device §3 / follow-up #2", "cross-device §3 / follow-up-#2",
+    "the finding10 anchor", "`finding9()`", "finding10-ieq.png",
+    "the entry2 row", "menu-entry-3", "the entry-point script"])
 def test_a_number_that_is_not_a_research_unit_is_not_a_cite(tmp_path, text):
     broken = _retired(tmp_path, f"See {text}.")
     assert not [p for p in broken if "retired" in p], broken
