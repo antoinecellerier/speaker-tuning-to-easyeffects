@@ -36,7 +36,7 @@ from lib.preset.plugins import (
 
 # The schema's conventional "floored/off" magnitude: a virtual-bass subgain
 # at exactly -192 (1/16 dB) marks that sub-band disabled, the same sentinel
-# geq_maximum_range and array_20_n192 use (docs/design-notes.md Finding 8).
+# geq_maximum_range and array_20_n192 use (research `r-dax-virtual-bass`).
 VBE_SUBGAIN_OFF_RAW = -192
 
 
@@ -49,8 +49,8 @@ VBE_SUBGAIN_OFF_RAW = -192
 # no magnitude M/S rebalance and no phase decorrelation. The field is a
 # virtualization/surround-render depth control that is dormant without a
 # multichannel/object bed, not a stereo-width knob. So the faithful
-# stereo-playback behaviour is to not widen. See docs/design-notes.md,
-# unvalidated-scaling entry 2, and the trap
+# stereo-playback behaviour is to not widen. See research
+# `r-surround-boost-stereo-base`, and the trap
 # `tests/test_cli.py::test_no_stereo_widener_ever_emitted`. The converter
 # keeps `emit_stereo_tools`, in lib/pipewire/plugins.py, as a translator for
 # any preset that still carries a stereo_tools block.
@@ -99,7 +99,8 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
 
     # No stereo_tools#0 widener here: `surround-boost` is a
     # virtualization-render-depth control, dormant on 2-channel content. DAX
-    # applies no stereo widening on stereo playback (design-notes entry 2).
+    # applies no stereo widening on stereo playback (research
+    # `r-surround-boost-stereo-base`).
 
     effective_peq = peq_filters
     if "high-shelf" in disabled:

@@ -336,9 +336,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # "Brighter"/"softer" measured against ieq_balanced on the corpus
     # curves (Dolby-global) BEFORE the ieq-amount weight: detailed ≈ +4 dB
     # treble, warm ≈ −2.5 dB treble. After the corpus-universal amount=10
-    # (/100, Finding 9) that is ≈ +0.4 / −0.25 dB. The direction holds,
-    # which is all the sentence claims. The magnitude is subtle (#73), and
-    # docs/reference.md "IEQ curve → FIR" says so. Round 5: the closing
+    # (/100, research `r-ieq-amount-scaling`) that is ≈ +0.4 / −0.25 dB.
+    # The direction holds, which is all the sentence claims. The magnitude
+    # is subtle (#73), and docs/reference.md "IEQ curve → FIR" says so.
+    # Round 5: the closing
     # named a starting preset but never said what the other two are for,
     # so nobody would try them.
     if reloaded or loaded:

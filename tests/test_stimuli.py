@@ -1,7 +1,9 @@
 """Property tests for the measurement stimuli and the side/mid analysis.
 
 Locks in the generator invariants the scaling-validation capture campaign
-relies on (docs/design-notes.md, unvalidated-scaling entries 1/2/6/11):
+relies on (research `r-dialog-enhancer-gain-ceiling`,
+`r-surround-boost-stereo-base`, `r-mbc-ratio-time-constants`,
+`r-fixed-dynamics-constants`):
 levels, durations, metadata contracts, and the analyzer's widening
 readout against a synthetic known-widener input.
 """
@@ -20,7 +22,7 @@ import make_stimulus as ms  # noqa: E402
 import analyze  # noqa: E402
 
 
-# ----- speech stimulus (catalogue entry 1) -----
+# ----- speech stimulus (`r-dialog-enhancer-gain-ceiling`) -----
 
 def _active_rms_db(mono: np.ndarray) -> float:
     peak = float(np.max(np.abs(mono))) + 1e-30
@@ -54,7 +56,8 @@ def test_speech_is_deterministic():
     assert np.array_equal(a, b)
 
 
-# ----- loud stepped sine (catalogue entries 6/11) -----
+# ----- loud stepped sine (`r-mbc-ratio-time-constants`,
+# `r-fixed-dynamics-constants`) -----
 
 def test_stepped_loud_crosses_mbc_knee():
     """The loud stepped variant exists to wake the MBC out of dormancy.
@@ -68,7 +71,7 @@ def test_stepped_loud_crosses_mbc_knee():
     assert meta["segments"], "analyzer needs per-tone segment indices"
 
 
-# ----- side/mid widening readout (catalogue entry 2) -----
+# ----- side/mid widening readout (`r-surround-boost-stereo-base`) -----
 
 def _write_stim(tmp_path: Path, stereo: np.ndarray) -> Path:
     p = tmp_path / "stimulus_stereo_pink.wav"
@@ -102,7 +105,7 @@ def test_sm_skipped_for_symmetric_stimulus(tmp_path):
     assert res.sm_db is None and res.sm_delta_db is None
 
 
-# ----- absolute-level transfer (catalogue entry 8) -----
+# ----- absolute-level transfer (`r-peq-anti-clipping-trim`) -----
 
 def test_eq_raw_recovers_known_broadband_gain(tmp_path):
     """A flat −3 dB chain must read back as −3 dB in eq_gain_db_raw —

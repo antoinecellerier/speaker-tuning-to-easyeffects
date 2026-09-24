@@ -8,7 +8,7 @@ pipeline is strictly serial, so the generator only records the XML's
 (`lib/preset/build.py`), and this module turns that block into filter-graph
 nodes and links around the translated chain.
 
-Topology, measured against the DAX capture (docs/design-notes.md Finding 8):
+Topology, measured against the DAX capture (research `r-dax-virtual-bass`):
 
     input copies -+-> translated dry chain -----------------> final mix In 1
                   +-> arm 1: HP@35  -> LP@57.4 -> saturator -\
@@ -19,8 +19,8 @@ Topology, measured against the DAX capture (docs/design-notes.md Finding 8):
 Sub-band edges partition [src-freqs[0], mix-freqs[0]] geometrically over the
 arms whose subgain is above the schema's -192 "off" floor. The mix band is
 `mix-freqs` verbatim. The double HP at the mix-band edge keeps arm
-fundamentals out of the sum (guard G1 in the Finding 8 evidence). Everything
-is IIR with no look-ahead, so the branch adds zero latency.
+fundamentals out of the sum (guard G1 in the `r-dax-virtual-bass` evidence).
+Everything is IIR with no look-ahead, so the branch adds zero latency.
 
 `wrap_chain` sandwiches the translated stages: a copy fan-out becomes the
 graph input and the dry+wet mixer becomes the graph output. So
@@ -53,7 +53,8 @@ _SLOPE_X16 = 7
 _MODE_IIR = 0
 
 # Two cascaded HPs at the mix-band low edge: one x16 pass leaks enough arm
-# fundamental into the sum to fail the wet-leakage guard (Finding 8, G1).
+# fundamental into the sum to fail the wet-leakage guard
+# (`r-dax-virtual-bass`, G1).
 _MIX_HP_STAGES = 2
 
 
@@ -109,8 +110,8 @@ def _sub_band_edges(src_lo: float, mix_lo: float, arms: int) -> list[float]:
 
     For the corpus values (35, 94, two live arms) this yields the measured
     v3 edges 35 / 57.3585 / 94. The split point is an assumption, not an
-    XML field. Finding 8 measured it as non-load-bearing: an alternative
-    70 Hz edge scored within 0.03 dB.
+    XML field. Research `r-dax-virtual-bass` measured it as non-load-bearing:
+    an alternative 70 Hz edge scored within 0.03 dB.
     """
     ratio = (mix_lo / src_lo) ** (1.0 / arms)
     return [src_lo * ratio ** i for i in range(arms + 1)]

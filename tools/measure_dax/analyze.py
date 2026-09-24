@@ -207,16 +207,16 @@ class PinkResult:
     # Side/mid balance — populated only for genuinely stereo (L≠R) stimuli.
     # sm_db is the captured 10·log10(S/M) PSD ratio per bin; sm_delta_db
     # subtracts the stimulus's own S/M, i.e. the chain's net widening
-    # transfer (what stereo_tools' stereo-base mapping — design-notes
-    # catalogue entry 2 — is supposed to predict). None for L=R stimuli,
-    # where S is numerical noise.
+    # transfer (what stereo_tools' stereo-base mapping — research
+    # `r-surround-boost-stereo-base` — is supposed to predict). None for L=R
+    # stimuli, where S is numerical noise.
     sm_db: np.ndarray | None = None
     sm_delta_db: np.ndarray | None = None
     # Un-normalized capture−stimulus transfer (absolute dB, valid when
     # both capture chains are digital loopbacks at pinned unity volume).
     # The normalized eq_gain_db curves above lose broadband level, which
     # is exactly the observable for the PEQ anti-clipping trim
-    # (design-notes catalogue entry 8). None without the stimulus file.
+    # (research `r-peq-anti-clipping-trim`). None without the stimulus file.
     eq_gain_db_raw_L: np.ndarray | None = None
     eq_gain_db_raw_R: np.ndarray | None = None
 
@@ -515,8 +515,8 @@ def build_reference(xml_path: Path, profile: str, curve: str) -> Reference:
     ao_left = tuning.ao_left
     ao_right = tuning.ao_right
     # ieq-amount is a percentage (amount/100), matching the shipped
-    # converter since Finding 9; this reference must track the current
-    # default, not the old amount/10 full-weight reading.
+    # converter since research `r-ieq-amount-scaling`; this reference must
+    # track the current default, not the old amount/10 full-weight reading.
     scale = ieq_amount / 100.0
     ao_L = np.array(ao_left, dtype=float) / 16.0
     ao_R = np.array(ao_right, dtype=float) / 16.0
@@ -738,11 +738,11 @@ def process(loopback_path: Path, xml_path: Path | None,
         # All four share the pink analysis: long-term PSD ratio vs the
         # stimulus. For speech, pauses/modulation cancel in the ratio
         # since stimulus and capture carry the same envelope; the
-        # dialog-enhancer signal (catalogue entry 1) is the speech-band
-        # lift in eq_gain between a DE-on and a DE-off capture. For the
-        # stereo (L≠R) stimuli — previously skipped as unknown kinds —
-        # analyze_pink additionally emits the side/mid widening transfer
-        # (catalogue entry 2, the stereo-base mapping).
+        # dialog-enhancer signal (`r-dialog-enhancer-gain-ceiling`) is the
+        # speech-band lift in eq_gain between a DE-on and a DE-off capture.
+        # For the stereo (L≠R) stimuli — previously skipped as unknown
+        # kinds — analyze_pink additionally emits the side/mid widening
+        # transfer (`r-surround-boost-stereo-base`, the stereo-base mapping).
         stim_path = Path(sidecar.get("stimulus", {}).get("path", ""))
         if not stim_path.is_file():
             located = _resolve_resource(stim_path.name, loopback_path)

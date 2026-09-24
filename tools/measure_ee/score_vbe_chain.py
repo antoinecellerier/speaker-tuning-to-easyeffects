@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Score bass-burst captures against a device's measured DAX response
-(issue #14 — the Finding 8 phase-2 protocol, committed).
+(issue #14 — the `r-dax-virtual-bass` phase-2 protocol, committed).
 
 The exploration harness this ports scored the shipped `--enable
 virtual-bass` chain; this tool re-runs the same arithmetic on any capture
@@ -23,7 +23,7 @@ the fundamental / mud-integral guards.
 S = macro-averaged per-tone |error| in dB across the 12 scored harmonic
 cells, both sides clamped at −80 dBFS, overshoot at or above 200 Hz
 double-weighted (added mud is worse than missing sparkle). Calibration on
-the dev X1 Yoga (docs/design-notes.md Finding 8 phase 2): DAX scored
+the dev X1 Yoga (research `r-dax-virtual-bass` phase 2): DAX scored
 against its own table 0.07, doing nothing 10.01, the shipped chain ≈4.4,
 the rejected Calf BassEnhancer approximation 18.4.
 
@@ -53,7 +53,7 @@ from tools.measure_ee.analyze_vbe_chain import (  # noqa: E402
 )
 
 # The corpus-frozen XML mix band (`virtual-bass-mix-freqs` = "94,469", one
-# value across every XML measured — docs/design-notes.md Finding 8).
+# value across every XML measured — research `r-dax-virtual-bass`).
 MIX_LO, MIX_HI = 94.0, 469.0
 MUD_LO = 200.0          # above here, overshoot double-weights and G3 patrols
 FLOOR = -80.0           # capture floor clamp, both sides of every error

@@ -42,7 +42,7 @@ def make_dialog_enhancer(dialog_enhancer: dict | None) -> dict | None:
     There is no SoundWire-only variant, because the stronger *8 mapping
     plus a 4 kHz "clarity" bell it used was calibrated against the pre-#13
     chain, whose over-applied IEQ crushed the treble it was compensating
-    (see design-notes unvalidated-scaling entry 1).
+    (see research `r-dialog-enhancer-gain-ceiling`).
     """
     if not dialog_enhancer:
         return None
@@ -433,10 +433,10 @@ def make_regulator(regulator: dict | None, freqs: list[int],
 
     The reading is a hypothesis: no capture has confirmed it, because the
     levels that engage it are above what the capture battery reaches
-    (design-notes Finding 10 / unvalidated-scaling entry 11 (f)). It is the
-    default because the alternative reading, discarding the threshold, leaves
-    the volmax boost feeding the brickwall untamed on the tunings where this
-    fires, which is the exact failure issue #23 measured.
+    (research `r-simplified-schema-ao-units` / `r-fixed-dynamics-constants`
+    (f)). It is the default because the alternative reading, discarding the
+    threshold, leaves the volmax boost feeding the brickwall untamed on the
+    tunings where this fires, which is the exact failure issue #23 measured.
 
     volmax_boost lands on `input-gain` by default (issue #23) so the per-band
     compression tames the boosted low end before the brickwall;

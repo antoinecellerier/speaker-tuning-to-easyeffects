@@ -237,7 +237,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     # (mi-ieq-steering-enable), so a small static weight approximates its
     # steady-state. Full weight, an earlier amount/10 reading, over-applied
     # the IEQ and crashed the HF match to DAX by up to ~28 dB on the X1 Yoga.
-    # See docs/design-notes.md "Finding 9".
+    # See research `r-ieq-amount-scaling`.
     scale = tuning.ieq_amount / 100.0
 
     # Audio-optimizer curves in dB

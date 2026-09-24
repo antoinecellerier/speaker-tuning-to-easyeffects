@@ -1,4 +1,4 @@
-"""The committed Finding 8 phase-2 scorer (tools/measure_ee/).
+"""The committed `r-dax-virtual-bass` phase-2 scorer (tools/measure_ee/).
 
 Locks the scoring arithmetic a contributor capture will be judged by:
 the floor clamp on both sides, the x2 overshoot weight at/above 200 Hz,

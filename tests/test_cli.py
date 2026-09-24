@@ -410,10 +410,10 @@ def test_enable_autogain_marker_absent_when_leveler_disabled():
 
 
 def test_no_stereo_widener_ever_emitted():
-    """The surround→stereo_tools widening was removed (design-notes entry
-    2 — DAX applies no widening on 2-ch content). No invocation, with or
-    without --disable, should ever produce a stereo_tools stage, and
-    `stereo` is no longer a --disable choice.
+    """The surround→stereo_tools widening was removed (research
+    `r-surround-boost-stereo-base` — DAX applies no widening on 2-ch
+    content). No invocation, with or without --disable, should ever produce
+    a stereo_tools stage, and `stereo` is no longer a --disable choice.
     """
     preset, emitted = _build()
     assert "stereo_tools#0" not in preset["output"]

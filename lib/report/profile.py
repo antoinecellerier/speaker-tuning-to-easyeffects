@@ -365,8 +365,8 @@ def _print_mbc(tuning, disabled, verbose):
     elif mb_comp:
         tag = "  [unconfirmed-by-ear]" if mb_comp["group_count"] == 1 else ""
         # "on loud content": measured dormant on the -10 dBFS stimuli and
-        # only waking near -2 dBFS (design-notes, unvalidated-scaling entry
-        # 6), so the bare present tense would describe a stage that mostly
+        # only waking near -2 dBFS (research `r-mbc-ratio-time-constants`),
+        # so the bare present tense would describe a stage that mostly
         # isn't doing anything.
         print(f"\nMulti-band compressor (mbc): {mb_comp['group_count']} "
               "frequency band(s) — on loud content, evens out loud vs quiet "
@@ -462,7 +462,7 @@ def _print_regulator(tuning, disabled, verbose):
             # distort": the engagement point is whatever threshold_high the
             # tuning carries, which is not a distortion point, and the
             # realised curve is measured well short of the configured limit
-            # (design-notes, unvalidated-scaling entry 11).
+            # (research `r-fixed-dynamics-constants`).
             print("\nRegulator (per-band limiter): a protective ceiling, "
                   "band by band — steps in on loud content, at the level "
                   "this tuning sets")

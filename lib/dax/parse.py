@@ -719,11 +719,12 @@ def _parse_regulator(vlldp, constant, freqs, path):
             reg_relax = vlldp.find("regulator-relaxation-amount")
             relaxation = _int_attr(reg_relax, default=96)
             # `isolated_band` (0/1 per band) feeds the experimental
-            # `--enable coupled-bands` mapping (design-notes Finding 10 /
-            # unvalidated-scaling entry 11 (f)): a second-device capture
-            # showed DAX applying band dynamics on bands whose
-            # threshold_high is 0 dBFS but which the XML marks
-            # non-isolated. The default path ignores this field entirely.
+            # `--enable coupled-bands` mapping (research
+            # `r-simplified-schema-ao-units` / `r-fixed-dynamics-constants`
+            # (f)): a second-device capture showed DAX applying band
+            # dynamics on bands whose threshold_high is 0 dBFS but which the
+            # XML marks non-isolated. The default path ignores this field
+            # entirely.
             iso_el = reg_tuning.find("isolated_band")
             iso_val = resolve_channel_or_direct(iso_el, constant)
             isolated = parse_csv_ints(iso_val) if iso_val else None

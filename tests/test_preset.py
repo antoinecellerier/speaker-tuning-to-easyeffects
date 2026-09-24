@@ -882,7 +882,7 @@ def test_dialog_enhancer_gain_formula():
 def test_dialog_enhancer_has_no_soundwire_variant():
     """The SoundWire-only *8 mapping + 4 kHz clarity bell is removed
     (it compensated the pre-#13 over-applied-IEQ treble crush;
-    design-notes unvalidated-scaling entry 1). One mapping for all
+    research `r-dialog-enhancer-gain-ceiling`). One mapping for all
     device families, and no is_soundwire switch to reintroduce it."""
     import inspect
     assert "is_soundwire" not in inspect.signature(make_dialog_enhancer).parameters
@@ -1496,10 +1496,11 @@ def test_preset_soundwire_no_hp_falls_back_to_100hz_scope():
 
 
 # --- LOCK-IN: no surround→stereo widening is emitted ---
-# A 2026-06-13 DAX capture (design-notes entry 2) falsified the old
-# surround-boost → stereo_tools widening: DAX applies no stereo widening on
-# 2-ch content. The converter must never emit a stereo_tools stage, and
-# `make_preset` must not accept a `surround` argument.
+# A 2026-06-13 DAX capture (research `r-surround-boost-stereo-base`)
+# falsified the old surround-boost → stereo_tools widening: DAX applies no
+# stereo widening on 2-ch content. The converter must never emit a
+# stereo_tools stage, and `make_preset` must not accept a `surround`
+# argument.
 
 def test_no_stereo_tools_emitted(generated):
     preset, _ = generated
@@ -1516,7 +1517,7 @@ def test_make_preset_rejects_surround_kwarg():
 # --- LOCK-IN: convolver output-gain is always 0 ---
 # The SoundWire 50%-headroom restore (peak_db * 0.5) is removed: it was
 # calibrated against the pre-#13 chain whose 10x-over-applied IEQ inflated
-# the FIR peak it compensated (design-notes unvalidated-scaling entry 3).
+# the FIR peak it compensated (research `r-convolver-headroom-restore`).
 # The convolver must emit no gain of its own on any device family.
 
 def test_convolver_output_gain_is_zero_for_all_devices():

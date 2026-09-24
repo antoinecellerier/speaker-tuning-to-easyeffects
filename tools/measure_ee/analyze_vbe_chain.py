@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Harmonic tables for virtual-bass chain renders/captures (issue #14).
 
-Committed port of the Finding 8 analysis: per-tone harmonic magnitudes,
-Δ3/Δ5/Δ7 vs the fundamental, the 3rd-vs-2nd odd/even ratio, and crest
-factor, on any set of WAVs that played the bass-burst stimulus. The
+Committed port of the `r-dax-virtual-bass` analysis: per-tone harmonic
+magnitudes, Δ3/Δ5/Δ7 vs the fundamental, the 3rd-vs-2nd odd/even ratio, and
+crest factor, on any set of WAVs that played the bass-burst stimulus. The
 metric definitions (Hanning-windowed FFT, ±5 Hz band integration, 2.4 s
 steady-state window skipping 0.3 s at each tone edge) are kept identical
 to the 2026-05-06 investigation so numbers stay comparable across

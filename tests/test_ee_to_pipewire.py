@@ -220,8 +220,8 @@ def test_emit_stereo_tools_mode_enum_complete():
     translator might encounter in a preset must map to a Calf integer.
     The seven labels are stable (defined in StereoTools.ttl scale
     points), so this is a regression sentinel. (The converter no longer
-    emits stereo_tools — design-notes entry 2 — but the translator stays
-    for hand-edited / legacy presets.)
+    emits stereo_tools — research `r-surround-boost-stereo-base` — but the
+    translator stays for hand-edited / legacy presets.)
     """
     expected_count = 7
     assert len(EE_ST_MODE) == expected_count

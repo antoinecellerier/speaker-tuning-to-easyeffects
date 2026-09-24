@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the issue-#14 virtual-bass chain offline (design-notes Finding 8).
+"""Render the issue-#14 virtual-bass chain offline (`r-dax-virtual-bass`).
 
 Rebuilds the LSP-cascade + Calf Saturator proof-of-concept as a saved,
 re-runnable generator:
@@ -162,7 +162,8 @@ def render_dry_and_mixed(args: argparse.Namespace, final_wav: Path) -> None:
     The model boundary mirrors compare_ee_analytical.py: dynamics (autogain,
     MBC compression, limiter action) are NOT modeled — only their static
     gains as that script composes them — so the dry fundamental is whatever
-    the LTI chain gives, and Findings 4/7 say the real dynamics take more
+    the LTI chain gives, and research `r-ee-response-vs-xml` /
+    `r-xml-interpretation-hypotheses` say the real dynamics take more
     off at 50 Hz. Offline pre-screen, not a validation.
     """
     import numpy as np

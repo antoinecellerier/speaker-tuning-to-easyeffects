@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Scaling-campaign DAX-side analysis (2026-06 Windows session, post-update).
 
-Reproduces the entry 1/2/6/8/11 + q-mode + Finding-9 results from the
-DAX captures in dax_captures/ (analyze.py outputs) vs the prior Linux
+Reproduces the `r-dialog-enhancer-gain-ceiling`,
+`r-surround-boost-stereo-base`, `r-mbc-ratio-time-constants`,
+`r-peq-anti-clipping-trim`, `r-fixed-dynamics-constants`, q-mode and
+`r-ieq-amount-scaling` results from the DAX captures in dax_captures/
+(analyze.py outputs) vs the prior Linux
 EE captures in ee_captures/. Run from the repo root after staging both
 dirs (see WINDOWS_CAPTURE_RUNBOOK.md "Bring back to Linux").
 

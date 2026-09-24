@@ -447,16 +447,16 @@ def make_bass_burst(level_dbfs_peak: float,
 # ----- speech (dialog-enhancer probe) -----
 
 # DAX's dialog enhancer is speech-gated by Media Intelligence — a content
-# classifier — so pink noise cannot excite it (design-notes, unvalidated-
-# scaling entry 1: the pink pre-screen came back null/confounded). This
-# stimulus exists to trip that gate. Primary source is espeak-ng synthesis
-# (clearly speech to any classifier); when espeak-ng isn't installed we
-# fall back to LTASS-shaped noise with syllabic modulation, which may NOT
-# register as speech — the capture protocol must verify the DE-on vs
-# DE-off contrast is nonzero before drawing conclusions, whichever source
-# was used. The wav is generated once and played on both capture sides,
-# so cross-machine espeak determinism is not required; meta records the
-# source and synthesizer version for provenance.
+# classifier — so pink noise cannot excite it (research
+# `r-dialog-enhancer-gain-ceiling`: the pink pre-screen came back
+# null/confounded). This stimulus exists to trip that gate. Primary source
+# is espeak-ng synthesis (clearly speech to any classifier); when espeak-ng
+# isn't installed we fall back to LTASS-shaped noise with syllabic
+# modulation, which may NOT register as speech — the capture protocol must
+# verify the DE-on vs DE-off contrast is nonzero before drawing
+# conclusions, whichever source was used. The wav is generated once and
+# played on both capture sides, so cross-machine espeak determinism is not
+# required; meta records the source and synthesizer version for provenance.
 SPEECH_T = 12.0            # match the stationary stimuli: leveler settles ~5 s in
 SPEECH_PAUSE_S = 0.35      # inter-sentence gap when tiling the clip
 SPEECH_FADE_MS = 10.0
@@ -784,7 +784,8 @@ def main() -> None:
     # at −17.8 dBFS and +16.4 dB at −41.8 dBFS (design-notes, "Giving back what
     # normalisation removed"). Two points make a line, and our autogain's
     # target/window constants are currently chosen rather than derived
-    # (unvalidated-scaling entries 7/10) — these rungs turn that into a curve.
+    # (research `r-leveler-autogain-window`,
+    # `r-conservative-autogain-offsets`) — these rungs turn that into a curve.
     #
     # The names carry the level with no separator on purpose: the analysis
     # tooling parses `<kind>_<label>_<channel>` and treats the first
@@ -811,12 +812,14 @@ def main() -> None:
     # A −2 dBFS-peak tone (−5 dBFS RMS) crosses that knee by ~1.4 dB even at
     # unity chain gain, and engages the regulator/limiter at boosted bands
     # — intended: this variant exists to characterise the dynamics
-    # constants (catalogue entries 6/11). With −18 and −42 it spans the
+    # constants (research `r-mbc-ratio-time-constants`,
+    # `r-fixed-dynamics-constants`). With −18 and −42 it spans the
     # gain-reduction-vs-level curve.
     stereo, meta = make_stepped_sine(level_dbfs_peak=-2.0)
     write_stimulus("stimulus_stepped_loud", stereo, meta)
 
-    # speech — dialog-enhancer probe (catalogue entry 1). DE is
+    # speech — dialog-enhancer probe (research
+    # `r-dialog-enhancer-gain-ceiling`). DE is
     # speech-gated by Media Intelligence; pink can't excite it.
     stereo, meta = make_speech(level_dbfs_rms=-18.0)
     write_stimulus("stimulus_speech", stereo, meta)
