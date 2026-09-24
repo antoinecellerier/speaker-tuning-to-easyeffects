@@ -51,6 +51,40 @@ The rest of this file is being split by class into `docs/research/`.
 | What counts as a smart amp, and which ones we watch for | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
 | Swept and rejected | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 
+### Legacy numbers
+
+Commit messages, released CHANGELOG sections and issue comments cite these
+numbers, and this table is their resolver. It is frozen: no rows are added.
+
+| Old number | Tag | Heading |
+|---|---|---|
+| Finding 1 | [`r-dax-lti-behaviour`](#r-dax-lti-behaviour) | DAX3 LTI behaviour for our stimuli |
+| Finding 2 | [`r-dax-phase-response`](#r-dax-phase-response) | DAX3's phase response |
+| Finding 3 | [`r-dax-response-vs-xml`](#r-dax-response-vs-xml) | DAX3 response vs the published XML curves |
+| Finding 4 | [`r-ee-response-vs-xml`](#r-ee-response-vs-xml) | EE-on-Linux response vs the XML |
+| Finding 5 | [`r-hf-shaping-block-audit`](#r-hf-shaping-block-audit) | Audit for a missed HF-shaping XML block |
+| Finding 6 | [`r-ao-sign-variant-matrix`](#r-ao-sign-variant-matrix) | Testing hypotheses (a) and (b) |
+| Finding 7 | [`r-xml-interpretation-hypotheses`](#r-xml-interpretation-hypotheses) | Five XML-interpretation hypotheses |
+| Finding 8 | [`r-dax-virtual-bass`](#r-dax-virtual-bass) | DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping |
+| Finding 9 | [`r-ieq-amount-scaling`](#r-ieq-amount-scaling) | `ieq-amount` scaling and the HF gap (issue #13) |
+| Finding 10 | [`r-simplified-schema-ao-units`](#r-simplified-schema-ao-units) | simplified-schema AO units on a second device (issue #44) |
+| entry 1 | [`r-dialog-enhancer-gain-ceiling`](#r-dialog-enhancer-gain-ceiling) | Dialog-enhancer gain ceiling |
+| entry 2 | [`r-surround-boost-stereo-base`](#r-surround-boost-stereo-base) | Surround→stereo-base |
+| entry 3 | [`r-convolver-headroom-restore`](#r-convolver-headroom-restore) | Convolver SoundWire headroom restore |
+| entry 4 | [`r-regulator-slope-ratio`](#r-regulator-slope-ratio) | Regulator slope→ratio |
+| entry 5 | [`r-regulator-timbre-knee`](#r-regulator-timbre-knee) | Regulator timbre→knee |
+| entry 6 | [`r-mbc-ratio-time-constants`](#r-mbc-ratio-time-constants) | MBC ratio and time constants |
+| entry 7 | [`r-leveler-autogain-window`](#r-leveler-autogain-window) | Volume-leveler→autogain window |
+| entry 8 | [`r-peq-anti-clipping-trim`](#r-peq-anti-clipping-trim) | PEQ anti-clipping trim |
+| entry 9 | [`r-soundwire-bass-enhancer-constants`](#r-soundwire-bass-enhancer-constants) | SoundWire Calf BassEnhancer constants |
+| entry 10 | [`r-conservative-autogain-offsets`](#r-conservative-autogain-offsets) | Conservative-autogain offsets |
+| entry 11 | [`r-fixed-dynamics-constants`](#r-fixed-dynamics-constants) | Fixed dynamics constants |
+| Follow-ups item 1 | [`r-single-block-xml-ab`](#r-single-block-xml-ab) | Stripped-down single-block tuning XML A/B on Windows |
+| Follow-ups item 2 | [`r-hybrid-phase-matching`](#r-hybrid-phase-matching) | Match DAX's hybrid phase character |
+| Follow-ups item 3 | [`r-dax-leveler-approximation`](#r-dax-leveler-approximation) | Approximate DAX's leveler / regulator |
+| Follow-ups item 4 | [`r-fit-to-dax-capture`](#r-fit-to-dax-capture) | Empirically tune the preset to match DAX's *captured* response, not the XML's published curves |
+| Follow-ups item 5 | [`r-regulator-stress-amount`](#r-regulator-stress-amount) | `regulator-stress-amount` mapping investigated and rejected |
+
 ## Dolby's signal flow: CP → VLLDP
 
 DAX3 splits processing into two stages, which the XML reflects under
@@ -931,6 +965,8 @@ Findings 1–9 come from a ThinkPad X1 Yoga Gen 7 with a Realtek ALC287, subsyst
 the simplified schema, whose battery arrived 2026-07-30 via issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44).
 
+<a id="r-dax-lti-behaviour"></a>
+
 ### Finding 1: DAX3 LTI behaviour for our stimuli
 
 The volume leveler and regulator engage during capture and apply time-varying,
@@ -953,6 +989,8 @@ during the sweep. A clean LTI characterization of DAX3 needs either the
 leveler and regulator disabled, which Dolby Access doesn't expose, or
 continuously-stationary stimuli that give the leveler a fixed level to settle
 on. The pink stimuli do the latter.
+
+<a id="r-dax-phase-response"></a>
 
 ### Finding 2: DAX3's phase response
 
@@ -985,6 +1023,8 @@ So our generated FIR cannot match DAX3's exact phase behaviour in any profile.
 The no-added-latency constraint forces min-phase regardless of this finding.
 Minimum-phase is the right trade-off for an EQ correction filter, and we accept
 that this diverges from Dolby's choice.
+
+<a id="r-dax-response-vs-xml"></a>
 
 ### Finding 3: DAX3 response vs the published XML curves
 
@@ -1036,6 +1076,8 @@ either a Dolby-side reference or a stripped-down single-block tuning XML.
 The Music profile fits its XML target most closely, at 5–7 dB RMS. Dynamic,
 Movie and Game cluster around 7–12 dB RMS, and Voice deviates the most, at 9–10
 dB RMS.
+
+<a id="r-ee-response-vs-xml"></a>
 
 ### Finding 4: EE-on-Linux response vs the XML
 
@@ -1093,6 +1135,8 @@ the leveler can lock onto a single 47 Hz sine for 12 s, DAX sits at −14 dB vs 
 −37 dB. That 23 dB gap is much bigger than the pink-noise gap and consistent
 with leveler boost rather than steady-state EQ.
 
+<a id="r-hf-shaping-block-audit"></a>
+
 ### Finding 5: Audit for a missed HF-shaping XML block
 
 > **Superseded in part by Finding 9.** "Cannot be falsified without data
@@ -1128,6 +1172,8 @@ to one of two possibilities:
 
 Either way, hypothesis (a) cannot be falsified without data outside the XML, and
 the deterministic "XML-only filter chain" property cannot close it.
+
+<a id="r-ao-sign-variant-matrix"></a>
 
 ### Finding 6: Testing hypotheses (a) and (b)
 
@@ -1238,6 +1284,8 @@ additional reverse-engineering:
 The captures and analysis tooling under `tools/measure_dax/` are kept for future
 debugging: re-running on a new device or after a Dolby driver update is a
 one-command repeat.
+
+<a id="r-xml-interpretation-hypotheses"></a>
 
 ### Finding 7: Five XML-interpretation hypotheses
 
@@ -1458,6 +1506,8 @@ because:
 showing that the cap reading predicts the per-band improvement at the new value.
 That would distinguish "β is the right rule" from "β's +10 dB HF lift happens to
 align with DAX's HF voicing on this device."
+
+<a id="r-dax-virtual-bass"></a>
 
 ### Finding 8: DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
 
@@ -1933,6 +1983,8 @@ is `17AA380D` itself, which newer Lenovo packages still list at that tier, so
 then the finding's conclusion stands, strengthened: whatever enables VBE is not
 in any file or registry value we can read.
 
+<a id="r-ieq-amount-scaling"></a>
+
 ### Finding 9: `ieq-amount` scaling and the HF gap (issue #13)
 
 Reading `ieq-amount` as a percentage, `amount/100` instead of `amount/10`,
@@ -2058,6 +2110,8 @@ with the voicing set to Detailed and then Warm, settles it:
 - A several-dB delta would mean DAX applies the voicing *shape* at more than the
   steady-state weight (e.g. `ieq-amount` scaling only the MI-steered part), and
   the converter's variants are under-differentiated.
+
+<a id="r-simplified-schema-ao-units"></a>
 
 ### Finding 10: simplified-schema AO units on a second device (issue #44)
 
@@ -2449,6 +2503,8 @@ shipping defaults.
 | [10](#entry-10-conservative-autogain-offsets) | Conservative-autogain offsets | `volume-leveler-out-target` | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable |
 | [11](#entry-11-fixed-dynamics-constants) | Fixed dynamics constants | (none) | dormant at nominal levels (the dynamics-dormant measurement above; device-specific, see the end of entry 11); engaged on loud content |
 
+<a id="r-dialog-enhancer-gain-ceiling"></a>
+
 #### Entry 1: Dialog-enhancer gain ceiling
 
 - **Factor (generator):** `amount/16 * 6.0` dB, bell centered 2.5 kHz, Q≈0.7
@@ -2489,6 +2545,8 @@ device families share the ×6 single-bell mapping. Field evidence: issue
 ("dynamic wonky, music better"), where DE is the main dynamic-vs-music audible
 difference. Restore via git history (`2f4d0b8`) if a SoundWire speech capture
 ever shows a stronger DE.
+
+<a id="r-surround-boost-stereo-base"></a>
 
 #### Entry 2: Surround→stereo-base
 
@@ -2560,6 +2618,8 @@ byte-identical (preset-digest snapshot, now `tests/test_golden_preset.py`). Live
 mono-pink matched pre-fix within capture repeatability (~0.45 dB RMS), with
 EE−DAX pink steady at 1.35–1.67 dB RMS (Finding-9 baseline).
 
+<a id="r-convolver-headroom-restore"></a>
+
 #### Entry 3: Convolver SoundWire headroom restore
 
 - **Factor (generator):** `peak_db * 0.5`. **REMOVED 2026-07-03**: the convolver
@@ -2587,6 +2647,8 @@ reporter's regenerate-and-listen is the field check. If a SoundWire DAX capture
 ever shows DAX applying net positive gain vs OFF that our chain lacks, restore
 via git history (`2f4d0b8`).
 
+<a id="r-regulator-slope-ratio"></a>
+
 #### Entry 4: Regulator slope→ratio
 
 - **Factor (generator):** slope read `/16` (`parse_xml`), then
@@ -2598,6 +2660,8 @@ via git history (`2f4d0b8`).
   variation to fit `1/(1−slope)`. It needs a device with differing slope values
   and a bass-burst capture comparing gain-reduction-vs-level (Phase 4).
 
+<a id="r-regulator-timbre-knee"></a>
+
 #### Entry 5: Regulator timbre→knee
 
 - **Factor (generator):** timbre read `/16` (`parse_xml`), then
@@ -2608,6 +2672,8 @@ via git history (`2f4d0b8`).
   `timbre-preservation=12` (=0.75) on *every* profile, so the `−6·timbre`
   scaling has a single operating point. It needs a device whose XML carries
   `timbre≠0.75`, plus a capture (Phase 4).
+
+<a id="r-mbc-ratio-time-constants"></a>
 
 #### Entry 6: MBC ratio and time constants
 
@@ -2651,6 +2717,8 @@ agent analysis, key numbers re-verified from the converter):
 So the lever is the regulator, not the MBC ratio/threshold, which stays
 XML-derived and unchanged. See entry 11.
 
+<a id="r-leveler-autogain-window"></a>
+
 #### Entry 7: Volume-leveler→autogain window
 
 - **Factor (generator):** `max-history = 40−amount·4` / `30−amount·5`
@@ -2660,6 +2728,8 @@ XML-derived and unchanged. See entry 11.
   (see "The 2026-07 default-flip attempt").
 - **What would falsify it:** A capture of DAX's MI-steered leveler (non-LTI, so
   hard).
+
+<a id="r-peq-anti-clipping-trim"></a>
 
 #### Entry 8: PEQ anti-clipping trim
 
@@ -2696,6 +2766,8 @@ never enters the captures.
 
 Validating the `min(1, 2/Q)` *shape* still needs a wide-vs-narrow-Q second
 device.
+
+<a id="r-soundwire-bass-enhancer-constants"></a>
 
 #### Entry 9: SoundWire Calf BassEnhancer constants
 
@@ -2764,6 +2836,8 @@ steering, the #25 failure mode, while `music`, the profile he likes, has it off.
 `--disable autogain` (008b4d6) post-dates his tests, so that A/B is the round-3
 ask, and entry 10's SoundWire arm is what it exercises.
 
+<a id="r-conservative-autogain-offsets"></a>
+
 #### Entry 10: Conservative-autogain offsets
 
 - **Factor (generator):** `target = out_target − 6.0` dB,
@@ -2775,6 +2849,8 @@ ask, and entry 10's SoundWire arm is what it exercises.
   dB at −70 (see "The 2026-07 default-flip attempt").
 - **What would falsify it:** Same as entry 7: an MI-steered leveler capture
   (hard).
+
+<a id="r-fixed-dynamics-constants"></a>
 
 #### Entry 11: Fixed dynamics constants
 
@@ -3072,148 +3148,165 @@ re-reading of a field we already parsed, so "exhausted" was wrong. Item
 numbers are stable across revisions and cited elsewhere. Items are grouped by
 status, not numeric order.
 
-**Still actionable, no constraint change:**
-
-1. **Stripped-down single-block tuning XML A/B on Windows.** It remains the
-   sharpest tool for what is left: pinpointing which DAX stage carries the ~1 dB
-   HF residual and the LF/leveler behavior. Disable everything except IEQ in a
-   tuning XML and capture DAX, then add AO, then add per-band PEQ, and so on.
-   The pre-Finding-9 HF/mid gap that motivated it is now mostly closed. The risk
-   is unchanged, so weigh it against that much smaller payoff. The A/B needs
-   driver-level XML replacement, and could brick DAX on the test machine until
-   restoration. Scope it before attempting.
-
-**Closed, no constraint change — kept as a permanent finding:**
-
-5. **`regulator-stress-amount` mapping investigated and rejected.** The
-   threshold-offset mapping, tested under alignment hypothesis A, is
-   directionally falsified at 180 Hz. The item reopened 2026-06-13 under a
-   different reading.
-
-   Issue
-   [#11](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/11)
-   raised whether DAX's "tier-2" adaptive sub-models could explain part of the
-   EE-vs-DAX gap. A corpus audit across ~2,900 XMLs settled the
-   schema-prevalence side of that question:
-
-   | field | enabled / non-default in any XML |
-   |---|---|
-   | `sliding-bass-enable=1` | 5 IdeaPad-3 XMLs (all `max-gain=0`, dormant) |
-   | `volume-modeler-enable=1` | 0 |
-   | `process-optimizer-enable=1` | 0 (bands always `array_20_zero`) |
-   | `regulator-stress-amount` | non-zero on bass bands in 86% of XMLs |
-   | `regulator-overdrive` | always `0` (35,654 profile slots) |
-   | `regulator-relaxation-amount` | always `96` (13,042 profile slots) |
-
-   Of the candidates, only `regulator-stress-amount` carries live,
-   device-varying values, so it is the only one worth testing. The remainder are
-   dormant or constant across shipped tunings, so implementing them blind would
-   change zero output samples on real XMLs.
-
-   The natural mapping for `regulator-stress-amount` lowers the per-band
-   regulator threshold by `stress[i]` dB, so the limiter engages earlier on
-   stressed bands. A temporary `--enable-regulator-stress` flag wired it up
-   under alignment hypothesis A, where `stress[i]` indexes the post-grouping
-   zone i. The sign convention was stress > 0 → a tighter limiter. Validation
-   against the X1 Yoga DAX captures used a bass-burst stimulus added to
-   `tools/measure_dax/make_stimulus.py`: sustained sine tones at
-   50/80/120/180 Hz, at -5 and -25 dBFS.
-
-   The captures show:
-
-   - 180 Hz is the only diagnostic tone. The FIR + PEQ attenuate 50/80/120 Hz by
-     11-42 dB before they reach the regulator, so the regulator never engages on
-     them in either EE config. At 50 Hz the DAX side also showed a 23 dB crest
-     factor, indicating Virtual Bass Enhancement adding harmonics that
-     contaminate any regulator-only comparison.
-   - At 180 Hz, DAX captured -6.14 dBFS, EE-off -8.93 and EE-on -9.71.
-     |DAX - EE_off| = 2.79 dB and |DAX - EE_on| = 3.57 dB, so stress-on moved EE
-     *away* from DAX, not toward it.
-   - DAX's regulator engages ~19 dB of GR at 180 Hz: its loud-quiet diff is
-     1.13 dB instead of the 20 dB a dormant regulator would give. EE-on engages
-     0.78 dB. Whatever DAX is doing is an order of magnitude stronger than the
-     9 dB threshold drop our `stress=144` produces. The 1/16-dB convention may
-     be wrong, stress may not be a threshold offset at all, or DAX's bass
-     control runs through a stage we can't approximate.
-
-   **Reopened 2026-06-13 (different reading).** The dynamics-gap diagnosis
-   (entries 6/11) found the regulator under-engages on exactly bands 0–1
-   (47/141 Hz), precisely where `stress=144,144` sits. The same diagnosis found
-   DAX's effective ratio there (~2.95) far exceeds our 1.67. That points at the
-   "stress may not be a threshold offset at all" reading above. Re-test
-   `stress-amount` as an engagement / aggressiveness modifier, intensifying
-   limiting (ratio/attack) on stressed bands, which the original
-   threshold-offset experiment never tried. Queue it alongside the
-   regulator-only capture (entry 11). The `regulator-relaxation-amount`
-   companion-decode was dropped 2026-06-18: it is not XML-derivable, frozen at
-   96 corpus-wide. The 2026-07-01 re-analysis found the under-engagement is
-   static, not release-timing (entry 11).
-
-   The flag has been reverted, per CLAUDE.md "Investigation flags are
-   scaffolding". The mapping math is documented here as a permanent finding
-   rather than carried as a CLI switch future readers would feel obliged to keep
-   correct.
-
-   What remains in committed code:
-
-   - `regulator-stress-amount` is parsed into the regulator dict and printed in
-     the debug summary. It is visibility only, with no behavioural effect.
-   - `regulator-overdrive` and `regulator-relaxation-amount` are parsed,
-     printed, and on the `_UNMODELED_FEATURES` watch list. Any XML where they
-     deviate from the corpus constants (`overdrive=0`, `relaxation=96`) will
-     trigger a "report this XML" warning, so we can re-investigate if the corpus
-     assumption changes.
-   - The bass-burst stimuli (`stimulus_bass_burst.wav` /
-     `stimulus_bass_burst_quiet.wav`) ship as part of the standard measurement
-     suite. They remain a useful diagnostic for any future bass-region work,
-     even though the stress hypothesis closed.
-
-   Bigger picture, linking back to Finding 4: DAX delivers 22-30 dB more bass
-   to its regulator than our chain delivers to ours, then runs a much more
-   active regulator on top. That is the gap to close, and the stress field can't
-   reach it. Two architectural levers might:
-
-   - Less aggressive bass attenuation in the FIR/PEQ stages, so our regulator
-     sees content above its threshold. This is currently a layer-2 IEQ/AO
-     interpretation question (Findings 6 and 7).
-   - A level-dependent / VBE / leveler stage upstream of the regulator. No LSP
-     equivalent of DAX's leveler exists, so it would need custom DSP or a
-     different plugin pipeline.
-
-   Both are larger pieces of work than this follow-up's scope.
-
-   `sliding-bass-*`, `volume-modeler-*` and `process-optimizer-bands` are out of
-   scope: XML-zeroed across the corpus, they would change zero output samples on
-   shipped tunings. They are listed here so they don't get re-proposed.
-
-**Out of scope unless a constraint changes:**
-
-2. **Match DAX's hybrid phase character.** It needs a partial-linear-phase FIR,
-   which adds ~20–40 ms group delay. The no-added-latency constraint rules it
-   out, and relaxing that needs an explicit decision. The `--fir-phase=linphase`
-   flag is the upper-bound experiment for this. Finding 6 shows pure
-   linear-phase doesn't help magnitude.
-3. **Approximate DAX's leveler / regulator.** It would close the multitone-LF
-   gap and the −18 vs −42 dBFS sweep difference, at substantial RE effort.
-   Naively re-enabling EE autogain reintroduces the pumping trap (see "Why
-   autogain is bypassed by default").
-
-**Pragmatic shortcut if determinism is relaxed:**
-
-4. **Empirically tune the preset to match DAX's *captured* response,** not the
-   XML's published curves. Fit a FIR + biquad chain to the DAX pink-noise
-   capture directly. This loses the "we faithfully apply the published XML"
-   property, but produces a Linux preset that audibly matches Windows. It could
-   be opt-in via a flag so the principled path stays the default. The variant
-   matrix in Finding 6 identified per-band dB targets *under the pre-Finding-9
-   scaling*: flatten HF above ~10 kHz, soften +4 dB at 2.25 kHz, lift 5–6 kHz.
-   Those targets are obsolete, and tuning to them today would re-introduce the
-   error Finding 9 removed. A tuner now would fit against fresh post-Finding-9
-   captures, targeting the ~1 dB HF residual and the LF/leveler gap in
-   Finding 9's table.
-
 **Closed by the variant sweep (Finding 6 / 7):** listed under
 [The variant sweep](#the-variant-sweep-finding-6--7) below.
+
+<a id="r-single-block-xml-ab"></a>
+
+#### 1. Stripped-down single-block tuning XML A/B on Windows
+
+Status: still actionable, no constraint change.
+
+It remains the sharpest tool for what is left: pinpointing which DAX stage
+carries the ~1 dB HF residual and the LF/leveler behavior. Disable everything
+except IEQ in a tuning XML and capture DAX, then add AO, then add per-band PEQ,
+and so on. The pre-Finding-9 HF/mid gap that motivated it is now mostly closed.
+The risk is unchanged, so weigh it against that much smaller payoff. The A/B
+needs driver-level XML replacement, and could brick DAX on the test machine
+until restoration. Scope it before attempting.
+
+<a id="r-regulator-stress-amount"></a>
+
+#### 5. `regulator-stress-amount` mapping investigated and rejected
+
+Status: closed, no constraint change — kept as a permanent finding.
+
+The threshold-offset mapping, tested under alignment hypothesis A, is
+directionally falsified at 180 Hz. The item reopened 2026-06-13 under a
+different reading.
+
+Issue
+[#11](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/11)
+raised whether DAX's "tier-2" adaptive sub-models could explain part of the
+EE-vs-DAX gap. A corpus audit across ~2,900 XMLs settled the
+schema-prevalence side of that question:
+
+| field | enabled / non-default in any XML |
+|---|---|
+| `sliding-bass-enable=1` | 5 IdeaPad-3 XMLs (all `max-gain=0`, dormant) |
+| `volume-modeler-enable=1` | 0 |
+| `process-optimizer-enable=1` | 0 (bands always `array_20_zero`) |
+| `regulator-stress-amount` | non-zero on bass bands in 86% of XMLs |
+| `regulator-overdrive` | always `0` (35,654 profile slots) |
+| `regulator-relaxation-amount` | always `96` (13,042 profile slots) |
+
+Of the candidates, only `regulator-stress-amount` carries live,
+device-varying values, so it is the only one worth testing. The remainder are
+dormant or constant across shipped tunings, so implementing them blind would
+change zero output samples on real XMLs.
+
+The natural mapping for `regulator-stress-amount` lowers the per-band
+regulator threshold by `stress[i]` dB, so the limiter engages earlier on
+stressed bands. A temporary `--enable-regulator-stress` flag wired it up
+under alignment hypothesis A, where `stress[i]` indexes the post-grouping
+zone i. The sign convention was stress > 0 → a tighter limiter. Validation
+against the X1 Yoga DAX captures used a bass-burst stimulus added to
+`tools/measure_dax/make_stimulus.py`: sustained sine tones at
+50/80/120/180 Hz, at -5 and -25 dBFS.
+
+The captures show:
+
+- 180 Hz is the only diagnostic tone. The FIR + PEQ attenuate 50/80/120 Hz by
+  11-42 dB before they reach the regulator, so the regulator never engages on
+  them in either EE config. At 50 Hz the DAX side also showed a 23 dB crest
+  factor, indicating Virtual Bass Enhancement adding harmonics that
+  contaminate any regulator-only comparison.
+- At 180 Hz, DAX captured -6.14 dBFS, EE-off -8.93 and EE-on -9.71.
+  |DAX - EE_off| = 2.79 dB and |DAX - EE_on| = 3.57 dB, so stress-on moved EE
+  *away* from DAX, not toward it.
+- DAX's regulator engages ~19 dB of GR at 180 Hz: its loud-quiet diff is
+  1.13 dB instead of the 20 dB a dormant regulator would give. EE-on engages
+  0.78 dB. Whatever DAX is doing is an order of magnitude stronger than the
+  9 dB threshold drop our `stress=144` produces. The 1/16-dB convention may
+  be wrong, stress may not be a threshold offset at all, or DAX's bass
+  control runs through a stage we can't approximate.
+
+**Reopened 2026-06-13 (different reading).** The dynamics-gap diagnosis
+(entries 6/11) found the regulator under-engages on exactly bands 0–1
+(47/141 Hz), precisely where `stress=144,144` sits. The same diagnosis found
+DAX's effective ratio there (~2.95) far exceeds our 1.67. That points at the
+"stress may not be a threshold offset at all" reading above. Re-test
+`stress-amount` as an engagement / aggressiveness modifier, intensifying
+limiting (ratio/attack) on stressed bands, which the original
+threshold-offset experiment never tried. Queue it alongside the
+regulator-only capture (entry 11). The `regulator-relaxation-amount`
+companion-decode was dropped 2026-06-18: it is not XML-derivable, frozen at
+96 corpus-wide. The 2026-07-01 re-analysis found the under-engagement is
+static, not release-timing (entry 11).
+
+The flag has been reverted, per CLAUDE.md "Investigation flags are
+scaffolding". The mapping math is documented here as a permanent finding
+rather than carried as a CLI switch future readers would feel obliged to keep
+correct.
+
+What remains in committed code:
+
+- `regulator-stress-amount` is parsed into the regulator dict and printed in
+  the debug summary. It is visibility only, with no behavioural effect.
+- `regulator-overdrive` and `regulator-relaxation-amount` are parsed,
+  printed, and on the `_UNMODELED_FEATURES` watch list. Any XML where they
+  deviate from the corpus constants (`overdrive=0`, `relaxation=96`) will
+  trigger a "report this XML" warning, so we can re-investigate if the corpus
+  assumption changes.
+- The bass-burst stimuli (`stimulus_bass_burst.wav` /
+  `stimulus_bass_burst_quiet.wav`) ship as part of the standard measurement
+  suite. They remain a useful diagnostic for any future bass-region work,
+  even though the stress hypothesis closed.
+
+Bigger picture, linking back to Finding 4: DAX delivers 22-30 dB more bass
+to its regulator than our chain delivers to ours, then runs a much more
+active regulator on top. That is the gap to close, and the stress field can't
+reach it. Two architectural levers might:
+
+- Less aggressive bass attenuation in the FIR/PEQ stages, so our regulator
+  sees content above its threshold. This is currently a layer-2 IEQ/AO
+  interpretation question (Findings 6 and 7).
+- A level-dependent / VBE / leveler stage upstream of the regulator. No LSP
+  equivalent of DAX's leveler exists, so it would need custom DSP or a
+  different plugin pipeline.
+
+Both are larger pieces of work than this follow-up's scope.
+
+`sliding-bass-*`, `volume-modeler-*` and `process-optimizer-bands` are out of
+scope: XML-zeroed across the corpus, they would change zero output samples on
+shipped tunings. They are listed here so they don't get re-proposed.
+
+<a id="r-hybrid-phase-matching"></a>
+
+#### 2. Match DAX's hybrid phase character
+
+Status: out of scope unless a constraint changes.
+
+It needs a partial-linear-phase FIR, which adds ~20–40 ms group delay. The
+no-added-latency constraint rules it out, and relaxing that needs an explicit
+decision. The `--fir-phase=linphase` flag is the upper-bound experiment for
+this. Finding 6 shows pure linear-phase doesn't help magnitude.
+
+<a id="r-dax-leveler-approximation"></a>
+
+#### 3. Approximate DAX's leveler / regulator
+
+Status: out of scope unless a constraint changes.
+
+It would close the multitone-LF gap and the −18 vs −42 dBFS sweep difference, at
+substantial RE effort. Naively re-enabling EE autogain reintroduces the pumping
+trap (see "Why autogain is bypassed by default").
+
+<a id="r-fit-to-dax-capture"></a>
+
+#### 4. Empirically tune the preset to match DAX's *captured* response, not the XML's published curves
+
+Status: pragmatic shortcut if determinism is relaxed.
+
+Fit a FIR + biquad chain to the DAX pink-noise capture directly. This loses the
+"we faithfully apply the published XML" property, but produces a Linux preset
+that audibly matches Windows. It could be opt-in via a flag so the principled
+path stays the default. The variant matrix in Finding 6 identified per-band dB
+targets *under the pre-Finding-9 scaling*: flatten HF above ~10 kHz, soften +4
+dB at 2.25 kHz, lift 5–6 kHz. Those targets are obsolete, and tuning to them
+today would re-introduce the error Finding 9 removed. A tuner now would fit
+against fresh post-Finding-9 captures, targeting the ~1 dB HF residual and the
+LF/leveler gap in Finding 9's table.
 
 ## A tuning pinned at the gain rail: the T495 (issue #46)
 

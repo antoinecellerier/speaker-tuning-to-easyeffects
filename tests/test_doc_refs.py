@@ -45,7 +45,7 @@ NUMBERED = (
     Numbered("Follow-ups item N",
              rf"Follow-ups\s+items?\s+(?P<n>{NUMS})",
              DESIGN_NOTES, "Follow-ups to close the gap to DAX",
-             r"(\d+)\.\s", None),
+             r"#+ (\d+)\.\s", None),
     Numbered("cross-device follow-up #N",
              r"§\d+\s*[/,]\s*follow-ups?\s+#(?P<n>\d+)",
              CROSS_DEVICE, "Open follow-ups", r"(\d+)\.\s", r"(?i)cross-device"),
@@ -588,8 +588,74 @@ def check_tag_cites(source, tags):
                                "backticked `r-…` token")
 
 
-def scan(root, files):
-    """Every doc citation in `files`, relative to `root`, resolved or not."""
+# design-notes "Legacy numbers" resolves each retired number to its unit's tag.
+# The table is frozen, so its rows are listed here too.
+LEGACY_SECTION = "Legacy numbers"
+LEGACY_KINDS = {"Finding": NUMBERED[0], "entry": NUMBERED[2],
+                "Follow-ups item": NUMBERED[3]}
+LEGACY_ROWS = tuple([f"Finding {n}" for n in range(1, 11)]
+                    + [f"entry {n}" for n in range(1, 12)]
+                    + [f"Follow-ups item {n}" for n in range(1, 6)])
+LEGACY_ROW = re.compile(
+    r"\|\s*(?P<kind>Finding|entry|Follow-ups item) (?P<n>\d+)\s*"
+    r"\|\s*\[[^\]]*\]\([^)#]*#(?P<tag>[^)]*)\)\s*\|[^|]+\|\s*$")
+TABLE_RULE = re.compile(r"\|(?:\s*:?-+:?\s*\|)+")
+
+
+def check_legacy_numbers(docs, tags, expected):
+    """Each legacy row's tag sits directly above the heading of that number."""
+    doc = docs(DESIGN_NOTES)
+    span = doc.section(LEGACY_SECTION) if doc else None
+    if span is None:
+        yield Citation("legacy number", DESIGN_NOTES, 1, LEGACY_SECTION,
+                       f'no "{LEGACY_SECTION}" section')
+        return
+    seen = set()
+    lines = doc.lines[span[0]:span[1]] + [""]
+    for offset, line in enumerate(lines[:-1]):
+        number = span[0] + offset + 1
+        if (not line.startswith("|") or TABLE_RULE.fullmatch(line.strip())
+                or TABLE_RULE.fullmatch(lines[offset + 1].strip())):
+            continue
+        row = LEGACY_ROW.match(line)
+        if not row:
+            yield Citation("legacy number", DESIGN_NOTES, number, line,
+                           "write | <old number> | [tag](#r-tag) | title |")
+            continue
+        old = f"{row['kind']} {row['n']}"
+        seen.add(old)
+        yield Citation("legacy number", DESIGN_NOTES, number, old,
+                       _legacy_problem(docs, tags, row, expected))
+    for old in expected:
+        if old not in seen:
+            yield Citation("legacy number", DESIGN_NOTES, span[0] + 1, old,
+                           f'no row for {old} in "{LEGACY_SECTION}"')
+
+
+def _legacy_problem(docs, tags, row, expected):
+    old, tag = f"{row['kind']} {row['n']}", row["tag"]
+    if old not in expected:
+        return f'{old} is not a legacy number; "{LEGACY_SECTION}" is frozen'
+    if tag not in tags:
+        return f'no <a id="{tag}"> under docs/'
+    numbered = LEGACY_KINDS[row["kind"]]
+    path, line = tags[tag][0]
+    doc = docs(path)
+    heading = doc.lines[line + 1] if line + 1 < len(doc.lines) else ""
+    match = re.match(numbered.item, heading)
+    span = doc.section(numbered.section) if numbered.section else None
+    if (not match or int(match.group(1)) != int(row["n"])
+            or numbered.section and not (span and span[0] <= line < span[1])):
+        return f"{tag} sits above {heading.strip()!r}, not {old}"
+    return None
+
+
+def scan(root, files, legacy=None):
+    """Every doc citation in `files`, relative to `root`, resolved or not.
+
+    `legacy` lists the rows design-notes "Legacy numbers" must hold; None
+    skips that check.
+    """
     root = Path(root)
     known = set(files)
     directories = {parent.as_posix() for p in files
@@ -612,6 +678,8 @@ def scan(root, files):
 
     tags, citations = tag_definitions(docs, known)
     citations.extend(check_tag_definitions(tags))
+    if legacy is not None:
+        citations.extend(check_legacy_numbers(docs, tags, legacy))
     for path in sorted(filter(is_text, known)):
         try:
             text = (root / path).read_text(encoding="utf-8")
@@ -641,7 +709,8 @@ def problems(citations):
 @pytest.fixture(scope="module")
 def real_citations():
     this_file = Path(__file__).resolve().relative_to(ROOT).as_posix()
-    return scan(ROOT, [p for p in tracked_files(ROOT) if p != this_file])
+    return scan(ROOT, [p for p in tracked_files(ROOT) if p != this_file],
+                legacy=LEGACY_ROWS)
 
 
 def test_every_doc_citation_resolves(real_citations):
@@ -655,7 +724,8 @@ def test_every_doc_citation_resolves(real_citations):
 def test_every_citation_shape_still_finds_sites(real_citations):
     """Each shape still matches a site, so a dead pattern fails here."""
     found = {c.shape for c in real_citations}
-    shapes = {row.shape for row in NUMBERED + QUOTED} | {"markdown link"}
+    shapes = ({row.shape for row in NUMBERED + QUOTED}
+              | {"markdown link", "legacy number"})
     assert shapes <= found, f"no site left for: {sorted(shapes - found)}"
 
 
@@ -699,7 +769,7 @@ LINKING = ("See [the log](design-notes.md#rejected-approaches) and "
 
 
 def _tree(tmp_path, design=DESIGN, citing=CITING, linking=LINKING,
-          files=None, **research):
+          files=None, legacy=None, **research):
     tree = {"docs/design-notes.md": design, "lib/x.py": citing,
             "docs/other.md": linking, **(files or {})}
     tree.update({f"docs/research/{name}.md": text
@@ -707,7 +777,7 @@ def _tree(tmp_path, design=DESIGN, citing=CITING, linking=LINKING,
     for name, text in tree.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text, encoding="utf-8")
-    return problems(scan(tmp_path, list(tree)))
+    return problems(scan(tmp_path, list(tree), legacy))
 
 
 def test_an_intact_tree_has_no_problems(tmp_path):
@@ -855,6 +925,49 @@ def test_released_changelog_sections_are_not_read():
     text = "# Changelog\n\n## Unreleased\n\nkept\n\n## v1\n\ndropped\n"
     lines = unreleased_only(text).split("\n")
     assert len(lines) == 9 and lines[4] == "kept" and "dropped" not in lines
+
+
+LEGACY = ("## Where the research lives\n\n### Legacy numbers\n\n"
+          "| Old number | Tag | Heading |\n|---|---|---|\n"
+          "| Finding 1 | [`r-dax-lti`](#r-dax-lti) | DAX is non-LTI |\n"
+          "| entry 1 | [`r-dialog`](#r-dialog) | Dialog enhancer |\n\n")
+LEGACY_DESIGN = (DESIGN.replace("## Rejected", LEGACY + "## Rejected")
+                 .replace("### Finding 1", TAG + "### Finding 1")
+                 .replace("#### Entry 1",
+                          '<a id="r-dialog"></a>\n\n#### Entry 1'))
+LEGACY_EXPECTED = ("Finding 1", "entry 1")
+
+
+def test_an_intact_legacy_table_has_no_problems(tmp_path):
+    assert _tree(tmp_path, design=LEGACY_DESIGN, legacy=LEGACY_EXPECTED) == []
+
+
+def test_a_missing_legacy_row_goes_red(tmp_path):
+    design = LEGACY_DESIGN.replace(
+        "| entry 1 | [`r-dialog`](#r-dialog) | Dialog enhancer |\n", "")
+    assert _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED) == [
+        'docs/design-notes.md:5: entry 1 → no row for entry 1 in '
+        '"Legacy numbers"']
+
+
+def test_a_legacy_row_with_an_unknown_tag_goes_red(tmp_path):
+    design = LEGACY_DESIGN.replace("[`r-dialog`](#r-dialog)",
+                                   "[`r-dialogue`](#r-dialogue)")
+    broken = _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED)
+    assert ('docs/design-notes.md:10: entry 1 → no <a id="r-dialogue"> '
+            "under docs/") in broken
+
+
+def test_a_legacy_tag_above_another_number_goes_red(tmp_path):
+    design = LEGACY_DESIGN.replace("[`r-dialog`](#r-dialog)",
+                                   "[`r-dax-lti`](#r-dax-lti)")
+    assert _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED) == [
+        "docs/design-notes.md:10: entry 1 → r-dax-lti sits above "
+        "'### Finding 1: DAX is non-LTI', not entry 1"]
+    renumbered = LEGACY_DESIGN.replace("#### Entry 1:", "#### Entry 2:")
+    assert ("docs/design-notes.md:10: entry 1 → r-dialog sits above "
+            "'#### Entry 2: Dialog enhancer', not entry 1") in _tree(
+        tmp_path, design=renumbered, legacy=LEGACY_EXPECTED)
 
 
 @pytest.mark.parametrize("heading, slug", [
