@@ -3175,37 +3175,8 @@ status, not numeric order.
    captures, targeting the ~1 dB HF residual and the LF/leveler gap in
    Finding 9's table.
 
-**Closed by the variant sweep (Finding 6 / 7).** These stay as historical
-record; do not re-litigate them without new evidence. All are pre-Finding-9: the
-`/100` reading has since largely closed the HF residual these variants traded
-against.
-
-  - "Try `IEQ − AO`": rejected, +7–20 dB worse on every profile.
-  - "Run on the other 4 profiles": done. The HF gap is profile-independent.
-  - "Audit the XML schema for missed HF-shaping blocks": done, none found
-    (Finding 5).
-  - "Soften the HP at 100 Hz from `x2` to `x1`": the test XML's HP is XML-driven
-    (order=4 → x2), not the `make_peq_eq` filler path, so softening would
-    diverge from the deterministic mapping. The `no-HP` variant in Finding 7
-    confirms the HP is responsible for ~25 dB at 47 Hz. Removing it overshoots
-    DAX, so the HP topology is correct; only the slope might differ.
-  - "Drop a 2.25 kHz attenuation bell in `equalizer#1`": it would work as an
-    empirical fix for the +4 dB band but loses XML-determinism. Folded into
-    option 4 above.
-  - "Soft-clamp the IEQ+AO target depth (α)": Finding 7, a pareto trade. Every
-    clamp depth swaps HF residual for mid-band residual, and no setting moves
-    every band toward DAX.
-  - "Reinterpret `ieq-amount` as a +/- dB cap (β)": Finding 7, the *cleanest
-    candidate*. Every band moves toward DAX with no regression, and 19.7 kHz
-    gains +9.7 dB. It was not adopted because the 19.7 kHz gap was still 18 dB
-    after applying it. Finding 9 has since settled it: the percentage reading
-    (`/100`) achieves the down-weight through a simpler XML-grounded rule and
-    closes the residual β couldn't. Re-litigating the cap reading on top of
-    `/100` would double-count the down-weight, so it is closed, not "worth
-    revisiting".
-  - "Apply IEQ only inside a frequency window (γ)": Finding 7, a pareto trade.
-    It gives the biggest HF reduction (−10.5 dB at 19.7 kHz), but 47 Hz blows
-    out from −8 to −18 dB EE−DAX.
+**Closed by the variant sweep (Finding 6 / 7):** listed under
+[The variant sweep](#the-variant-sweep-finding-6--7) below.
 
 ## Bad sound with a perfect preset: the kernel layer below (issue #33)
 
@@ -5230,6 +5201,45 @@ re-proposed:
   label. The refusal lives at the resolver, not the renderer, so no caller can
   reach the name. Parked, if anyone asks: a flag to opt out of the redactions
   wholesale, for a reporter who would rather send the real names.
+
+## Closed follow-ups
+
+Closed groups moved from "Follow-ups to close the gap to DAX" above. Each
+leaves a one-line entry there that links here.
+
+### The variant sweep (Finding 6 / 7)
+
+**Closed by the variant sweep (Finding 6 / 7).** These stay as historical
+record; do not re-litigate them without new evidence. All are pre-Finding-9: the
+`/100` reading has since largely closed the HF residual these variants traded
+against.
+
+  - "Try `IEQ − AO`": rejected, +7–20 dB worse on every profile.
+  - "Run on the other 4 profiles": done. The HF gap is profile-independent.
+  - "Audit the XML schema for missed HF-shaping blocks": done, none found
+    (Finding 5).
+  - "Soften the HP at 100 Hz from `x2` to `x1`": the test XML's HP is XML-driven
+    (order=4 → x2), not the `make_peq_eq` filler path, so softening would
+    diverge from the deterministic mapping. The `no-HP` variant in Finding 7
+    confirms the HP is responsible for ~25 dB at 47 Hz. Removing it overshoots
+    DAX, so the HP topology is correct; only the slope might differ.
+  - "Drop a 2.25 kHz attenuation bell in `equalizer#1`": it would work as an
+    empirical fix for the +4 dB band but loses XML-determinism. Folded into
+    option 4 in "Follow-ups to close the gap to DAX" above.
+  - "Soft-clamp the IEQ+AO target depth (α)": Finding 7, a pareto trade. Every
+    clamp depth swaps HF residual for mid-band residual, and no setting moves
+    every band toward DAX.
+  - "Reinterpret `ieq-amount` as a +/- dB cap (β)": Finding 7, the *cleanest
+    candidate*. Every band moves toward DAX with no regression, and 19.7 kHz
+    gains +9.7 dB. It was not adopted because the 19.7 kHz gap was still 18 dB
+    after applying it. Finding 9 has since settled it: the percentage reading
+    (`/100`) achieves the down-weight through a simpler XML-grounded rule and
+    closes the residual β couldn't. Re-litigating the cap reading on top of
+    `/100` would double-count the down-weight, so it is closed, not "worth
+    revisiting".
+  - "Apply IEQ only inside a frequency window (γ)": Finding 7, a pareto trade.
+    It gives the biggest HF reduction (−10.5 dB at 19.7 kHz), but 47 Hz blows
+    out from −8 to −18 dB EE−DAX.
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103
 [Filter.cpp]: https://github.com/lsp-plugins/lsp-dsp-units/blob/master/src/main/filters/Filter.cpp
