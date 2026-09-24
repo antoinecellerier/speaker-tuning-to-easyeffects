@@ -446,7 +446,8 @@ deterministic target for the published XML. No default changed and no permanent
 flag was added, because the experiments closed their hypotheses rather than
 opening a new tuning surface. Closing the remaining residual further requires
 data outside the XML, such as the
-[single-block XML A/B](../design-notes.md#r-single-block-xml-ab) on Windows.
+[single-block XML A/B](measuring-against-windows.md#r-single-block-xml-ab) on
+Windows.
 
 <a id="r-dax-gap-implications"></a>
 
@@ -1068,7 +1069,7 @@ construction is touched.
 ## Closed follow-ups
 
 Closed groups moved from
-["Follow-ups to close the gap to DAX"](../design-notes.md#follow-ups-to-close-the-gap-to-dax).
+["Follow-ups to close the gap to DAX"](measuring-against-windows.md#follow-ups-to-close-the-gap-to-dax).
 Each leaves a one-line entry there that links here.
 
 <a id="r-variant-sweep"></a>
@@ -1117,11 +1118,11 @@ has since largely closed the HF residual these variants traded against.
 ## Elsewhere
 
 - The capture method and stimuli behind these units:
-  [design-notes](../design-notes.md#empirical-comparison-vs-dax3-on-windows).
+  [design-notes](measuring-against-windows.md#empirical-comparison-vs-dax3-on-windows).
 - The single-block tuning-XML A/B on Windows:
-  [design-notes](../design-notes.md#r-single-block-xml-ab).
+  [design-notes](measuring-against-windows.md#r-single-block-xml-ab).
 - The `ieq-amount` fix re-confirmed on the X1 Yoga's second DAX session:
-  [design-notes](../design-notes.md#verification-status-and-the-validation-roadmap).
+  [design-notes](measuring-against-windows.md#verification-status-and-the-validation-roadmap).
 - The equalizer rows of the plugin parameter audit, bell width among them:
   [design-notes](../design-notes.md#plugin-parameter-audit).
 - Why a sweep through DAX recovers no true linear impulse response:
