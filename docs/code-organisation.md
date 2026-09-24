@@ -30,7 +30,7 @@ It was rejected because those three root paths are quoted in:
 
 A rename buys history for the body and spends it across all of that.
 
-So the root files stay. The cost is real. Code leaving them is an
+So the root files stay and shrink. The cost is real. Code leaving them is an
 *extraction*, not a rename, so git only finds its origin with `-C`, and GitHub's
 web blame won't. The rules below exist to mitigate that.
 
@@ -44,7 +44,8 @@ web blame won't. The rules below exist to mitigate that.
   For duplication, the rule is about sequencing, not a prohibition. Collapse it
   in a commit of its own, before or after the move, never during. The reason is
   not an aversion to indirection. The collapsed version is usually the better
-  code. The real reason is name collision under motion. While code is in
+  code, and every slice that deferred one said so. The real reason is name
+  collision under motion. While code is in
   flight, "collapse the duplication" and "silently redirect where this program
   writes its files" are the same diff, under a subject line promising nothing
   changed.
@@ -103,7 +104,10 @@ web blame won't. The rules below exist to mitigate that.
   lines of 96 that it does when it shares `d498e4d` with two other modules.
   Commit granularity is not the lever. Keep the rule anyway, because a reviewer
   reading one module's move is better served than one reading three. The next
-  rule *is* a lever: splitting each slice into a seed and a trim.
+  rule *is* a lever: splitting each slice into a seed and a trim. The theory
+  against it was that one commit removing the lines and adding them under
+  `lib/` is the shape `-C` looks for, so a separate copy commit buys nothing.
+  Measured, it buys nearly all of it.
 - **Fan out, then trim**: two commits per slice, and the mechanic the rest of
   this section leans on. The *seed* adds every path the slice creates, each
   holding a byte-identical copy of the root script it comes from, and touches
@@ -114,8 +118,8 @@ web blame won't. The rules below exist to mitigate that.
   added lines against an 8,000-line file that shrank in the same commit. Git
   solves it winner-takes-all and unpredictably, as the table below shows. An
   exact-content pairing is decided by blob hash instead and cannot fail. Storage
-  is not a consideration, because identical seeded paths are one blob under
-  several names.
+  is not a consideration: the three paths `330d351` seeded share the root
+  script's blob, one blob under four names.
 
   The seed is deliberately *not* `git rm`-then-copy. Deleting the root script
   first scores marginally better, with 100% of moved lines traced against 97%.
@@ -196,7 +200,8 @@ web blame won't. The rules below exist to mitigate that.
   so it answers "where did this file come from", not "who wrote this function".
   `git log -C` still stops, because `-C` annotates a diff and only `--follow`
   walks a path across a rename or copy. The pickaxe stays the precise route from
-  a line in `lib/` to its origin: `git log -S` on the line itself.
+  a line in `lib/` to its origin: `git log -S` on the line itself. The seed
+  took `--follow` from misleading to merely coarse.
 
   What the seed actually fixes is variance, not a uniform deficit. Flat
   extraction is not always bad. `lib/hardware/speakers.py` traced 712 of 759
@@ -222,8 +227,8 @@ web blame won't. The rules below exist to mitigate that.
 - **Re-anchor `__file__`-relative paths when they move.** `lib/version.py`'s
   `Path(__file__).resolve().parent` works, because git walks up to find the
   checkout. The shared anchor for anything deeper exists: `lib/paths.py`'s
-  `REPO_ROOT`. Nothing resolves through it today. The check it was built for,
-  `tools/measure_pw/validate_conf.py`, runs in process against
+  `REPO_ROOT` (`63449ef`). Nothing resolves through it today. The check it was
+  built for, `tools/measure_pw/validate_conf.py`, runs in process against
   `lib.pipewire.validate` and needs no path at all. The scripts under `tools/`
   keep their own walk-ups, because they insert the result into `sys.path` before
   any `lib` import can happen. Route the next such path through `REPO_ROOT`
@@ -232,16 +237,16 @@ web blame won't. The rules below exist to mitigate that.
   drag the package in behind any single import and hand every future module a
   ready-made cycle. `tests/test_layout.py` enforces this.
 
-`tools/check_move_purity.py` mechanises the first of those rules. It reads a
-commit's diff and asserts a subset relation: every line the commit adds under
-`lib/` must appear verbatim among the lines it removed from the root scripts.
-Three kinds of added line are exempt, because a freshly extracted module cannot
-avoid them. Two are its module docstring and its top-level import block, both
-located with `ast` rather than guessed at from where prose seems to end. The
-third is blank lines, which carry no provenance. Everything else, such as a new
-comment, an `__all__` or a re-indented body, is reported with file, line and
-text. A violation that differs from a removed line by whitespace alone says so,
-since that is invisible in a diff and still fatal to `-C`. The reverse
+`tools/check_move_purity.py` (`1e414de`) mechanises the first of those rules. It
+reads a commit's diff and asserts a subset relation: every line the commit adds
+under `lib/` must appear verbatim among the lines it removed from the root
+scripts. Three kinds of added line are exempt, because a freshly extracted
+module cannot avoid them. Two are its module docstring and its top-level import
+block, both located with `ast` rather than guessed at from where prose seems to
+end. The third is blank lines, which carry no provenance. Everything else, such
+as a new comment, an `__all__` or a re-indented body, is reported with file,
+line and text. A violation that differs from a removed line by whitespace alone
+says so, since that is invisible in a diff and still fatal to `-C`. The reverse
 direction, source lines that never reappear under the target, is deletion rather
 than motion. It is printed and never fails the run. The tool checks `HEAD`, a
 named commit, `--staged` or `--worktree`, and the staged check is the gate to

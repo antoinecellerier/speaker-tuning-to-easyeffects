@@ -15,21 +15,23 @@ Audio → Convolver → [Bass Enh.] → Equalizer → Dialog EQ
 
       → Autogain → MB Compressor → Regulator → Limiter → Speaker
         leveler      dynamics      per-band    brickwall
-        (bypassed)                 limiter     −1 dBFS
+      (bypassed on HDA)            limiter     −1 dBFS
 ```
 
 A `Stereo Tools` M/S widener mapped from `surround-boost` sat after the bass
-enhancer until its removal in 2026-06. DAX applies no stereo widening on 2-ch
-content. See the
+enhancer until its removal in 2026-06. On the one device captured (2026-06-13),
+DAX applied essentially no stereo widening to 2-channel content. See the
 [surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base).
 
 `docs/design-notes.md` "Plugin chain order" has the rationale for the stage
 order. The bass enhancer is emitted only for SoundWire devices, and autogain
-ships bypassed. The stages run inside the EasyEffects process, which sits in the
-PipeWire graph as a filter node. All are LV2 plugins except autogain, which is
-EE-native (libebur128). `ee_to_pipewire.py` translates a non-bypassed autogain
-to LSP `autogain_stereo`, the LV2 loudness-AGC equivalent, so it can reproduce
-every stage of the EE chain.
+ships bypassed on HDA and active on SoundWire. The stages run inside the
+EasyEffects process, which sits in the PipeWire graph as a filter node. All are
+LV2 plugins except the convolver and autogain, which are EE-native: the
+convolver wraps zita-convolver and autogain uses libebur128. `ee_to_pipewire.py`
+maps the convolver onto PipeWire's builtin convolver and translates a
+non-bypassed autogain to LSP `autogain_stereo`, the LV2 loudness-AGC equivalent,
+so it can reproduce every stage of the EE chain.
 
 ## Option 1: Intel SOF DSP — IIR EQ on the playback path
 
@@ -65,6 +67,8 @@ the 1024-byte blob.
   best biquad fits measured ~11–16 dB peak and ~1.6–2 dB RMS error against the
   20-band composite target. The comparison table is in
   [Parametric-EQ approximation of the IEQ curve](research/eq-and-frequency-response.md#r-parametric-eq-approximation).
+  They were fitted to the full-weight IEQ target from before the `ieq-amount`
+  fix, so they overstate today's gap.
 - **Multiband compressor / regulator / autogain**: the generic HDA topology
   doesn't load DRC modules.
 
@@ -125,7 +129,7 @@ The script could gain a `--sof-peq` option that:
    applied twice.
 
 The remaining EasyEffects preset would drop only the offloaded speaker-PEQ
-equalizer. It would keep every other stage: convolver, stereo tools, dialog EQ,
+equalizer. It would keep every other stage: convolver, dialog EQ,
 autogain, MBC, regulator and limiter, plus the bass enhancer on SoundWire.
 
 ## Option 2: Custom SOF topology with FIR EQ and DRC
@@ -269,8 +273,11 @@ context.modules = [
 - **Startup via systemd**: run `pipewire -c filter-chain.conf` as a user
   service, or drop the config into `~/.config/pipewire/filter-chain.conf.d/`.
 - **Lower memory**: no LV2 host, no UI toolkit.
-- **Same audio quality**: uses the same SPA DSP primitives that EasyEffects
-  uses.
+- **Same audio, as measured**: it loads the same LSP and Calf LV2 plugins
+  EasyEffects wraps, with PipeWire's builtin convolver in place of EasyEffects'
+  own and LSP `autogain_stereo` in place of its native autogain. The converted
+  chain measures equivalent to live EasyEffects on the dev device at 48 kHz
+  ([equivalence](ee-to-pipewire.md#equivalence-to-the-ee-chain)).
 
 ### Limitations
 
@@ -291,7 +298,8 @@ complete `.conf` file instead of, or in addition to, EasyEffects presets.
 hand-converted this script's `Dolby-Music-Balanced.json` output into a working
 PipeWire `filter-chain` config, `99-dolby-music.conf`. It uses LSP LV2 plugins
 (`mb_compressor_stereo`, `limiter_stereo`) and the same `.irs` files. Two
-patterns are worth borrowing if anyone implements `--pipewire-filter-chain`:
+patterns were judged worth borrowing for a `--pipewire-filter-chain` flag;
+`ee_to_pipewire.py`, built instead of that flag, has neither:
 
 - **4-speaker upmix from a stereo source.** The Yoga Slim 7x has four speakers
   the EasyEffects path can't drive. Their output node declares
@@ -307,7 +315,7 @@ patterns are worth borrowing if anyone implements `--pipewire-filter-chain`:
   [AsahiLinux/asahi-audio](https://github.com/AsahiLinux/asahi-audio) also uses
   it. It is a reasonable LV2-land substitute for Dolby's `bass-extraction`
   block. That block is universally `enable=0` in the corpus
-  (cross-device-findings.md §14) but matters for laptops with small drivers.
+  (cross-device-findings.md §14).
 
 The MBC band parameters they encode in the `.conf` round-trip exactly with this
 script's JSON output as of the 4-decimal precision fix in commit `6e72dd0`.
@@ -325,7 +333,7 @@ file's broader "alternative pipelines" trade-off discussion.
 script:** doubling the emit surface inside `dolby_to_easyeffects.py` means
 every future precision/feature fix has to land twice, with a silent-divergence
 risk. A separate tool keeps that cost at zero for users on the EasyEffects
-path, who are the majority.
+path.
 
 ## Option 4: Hybrid — SOF DSP for PEQ + filter-chain for the rest
 

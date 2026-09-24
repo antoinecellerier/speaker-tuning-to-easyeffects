@@ -63,8 +63,10 @@ itself:
 </threshold_high>
 ```
 
-This second SoundWire schema-variant surfaced in the 2483-XML re-derivation. It
-sits in the regulator block rather than the audio optimizer.
+This schema variant surfaced in the 2483-XML re-derivation. It is the second the
+parser handles, after the HDA
+[simplified schema](eq-and-frequency-response.md#r-simplified-schema-gain-arrays),
+and it sits in the regulator block rather than the audio optimizer.
 
 This is the same per-channel shape as the audio optimizer's `ch_00`/`ch_01`,
 resolved through the identical `value=`/`preset=` mechanism. The flat
@@ -89,10 +91,11 @@ This `ch_00`→`threshold_high` reading rests on **exactly one corpus device**. 
 second device with the schema exists to cross-check. The reading has not been
 verified on the hardware. Scope was re-derived with `corpus_audit`'s
 `threshold_schema` classifier: 9 profiles / 1 device carry the dropped form, and
-33,113 other reg-enabled internal_speaker profiles use the flat form and are
-untouched. DSO and the advanced virtualizer for this device remain unmodeled
-(see cross-device-findings §14), so its preset is still incomplete. The
-regulator fix closes the most dangerous gap, not all of them.
+33,113 other reg-enabled internal_speaker profiles on that 2483-XML cohort use
+the flat form and are untouched (36,620 on the 2795-XML cohort,
+cross-device-findings §12). DSO and the advanced virtualizer for this device
+remain unmodeled (see cross-device-findings §14), so its preset is still
+incomplete. The regulator fix closes the most dangerous gap, not all of them.
 
 <a id="r-gain-staging-budget"></a>
 
@@ -236,9 +239,15 @@ and the +6 dB boost is pure brickwall drive on loud content. It was reported as
 "degrades the sound dramatically", though confounded with bass-enhancer and
 regulator disables in the same run (cross-device-findings §15 addendum). The
 generator prints a heads-up pointing at `--disable volmax` when volmax rides a
-regulator whose bands are all threshold ≥ 0 dB. The corner is common, not
-exotic: roughly 1 in 7 default runs corpus-wide, half the corpus counting voice
-profiles. The prevalence sweep and methodology are in the §15 addendum.
+regulator whose bands are all threshold ≥ 0 dB and the coupled-bands mapping
+limits no zone. Before coupled-bands became the default on 2026-08-11, the
+corner was common, not exotic: roughly 1 in 7 default runs corpus-wide, half the
+corpus counting voice profiles. The prevalence sweep and methodology are in the
+§15 addendum. Under the coupled-bands default, such a tuning gets a full-band
+0 dBFS limiter ([fixed dynamics constants](#r-fixed-dynamics-constants) (f)),
+and the heads-up fires on no default run: 0 of 897 unique corpus tunings,
+against 137 under the pre-flip condition (ad-hoc `parse_xml` sweep, first
+profile, 2026-09-24).
 
 ### Why the PEQ `output-gain` stays a single global `max(L,R)` (not per-channel)
 
@@ -251,8 +260,8 @@ Every corpus file is an `internal_speaker` per-speaker acoustic correction. The
 L and R curves legitimately differ where the two physical speakers do. The
 2483-XML re-derivation surfaced this as real per-channel divergence in the
 *peak* boost (`corpus_audit`'s L/R peak-asymmetry tally, 2026-06-17): 131
-profiles / 10 devices, all on Lenovo convertible/AIO SKUs (ALC257/287), never
-the symmetric clamshells. It splits cleanly:
+profile rows / 10 devices, all on Lenovo convertible/AIO SKUs (ALC257/287),
+never the symmetric clamshells. It splits cleanly:
 
 - ~119 are matched-filter ~1 dB gain trims (median 1.0 dB), ordinary per-speaker
   HF correction.
@@ -452,10 +461,10 @@ How DAX gets there:
 
 **Decision.** This is still not a default flip on its own. The xml-derivability
 bar is two devices, and this is one, while #23's evidence for `input-gain` is a
-listener verdict with no DAX capture behind it. This one is the first DAX
-loud-bass ground truth anywhere in the project. It does settle the round-3
-dichotomy: "our staging is wrong on this tuning" wins over "the tuning asks for
-this and Windows sounds the same".
+listener verdict with no DAX capture behind it. This one is the first loud-bass
+DAX capture with an `off` counterpart, and the first from a second device. It
+does settle the round-3 dichotomy: "our staging is wrong on this tuning" wins
+over "the tuning asks for this and Windows sounds the same".
 
 The dev X1 Yoga cannot serve as the second device on this stimulus. The check
 (2026-08-25) used its own 2026-05-06 DAX capture, which is Dynamic only. `off`
@@ -485,24 +494,31 @@ predictor above becomes the fix.
 
 The reporter also observed that Windows is far louder with Dolby on than off,
 while the Linux preset barely changes level. That is the leveler's +8.2 dB loud
-/ +21.8 dB quiet makeup measured in the
+/ +21.8 dB quiet makeup (broadband pink RMS) measured in the
 [simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units).
-It is `--enable autogain` / `--enable level-restore` territory, not this
-subsection's, and was raised with the reporter in the same thread.
+As a 100 Hz–10 kHz mean it is +9.13 / +25.25 dB
+([level-restore](#r-level-restore)). It is `--enable autogain` /
+`--enable level-restore` territory, not this subsection's, and was raised with
+the reporter in the same thread.
 
 <a id="r-deep-threshold-distortion"></a>
 
 ## Second deep-threshold tuning: issue #84's Yoga Slim 7 Pro 14ACH5 (2026-08-30)
 
-On this tuning the regulator engages at ordinary level, as on #44, and the
-distortion it adds measures 1–2 %: grit on paper, not crackle. The report was
-"constant crackle on every preset" on a Yoga Slim 7 Pro 14ACH5: 82MS, ALC287
-`17AA384F`, full schema, no Dolby MBC in the XML. Its regulator is the #44
-class: nine active bands 47–1313 Hz, deepest −29.8 dB at 469 Hz,
-`distortion-slope` 1.0 → 100:1, and volmax +5.1 dB on the input. So before the
-reporter's own A/B came back, this XML went through the same EE → null-sink
-route as the #44 sweep above. It was built with `--prefix` beside the dev
-machine's presets. `tools/measure_ee/sweep_variants.sh` takes a `STIMULI`
+> The crackle in this report is explained by EasyEffects running the preset
+> +11.8 dB hot at the reporter's 192 kHz graph
+> ([resample gain](easyeffects-and-pipewire.md#r-convolver-resample-gain)). The
+> captures below still bound what our DSP adds on this XML.
+
+On this tuning the regulator engages on ordinary −18 dBFS pink and on a −5 dBFS
+bass burst, as on #44, and the distortion it adds measures 0.4–2.2 %: grit on
+paper, not crackle. The report was "constant crackle on every preset" on a Yoga
+Slim 7 Pro 14ACH5: 82MS, ALC287 `17AA384F`, full schema, no Dolby MBC in the
+XML. Its regulator is the #44 class: nine active bands 47–1313 Hz, deepest −29.8
+dB at 469 Hz, `distortion-slope` 1.0 → 100:1, and volmax +5.1 dB on the input.
+So before the reporter's own A/B came back, this XML went through the same EE →
+null-sink route as the #44 sweep above. It was built with `--prefix` beside the
+dev machine's presets. `tools/measure_ee/sweep_variants.sh` takes a `STIMULI`
 subset, so the battery was `bass_burst`, `multitone`, `speech` and `pink`. Three
 variants ran:
 
@@ -542,8 +558,8 @@ could not see one either. Hence the `=== PipeWire ===` section (output sink,
 clock, dropouts), added the same day. A three-rung split is drafted for the
 reporter: EasyEffects bypass → quit EasyEffects → the linear rebuild, each with
 a GUI and a terminal route. If the linear build is what clears it, that is a
-second listener saying our regulator is audible. It is not yet the second DAX
-attack curve the regulator attack-time question (the
+second listener saying our regulator and volmax boost are audible. It is not yet
+the second DAX attack curve the regulator attack-time question (the
 [fixed dynamics constants](#r-fixed-dynamics-constants)) is parked on, since the
 two flags also remove the thresholds, ratio and boost.
 
@@ -701,8 +717,10 @@ constants, unlike the MBC's Q15 coeffs, so timing is invented by necessity. Two
 currently-ignored regulator fields might inform the engagement.
 
 - (d) Re-examine `regulator-stress-amount` as an engagement/aggressiveness
-  modifier, not a threshold offset. It's the only per-device-varying regulator
-  field. On `dynamic` it's `144,144,0,…`, non-zero on exactly the
+  modifier, not a threshold offset. Of the top-level `regulator-*` fields the
+  converter leaves unmapped, it's the only one that varies per device. Inside
+  `regulator-tuning`, `threshold_low` and `isolated_band` (f) vary too. On
+  `dynamic` it's `144,144,0,…`, non-zero on exactly the
   under-engaging bands 0–1 (47/141 Hz). The
   [`regulator-stress-amount` follow-up](#r-regulator-stress-amount) holds the
   case for this framing. It is untested and could both explain DAX and stay
@@ -730,11 +748,11 @@ currently-ignored regulator fields might inform the engagement.
   before the brickwall. The iso=0 scoping is a conservative gating choice, not
   established causation. The flip knowingly did not clear the
   second-device-capture bar in `.claude/rules/xml-derivability.md`. No capture
-  can reach it (see the scope-honesty note below). Two things replaced that bar.
-  A two-device software A/B (below) bounds the audible cost. The other is the
-  argument that the opposite reading, discarding a stated 0 dBFS threshold,
-  leaves the volmax boost feeding the brickwall untamed on exactly the tunings
-  where this fires, which is the failure #23 measured.
+  in the −18 dBFS battery can reach it (see the scope-honesty note below). Two
+  things replaced that bar. A two-device software A/B (below) bounds the audible
+  cost. The other is the argument that the opposite reading, discarding a stated
+  0 dBFS threshold, leaves the volmax boost feeding the brickwall untamed on
+  exactly the tunings where this fires, which is the failure #23 measured.
 
   **Corpus-swept same day** (36,371 regulator profiles / 913 devices through the
   real parse + both regulator modes): zero crashes and zero default-output
@@ -827,7 +845,8 @@ the one level both were measured. That also gives the volmax-slot question a
 second device pointing the opposite way to #23; see
 [Why bypass has more bass than the preset](#r-deep-threshold-bass-loss). Round 4
 of that section measured DAX's own limiter on a −5 dBFS bass burst. The onset
-passes at full static gain (0 dBFS peak, the first ~3 ms clipped), and the
+passes at full static gain (0 dBFS peak, every clipped sample in the first
+2–5.5 ms of a burst), and the
 reduction settles over ~100–150 ms. That is the first direct measurement of a
 DAX limiter time constant, and it puts this entry's 1 ms attack about two orders
 of magnitude too fast on deep bass.
@@ -836,7 +855,9 @@ of magnitude too fast on deep bass.
 
 ## `regulator-stress-amount` mapping investigated and rejected
 
-Status: closed, no constraint change — kept as a permanent finding.
+Status: the threshold-offset mapping is rejected and kept as a permanent
+finding, with no constraint change. The engagement-modifier reading, reopened
+2026-06-13, is untested and queued with the regulator-only capture.
 
 The threshold-offset mapping, tested under alignment hypothesis A, is
 directionally falsified at 180 Hz. The item reopened 2026-06-13 under a
@@ -845,8 +866,8 @@ different reading.
 Issue
 [#11](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/11)
 raised whether DAX's "tier-2" adaptive sub-models could explain part of the
-EE-vs-DAX gap. A corpus audit across ~2,900 XMLs settled the
-schema-prevalence side of that question:
+EE-vs-DAX gap. A corpus audit across ~2,900 XMLs (2026-05-06, `4425a6e`)
+settled the schema-prevalence side of that question:
 
 | field | enabled / non-default in any XML |
 |---|---|
@@ -856,6 +877,13 @@ schema-prevalence side of that question:
 | `regulator-stress-amount` | non-zero on bass bands in 86% of XMLs |
 | `regulator-overdrive` | always `0` (35,654 profile slots) |
 | `regulator-relaxation-amount` | always `96` (13,042 profile slots) |
+
+> Re-derived 2026-09-24 over the grown corpus: `volume-modeler-enable` and
+> `process-optimizer-enable` are still 0 on every row, `regulator-overdrive` 0
+> and `regulator-relaxation-amount` 96 on every slot. Sliding bass does not
+> fit its row: it is enabled with real gain on 63 devices of the 2795-XML
+> corpus (2026-08-03, unchanged 2026-09-24;
+> [cross-device §14](../cross-device-findings.md#band-a--has-parameters-so-implementable)).
 
 Of the candidates, only `regulator-stress-amount` carries live,
 device-varying values, so it is the only one worth testing. The remainder are
@@ -939,9 +967,13 @@ stress field can't reach it. Two architectural levers might:
 
 Both are larger pieces of work than this follow-up's scope.
 
-`sliding-bass-*`, `volume-modeler-*` and `process-optimizer-bands` are out of
-scope: XML-zeroed across the corpus, they would change zero output samples on
-shipped tunings. They are listed here so they don't get re-proposed.
+`volume-modeler-*` and `process-optimizer-bands` are out of scope: XML-zeroed
+across the corpus, they would change zero output samples on shipped tunings.
+They are listed here so they don't get re-proposed. `sliding-bass-*` was
+recorded dormant on the 2026-05-06 corpus from `max-gain=0` alone. Counting a
+non-zero `gain-curve` too, it is enabled with real gain on 63 devices of the
+2795-XML corpus; it waits on a capture
+([cross-device §14](../cross-device-findings.md#band-a--has-parameters-so-implementable)).
 
 <a id="r-gain-rail-tuning"></a>
 
@@ -976,12 +1008,13 @@ The tonal symptom and the loudness symptom have different sources:
   the whole curve anchored 13 dB lower, less signal reaches the regulator's
   thresholds, and `volmax-boost` is what puts the level back.
 - **The boost lands where the regulator isn't.** The 141/234 Hz peak takes the
-  +9 dB volmax boost straight into the −1 dBFS brickwall unprotected. This XML's
-  `threshold_high` is 0 dBFS on bands 0–3 and −6.4…−15.4 dB on bands 4–8. So
-  per-band limiting covers roughly 469–1313 Hz, exactly the region the FIR
-  already cut by 10–23 dB. `isolated_band` marks bands 0–3 non-isolated, i.e.
-  DAX couples them to the limited bands. That is the gap
-  `--enable coupled-bands` addresses.
+  +9 dB volmax boost (`volmax-boost` 144 on every profile but `off`) straight
+  into the −1 dBFS brickwall unprotected. This XML's `threshold_high` is 0 dBFS
+  on bands 0–3 and −6.4…−15.4 dB on bands 4–8. So per-band limiting covers
+  roughly 469–1313 Hz, exactly the region the FIR already cut by 10–23 dB.
+  `isolated_band` marks bands 0–3 non-isolated, i.e. DAX couples them to the
+  limited bands. That is the gap the coupled-bands mapping addresses, on by
+  default since 2026-08-11 (`--disable coupled-bands` opts out).
 
 The sibling tuning is the control, and it makes this a per-tuning outlier, not a
 schema or codec problem. `17AA5081` is the T14 Gen 1 AMD, the T495's successor,
@@ -1036,17 +1069,17 @@ so the regulator is read.
 The one genuinely unmodelled thing that *is* active is MI steering: all five
 `mi-*-steering-enable` flags are set. That matters for profile choice more than
 for this device's tone. Per
-[cross-device-findings §11](../cross-device-findings.md#11-mi-steering),
-MI steering is a `dynamic`-profile feature almost everywhere, in 3805/3825 rows.
-It is "the key feature that the EasyEffects pipeline cannot replicate". So our
-"first profile" default systematically picks the profile whose Windows behaviour
-depends most on what we cannot reproduce. It applies statically what DAX steers
-by content. On this XML `music` switches all five off, along with the surround
-decoder and the dialog enhancer, and drops the leveler from 7 to 4. That makes
-it the profile whose static translation is most faithful. Issue #29's reporter
-independently preferred `music` on a different device. That is the real
-argument for following `<default_profile>`, and it generalises beyond issue
-#46.
+[cross-device-findings §11](../cross-device-findings.md#11-mi-steering), MI
+steering is a `dynamic`-profile feature almost everywhere, in 4205 of 4225
+dynamic rows. It is "the key feature that the EasyEffects pipeline cannot
+replicate". So our "first profile" default systematically picks the profile
+whose Windows behaviour depends most on what we cannot reproduce. It applies
+statically what DAX steers by content. On this XML `music` switches all five
+off, along with the surround decoder and the dialog enhancer, and drops the
+leveler from 7 to 4. That makes it the profile whose static translation is most
+faithful. Issue #29's reporter independently preferred `music` on a different
+device. That is the real argument for following `<default_profile>`, and it
+generalises beyond issue #46.
 
 What shipped from this: the unlimited-boost warning, the `default_profile`
 report and the headless EasyEffects probe fix. This XML declares `music`, and
@@ -1308,6 +1341,11 @@ absolute data from them. Two things come out:
 |---|---|---|---|
 | X1 Yoga G7 (`17AA22E6`) | +7.05 dB | +16.39 dB | +0.39 dB per dB |
 | Yoga Slim 7 14ARE05 (`17AA380D`) | +9.13 dB | +25.25 dB | +0.67 dB per dB |
+
+The gain columns are the 100 Hz–10 kHz mean, as above. The broadband pink-RMS
+figure for `17AA380D` is +8.2 / +21.8 dB
+([simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units));
+the metrics differ.
 
 The level dependence reproduces, but **its magnitude and slope are
 device-specific**: 0.39 against 0.67 dB per dB. One set of autogain constants

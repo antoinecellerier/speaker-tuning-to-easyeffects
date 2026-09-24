@@ -99,7 +99,9 @@ investigation focuses on transient or peak-engaging content.
 
 The EasyEffects autogain is configured from Dolby's `volume-leveler` parameters
 (target, history window, reference) but shipped with `bypass: true` by default
-(commit `19a1f99`). Three reasons:
+(commit `19a1f99`). That default holds on HDA only: since the conservative
+SoundWire path (`2f4d0b8`), `make_autogain` ships SoundWire presets active.
+Three reasons:
 
 1. **Dolby's volume leveler is MI-steered.** The XML enables
    `mi-dv-leveler-steering-enable` only on the `dynamic` profile
@@ -187,13 +189,15 @@ The volume leveler *can* be reproduced in the PW filter-chain, so the "no LV2
 equivalent" rationale that kept `ee_to_pipewire.py` from translating a
 non-bypassed autogain was stale. LSP's `autogain_stereo` is a K-weighted (LUFS)
 loudness AGC. It uses the same EBU R 128 weighting as EE's native libebur128
-autogain. Active autogain is emitted only on SoundWire devices, because HDA
-bypasses it (see "Why autogain is bypassed by default" above). This closes a
-gap that only ever affected the SoundWire PW path. The bypassed-HDA case is
-skipped silently.
+autogain. Active autogain is emitted on SoundWire devices, where it runs by
+default, and on HDA presets generated with `--enable autogain`. HDA otherwise
+bypasses it (see "Why autogain is bypassed by default" above). When this
+translation landed (2026-06-22), before `--enable autogain` existed, it closed a
+gap that only affected the SoundWire PW path. The bypassed-HDA case is skipped
+silently.
 
-`emit_autogain` maps the EE block from `make_autogain`'s conservative path onto
-these ports:
+`emit_autogain` maps the active EE block, from `make_autogain`'s conservative
+path or from `--enable autogain`, onto these ports:
 
 | EE autogain field | `autogain_stereo` port | Value |
 |---|---|---|
@@ -215,15 +219,15 @@ it at zero over the PipeWire quantum (the hard constraint).
 `validate_conf.py`/lv2info confirms all six emitted controls are in range.
 
 EE's `maximum-history` is a libebur128 *integration window* in seconds: 15–40 s
-on the active SoundWire path (the unvalidated
-[leveler→autogain window](#r-leveler-autogain-window)). `autogain_stereo` has no
-equivalent window port, since `lperiod` caps at 2 s. A longer EE history
-therefore maps monotonically onto a slower, gentler gain ride via the gain
-time-constants `tgrow_l`/`tfall_l`. The on-device proof below showed EE's
-leveler is asymmetric: it attenuates loud content quickly but boosts quiet
-content very slowly (anti-pumping). The two directions therefore get different
-global scales: `tfall_l = maximum-history · 200 ms/s` for gain down and
-`tgrow_l = maximum-history · 500 ms/s` for gain up. Each is a single
+on the active SoundWire path and 10–30 s on HDA under `--enable autogain` (the
+unvalidated [leveler→autogain window](#r-leveler-autogain-window)).
+`autogain_stereo` has no equivalent window port, since `lperiod` caps at 2 s. A
+longer EE history therefore maps monotonically onto a slower, gentler gain ride
+via the gain time-constants `tgrow_l`/`tfall_l`. The on-device proof below
+showed EE's leveler is asymmetric: it attenuates loud content quickly but boosts
+quiet content very slowly (anti-pumping). The two directions therefore get
+different global scales: `tfall_l = maximum-history · 200 ms/s` for gain down
+and `tgrow_l = maximum-history · 500 ms/s` for gain up. Each is a single
 device-independent transfer, so XML-derivable with no per-device tuning, clamped
 to the [10, 10000] ms port range.
 
@@ -289,12 +293,12 @@ onset (−8 dBFS, leftover gain overshoots). Findings:
 - **Non-monotonic vs EE.** PW≈EE near target (isolated test) and PW<EE far below
   it (drift dead-band). Bounded both ways.
 
-Net: translating autogain adds no clip risk. The HDA default-bypass stays a
-*quality* (anti-pumping) choice, not a safety one. This work leaves it
-untouched, since it only translates the already-active SoundWire case, where
-quiet is typically near target and the drift dead-band barely bites. The
-`drift`/`max_amp` knobs, left at LSP defaults, are the levers if PW's deep-quiet
-tracking is ever revisited. Driver:
+Net: on this full-chain HDA capture, translating autogain adds no clip risk. The
+HDA default-bypass stays a *quality* (anti-pumping) choice, not a safety one.
+This work leaves it untouched, since at the time it translated only the
+already-active SoundWire case, where quiet is typically near target and the
+drift dead-band barely bites. The `drift`/`max_amp` knobs, left at LSP defaults,
+are the levers if PW's deep-quiet tracking is ever revisited. Driver:
 [`tools/measure_pw/autogain_fullchain.py`](../../tools/measure_pw/autogain_fullchain.py).
 
 <a id="r-mbc-time-constant-decode"></a>
@@ -384,9 +388,13 @@ also argues for less dialog gain, not 33% more. The arm also made the generation
 banner wrong on SoundWire, because the banner always printed the ×6 figure. Both
 device families share the ×6 single-bell mapping. Field evidence: issue
 [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29)
-("dynamic wonky, music better"), where DE is the main dynamic-vs-music audible
-difference. Restore via git history (`2f4d0b8`) if a SoundWire speech capture
-ever shows a stronger DE.
+("dynamic wonky, music better"), where DE was the main known dynamic-vs-music
+difference. #29's XML (2026-08-27) shows `dynamic` also enables the volume
+leveler and every `mi-*-steering` switch, so the `dynamic` verdict no longer
+rests on DE alone. The round-3 `--disable autogain` A/B tests the leveler
+([SoundWire bass-enhancer constants](virtual-bass.md#r-soundwire-bass-enhancer-constants)).
+Restore via git history (`2f4d0b8`) if a SoundWire speech capture ever shows a
+stronger DE.
 
 <a id="r-surround-boost-stereo-base"></a>
 
@@ -580,7 +588,9 @@ that recur:
 - **Corpus-dormant.** Virtual-bass, graphic-EQ and volume-modeler are disabled
   on every corpus XML with frozen params, so there is no per-device signal. A
   Bass Loudness / Loudness / Exciter mapping would be pure invention against
-  XML-only derivability.
+  XML-only derivability. DAX runs VBE anyway on the dev X1 Yoga; the
+  PipeWire-only `--enable virtual-bass` opt-in covers that
+  ([DAX virtual-bass finding](virtual-bass.md#r-dax-virtual-bass)).
 - **Validated to zero effect.** For surround/height widening, a DAX capture
   showed Dolby applies no stereo widening on 2-ch content, so the old
   `stereo_tools` mapping was *removed*: see the

@@ -45,14 +45,15 @@ directory, then the script directory.
 | `stimulus_pink.wav` | −18 dBFS RMS | steady-state magnitude after the leveler settles |
 | `stimulus_pink_quiet.wav` | −42 dBFS RMS | pink noise at low input level |
 | `stimulus_multitone.wav` | −18 dBFS RMS | 20 pure tones at Dolby band centers. Per-band amplitude + phase via single-bin DFT |
+| `stimulus_stereo_pink.wav` | −18 dBFS RMS | decorrelated L/R pink noise (M≈S): the stereo-width probe |
+| `stimulus_stereo_correlated.wav` | −18 dBFS RMS | music-like correlated L/R (M≫S) operating point |
+| `stimulus_speech.wav` | −18 dBFS RMS over active segments | espeak speech, or an LTASS-noise fallback: the dialog-enhancer probe |
 | `stimulus_stepped.wav` | −18 dBFS peak | one held tone per probe frequency, 39 frequencies: the 20 band centers + the midpoint between each pair |
 | `stimulus_stepped_quiet.wav` | −42 dBFS peak | same, low input. Brackets the level-dependent treble gain |
+| `stimulus_stepped_loud.wav` | −2 dBFS peak | same grid again, loud enough to wake the MBC knee |
+| `stimulus_bass_burst.wav`, `stimulus_bass_burst_quiet.wav` | −5 / −25 dBFS peak | sustained 50/80/120/180 Hz bursts: the bass-band regulator and volmax probe |
 | `stimulus_pink{60,48,30,24,14}.wav` | −60 … −14 dBFS RMS | the leveler ladder. With `pink` and `pink_quiet` these are seven rungs of one curve, DAX-on minus DAX-off at each input level |
 
-- **`stimulus_stepped.wav`.** The whole grid is replayed ascending /
-  descending / shuffled. Per-frequency steady-state amplitude via single-bin
-  DFT. The cross-pass mean is the static EQ. The cross-pass span is the
-  order-dependent adaptive dynamics.
 - **`stimulus_pink{60,48,30,24,14}.wav`.** −14 is the loud end pink can reach
   without clipping, given its ~13 dB crest factor. Use
   `stimulus_stepped_loud.wav` above that.
@@ -64,8 +65,9 @@ something stationary to settle on. That isolates the steady-state EQ from the
 time-varying dynamics.
 
 The stepped-sine goes one step further and separates the two in a single
-capture. The same grid is replayed in different orders. The part of each
-tone's response that is invariant across passes is the static EQ. The part
+capture. The same grid is replayed in different orders: ascending, descending
+and shuffled. Each tone's amplitude comes from a single-bin DFT. The part of
+each tone's response that is invariant across passes is the static EQ. The part
 that shifts with what preceded it is the adaptive processing. It also samples
 *between* the band centers, which band-center-only pink/multitone can't. That
 matters for issue #13, because linear-vs-PCHIP interpolation is only
@@ -113,6 +115,7 @@ your question needs rather than all of it:
 |---|---|---|
 | Steady-state EQ, the usual starting point | `stimulus_sweep[_quiet]`, `stimulus_pink[_quiet]`, `stimulus_multitone` | ~22 MB |
 | Anything level-dependent: does a stage's gain change with input level? | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud`: the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
+| The leveler's gain across input level | `stimulus_pink{60,48,30,24,14}`, with `stimulus_pink[_quiet]` from the first row: the seven-rung ladder | ~25 MB |
 | Bass-specific behaviour | `stimulus_bass_burst[_quiet]`: sustained 50/80/120/180 Hz bursts | ~10 MB |
 | Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~10 MB |
 | Leveler behaviour on real content | `stimulus_speech` | ~5 MB |

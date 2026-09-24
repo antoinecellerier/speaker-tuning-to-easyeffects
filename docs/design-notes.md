@@ -98,10 +98,11 @@ Three ordering decisions are non-obvious:
 - **A brickwall limiter is appended at the chain end** (commit `1b14bc1`), even
   though the regulator already performs per-band limiting. The explicit LSP
   limiter is redundant on the brickwall-slope devices and essential on the rest.
-  Cross-device data (`docs/cross-device-findings.md` §6/§13, 2483-XML cohort)
-  shows ~97% of devices use `regulator-distortion-slope=16`, a true brickwall.
-  The rest use a softer slope. The original 196-file cohort suggested a 53/47
-  split, which the expanded corpus revised.
+  Cross-device data (`docs/cross-device-findings.md` §6, 2795-XML cohort) shows
+  `regulator-distortion-slope=16`, a true brickwall, on 95.7% of the profile
+  rows that declare it. No per-device share is computed. The rest use a softer
+  slope. The original 196-file cohort suggested a 53/47 split, which the
+  expanded corpus revised.
 
 - **Dialog enhancer runs before the volume leveler** (commit `1709e5d`). Dolby
   boosts speech energy before measuring loudness, so the leveler doesn't
@@ -128,13 +129,13 @@ Risk class:
 
 | plugin | parameter | current | risk | rationale / status |
 |---|---|---|---|---|
-| convolver#0 | `autogain` | `false` | AUDIBLE | Trap fix (commit `5973326`). LSP default is `true`, which RMS-normalises the FIR and gives a +50 dB boost on our peak-normalised minimum-phase IR. Must stay false. |
+| convolver#0 | `autogain` | `false` | AUDIBLE | Trap fix (commit `5973326`). EasyEffects' default is `true`, which RMS-normalises the FIR and gives a +50 dB boost on our peak-normalised minimum-phase IR. Must stay false. |
 | convolver#0 | `ir-width` | `100` | TOPOLOGY | Stereo image width in the convolver's mid/side decode. 100 = pure stereo passthrough. |
 | ~~stereo_tools#0~~ | — | (not emitted) | — | **Removed 2026-06-13.** The converter emits no stereo widener; `surround-boost` is not mapped (the [surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base)). |
 | equalizer#0 | `mode` | `"IIR"` | AUDIBLE | Biquad realisation of the per-band PEQ. Alternatives: FIR / FFT / SPM. FFT mode would reproduce the band targets exactly at every FFT bin instead of analytically. Open: candidate test. |
 | equalizer#0 | `q-mode` | (none) | AUDIBLE | Resolved (2026-06): the EE 8.x equalizer schema we emit has no separate q-mode key. The Q convention is a property of the per-band filter family (`mode`), covered in the row below. |
 | equalizer#0 | per-band `mode` | `"RLC (BT)"` | AUDIBLE | Filter family. Verified for HP-slope behavior (commit `944a8f3`). Bell-width convention: see the note below. |
-| equalizer#0 | `split-channels` | `true` | AUDIBLE | Required: the Dolby PEQ is asymmetric L/R on most devices. Linking would force-symmetrise. |
+| equalizer#0 | `split-channels` | `true` | AUDIBLE | Required: the Dolby PEQ is asymmetric L/R on some devices (cross-device-findings §12). Linking would force-symmetrise. |
 | autogain#0 | `bypass` | `true` (HDA), `false` (SDW) | AUDIBLE | Documented in [Why autogain is bypassed by default](research/adaptive-processing.md#r-autogain-bypassed-by-default): re-enabling reintroduces pumping on quiet→loud transitions. |
 | multiband_compressor#0 | `compressor-mode` | `"Modern"` | AUDIBLE | LSP's two compressor algorithms differ in knee shape and ratio behavior. Not measured against the XML's compressor model. Open: candidate test. |
 | multiband_compressor#0 | `envelope-boost` | `"None"` | AUDIBLE | A pre-detection EQ tilt. Options include `Pink BT/MT`, `Brown BT/MT`. Open: candidate test. |
@@ -173,9 +174,9 @@ Risk class:
     higher-gain bells.
   - *Candidate fix* if cookbook is ever confirmed: emit bells as `APO (DR)`,
     with HP staying `RLC (BT)` (verified); the second-device bar applies.
-  - *Offline model*: `compare_ee_analytical.py` models bells as RBJ, so the
-    offline model and the live plugin disagree by up to the 0.58 dB above. That
-    is part of the vsXML baseline, not a DAX-side effect.
+  - *Offline model*: `compare_ee_analytical.py` models bells as LSP `RLC (BT)`
+    (`lsp_rlc_bell`, `f65919e`), matching the live plugin. Its shelves still use
+    RBJ.
 - **`multiband_compressor#0` `envelope-boost`.** A primitive analog to Dolby's
   MI steering: it could shape compressor response on content where, with `None`,
   it engages flat.
@@ -260,6 +261,9 @@ only the clause's wording is wrong. If it is added on top, the constraint itself
 is at stake. That is the *shape* an answer could take. It is not a finding, and
 none of it has been measured.
 
+Correction: the perf and equivalence rigs are documented in
+`tools/measure_perf/README.md` and `docs/ee-to-pipewire.md`, not in this file.
+
 Recorded 2026-08-08 by decision, with the fix deferred: no code, no invariant
 wording, and none of the three claims above were changed.
 
@@ -274,14 +278,17 @@ slip. `ieq-amount` was read as `amount/10` when the field is a percentage,
 verified. In issue
 [#15](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/15),
 a user set ±12 dB in DAX on Windows and the settings file stored ±192. The rest
-below are adopted defaults that ship in the audible path but have never been
-individually checked against a DAX capture. They are catalogued here as a class
-so a
+below are invented constants. Two, the surround→stereo-base factor and the
+convolver headroom restore, have been removed. Of those still shipping, none is
+validated: the dialog-enhancer ceiling, the MBC and fixed dynamics constants and
+the PEQ trim were compared against the 2026-06-13 X1 Yoga DAX captures without a
+confirming result, and the rest have no DAX capture yet. They are catalogued
+here as a class so a
 [capture campaign](research/measuring-against-windows.md#r-validation-roadmap)
 can attack them deliberately. The
 ["Follow-ups" list](research/measuring-against-windows.md#r-dax-gap-follow-ups)
-tracks ideas we considered and did *not* adopt; these are live, shipping
-defaults.
+tracks ideas we considered and did *not* adopt; these are live defaults, bar the
+two marked ✅ as removed.
 
 | Factor | XML field | Path status |
 |---|---|---|
@@ -290,7 +297,7 @@ defaults.
 | [Convolver SoundWire headroom restore](research/loudness-and-limiting.md#r-convolver-headroom-restore) ✅ | (none: a post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | resolved: restore dropped. It was default audible on SoundWire |
 | [Regulator slope→ratio](research/loudness-and-limiting.md#r-regulator-slope-ratio) | `regulator-distortion-slope` | regulator only engages at high level |
 | [Regulator timbre→knee](research/loudness-and-limiting.md#r-regulator-timbre-knee) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | regulator, high level |
-| [MBC ratio and time constants](research/adaptive-processing.md#r-mbc-ratio-time-constants) | `mb-compressor-tuning` 6-tuples | dormant: the MBC doesn't engage on the −10 dBFS test stimuli (the [DAX response vs XML](research/eq-and-frequency-response.md#r-dax-response-vs-xml)) |
+| [MBC ratio and time constants](research/adaptive-processing.md#r-mbc-ratio-time-constants) | `mb-compressor-tuning` 6-tuples | dormant on the dev X1 Yoga: the MBC doesn't engage on its −10 dBFS test stimuli (the [DAX response vs XML](research/eq-and-frequency-response.md#r-dax-response-vs-xml)), and engages on the −2 dBFS `stimulus_stepped_loud` |
 | [Volume-leveler→autogain window](research/adaptive-processing.md#r-leveler-autogain-window) | `volume-leveler-amount` (0–10) | bypassed by default on HDA, where `--enable autogain` opts in. Active in the conservative SoundWire path |
 | [PEQ anti-clipping trim](research/loudness-and-limiting.md#r-peq-anti-clipping-trim) | (none: a headroom heuristic over the XML's PEQ gains) | default audible on every XML whose PEQ has boost bells/shelves |
 | [SoundWire Calf BassEnhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; the [DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass)) | default audible on SoundWire, the most audible invented stage on those devices |
@@ -301,7 +308,7 @@ For contrast, the `/16`-dB convention is verified (issue #15, in the section
 introduction), and the
 [`/32768` Q15 decode](research/adaptive-processing.md#r-mbc-time-constant-decode)
 is at least numerically consistent with first-order time-constant theory.
-Everything else above is unverified.
+Every other factor still shipping above is unverified.
 
 ## Rejected approaches
 

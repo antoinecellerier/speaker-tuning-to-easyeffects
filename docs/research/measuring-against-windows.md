@@ -29,8 +29,9 @@ Open:
 - The `ieq-amount` fix met the second-device bar through two independent
   methods on a Yoga Slim 7x, not yet through a DAX capture on a second device
   ([roadmap](#r-validation-roadmap)).
-- The PEQ anti-clipping trim needs narrow-vs-wide-Q profile captures on
-  existing HDA hardware ([roadmap](#r-validation-roadmap)).
+- The PEQ anti-clipping trim's `min(1, 2/Q)` shape needs a wide-vs-narrow-Q
+  second device: the dev device's PEQ is identical in every profile
+  ([trim](loudness-and-limiting.md#r-peq-anti-clipping-trim)).
 - The single-block tuning-XML A/B on Windows is the sharpest tool left for
   pinpointing which DAX stage carries the ~1 dB HF residual and the LF/leveler
   behaviour. Its payoff is much smaller now that the HF/mid gap that motivated
@@ -54,7 +55,8 @@ post-DAX3 signal via WASAPI loopback, and analyses the result. Its Linux-side
 counterpart, `tools/measure_ee/`, runs the same stimulus battery through a live
 EasyEffects instance with our generated preset and produces analyzer-compatible
 captures. The EE-on-Linux and DAX-on-Windows responses can then be overlaid for
-the same XML and profile. Five stimulus kinds:
+the same XML and profile. The original suite (`27822c3`) had five stimulus
+kinds; `tools/measure_dax/make_stimulus.py` now builds the full set. The five:
 
 - **sweep** (exponential 20 Hz–22 kHz, −18 dBFS peak): Farina deconvolution
   recovers an LTI IR if the system is LTI.
@@ -150,13 +152,15 @@ scaling in the default path, measurable against a DAX capture.
        dB.
      - **[Surround→stereo-base factor](adaptive-processing.md#r-surround-boost-stereo-base),
        over-application found:** DAX widening at surr=96 is zero (S/M-delta
-       +0.01 dB, identical to surr=0/off); our chain adds +4.10 dB.
+       +0.01 dB, identical to surr=0/off); our chain added +4.10 dB, and the
+       widening was removed the same day.
      - **[MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants)
        and
        [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants),
        DAX compresses ~2× harder** at loud level: −10.6 dB GR @234 Hz vs EE
-       −5.5, strong over 140–400 Hz and 1.9–4.7 kHz. This is entangled with the
-       bass-level gap.
+       −5.5, strong over 140–400 Hz and 1.9–4.7 kHz. The same-day diagnosis
+       rules out the bass-level gap as its cause: the regulator under-engages
+       ([MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants)).
      - **[Dialog-enhancer gain ceiling](adaptive-processing.md#r-dialog-enhancer-gain-ceiling),
        no DE signature** on espeak speech (`movie` DE=5 ≡ `game` DE=0 to ±0.00
        dB), unresolved: the robotic voice may not trigger MI, and Dolby Access
@@ -197,7 +201,7 @@ scaling in the default path, measurable against a DAX capture.
    [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants)
    (added in the 2026-06 review) piggyback on the same campaign. The
    [PEQ anti-clipping trim](loudness-and-limiting.md#r-peq-anti-clipping-trim)
-   needs narrow-vs-wide-Q profile captures on existing HDA hardware, and the
+   needs a wide-vs-narrow-Q second device, and the
    [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants)
    folds into the loud-content captures that wake the dynamics stages (the
    [MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants)).
@@ -228,7 +232,7 @@ experiments looked exhausted: hypothesis (b) rejected (the
 [AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)),
 no missed XML block (the
 [HF-shaping block audit](eq-and-frequency-response.md#r-hf-shaping-block-audit)),
-5-profile coverage in (the
+all 5 profiles covered (the
 [AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)).
 The
 [`ieq-amount` scaling finding](eq-and-frequency-response.md#r-ieq-amount-scaling)

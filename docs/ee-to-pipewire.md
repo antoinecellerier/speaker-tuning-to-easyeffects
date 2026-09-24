@@ -11,7 +11,7 @@ This file is the current architecture the script ships and the load-bearing
 decisions behind it. The pre-implementation design exploration is in
 [`alternative-pipelines.md` § 3 "Companion converter"](alternative-pipelines.md#companion-converter).
 It includes the rationale for shipping a separate converter rather than a
-`--pipewire` flag on the main script.
+`--pipewire-filter-chain` flag on the main script.
 
 **Where the code lives.** `ee_to_pipewire.py` itself is the CLI: the argparse
 builders it shares with the wrapper, the completers, and the `main()` that
@@ -89,11 +89,14 @@ re-run applies.
 Package names differ per distribution, and the LV2 build is not always the base
 package. On Fedora and Arch, `lsp-plugins` does not ship the `.lv2` bundle
 PipeWire loads; `lsp-plugins-lv2` does. `lib/packages.py` holds that table along
-with the `/etc/os-release` family detection. Every message that names a package
-prints the one row that matches the reader's machine, and falls back to listing
-them all when it cannot place them. The table covers seven families and serves
-every dependency either script can detect as missing: the Python stack,
-`lv2info`, the PipeWire command-line tools, `amixer` and EasyEffects itself.
+with the `/etc/os-release` family detection. A message that names a package
+prints the one row that matches the reader's machine. When `/etc/os-release`
+cannot place the machine, most list every family instead. Three do not: the
+`amixer` hints name `alsa-utils` alone, the `--help` colour tip points at the
+README install section, and the EasyEffects 8 upgrade hint offers only the
+Flathub Flatpak. The table covers seven families and serves every dependency
+either script can detect as missing: the Python stack, `lv2info`, the PipeWire
+command-line tools, `amixer` and EasyEffects itself.
 
 Two shapes of gap are recorded rather than papered over. `UNPACKAGED` carries
 what to say where a family has no package at all. Calf reaches openSUSE only
@@ -205,7 +208,7 @@ WirePlumber 0.5, the graph is *identical* either way,
 twice. What changes is that the chain and the speaker are then two sinks in
 series, each with its own volume control, so the levels multiply.
 `pactl list sink-inputs` shows the app on the chain and the chain's own output
-on the speaker. A speaker left at 40 % takes −23.8 dB off a chain that reads 100
+on the speaker. A speaker left at 40 % takes −23.9 dB off a chain that reads 100
 %.
 
 The chain's control is also on the *wrong side of the tuning*. Measured with
@@ -281,7 +284,7 @@ The half a reader cannot see is the level *underneath*. Once the chain is the
 selected output, the sink it feeds is invisible from the slider they are moving.
 That level survives reboots and is subtracted from everything. So both a v1-mode
 run and `--doctor` read that sink's volume and print it, rather than only
-advising that it be raised: "your speakers are at 40 % (−23.8 dB) right now".
+advising that it be raised: "your speakers are at 40 % (-23.8 dB) right now".
 
 ### One smart filter per target sink
 
@@ -347,7 +350,7 @@ can't reach.
 | `equalizer#0` (PEQ) | LSP `para_equalizer_x16_lr` | `xm` is **MUTE**, not enable: its default 0 = active. See `emit_peq` in `lib/pipewire/plugins.py`. |
 | `equalizer#1` (dialog) | Same plugin as PEQ | Disambiguated by position in `plugins_order`, not by shape. `_assert_positional` fails loud if reordered. |
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. The per-control mapping is in the table below. |
-| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain` when present. |
+| `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain`, the default `--volmax-slot`. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). Triggers on SoundWire devices with small drivers. |
 | `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The generator emits no `stereo_tools#0` block; see below. |
@@ -394,8 +397,8 @@ can't reach.
     [adaptive-processing.md](research/adaptive-processing.md#r-autogain-pw-translation).
   - *Short windows*: windows shorter than 20 s surface a warning, on the
     console and in the conf-header warning block, that the PW ride may be
-    faster than EE's. That covers HDA `--enable autogain` always, and SoundWire
-    when `volume-leveler-amount` > 5.
+    faster than EE's. That covers HDA `--enable autogain` when
+    `volume-leveler-amount` > 2, and SoundWire when it is > 5.
   - *Gains*: EE `input-gain`/`output-gain` are always 0.0 and have no main-path
     port, so they are not written.
 

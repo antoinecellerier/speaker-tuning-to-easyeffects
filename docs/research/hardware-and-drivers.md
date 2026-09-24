@@ -99,9 +99,10 @@ Check the drive path for crackle too, as in issue
 `docs/ee-to-pipewire.md` "Small-quantum systems under load" covers that
 report's userspace suspect, DSP load at a small quantum.
 
-Crackle can also originate below PipeWire entirely. The ROG Xbox Ally X
-(subsys 1043:1384) had playback dropouts tied to TAS2781 UEFI-calibration
-handling. It was first quirked to skip the unit's calibration
+Crackle can also originate below PipeWire entirely (issue #39, status as of
+2026-07-24). The ROG Xbox Ally X (subsys 1043:1384) had playback dropouts tied
+to TAS2781 UEFI-calibration handling. It was first quirked to skip the unit's
+calibration
 ([b7e26c8bdae70832d7c4b31ec2995b1812a60169](https://github.com/torvalds/linux/commit/b7e26c8bdae70832d7c4b31ec2995b1812a60169)),
 which is still what vanilla 6.18-stable ships. Mainline later superseded that
 with TI's root-cause fix
@@ -170,9 +171,10 @@ exactly that, so we never claim a match the kernel could not make.
 are affected. Lenovo PSREF publishes static spec PDFs
 (`psref.lenovo.com/syspool/Sys/PDF/<Family>/<Slug>/<Slug>_Spec.pdf`) that
 extract cleanly. The `/Product/…` page is a JS app that fetches as an empty
-shell. The spec was validated in both directions against three machines known to
-expose two pins: Yoga Pro 7 14ASP9 (#51), Yoga Pro 7 14APH8 (#30) and the
-development X1 Yoga Gen 7. All three name woofers *and* tweeters.
+shell. The spec was validated in both directions. Three machines known to expose
+two pins, Yoga Pro 7 14ASP9 (#51), Yoga Pro 7 14APH8 (#30) and the development
+X1 Yoga Gen 7, all name woofers *and* tweeters. The single-pin reports below all
+publish "Stereo speakers, 2W x2".
 
 **Caveat:** judge by whether the line names woofers/tweeters, never by the
 leading count. The X1 Yoga reads "Stereo speakers, 2W x2 woofers and 0.8W x2
@@ -183,8 +185,9 @@ single-pin report is a genuine 2-driver laptop: #33 and #18 (IdeaPad Pro 5
 14APH8 / 14AHP9), #36 (14IMH9), #44 (Yoga Slim 7 14ARE05), #46 (T495) and #50
 (Yoga 7 2-in-1 16IML9) all publish "Stereo speakers, 2W x2". #50's missing
 `38dc` quirk-table entry concerns its smart amp, not a bass pin. PSREF does list
-"Smart Amplifier (AMP)" for it. Its pending level-restore loud-content verdict
-is unaffected.
+"Smart Amplifier (AMP)" for it. Its level-restore loud-content verdict, heard on
+the dev device 2026-08-18
+([level-restore](loudness-and-limiting.md#r-level-restore)), is unaffected.
 
 Design choices:
 
@@ -196,12 +199,14 @@ Design choices:
   it touches is an internal speaker (`0x9017xxxx`) and there are at most two.
   That is a surgical add, not a whole-machine pin remap, where "the quirk isn't
   applied" implies nothing about any one pin. The derivation found the class far
-  wider than the ALC287 Lenovos that prompted it: 53 machines across Lenovo, HP,
-  Dell, ASUS, Acer, Medion, Infinix, MECHREVO and Lunnen, from Dell Vostro
-  subwoofers to HP Spectre x360 and ASUS ROG rear speakers. `HDA_FIXUP_FUNC`
-  fixups run C the parser can't read, so their target pins are listed explicitly
-  in the generator, each verified against the helper. An unlisted helper is
-  uncovered, which is the safe direction.
+  wider than the ALC287 Lenovos that prompted it: 53 machines when first derived
+  (2026-08-05, `2e564b3`), across Lenovo, HP, Dell, ASUS, Acer, Medion, Infinix,
+  MECHREVO and Lunnen, from Dell Vostro subwoofers to HP Spectre x360 and ASUS
+  ROG rear speakers. The generated table held 84 on 2026-09-24, most of the
+  growth from the chain fix below.
+  `HDA_FIXUP_FUNC` fixups run C the parser can't read, so their target pins are
+  listed explicitly in the generator, each verified against the helper. An
+  unlisted helper is uncovered, which is the safe direction.
 - **A fixup delivers its whole chain.** `snd_hda_apply_fixup` walks `.chain_id`,
   and upstream extends a machine by wrapping its speaker fixup rather than
   editing it. Reading each fixup's own body alone lost those wrappers.
@@ -442,12 +447,13 @@ Design choices:
 
 Upstream commit
 [`41d60cbfde10`](https://github.com/torvalds/linux/commit/41d60cbfde10b9f01ae6e2d3195463fbad6e54a8)
-(Lenovo Yoga Pro 9 16IAH10, 7.3) names a third shape, between the hidden pin
-above and the missing amp below. Pin `0x17` is present and correctly declared a
-Bass Speaker, so nothing looks wrong. It is routed to DAC `0x03`, which has no
-volume amplifier. That leaves "the right-side woofer barely audible while only
-the tweeter plays". The fixup, `alc285_fixup_speaker2_to_dac1`, is one
-`snd_hda_override_conn_list(codec, 0x17, …)` call and writes no pin config.
+(Lenovo Yoga Pro 9 16IAH10, 7.3) names a third shape, between the
+[hidden pin](#r-woofer-pin-hidden) above and the
+[missing amp](#r-smart-amp-families) below. Pin `0x17` is present and correctly
+declared a Bass Speaker, so nothing looks wrong. It is routed to DAC `0x03`,
+which has no volume amplifier. That leaves "the right-side woofer barely audible
+while only the tweeter plays". The fixup, `alc285_fixup_speaker2_to_dac1`, is
+one `snd_hda_override_conn_list(codec, 0x17, …)` call and writes no pin config.
 
 **The fault is observable**, so the table only supplies the authority and the
 codec dump supplies the finding. This section first recorded the class as
@@ -518,8 +524,9 @@ missing.
 
 **Membership** (`_FUNC_FIXUP_ROUTES` in `tools/update_speaker_route_quirks.py`,
 every body hand-read): a helper qualifies when it fixes a speaker-pin
-volume-path fault and constrains one internal speaker pin's source. That admits
-all 12 conn-override helpers that write no pincfg, minus one and plus one:
+volume-path fault and constrains one internal speaker pin's source, or, like
+GA401 below, is modelled on that one pin. That admits all 12 conn-override
+helpers that write no pincfg, minus one and plus one:
 
 - **Minus** `alc290_fixup_mono_speakers`. It constrains two pins, and its fault
   is mono output, not a lost volume control. 4 of its 5 Dell rows are in the pin
@@ -605,8 +612,8 @@ missing. The X1 Carbon Gen 11 (21HN, ALC287, 17aa:2315) has no `SND_PCI_QUIRK`
 row. Its fixup comes only from
 `SND_HDA_PIN_QUIRK(0x10ec0287, 0x17aa, …, ALC285_FIXUP_THINKPAD_HEADSET_JACK, {0x14, 0x90170110}, {0x17, 0x90170111}, {0x19, 0x03a11030}, {0x21, 0x03211020})`
 → `alc285_fixup_thinkpad_x1_gen7()`, which excludes DAC 0x06 from pin 0x17.
-Neither fixup has an `hda_model=` alias. The development X1 Yoga (17aa:22e6)
-reaches the same row.
+Neither of those two fixups has an `hda_model=` alias. The development X1 Yoga
+(17aa:22e6) reaches the same row.
 
 **Cause: a firmware setting.** The laptop was bought used with
 `MicrophoneAccess=Disable` in the BIOS, and a factory reset keeps it. The

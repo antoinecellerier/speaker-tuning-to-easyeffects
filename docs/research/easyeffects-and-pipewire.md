@@ -20,14 +20,15 @@
 
 Open:
 
-- Why #22's reporter hears nothing is not yet confirmed, awaiting his report
-  ([#22](#r-preset-loads-but-inaudible)).
+- Why #22's reporter hears nothing was never confirmed: the issue closed for
+  inactivity on 2026-09-14 ([#22](#r-preset-loads-but-inaudible)).
 - Whether a hand-picked chain suppresses Bluetooth auto-switching is untested:
   the test needs a paired headset ([#63](#r-chain-as-system-output)).
-- The convolver gain error is not reported upstream yet
+- The convolver gain error was not reported upstream as of 2026-09-02
   ([#84](#r-convolver-resample-gain)).
 - `FLATPAK_USER_DIR` is knowingly unhandled ([#93](#r-flatpak-xdg-roots)).
-- The upstream crash fix, wwmm/easyeffects#5306, is in no released version. The
+- The upstream crash fix, wwmm/easyeffects#5306, was in no release as of
+  2026-09-13. The
   hide mitigation stays until the installed version is past 8.2.9, a bet that
   the next tag carries the fix ([#95](#r-irs-in-place-rewrite)).
 - Parked: a flag to opt out of `--doctor`'s redactions
@@ -53,9 +54,9 @@ the generator is correct for his hardware:
   shares the validated full-schema FIR/convolver code: the same `kernel-name`
   and the same min-phase FIR.
 
-That the preset *should* be audible points away from the script. Why he hears
-nothing is not yet confirmed, awaiting his report. Candidate environmental
-causes, in rough order of likelihood:
+That the preset *should* be audible points away from the script. Why the
+reporter hears nothing was never confirmed: the issue closed for inactivity on
+2026-09-14. Candidate environmental causes, in rough order of likelihood:
 
 - **EasyEffects 7.** The v8 preset format is incompatible, and the convolver
   key changed `kernel-path`→`kernel-name` between 7 and 8. On EE 7 the
@@ -66,12 +67,13 @@ causes, in rough order of likelihood:
 - No Dolby preset selected.
 - Global bypass on.
 
-`--doctor` and a proactive end-of-run warning in normal mode surface these
-deterministically, so the user's own machine can confirm or rule out the
-hypotheses without us hand-holding each user through GUI questions. The
-`kernel-path`→`kernel-name` mechanism is intentionally kept out of user-facing
-text. It lives in code, tests and this note. Users see a plain-language "install
-EasyEffects 8" message.
+`--doctor` checks all five deterministically. A normal run's end-of-run warnings
+cover EasyEffects 7 and a Flatpak/native mismatch, and a global bypass when the
+run loads the preset into a running EasyEffects 8.1.3 or later. So the user's
+own machine can confirm or rule out the hypotheses without us hand-holding each
+user through GUI questions. The `kernel-path`→`kernel-name` mechanism is
+intentionally kept out of user-facing text. It lives in code, tests and this
+note. Users see a plain-language "install EasyEffects 8" message.
 
 <a id="r-chain-as-system-output"></a>
 
@@ -133,11 +135,11 @@ not the control. A chain turned down once and then switched away from stays down
 through reboots with nothing pointing at it. That is why `--doctor` has a "Chain
 volume" check that fires regardless of which sink is selected.
 
-Deleting the conf does not clear it, either. A freshly written conf read 50 %
-before anything had touched it. WirePlumber persists a sink's volume by
-`media.name` in `~/.local/state/wireplumber/stream-properties`. It restores that
-volume onto any later node with that name, so a chain reinstalled under the same
-description returns at the level it was left. This is the same
+Deleting the conf does not clear it, either. The chain sink of a freshly written
+conf read 50 % before anything had touched it. WirePlumber persists a sink's
+volume by `media.name` in `~/.local/state/wireplumber/stream-properties`. It
+restores that volume onto any later node with that name, so a chain reinstalled
+under the same description returns at the level it was left. This is the same
 remembered-by-name shape as the selected output, with the same consequence:
 reinstalling is not a reset.
 
@@ -211,11 +213,14 @@ states. Bluetooth was not connected for this; the HDMI switch is the proxy.
 
 ## A preset that plays hot: EasyEffects resamples the kernel and keeps the gain (issue #84)
 
-Measuring found a deterministic level error. The issue reported constant crackle
-on every preset. It was clean the instant EasyEffects' effects were switched
-off, and unchanged by the volume slider. The reporter's PipeWire graph ran at
-192000 Hz, with `clock.rate 384000`; the ALC287 caps at 192 k. The first
-diagnosis was lost CPU headroom, which is wrong, or rather second-order.
+Measuring found a deterministic level error. Conditions: dev X1 Yoga Gen 7
+(HDA), `Dolby-Balanced`, `tools/measure_perf/compare_paths.py --rate` at
+48/96/192 kHz with quantum 1024, 2026-09-02 (`6642aeb`), issue #84. The issue
+reported constant crackle on every preset. It was clean the instant EasyEffects'
+effects were switched off, and unchanged by the volume slider. The reporter's
+PipeWire graph ran at 192000 Hz, with `clock.rate 384000`; the ALC287 caps at
+192 k. The first diagnosis was lost CPU headroom, which is wrong, or rather
+second-order.
 
 `tools/measure_perf/compare_paths.py --rate` captured the output level of each
 path, with the same preset and the same content:
@@ -309,7 +314,8 @@ dB of the 12 dB at 192 kHz. It also moves the 48 kHz level by ~11 dB,
 invalidating the whole
 [gain-staging budget](loudness-and-limiting.md#r-gain-staging-budget). The
 residual figures are an offline model of that arithmetic rather than a
-measurement. The sqrt(L) mechanism is source-certain. Not reported upstream yet.
+measurement. The sqrt(L) mechanism is source-certain. Not reported upstream as
+of 2026-09-02 (`6642aeb`).
 
 <a id="r-flatpak-xdg-roots"></a>
 
@@ -405,7 +411,8 @@ with Qt on exactly the inputs the spec tells both of them to discard.
 EasyEffects holds up its end:
 
 - `strings` on the 8.2.8 binary finds neither `.local/share` nor `.config`.
-- `libQt6Core` holds all three variable names.
+- `libQt6Core` holds both variable names, `XDG_DATA_HOME` and
+  `XDG_CONFIG_HOME`.
 - Upstream's only `qEnvironmentVariable` calls are the two desktop-detection
   ones.
 
@@ -518,16 +525,16 @@ harness had already met this: see the unique per-variant prefixes in the
 [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
 Every FIR-changing release, `--enable level-restore`, `--endpoint` and a swapped
 XML all rewrite the same name. Those include v2026.05's `ieq-amount`, v2026.07's
-boosts and v2026.08's `audio-optimizer-enable`. Since 2026-08 the generator
-names each impulse `{preset}-{8 hex of its samples}` instead. The name changes
-exactly when the sound does. A plain preset load picks it up everywhere, Flatpak
-and pre-8.0.9 installs included, where no socket is reachable. An unchanged FIR
-keeps its name, so nothing reloads for nothing. *Rejected instead:* bouncing
-`set_property:output:convolver:0:kernelName` through a stub before the load. It
-does trigger the re-read, but only on the socket path; a GUI re-pick stays
-stale. It is a mutating request on an interface whose shape has changed twice.
-It races the load, and it leaves a bogus-kernel warning in EasyEffects' log per
-run.
+boosts and v2026.08's `audio-optimizer-enable`. From 2026-08-27 (`0970d85`) the
+generator names each impulse `{preset}-{8 hex of its samples}` instead. The name
+changes exactly when the sound does. A plain preset load picks it up everywhere,
+Flatpak and pre-8.0.9 installs included, where no socket is reachable. An
+unchanged FIR keeps its name, so nothing reloads for nothing. *Rejected
+instead:* bouncing `set_property:output:convolver:0:kernelName` through a stub
+before the load. It does trigger the re-read, but only on the socket path; a GUI
+re-pick stays stale. It is a mutating request on an interface whose shape has
+changed twice. It races the load, and it leaves a bogus-kernel warning in
+EasyEffects' log per run.
 
 Stale impulses of the same preset are removed once the JSON is rewritten,
 except when one of these still names the file:
@@ -605,16 +612,16 @@ rejected, so the hide stays.
 With `update` rewritten as plain remove-then-append row operations, the two
 touches survived, and so did a full converter run with the hide step disabled.
 That fix was merged upstream the same day as
-[wwmm/easyeffects#5306](https://github.com/wwmm/easyeffects/pull/5306). It is
-in no released version yet, and a user only gets it once their distro packages
+[wwmm/easyeffects#5306](https://github.com/wwmm/easyeffects/pull/5306). It is in
+no release as of 2026-09-13, and a user only gets it once their distro packages
 a build carrying it. So the hide mitigation stays, gated on the installed
 version being past 8.2.9, the last release that crashes
-(`_LAST_EE_RELEASE_WITH_CONVOLVER_CRASH`). That assumes the next tag carries
-the fix. It is a bet on how this project has cut releases, taken so the gate
-cannot be forgotten; an intermediate release without it would need the
-constant corrected. The gate fails closed: `easyeffects --version` wants a
-display and Flatpak answers through `flatpak info`, so an unreadable version
-hides rather than reading as fixed.
+(`_LAST_EE_RELEASE_WITH_CONVOLVER_CRASH`). That assumes the next tag carries the
+fix. It is a bet on how this project has cut releases, taken so the gate cannot
+be forgotten; an intermediate release without it would need the constant
+corrected. The gate fails closed: `easyeffects --version` wants a display and
+Flatpak answers through `flatpak info`, so an unreadable version hides rather
+than reading as fixed.
 
 Mitigation: the run sends `hide_window` before writing whenever a daemon
 answers (`reload.hide_window_before_writing`). It says so in a line that calls

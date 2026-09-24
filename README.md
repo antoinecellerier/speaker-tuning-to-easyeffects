@@ -210,8 +210,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   them for your device, try `--mode tablet`, `stand`, `tent`, or `lid_close`.
 - `--profile TYPE` — profile type, such as `dynamic`, `music` or `voice`
   (default: first profile)
-- `--all-profiles` — generate presets for all profiles in the selected
-  endpoint/mode
+- `--all-profiles` — generate presets for every profile except `off` in the
+  selected endpoint/mode
 
 **Output**
 - `--prefix NAME` — change preset name prefix (default: `Dolby` →
@@ -551,9 +551,9 @@ The conf lands in `~/.config/pipewire/pipewire.conf.d/`, or under
 internal-speaker sink. Apps keep targeting the speaker, while HDMI, Bluetooth
 and USB outputs bypass it automatically. The conf is stereo only. It covers the
 convolver, PEQ, dialog, multiband compressor, regulator and limiter, plus
-`bass_enhancer` and `stereo_tools`. An active `autogain` volume leveler is
-translated too. Only 4-channel upmix isn't. See
-[Limitations](docs/ee-to-pipewire.md#limitations--known-gaps).
+`bass_enhancer`, and `stereo_tools` from a hand-edited or legacy preset. An
+active `autogain` volume leveler is translated too. Only 4-channel upmix isn't.
+See [Limitations](docs/ee-to-pipewire.md#limitations--known-gaps).
 
 - **Already run EasyEffects?** Before activating, quit it and stop it starting
   again: turn off its Background Service and autostart, or remove its autoload.
@@ -762,7 +762,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name
   and human-readable label (default: derived from the preset filename stem).
   Converting several presets then yields distinct sinks.
-- `--force` — overwrite the output conf if it already exists
+- `--force` — overwrite the output conf and the copied `.irs` if they already
+  exist
 
 **Impulse response**
 - `--irs-dir DIR` — directory holding the `.irs` referenced by the preset's
@@ -982,7 +983,7 @@ The preset is up to eight plugins, in this order:
 2. Bass Enhancer: SoundWire only
 3. Equalizer: speaker PEQ
 4. Dialog Enhancer
-5. Autogain: bypassed by default
+5. Autogain: bypassed by default on HDA
 6. Multiband Compressor
 7. Regulator: per-band limiter
 8. Limiter: brickwall safety net
@@ -1060,7 +1061,7 @@ In-tree docs and tooling with more context:
   empirical comparison of our generated FIR against DAX3's actual response on
   Windows, hardware and drivers, and more
 - [docs/code-organisation.md](docs/code-organisation.md) — how the two entry
-  points were split into `lib/`: the module shape it landed in, and the git
+  points are split into `lib/`: the module layout, and the git
   discipline that keeps `git blame -C` tracing code back through an extraction
 - [docs/cross-device-findings.md](docs/cross-device-findings.md) — empirical
   analysis of ~2,800 DAX3 tuning files across Realtek, Senary, Qualcomm Aqstic,

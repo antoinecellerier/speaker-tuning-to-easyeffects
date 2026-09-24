@@ -42,10 +42,10 @@ microphone-AEC tunings rather than playback ones.
 
 What is left is what the converter itself would accept.
 `is_dolby_tuning_filename` in [`lib/dax/discover.py`](../lib/dax/discover.py) is
-the single definition, shared by the converter's auto-discovery,
-`tests/corpus/` and the sweep tool. The population the tests walk therefore
-cannot drift apart from the population the figures are measured over. The tests
-walk one copy of each distinct file.
+the single definition, shared by the converter's auto-discovery, `tests/corpus/`
+and the sweep tool. The filter the tests apply therefore cannot drift apart from
+the one the figures are measured with. The tests walk one copy of each distinct
+file; the figures count every copy.
 
 ## What it holds
 
@@ -129,7 +129,7 @@ two bus-prefixed spellings of the *same* device. See
 
 Not every audio driver package carries a tuning. For some vendors, none of the
 downloadable ones do. ASUS ships them through Windows Update only, which is why
-its entry below arrived through an issue rather than as a package.
+its two entries below arrived through issues rather than as a package.
 
 ### The development machine's Windows partition
 
@@ -160,11 +160,11 @@ download for.
 
 - **One vendor.** 849 of the 861 device ids carry Lenovo's `17AA`. The other
   twelve are five Samsung (`144D`) SoundWire endpoints, two Apple (`106B`), two
-  Framework (`F111`, the only non-Lenovo *package*), two ASUS (`1043`), and one
-  Lenovo Qualcomm entry keyed `IDEA4002`. A finding that holds across the corpus
-  is a finding that holds across *Lenovo's* tuning practice. It is evidence
-  about the DAX3 schema, and much weaker evidence about what other OEMs do with
-  it.
+  Framework (`F111`, one of the two non-Lenovo *packages*, with Samsung's), two
+  ASUS (`1043`), and one Lenovo Qualcomm entry keyed `IDEA4002`. A finding that
+  holds across the corpus is a finding that holds across *Lenovo's* tuning
+  practice. It is evidence about the DAX3 schema, and much weaker evidence about
+  what other OEMs do with it.
 - **One endpoint.** Every row is `internal_speaker`. There are no headphone or
   external-output tunings in any package here, so nothing in the findings speaks
   to those.

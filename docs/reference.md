@@ -6,7 +6,7 @@ deliberately left out. [design-notes.md](design-notes.md) and
 [docs/research/](research/) hold the why: the research log, superseded
 hypotheses and what was attempted.
 [cross-device-findings.md](cross-device-findings.md) holds the empirical picture
-across ~3,000 DAX3 files, and [corpus.md](corpus.md) what that collection is
+across ~2,800 DAX3 files, and [corpus.md](corpus.md) what that collection is
 made of.
 
 > **Core invariant:** every parameter emitted traces to a parsed DAX3 XML
@@ -50,8 +50,8 @@ in a subprocess and fails if numpy or scipy turned up in `sys.modules`, however
 deep the import chain that pulled them in. The check keeps holding as `lib/`
 fills up, with no list to remember to extend. The split that filled `lib/` is
 done. [code-organisation.md](code-organisation.md) "Splitting the single-file
-scripts" holds the shape it landed in and the rules that kept `git blame`
-working through it.
+scripts" holds how `lib/` is laid out and the rules that keep `git blame`
+working through a move.
 
 ## Units & conventions
 
@@ -318,8 +318,8 @@ quiet when the default coupled-bands mapping limits any zone. Under
   wwmm/easyeffects#5120. It was reproduced on 8.2.8 / Qt 6.10.2 and reported
   on 8.2.9 / Qt 6.11.2
   ([#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95)).
-  Upstream fixed it in wwmm/easyeffects#5306, but not in any released version
-  yet. Unless the installed version is past 8.2.9, a run therefore sends
+  Upstream fixed it in wwmm/easyeffects#5306, in no release as of
+  2026-09-13. Unless the installed version is past 8.2.9, a run therefore sends
   `hide_window` over the socket before writing, whenever a socket is there to
   take it, and prints a line saying so. Nothing can narrow that. The page
   EasyEffects last showed reaches `db/easyeffectsrc` only on window hide,
@@ -353,10 +353,9 @@ Validated against DAX captures:
 | The simplified-schema `gain_l`/`gain_r` audio-optimizer: 1/16-dB units and per-channel L/R assignment | DAX capture on a second device: matches its measured Dolby on/off delta to ~0.7 dB mean ([simplified-schema AO units finding](research/eq-and-frequency-response.md#r-simplified-schema-ao-units), issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)) |
 | The min-phase FIR realising the composite target | Synthetic LTI check, no DAX capture: realises it to <0.1 dB RMS |
 
-Unvalidated, the "`ieq-amount` class": these all ship by default but are
-**not yet confirmed against a DAX capture**.
+Unvalidated, the "`ieq-amount` class": these ship by default but are **not
+yet confirmed against a DAX capture**. Among them:
 - The dialog-enhancer dB ceiling.
-- The surround `/20`.
 - The regulator slope/knee mappings.
 - The MBC Q15 decode.
 - The autogain window formulas and offsets
@@ -366,8 +365,9 @@ Unvalidated, the "`ieq-amount` class": these all ship by default but are
   in issue
   [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25).
 
-design-notes "Unvalidated converter scaling factors" catalogues each, with the
-measurement that would validate it.
+design-notes "Unvalidated converter scaling factors" catalogues all of them,
+including the PEQ anti-clipping trim, the SoundWire bass-enhancer constants and
+the fixed dynamics constants, each with the measurement that would validate it.
 
 Capture-scored on one device, opt-in, `--enable virtual-bass`: the wet-branch
 topology, sub-band weights, and unity overall gain score S = 4.43 against the
@@ -477,8 +477,9 @@ warn. The PipeWire filter-chain path is unaffected. Measurement and mechanism:
   cross-device-findings.md. The bar to change a default is ≥1 second-device
   capture.
 - **Corpus / cross-device follow-ups**: cross-device-findings.md "Open
-  follow-ups". They cover the newer-SoundWire regulator gap, the
-  asymmetric-L/R-peak path, voice-AO re-derivation and 1-band-MBC audibility.
+  follow-ups". The open ones are 1-band-MBC audibility, the Zenbook
+  S14 report (issue #29, reporter-gated) and re-running the audit on each new
+  driver pull.
 - **Measurement tooling** to produce the captures: `tools/measure_dax/` for
   Windows DAX, `tools/measure_ee/` for live EE on Linux, and
   `tools/measure_pw/` for PipeWire `filter-chain`.

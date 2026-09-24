@@ -70,10 +70,13 @@ file-in/file-out, with no audio and no PipeWire daemon. So is
   annotation names none of the per-device quirks behind it.
 - **`update_speaker_pin_quirks.py`.** It rebuilds the table wholesale each run,
   because entries do disappear upstream and a stale one tells a user to force a
-  fixup their kernel no longer has. `--blame` also resolves the upstream commit
-  that last wrote each row's line, so the warning links the fix rather than the
-  whole driver. `--blame` needs a token in `GH_TOKEN`. The commit is carried
-  forward like `since`, at one GitHub query per file.
+  fixup their kernel no longer has. The exception is each row's `since`, the
+  oldest released kernel series known to carry the fixup: it is carried forward
+  once derived, because a released kernel's contents cannot change. `--blame`
+  also resolves the upstream commit that last wrote each row's line, so the
+  warning links the fix rather than the whole driver. `--blame` needs a token in
+  `GH_TOKEN`. The commit is carried forward like `since`, at one GitHub query
+  per file.
 - **`update_speaker_route_quirks.py`.** It shares
   `update_speaker_pin_quirks.py`'s parser primitives, `since` walk and
   `--blame` commit resolver by import. Membership is the hand-verified
