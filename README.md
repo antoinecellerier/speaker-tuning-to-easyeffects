@@ -326,8 +326,8 @@ file, and a target sink that's gone.
 If the preset sounds right but quieter than Windows, part of the gap is
 expected. On HDA speakers, Dolby's dynamic volume leveler ships bypassed,
 because without Dolby's content analysis it distorts on quiet→loud transitions
-([why](docs/design-notes.md#why-autogain-is-bypassed-by-default)). Try these in
-order:
+([why](docs/research/adaptive-processing.md#why-autogain-is-bypassed-by-default)).
+Try these in order:
 
 - **Re-run the script with `--enable autogain`.** On HDA speakers, the volume
   leveler ships bypassed by default and carries most of the loudness gap: ~+9 dB
@@ -797,8 +797,8 @@ equivalent. Choose on everything else:
   [translates it too](docs/ee-to-pipewire.md#plugin-coverage). Autogain runs by
   default on SoundWire devices. On HDA the generator leaves it bypassed unless
   you pass `--enable autogain`, because its loudness boost can audibly
-  [saturate](docs/design-notes.md#why-autogain-is-bypassed-by-default) on
-  quiet-background content.
+  [saturate](docs/research/adaptive-processing.md#why-autogain-is-bypassed-by-default)
+  on quiet-background content.
 - **Lightness / headless / set-and-forget → the PW conf.** No GUI, no extra
   daemon. Running `Dolby-Balanced` at 48 kHz on the X1 Yoga development device,
   the filter-chain costs **~11 % fewer CPU cycles** and **~3.5× less RAM** than

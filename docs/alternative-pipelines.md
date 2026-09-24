@@ -21,7 +21,7 @@ Audio → Convolver → [Bass Enh.] → Equalizer → Dialog EQ
 A `Stereo Tools` M/S widener mapped from `surround-boost` sat after the bass
 enhancer until its removal in 2026-06. DAX applies no stereo widening on 2-ch
 content. See the
-[surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base).
+[surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base).
 
 `docs/design-notes.md` "Plugin chain order" has the rationale for the stage
 order. The bass enhancer is emitted only for SoundWire devices, and autogain

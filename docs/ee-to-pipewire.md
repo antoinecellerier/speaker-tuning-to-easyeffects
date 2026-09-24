@@ -375,7 +375,7 @@ can't reach.
   `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct.
   The *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block,
   because a DAX capture falsified the `surround-boost → stereo_tools` widening
-  ([surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base)).
+  ([surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base)).
   The `stereo_tools#0` translator applies to any hand-edited or legacy preset
   that carries a `stereo_tools` block.
 - **`_vbe` (top-level metadata, `--enable virtual-bass` only).**

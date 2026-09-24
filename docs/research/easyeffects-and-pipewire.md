@@ -118,7 +118,7 @@ the dynamics never engage, so both hypotheses predict a pure gain. The
 pre-scaled leg distinguishes them, and it only separates once the stimulus is
 hot enough. This extends the dormancy in the
 [DAX response vs XML](../design-notes.md#r-dax-response-vs-xml) and the
-[MBC ratio and time constants](../design-notes.md#r-mbc-ratio-time-constants):
+[MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants):
 still dormant at −13.9 dBFS RMS, active at −6.5.
 
 **The chain's own control applies in smart-filter mode too.** Setting the chain
@@ -736,4 +736,4 @@ wholesale, for a reporter who would rather send the real names.
 - The unused EasyEffects built-ins and the convolver IR trim:
   [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
 - The PipeWire converter's autogain translation:
-  [design-notes](../design-notes.md#translating-active-autogain-to-lsp-autogain_stereo-pw-converter).
+  [design-notes](adaptive-processing.md#translating-active-autogain-to-lsp-autogain_stereo-pw-converter).

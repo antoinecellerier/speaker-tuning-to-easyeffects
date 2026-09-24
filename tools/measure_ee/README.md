@@ -93,16 +93,16 @@ When auditing whether EE is applying the current preset:
   reduction falls short of DAX's on the same stepped battery. It separates a
   wrong MBC decode from the upstream level gap and from the regulator
   under-engaging. It is the analysis behind the open questions in the
-  [MBC ratio and time constants](../../docs/design-notes.md#r-mbc-ratio-time-constants)
+  [MBC ratio and time constants](../../docs/research/adaptive-processing.md#r-mbc-ratio-time-constants)
   and
   [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants).
   Re-run it when a new device's stepped captures land.
 - `leveler_curve.py`: read-only, no capture. It measures DAX's volume-leveler
   gain versus input level, as DAX-on minus DAX-off at each rung of the pink
   ladder. The autogain constants of the
-  [leveler→autogain window](../../docs/design-notes.md#r-leveler-autogain-window)
+  [leveler→autogain window](../../docs/research/adaptive-processing.md#r-leveler-autogain-window)
   and
-  [conservative-autogain offsets](../../docs/design-notes.md#r-conservative-autogain-offsets)
+  [conservative-autogain offsets](../../docs/research/adaptive-processing.md#r-conservative-autogain-offsets)
   approximate this measurement. It works on a two-rung archive and says so.
   `tools/measure_dax/CLAUDE_WINDOWS.md` has the capture procedure for the full
   ladder.
@@ -110,8 +110,8 @@ When auditing whether EE is applying the current preset:
   scaling-campaign results from one session's EE + DAX captures: the
   [`ieq-amount` scaling finding](../../docs/design-notes.md#r-ieq-amount-scaling),
   the
-  [surround→stereo-base factor](../../docs/design-notes.md#r-surround-boost-stereo-base),
-  [MBC ratio and time constants](../../docs/design-notes.md#r-mbc-ratio-time-constants),
+  [surround→stereo-base factor](../../docs/research/adaptive-processing.md#r-surround-boost-stereo-base),
+  [MBC ratio and time constants](../../docs/research/adaptive-processing.md#r-mbc-ratio-time-constants),
   [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants)
   and q-mode. Point it at a new session with
   `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another

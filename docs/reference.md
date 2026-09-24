@@ -104,7 +104,7 @@ the bass enhancer is SoundWire-only.
 no stereo-width change on 2-channel content. It's a multichannel-virtualization
 control, dormant without a surround/object bed. Earlier versions added a Calf
 Stereo Tools widener here; see the
-[surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base).
+[surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base).
 
 Output files:
 - `~/.local/share/easyeffects/irs/Dolby-{Balanced,Detailed,Warm}-<8 hex>.irs`
@@ -153,11 +153,11 @@ always preserved so users can toggle it in the GUI.
 - `volume-leveler-out-target` -320 (1/16 dB = -20 dBFS) → -20 LUFS target. The
   SoundWire path subtracts a further 6 dB of safety headroom. That offset is
   invented:
-  [conservative-autogain offsets](design-notes.md#r-conservative-autogain-offsets).
+  [conservative-autogain offsets](research/adaptive-processing.md#r-conservative-autogain-offsets).
 - `volume-leveler-amount` (0–10) → `maximum-history` window. HDA:
   `max(30 − 5·amount, 10)` s. SoundWire: `max(40 − 4·amount, 15)` s. Both
   formulas are invented:
-  [leveler→autogain window](design-notes.md#r-leveler-autogain-window).
+  [leveler→autogain window](research/adaptive-processing.md#r-leveler-autogain-window).
 - `silence-threshold` = -50 dB on both paths. It is invented but field-confirmed
   in issue
   [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25),
@@ -358,8 +358,8 @@ Unvalidated, the "`ieq-amount` class": these all ship by default but are
 - The regulator slope/knee mappings.
 - The MBC Q15 decode.
 - The autogain window formulas and offsets
-  ([leveler→autogain window](design-notes.md#r-leveler-autogain-window),
-  [conservative-autogain offsets](design-notes.md#r-conservative-autogain-offsets)).
+  ([leveler→autogain window](research/adaptive-processing.md#r-leveler-autogain-window),
+  [conservative-autogain offsets](research/adaptive-processing.md#r-conservative-autogain-offsets)).
   The −50 dB silence gate within them *is* field-confirmed and capture-measured,
   in issue
   [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25).

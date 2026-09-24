@@ -583,7 +583,7 @@ profile whose tuning enables the volume leveler (amount 5, DRC on) plus every
 steering, the #25 failure mode, while `music`, the profile he likes, has it off.
 `--disable autogain` (008b4d6) post-dates his tests, so that A/B is the round-3
 ask, and the SoundWire arm of the
-[conservative-autogain offsets](../design-notes.md#r-conservative-autogain-offsets)
+[conservative-autogain offsets](adaptive-processing.md#r-conservative-autogain-offsets)
 is what it exercises.
 
 ## Elsewhere

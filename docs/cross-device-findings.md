@@ -1041,7 +1041,7 @@ undocumented Dolby DSP internals:
   stereo widener via `surround-boost → stereo_tools`. A 2026-06 DAX capture
   showed Dolby applies no stereo widening on 2-channel content, so that mapping
   was removed
-  ([surround→stereo-base factor](design-notes.md#r-surround-boost-stereo-base)).
+  ([surround→stereo-base factor](research/adaptive-processing.md#r-surround-boost-stereo-base)).
   The advanced variant is the same unreproducible spatializer one generation
   later.
 
@@ -1377,12 +1377,12 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    The reporter's symptoms were "too bass boosted", chassis resonance and wonky
    dynamics, with the music profile better than dynamic. They drove the
    2026-07-03 removal of two vestigial SoundWire boosts
-   ([dialog-enhancer gain ceiling](design-notes.md#r-dialog-enhancer-gain-ceiling),
+   ([dialog-enhancer gain ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling),
    [convolver headroom restore](design-notes.md#r-convolver-headroom-restore)).
    They are also the pending A/B for the bass-enhancer default
    ([SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)
    / issue #14), and a candidate second-device loud capture for the
-   [MBC ratio and time constants](design-notes.md#r-mbc-ratio-time-constants)
+   [MBC ratio and time constants](research/adaptive-processing.md#r-mbc-ratio-time-constants)
    and [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants).
    **XML received 2026-08-27.** It was pasted inline on the issue, with security
    key
