@@ -876,7 +876,8 @@ per-device bass feature gate found anywhere in the corpus INFs' registry
 surface. It makes sliding bass Dolby's demonstrated pattern for gating bass
 behaviour outside the tuning XML. An implementation would face the same
 does-Windows-actually-run-it question as Virtual Bass Enhancement (the
-[DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass) deep audit).
+[DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass) deep
+audit).
 
 Sliding bass is deliberately not surfaced to users either (2026-08-04). It is
 absent from `_UNMODELED_FEATURES`, so no run mentions it, including on the 63
@@ -1172,7 +1173,7 @@ claims. Firing means the taming rationale doesn't apply, not proven squash.
 The default-on SoundWire `bass_enhancer` also adds harmonics on top of an amp
 that now does real bass management. This is the second field report against that
 default, after issue #29 (the unvalidated
-[SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)).
+[SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)).
 
 ---
 
@@ -1379,7 +1380,7 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    ([dialog-enhancer gain ceiling](design-notes.md#r-dialog-enhancer-gain-ceiling),
    [convolver headroom restore](design-notes.md#r-convolver-headroom-restore)).
    They are also the pending A/B for the bass-enhancer default
-   ([SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)
+   ([SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)
    / issue #14), and a candidate second-device loud capture for the
    [MBC ratio and time constants](design-notes.md#r-mbc-ratio-time-constants)
    and [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants).
@@ -1399,6 +1400,6 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    (issue #25). `--disable autogain` (008b4d6, v2026.08) did not exist when the
    reporter tested. So the `dynamic` A/B with it off is the pending ask. The DAX
    capture still decides the bass-enhancer default
-   ([SoundWire bass-enhancer constants](design-notes.md#r-soundwire-bass-enhancer-constants)).
+   ([SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)).
    Still pending from the reporter: that A/B, the capture and the generation
    stdout.

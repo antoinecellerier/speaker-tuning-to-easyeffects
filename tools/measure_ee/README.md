@@ -121,16 +121,16 @@ When auditing whether EE is applying the current preset:
   post-band. It runs one `lv2apply` subprocess per stage and writes every
   intermediate plus a provenance sidecar. Its defaults reproduce the 2026-05-06
   PoC bit-for-bit, as recorded in the
-  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass).
+  [DAX virtual-bass finding](../../docs/research/virtual-bass.md#r-dax-virtual-bass).
 - `analyze_vbe_chain.py`: read-only, no capture. It builds harmonic tables for
   bass-burst WAVs on any labeled set of renders/captures: per-tone harmonic
   magnitudes, Δ3/Δ5/Δ7, odd/even ratio, crest factor. The metric definitions
   match the
-  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass)
+  [DAX virtual-bass finding](../../docs/research/virtual-bass.md#r-dax-virtual-bass)
   investigation, so numbers stay comparable.
 - `score_vbe_chain.py`: read-only, no capture. It scores bass-burst captures
   against a device's own DAX capture with the
-  [DAX virtual-bass finding](../../docs/design-notes.md#r-dax-virtual-bass)
+  [DAX virtual-bass finding](../../docs/research/virtual-bass.md#r-dax-virtual-bass)
   phase-2 protocol. That protocol is the S metric plus the capture-runnable
   guard subset. The S metric uses a floor clamp, ×2 overshoot ≥200 Hz and macro
   averaging. `--dax-capture` is the reference, and `--capture LABEL=PATH` names

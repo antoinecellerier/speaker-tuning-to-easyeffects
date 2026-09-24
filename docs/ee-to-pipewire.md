@@ -629,7 +629,7 @@ activation step's sink check and `--doctor`'s "Chains loaded" report that.
   into Calf Saturators between them. All filters run the IIR engine with no
   look-ahead, and the mixers/copies are builtin pass-throughs, so the branch
   adds zero latency. Evidence and the measured score are in
-  the [DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass).
+  the [DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass).
 - **Not alongside EasyEffects.** The chain is a replacement for the EasyEffects
   preset, not an add-on. In smart-filter mode EasyEffects' own output plays into
   the very sink the chain attaches to. Everything then carries the EE preset

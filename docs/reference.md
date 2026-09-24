@@ -374,7 +374,7 @@ method's noise floor, and emitting nothing scores 10.0. All cleanliness guards
 are green, with one acoustic on-device confirmation (2026-08-21). It ships
 default-off for two reasons: it was scored on one device only, and the two
 saturator constants are measurement-calibrated rather than XML-derived
-([DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass), issue
+([DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass), issue
 [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
 
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
@@ -428,9 +428,9 @@ issue
   this opt-in under the XML-only invariant. Two saturator constants (`drive=4`,
   `blend=−10`) are measurement-calibrated against the DAX capture, not
   XML-derived. The chain is all-IIR with no look-ahead, so it adds zero latency.
-  The [DAX virtual-bass finding](design-notes.md#r-dax-virtual-bass) holds the
-  measured score, guards, and the on-device listening result. The offline
-  reproduction is `tools/measure_ee/render_vbe_chain.py`.
+  The [DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass)
+  holds the measured score, guards, and the on-device listening result. The
+  offline reproduction is `tools/measure_ee/render_vbe_chain.py`.
 - **Always-inert / out-of-scope XML fields**: deliberately ignored. They're
   always zero/disabled on the modelled endpoints, are DSP internals with no
   EasyEffects equivalent, or concern multichannel/subwoofer routing irrelevant
