@@ -4015,41 +4015,6 @@ re-proposed:
   already in the chain ("Unvalidated converter scaling factors"), not new
   plugins.
 
-- **Caching the LV2 port schemas anywhere but in memory** (corpus tier,
-  2026-08-08). What `lv2info` reports for a URI is a property of the installed
-  plugin, not of the XML under test. So the corpus tier hands
-  `lib.pipewire.validate.run` a session-scoped dict and pays for each URI once.
-  Measured across `pytest tests/corpus/ --run-slow` on a 3,057-XML corpus:
-
-  | | Before | After |
-  |---|---:|---:|
-  | `lv2info` execs | 8,082 | 21 |
-  | Wall clock, whole tier (one figure per run) | 385/384 s | 243/269/271 s |
-  | Wall clock, the `ee_to_pipewire` module on its own (all that changed) | 170 s | 24 s |
-
-  The memo is an argument rather than an `lru_cache` inside `lib/`, because the
-  two production callers, the converter and the `validate_conf.py` CLI, validate
-  one conf each and would never see a hit. A module-level cache would be
-  process-global mutable state shipped for a test's benefit. Entries are
-  `(schema_or_None, note)`, not bare schemas, so a URI whose `lv2info` failed is
-  warned about on *every* conf it leaves unchecked rather than only the first.
-  Two further steps were declined:
-  - **An on-disk cache.** The key is the real obstacle. The URI alone goes stale
-    the moment a distro updates LSP, so the key would have to hash the plugin's
-    `.ttl` bundles, most of the cost the cache set out to avoid. It would also
-    have to carry our own parser's version, or a `git bisect` across
-    `_parse_lv2info` would read entries some other parser wrote. Every other
-    cache failure in this repo costs a slow run or a false alarm. This one would
-    be false clearance on the check that exists to catch a silently muted band:
-    "a check that stops checking without stopping"
-    ([code-organisation.md](code-organisation.md)). And the prize is not close:
-    the in-memory memo already takes the tier to 21 execs, where disk would take
-    it to 3.
-  - **Skipping structurally identical confs.** With the execs gone, what remains
-    of the per-XML cost mostly *is* the out-of-range and toggled-port checks,
-    the entire remaining signal. Deduplicating confs by shape would trade the
-    check itself for a handful of CPU-seconds.
-
 ## Closed follow-ups
 
 Closed groups moved from "Follow-ups to close the gap to DAX" above. Each
