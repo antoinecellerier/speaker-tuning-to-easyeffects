@@ -34,9 +34,10 @@ Then:
           too, the chain is simply operating linearly at this level and the
           method cannot tell the two hypotheses apart. Without this leg a
           dormant compressor reads exactly like "the volume is applied after the
-          DSP" — and this repo has measured that dormancy before (design-notes:
-          the MBC does not engage on -10 dBFS stimuli). Feed it a stimulus loud
-          enough to put the dynamics to work, and check D before trusting B.
+          DSP" — and this repo has measured that dormancy before (research
+          `r-dynamics-dormancy`: the MBC does not engage on -10 dBFS stimuli).
+          Feed it a stimulus loud enough to put the dynamics to work, and
+          check D before trusting B.
 
 Reroutes nothing, but it plays audio and moves volume controls: run it through
 the /audio-validate handoff, not ad hoc. Captures stay untracked under

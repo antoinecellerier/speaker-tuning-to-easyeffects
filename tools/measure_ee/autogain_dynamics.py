@@ -3,7 +3,7 @@
 
 The LTI battery (capture_battery.py) can't see leveler behaviour; this
 harness measures the two failure modes that decide whether autogain can
-ship enabled (design-notes "The 2026-07 default-flip attempt"):
+ship enabled (research `r-autogain-default-flip`):
 
   crackle  30 s of near-silence between the old (-70 dB) and shipped
            (-50 dB) silence gates, then a notification-style burst.
