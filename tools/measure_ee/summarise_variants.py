@@ -9,9 +9,9 @@ For each (variant, profile) cell:
          published XML?" metric — uses the same `build_reference`
          path analyze.py uses).
        - **EE − DAX captured** (the "do we match Windows DAX?"
-         metric — Finding 6 already established this is floored
-         by fixed-DAX behavior outside the XML, but worth tracking
-         as a tie-breaker).
+         metric — research `r-ao-sign-variant-matrix` already
+         established this is floored by fixed-DAX behavior outside
+         the XML, but worth tracking as a tie-breaker).
   3. Print a residual table covering the variant × profile matrix.
 
 Usage:

@@ -26,8 +26,8 @@ does. The data is append-only.
    capture name, an issue, a `tools/` script, a commit.
 5. At most one paragraph of interpretation, then an `Open:` list of what
    the entry leaves unmeasured.
-6. A superseded entry keeps its place and its `r-` tag under a one-line banner
-   naming what replaced it.
+6. A superseded entry stays, with its `r-` tag, under a one-line banner that
+   links its replacement by tag.
 7. A rejected approach gets one sentence each for the hypothesis, the
    evidence and the verdict.
 
@@ -56,8 +56,10 @@ class's current section.
 
 A unit's tag is a line `<a id="r-<slug>"></a>` above its heading, then a blank
 line. The slug names the mechanism in ≤5 words, holds no number, is unique
-across docs/ and never changes. Link it as `<file>#r-<slug>`; cite it from
-code, tests, skills or commits as the bare token `` `r-<slug>` ``.
+across docs/ and never changes. Nor does a cross-device-findings `## N.` number,
+because code and other docs cite it. Link a tag as `<file>#r-<slug>`; cite it
+from code, tests, skills or commits as the bare token `` `r-<slug>` ``. Moving a
+unit to another file adds a row to design-notes "Moved sections".
 
 Material that is not a research unit goes by type:
 

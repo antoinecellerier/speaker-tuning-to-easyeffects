@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Entries 6/11 follow-up: is the EE↔DAX dynamics GR gap a wrong MBC decode,
-the upstream bass/low-mid level gap, or both?
+"""Follow-up to research `r-mbc-ratio-time-constants` and
+`r-fixed-dynamics-constants`: is the EE↔DAX dynamics GR gap a wrong MBC
+decode, the upstream bass/low-mid level gap, or both?
 
 READ-ONLY analysis over existing stepped captures (no audio capture). Run from
 the repo root:  python3 tools/measure_ee/dynamics_gap.py

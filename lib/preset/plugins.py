@@ -418,8 +418,8 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     `regulator-stress-amount`, `regulator-overdrive` and
     `regulator-relaxation-amount` are parsed for visibility, in the debug
     print and the `_UNMODELED_FEATURES` watch list, but not mapped here. See
-    docs/design-notes.md "Follow-ups" entry on regulator-stress for
-    the empirical work that closed that hypothesis.
+    research `r-regulator-stress-amount` for the empirical work that closed
+    that hypothesis.
 
     couple_bands (default on since 2026-08-11, `--disable coupled-bands`
     opts out, issue #44): a zone whose threshold_high is >= 0 dBFS could

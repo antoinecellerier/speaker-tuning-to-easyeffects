@@ -149,12 +149,9 @@ pairs**, checked 2026-08-05 against the dev-device archives:
 
 Stepped is the regime the regulator actually engages in. On the dev device,
 `stepped_loud` drives DAX over its threshold on 3 of 4 active bands. The open
-regulator questions in the
-[MBC ratio and time constants](../../docs/design-notes.md#r-mbc-ratio-time-constants)
-and
-[fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants)
-entries are therefore an analysis gap, not a capture gap. Don't re-capture the
-stepped battery: it buys nothing.
+regulator questions in `r-mbc-ratio-time-constants` and
+`r-fixed-dynamics-constants` are therefore an analysis gap, not a capture gap.
+Don't re-capture the stepped battery: it buys nothing.
 
 The pink ladder measures the volume leveler. It will not incidentally
 measure the regulator: pink tops out at −14 dBFS RMS before it clips, which

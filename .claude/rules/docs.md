@@ -24,8 +24,8 @@ file's *audience* and the placement discipline.
     flag entry is *what it does* plus *when you'd reach for it*, plus the
     default if there is one. A troubleshooting row maps a *symptom* to *which
     flag*. No DSP mechanism, no measurement numbers, no device IDs: link to
-    reference/design-notes for the why. A second sentence of mechanism belongs
-    in the docs, not the README.
+    reference or the research log for the why. A second sentence of mechanism
+    belongs in the docs, not the README.
 - **docs/reference.md** serves a technically-inclined user asking "what does the
   converter do *now*". It holds settled facts only.
 - **docs/design-notes.md** and the per-class **docs/research/** files serve a
@@ -33,8 +33,8 @@ file's *audience* and the placement discipline.
 - **tools/measure_*/** holds on-device measurement workflows.
 
 When unsure, "what it does now" goes to reference, "why / evidence / rejected
-approaches" to design-notes or its docs/research/ class file, and user-facing
-how-to to README.
+approaches" to the research log (placement: research-log.md "Where new content
+goes"), and user-facing how-to to README.
 
 ## Sentences
 
@@ -62,9 +62,7 @@ their question, then stop. A short section is never the defect.
 7. Bold marks at most one headline figure or warning per section, never a
    whole sentence. A bold label opening a list item, such as a
    troubleshooting symptom, is a label, not emphasis, so it is allowed.
-8. A heading names what the section holds: no verdict, no URL. A unit's
-   `r-` tag and a cross-device `## N.` number never change, because code
-   and other docs cite them.
+8. A heading names what the section holds: no verdict, no URL.
 9. Each fact has one home, and other places link to it. A link replaces a
    restatement only when its target holds the fact.
 10. Judge length against the neighbours: a section longer than neighbours

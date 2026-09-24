@@ -61,7 +61,8 @@ def rlc(f, f0, q, g):
 
 
 def finding9():
-    print("== Finding 9 confirmation: EE−DAX pink RMS (200 Hz-18 kHz), second session ==")
+    print("== Confirmation of research r-ieq-amount-scaling: EE−DAX pink RMS "
+          "(200 Hz-18 kHz), second session ==")
     for p in ["dynamic", "movie", "music", "game", "voice"]:
         f, ee = spec(EE, "pink", f"ee_{p}_balanced"); _, dx = spec(DAX, "pink", p)
         d = n1k(f, ee) - n1k(f, np.interp(f, f, dx))
@@ -73,7 +74,8 @@ def finding9():
 
 
 def entry2():
-    print("\n== Entry 2 (surround /20): S/M widening, decorrelated pink ==")
+    print("\n== Research r-surround-boost-stereo-base (surround /20): S/M "
+          "widening, decorrelated pink ==")
     for d, lbl, nm in [(DAX, "off", "DAX off"), (DAX, "dynamic", "DAX s96"),
                        (DAX, "game", "DAX s0"), (EE, "ee_dynamic_balanced", "EE s96"),
                        (EE, "ee_game_balanced", "EE s0")]:
@@ -83,7 +85,8 @@ def entry2():
 
 
 def entries_6_11():
-    print("\n== Entries 6/11 (dynamics): level-dependent GR, loud(-2) vs normal(-18) ==")
+    print("\n== Research r-mbc-ratio-time-constants / r-fixed-dynamics-constants "
+          "(dynamics): level-dependent GR, loud(-2) vs normal(-18) ==")
     f, dl, _ = stepped(f"{DAX}/stepped_stepped_loud_dynamic_L.npz")
     _, dn, _ = stepped(f"{DAXC}/stepped_stepped_dynamic_L.npz")
     fe, el, _ = stepped(f"{EE}/stepped_stepped_loud_ee_dynamic_balanced_L.npz")

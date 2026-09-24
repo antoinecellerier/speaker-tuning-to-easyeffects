@@ -2,11 +2,11 @@
 """DAX's volume-leveler gain as a function of input level (read-only).
 
 The converter's autogain stage approximates Dolby's volume leveler with
-constants that were chosen, not decoded (docs/design-notes.md,
-"Unvalidated converter scaling factors", entries 7 and 10). This reads a
-pink-noise *level ladder* of DAX captures and reports the thing those
-constants are approximating: how much gain DAX applies at each input level,
-measured as DAX-on minus DAX-off at that same level.
+constants that were chosen, not decoded (unvalidated scaling factors,
+research `r-leveler-autogain-window` and `r-conservative-autogain-offsets`).
+This reads a pink-noise *level ladder* of DAX captures and reports the thing
+those constants are approximating: how much gain DAX applies at each input
+level, measured as DAX-on minus DAX-off at that same level.
 
 It needs no capture of its own — point it at a directory of analyze.py
 outputs. Rungs are discovered from the filenames, so a two-rung archive

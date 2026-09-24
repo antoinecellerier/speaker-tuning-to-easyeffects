@@ -144,9 +144,10 @@ def guards(bank: CellBank, dax: CellBank,
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Score bass-burst captures against a measured DAX "
-                    "reference (issue #14; protocol in docs/design-notes.md "
-                    "Finding 8). Lower S is closer; the --dry-capture row "
-                    "is what doing nothing scores on this device.")
+                    "reference (issue #14; protocol in research "
+                    "`r-dax-virtual-bass`). Lower S is closer; the "
+                    "--dry-capture row is what doing nothing scores on "
+                    "this device.")
     parser.add_argument("--capture", action="append", required=True,
                         metavar="LABEL=PATH",
                         help="chain capture to score, repeatable")
