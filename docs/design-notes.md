@@ -7,15 +7,17 @@ so future readers don't have to reverse-engineer it from commit history.
 [reference.md](reference.md) covers *what* the script emits: mappings, plugin
 chain, units and what's not implemented.
 
-> **This file and docs/research/ are the research log.** Findings appear in
-> roughly the order they were established. Superseded hypotheses stay for the
-> audit trail. See the banners in
+> **This file and docs/research/ are the research log.** In each class file,
+> findings appear in roughly the order they were established. Superseded
+> hypotheses stay for the audit trail. See the banners in
 > [eq-and-frequency-response.md](research/eq-and-frequency-response.md) that mark
 > text superseded by the
 > [`ieq-amount` scaling finding](research/eq-and-frequency-response.md#r-ieq-amount-scaling).
 > For the settled current-state summary, start with [reference.md](reference.md).
-> For the open threads worth picking up, see "Unvalidated converter scaling
-> factors" and "Follow-ups to close the gap to DAX" further down.
+> For the open threads worth picking up, see
+> [Unvalidated converter scaling factors](#unvalidated-converter-scaling-factors-the-ieq-amount-class)
+> below and
+> [Follow-ups to close the gap to DAX](research/measuring-against-windows.md#r-dax-gap-follow-ups).
 
 ## Where the research lives
 
@@ -29,7 +31,9 @@ chain, units and what's not implemented.
 | [eq-and-frequency-response.md](research/eq-and-frequency-response.md) | the IEQ and its `ieq-amount` weight, the audio optimizer and its XML units, the PEQ curve, the FIR and its phase |
 | [measuring-against-windows.md](research/measuring-against-windows.md) | the DAX and EasyEffects capture method and stimuli, the validation roadmap and bar, and the follow-ups to close the gap to DAX |
 
-The rest of this file is being split by class into `docs/research/`.
+After its lookup tables, this file holds Dolby's signal flow, the plugin chain
+order, the plugin parameter audit with its recorded contradiction, the
+unvalidated scaling-factor catalogue and two rejected approaches.
 
 ### Issues
 
@@ -400,7 +404,7 @@ none of it has been measured.
 Recorded 2026-08-08 by decision, with the fix deferred: no code, no invariant
 wording, and none of the three claims above were changed.
 
-### Unvalidated converter scaling factors (the `ieq-amount` class)
+## Unvalidated converter scaling factors (the `ieq-amount` class)
 
 The converter carries a cluster of scaling factors that map an XML field onto a
 filter parameter through a constant we *invented* rather than confirmed. The
@@ -435,8 +439,10 @@ defaults.
 | [Fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants) | (none) | dormant at nominal levels (the [dynamics-dormant measurement](research/adaptive-processing.md#r-dynamics-dormancy); device-specific, see the end of the [fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants)); engaged on loud content |
 
 For contrast, the `/16`-dB convention is verified (issue #15, in the section
-introduction), and the `/32768` Q15 decode is at least numerically consistent
-with first-order time-constant theory. Everything else above is unverified.
+introduction), and the
+[`/32768` Q15 decode](research/adaptive-processing.md#r-mbc-time-constant-decode)
+is at least numerically consistent with first-order time-constant theory.
+Everything else above is unverified.
 
 ## Rejected approaches
 
