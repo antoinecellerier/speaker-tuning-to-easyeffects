@@ -592,7 +592,7 @@ is what it exercises.
 ## Elsewhere
 
 - The XML field inventory's bass-enhancement paragraph:
-  [design-notes](eq-and-frequency-response.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22).
+  [eq-and-frequency-response.md](eq-and-frequency-response.md#r-simplified-schema-gain-arrays).
 - The 50 Hz bass-attenuation gap:
   [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
 - The unused EasyEffects built-ins, Bass Loudness among them:

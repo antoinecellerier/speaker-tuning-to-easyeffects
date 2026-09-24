@@ -26,6 +26,7 @@ chain, units and what's not implemented.
 | [virtual-bass.md](research/virtual-bass.md) | DAX's virtual bass engine (VBE), the Calf bass enhancer and `--enable virtual-bass` |
 | [adaptive-processing.md](research/adaptive-processing.md) | the volume leveler and autogain, the multi-band compressor (MBC), the dialog enhancer, surround and media intelligence (MI) steering |
 | [loudness-and-limiting.md](research/loudness-and-limiting.md) | `volmax-boost` and its slot, peak normalisation and `--enable level-restore`, the per-band regulator, the brickwall limiter and the PEQ anti-clipping trim |
+| [eq-and-frequency-response.md](research/eq-and-frequency-response.md) | the IEQ and its `ieq-amount` weight, the audio optimizer and its XML units, the PEQ curve, the FIR and its phase |
 
 The rest of this file is being split by class into `docs/research/`.
 
@@ -33,25 +34,29 @@ The rest of this file is being split by class into `docs/research/`.
 
 | Issue | Material | Where |
 |---|---|---|
-| #11 | DAX's tier-2 adaptive sub-models; `regulator-stress-amount` tested as a threshold offset | [loudness-and-limiting.md#r-regulator-stress-amount](research/loudness-and-limiting.md#r-regulator-stress-amount) |
-| #14 | VBE on HDA devices and `--enable virtual-bass` | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
+| #4 | an IdeaPad XML giving a comparable IEQ shape in the parametric-EQ rejection | [eq-and-frequency-response.md#r-parametric-eq-approximation](research/eq-and-frequency-response.md#r-parametric-eq-approximation) |
+| #11 | DAX's tier-2 adaptive sub-models; `regulator-stress-amount` tested as a threshold offset; its long-IR-tail note, behind the rejected IR trim, is at [eq-and-frequency-response.md#r-convolver-ir-trim](research/eq-and-frequency-response.md#r-convolver-ir-trim) | [loudness-and-limiting.md#r-regulator-stress-amount](research/loudness-and-limiting.md#r-regulator-stress-amount) |
+| #13 | `ieq-amount` read as a percentage; FIR construction tweaks and mixed phase rejected | [eq-and-frequency-response.md#r-ieq-amount-scaling](research/eq-and-frequency-response.md#r-ieq-amount-scaling) |
+| #14 | VBE on HDA devices and `--enable virtual-bass`; the corpus-frozen `bass-enhancer-*`/`virtual-bass-*` fields are at [eq-and-frequency-response.md#r-simplified-schema-gain-arrays](research/eq-and-frequency-response.md#r-simplified-schema-gain-arrays) | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
+| #15 | the `/16`-dB convention, generalised to the simplified schema | [eq-and-frequency-response.md#r-simplified-schema-ao-units](research/eq-and-frequency-response.md#r-simplified-schema-ao-units) |
 | #18 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
-| #22 | field follow-up: the preset loads but is inaudible | [easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible) |
-| #23 | `volmax-boost` slot: `input-gain` default, `output-gain` opt-out | [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot) |
-| #25 | autogain's HDA default flip, rejected; the −50 dB silence gate | [adaptive-processing.md#r-autogain-default-flip](research/adaptive-processing.md#r-autogain-default-flip) |
+| #22 | field follow-up: the preset loads but is inaudible; the simplified schema's `gain_l`/`gain_r` audio optimizer and the elements we don't read are at [eq-and-frequency-response.md#r-simplified-schema-gain-arrays](research/eq-and-frequency-response.md#r-simplified-schema-gain-arrays) | [easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible) |
+| #23 | `volmax-boost` slot: `input-gain` default, `output-gain` opt-out; volmax landing within ~1 dB of DAX's loud-level makeup on #44's device is at [eq-and-frequency-response.md#r-simplified-schema-ao-units](research/eq-and-frequency-response.md#r-simplified-schema-ao-units) | [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot) |
+| #25 | autogain's HDA default flip, rejected; the −50 dB silence gate; the leveler gap quantified on #44's device is at [eq-and-frequency-response.md#r-simplified-schema-ao-units](research/eq-and-frequency-response.md#r-simplified-schema-ao-units) | [adaptive-processing.md#r-autogain-default-flip](research/adaptive-processing.md#r-autogain-default-flip) |
 | #27 | amps read as speakers; the bass-enhancer field report is at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the inert-regulator volmax caveat is at [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot), and the all-zero-threshold coupled-bands A/B at [loudness-and-limiting.md#r-fixed-dynamics-constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants) | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
 | #29 | CS42L43 excluded as a jack codec; the bass-enhancer field rounds are at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the removed SoundWire dialog-enhancer arm's field evidence is at [adaptive-processing.md#r-dialog-enhancer-gain-ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling); the removed convolver headroom restore's field evidence is at [loudness-and-limiting.md#r-convolver-headroom-restore](research/loudness-and-limiting.md#r-convolver-headroom-restore) | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 | #30 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #33 | kernel 6.12 → 7.0 fix, old-kernel hint | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
 | #36 | single pin, a 2-driver laptop per PSREF; the reporter's enable-autogain recommendation is at [adaptive-processing.md#r-autogain-bypassed-by-default](research/adaptive-processing.md#r-autogain-bypassed-by-default) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #39 | crackle; rule out the kernel (TAS2781 calibration differs by kernel lineage) | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
-| #44 | single pin, a 2-driver laptop per PSREF; DAX applying no VBE is at [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass); the deep-threshold regulator and `--volmax-slot output-gain` are at [loudness-and-limiting.md#r-deep-threshold-bass-loss](research/loudness-and-limiting.md#r-deep-threshold-bass-loss) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #44 | single pin, a 2-driver laptop per PSREF; DAX applying no VBE is at [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass); the deep-threshold regulator and `--volmax-slot output-gain` are at [loudness-and-limiting.md#r-deep-threshold-bass-loss](research/loudness-and-limiting.md#r-deep-threshold-bass-loss); the DAX capture confirming the simplified schema's AO units is at [eq-and-frequency-response.md#r-simplified-schema-ao-units](research/eq-and-frequency-response.md#r-simplified-schema-ao-units) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #45 | the T495's successor, the T14 Gen 1 AMD, reported working from a driver package we don't hold | [loudness-and-limiting.md#r-gain-rail-tuning](research/loudness-and-limiting.md#r-gain-rail-tuning) |
 | #46 | the tuning pinned at the gain rail; single pin, a 2-driver laptop per PSREF, is at [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) | [loudness-and-limiting.md#r-gain-rail-tuning](research/loudness-and-limiting.md#r-gain-rail-tuning) |
 | #50 | `--enable level-restore`; single pin, a 2-driver laptop per PSREF, and its missing `38dc` quirk entry (its smart amp, not a bass pin) are at [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
 | #51 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #53 | hidden woofer pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #63 | the chain selected as the system output: two sinks in series | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| #73 | the generated voicings sit at most ~1 dB apart under the `/100` weight; DAX's own Detailed−Warm delta is unmeasured | [eq-and-frequency-response.md#r-ieq-amount-scaling](research/eq-and-frequency-response.md#r-ieq-amount-scaling) |
 | #84 | EasyEffects plays hot above 48 kHz; the deep-threshold regulator is at [loudness-and-limiting.md#r-deep-threshold-distortion](research/loudness-and-limiting.md#r-deep-threshold-distortion) | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
 | #93 | presets written where EasyEffects stopped reading; the locale pin | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
 | #95 | unlisted machine, firmware mic setting; the EasyEffects crash is at [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
@@ -110,6 +115,24 @@ The rest of this file is being split by class into `docs/research/`.
 | Measured on the dev device, 2026-08-04 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
 | Measured on a second device, 2026-08-04/05 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
 | Heard on the dev device, 2026-08-18 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
+| Simplified-schema XMLs: `gain_l`/`gain_r` audio-optimizer (issue #22) | [eq-and-frequency-response.md#r-simplified-schema-gain-arrays](research/eq-and-frequency-response.md#r-simplified-schema-gain-arrays) |
+| Verified math (sanity checks) | [eq-and-frequency-response.md#r-fir-accuracy](research/eq-and-frequency-response.md#r-fir-accuracy) |
+| DAX3's phase response | [eq-and-frequency-response.md#r-dax-phase-response](research/eq-and-frequency-response.md#r-dax-phase-response) |
+| DAX3 response vs the published XML curves | [eq-and-frequency-response.md#r-dax-response-vs-xml](research/eq-and-frequency-response.md#r-dax-response-vs-xml) |
+| EE-on-Linux response vs the XML | [eq-and-frequency-response.md#r-ee-response-vs-xml](research/eq-and-frequency-response.md#r-ee-response-vs-xml) |
+| Audit for a missed HF-shaping XML block | [eq-and-frequency-response.md#r-hf-shaping-block-audit](research/eq-and-frequency-response.md#r-hf-shaping-block-audit) |
+| Testing hypotheses (a) and (b) | [eq-and-frequency-response.md#r-ao-sign-variant-matrix](research/eq-and-frequency-response.md#r-ao-sign-variant-matrix) |
+| Implications for the converter | [eq-and-frequency-response.md#r-dax-gap-implications](research/eq-and-frequency-response.md#r-dax-gap-implications) |
+| Five XML-interpretation hypotheses | [eq-and-frequency-response.md#r-xml-interpretation-hypotheses](research/eq-and-frequency-response.md#r-xml-interpretation-hypotheses) |
+| `ieq-amount` scaling and the HF gap (issue #13) | [eq-and-frequency-response.md#r-ieq-amount-scaling](research/eq-and-frequency-response.md#r-ieq-amount-scaling) |
+| simplified-schema AO units on a second device (issue #44) | [eq-and-frequency-response.md#r-simplified-schema-ao-units](research/eq-and-frequency-response.md#r-simplified-schema-ao-units) |
+| Match DAX's hybrid phase character | [eq-and-frequency-response.md#r-hybrid-phase-matching](research/eq-and-frequency-response.md#r-hybrid-phase-matching) |
+| Empirically tune the preset to match DAX's *captured* response, not the XML's published curves | [eq-and-frequency-response.md#r-fit-to-dax-capture](research/eq-and-frequency-response.md#r-fit-to-dax-capture) |
+| Rejected approaches → `filter_coefficients` as an audio EQ source | [eq-and-frequency-response.md#r-filter-coefficients-blob](research/eq-and-frequency-response.md#r-filter-coefficients-blob) |
+| Rejected approaches → Parametric-EQ approximation of the IEQ curve | [eq-and-frequency-response.md#r-parametric-eq-approximation](research/eq-and-frequency-response.md#r-parametric-eq-approximation) |
+| Rejected approaches → Auto-trimming the convolver IR to its audible length | [eq-and-frequency-response.md#r-convolver-ir-trim](research/eq-and-frequency-response.md#r-convolver-ir-trim) |
+| Closed follow-ups | [eq-and-frequency-response.md#r-variant-sweep](research/eq-and-frequency-response.md#r-variant-sweep) |
+| The variant sweep | [eq-and-frequency-response.md#r-variant-sweep](research/eq-and-frequency-response.md#r-variant-sweep) |
 
 ### Legacy numbers
 

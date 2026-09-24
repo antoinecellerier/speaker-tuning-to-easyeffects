@@ -1,3 +1,44 @@
+# EQ and frequency response: IEQ, audio optimizer, FIR, XML units and phase
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits.
+
+- **The FIR** is 4096-tap minimum-phase, within ≤0.06 dB at the 20 band
+  centres ([accuracy](#r-fir-accuracy)).
+- **`ieq-amount`** is read as a percentage, adopted from issue #13's thread. On
+  the X1 Yoga's dynamic/balanced it took in-band pink EE−DAX RMS from 12.04 to
+  1.03 dB, leaving a ~1 dB HF residual and the LF/leveler gap
+  ([scaling](#r-ieq-amount-scaling), [implications](#r-dax-gap-implications)).
+  On the #13 reporter's Yoga Slim 7x, a cepstral notebook and RePhase
+  hand-tuning reach the same weight; neither is a DAX capture.
+- **The audio optimizer** is added: subtracting it was +7–20 dB worse on the X1
+  Yoga ([sign](#r-ao-sign-variant-matrix)). On #44's simplified-schema Yoga Slim
+  7 14ARE05, DAX's pink on/off delta tracked our curve to ~0.7 dB mean at the
+  loud operating point, confirming the 1/16-dB units. One capture pair confirms
+  the `gain_l`/`gain_r` assignment, at the one band where they differ (1688 Hz)
+  ([units](#r-simplified-schema-ao-units)).
+
+Open:
+
+- Whether `/100` is a true percentage or a ≈0.10 constant for speakers: every
+  speaker DAX capture uses `amount=10`, so it needs a capture from a device with
+  `ieq-amount≠10` ([scaling](#r-ieq-amount-scaling)).
+- DAX's own Detailed−Warm voicing delta is unmeasured. A dev-device pink or
+  multitone capture on Detailed, then Warm, shows whether the weight applies to
+  the whole target ([scaling](#r-ieq-amount-scaling)).
+- At 47 Hz, whether DAX applies a shallower HP or its leveler boost compensates
+  a similar one: the variant sweep cannot tell
+  ([hypotheses](#r-xml-interpretation-hypotheses)).
+- #44's device shows up to ~5 dB of adaptive span on bands whose thresholds
+  decode to +0.0 dB, with no decoded mechanism
+  ([units](#r-simplified-schema-ao-units)).
+- Matching DAX's hybrid phase, seen on the X1 Yoga
+  ([phase](#r-dax-phase-response)), is out of scope unless the latency
+  constraint changes. Fitting the preset to a DAX capture needs determinism
+  relaxed and fresh captures ([hybrid](#r-hybrid-phase-matching),
+  [fit](#r-fit-to-dax-capture)).
+
 <a id="r-simplified-schema-gain-arrays"></a>
 
 ## Simplified-schema XMLs: `gain_l`/`gain_r` audio-optimizer (issue #22)
@@ -83,7 +124,7 @@ Issue #22's field follow-up is at
 
 <a id="r-fir-accuracy"></a>
 
-## Verified math (sanity checks)
+## FIR accuracy and time-domain envelope
 
 These sanity-checks are the derivations and accuracy measurements behind the
 values catalogued in [reference.md](../reference.md).
@@ -1072,5 +1113,24 @@ has since largely closed the HF residual these variants traded against.
     [XML-interpretation hypotheses](#r-xml-interpretation-hypotheses), a pareto
     trade. It gives the biggest HF reduction (−10.5 dB at 19.7 kHz), but 47 Hz
     blows out from −8 to −18 dB EE−DAX.
+
+## Elsewhere
+
+- The capture method and stimuli behind these units:
+  [design-notes](../design-notes.md#empirical-comparison-vs-dax3-on-windows).
+- The single-block tuning-XML A/B on Windows:
+  [design-notes](../design-notes.md#r-single-block-xml-ab).
+- The `ieq-amount` fix re-confirmed on the X1 Yoga's second DAX session:
+  [design-notes](../design-notes.md#verification-status-and-the-validation-roadmap).
+- The equalizer rows of the plugin parameter audit, bell width among them:
+  [design-notes](../design-notes.md#plugin-parameter-audit).
+- Why a sweep through DAX recovers no true linear impulse response:
+  [adaptive-processing.md](adaptive-processing.md#r-dax-lti-behaviour).
+- The PEQ anti-clipping trim:
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-peq-anti-clipping-trim).
+- #46's T495, where no knob scales or clamps the AO curve:
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-gain-rail-tuning).
+- DAX's harmonic bass synthesis, a non-LTI gap distinct from the EQ curve:
+  [virtual-bass.md](virtual-bass.md#r-dax-virtual-bass).
 
 [ee-conv]: https://github.com/wwmm/easyeffects/blob/dc14767e8bcf/src/convolver_zita.cpp#L103

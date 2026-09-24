@@ -49,7 +49,7 @@ the generator is correct for his hardware:
 - `make_fir` on the combined IEQ+AO target yields a realized convolver
   magnitude of ~13 dB p-p across 100 Hz–16 kHz, strongly audible.
 - The
-  [simplified path](eq-and-frequency-response.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22)
+  [simplified path](eq-and-frequency-response.md#r-simplified-schema-gain-arrays)
   shares the validated full-schema FIR/convolver code: the same `kernel-name`
   and the same min-phase FIR.
 
@@ -737,7 +737,6 @@ wholesale, for a reporter who would rather send the real names.
 - The unused EasyEffects built-ins:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - The convolver IR trim:
-  [design-notes](eq-and-frequency-response.md#rejected-approaches) "Rejected
-  approaches".
+  [eq-and-frequency-response.md](eq-and-frequency-response.md#r-convolver-ir-trim).
 - The PipeWire converter's autogain translation:
   [adaptive-processing.md](adaptive-processing.md#r-autogain-pw-translation).

@@ -121,9 +121,9 @@ desired composite frequency response, not individual filter gains. Applied
 directly as bell gains, they stack to +20–30 dB at the mids. The script instead
 builds a minimum-phase FIR from the combined IEQ + audio-optimizer target, by
 cepstral construction with zero added latency. Why FIR over a biquad fit:
-design-notes "Rejected approaches → Parametric-EQ approximation", with the
-peak/RMS error table. The `.irs` files are RIFF/WAVE: IEEE
-float32, stereo, 48 kHz, 4096 samples.
+[Parametric-EQ approximation of the IEQ curve](research/eq-and-frequency-response.md#r-parametric-eq-approximation),
+with the peak/RMS error table. The `.irs` files are RIFF/WAVE: IEEE float32,
+stereo, 48 kHz, 4096 samples.
 
 The voicing is the only thing that differs between the Balanced / Detailed /
 Warm presets. Their `.json` files are identical apart from `kernel-name`,
@@ -399,8 +399,8 @@ level cost at ≤1 dB
 
 - **`filter_coefficients`**: a base64 biquad blob in `tuning-vlldp`.
   Investigated, it is VLLDP-internal analysis filters, not audio-path EQ. The
-  audio-optimizer + PEQ already capture the same correction (design-notes
-  "Rejected approaches").
+  audio-optimizer + PEQ already capture the same correction
+  ([`filter_coefficients` as an audio EQ source](research/eq-and-frequency-response.md#r-filter-coefficients-blob)).
 - **`regulator-stress-amount` / `threshold_low`**: secondary regulator
   parameters. Only `threshold_high` drives the per-band limiter.
   `isolated_band` *is* implemented, and on by default; see the unvalidated list

@@ -763,7 +763,7 @@ def main() -> None:
     # regulator threshold (at frequencies the chain doesn't pre-
     # attenuate); the quiet variant is a same-frequency control with
     # the regulator dormant. Used to compare DAX-side bass dynamics
-    # against the EE chain — see docs/design-notes.md "Follow-ups".
+    # against the EE chain — see research `r-regulator-stress-amount`.
     stereo, meta = make_bass_burst(level_dbfs_peak=-5.0)
     write_stimulus("stimulus_bass_burst", stereo, meta)
     stereo, meta = make_bass_burst(level_dbfs_peak=-25.0)

@@ -1467,7 +1467,7 @@ a smaller restore or a mitigation is measured.
 - The MBC side of the loud-level dynamics gap:
   [adaptive-processing.md](adaptive-processing.md#r-mbc-ratio-time-constants).
 - The AO units and leveler magnitude the #44 and #46 units build on:
-  [design-notes](eq-and-frequency-response.md#r-simplified-schema-ao-units).
+  [eq-and-frequency-response.md](eq-and-frequency-response.md#r-simplified-schema-ao-units).
 - Where the brickwall and the regulator sit in the chain:
   [design-notes](../design-notes.md#plugin-chain-order).
 - The scaling-factor catalogue and the validation roadmap:

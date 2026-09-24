@@ -64,8 +64,7 @@ the 1024-byte blob.
   component. The IEQ target curve requires FIR for accurate reproduction. The
   best biquad fits measured ~11–16 dB peak and ~1.6–2 dB RMS error against the
   20-band composite target. The comparison table is in
-  [`design-notes.md`](design-notes.md), "Rejected approaches → Parametric-EQ
-  approximation".
+  [Parametric-EQ approximation of the IEQ curve](research/eq-and-frequency-response.md#r-parametric-eq-approximation).
 - **Multiband compressor / regulator / autogain**: the generic HDA topology
   doesn't load DRC modules.
 
