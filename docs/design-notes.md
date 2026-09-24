@@ -982,7 +982,7 @@ arrived 2026-07-30 via issue
 
 <a id="r-dax-lti-behaviour"></a>
 
-### Finding 1: DAX3 LTI behaviour for our stimuli
+### DAX3 LTI behaviour for our stimuli
 
 The volume leveler and regulator engage during capture and apply time-varying,
 content-adaptive gain:
@@ -1007,7 +1007,7 @@ on. The pink stimuli do the latter.
 
 <a id="r-dax-phase-response"></a>
 
-### Finding 2: DAX3's phase response
+### DAX3's phase response
 
 Every DAX3-on profile sits between linear-phase and minimum-phase. The metric is
 the post-peak vs pre-peak energy ratio of the sweep captures, channel L: pure
@@ -1042,7 +1042,7 @@ that this diverges from Dolby's choice.
 
 <a id="r-dax-response-vs-xml"></a>
 
-### Finding 3: DAX3 response vs the published XML curves
+### DAX3 response vs the published XML curves
 
 > **Superseded in part by the
 > [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** These captures
@@ -1097,7 +1097,7 @@ dB RMS.
 
 <a id="r-ee-response-vs-xml"></a>
 
-### Finding 4: EE-on-Linux response vs the XML
+### EE-on-Linux response vs the XML
 
 > **Superseded in part by the
 > [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** The EE column below
@@ -1159,7 +1159,7 @@ with leveler boost rather than steady-state EQ.
 
 <a id="r-hf-shaping-block-audit"></a>
 
-### Finding 5: Audit for a missed HF-shaping XML block
+### Audit for a missed HF-shaping XML block
 
 > **Superseded in part by the
 > [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** "Cannot be falsified
@@ -1198,7 +1198,7 @@ the deterministic "XML-only filter chain" property cannot close it.
 
 <a id="r-ao-sign-variant-matrix"></a>
 
-### Finding 6: Testing hypotheses (a) and (b)
+### Testing hypotheses (a) and (b)
 
 > **Superseded in part by the
 > [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** The "fixed DAX-side
@@ -1317,7 +1317,7 @@ one-command repeat.
 
 <a id="r-xml-interpretation-hypotheses"></a>
 
-### Finding 7: Five XML-interpretation hypotheses
+### Five XML-interpretation hypotheses
 
 None of five further hypotheses closes the residual left after the
 [HF-shaping block audit](#r-hf-shaping-block-audit) and the
@@ -1549,7 +1549,7 @@ align with DAX's HF voicing on this device."
 
 <a id="r-dax-virtual-bass"></a>
 
-### Finding 8: DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
+### DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
 
 The loud 50 Hz region of the DAX bass-burst capture, at peak −5 dBFS, shows a
 textbook missing-fundamental harmonic complex. The stimulus is the bass-burst
@@ -2031,7 +2031,7 @@ in any file or registry value we can read.
 
 <a id="r-ieq-amount-scaling"></a>
 
-### Finding 9: `ieq-amount` scaling and the HF gap (issue #13)
+### `ieq-amount` scaling and the HF gap (issue #13)
 
 Reading `ieq-amount` as a percentage, `amount/100` instead of `amount/10`,
 removes a ~10× over-weighting of the IEQ and closes the X1 Yoga's HF gap to a ~1
@@ -2162,7 +2162,7 @@ with the voicing set to Detailed and then Warm, settles it:
 
 <a id="r-simplified-schema-ao-units"></a>
 
-### Finding 10: simplified-schema AO units on a second device (issue #44)
+### simplified-schema AO units on a second device (issue #44)
 
 **Verdict (the 2026-07-30 capture set):** the simplified-schema static mapping
 is validated end-to-end at the loud operating point. On those captures, the
@@ -2551,23 +2551,23 @@ so a capture campaign can attack them deliberately. The "Follow-ups" list
 further down tracks ideas we considered and did *not* adopt; these are live,
 shipping defaults.
 
-| # | Factor | XML field | Path status |
-|---|---|---|---|
-| [1](#r-dialog-enhancer-gain-ceiling) | Dialog-enhancer gain ceiling | `dialog-enhancer-amount` (0–16) | default audible when `dialog-enhancer-enable=1`. X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3, off on `music`/`game` |
-| [2](#r-surround-boost-stereo-base) ✅ | Surround→stereo-base | `surround-boost` (1/16 dB) | resolved: widening dropped. It was emitted when surround was present (`surround-boost=96` on `dynamic`/`movie`) |
-| [3](#r-convolver-headroom-restore) ✅ | Convolver SoundWire headroom restore | (none: a post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | resolved: restore dropped. It was default audible on SoundWire |
-| [4](#r-regulator-slope-ratio) | Regulator slope→ratio | `regulator-distortion-slope` | regulator only engages at high level |
-| [5](#r-regulator-timbre-knee) | Regulator timbre→knee | `regulator-timbre-preservation` (corpus-frozen at 0.75) | regulator, high level |
-| [6](#r-mbc-ratio-time-constants) | MBC ratio and time constants | `mb-compressor-tuning` 6-tuples | dormant: the MBC doesn't engage on the −10 dBFS test stimuli (the [DAX response vs XML](#r-dax-response-vs-xml)) |
-| [7](#r-leveler-autogain-window) | Volume-leveler→autogain window | `volume-leveler-amount` (0–10) | bypassed by default on HDA, where `--enable autogain` opts in. Active in the conservative SoundWire path |
-| [8](#r-peq-anti-clipping-trim) | PEQ anti-clipping trim | (none: a headroom heuristic over the XML's PEQ gains) | default audible on every XML whose PEQ has boost bells/shelves |
-| [9](#r-soundwire-bass-enhancer-constants) | SoundWire Calf BassEnhancer constants | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; the [DAX virtual-bass finding](#r-dax-virtual-bass)) | default audible on SoundWire, the most audible invented stage on those devices |
-| [10](#r-conservative-autogain-offsets) | Conservative-autogain offsets | `volume-leveler-out-target` | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable |
-| [11](#r-fixed-dynamics-constants) | Fixed dynamics constants | (none) | dormant at nominal levels (the dynamics-dormant measurement above; device-specific, see the end of the [fixed dynamics constants](#r-fixed-dynamics-constants)); engaged on loud content |
+| Factor | XML field | Path status |
+|---|---|---|
+| [Dialog-enhancer gain ceiling](#r-dialog-enhancer-gain-ceiling) | `dialog-enhancer-amount` (0–16) | default audible when `dialog-enhancer-enable=1`. X1 Yoga: `dynamic`/`movie` amount=5, `voice` amount=3, off on `music`/`game` |
+| [Surround→stereo-base](#r-surround-boost-stereo-base) ✅ | `surround-boost` (1/16 dB) | resolved: widening dropped. It was emitted when surround was present (`surround-boost=96` on `dynamic`/`movie`) |
+| [Convolver SoundWire headroom restore](#r-convolver-headroom-restore) ✅ | (none: a post-normalisation heuristic for the IEQ-only, no-AO SoundWire curve) | resolved: restore dropped. It was default audible on SoundWire |
+| [Regulator slope→ratio](#r-regulator-slope-ratio) | `regulator-distortion-slope` | regulator only engages at high level |
+| [Regulator timbre→knee](#r-regulator-timbre-knee) | `regulator-timbre-preservation` (corpus-frozen at 0.75) | regulator, high level |
+| [MBC ratio and time constants](#r-mbc-ratio-time-constants) | `mb-compressor-tuning` 6-tuples | dormant: the MBC doesn't engage on the −10 dBFS test stimuli (the [DAX response vs XML](#r-dax-response-vs-xml)) |
+| [Volume-leveler→autogain window](#r-leveler-autogain-window) | `volume-leveler-amount` (0–10) | bypassed by default on HDA, where `--enable autogain` opts in. Active in the conservative SoundWire path |
+| [PEQ anti-clipping trim](#r-peq-anti-clipping-trim) | (none: a headroom heuristic over the XML's PEQ gains) | default audible on every XML whose PEQ has boost bells/shelves |
+| [SoundWire Calf BassEnhancer constants](#r-soundwire-bass-enhancer-constants) | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; the [DAX virtual-bass finding](#r-dax-virtual-bass)) | default audible on SoundWire, the most audible invented stage on those devices |
+| [Conservative-autogain offsets](#r-conservative-autogain-offsets) | `volume-leveler-out-target` | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable |
+| [Fixed dynamics constants](#r-fixed-dynamics-constants) | (none) | dormant at nominal levels (the dynamics-dormant measurement above; device-specific, see the end of the [fixed dynamics constants](#r-fixed-dynamics-constants)); engaged on loud content |
 
 <a id="r-dialog-enhancer-gain-ceiling"></a>
 
-#### Entry 1: Dialog-enhancer gain ceiling
+#### Dialog-enhancer gain ceiling
 
 - **Factor (generator):** `amount/16 * 6.0` dB, bell centered 2.5 kHz, Q≈0.7
   (`make_dialog_enhancer`). The SoundWire-only `* 8.0` dB variant and its 4 kHz
@@ -2610,7 +2610,7 @@ ever shows a stronger DE.
 
 <a id="r-surround-boost-stereo-base"></a>
 
-#### Entry 2: Surround→stereo-base
+#### Surround→stereo-base
 
 - **Factor (generator):** `min(boost/20.0, 0.5)`. **REMOVED 2026-06-13**: the
   converter maps `surround-boost` to no widening.
@@ -2683,7 +2683,7 @@ EE−DAX pink steady at 1.35–1.67 dB RMS (the baseline from the
 
 <a id="r-convolver-headroom-restore"></a>
 
-#### Entry 3: Convolver SoundWire headroom restore
+#### Convolver SoundWire headroom restore
 
 - **Factor (generator):** `peak_db * 0.5`. **REMOVED 2026-07-03**: the convolver
   emits 0 dB gain on every device family.
@@ -2712,7 +2712,7 @@ via git history (`2f4d0b8`).
 
 <a id="r-regulator-slope-ratio"></a>
 
-#### Entry 4: Regulator slope→ratio
+#### Regulator slope→ratio
 
 - **Factor (generator):** slope read `/16` (`parse_xml`), then
   `ratio = 1/(1−slope)` (`make_regulator`).
@@ -2725,7 +2725,7 @@ via git history (`2f4d0b8`).
 
 <a id="r-regulator-timbre-knee"></a>
 
-#### Entry 5: Regulator timbre→knee
+#### Regulator timbre→knee
 
 - **Factor (generator):** timbre read `/16` (`parse_xml`), then
   `knee = −6·timbre` dB (`make_regulator`).
@@ -2738,7 +2738,7 @@ via git history (`2f4d0b8`).
 
 <a id="r-mbc-ratio-time-constants"></a>
 
-#### Entry 6: MBC ratio and time constants
+#### MBC ratio and time constants
 
 - **Factor (generator):** MBC ratio `1/(coeff/32768)` (`decode_mbc_bands`); time
   constants via Q15 with `block_size=256` → 187.5 blocks/s
@@ -2784,7 +2784,7 @@ XML-derived and unchanged. See the
 
 <a id="r-leveler-autogain-window"></a>
 
-#### Entry 7: Volume-leveler→autogain window
+#### Volume-leveler→autogain window
 
 - **Factor (generator):** `max-history = 40−amount·4` / `30−amount·5`
   (`make_autogain`).
@@ -2796,7 +2796,7 @@ XML-derived and unchanged. See the
 
 <a id="r-peq-anti-clipping-trim"></a>
 
-#### Entry 8: PEQ anti-clipping trim
+#### PEQ anti-clipping trim
 
 - **Factor (generator):** `effective boost ≈ gain·min(1, 2/Q)` per positive bell
   (full gain for shelves), peak negated into `equalizer#0.output-gain`
@@ -2834,7 +2834,7 @@ device.
 
 <a id="r-soundwire-bass-enhancer-constants"></a>
 
-#### Entry 9: SoundWire Calf BassEnhancer constants
+#### SoundWire Calf BassEnhancer constants
 
 - **Factor (generator):** `amount=12 dB`, `harmonics=10`, `blend=−10`,
   `floor=10`, `scope = min(2·hp_freq, 300)` (`make_bass_enhancer`).
@@ -2906,7 +2906,7 @@ exercises.
 
 <a id="r-conservative-autogain-offsets"></a>
 
-#### Entry 10: Conservative-autogain offsets
+#### Conservative-autogain offsets
 
 - **Factor (generator):** `target = out_target − 6.0` dB,
   `silence-threshold = −50` dB (`make_autogain`). Since 2026-07 both paths store
@@ -2922,7 +2922,7 @@ exercises.
 
 <a id="r-fixed-dynamics-constants"></a>
 
-#### Entry 11: Fixed dynamics constants
+#### Fixed dynamics constants
 
 - **Factor (generator):** MBC active-band `knee = −6.0` dB
   (`make_multiband_compressor`; the Dolby 6-tuple has no knee field), regulator
@@ -3252,17 +3252,17 @@ looked exhausted: hypothesis (b) rejected (the
 [AO sign variant matrix](#r-ao-sign-variant-matrix)). The
 [`ieq-amount` scaling finding](#r-ieq-amount-scaling) then closed most of the HF
 gap with exactly such an experiment, a re-reading of a field we already parsed,
-so "exhausted" was wrong. Item numbers are stable across revisions and cited
-elsewhere. Items are grouped by status, not numeric order.
+so "exhausted" was wrong. Items are cited by their `r-` tags. Items are grouped
+by status.
 
 **Closed by the variant sweep (the
 [AO sign variant matrix](#r-ao-sign-variant-matrix) and the
 [XML-interpretation hypotheses](#r-xml-interpretation-hypotheses)):** listed
-under [The variant sweep](#the-variant-sweep-finding-6--7) below.
+under [The variant sweep](#r-variant-sweep) below.
 
 <a id="r-single-block-xml-ab"></a>
 
-#### 1. Stripped-down single-block tuning XML A/B on Windows
+#### Stripped-down single-block tuning XML A/B on Windows
 
 Status: still actionable, no constraint change.
 
@@ -3277,7 +3277,7 @@ test machine until restoration. Scope it before attempting.
 
 <a id="r-regulator-stress-amount"></a>
 
-#### 5. `regulator-stress-amount` mapping investigated and rejected
+#### `regulator-stress-amount` mapping investigated and rejected
 
 Status: closed, no constraint change — kept as a permanent finding.
 
@@ -3387,7 +3387,7 @@ shipped tunings. They are listed here so they don't get re-proposed.
 
 <a id="r-hybrid-phase-matching"></a>
 
-#### 2. Match DAX's hybrid phase character
+#### Match DAX's hybrid phase character
 
 Status: out of scope unless a constraint changes.
 
@@ -3399,7 +3399,7 @@ linear-phase doesn't help magnitude.
 
 <a id="r-dax-leveler-approximation"></a>
 
-#### 3. Approximate DAX's leveler / regulator
+#### Approximate DAX's leveler / regulator
 
 Status: out of scope unless a constraint changes.
 
@@ -3409,7 +3409,7 @@ trap (see "Why autogain is bypassed by default").
 
 <a id="r-fit-to-dax-capture"></a>
 
-#### 4. Empirically tune the preset to match DAX's *captured* response, not the XML's published curves
+#### Empirically tune the preset to match DAX's *captured* response, not the XML's published curves
 
 Status: pragmatic shortcut if determinism is relaxed.
 
@@ -4719,7 +4719,9 @@ re-proposed:
 Closed groups moved from "Follow-ups to close the gap to DAX" above. Each
 leaves a one-line entry there that links here.
 
-### The variant sweep (Finding 6 / 7)
+<a id="r-variant-sweep"></a>
+
+### The variant sweep
 
 **Closed by the variant sweep (the
 [AO sign variant matrix](#r-ao-sign-variant-matrix) and the

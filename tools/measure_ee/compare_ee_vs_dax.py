@@ -317,9 +317,9 @@ def main() -> int:
                          "(Windows master volume 100%%, no EE output-gain "
                          "offset) — broadband level differences are the "
                          "signal here (e.g. the PEQ anti-clipping trim, "
-                         "design-notes catalogue entry 8), and any volume "
-                         "offset between the two chains lands directly in "
-                         "the residual.")
+                         "research `r-peq-anti-clipping-trim`), and any "
+                         "volume offset between the two chains lands "
+                         "directly in the residual.")
     args = ap.parse_args()
 
     out_dir = args.out_dir or args.ee_dir

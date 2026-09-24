@@ -1,9 +1,11 @@
 """Citations of the docs from anywhere in the repo still land on something.
 
-Finding numbers, cross-device § sections, numbered entries, quoted section
-names, `r-` tags and markdown links are all checked against the doc they point
-into. A design-notes citation resolves against design-notes.md and the
-per-class research files under docs/research/, since units move between them.
+Cross-device § sections and follow-ups, quoted section names, `r-` tags and
+markdown links are all checked against the doc they point into. A
+design-notes citation resolves against design-notes.md and the per-class
+research files under docs/research/, since units move between them. The
+research log's retired numbers (Finding N, scaling entry N, Follow-ups item
+N) no longer resolve: a cite of one fails and names the unit's `r-` tag.
 """
 
 import html
@@ -30,26 +32,46 @@ QUOTE = r"[\"“](?P<name>[\w`][^\"”]{0,160}?)[\"”]"
 Numbered = namedtuple("Numbered", "shape cite doc section item context")
 
 NUMBERED = (
-    Numbered("Finding N",
-             rf"Finding(?<!\wFinding)s?[ -](?P<n>{NUMS})",
-             DESIGN_NOTES, None, r"#+ Finding (\d+):", None),
     Numbered("cross-device §N",
              rf"§(?P<n>{NUMS})",
              CROSS_DEVICE, None, r"## (\d+)\. ", r"(?i)cross-device"),
-    Numbered("scaling entry N",
-             r"(?:unvalidated-scaling|scaling|catalogue|design-notes(?:\.md)?`?,?"
-             r"|scaling\s+factors[\"”],?)\s+entr(?:y|ies)\s+"
-             rf"(?P<n>{NUMS})(?:\s*\((?P<sub>[a-z])\))?",
-             DESIGN_NOTES, "Unvalidated converter scaling factors",
-             r"#+ Entry (\d+):", None),
-    Numbered("Follow-ups item N",
-             rf"Follow-ups\s+items?\s+(?P<n>{NUMS})",
-             DESIGN_NOTES, "Follow-ups to close the gap to DAX",
-             r"#+ (\d+)\.\s", None),
     Numbered("cross-device follow-up #N",
              r"§\d+\s*[/,]\s*follow-ups?\s+#(?P<n>\d+)",
              CROSS_DEVICE, "Open follow-ups", r"(\d+)\.\s", r"(?i)cross-device"),
 )
+
+# The research log's retired numbers. Each unit now carries an `r-` tag, and
+# design-notes "Legacy numbers" maps each old number to it. `kind` is the
+# number's spelling in that table. The patterns take every spelling the
+# numbers were cited in, in any case. A cite may wrap at one line break but
+# never crosses a blank line.
+SEP = r"[^\S\n]*\n?[^\S\n]*"
+WRAP = r"(?:[^\S\n]+\n?|\n)[^\S\n]*"
+RETIRED_NUMS = (rf"\d{{1,2}}(?!\d)(?:{SEP}(?:/|,|and|&|–|-){SEP}"
+                r"\d{1,2}(?!\d))*")
+
+Retired = namedtuple("Retired", "shape cite kind")
+
+RETIRED = (
+    Retired("Finding N",
+            rf"(?i)(?<!\w)findings?(?:-|{WRAP})#?(?P<n>{RETIRED_NUMS})",
+            "Finding"),
+    Retired("scaling entry N",
+            rf"(?i)(?<![\w-])entr(?:y|ies){WRAP}\(?#?(?P<n>{RETIRED_NUMS})",
+            "entry"),
+    Retired("Follow-ups item N",
+            rf"(?i)(?<![\w-])follow-ups?{WRAP}(?:items?{WRAP})?#?"
+            rf"(?P<n>{RETIRED_NUMS})", "Follow-ups item"),
+)
+
+# Phrases where "entry N" or "item N" numbers something other than a research
+# unit: a boot or tool menu, a table, a quirk catalogue, a cross-device
+# section's own entries. A match with one of these just before or just after
+# it is not a cite.
+NOT_A_CITE_BEFORE = re.compile(
+    r"(?i)(?:\b(?:menu|boot|table|quirk(?:\s+catalogue)?)|§\d+)\s*\Z")
+NOT_A_CITE_AFTER = re.compile(
+    r"(?i)\s+(?:of|in)\s+the\s+(?:[\w-]+\s+)?(?:menu|table|quirk)")
 
 Quoted = namedtuple("Quoted", "shape doc side pattern")
 
@@ -273,21 +295,6 @@ class DocSet:
     def __init__(self, docs):
         self.docs = [(path, doc) for path, doc in docs if doc]
 
-    def items(self, section, item):
-        merged = {}
-        for _, doc in self.docs:
-            for number, text in doc.items(section, item).items():
-                merged.setdefault(number, text)
-        return merged
-
-    def sites(self, section, item):
-        merged = {}
-        for path, doc in self.docs:
-            for number, lines in doc.sites(section, item).items():
-                merged.setdefault(number, []).extend(
-                    (path, line) for line in lines)
-        return merged
-
     def has_path(self, name, strict=False):
         return any(doc.has_path(name, strict) for _, doc in self.docs)
 
@@ -304,7 +311,7 @@ def unreleased_only(text):
     lines, keep = text.splitlines(), False
     for index, line in enumerate(lines):
         if line.startswith("## "):
-            keep = line.strip() == "## Unreleased"
+            keep = bool(re.match(r"## \[?Unreleased\b", line))
         if not keep:
             lines[index] = ""
     return "\n".join(lines)
@@ -354,31 +361,66 @@ def _where(target):
     return target + (" or docs/research/" if target == DESIGN_NOTES else "")
 
 
-def check_numbered(source, cited):
+def check_numbered(source, docs):
     for row in NUMBERED:
-        doc = cited(row.doc)
-        items = doc.items(row.section, row.item)
-        sites = doc.sites(row.section, row.item)
-        where = _where(row.doc) + (f' "{row.section}"' if row.section else "")
+        doc = docs(row.doc)
+        items = doc.items(row.section, row.item) if doc else {}
+        sites = doc.sites(row.section, row.item) if doc else {}
+        where = row.doc + (f' "{row.section}"' if row.section else "")
         for match in re.finditer(row.cite, source.flat):
             line = source.line_of(match.start())
             if (row.context and source.path != row.doc
                     and not re.search(row.context, source.paragraph_text(line))):
                 continue
             problem = None
-            sub = match.groupdict().get("sub")
             for number in _numbers(match.group("n")):
                 if number not in items:
                     problem = f"no item {number} in {where}"
                     break
                 if len(sites[number]) > 1:
-                    listed = ", ".join(f"{p}:{n}" for p, n in sites[number])
+                    listed = ", ".join(f"{row.doc}:{n}" for n in sites[number])
                     problem = (row.shape.replace("N", str(number))
                                + f" is defined at {listed}")
                     break
-                if sub and f"({sub})" not in items[number]:
-                    problem = f"item {number} in {where} has no ({sub})"
-                    break
+            yield Citation(row.shape, source.path, line,
+                           _one_line(match.group(0)), problem)
+
+
+def _overlaps(match, spans):
+    return any(start < match.end() and match.start() < end
+               for start, end in spans)
+
+
+def check_retired(source, legacy, skip, quoted):
+    """Each cite of a retired number, which fails naming the tag to use.
+
+    `legacy` maps an old number to its tag, `skip` holds the line numbers of
+    the Legacy numbers table's rows, and `quoted` the (start, end) spans of
+    the quoted section names in `source`: a number inside one is part of a
+    name. A cross-device §N or follow-up #N is not a retired number.
+    """
+    flat = source.flat
+    cross_device = [m.span() for row in NUMBERED
+                    for m in re.finditer(row.cite, flat)]
+    for row in RETIRED:
+        for match in re.finditer(row.cite, flat):
+            line = source.line_of(match.start())
+            if (line in skip or _overlaps(match, cross_device)
+                    or NOT_A_CITE_BEFORE.search(
+                        flat, max(0, match.start() - 40), match.start())
+                    or NOT_A_CITE_AFTER.match(flat, match.end())
+                    or any(start <= match.start() and match.end() <= end
+                           for start, end in quoted)):
+                continue
+            olds = [f"{row.kind} {n}" for n in _numbers(match.group("n"))]
+            unknown = [old for old in olds if old not in legacy]
+            if unknown:
+                problem = (f"a retired number, and design-notes "
+                           f'"{LEGACY_SECTION}" has no {", ".join(unknown)}')
+            else:
+                problem = ("a retired number: cite "
+                           + " / ".join(f"`{legacy[old]}`" for old in olds)
+                           + f' (design-notes "{LEGACY_SECTION}")')
             yield Citation(row.shape, source.path, line,
                            _one_line(match.group(0)), problem)
 
@@ -463,29 +505,35 @@ def in_research_log(path):
     return path == DESIGN_NOTES or path.startswith(RESEARCH_DIR)
 
 
-def check_quoted(source, docs, cited, known):
+def quoted_names(source, known):
+    """(row, doc cited, offset, name match) for each quoted section name."""
     for row, target, offset, match in _quoted_sites(source, known):
-        if not match:
+        while match:
+            yield row, target, offset, match
+            match = row.side == "after" and AND_QUOTE.match(source.flat,
+                                                            match.end())
+
+
+def is_number_cite(name):
+    return any(re.fullmatch(row.cite, name) for row in NUMBERED + RETIRED)
+
+
+def check_quoted(source, docs, cited, known):
+    for row, target, offset, match in quoted_names(source, known):
+        name = match.group("name")
+        if is_number_cite(name):
             continue
-        names = [match.group("name")]
-        while row.side == "after" and (
-                more := AND_QUOTE.match(source.flat, match.end())):
-            names.append(more.group("name"))
-            match = more
-        for name in names:
-            if any(re.fullmatch(numbered.cite, name) for numbered in NUMBERED):
-                continue
-            doc = cited(target) if row.doc != "this doc" else DocSet(
-                [(target, docs(target))])
-            if in_research_log(target) and norm(name) not in LOOSE_QUOTED:
-                problem = None if doc.has_path(name, strict=True) else (
-                    f"no heading or <summary> named that in {_where(target)}")
-            else:
-                problem = None if doc.has_path(name) else (
-                    "no heading, <summary>, paragraph or row named that in "
-                    + target)
-            yield Citation(row.shape, source.path, source.line_of(offset),
-                           _one_line(f'{target} "{name}"'), problem)
+        doc = cited(target) if row.doc != "this doc" else DocSet(
+            [(target, docs(target))])
+        if in_research_log(target) and norm(name) not in LOOSE_QUOTED:
+            problem = None if doc.has_path(name, strict=True) else (
+                f"no heading or <summary> named that in {_where(target)}")
+        else:
+            problem = None if doc.has_path(name) else (
+                "no heading, <summary>, paragraph or row named that in "
+                + target)
+        yield Citation(row.shape, source.path, source.line_of(offset),
+                       _one_line(f'{target} "{name}"'), problem)
 
 
 LINK = re.compile(r"\]\((<[^>]*>|[^)\s]*)(?:\s+[\"'][^\"']*[\"'])?\)")
@@ -589,43 +637,77 @@ def check_tag_cites(source, tags):
 
 
 # design-notes "Legacy numbers" resolves each retired number to its unit's tag.
-# The table is frozen, so its rows are listed here too.
+# The table is frozen, so its rows are pinned here too.
 LEGACY_SECTION = "Legacy numbers"
-LEGACY_KINDS = {"Finding": NUMBERED[0], "entry": NUMBERED[2],
-                "Follow-ups item": NUMBERED[3]}
-LEGACY_ROWS = tuple([f"Finding {n}" for n in range(1, 11)]
-                    + [f"entry {n}" for n in range(1, 12)]
-                    + [f"Follow-ups item {n}" for n in range(1, 6)])
+LEGACY_ROWS = {
+    "Finding 1": "r-dax-lti-behaviour",
+    "Finding 2": "r-dax-phase-response",
+    "Finding 3": "r-dax-response-vs-xml",
+    "Finding 4": "r-ee-response-vs-xml",
+    "Finding 5": "r-hf-shaping-block-audit",
+    "Finding 6": "r-ao-sign-variant-matrix",
+    "Finding 7": "r-xml-interpretation-hypotheses",
+    "Finding 8": "r-dax-virtual-bass",
+    "Finding 9": "r-ieq-amount-scaling",
+    "Finding 10": "r-simplified-schema-ao-units",
+    "entry 1": "r-dialog-enhancer-gain-ceiling",
+    "entry 2": "r-surround-boost-stereo-base",
+    "entry 3": "r-convolver-headroom-restore",
+    "entry 4": "r-regulator-slope-ratio",
+    "entry 5": "r-regulator-timbre-knee",
+    "entry 6": "r-mbc-ratio-time-constants",
+    "entry 7": "r-leveler-autogain-window",
+    "entry 8": "r-peq-anti-clipping-trim",
+    "entry 9": "r-soundwire-bass-enhancer-constants",
+    "entry 10": "r-conservative-autogain-offsets",
+    "entry 11": "r-fixed-dynamics-constants",
+    "Follow-ups item 1": "r-single-block-xml-ab",
+    "Follow-ups item 2": "r-hybrid-phase-matching",
+    "Follow-ups item 3": "r-dax-leveler-approximation",
+    "Follow-ups item 4": "r-fit-to-dax-capture",
+    "Follow-ups item 5": "r-regulator-stress-amount",
+}
 LEGACY_ROW = re.compile(
     r"\|\s*(?P<kind>Finding|entry|Follow-ups item) (?P<n>\d+)\s*"
-    r"\|\s*\[[^\]]*\]\([^)#]*#(?P<tag>[^)]*)\)\s*\|[^|]+\|\s*$")
+    r"\|\s*\[[^\]]*\]\([^)#]*#(?P<tag>[^)]*)\)\s*\|(?P<title>[^|]+)\|\s*$")
 TABLE_RULE = re.compile(r"\|(?:\s*:?-+:?\s*\|)+")
 
 
-def check_legacy_numbers(docs, tags, expected):
-    """Each legacy row's tag sits directly above the heading of that number."""
-    doc = docs(DESIGN_NOTES)
+def legacy_table(doc):
+    """The Legacy numbers section's line span, and (line, text, row match or
+    None) for each of its table rows, or None without that section."""
     span = doc.section(LEGACY_SECTION) if doc else None
     if span is None:
-        yield Citation("legacy number", DESIGN_NOTES, 1, LEGACY_SECTION,
-                       f'no "{LEGACY_SECTION}" section')
-        return
-    seen = set()
+        return None
+    rows = []
     lines = doc.lines[span[0]:span[1]] + [""]
     for offset, line in enumerate(lines[:-1]):
-        number = span[0] + offset + 1
         if (not line.startswith("|") or TABLE_RULE.fullmatch(line.strip())
                 or TABLE_RULE.fullmatch(lines[offset + 1].strip())):
             continue
-        row = LEGACY_ROW.match(line)
+        rows.append((span[0] + offset + 1, line, LEGACY_ROW.match(line)))
+    return span, rows
+
+
+def check_legacy_numbers(table, docs, tags, expected):
+    """Each legacy row maps its number to the pinned tag, once, and that tag
+    sits directly above the heading the row names."""
+    if table is None:
+        yield Citation("legacy number", DESIGN_NOTES, 1, LEGACY_SECTION,
+                       f'no "{LEGACY_SECTION}" section')
+        return
+    span, rows = table
+    seen = set()
+    for number, line, row in rows:
         if not row:
             yield Citation("legacy number", DESIGN_NOTES, number, line,
                            "write | <old number> | [tag](#r-tag) | title |")
             continue
         old = f"{row['kind']} {row['n']}"
+        problem = (f"a second row for {old}" if old in seen
+                   else _legacy_problem(docs, tags, row, expected))
         seen.add(old)
-        yield Citation("legacy number", DESIGN_NOTES, number, old,
-                       _legacy_problem(docs, tags, row, expected))
+        yield Citation("legacy number", DESIGN_NOTES, number, old, problem)
     for old in expected:
         if old not in seen:
             yield Citation("legacy number", DESIGN_NOTES, span[0] + 1, old,
@@ -633,28 +715,96 @@ def check_legacy_numbers(docs, tags, expected):
 
 
 def _legacy_problem(docs, tags, row, expected):
-    old, tag = f"{row['kind']} {row['n']}", row["tag"]
+    old, tag, title = f"{row['kind']} {row['n']}", row["tag"], row["title"]
     if old not in expected:
         return f'{old} is not a legacy number; "{LEGACY_SECTION}" is frozen'
+    if tag != expected[old]:
+        return f"{old} is {expected[old]}, not {tag}"
     if tag not in tags:
         return f'no <a id="{tag}"> under docs/'
-    numbered = LEGACY_KINDS[row["kind"]]
     path, line = tags[tag][0]
     doc = docs(path)
-    heading = doc.lines[line + 1] if line + 1 < len(doc.lines) else ""
-    match = re.match(numbered.item, heading)
-    span = doc.section(numbered.section) if numbered.section else None
-    if (not match or int(match.group(1)) != int(row["n"])
-            or numbered.section and not (span and span[0] <= line < span[1])):
-        return f"{tag} sits above {heading.strip()!r}, not {old}"
+    heading = HEADING.match(doc.lines[line + 1] if line + 1 < len(doc.lines)
+                            else "")
+    if not heading or heading.group(2) != title.strip():
+        shown = doc.lines[line + 1].strip() if heading else "no heading"
+        return f"{tag} sits above {shown!r}, not {title.strip()!r}"
     return None
+
+
+def _heading_span(doc, index):
+    """(start, end) lines of the heading at `index` and its body."""
+    for position, (at, level, _) in enumerate(doc.headings):
+        if at == index:
+            ends = [i for i, depth, _ in doc.headings[position + 1:]
+                    if depth <= level]
+            return at, (ends or [len(doc.lines)])[0]
+    return None
+
+
+def unit_text(docs, tags, site):
+    """A tagged unit's own text: its heading up to the next one as high,
+    less any tagged unit nested inside it."""
+    path, line = site
+    doc = docs(path)
+    span = _heading_span(doc, line + 1)
+    if span is None:
+        return ""
+    nested = [(other - 1, _heading_span(doc, other + 1))
+              for sites in tags.values() for where, other in sites
+              if where == path and span[0] < other - 1 < span[1]]
+    return "\n".join(
+        text for index, text in enumerate(doc.lines[span[0]:span[1]], span[0])
+        if not any(inner and start <= index < inner[1]
+                   for start, inner in nested))
+
+
+# Sub-item letters after a tag cite: "[…](…#r-x) (d)", "`r-x` (d, e)",
+# "(d)–(f)", "item (z)".
+TAG_LETTERS = re.compile(
+    r"(?:\]\([^)\s]*#(r-[a-z-]+)\)|`(r-[a-z-]+)\\?`)\s*(?:items?\s+)?"
+    r"(\([a-z]\)(?:\s*(?:,|/|–|-|and|to)\s*\([a-z]\))*"
+    r"|\([a-z](?:\s*(?:,|/|–|-|and|to)\s*[a-z])*\))")
+LETTER_SEP = re.compile(r"\s*(,|/|–|-|\band\b|\bto\b)\s*")
+
+
+def _letters(spec):
+    """The letters a "(d, e)" or "(d)–(f)" spec names, ranges expanded."""
+    parts = LETTER_SEP.split(spec.replace("(", "").replace(")", "").strip())
+    letters = [parts[0]]
+    for sep, letter in zip(parts[1::2], parts[2::2]):
+        if sep in ("–", "-", "to"):
+            letters += [chr(c) for c in range(ord(letters[-1]) + 1,
+                                              ord(letter) + 1)]
+        else:
+            letters.append(letter)
+    return letters
+
+
+def check_tag_letters(source, docs, tags):
+    for match in TAG_LETTERS.finditer(source.flat):
+        tag, spec = match.group(1) or match.group(2), match.group(3)
+        if tag not in tags:
+            continue
+        text = unit_text(docs, tags, tags[tag][0])
+        missing = [letter for letter in _letters(spec)
+                   if not re.search(rf"(?<![\w)])\({letter}\)", text)]
+        problem = (f"{tag} has no " + ", ".join(f"({m})" for m in missing)
+                   if missing else None)
+        yield Citation("tag sub-letter", source.path,
+                       source.line_of(match.start()),
+                       _one_line(f"{tag} {spec}"), problem)
+
+
+# docinv's fixtures there tokenise the retired "Finding N" form on purpose.
+RETIRED_EXEMPT = frozenset({"tests/test_docs_tools.py"})
 
 
 def scan(root, files, legacy=None):
     """Every doc citation in `files`, relative to `root`, resolved or not.
 
-    `legacy` lists the rows design-notes "Legacy numbers" must hold; None
-    skips that check.
+    `legacy` maps each row design-notes "Legacy numbers" must hold to its
+    tag; None skips that check.
     """
     root = Path(root)
     known = set(files)
@@ -678,8 +828,11 @@ def scan(root, files, legacy=None):
 
     tags, citations = tag_definitions(docs, known)
     citations.extend(check_tag_definitions(tags))
+    table = legacy_table(docs(DESIGN_NOTES))
     if legacy is not None:
-        citations.extend(check_legacy_numbers(docs, tags, legacy))
+        citations.extend(check_legacy_numbers(table, docs, tags, legacy))
+    retired = {f"{row['kind']} {row['n']}": row["tag"]
+               for _, _, row in (table[1] if table else ()) if row}
     for path in sorted(filter(is_text, known)):
         try:
             text = (root / path).read_text(encoding="utf-8")
@@ -688,9 +841,17 @@ def scan(root, files, legacy=None):
         if path == "CHANGELOG.md":
             text = unreleased_only(text)
         source = Source(path, text)
-        citations.extend(check_numbered(source, cited))
+        citations.extend(check_numbered(source, docs))
         citations.extend(check_quoted(source, docs, cited, known))
         citations.extend(check_tag_cites(source, tags))
+        citations.extend(check_tag_letters(source, docs, tags))
+        if path not in RETIRED_EXEMPT:
+            skip = ({number for number, _, _ in table[1]}
+                    if table and path == DESIGN_NOTES else ())
+            quoted = [match.span("name") for *_, match
+                      in quoted_names(source, known)
+                      if not is_number_cite(match.group("name"))]
+            citations.extend(check_retired(source, retired, skip, quoted))
         if path.endswith(".md"):
             citations.extend(check_links(source, docs, known, directories,
                                          tags))
@@ -714,18 +875,20 @@ def real_citations():
 
 
 def test_every_doc_citation_resolves(real_citations):
-    """Each number, § section, quoted name or anchor finds its target doc."""
+    """Each § section, quoted name, tag or anchor finds its target doc, and no
+    retired number is cited."""
     broken = problems(real_citations)
     assert not broken, (
-        "these cite a doc heading, list item or anchor that no longer exists — "
-        "point the citation at the current heading:\n  " + "\n  ".join(broken))
+        "these cite a doc heading, list item or anchor that no longer exists, "
+        "or a retired number — fix each as its message says:\n  "
+        + "\n  ".join(broken))
 
 
 def test_every_citation_shape_still_finds_sites(real_citations):
     """Each shape still matches a site, so a dead pattern fails here."""
     found = {c.shape for c in real_citations}
     shapes = ({row.shape for row in NUMBERED + QUOTED}
-              | {"markdown link", "legacy number"})
+              | {"markdown link", "legacy number", "tag sub-letter"})
     assert shapes <= found, f"no site left for: {sorted(shapes - found)}"
 
 
@@ -750,17 +913,19 @@ DESIGN = """# Design notes
 
 - **Parametric-EQ approximation of the IEQ curve.** Rejected.
 
-### Finding 1: DAX is non-LTI
+### DAX is non-LTI
 
 ### Unvalidated converter scaling factors (the class)
 
-#### Entry 1: Dialog enhancer
+<a id="r-dialog"></a>
+
+#### Dialog enhancer
 
 Readings (a) (b).
 """
 
-CITING = '''"""Why: design-notes "Rejected approaches", Finding 1, scaling
-entry 1 (a). See design-notes "Rejected approaches → Parametric-EQ
+CITING = '''"""Why: design-notes "Rejected approaches", `r-dialog`
+(a). See design-notes "Rejected approaches → Parametric-EQ
 approximation"."""
 '''
 
@@ -782,12 +947,6 @@ def _tree(tmp_path, design=DESIGN, citing=CITING, linking=LINKING,
 
 def test_an_intact_tree_has_no_problems(tmp_path):
     assert _tree(tmp_path) == []
-
-
-def test_a_renamed_finding_heading_goes_red(tmp_path):
-    broken = _tree(tmp_path, design=DESIGN.replace("Finding 1:", "Finding 2:"))
-    assert broken == ["lib/x.py:1: Finding 1 → no item 1 in docs/design-notes.md"
-                      " or docs/research/"]
 
 
 def test_a_renamed_quoted_section_goes_red(tmp_path):
@@ -812,11 +971,43 @@ def test_a_broken_anchor_goes_red(tmp_path):
                       "no heading or anchor #rejected in docs/design-notes.md"]
 
 
-def test_a_missing_entry_letter_goes_red(tmp_path):
-    broken = _tree(tmp_path, design=DESIGN.replace("(a) (b)", "(b)"))
-    assert broken == [
-        "lib/x.py:1: scaling entry 1 (a) → item 1 in docs/design-notes.md "
-        'or docs/research/ "Unvalidated converter scaling factors" has no (a)']
+def test_a_sub_letter_the_unit_lacks_goes_red(tmp_path):
+    """A letter after a tag cite must appear as "(a)" in that unit's text."""
+    missing = DESIGN.replace("(a) (b)", "(b)")
+    assert _tree(tmp_path, design=missing) == [
+        "lib/x.py:1: r-dialog (a) → r-dialog has no (a)"]
+    later = missing + "\n### Later\n\n(a)\n"
+    assert _tree(tmp_path, design=later) == [
+        "lib/x.py:1: r-dialog (a) → r-dialog has no (a)"]
+    linking = LINKING + "\n[dialog](design-notes.md#r-dialog) (b) (c)\n"
+    assert _tree(tmp_path, linking=linking) == []
+    linking = LINKING + "\n[dialog](design-notes.md#r-dialog) (c)\n"
+    assert _tree(tmp_path, linking=linking) == [
+        "docs/other.md:7: r-dialog (c) → r-dialog has no (c)"]
+
+
+@pytest.mark.parametrize("spec, broken", [
+    ("(a, b)", None), ("(a, c)", "(a, c) → r-dialog has no (c)"),
+    ("(a)–(b)", None), ("(a)–(c)", "(a)–(c) → r-dialog has no (c)"),
+    ("(a-d)", "(a-d) → r-dialog has no (c), (d)"), ("item (b)", None),
+    ("items (a) and\n# (c)", "(a) and (c) → r-dialog has no (c)")])
+def test_sub_letter_lists_and_ranges_are_each_checked(tmp_path, spec, broken):
+    citing = CITING + f"# See `r-dialog` {spec}.\n"
+    assert _tree(tmp_path, citing=citing) == (
+        [] if broken is None else [f"lib/x.py:4: r-dialog {broken}"])
+
+
+def test_a_sub_letter_counts_only_in_the_units_own_text(tmp_path):
+    """A nested tagged unit's "(c)", or a call like "f(c)", is not the unit's."""
+    nested = DESIGN + '\n<a id="r-inner"></a>\n\n##### Inner\n\n(c)\n'
+    citing = CITING + "# See `r-dialog` (c).\n"
+    assert _tree(tmp_path, design=nested, citing=citing) == [
+        "lib/x.py:4: r-dialog (c) → r-dialog has no (c)"]
+    untagged = DESIGN + "\n##### Inner\n\n(c)\n"
+    assert _tree(tmp_path, design=untagged, citing=citing) == []
+    called = DESIGN + "\nIt reads f(c).\n"
+    assert _tree(tmp_path, design=called, citing=citing) == [
+        "lib/x.py:4: r-dialog (c) → r-dialog has no (c)"]
 
 
 TAG = '<a id="r-dax-lti"></a>\n\n'
@@ -824,26 +1015,27 @@ TAGGED = TAG + "### DAX is non-LTI\n"
 
 
 def test_a_design_notes_citation_resolves_in_a_research_file(tmp_path):
-    kept, finding, moved = DESIGN.partition("### Finding 1: DAX is non-LTI\n")
+    kept, heading, moved = DESIGN.partition(
+        "### Unvalidated converter scaling factors (the class)\n")
     citing = CITING + '# design-notes "Unvalidated converter scaling factors".\n'
-    research = TAG + finding + moved
-    assert _tree(tmp_path, design=kept, citing=citing, k=research) == []
-    assert len(_tree(tmp_path, design=kept, citing=citing)) == 3
+    assert _tree(tmp_path, design=kept, citing=citing, k=heading + moved) == []
+    assert len(_tree(tmp_path, design=kept, citing=citing)) == 2
 
 
-def test_a_number_defined_twice_across_the_set_goes_red(tmp_path):
-    twice = "### Finding 1: DAX again\n"
-    defined = ("Finding 1 → Finding 1 is defined at docs/design-notes.md:7, "
-               "docs/research/k.md:1")
-    assert _tree(tmp_path, k=twice) == [
-        f"{site}: {defined}" for site in
-        ("docs/design-notes.md:7", "docs/research/k.md:1", "lib/x.py:1")]
+def test_a_cross_device_section_defined_twice_goes_red(tmp_path):
+    cross = {"docs/cross-device-findings.md": "## 3. Amps\n\n## 3. Pins\n"}
+    citing = CITING + "# cross-device-findings §3.\n"
+    assert _tree(tmp_path, citing=citing, files=cross) == [
+        "lib/x.py:4: §3 → cross-device §3 is defined at "
+        "docs/cross-device-findings.md:1, docs/cross-device-findings.md:3"]
+    assert _tree(tmp_path, citing=citing.replace("§3", "§4"), files=cross) == [
+        "lib/x.py:4: §4 → no item 4 in docs/cross-device-findings.md"]
 
 
 def test_a_duplicate_tag_goes_red(tmp_path):
     broken = _tree(tmp_path, design=DESIGN + "\n" + TAGGED, k=TAGGED)
-    assert broken == ["docs/design-notes.md:15: r-dax-lti → tag r-dax-lti is "
-                      "defined at docs/design-notes.md:15, docs/research/k.md:1"]
+    assert broken == ["docs/design-notes.md:17: r-dax-lti → tag r-dax-lti is "
+                      "defined at docs/design-notes.md:17, docs/research/k.md:1"]
 
 
 def test_an_unknown_tag_goes_red(tmp_path):
@@ -912,17 +1104,19 @@ def test_a_link_to_a_tag_in_the_wrong_file_goes_red(tmp_path):
 
 
 def test_released_changelog_sections_are_not_scanned(tmp_path):
-    changelog = ("# Changelog\n\n## Unreleased\n\n- See Finding 1.\n\n"
+    changelog = ("# Changelog\n\n## Unreleased\n\n- See `r-dialog`.\n\n"
                  "## v1\n\n- See Finding 9.\n")
     assert _tree(tmp_path, files={"CHANGELOG.md": changelog}) == []
-    unreleased = changelog.replace("Finding 1.", "Finding 8.")
+    unreleased = changelog.replace("`r-dialog`.", "Finding 8.")
     assert _tree(tmp_path, files={"CHANGELOG.md": unreleased}) == [
-        "CHANGELOG.md:5: Finding 8 → no item 8 in docs/design-notes.md or "
-        "docs/research/"]
+        "CHANGELOG.md:5: Finding 8 → a retired number, and design-notes "
+        '"Legacy numbers" has no Finding 8']
 
 
-def test_released_changelog_sections_are_not_read():
-    text = "# Changelog\n\n## Unreleased\n\nkept\n\n## v1\n\ndropped\n"
+@pytest.mark.parametrize("heading", ["## Unreleased", "## [Unreleased]",
+                                     "## Unreleased (next)"])
+def test_released_changelog_sections_are_not_read(heading):
+    text = f"# Changelog\n\n{heading}\n\nkept\n\n## v1\n\ndropped\n"
     lines = unreleased_only(text).split("\n")
     assert len(lines) == 9 and lines[4] == "kept" and "dropped" not in lines
 
@@ -932,10 +1126,14 @@ LEGACY = ("## Where the research lives\n\n### Legacy numbers\n\n"
           "| Finding 1 | [`r-dax-lti`](#r-dax-lti) | DAX is non-LTI |\n"
           "| entry 1 | [`r-dialog`](#r-dialog) | Dialog enhancer |\n\n")
 LEGACY_DESIGN = (DESIGN.replace("## Rejected", LEGACY + "## Rejected")
-                 .replace("### Finding 1", TAG + "### Finding 1")
-                 .replace("#### Entry 1",
-                          '<a id="r-dialog"></a>\n\n#### Entry 1'))
-LEGACY_EXPECTED = ("Finding 1", "entry 1")
+                 .replace("### DAX is non-LTI", TAG + "### DAX is non-LTI"))
+LEGACY_EXPECTED = {"Finding 1": "r-dax-lti", "entry 1": "r-dialog"}
+ENTRY_ROW = "| entry 1 | [`r-dialog`](#r-dialog) | Dialog enhancer |\n"
+
+
+def test_the_real_legacy_table_pins_every_retired_number():
+    assert len(LEGACY_ROWS) == 26
+    assert len(set(LEGACY_ROWS.values())) == 26
 
 
 def test_an_intact_legacy_table_has_no_problems(tmp_path):
@@ -943,31 +1141,113 @@ def test_an_intact_legacy_table_has_no_problems(tmp_path):
 
 
 def test_a_missing_legacy_row_goes_red(tmp_path):
-    design = LEGACY_DESIGN.replace(
-        "| entry 1 | [`r-dialog`](#r-dialog) | Dialog enhancer |\n", "")
+    design = LEGACY_DESIGN.replace(ENTRY_ROW, "")
     assert _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED) == [
         'docs/design-notes.md:5: entry 1 → no row for entry 1 in '
         '"Legacy numbers"']
 
 
+def test_a_duplicate_legacy_row_goes_red(tmp_path):
+    design = LEGACY_DESIGN.replace(ENTRY_ROW, ENTRY_ROW * 2)
+    assert _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED) == [
+        "docs/design-notes.md:11: entry 1 → a second row for entry 1"]
+
+
+def test_a_legacy_row_mapping_another_tag_goes_red(tmp_path):
+    """Swapping two rows' tags and titles keeps each tag above its title."""
+    swapped = (LEGACY_DESIGN
+               .replace("| Finding 1 | [`r-dax-lti`](#r-dax-lti) | "
+                        "DAX is non-LTI |",
+                        "| Finding 1 | [`r-dialog`](#r-dialog) | "
+                        "Dialog enhancer |")
+               .replace(ENTRY_ROW, "| entry 1 | [`r-dax-lti`](#r-dax-lti) | "
+                                   "DAX is non-LTI |\n"))
+    assert _tree(tmp_path, design=swapped, legacy=LEGACY_EXPECTED) == [
+        "docs/design-notes.md:9: Finding 1 → Finding 1 is r-dax-lti, "
+        "not r-dialog",
+        "docs/design-notes.md:10: entry 1 → entry 1 is r-dialog, not r-dax-lti"]
+
+
 def test_a_legacy_row_with_an_unknown_tag_goes_red(tmp_path):
     design = LEGACY_DESIGN.replace("[`r-dialog`](#r-dialog)",
                                    "[`r-dialogue`](#r-dialogue)")
-    broken = _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED)
+    legacy = {**LEGACY_EXPECTED, "entry 1": "r-dialogue"}
+    broken = _tree(tmp_path, design=design, legacy=legacy)
     assert ('docs/design-notes.md:10: entry 1 → no <a id="r-dialogue"> '
             "under docs/") in broken
 
 
-def test_a_legacy_tag_above_another_number_goes_red(tmp_path):
-    design = LEGACY_DESIGN.replace("[`r-dialog`](#r-dialog)",
-                                   "[`r-dax-lti`](#r-dax-lti)")
-    assert _tree(tmp_path, design=design, legacy=LEGACY_EXPECTED) == [
-        "docs/design-notes.md:10: entry 1 → r-dax-lti sits above "
-        "'### Finding 1: DAX is non-LTI', not entry 1"]
-    renumbered = LEGACY_DESIGN.replace("#### Entry 1:", "#### Entry 2:")
+def test_a_legacy_tag_above_another_heading_goes_red(tmp_path):
+    renamed = LEGACY_DESIGN.replace("#### Dialog enhancer",
+                                    "#### Dialogue enhancer")
     assert ("docs/design-notes.md:10: entry 1 → r-dialog sits above "
-            "'#### Entry 2: Dialog enhancer', not entry 1") in _tree(
-        tmp_path, design=renumbered, legacy=LEGACY_EXPECTED)
+            "'#### Dialogue enhancer', not 'Dialog enhancer'") in _tree(
+        tmp_path, design=renamed, legacy=LEGACY_EXPECTED)
+
+
+def _retired(tmp_path, text, design=LEGACY_DESIGN):
+    return _tree(tmp_path, design=design, linking=LINKING + "\n" + text + "\n")
+
+
+def test_a_retired_number_goes_red_naming_its_tag(tmp_path):
+    citing = CITING + "# See Finding 1, and scaling entries 1/2.\n"
+    assert _tree(tmp_path, design=LEGACY_DESIGN, citing=citing) == [
+        "lib/x.py:4: Finding 1 → a retired number: cite `r-dax-lti` "
+        '(design-notes "Legacy numbers")',
+        "lib/x.py:4: entries 1/2 → a retired number, and design-notes "
+        '"Legacy numbers" has no entry 2']
+    assert _retired(tmp_path, "Entry 1 and Follow-ups item 1.") == [
+        "docs/other.md:7: Entry 1 → a retired number: cite `r-dialog` "
+        '(design-notes "Legacy numbers")',
+        "docs/other.md:7: Follow-ups item 1 → a retired number, and "
+        'design-notes "Legacy numbers" has no Follow-ups item 1']
+
+
+@pytest.mark.parametrize("text", [
+    "entry 1", "(entry 1 (b))", "entry 1(b)", "entries 1–2", "Scaling entry 1",
+    "scaling-factor entry 1", "finding 1", "Finding #1", "FINDING 1",
+    "Findings-1", "Follow-up 1", "Follow-up #1", "follow-ups item 1",
+    "Follow-up item 1", "Finding\n1", "Findings\n1 and 2"])
+def test_every_past_spelling_of_a_retired_number_goes_red(tmp_path, text):
+    broken = _retired(tmp_path, f"See {text}.")
+    assert len(broken) == 1 and "a retired number" in broken[0], broken
+
+
+def test_a_retired_number_never_spans_a_blank_line(tmp_path):
+    assert _retired(tmp_path, "The Finding\n\n1 row.") == []
+    assert _retired(tmp_path, "Findings 1 and\n\n2 more.") == [
+        "docs/other.md:7: Findings 1 → a retired number: cite `r-dax-lti` "
+        '(design-notes "Legacy numbers")']
+
+
+@pytest.mark.parametrize("text", [
+    "Entry 2 of the boot menu", "Menu Entry 3", "quirk catalogue entry 3",
+    "pick menu entry 2", "the table entry 4", "cross-device §17 entry 3",
+    "cross-device §3 / follow-up #2", "the finding10 anchor"])
+def test_a_number_that_is_not_a_research_unit_is_not_a_cite(tmp_path, text):
+    broken = _retired(tmp_path, f"See {text}.")
+    assert not [p for p in broken if "retired" in p], broken
+
+
+def test_only_the_legacy_rows_are_exempt(tmp_path):
+    """The Legacy numbers section's prose, and any heading added under it,
+    are scanned like the rest of the doc."""
+    design = LEGACY_DESIGN.replace(
+        "### Legacy numbers\n\n", "### Legacy numbers\n\nFinding 1 moved.\n\n")
+    assert _tree(tmp_path, design=design) == [
+        "docs/design-notes.md:7: Finding 1 → a retired number: cite "
+        '`r-dax-lti` (design-notes "Legacy numbers")']
+
+
+def test_a_number_inside_a_quoted_section_name_is_not_a_cite(tmp_path):
+    changelog = {"CHANGELOG.md": "# Changelog\n\n## Unreleased\n\n## v1\n\n"
+                                 "- Finding 2 in context.\n"}
+    citing = CITING + '# CHANGELOG.md "Finding 2 in context".\n'
+    assert _tree(tmp_path, citing=citing, files=changelog) == []
+    citing = CITING + '# design-notes "Finding 1".\n'
+    assert _tree(tmp_path, design=LEGACY_DESIGN, citing=citing) == [
+        "lib/x.py:4: Finding 1 → a retired number: cite `r-dax-lti` "
+        '(design-notes "Legacy numbers")']
 
 
 @pytest.mark.parametrize("heading, slug", [
