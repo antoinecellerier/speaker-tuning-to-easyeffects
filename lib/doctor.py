@@ -316,6 +316,6 @@ def print_verdict(checks, cprint) -> None:
     elif warn:
         cprint("warn", f"Nothing failed outright — the {tag(DOCTOR_WARN)} lines "
                        "above are what to fix first.")
-    elif unknown and not fail:
+    elif unknown:
         cprint("warn", f"Some checks couldn't be verified (the "
                        f"{tag(DOCTOR_UNKNOWN)} lines above); the rest look OK.")
