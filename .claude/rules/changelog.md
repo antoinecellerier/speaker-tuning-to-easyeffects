@@ -29,13 +29,13 @@ objective: follow it literally, don't approximate. In short:
 - Shape: WHAT changed for the user, then, each optional: one clause of
   mechanism, a flag or "re-run to regenerate", a link.
 - `<= 3` sentences, ~50 words. More than three sentences means the surplus
-  belongs in design-notes.
+  belongs in the research log.
 - Most-impactful-first within each section.
 - `[AUDIBLE]` honesty: claim an impression only if heard on-device.
 - Link a change a report prompted, or one whose why the ceiling pushed out
   of the entry. An obvious, unreported change needs none.
 - Measurement numbers, device IDs, corpus stats, plugin internals and
-  provenance go in `docs/design-notes.md`/`reference.md` behind the link,
+  provenance go in the research log or `reference.md` behind the link,
   **not** inline.
 - Match the tight version of the comment's worked too-long-vs-tight example.
 

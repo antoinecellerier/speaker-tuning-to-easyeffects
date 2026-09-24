@@ -117,7 +117,7 @@ wrapper never loads the docs.
 | `slice_numbers.md` | `corpus_audit.txt` + `cross-device-findings.md`, plus targeted corpus greps | stale figures, universals the corpus contradicts, "rare"/"typical" with nothing behind it |
 | renders/ | the rendered runs + `corpus_audit.txt` | sentences true only for the device they were written from; hardcoded Hz/band counts/profile names; contradictions inside one run |
 | `slice_generator.md` | the generator's source | copy vs what the code does: flag effects, what was written, `-v` gating, gates broader or narrower than the sentence |
-| `slice_generator.md` | `reference.md` "Validated vs unvalidated mappings" + `design-notes.md` | unvalidated mappings asserted as fact; a *leading hypothesis* stated as Dolby's intent |
+| `slice_generator.md` | `reference.md` "Validated vs unvalidated mappings" + `design-notes.md` and `docs/research/` | unvalidated mappings asserted as fact; a *leading hypothesis* stated as Dolby's intent |
 | `slice_wrapper_docs.md` | wrapper/converter source + the live system | restart and undo instructions, command output shapes, WirePlumber/EasyEffects behaviour, package names |
 | `slice_changelog.md` | the code each entry describes | `## Unreleased` entries that misstate what ships |
 | `slice_all_changed.md` | the sources themselves | CHANGELOG vs what ships, README vs the menus, one fact worded two incompatible ways |

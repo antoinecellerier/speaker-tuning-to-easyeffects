@@ -22,8 +22,8 @@ Dolby's schema means. Several have been wrong. When you edit one:
 
 - Only a DAX capture can falsify a mapping. Listening, analytical scoring and
   "this looks more like what the field name suggests" cannot.
-  `docs/design-notes.md` records which readings a capture has already
-  overturned.
+  The research log (`docs/design-notes.md` and `docs/research/`) records
+  which readings a capture has already overturned.
 - The bar to change a *default* mapping is high: **≥1 second-device capture**
   confirming the new reading generalises across all bands. One device's capture
   explains that device, not the schema.
@@ -35,8 +35,10 @@ Dolby's schema means. Several have been wrong. When you edit one:
   factor error, not a crash.
 
 `docs/reference.md` "Validated vs unvalidated mappings" gives each parameter's
-status: capture-validated or unvalidated. `docs/design-notes.md` holds the
-evidence behind each, and the empirical-shortcut and unvalidated-scaling lists.
+status: capture-validated or unvalidated. The research log
+(`docs/design-notes.md` and `docs/research/`) holds the evidence behind each,
+and design-notes "Unvalidated converter scaling factors" lists the invented
+constants.
 
 ## What is *not* a source of parameters
 
