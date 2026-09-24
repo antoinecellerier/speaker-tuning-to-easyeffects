@@ -502,8 +502,8 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
         "every stage is applied that many times over. ")
     if files:
         detail += (f"Keep one of {files} and delete the others, then restart "
-                   "PipeWire; the Environment block above gives the full path "
-                   "of each conf this tool installed.")
+                   "PipeWire; the PipeWire filter-chain setup block above "
+                   "gives the full path of each conf this tool installed.")
     else:
         # Every one of them is somebody else's. There is no file of ours to
         # name, and telling a reader to delete one would name a file we made

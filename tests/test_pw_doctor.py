@@ -364,16 +364,16 @@ def _installed(tmp_path, name):
 
 
 def test_stacked_chains_point_at_the_block_that_exists(tmp_path):
-    """The Environment block moved *above* the checks when inventory-leads
-    landed (`.claude/rules/user-messages.md`), and this detail still sent the
-    reader to "the block below" — where the report's closing advice is, not
-    the conf paths it means."""
+    """The filter-chain setup block moved *above* the checks when
+    inventory-leads landed (`.claude/rules/user-messages.md`), and this detail
+    still sent the reader to "the block below" — where the report's closing
+    advice is, not the conf paths it means."""
     dump = [_speaker_sink(), *_smart_chain("A"), *_smart_chain("B")]
     result = checks.check_stacked_chains(
         checks.live_chains(dump),
         [_installed(tmp_path, "A"), _installed(tmp_path, "B")])
     assert "block below" not in result.detail, result.detail
-    assert "Environment block above" in result.detail
+    assert "filter-chain setup block above" in result.detail
 
 
 def test_delete_the_others_never_names_a_filter_we_did_not_install(tmp_path):

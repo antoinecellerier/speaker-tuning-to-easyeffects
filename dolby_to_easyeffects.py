@@ -117,11 +117,12 @@ def add_inspection_args(container, *, only=None):
         "--doctor", "--diagnose",
         dest="doctor",
         action="store_true",
-        help="run environment self-diagnostics and exit. It checks the "
-             "EasyEffects version, install location, preset and impulse-file "
-             "integrity, the selected preset, background service mode and "
-             "autostart, and hardware. If a preset seems inaudible, paste the "
-             "output into an issue.",
+        help="run environment self-diagnostics and exit. It checks "
+             "hardware, install location, EasyEffects version and "
+             "compatibility, preset and impulse-file integrity, the selected "
+             "preset, background service mode and autostart, kernel age, and "
+             "the PipeWire graph sample rate. If a preset seems inaudible, "
+             "paste the output into an issue.",
     )
     return added
 
@@ -148,8 +149,9 @@ def add_profile_selection_args(container, *, only=None):
     add(
         "--all-profiles",
         action="store_true",
-        help="generate presets for all profiles in the selected "
-             "endpoint/mode. The preset names include the profile name.",
+        help="generate presets for every profile except 'off' in the "
+             "selected endpoint/mode. The preset names include the profile "
+             "name.",
     )
     return added
 

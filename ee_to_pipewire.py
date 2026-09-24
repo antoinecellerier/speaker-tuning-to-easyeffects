@@ -125,7 +125,8 @@ def add_output_args(container, *, only=None):
     add(
         "--force",
         action="store_true",
-        help="overwrite the output file if it already exists",
+        help="overwrite the output conf and the copied .irs if they already "
+             "exist",
     )
     return added
 

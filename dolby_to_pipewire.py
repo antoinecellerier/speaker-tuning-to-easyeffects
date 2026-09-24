@@ -57,9 +57,9 @@ _WRAPPER_HELP = {
     "doctor": "report the state of the installed PipeWire filter chain and "
               "exit. It covers confs, live chains, plugins, impulse files, "
               "routing and WirePlumber. Paste the output into an issue.",
-    "all_profiles": "convert every profile in the selected endpoint/mode, "
-                    "each as its own sink. The profile name is part of each "
-                    "sink name. Needs --target-sink ''.",
+    "all_profiles": "convert every profile except 'off' in the selected "
+                    "endpoint/mode, each as its own sink. The profile name "
+                    "is part of each sink name. Needs --target-sink ''.",
     "prefix": "prefix for the generated sink and conf names "
               "(default: Dolby → Dolby_Balanced, etc.)",
     "disable": (("from the generated preset", "from the generated chain"),),
