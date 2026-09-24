@@ -84,6 +84,39 @@ reference to one impulse file by name. A regenerated preset whose FIR changed
 gets a new name, because the generator hashes the samples into it, so the same
 re-run applies.
 
+## Package names per distribution
+
+Package names differ per distribution, and the LV2 build is not always the base
+package. On Fedora and Arch, `lsp-plugins` does not ship the `.lv2` bundle
+PipeWire loads; `lsp-plugins-lv2` does. `lib/packages.py` holds that table along
+with the `/etc/os-release` family detection. Every message that names a package
+prints the one row that matches the reader's machine, and falls back to listing
+them all when it cannot place them. The table covers seven families and serves
+every dependency either script can detect as missing: the Python stack,
+`lv2info`, the PipeWire command-line tools, `amixer` and EasyEffects itself.
+
+Two shapes of gap are recorded rather than papered over. `UNPACKAGED` carries
+what to say where a family has no package at all. Calf reaches openSUSE only
+through Packman. NixOS installs LV2 plugins declaratively, because a `nix-shell`
+never reaches the daemon. `CAVEATS` carries what to add where the name resolves
+but the default build does not deliver: Gentoo's `media-plugins/calf` needs
+`USE=lv2`. Dropping either silently would turn "install these two" into a
+command that installs one and reports success. `pw-cli`/`pw-dump` and
+`spa-json-dump` are separate keys for the same reason: openSUSE and Alpine ship
+them in different packages.
+
+Names are per-repository facts, verified against each distribution's own binary
+index. Repology tracks Debian, Fedora and openSUSE at *source* granularity, so
+its listing says `lsp-plugins` where the installable package is
+`lsp-plugins-lv2`. EasyEffects is the one entry not answered from the table.
+Which release ships version 8 changes every few months. So the run asks the
+machine's own package manager what it would install, and offers the distro
+package only when that answer is 8 or newer.
+
+The README's "Plugin dependencies and validation" and Install sections list the
+same rows for someone reading before they run anything.
+`tests/test_readme_packages_sync.py` fails if the two disagree.
+
 ## Smart-filter routing (the load-bearing UX choice)
 
 The naive PipeWire filter-chain pattern sets `media.class = "Audio/Sink"`, which
@@ -317,7 +350,7 @@ can't reach.
 | `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain` when present. |
 | `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). Triggers on SoundWire devices with small drivers. |
-| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The translator is retained, but generated presets never reach it. |
+| `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The generator emits no `stereo_tools#0` block; see below. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true, unless the preset was generated with `--enable autogain`. Emitting a bypassed node would just clutter. |
 | `_vbe` (top-level metadata, `--enable virtual-bass` only) | LSP `filter_stereo` ×7 + Calf `Saturator` ×2 + builtin `copy`/`mixer` | Not an EE plugin key. EasyEffects cannot express the parallel branch, so the generator records the XML's virtual-bass values top-level, under the `_generator` contract. |
 | `autogain#0` (active) | LSP `autogain_stereo` | EE's autogain is native libebur128 (`src/autogain.cpp`). `autogain_stereo` is the LV2 equivalent, a K-weighted (LUFS) loudness AGC. The mapping was validated at a 20 s history. |
@@ -340,11 +373,10 @@ can't reach.
 - **`stereo_tools#0`.** Mode strings → ints via `EE_ST_MODE` (7 labels, 0..6).
   `slev`/`mlev` are dB→linear; `sbal`/`mpan`/`stereo_base` direct linear;
   `sc_level` (1..100), `stereo_phase` (0..360°), `delay` (-20..+20 ms) direct.
-  Since 2026-06 the *generator* (`dolby_to_easyeffects.py`) emits no
-  `stereo_tools#0` block, because a DAX capture falsified the
-  `surround-boost → stereo_tools` widening (design-notes entry 2). The
-  `stereo_tools#0` translator applies to any hand-edited or legacy preset that
-  carries a `stereo_tools` block.
+  The *generator* (`dolby_to_easyeffects.py`) emits no `stereo_tools#0` block,
+  because a DAX capture falsified the `surround-boost → stereo_tools` widening
+  (design-notes entry 2). The `stereo_tools#0` translator applies to any
+  hand-edited or legacy preset that carries a `stereo_tools` block.
 - **`_vbe` (top-level metadata, `--enable virtual-bass` only).**
   `lib/pipewire/vbe.py` sandwiches the whole translated chain between a copy
   fan-out and a dry+wet mixer. See "No VBE by default" under limitations.
@@ -504,38 +536,8 @@ plugin, so that plugin's ports simply go unchecked.
 so demanding it would block a machine whose LSP and Calf are correctly
 installed. Without it the check cannot run at all, and the status is
 `NO_TOOLING`. The conf is then written unchecked. The run says what that costs
-and names the package that buys the check back.
-
-Package names differ per distribution, and the LV2 build is not always the base
-package. On Fedora and Arch, `lsp-plugins` does not ship the `.lv2` bundle
-PipeWire loads; `lsp-plugins-lv2` does. `lib/packages.py` holds that table along
-with the `/etc/os-release` family detection. Every message prints the one row
-that matches the reader's machine, and falls back to listing them all when it
-cannot place them. The table covers seven families and serves every dependency
-either script can detect as missing: the Python stack, `lv2info`, the PipeWire
-command-line tools, `amixer` and EasyEffects itself.
-
-Two shapes of gap are recorded rather than papered over. `UNPACKAGED` carries
-what to say where a family has no package at all. Calf reaches openSUSE only
-through Packman. NixOS installs LV2 plugins declaratively, because a `nix-shell`
-never reaches the daemon. `CAVEATS` carries what to add where the name resolves
-but the default build does not deliver: Gentoo's `media-plugins/calf` needs
-`USE=lv2`. Dropping either silently would turn "install these two" into a
-command that installs one and reports success. `pw-cli`/`pw-dump` and
-`spa-json-dump` are separate keys for the same reason: openSUSE and Alpine ship
-them in different packages.
-
-Names are per-repository facts, verified against each distribution's own binary
-index. Repology tracks Debian, Fedora and openSUSE at *source* granularity, so
-its listing says `lsp-plugins` where the installable package is
-`lsp-plugins-lv2`. EasyEffects is the one entry not answered from the table.
-Which release ships version 8 changes every few months. So the run asks the
-machine's own package manager what it would install, and offers the distro
-package only when that answer is 8 or newer.
-
-The README's "Plugin dependencies and validation" and Install sections list the
-same rows for someone reading before they run anything.
-`tests/test_readme_packages_sync.py` fails if the two disagree.
+and names the package that buys the check back. The name comes from the table
+under "Package names per distribution" above.
 
 Independently of any of that, `conf.format_conf` gives the emitted module
 `flags = [ ifexists nofail ]`. The conf is a `pipewire.conf.d/` drop-in, so it
