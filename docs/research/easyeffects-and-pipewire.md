@@ -49,7 +49,7 @@ the generator is correct for his hardware:
 - `make_fir` on the combined IEQ+AO target yields a realized convolver
   magnitude of ~13 dB p-p across 100 Hz–16 kHz, strongly audible.
 - The
-  [simplified path](../design-notes.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22)
+  [simplified path](eq-and-frequency-response.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22)
   shares the validated full-schema FIR/convolver code: the same `kernel-name`
   and the same min-phase FIR.
 
@@ -117,7 +117,8 @@ at −5.4 and −1.0 dBFS peak, showed the chain's volume as an *exact* scalar (
 the dynamics never engage, so both hypotheses predict a pure gain. The
 pre-scaled leg distinguishes them, and it only separates once the stimulus is
 hot enough. This extends the dormancy in the
-[DAX response vs XML](../design-notes.md#r-dax-response-vs-xml) and the
+[DAX response vs XML](eq-and-frequency-response.md#r-dax-response-vs-xml) and
+the
 [MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants):
 still dormant at −13.9 dBFS RMS, active at −6.5.
 
@@ -514,7 +515,7 @@ short-circuits on an equal value again. `kernelNameChanged` is the only thing
 that makes the convolver re-read the file ([convolver.cpp][ee-conv-reload]). So
 the in-memory kernel survives until the process restarts. The measurement
 harness had already met this: see the unique per-variant prefixes in the
-[XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses).
+[XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
 Every FIR-changing release, `--enable level-restore`, `--endpoint` and a swapped
 XML all rewrite the same name. Those include v2026.05's `ieq-amount`, v2026.07's
 boosts and v2026.08's `audio-optimizer-enable`. Since 2026-08 the generator
@@ -736,6 +737,7 @@ wholesale, for a reporter who would rather send the real names.
 - The unused EasyEffects built-ins:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - The convolver IR trim:
-  [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
+  [design-notes](eq-and-frequency-response.md#rejected-approaches) "Rejected
+  approaches".
 - The PipeWire converter's autogain translation:
   [adaptive-processing.md](adaptive-processing.md#r-autogain-pw-translation).

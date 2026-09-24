@@ -61,7 +61,7 @@ working through it.
 - `ieq-amount` is a percentage weight on the IEQ voicing: `scale = amount/100`.
   `10` applies the IEQ curve at 10 % on top of the audio-optimizer correction,
   not at full depth. This `/100` reading is DAX-capture-validated (the
-  [`ieq-amount` scaling finding](design-notes.md#r-ieq-amount-scaling)).
+  [`ieq-amount` scaling finding](research/eq-and-frequency-response.md#r-ieq-amount-scaling)).
 
 ## Input: Dolby DAX3 XML
 
@@ -348,8 +348,8 @@ Validated against DAX captures:
 
 | Mapping | Evidence |
 |---|---|
-| The `ieq-amount` `/100` reading | DAX capture: [`ieq-amount` scaling finding](design-notes.md#r-ieq-amount-scaling), issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13) |
-| The simplified-schema `gain_l`/`gain_r` audio-optimizer: 1/16-dB units and per-channel L/R assignment | DAX capture on a second device: matches its measured Dolby on/off delta to ~0.7 dB mean ([simplified-schema AO units finding](design-notes.md#r-simplified-schema-ao-units), issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)) |
+| The `ieq-amount` `/100` reading | DAX capture: [`ieq-amount` scaling finding](research/eq-and-frequency-response.md#r-ieq-amount-scaling), issue [#13](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/13) |
+| The simplified-schema `gain_l`/`gain_r` audio-optimizer: 1/16-dB units and per-channel L/R assignment | DAX capture on a second device: matches its measured Dolby on/off delta to ~0.7 dB mean ([simplified-schema AO units finding](research/eq-and-frequency-response.md#r-simplified-schema-ao-units), issue [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)) |
 | The min-phase FIR realising the composite target | Synthetic LTI check, no DAX capture: realises it to <0.1 dB RMS |
 
 Unvalidated, the "`ieq-amount` class": these all ship by default but are
@@ -389,7 +389,7 @@ where it fires, the failure issue
 [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23)
 measured. And an A/B on both a one-zone and a full-band device measured the
 level cost at ≤1 dB
-([simplified-schema AO units finding](design-notes.md#r-simplified-schema-ao-units)
+([simplified-schema AO units finding](research/eq-and-frequency-response.md#r-simplified-schema-ao-units)
 /
 [fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants)
 (f), issue

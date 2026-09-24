@@ -73,18 +73,20 @@ max in-band residual on `Dolby-Dynamic-Balanced`, the FIR + biquad chain
 reproduces the curve our converter intended: the DSP math executes correctly.
 `vsXML` is internal consistency, not interpretation correctness; the "note on
 metrics" in the
-[XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses)
+[XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses)
 explains why this distinction matters. The 11.84 dB EE-vs-DAX residual recorded
-in the [AO sign variant matrix](../design-notes.md#r-ao-sign-variant-matrix) is
-therefore not implementation drift. At the time of this measurement it was
+in the
+[AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)
+is therefore not implementation drift. At the time of this measurement it was
 attributed, per the
-[AO sign variant matrix](../design-notes.md#r-ao-sign-variant-matrix) and the
-[XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses),
+[AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)
+and the
+[XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses),
 to fixed DAX-internal behavior outside the published XML. The
-[`ieq-amount` scaling finding](../design-notes.md#r-ieq-amount-scaling) later
-showed it was dominated by the converter's own `ieq-amount` scaling error, since
-fixed. The remaining EE-vs-DAX residual is ~1 dB RMS at HF plus the LF/leveler
-gap.
+[`ieq-amount` scaling finding](eq-and-frequency-response.md#r-ieq-amount-scaling)
+later showed it was dominated by the converter's own `ieq-amount` scaling error,
+since fixed. The remaining EE-vs-DAX residual is ~1 dB RMS at HF plus the
+LF/leveler gap.
 
 For the rows marked "open" in the
 [table](../design-notes.md#plugin-parameter-audit) (MBC and limiter character
@@ -457,7 +459,7 @@ widening. Mono did not regress. The rest of the chain's preset JSON is
 byte-identical (preset-digest snapshot, now `tests/test_golden_preset.py`). Live
 mono-pink matched pre-fix within capture repeatability (~0.45 dB RMS), with
 EE−DAX pink steady at 1.35–1.67 dB RMS (the baseline from the
-[`ieq-amount` scaling finding](../design-notes.md#r-ieq-amount-scaling)).
+[`ieq-amount` scaling finding](eq-and-frequency-response.md#r-ieq-amount-scaling)).
 
 <a id="r-mbc-ratio-time-constants"></a>
 
@@ -490,8 +492,8 @@ agent analysis, key numbers re-verified from the converter):
   within ±3 dB at every diagnostic band (141–4193 Hz). The "DAX delivers +16–22
   dB more" reading was a reference artifact: our FIR is peak-normalised to a
   different anchor than DAX's OFF-flat baseline. The real 22–30 dB bass gap (the
-  [EE response vs XML](../design-notes.md#r-ee-response-vs-xml)) sits below ~120
-  Hz, pre-attenuated by the 100 Hz HP before either chain's dynamics.
+  [EE response vs XML](eq-and-frequency-response.md#r-ee-response-vs-xml)) sits
+  below ~120 Hz, pre-attenuated by the 100 Hz HP before either chain's dynamics.
 - (ii) The MBC decode is internally faithful but *conservative*. A 3-level fit
   (−42/−18/−2) shows EE realises its nominal 1.67 ratio only at the one band
   that clears threshold well (234 Hz, R≈1.54). Elsewhere the −6 dB soft knee and

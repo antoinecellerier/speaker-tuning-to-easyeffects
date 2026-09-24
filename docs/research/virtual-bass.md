@@ -63,10 +63,13 @@ Our converter emits Calf BassEnhancer only when `is_soundwire=True`. The X1 Yoga
 and other HDA devices get no harmonic-generation stage at all.
 
 This is a **non-LTI** processing-stage gap, distinct from the LTI EQ-curve gap
-analyzed in the [EE response vs XML](../design-notes.md#r-ee-response-vs-xml),
-the [HF-shaping block audit](../design-notes.md#r-hf-shaping-block-audit), the
-[AO sign variant matrix](../design-notes.md#r-ao-sign-variant-matrix) and the
-[XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses).
+analyzed in the
+[EE response vs XML](eq-and-frequency-response.md#r-ee-response-vs-xml), the
+[HF-shaping block audit](eq-and-frequency-response.md#r-hf-shaping-block-audit),
+the
+[AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)
+and the
+[XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
 Pink-noise captures would not show it, because the harmonic complex blends into
 the broadband spectrum. It shows up only on tonal bass content.
 
@@ -255,12 +258,12 @@ and the 180 Hz harmonic regression gone, but the fundamental remains low. This
 separates cleanly into *two* gaps, not one:
 
 1. **Bass-attenuation gap**
-   ([EE response vs XML](../design-notes.md#r-ee-response-vs-xml),
-   [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses)):
+   ([EE response vs XML](eq-and-frequency-response.md#r-ee-response-vs-xml),
+   [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses)):
    our chain attenuates 50 Hz ~21 dB more than DAX does. It lives outside the
    XML. DAX's regulator / leveler appears to actively boost quiet sustained low
    tones, which is what hypothesis δ in the
-   [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses)
+   [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses)
    was tracking. Closing this gap needs a level-dependent / content-adaptive
    boost upstream, not a harmonic synthesizer.
 2. **Harmonic-synthesis gap** (this finding): DAX adds odd-dominated
@@ -589,9 +592,9 @@ is what it exercises.
 ## Elsewhere
 
 - The XML field inventory's bass-enhancement paragraph:
-  [design-notes](../design-notes.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22).
+  [design-notes](eq-and-frequency-response.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22).
 - The 50 Hz bass-attenuation gap:
-  [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses).
+  [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
 - The unused EasyEffects built-ins, Bass Loudness among them:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - #44's loud-bass DAX captures and the dev device's low-end gap:

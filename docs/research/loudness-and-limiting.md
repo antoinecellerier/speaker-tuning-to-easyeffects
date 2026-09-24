@@ -286,7 +286,7 @@ as good"*, and only the second is ours. Neither cause is the "quieter than
 bypass" mechanism of the `--enable level-restore` section below, for three
 reasons. This tuning's peak-normalisation deficit is −1.4 dB. This device
 carries no protective PEQ high-pass, and no PEQ at all. The
-[simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units)
+[simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units)
 matched its static curve to DAX within 0.72 dB.
 
 **1. The static half is the tuning, and it is faithful.** The preset's measured
@@ -440,7 +440,7 @@ How DAX gets there:
   apply the makeup*, which is the `output-gain` order. A threshold decode ~7 dB
   too deep would give the same net numbers. So this is consistency with the
   1/16-dB threshold read (the
-  [simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units))
+  [simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units))
   plus the output-gain placement, not proof of either. One loose end is open:
   the 81 and 182 Hz bands are not among the eleven active ones in our reading,
   yet DAX limits 80 and 180 Hz like their neighbours. Either its band split is
@@ -474,8 +474,8 @@ dev capture does show a static low-end gap. EE lands −43 / −20.9 / −7.8 / 
 dB against DAX's numbers above, a gap of 18.6 dB at 80 Hz and 8 dB at 120 Hz.
 The −25 dBFS quiet burst shows the same shape under the leveler's +21.7 dB
 makeup. It is the HP-slope / LF-leveler deviation that
-["The 47 Hz deviation"](../design-notes.md#r-ee-response-vs-xml) records, with
-numbers added at 80 and 120 Hz.
+["The 47 Hz deviation"](eq-and-frequency-response.md#r-ee-response-vs-xml)
+records, with numbers added at 80 and 120 Hz.
 
 The second device for the slot question therefore needs a burst stimulus inside
 the dev regulator's active zone. Its four active bands are 47 / 141 / 234 /
@@ -490,7 +490,7 @@ predictor above becomes the fix.
 The reporter also observed that Windows is far louder with Dolby on than off,
 while the Linux preset barely changes level. That is the leveler's +8.2 dB loud
 / +21.8 dB quiet makeup measured in the
-[simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units).
+[simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units).
 It is `--enable autogain` / `--enable level-restore` territory, not this
 subsection's, and was raised with the reporter in the same thread.
 
@@ -719,7 +719,7 @@ currently-ignored regulator fields might inform the engagement.
   finding also removes its motivation, since release timing isn't the
   under-engagement driver.
 - (f) `regulator-tuning/isolated_band` (added 2026-07-30, the
-  [simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units))
+  [simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units))
   is a previously-unread per-band 0/1 array with genuine per-device contrast. It
   has 59 corpus patterns, and mirrors threshold-activity exactly on 18,369
   profiles but diverges on ≥1 band on 11,548. Its semantics are unknown.
@@ -727,7 +727,7 @@ currently-ignored regulator fields might inform the engagement.
   the measured adaptive layer. That device carries the discriminating contrast
   (band 11 iso=1 vs band 12 iso=0, both threshold-active), and both span ~5 dB
   alike, while the inert iso=0 band 10 spans least (the
-  [simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units)).
+  [simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units)).
 
   **Shipped as an experimental opt-in 2026-07-30** (`--enable coupled-bands`),
   **made the default 2026-08-11** (`--disable coupled-bands` opts out).
@@ -809,7 +809,7 @@ currently-ignored regulator fields might inform the engagement.
   *hard* knee appears at full scale, not whether any gain reduction does.
 
 **Second-device datapoint (2026-07-30, the
-[simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units)):**
+[simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units)):**
 the issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)
 stepped battery shows DAX applying 4–6 dB of frequency-selective adaptive span
@@ -930,16 +930,17 @@ What remains in committed code:
   even though the stress hypothesis closed.
 
 Bigger picture, linking back to the
-[EE response vs XML](../design-notes.md#r-ee-response-vs-xml): DAX delivers
-22-30 dB more bass to its regulator than our chain delivers to ours, then runs a
-much more active regulator on top. That is the gap to close, and the stress
-field can't reach it. Two architectural levers might:
+[EE response vs XML](eq-and-frequency-response.md#r-ee-response-vs-xml): DAX
+delivers 22-30 dB more bass to its regulator than our chain delivers to ours,
+then runs a much more active regulator on top. That is the gap to close, and the
+stress field can't reach it. Two architectural levers might:
 
 - Less aggressive bass attenuation in the FIR/PEQ stages, so our regulator sees
   content above its threshold. This is currently a layer-2 IEQ/AO interpretation
   question (the
-  [AO sign variant matrix](../design-notes.md#r-ao-sign-variant-matrix) and the
-  [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses)).
+  [AO sign variant matrix](eq-and-frequency-response.md#r-ao-sign-variant-matrix)
+  and the
+  [XML-interpretation hypotheses](eq-and-frequency-response.md#r-xml-interpretation-hypotheses)).
 - A level-dependent / VBE / leveler stage upstream of the regulator. No LSP
   equivalent of DAX's leveler exists, so it would need custom DSP or a
   different plugin pipeline.
@@ -964,7 +965,7 @@ None of it has been heard on a device, so the reporter's A/B decides.
 The same file declares `<geq_maximum_range value="192"/>`, so 192/16 = +12.0 dB
 is the largest gain this file expresses. 141 Hz sits exactly there on both
 channels, and 234 Hz too on the right. The 1/16-dB scale is the one the
-[simplified-schema AO units finding](../design-notes.md#r-simplified-schema-ao-units)
+[simplified-schema AO units finding](eq-and-frequency-response.md#r-simplified-schema-ao-units)
 confirmed against DAX captures on a simplified-schema device. No clamp exists on
 our side. At 23.7 dB p-p this tuning is wider than 95% of simplified files; see
 the corpus context in
@@ -1466,7 +1467,7 @@ a smaller restore or a mitigation is measured.
 - The MBC side of the loud-level dynamics gap:
   [adaptive-processing.md](adaptive-processing.md#r-mbc-ratio-time-constants).
 - The AO units and leveler magnitude the #44 and #46 units build on:
-  [design-notes](../design-notes.md#r-simplified-schema-ao-units).
+  [design-notes](eq-and-frequency-response.md#r-simplified-schema-ao-units).
 - Where the brickwall and the regulator sit in the chain:
   [design-notes](../design-notes.md#plugin-chain-order).
 - The scaling-factor catalogue and the validation roadmap:

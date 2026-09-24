@@ -108,7 +108,7 @@ When auditing whether EE is applying the current preset:
   ladder.
 - `scaling_report.py`: read-only, no capture. It reproduces the named
   scaling-campaign results from one session's EE + DAX captures: the
-  [`ieq-amount` scaling finding](../../docs/design-notes.md#r-ieq-amount-scaling),
+  [`ieq-amount` scaling finding](../../docs/research/eq-and-frequency-response.md#r-ieq-amount-scaling),
   the
   [surround→stereo-base factor](../../docs/research/adaptive-processing.md#r-surround-boost-stereo-base),
   [MBC ratio and time constants](../../docs/research/adaptive-processing.md#r-mbc-ratio-time-constants),
