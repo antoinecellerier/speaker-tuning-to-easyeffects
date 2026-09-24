@@ -80,6 +80,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- Mark additional tested devices: ThinkPad X13 Gen 2 Intel (20WK)
+  ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)).
+
 ## v2026.09 — Sharper Diagnosis and Fixes for Uncommon Setups
 
 Deeper checks in the run and `--doctor` — PipeWire's clock and dropouts,
@@ -145,9 +150,7 @@ to fetch a Lenovo tuning XML without Windows.
   ThinkPad X13 Yoga Gen 2 (20W9)
   ([#101](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/101)),
   Lenovo IdeaPad 3 15ALC6 (82KU)
-  ([#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103)),
-  ThinkPad X13 Gen 2 Intel (20WK)
-  ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)).
+  ([#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103)).
 
 ### Fixed
 
