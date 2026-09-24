@@ -4,7 +4,8 @@ The load-bearing assertion is `test_mbc_round_trip_4_decimals`: it
 generates a preset with `make_preset`, converts to a conf, re-extracts
 the LSP MBC controls from the conf text, and confirms the linear
 values round-trip back to the source dB values to 4 decimals. That is
-the design-doc's verification anchor (alternative-pipelines.md:371-373).
+the design doc's verification anchor:
+ee-to-pipewire.md "MBC per-control translation".
 """
 
 from __future__ import annotations
@@ -785,7 +786,7 @@ def _extract_node_control(conf_text: str, node_name: str) -> dict:
 
 
 def test_mbc_round_trip_4_decimals(generated):
-    """The load-bearing test (design doc lines 371-373).
+    """The load-bearing test (ee-to-pipewire.md "MBC per-control translation").
 
     Build a preset, render to conf, parse the MBC control block, and
     confirm the linear values round-trip back to source dB values

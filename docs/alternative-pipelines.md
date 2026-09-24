@@ -161,6 +161,15 @@ highest-risk.
 
 ## Option 3: PipeWire filter-chain (lightweight EasyEffects replacement)
 
+> **Shipped as [`ee_to_pipewire.py`](ee-to-pipewire.md), which departs from
+> this sketch in three ways.** It writes to `pipewire.conf.d/`, not
+> `filter-chain.conf.d/`. It routes as a WirePlumber smart filter on the
+> speaker sink, and keeps the skeleton's plain `Audio/Sink` virtual sink only
+> as its `--target-sink ''` fallback. It is a separate tool, not a
+> `--pipewire-filter-chain` flag: see "Companion converter" below. The
+> skeleton still fits the standalone `pipewire -c filter-chain.conf` route,
+> which filter-chain.service runs.
+
 **Status: fully feasible with existing packages**
 
 PipeWire's `filter-chain` module can replicate the entire effects pipeline
