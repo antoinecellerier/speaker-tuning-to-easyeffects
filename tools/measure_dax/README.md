@@ -4,7 +4,7 @@ These tools measure DAX3's per-channel response on Windows via WASAPI loopback.
 They then deconvolve / spectrum-analyze it on Linux and compare it against the
 FIR our converter generates from the same XML. This reproduces the empirical
 comparison in
-[docs/design-notes.md](../../docs/research/measuring-against-windows.md#empirical-comparison-vs-dax3-on-windows)
+[docs/research/measuring-against-windows.md](../../docs/research/measuring-against-windows.md#r-dax-capture-method)
 ("Empirical comparison vs DAX3").
 
 [`tools/measure_ee/`](../measure_ee/) is the Linux-side counterpart. It runs

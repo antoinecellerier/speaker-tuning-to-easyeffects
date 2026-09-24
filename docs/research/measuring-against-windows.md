@@ -1,3 +1,43 @@
+# Measuring against Windows: capture method, metrics and the validation bar
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits.
+
+- **The capture pair**: `tools/measure_dax/` captures DAX3's output on Windows
+  via WASAPI loopback, and `tools/measure_ee/` runs the same stimulus battery
+  through a live EasyEffects instance ([method](#r-dax-capture-method)).
+- **The devices**: nine findings, from DAX's LTI behaviour through the
+  `ieq-amount` scaling, come from a ThinkPad X1 Yoga Gen 7 that matches the
+  development tuning XML. The simplified-schema AO units finding covers a
+  second device, #44's Yoga Slim 7 14ARE05 ([method](#r-dax-capture-method)).
+- **The validation bar**: on-device ground truth decides any EE↔DAX
+  measurement; offline pre-screens are only a filter. Changing a default mapping
+  requires a second-device confirmation ([roadmap](#r-validation-roadmap)).
+- **The X1 Yoga campaign**: both sides are done, the EE battery on 2026-06-12
+  and 26 DAX captures at pinned 50% volume on 2026-06-13
+  ([roadmap](#r-validation-roadmap)).
+
+Open:
+
+- A SoundWire-device DAX capture, for the SoundWire bass-enhancer constants and
+  the conservative-autogain offsets. The #29 Zenbook S14 is the first candidate
+  ([roadmap](#r-validation-roadmap)).
+- A device with `ieq-amount≠10`, and one with
+  `regulator-timbre-preservation≠0.75` or a differing
+  `regulator-distortion-slope` ([roadmap](#r-validation-roadmap)).
+- The `ieq-amount` fix met the second-device bar through two independent
+  methods on a Yoga Slim 7x, not yet through a DAX capture on a second device
+  ([roadmap](#r-validation-roadmap)).
+- The PEQ anti-clipping trim needs narrow-vs-wide-Q profile captures on
+  existing HDA hardware ([roadmap](#r-validation-roadmap)).
+- The single-block tuning-XML A/B on Windows is the sharpest tool left for
+  pinpointing which DAX stage carries the ~1 dB HF residual and the LF/leveler
+  behaviour. Its payoff is much smaller now that the HF/mid gap that motivated
+  it is mostly closed. It needs driver-level XML replacement, and could brick
+  DAX on the test machine until restoration
+  ([single-block](#r-single-block-xml-ab)).
+
 <a id="r-dax-capture-method"></a>
 
 ## Empirical comparison vs DAX3 on Windows
@@ -38,11 +78,10 @@ battery arrived 2026-07-30 via issue
 
 <a id="r-validation-roadmap"></a>
 
-## Verification status and the validation roadmap
+## Validation roadmap
 
-**Validation roadmap.** The steps are ordered by how closely each mirrors the
-`ieq-amount` case: a fixed scaling in the default path, measurable against a DAX
-capture.
+The steps are ordered by how closely each mirrors the `ieq-amount` case: a fixed
+scaling in the default path, measurable against a DAX capture.
 
 1. *Offline pre-screen, on data already in hand.* Only the dialog enhancer had
    screenable in-hand data, and it came back negative/refining. The screen
@@ -219,3 +258,16 @@ that motivated it is now mostly closed. The risk is unchanged, so weigh it
 against that much smaller payoff. The A/B needs driver-level XML replacement,
 and could brick DAX on the test machine until restoration. Scope it before
 attempting.
+
+## Elsewhere
+
+- The scaling-factor catalogue the roadmap validates:
+  [design-notes](../design-notes.md#unvalidated-converter-scaling-factors-the-ieq-amount-class).
+- Why a sweep through DAX recovers no true linear impulse response:
+  [adaptive-processing.md](adaptive-processing.md#r-dax-lti-behaviour).
+- The `vsDAX` and `vsXML` residuals the variant sweep reports:
+  [eq-and-frequency-response.md](eq-and-frequency-response.md#r-xml-interpretation-hypotheses).
+- The closed follow-ups, listed under the variant sweep:
+  [eq-and-frequency-response.md](eq-and-frequency-response.md#r-variant-sweep).
+- The VBE chain's scoring protocol against DAX captures:
+  [virtual-bass.md](virtual-bass.md#r-dax-virtual-bass).

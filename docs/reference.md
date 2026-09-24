@@ -2,8 +2,9 @@
 
 This page is the what: the settled current state of how DAX3 XML fields map
 to the generated EasyEffects preset, the plugin chain, units, and what's
-deliberately left out. [design-notes.md](design-notes.md) holds the why: the
-research log, superseded hypotheses and what was attempted.
+deliberately left out. [design-notes.md](design-notes.md) and
+[docs/research/](research/) hold the why: the research log, superseded
+hypotheses and what was attempted.
 [cross-device-findings.md](cross-device-findings.md) holds the empirical picture
 across ~3,000 DAX3 files, and [corpus.md](corpus.md) what that collection is
 made of.
@@ -11,8 +12,8 @@ made of.
 > **Core invariant:** every parameter emitted traces to a parsed DAX3 XML
 > field. There are no per-device hand-tuned offsets. The XML→param mappings
 > below are hypotheses about the schema. DAX captures are the only signal that
-> can falsify them. [design-notes.md](design-notes.md) holds the evidence
-> behind each.
+> can falsify them. The research log, [design-notes.md](design-notes.md) and
+> [docs/research/](research/), holds the evidence behind each.
 
 ## Repository layout
 
@@ -470,8 +471,8 @@ warn. The PipeWire filter-chain path is unaffected. Measurement and mechanism:
 ## Open threads — where to pick up work
 
 - **Close the gap to DAX** and validate the scaling factors above:
-  design-notes "Unvalidated converter scaling factors" and "Follow-ups to
-  close the gap to DAX".
+  design-notes "Unvalidated converter scaling factors" and
+  [Follow-ups to close the gap to DAX](research/measuring-against-windows.md#r-dax-gap-follow-ups).
 - **Second-device confirmation** of any default mapping:
   cross-device-findings.md. The bar to change a default is ≥1 second-device
   capture.

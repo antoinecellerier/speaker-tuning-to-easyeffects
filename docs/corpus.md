@@ -174,7 +174,7 @@ download for.
   wide across SKUs and narrow across vendors, kernels, and codec generations.
 - **Parameters, not sound.** These are declared values. Nothing here is a
   measurement of what a device actually produces. That comes from the on-device
-  captures in [design-notes.md](design-notes.md).
+  captures in [docs/research/](research/).
 
 ## Comparing your own collection
 

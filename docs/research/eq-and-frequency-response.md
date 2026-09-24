@@ -1069,7 +1069,7 @@ construction is touched.
 ## Closed follow-ups
 
 Closed groups moved from
-["Follow-ups to close the gap to DAX"](measuring-against-windows.md#follow-ups-to-close-the-gap-to-dax).
+["Follow-ups to close the gap to DAX"](measuring-against-windows.md#r-dax-gap-follow-ups).
 Each leaves a one-line entry there that links here.
 
 <a id="r-variant-sweep"></a>
@@ -1118,11 +1118,11 @@ has since largely closed the HF residual these variants traded against.
 ## Elsewhere
 
 - The capture method and stimuli behind these units:
-  [design-notes](measuring-against-windows.md#empirical-comparison-vs-dax3-on-windows).
+  [measuring-against-windows.md](measuring-against-windows.md#r-dax-capture-method).
 - The single-block tuning-XML A/B on Windows:
-  [design-notes](measuring-against-windows.md#r-single-block-xml-ab).
+  [measuring-against-windows.md](measuring-against-windows.md#r-single-block-xml-ab).
 - The `ieq-amount` fix re-confirmed on the X1 Yoga's second DAX session:
-  [design-notes](measuring-against-windows.md#verification-status-and-the-validation-roadmap).
+  [measuring-against-windows.md](measuring-against-windows.md#r-validation-roadmap).
 - The equalizer rows of the plugin parameter audit, bell width among them:
   [design-notes](../design-notes.md#plugin-parameter-audit).
 - Why a sweep through DAX recovers no true linear impulse response:

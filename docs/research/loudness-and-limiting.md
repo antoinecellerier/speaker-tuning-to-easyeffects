@@ -1470,7 +1470,9 @@ a smaller restore or a mitigation is measured.
   [eq-and-frequency-response.md](eq-and-frequency-response.md#r-simplified-schema-ao-units).
 - Where the brickwall and the regulator sit in the chain:
   [design-notes](../design-notes.md#plugin-chain-order).
-- The scaling-factor catalogue and the validation roadmap:
+- The scaling-factor catalogue:
   [design-notes](../design-notes.md#unvalidated-converter-scaling-factors-the-ieq-amount-class).
+- The validation roadmap:
+  [measuring-against-windows.md](measuring-against-windows.md#r-validation-roadmap).
 - #84's other thread, EasyEffects playing hot above 48 kHz:
   [easyeffects-and-pipewire.md](easyeffects-and-pipewire.md#r-convolver-resample-gain).

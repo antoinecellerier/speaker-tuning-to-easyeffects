@@ -360,7 +360,7 @@ vs DAX on the espeak speech and pink captures below. Settling it needs a speech
 source that demonstrably engages DAX's DE, ideally in a same-profile
 DE-on-vs-off capture. A pink-noise pre-screen is null/confounded, with no static
 speech bell (see
-[roadmap](measuring-against-windows.md#verification-status-and-the-validation-roadmap)):
+[roadmap](measuring-against-windows.md#r-validation-roadmap)):
 DAX's DE is evidently speech-gated. The battery carries `stimulus_speech`:
 espeak-ng synthesis when installed, else an LTASS-shaped-noise fallback that may
 not trip an MI speech classifier. The capture protocol must therefore verify a
@@ -612,7 +612,7 @@ not new plugins.
 - The loudness side of the MBC diagnosis, the regulator's under-engagement:
   [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants).
 - The validation roadmap's dialog and surround pre-screens:
-  [design-notes](measuring-against-windows.md#verification-status-and-the-validation-roadmap).
+  [measuring-against-windows.md](measuring-against-windows.md#r-validation-roadmap).
 - MI steering on #46's T495 and the profile choice:
   [loudness-and-limiting.md](loudness-and-limiting.md#r-gain-rail-tuning).
 - DAX's leveler gain on the dev device, measured for `--enable level-restore`:
