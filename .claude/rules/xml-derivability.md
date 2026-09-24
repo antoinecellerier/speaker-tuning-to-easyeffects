@@ -46,5 +46,4 @@ Parse no parameter from the base64 biquad blob `filter_coefficients` in
 `tuning-vlldp`. It is VLLDP-internal analysis filtering, **not** an audio-path
 equaliser. The audio-optimizer and speaker-PEQ parameters already capture the
 speaker correction it looks like it might carry. `docs/reference.md` "Not
-implemented" and `docs/design-notes.md` "Rejected approaches" record the
-evidence.
+implemented" and research `r-filter-coefficients-blob` record the evidence.

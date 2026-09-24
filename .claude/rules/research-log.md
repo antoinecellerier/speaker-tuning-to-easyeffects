@@ -51,9 +51,6 @@ metrics, validation bar.
 A device investigation's heading names the mechanism, and its first line gives
 the issue number.
 
-A class with no file yet keeps its new content in design-notes, in that
-class's current section.
-
 A unit's tag is a line `<a id="r-<slug>"></a>` above its heading, then a blank
 line. The slug names the mechanism in ≤5 words, holds no number, is unique
 across docs/ and never changes. Nor does a cross-device-findings `## N.` number,
