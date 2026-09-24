@@ -672,5 +672,5 @@ activation step's sink check and `--doctor`'s "Chains loaded" report that.
   is why the doctor reports the rate rather than changing it.
 
   Crackle can also originate below PipeWire entirely. Rule the kernel out before
-  tuning the graph. The ROG Xbox Ally X case is in design-notes,
-  ["Bad sound with a perfect preset"](design-notes.md#bad-sound-with-a-perfect-preset-the-kernel-layer-below-issue-33).
+  tuning the graph. The ROG Xbox Ally X case is in the research log,
+  ["Bad sound with a perfect preset"](research/hardware-and-drivers.md#r-kernel-misconfigured-codec).
