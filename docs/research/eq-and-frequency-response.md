@@ -461,16 +461,13 @@ additional reverse-engineering:
 1. **DAX3's hybrid-phase character.** Out of scope: linear-phase costs
    ~43 ms of group delay, ruled out by the no-added-latency constraint.
 2. **DAX3's apparent flatter HF response, since closed by the
-   [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** After the variant
-   matrix rejected the AO-sign hypothesis (b), the
+   [`ieq-amount` scaling finding](#r-ieq-amount-scaling).** The
    [HF-shaping block audit](#r-hf-shaping-block-audit) and the
-   [AO sign variant matrix](#r-ao-sign-variant-matrix) narrowed this to "a fixed
-   DAX-internal stage outside the XML". The
-   [`ieq-amount` scaling finding](#r-ieq-amount-scaling) then showed the
-   dominant term was the converter's own `ieq-amount` scaling, an XML-only fix
-   that took the EE−DAX HF residual from ~12 dB to ~1 dB RMS. What genuinely
-   remains outside the XML is that last ~1 dB at HF and the LF/leveler gap in
-   the [`ieq-amount` scaling finding](#r-ieq-amount-scaling)'s residual table.
+   [AO sign variant matrix](#r-ao-sign-variant-matrix) had narrowed it to "a
+   fixed DAX-internal stage outside the XML". The dominant term was the
+   converter's own `ieq-amount` scaling, an XML-only fix. What genuinely remains
+   outside the XML is the last ~1 dB at HF and the LF/leveler gap
+   ([EE response vs XML](#r-ee-response-vs-xml)).
 3. **DAX3's non-LTI dynamics**, the leveler and regulator engaging during
    playback. EasyEffects' autogain is bypassed by default, as
    [Why autogain is bypassed by default](adaptive-processing.md#r-autogain-bypassed-by-default)
@@ -981,7 +978,7 @@ identified per-band dB targets *under the scaling before the
 kHz, soften +4 dB at 2.25 kHz, lift 5–6 kHz. Those targets are obsolete, and
 tuning to them today would re-introduce the error that finding removed. A tuner
 now would fit against fresh captures taken since, targeting the ~1 dB HF
-residual and the LF/leveler gap in its table.
+residual and the LF/leveler gap ([EE response vs XML](#r-ee-response-vs-xml)).
 
 ## Rejected approaches
 
@@ -1089,10 +1086,10 @@ has since largely closed the HF residual these variants traded against.
     (the [HF-shaping block audit](#r-hf-shaping-block-audit)).
   - "Soften the HP at 100 Hz from `x2` to `x1`": the test XML's HP is XML-driven
     (order=4 → x2), not the `make_peq_eq` filler path, so softening would
-    diverge from the deterministic mapping. The `no-HP` variant in the
-    [XML-interpretation hypotheses](#r-xml-interpretation-hypotheses) confirms
-    the HP is responsible for ~25 dB at 47 Hz. Removing it overshoots DAX, so
-    the HP topology is correct; only the slope might differ.
+    diverge from the deterministic mapping. The `no-HP` variant (ε in the
+    [XML-interpretation hypotheses](#r-xml-interpretation-hypotheses)) puts
+    ~25 dB at 47 Hz on the HP, and removing it overshoots DAX, which confirms
+    its topology; only the slope might differ.
   - "Drop a 2.25 kHz attenuation bell in `equalizer#1`": it would work as an
     empirical fix for the +4 dB band but loses XML-determinism. Folded into
     the [fit-to-DAX-capture follow-up](#r-fit-to-dax-capture) above.
