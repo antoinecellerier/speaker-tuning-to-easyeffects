@@ -292,9 +292,9 @@ def _print_surround(tuning):
         # Says what was measured, not what Dolby intends. A DAX capture
         # found surround-boost=96 and =0 identical on 2-channel content
         # (0.01 dB S/M); that the boost applies to *surround* content is
-        # the leading hypothesis in design-notes, never captured: no
-        # multichannel capture exists. And with the tuning at 0 dB there is
-        # nothing to skip, so that case says so instead.
+        # the leading hypothesis in research `r-surround-boost-stereo-base`,
+        # never captured: no multichannel capture exists. And with the tuning
+        # at 0 dB there is nothing to skip, so that case says so instead.
         if surround["boost"] == 0:
             print("\nSurround (multi-channel) rendering boost: your tuning "
                   "sets none, so there is nothing to carry over")

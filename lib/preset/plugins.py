@@ -82,10 +82,11 @@ def make_autogain(vol_leveler: dict | None,
     background under intermittent speech, ~+14 dB measured). Each loud
     onset then rides ~4 dB of overshoot into the downstream dynamics:
     audible saturation, measured independent of `maximum-history`
-    (design-notes). `--enable autogain` (enabled=True) opts in for the
-    ~+9 dB program loudness it brings (issue #25). Either way the silence
-    gate ships at -50 dB, the #25 field-confirmed fix for crackle on
-    short sounds arriving after silence, so manual GUI enabling is safe.
+    (research `r-autogain-default-flip`). `--enable autogain`
+    (enabled=True) opts in for the ~+9 dB program loudness it brings
+    (issue #25). Either way the silence gate ships at -50 dB, the #25
+    field-confirmed fix for crackle on short sounds arriving after
+    silence, so manual GUI enabling is safe.
 
     For SoundWire presets (conservative=True): active with gentler
     settings, a -6 dB target offset and a longer history window.

@@ -147,9 +147,10 @@ expected, not a defect (issue
 **Volume leveler → Autogain.** It maps to EE's EBU R 128 autogain. On HDA it
 ships bypassed, and `--enable autogain` opts in. Without Dolby's MI (Media
 Intelligence) content steering, it boosts legitimate quiet content and loud
-onsets saturate, as measured in design-notes "The 2026-07 default-flip
-attempt". On SoundWire it ships active with gentler settings. Settings are
-always preserved so users can toggle it in the GUI.
+onsets saturate, as measured in the
+[2026-07 default-flip attempt](research/adaptive-processing.md#r-autogain-default-flip).
+On SoundWire it ships active with gentler settings. Settings are always
+preserved so users can toggle it in the GUI.
 - `volume-leveler-out-target` -320 (1/16 dB = -20 dBFS) → -20 LUFS target. The
   SoundWire path subtracts a further 6 dB of safety headroom. That offset is
   invented:

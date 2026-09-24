@@ -402,8 +402,8 @@ def _leveler_gap_finding(substages: list[str], autogain_on: bool,
     ``--disable autogain`` as the off-switch.
 
     "May be part of it", not "the most likely reason": the measured driver of
-    quiet-swell/loud-duck is EE's own non-content-aware autogain (design-notes,
-    "Why autogain is bypassed by default"), and the corpus doc records that the
+    quiet-swell/loud-duck is EE's own non-content-aware autogain (research
+    `r-autogain-bypassed-by-default`), and the corpus doc records that the
     companion compressor does not explain the issue-#25 overshoot: neither
     device carries it. That stronger wording would promote this docstring's
     own hedge into the copy.

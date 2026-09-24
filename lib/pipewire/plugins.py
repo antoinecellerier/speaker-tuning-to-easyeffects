@@ -471,11 +471,10 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # behaviour: it attenuates loud content quickly but boosts quiet content very
 # slowly (anti-pumping). So `fall` (gain down toward target) is mapped fast and
 # `grow` (gain up) slow. These scales are the load-bearing hypothesis tuned by
-# the on-device EE-vs-PW comparison (docs/design-notes.md, "Translating active
-# autogain to LSP `autogain_stereo` (PW converter)"). At history=20 s,
-# FALL→4 s matched EE's attenuation to 0.2 dB. GROW is pushed to the 10 s port
-# ceiling to approach EE's much slower (~50 s effective) boost as closely as
-# the port allows.
+# the on-device EE-vs-PW comparison (research `r-autogain-pw-translation`).
+# At history=20 s, FALL→4 s matched EE's attenuation to 0.2 dB. GROW is pushed
+# to the 10 s port ceiling to approach EE's much slower (~50 s effective) boost
+# as closely as the port allows.
 AUTOGAIN_FALL_MS_PER_S = 200.0
 AUTOGAIN_GROW_MS_PER_S = 500.0
 # The history the scales above were fitted and on-device-validated at.

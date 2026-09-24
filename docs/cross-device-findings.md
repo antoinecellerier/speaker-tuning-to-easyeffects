@@ -640,7 +640,9 @@ Media-Intelligence-driven gain hold only for the "adaptive" profile.
 This is the key feature that the EasyEffects pipeline cannot replicate. Without
 content analysis, the autogain has no way to know when silence is "real" silence
 vs a quiet passage that will resume loud. This is the root reason the script
-bypasses autogain by default. `docs/design-notes.md` has the full rationale.
+bypasses autogain by default.
+[Why autogain is bypassed by default](research/adaptive-processing.md#r-autogain-bypassed-by-default)
+has the full rationale.
 
 ---
 
@@ -978,7 +980,7 @@ Named once so a future schema sweep doesn't re-discover them as findings:
 |---|---|---|---|
 | Dynamic Speaker Optimization (DSO) | `init-info/dynamic_speaker_optimization_enable`, `dynamic-speaker-optimization-amount`, `dynamic-speaker-optimization-speaker-interval` | 1 XML, 1 device (`SUBSYS_37A317AA`, IdeaPad-5x-2-in-1 SoundWire SPK1), enabled on all 10 of its rows | Warned at parse time. Excursion-aware bass limiting tied to driver size. It needs Dolby DSP data we don't have. |
 | Advanced speaker virtualizer | `advanced-speaker-virtualizer-rendering-config`, `advanced-speaker-virtualizer-start-bin`, `speaker_virtualizer_mode` | Same 1 XML / device | Warned at parse time. Newer FFT-domain replacement for `output-mode-partial-{surround,height}-virtualizer-enable`, and also unmodeled. |
-| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, and enabled on 2408 of 2410 rows, not merely present | Not warned. Harmless by default, since the volume leveler is bypassed entirely (autogain trap, see design-notes.md). It could matter under `--enable autogain`; see the note below. |
+| Volume-leveler compressor sub-component | `volume-leveler-compressor-enable` | 137 XMLs, 77 devices, and enabled on 2408 of 2410 rows, not merely present | Not warned. Harmless by default, since the volume leveler is bypassed entirely (autogain trap, see [adaptive-processing.md](research/adaptive-processing.md#r-autogain-bypassed-by-default)). It could matter under `--enable autogain`; see the note below. |
 | Rear / rear-height virtualizer angles | `virtualizer-rear-speaker-angle`, `virtualizer-rear-height-speaker-angle`, `rear-height-filter-mode` | Common on 4+ speaker laptops | Not modeled. The legacy `output-mode-partial-{surround,height}-virtualizer-enable` isn't modeled either; see CLAUDE.md and design-notes.md. |
 | Surround-decoder centre spreading | `surround-decoder-center-spreading-enable` | Present in 1345 XMLs, enabled in 0 | Defensive: it would silently drop if a future driver enables it. |
 | Woofer-only regulator | `woofer-regulator-enable`, `woofer-regulator-tuning` | Present in 1345, enabled in 0 | Defensive: it would silently drop if a future driver enables it. |

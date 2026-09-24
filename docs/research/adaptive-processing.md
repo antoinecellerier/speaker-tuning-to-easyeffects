@@ -1,3 +1,45 @@
+# Adaptive processing: leveler, autogain, MBC, dialog enhancer and surround
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits, and
+[ee-to-pipewire.md](../ee-to-pipewire.md) the PipeWire path.
+
+- **Autogain** ships bypassed on HDA, and `--enable autogain` opts in. An HDA
+  default flip failed the listening gate on a ThinkPad X1 Yoga Gen 7
+  ([#25](#r-autogain-default-flip)).
+- **The PipeWire converter** translates active autogain to LSP
+  `autogain_stereo` ([PW](#r-autogain-pw-translation)).
+- **DAX's leveler and regulator** are time-varying and content-adaptive, so a
+  sweep recovers no true linear impulse response ([LTI](#r-dax-lti-behaviour)).
+- **The dynamics plugins** are [passive](#r-dynamics-dormancy) at nominal levels
+  on the test XML. On loud stepped tones DAX compresses far harder than our
+  chain; the diagnosed lever is the [regulator](#r-mbc-ratio-time-constants).
+- **`surround-boost`** is unmapped: on one device DAX widened 2-channel
+  content by essentially zero ([surround](#r-surround-boost-stereo-base)).
+
+Open:
+
+- The dialog enhancer's 6 dB ceiling is unconfirmed, and our bell appears to
+  over-apply vs DAX. Settling it needs a speech source that demonstrably
+  engages DAX's DE, ideally a same-profile DE-on-vs-off capture
+  ([dialog](#r-dialog-enhancer-gain-ceiling)).
+- The leveler window formula and the conservative path's −6 dB target offset
+  are invented. Falsifying them needs a capture of DAX's MI-steered leveler,
+  hard because it is non-LTI ([window](#r-leveler-autogain-window),
+  [offsets](#r-conservative-autogain-offsets)).
+- The MBC's Q15 format and 256-sample block size are assumed and only
+  sanity-checked numerically, never measured
+  ([MBC](#r-mbc-ratio-time-constants)).
+- The limiter and MBC character knobs need a stimulus that engages them, such
+  as clipping-engaging sustained tones or live program material
+  ([dormancy](#r-dynamics-dormancy)).
+- A loopback cannot show crosstalk cancellation at the ears or a content-gated
+  virtualizer. A binaural capture or listening test would
+  ([surround](#r-surround-boost-stereo-base)).
+- Parked: approximating DAX's leveler, out of scope unless a constraint changes
+  ([follow-up](#r-dax-leveler-approximation)).
+
 <a id="r-dynamics-dormancy"></a>
 
 ## Measurement outcome: dynamics plugins on the test stimuli
@@ -560,3 +602,16 @@ stays warned-at-parse, not mapped, which is the correct state. Net: the
 remaining fidelity work is device-gated *tuning* of plugins already in the chain
 ([Unvalidated converter scaling factors](../design-notes.md#unvalidated-converter-scaling-factors-the-ieq-amount-class)),
 not new plugins.
+
+## Elsewhere
+
+- The MBC and autogain rows of the plugin parameter audit:
+  [design-notes](../design-notes.md#plugin-parameter-audit).
+- The loudness side of the MBC diagnosis, the regulator's under-engagement:
+  [fixed dynamics constants](../design-notes.md#r-fixed-dynamics-constants).
+- The validation roadmap's dialog and surround pre-screens:
+  [design-notes](../design-notes.md#verification-status-and-the-validation-roadmap).
+- MI steering on #46's T495 and the profile choice:
+  [design-notes](../design-notes.md#a-tuning-pinned-at-the-gain-rail-the-t495-issue-46).
+- DAX's leveler gain on the dev device, measured for `--enable level-restore`:
+  [design-notes](../design-notes.md#giving-back-what-normalisation-removed---enable-level-restore-issue-50).

@@ -733,7 +733,9 @@ wholesale, for a reporter who would rather send the real names.
 
 - #84's deep-threshold regulator:
   [design-notes](../design-notes.md#second-deep-threshold-tuning-issue-84s-yoga-slim-7-pro-14ach5-2026-08-30).
-- The unused EasyEffects built-ins and the convolver IR trim:
+- The unused EasyEffects built-ins:
+  [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
+- The convolver IR trim:
   [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
 - The PipeWire converter's autogain translation:
-  [design-notes](adaptive-processing.md#translating-active-autogain-to-lsp-autogain_stereo-pw-converter).
+  [adaptive-processing.md](adaptive-processing.md#r-autogain-pw-translation).

@@ -22,6 +22,7 @@ chain, units and what's not implemented.
 | [hardware-and-drivers.md](research/hardware-and-drivers.md) | kernel, codec pins and routing, smart amps, firmware |
 | [easyeffects-and-pipewire.md](research/easyeffects-and-pipewire.md) | EasyEffects, PipeWire, WirePlumber, Flatpak, paths and sample rate |
 | [virtual-bass.md](research/virtual-bass.md) | DAX's virtual bass engine (VBE), the Calf bass enhancer and `--enable virtual-bass` |
+| [adaptive-processing.md](research/adaptive-processing.md) | the volume leveler and autogain, the multi-band compressor (MBC), the dialog enhancer, surround and media intelligence (MI) steering |
 
 The rest of this file is being split by class into `docs/research/`.
 
@@ -32,11 +33,12 @@ The rest of this file is being split by class into `docs/research/`.
 | #14 | VBE on HDA devices and `--enable virtual-bass` | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
 | #18 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #22 | field follow-up: the preset loads but is inaudible | [easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible) |
+| #25 | autogain's HDA default flip, rejected; the −50 dB silence gate | [adaptive-processing.md#r-autogain-default-flip](research/adaptive-processing.md#r-autogain-default-flip) |
 | #27 | amps read as speakers; the bass-enhancer field report is at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
-| #29 | CS42L43 excluded as a jack codec; the bass-enhancer field rounds are at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
+| #29 | CS42L43 excluded as a jack codec; the bass-enhancer field rounds are at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the removed SoundWire dialog-enhancer arm's field evidence is at [adaptive-processing.md#r-dialog-enhancer-gain-ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling) | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 | #30 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #33 | kernel 6.12 → 7.0 fix, old-kernel hint | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
-| #36 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #36 | single pin, a 2-driver laptop per PSREF; the reporter's enable-autogain recommendation is at [adaptive-processing.md#r-autogain-bypassed-by-default](research/adaptive-processing.md#r-autogain-bypassed-by-default) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #39 | crackle; rule out the kernel (TAS2781 calibration differs by kernel lineage) | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
 | #44 | single pin, a 2-driver laptop per PSREF; DAX applying no VBE is at [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #46 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
@@ -71,6 +73,20 @@ The rest of this file is being split by class into `docs/research/`.
 | DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
 | Phase 2 (2026-08): decoding `virtual-bass-subgains` and scoring a chain | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
 | SoundWire Calf BassEnhancer constants | [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) |
+| Measurement outcome: dynamics plugins on the test stimuli | [adaptive-processing.md#r-dynamics-dormancy](research/adaptive-processing.md#r-dynamics-dormancy) |
+| Why autogain is bypassed by default | [adaptive-processing.md#r-autogain-bypassed-by-default](research/adaptive-processing.md#r-autogain-bypassed-by-default) |
+| The 2026-07 default-flip attempt (issue #25) | [adaptive-processing.md#r-autogain-default-flip](research/adaptive-processing.md#r-autogain-default-flip) |
+| Translating active autogain to LSP `autogain_stereo` (PW converter) | [adaptive-processing.md#r-autogain-pw-translation](research/adaptive-processing.md#r-autogain-pw-translation) |
+| Verified math (sanity checks) → Q15 block-rate time constants | [adaptive-processing.md#r-mbc-time-constant-decode](research/adaptive-processing.md#r-mbc-time-constant-decode) |
+| DAX3 LTI behaviour for our stimuli | [adaptive-processing.md#r-dax-lti-behaviour](research/adaptive-processing.md#r-dax-lti-behaviour) |
+| Dialog-enhancer gain ceiling | [adaptive-processing.md#r-dialog-enhancer-gain-ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling) |
+| Surround→stereo-base | [adaptive-processing.md#r-surround-boost-stereo-base](research/adaptive-processing.md#r-surround-boost-stereo-base) |
+| MBC ratio and time constants | [adaptive-processing.md#r-mbc-ratio-time-constants](research/adaptive-processing.md#r-mbc-ratio-time-constants) |
+| Volume-leveler→autogain window | [adaptive-processing.md#r-leveler-autogain-window](research/adaptive-processing.md#r-leveler-autogain-window) |
+| Conservative-autogain offsets | [adaptive-processing.md#r-conservative-autogain-offsets](research/adaptive-processing.md#r-conservative-autogain-offsets) |
+| Approximate DAX's leveler / regulator | [adaptive-processing.md#r-dax-leveler-approximation](research/adaptive-processing.md#r-dax-leveler-approximation) |
+| Rejected approaches → Noise gate before the compressor | [adaptive-processing.md#r-compressor-noise-gate](research/adaptive-processing.md#r-compressor-noise-gate) |
+| Rejected approaches → An *unused* EasyEffects built-in to cover a dropped DAX feature | [adaptive-processing.md#r-unused-ee-builtins](research/adaptive-processing.md#r-unused-ee-builtins) |
 
 ### Legacy numbers
 
@@ -509,7 +525,7 @@ Risk class:
 | equalizer#0 | `q-mode` | (none) | AUDIBLE | Resolved (2026-06): the EE 8.x equalizer schema we emit has no separate q-mode key. The Q convention is a property of the per-band filter family (`mode`), covered in the row below. |
 | equalizer#0 | per-band `mode` | `"RLC (BT)"` | AUDIBLE | Filter family. Verified for HP-slope behavior (commit `944a8f3`). Bell-width convention: see the note below. |
 | equalizer#0 | `split-channels` | `true` | AUDIBLE | Required: the Dolby PEQ is asymmetric L/R on most devices. Linking would force-symmetrise. |
-| autogain#0 | `bypass` | `true` (HDA), `false` (SDW) | AUDIBLE | Documented in "Why autogain is bypassed by default": re-enabling reintroduces pumping on quiet→loud transitions. |
+| autogain#0 | `bypass` | `true` (HDA), `false` (SDW) | AUDIBLE | Documented in [Why autogain is bypassed by default](research/adaptive-processing.md#r-autogain-bypassed-by-default): re-enabling reintroduces pumping on quiet→loud transitions. |
 | multiband_compressor#0 | `compressor-mode` | `"Modern"` | AUDIBLE | LSP's two compressor algorithms differ in knee shape and ratio behavior. Not measured against the XML's compressor model. Open: candidate test. |
 | multiband_compressor#0 | `envelope-boost` | `"None"` | AUDIBLE | A pre-detection EQ tilt. Options include `Pink BT/MT`, `Brown BT/MT`. Open: candidate test. |
 | multiband_compressor#0 | `stereo-split` | `false` | TOPOLOGY | Single sidechain across L+R. Dolby's compressor is parameterised globally (one threshold per band, both channels), so a unified sidechain matches. |

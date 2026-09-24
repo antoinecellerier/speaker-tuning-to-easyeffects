@@ -719,7 +719,8 @@ def test_peq_unmatched_slot_is_filled_with_its_own_shape(type_code, expected):
 # Dolby's MI steering, so it boosts legitimate quiet content and loud
 # onsets ride ~4 dB of overshoot into the downstream dynamics — audible
 # saturation, measured independent of maximum-history (issue #25 flip
-# attempt, design-notes). --enable autogain is the loudness opt-in.
+# attempt, research `r-autogain-default-flip`). --enable autogain is the
+# loudness opt-in.
 # The stored silence gate is -50 dB (not EE's -70 default) so enabling —
 # via flag or GUI — gets the #25 field-confirmed crackle fix.
 

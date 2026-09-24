@@ -593,6 +593,6 @@ is what it exercises.
 - The 50 Hz bass-attenuation gap:
   [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses).
 - The unused EasyEffects built-ins, Bass Loudness among them:
-  [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
+  [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - #44's loud-bass DAX captures and the dev device's low-end gap:
   [design-notes](../design-notes.md#why-bypass-has-more-bass-than-the-preset-issue-44-round-3-2026-08-22).
