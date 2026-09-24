@@ -143,7 +143,7 @@ jobs:
             "" \
             "$added" \
             "" \
-            "The month is the \`vX.Y\` tag's tagger date on Linus' tree — the source that reproduces every hand-entered row in the table (see \`docs/design-notes.md\`). Check it against:" \
+            "The month is the \`vX.Y\` tag's tagger date on Linus' tree — the source that reproduces every hand-entered row in the table (see \`docs/research/hardware-and-drivers.md\`, \`r-kernel-misconfigured-codec\`). Check it against:" \
             "" \
             "$links" \
             "" \

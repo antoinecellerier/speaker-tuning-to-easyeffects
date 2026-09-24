@@ -1055,6 +1055,8 @@ In-tree docs and tooling with more context:
   chain is ordered the way it is, gain-staging rationale, why autogain is
   bypassed by default, and an empirical comparison of our generated FIR against
   DAX3's actual response on Windows
+- [docs/research/hardware-and-drivers.md](docs/research/hardware-and-drivers.md)
+  — hardware and driver faults: kernel, codec pins, smart amps and firmware
 - [docs/code-organisation.md](docs/code-organisation.md) — how the two entry
   points were split into `lib/`: the module shape it landed in, and the git
   discipline that keeps `git blame -C` tracing code back through an extraction

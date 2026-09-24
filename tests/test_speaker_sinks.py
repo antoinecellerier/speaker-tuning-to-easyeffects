@@ -2376,7 +2376,8 @@ def test_default_run_gatherer_skips_the_amp_evidence_sweep(monkeypatch):
 
 # --- A speaker pin driven past its volume control ----------------------------
 #
-# The routing quirk class (design-notes "The class next door"): the pin is
+# The routing quirk class (`r-speaker-dac-misrouted` in
+# docs/research/hardware-and-drivers.md): the pin is
 # configured and looks healthy, but takes its signal from a widget with no
 # output volume amp. Anchored to 17AA:3906 (Legion Pro 7i 16IAX10H), the
 # codec-keyed row whose fixup carries a forcible name; its `since` is
@@ -2512,7 +2513,8 @@ def test_route_and_pin_warnings_never_fire_together():
     assert speakers.find_misrouted_speaker_pin(fixed) is None
     # A hdajackretask-style pin override without the reroute: the pin warning
     # goes quiet and the routing one takes over — the machine-checkable form
-    # of "a pin override is not a substitute" (design-notes, issue #53).
+    # of "a pin override is not a substitute" (`r-woofer-pin-hidden` in
+    # docs/research/hardware-and-drivers.md, issue #53).
     half = _info([_codec_dump(ssid=dell, bass_pin_default="0x411111f0",
                               bass_control=True,
                               bass_conn="0x02 0x03 0x06* 0x08",

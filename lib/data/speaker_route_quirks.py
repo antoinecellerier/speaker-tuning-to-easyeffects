@@ -10,7 +10,7 @@ fixes it per machine with an ``snd_hda_override_conn_list`` or a
 ``preferred_dacs`` pair; ``alc285_fixup_speaker2_to_dac1`` is the plain shape.
 Both are keyed by subsystem id, so the only way to know a *given* machine
 needs it is to carry upstream's list. The design record is
-``docs/design-notes.md``, "The class next door".
+``docs/research/hardware-and-drivers.md``, `r-speaker-dac-misrouted`.
 
 Machine-written: ``tools/update_speaker_route_quirks.py`` rebuilds the literal
 below from the kernel's Realtek quirk table and the weekly

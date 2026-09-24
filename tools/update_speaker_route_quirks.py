@@ -102,12 +102,13 @@ _FUNC_FIXUP_ROUTES = {
     # speaker 0x14 to 0x02, which has volume either way — the row models only
     # the bass-speaker half, and the runtime gate observes that pin directly.
     "alc289_fixup_asus_ga401":                      ("0x17", ("0x02",)),
-    # Deliberately absent (recorded in docs/design-notes.md): the pincfg
-    # writers (_FUNC_FIXUP_PINS owns those machines); alc290_fixup_mono_speakers
-    # (two pins, and the fault is mono output, not a lost volume control);
-    # alc_fixup_tpt470_dacs (a level regression, and upstream ships an opt-out
-    # model for the very same SSIDs); alc295_fixup_asus_dacs (fixes a silent
-    # headphone); alc274_fixup_bind_dacs (DAC steering "for EQ");
+    # Deliberately absent (recorded in docs/research/hardware-and-drivers.md,
+    # `r-speaker-dac-misrouted`): the pincfg writers (_FUNC_FIXUP_PINS owns
+    # those machines); alc290_fixup_mono_speakers (two pins, and the fault is
+    # mono output, not a lost volume control); alc_fixup_tpt470_dacs (a level
+    # regression, and upstream ships an opt-out model for the very same
+    # SSIDs); alc295_fixup_asus_dacs (fixes a silent headphone);
+    # alc274_fixup_bind_dacs (DAC steering "for EQ");
     # alc288_fixup_surface_swap_dacs (a plain swap).
 }
 

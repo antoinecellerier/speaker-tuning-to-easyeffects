@@ -28,12 +28,13 @@ file's *audience* and the placement discipline.
     in the docs, not the README.
 - **docs/reference.md** serves a technically-inclined user asking "what does the
   converter do *now*". It holds settled facts only.
-- **docs/design-notes.md** serves a contributor asking "*why*, and what was
-  tried".
+- **docs/design-notes.md** and the per-class **docs/research/** files serve a
+  contributor asking "*why*, and what was tried".
 - **tools/measure_*/** holds on-device measurement workflows.
 
 When unsure, "what it does now" goes to reference, "why / evidence / rejected
-approaches" to design-notes, and user-facing how-to to README.
+approaches" to design-notes or its docs/research/ class file, and user-facing
+how-to to README.
 
 ## Sentences
 

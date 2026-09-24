@@ -1120,7 +1120,7 @@ def find_misrouted_speaker_pin(
     ("upstream carries a fix for this exact machine") and the dump supplies
     the finding. Firing on the table alone would send a user after a fixup
     that may not be their problem. That is the objection recorded in
-    design-notes "The class next door: pin present, DAC source wrong".
+    `r-speaker-dac-misrouted` (docs/research/hardware-and-drivers.md).
 
     Every step of the gate fails closed to silence:
 

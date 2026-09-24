@@ -11,7 +11,8 @@ series.
 
 The release month comes from the ``vX.Y`` tag's *tagger date* on Linus' tree.
 That is the only source checked to reproduce the hand-entered table exactly;
-see ``docs/design-notes.md`` (issue #33) for the one that doesn't.
+see ``docs/research/hardware-and-drivers.md``
+(`r-kernel-misconfigured-codec`) for the one that doesn't.
 
 Append-only by design: entries at or below the table's current max are never
 rewritten, so a correction made by hand stays made.

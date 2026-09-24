@@ -7,12 +7,49 @@ so future readers don't have to reverse-engineer it from commit history.
 [reference.md](reference.md) covers *what* the script emits: mappings, plugin
 chain, units and what's not implemented.
 
-> **This file is the research log.** Findings appear in roughly the order they
-> were established. Superseded hypotheses stay for the audit trail. See the
-> "Superseded by Finding 9" banners below. For the settled current-state
-> summary, start with [reference.md](reference.md). For the open threads worth
-> picking up, see "Unvalidated converter scaling factors" and "Follow-ups to
-> close the gap to DAX" further down.
+> **This file and docs/research/ are the research log.** Findings appear in
+> roughly the order they were established. Superseded hypotheses stay for the
+> audit trail. See the "Superseded by Finding 9" banners below. For the settled
+> current-state summary, start with [reference.md](reference.md). For the open
+> threads worth picking up, see "Unvalidated converter scaling factors" and
+> "Follow-ups to close the gap to DAX" further down.
+
+## Where the research lives
+
+| Class file | What it holds |
+|---|---|
+| [hardware-and-drivers.md](research/hardware-and-drivers.md) | kernel, codec pins and routing, smart amps, firmware |
+
+The rest of this file is being split by class into `docs/research/`.
+
+### Issues
+
+| Issue | Hardware-and-drivers material | Where |
+|---|---|---|
+| #18 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #27 | amps read as speakers | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
+| #29 | CS42L43 excluded as a jack codec | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
+| #30 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #33 | kernel 6.12 → 7.0 fix, old-kernel hint | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
+| #36 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #39 | crackle; rule out the kernel (TAS2781 calibration differs by kernel lineage) | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
+| #44 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #46 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #50 | single pin, a 2-driver laptop per PSREF; its missing `38dc` quirk entry concerns its smart amp, not a bass pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #51 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #53 | hidden woofer pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #95 | unlisted machine, firmware mic setting; the EasyEffects crash is under "Rejected approaches" below | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
+
+### Moved sections
+
+| Old heading | Now at |
+|---|---|
+| Bad sound with a perfect preset: the kernel layer below (issue #33) | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
+| Half the speakers, silently: a woofer pin the firmware hides (issue #53) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| The class next door: pin present, DAC source wrong | [hardware-and-drivers.md#r-speaker-dac-misrouted](research/hardware-and-drivers.md#r-speaker-dac-misrouted) |
+| When no table lists the machine (issue #95) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
+| What counts as a smart amp, and which ones we watch for | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
+| Swept and rejected | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 
 ## Dolby's signal flow: CP → VLLDP
 

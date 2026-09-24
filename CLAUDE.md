@@ -82,8 +82,8 @@
   research conclusion ships. Other plain docs edits get none. What counts and
   how to word it: `.claude/rules/changelog.md`.
 - **Investigation flags are scaffolding.** Revert the flag once its hypothesis
-  on `dolby_to_easyeffects.py` is closed, and record the finding in
-  design-notes. Exceptions: the `tools/` measurement harness, and a user-facing
+  on `dolby_to_easyeffects.py` is closed, and record the finding in the
+  research log. Exceptions: the `tools/` measurement harness, and a user-facing
   opt-in the finding justifies, such as `--enable autogain`.
 - **Issue triage & GitHub comments:** load the /issue-replies skill when
   starting triage and before drafting or posting any reply.
@@ -96,9 +96,9 @@
   it. History belongs in git. A docstring's first line says what it does.
 - **Docs are layered**; README "Further reading" links all. `docs/reference.md`
   is the current-state reference: mappings, plugin chain, units,
-  not-implemented. `docs/design-notes.md` is the research log, where the why,
-  new findings and rejected approaches go. `docs/cross-device-findings.md` is
-  the corpus; README is the guide.
+  not-implemented. `docs/design-notes.md` and the per-class `docs/research/`
+  files are the research log, where the why, findings and rejected approaches
+  go. `docs/cross-device-findings.md` is the corpus; README is the guide.
 - **Repo root is the command surface:** only the three entry-point scripts.
   `tests/test_layout.py` enforces it; other modules go in `lib/`. Extraction
   recipe: `docs/code-organisation.md` "Splitting the single-file scripts".

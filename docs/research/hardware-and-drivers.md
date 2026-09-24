@@ -1,3 +1,43 @@
+# Hardware and drivers: kernel, codec pins, amps and firmware
+
+## Where this stands
+
+Symptoms indistinguishable from a bad preset can originate a layer below
+anything XML-derived. Check the drive path before re-litigating the mapping.
+[reference.md](../reference.md) covers what the converter itself emits. This
+project reports these faults and doesn't touch the kernel.
+
+- **Old kernel**: a banner, a `--doctor` check and a `--speaker-info` note
+  past 18 months ([#33](#r-kernel-misconfigured-codec)).
+- **Hidden speaker pin**: a warning when a pin an upstream fixup declares is
+  missing ([#53](#r-woofer-pin-hidden)).
+- **Pin present, DAC source wrong**: a warning gated on a table match plus
+  the observed fault ([routing](#r-speaker-dac-misrouted)).
+- **No table lists the machine**: `find_fixed_level_speaker_pin`, a
+  table-free *ask* read from the codec dump ([#95](#r-fixed-level-speaker-pin)).
+- **Smart amps**: `_AMP_FAMILIES` counts a part with an on-chip DSP doing
+  voicing or protection ([criterion](#r-smart-amp-families)).
+
+Open:
+
+- The exact #33 mechanism isn't identifiable from userspace; a PM regression
+  or a mis-firing quirk is plausible ([#33](#r-kernel-misconfigured-codec)).
+- We mirror `snd_hda_pick_fixup`'s matching but not its *ordering*, so another
+  machine's earlier PCI entry shadowing this machine's codec entry stays
+  invisible ([#53](#r-woofer-pin-hidden)).
+- On a kernel too old for a signature that matches, the table-free ask
+  misfires: the fault is real but the cause is kernel age, which only the
+  signature tells apart. The parked pin-signature table waits for a second
+  signature-keyed report ([#95](#r-fixed-level-speaker-pin)).
+- The fixed-level ask leaves "Listed but unusable" unbuilt, a mixer's
+  input-side amp unread and a smart amp carrying the volume a residual. Its
+  false-positive evidence is thin: two real dumps, both silent
+  ([#95](#r-fixed-level-speaker-pin)).
+- GPIO amp-enables are recorded, not built. `alc290_fixup_mono_speakers` waits
+  for a report of the mono symptom ([routing](#r-speaker-dac-misrouted)).
+- TAC5XX2's firmware-name guess is unseen, and its watchlist entry waits on a
+  machine ([smart amps](#r-smart-amp-families)).
+
 <a id="r-kernel-misconfigured-codec"></a>
 
 ## Bad sound with a perfect preset: the kernel layer below (issue #33)
@@ -771,3 +811,8 @@ The sweep also found and fixed one artefact. `max98512` had been in the token
 list since the Maxim row was written. It appears nowhere in the kernel tree, so
 it had never matched anything. It was dropped rather than corrected to
 `max98520`, because no laptop board binds that part either.
+
+## Elsewhere
+
+- The #95 EasyEffects crash: [design-notes](../design-notes.md) "Rejected
+  approaches → Rewriting `{preset}.irs` in place and reloading".

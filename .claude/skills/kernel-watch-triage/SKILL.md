@@ -136,7 +136,8 @@ have carried it:
   ```
 
 - `lib/hardware/amps.py` `_AMP_FAMILIES`: check for a missing *amplifier*,
-  the AW88399 shape. Its membership bar is in `docs/design-notes.md`.
+  the AW88399 shape. Its membership bar is `r-smart-amp-families` in
+  `docs/research/hardware-and-drivers.md`.
 - `lib/data/speaker_route_quirks.py` holds fixups that reroute one speaker pin
   off a widget with no volume amplifier: `snd_hda_override_conn_list` with no
   pincfg write, plus `alc289_fixup_asus_ga401`'s `preferred_dacs`.
@@ -160,8 +161,8 @@ have carried it:
   `preferred_dacs`-only helpers don't show up in that sweep. All five in
   mainline were hand-read 2026-09-01, and every one but GA401 was excluded.
   The membership bar and each exclusion's reason are in
-  `docs/design-notes.md`, "The class next door". Re-read a helper only when
-  the range you are triaging adds or edits one.
+  `docs/research/hardware-and-drivers.md`, `r-speaker-dac-misrouted`. Re-read a
+  helper only when the range you are triaging adds or edits one.
 - `_FILE_MOVES` in `tools/update_speaker_pin_quirks.py`: both tables carry a
   `commit=` link resolved by GitHub's blame, which follows a rename but not a
   split. A commit in the range that moves or splits
