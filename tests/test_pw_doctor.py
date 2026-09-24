@@ -667,8 +667,8 @@ def test_nothing_to_judge_is_not_a_verdict(monkeypatch):
 
     Each leaves the check with no plugin anyone has asked for. A PASS would be
     an all-clear over an empty set and a FAIL a fault nobody owns, so it says
-    nothing at all — the Environment block still carries what was found, which
-    is what a pasted report needs.
+    nothing at all — the filter-chain setup block still carries what was
+    found, which is what a pasted report needs.
     """
     monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
     probe = _probe(**{"Calf bass enhancer": False})
@@ -811,7 +811,7 @@ def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
 
     _results, _confs, _chains, facts = checks.gather_pw_doctor()
     assert len(calls) == 1
-    # ...and the same answer is what the Environment block renders.
+    # ...and the same answer is what the filter-chain setup block renders.
     lines = checks._environment_lines([], [], facts)
     assert any("LSP PEQ: present" in line for line in lines)
     assert len(calls) == 1

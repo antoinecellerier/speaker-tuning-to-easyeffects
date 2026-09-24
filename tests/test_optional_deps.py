@@ -268,7 +268,7 @@ def test_a_missing_dsp_dependency_names_itself(module, tmp_path):
 
 
 def test_a_broken_first_party_import_is_not_reported_as_a_missing_dep(tmp_path):
-    """Two of the three imports that handler guards are our own.
+    """Both imports that handler guards are our own.
 
     So a module deleted in a refactor raises the same `ModuleNotFoundError`
     numpy does — and rendering it through the same message tells the user to

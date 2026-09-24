@@ -457,9 +457,9 @@ def write_synthetic_tuning_xml(path: Path, default_profile: str | None = None,
     (Dolby's declared shipping profile); omitted by default, as on most XMLs.
 
     ``ao_right`` overrides ch_01 with its own 1/16-dB CSV, giving the two
-    channels different audio-optimizer peaks — the 7.2%-of-corpus case that
-    --enable level-restore re-references against. Defaults to matching
-    ch_00, which is what most tunings do.
+    channels different audio-optimizer peaks — the case (19.1% of corpus
+    files on 2026-08-04) that --enable level-restore re-references against.
+    Defaults to matching ch_00, which is what most tunings do.
     """
     freqs = ",".join(str(f) for f in SYNTHETIC_FREQS_20)
     curves = {

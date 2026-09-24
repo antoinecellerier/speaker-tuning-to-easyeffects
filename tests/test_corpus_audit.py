@@ -47,6 +47,7 @@ def test_is_dax3_xml_name_filter():
     # a few hundred real speaker tunings.
     assert corpus_audit.is_dax3_xml("HDAUDIO_DEV_0257_SUBSYS_17AA3801.xml")
     assert corpus_audit.is_dax3_xml("INTELAUDIO_DEV_0274_SUBSYS_17AA3801.xml")
+    assert corpus_audit.is_dax3_xml("PCI_DEV_1803_SUBSYS_1880106B.xml")
     assert corpus_audit.is_dax3_xml("AUCD_DEV_0C29_SUBSYS_233817AA_ADCM_SUBSYS_233817AA.xml")
     # Companions that share the shape but hold no playback tuning.
     assert not corpus_audit.is_dax3_xml("DEV_0287_SUBSYS_17AA22E6_settings.xml")

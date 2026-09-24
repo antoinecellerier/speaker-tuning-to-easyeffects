@@ -1621,9 +1621,10 @@ def test_level_restore_offered_only_where_it_would_help(
 
 def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
     """Normalising each channel to its own peak flattens the L/R level
-    relationship the two AO curves ask for (7.2% of the corpus, up to
-    5.56 dB). Under the flag both channels share the louder peak, so the
-    relationship survives and neither channel exceeds full scale."""
+    relationship the two AO curves ask for (19.1% of corpus files on
+    2026-08-04, up to 5.56 dB; lib/preset/emit.py). Under the flag both
+    channels share the louder peak, so the relationship survives and neither
+    channel exceeds full scale."""
     import subprocess
     import sys as _sys
     # ch_00 keeps the fixture's default curve; ch_01 is flat except for one
