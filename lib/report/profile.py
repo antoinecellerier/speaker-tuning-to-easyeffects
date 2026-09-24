@@ -602,7 +602,7 @@ def _boost_findings(tuning, ao_db_left, ao_db_right, disabled, enabled):
     # volmax boost but tames nothing. The issue-#23 "per-band compression
     # tames the boost before the brickwall" rationale doesn't apply, and
     # both volmax slots degenerate to the same untamed brickwall feed
-    # (issue #27 field report; see design-notes).
+    # (issue #27 field report; research `r-volmax-boost-slot`).
     # coupled-bands is on unless switched off, so on an all-inert tuning that
     # qualifies the zone is limited and the warning would be false. It
     # survives for the two ways a run can still reach the untamed shape:

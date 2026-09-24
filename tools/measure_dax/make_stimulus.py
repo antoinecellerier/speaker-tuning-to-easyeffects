@@ -781,9 +781,9 @@ def main() -> None:
     # pink level ladder — the volume leveler's gain-versus-input-level curve.
     # DAX rides a level-dependent gain that the two original pink levels only
     # bracket: measured on the dev device, DAX(dynamic) − DAX(off) is +7.1 dB
-    # at −17.8 dBFS and +16.4 dB at −41.8 dBFS (design-notes, "Giving back what
-    # normalisation removed"). Two points make a line, and our autogain's
-    # target/window constants are currently chosen rather than derived
+    # at −17.8 dBFS and +16.4 dB at −41.8 dBFS (research `r-level-restore`).
+    # Two points make a line, and our autogain's target/window constants are
+    # currently chosen rather than derived
     # (research `r-leveler-autogain-window`,
     # `r-conservative-autogain-offsets`) — these rungs turn that into a curve.
     #

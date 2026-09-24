@@ -235,8 +235,9 @@ def add_filter_tweak_args(container, *, only=None):
         choices=list(messages.DISABLEABLE_FILTERS),
         metavar="NAME",
         # #44 is NOT a coupled-bands case: coupled-bands measured inert there
-        # (design-notes 2026-08-22), so the coupled-bands hint in this help
-        # must not cite #44. Its fix was --volmax-slot output-gain, which E-022 below names.
+        # (research `r-deep-threshold-bass-loss`), so the coupled-bands hint in
+        # this help must not cite #44. Its fix was --volmax-slot output-gain,
+        # which E-022 below names.
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud or saturated. "

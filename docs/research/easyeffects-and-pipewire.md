@@ -306,7 +306,7 @@ energy grows with the same rate ratio as its gain. So autogain compensates
 sqrt(L) against an error of L, and leaves roughly half the error still there: ~6
 dB of the 12 dB at 192 kHz. It also moves the 48 kHz level by ~11 dB,
 invalidating the whole
-[gain-staging budget](loudness-and-limiting.md#gain-staging-budget). The
+[gain-staging budget](loudness-and-limiting.md#r-gain-staging-budget). The
 residual figures are an offline model of that arithmetic rather than a
 measurement. The sqrt(L) mechanism is source-certain. Not reported upstream yet.
 
@@ -732,7 +732,7 @@ wholesale, for a reporter who would rather send the real names.
 ## Elsewhere
 
 - #84's deep-threshold regulator:
-  [design-notes](loudness-and-limiting.md#second-deep-threshold-tuning-issue-84s-yoga-slim-7-pro-14ach5-2026-08-30).
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-deep-threshold-distortion).
 - The unused EasyEffects built-ins:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - The convolver IR trim:

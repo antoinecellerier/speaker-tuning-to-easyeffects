@@ -23,6 +23,7 @@ chain, units and what's not implemented.
 | [easyeffects-and-pipewire.md](research/easyeffects-and-pipewire.md) | EasyEffects, PipeWire, WirePlumber, Flatpak, paths and sample rate |
 | [virtual-bass.md](research/virtual-bass.md) | DAX's virtual bass engine (VBE), the Calf bass enhancer and `--enable virtual-bass` |
 | [adaptive-processing.md](research/adaptive-processing.md) | the volume leveler and autogain, the multi-band compressor (MBC), the dialog enhancer, surround and media intelligence (MI) steering |
+| [loudness-and-limiting.md](research/loudness-and-limiting.md) | `volmax-boost` and its slot, peak normalisation and `--enable level-restore`, the per-band regulator, the brickwall limiter and the PEQ anti-clipping trim |
 
 The rest of this file is being split by class into `docs/research/`.
 
@@ -30,23 +31,26 @@ The rest of this file is being split by class into `docs/research/`.
 
 | Issue | Material | Where |
 |---|---|---|
+| #11 | DAX's tier-2 adaptive sub-models; `regulator-stress-amount` tested as a threshold offset | [loudness-and-limiting.md#r-regulator-stress-amount](research/loudness-and-limiting.md#r-regulator-stress-amount) |
 | #14 | VBE on HDA devices and `--enable virtual-bass` | [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) |
 | #18 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #22 | field follow-up: the preset loads but is inaudible | [easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible) |
+| #23 | `volmax-boost` slot: `input-gain` default, `output-gain` opt-out | [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot) |
 | #25 | autogain's HDA default flip, rejected; the −50 dB silence gate | [adaptive-processing.md#r-autogain-default-flip](research/adaptive-processing.md#r-autogain-default-flip) |
-| #27 | amps read as speakers; the bass-enhancer field report is at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
-| #29 | CS42L43 excluded as a jack codec; the bass-enhancer field rounds are at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the removed SoundWire dialog-enhancer arm's field evidence is at [adaptive-processing.md#r-dialog-enhancer-gain-ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling) | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
+| #27 | amps read as speakers; the bass-enhancer field report is at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the inert-regulator volmax caveat is at [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot), and the all-zero-threshold coupled-bands A/B at [loudness-and-limiting.md#r-fixed-dynamics-constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants) | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
+| #29 | CS42L43 excluded as a jack codec; the bass-enhancer field rounds are at [virtual-bass.md#r-soundwire-bass-enhancer-constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants); the removed SoundWire dialog-enhancer arm's field evidence is at [adaptive-processing.md#r-dialog-enhancer-gain-ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling); the removed convolver headroom restore's field evidence is at [loudness-and-limiting.md#r-convolver-headroom-restore](research/loudness-and-limiting.md#r-convolver-headroom-restore) | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 | #30 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #33 | kernel 6.12 → 7.0 fix, old-kernel hint | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
 | #36 | single pin, a 2-driver laptop per PSREF; the reporter's enable-autogain recommendation is at [adaptive-processing.md#r-autogain-bypassed-by-default](research/adaptive-processing.md#r-autogain-bypassed-by-default) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #39 | crackle; rule out the kernel (TAS2781 calibration differs by kernel lineage) | [hardware-and-drivers.md#r-kernel-misconfigured-codec](research/hardware-and-drivers.md#r-kernel-misconfigured-codec) |
-| #44 | single pin, a 2-driver laptop per PSREF; DAX applying no VBE is at [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
-| #46 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
-| #50 | single pin, a 2-driver laptop per PSREF; its missing `38dc` quirk entry concerns its smart amp, not a bass pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #44 | single pin, a 2-driver laptop per PSREF; DAX applying no VBE is at [virtual-bass.md#r-dax-virtual-bass](research/virtual-bass.md#r-dax-virtual-bass); the deep-threshold regulator and `--volmax-slot output-gain` are at [loudness-and-limiting.md#r-deep-threshold-bass-loss](research/loudness-and-limiting.md#r-deep-threshold-bass-loss) | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #45 | the T495's successor, the T14 Gen 1 AMD, reported working from a driver package we don't hold | [loudness-and-limiting.md#r-gain-rail-tuning](research/loudness-and-limiting.md#r-gain-rail-tuning) |
+| #46 | the tuning pinned at the gain rail; single pin, a 2-driver laptop per PSREF, is at [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) | [loudness-and-limiting.md#r-gain-rail-tuning](research/loudness-and-limiting.md#r-gain-rail-tuning) |
+| #50 | `--enable level-restore`; single pin, a 2-driver laptop per PSREF, and its missing `38dc` quirk entry (its smart amp, not a bass pin) are at [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
 | #51 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #53 | hidden woofer pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #63 | the chain selected as the system output: two sinks in series | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
-| #84 | EasyEffects plays hot above 48 kHz; the deep-threshold regulator stays in this file | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
+| #84 | EasyEffects plays hot above 48 kHz; the deep-threshold regulator is at [loudness-and-limiting.md#r-deep-threshold-distortion](research/loudness-and-limiting.md#r-deep-threshold-distortion) | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
 | #93 | presets written where EasyEffects stopped reading; the locale pin | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
 | #95 | unlisted machine, firmware mic setting; the EasyEffects crash is at [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
 
@@ -87,6 +91,23 @@ The rest of this file is being split by class into `docs/research/`.
 | Approximate DAX's leveler / regulator | [adaptive-processing.md#r-dax-leveler-approximation](research/adaptive-processing.md#r-dax-leveler-approximation) |
 | Rejected approaches → Noise gate before the compressor | [adaptive-processing.md#r-compressor-noise-gate](research/adaptive-processing.md#r-compressor-noise-gate) |
 | Rejected approaches → An *unused* EasyEffects built-in to cover a dropped DAX feature | [adaptive-processing.md#r-unused-ee-builtins](research/adaptive-processing.md#r-unused-ee-builtins) |
+| Per-channel regulator thresholds: newer SoundWire schema (`SUBSYS_37A317AA`) | [loudness-and-limiting.md#r-per-channel-regulator-thresholds](research/loudness-and-limiting.md#r-per-channel-regulator-thresholds) |
+| Gain-staging budget | [loudness-and-limiting.md#r-gain-staging-budget](research/loudness-and-limiting.md#r-gain-staging-budget) |
+| `volmax-boost` slot: `input-gain` vs `output-gain` (issue #23) | [loudness-and-limiting.md#r-volmax-boost-slot](research/loudness-and-limiting.md#r-volmax-boost-slot) |
+| Why the PEQ `output-gain` stays a single global `max(L,R)` (not per-channel) | [loudness-and-limiting.md#r-gain-staging-budget](research/loudness-and-limiting.md#r-gain-staging-budget) |
+| Why bypass has more bass than the preset (issue #44, round 3, 2026-08-22) | [loudness-and-limiting.md#r-deep-threshold-bass-loss](research/loudness-and-limiting.md#r-deep-threshold-bass-loss) |
+| Second deep-threshold tuning: issue #84's Yoga Slim 7 Pro 14ACH5 (2026-08-30) | [loudness-and-limiting.md#r-deep-threshold-distortion](research/loudness-and-limiting.md#r-deep-threshold-distortion) |
+| Convolver SoundWire headroom restore | [loudness-and-limiting.md#r-convolver-headroom-restore](research/loudness-and-limiting.md#r-convolver-headroom-restore) |
+| Regulator slope→ratio | [loudness-and-limiting.md#r-regulator-slope-ratio](research/loudness-and-limiting.md#r-regulator-slope-ratio) |
+| Regulator timbre→knee | [loudness-and-limiting.md#r-regulator-timbre-knee](research/loudness-and-limiting.md#r-regulator-timbre-knee) |
+| PEQ anti-clipping trim | [loudness-and-limiting.md#r-peq-anti-clipping-trim](research/loudness-and-limiting.md#r-peq-anti-clipping-trim) |
+| Fixed dynamics constants | [loudness-and-limiting.md#r-fixed-dynamics-constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants) |
+| `regulator-stress-amount` mapping investigated and rejected | [loudness-and-limiting.md#r-regulator-stress-amount](research/loudness-and-limiting.md#r-regulator-stress-amount) |
+| A tuning pinned at the gain rail: the T495 (issue #46) | [loudness-and-limiting.md#r-gain-rail-tuning](research/loudness-and-limiting.md#r-gain-rail-tuning) |
+| Giving back what normalisation removed: `--enable level-restore` (issue #50) | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
+| Measured on the dev device, 2026-08-04 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
+| Measured on a second device, 2026-08-04/05 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
+| Heard on the dev device, 2026-08-18 | [loudness-and-limiting.md#r-level-restore](research/loudness-and-limiting.md#r-level-restore) |
 
 ### Legacy numbers
 

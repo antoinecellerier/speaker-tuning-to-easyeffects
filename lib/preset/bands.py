@@ -66,7 +66,7 @@ def make_convolver(kernel_name: str) -> dict:
     and looks for the WAV in its irs/ directory.
 
     ``autogain`` stays off because this tool owns the gain budget end to end
-    (docs/design-notes.md, "Gain-staging budget"). That has a measured
+    (research `r-gain-staging-budget`). That has a measured
     consequence off the 48 kHz path. EasyEffects resamples this kernel to the
     graph rate and compensates no gain for the longer filter. So on a graph
     above `SAMPLE_RATE` the preset runs hot by the rate ratio in dB, +11.8 dB

@@ -390,7 +390,8 @@ can't reach.
   - *Gain ride*: EE's `maximum-history` (s) drives the gain-ride time-constants
     asymmetrically. `tfall_l` (gain down, 200 ms/s) is faster than `tgrow_l`
     (gain up, 500 ms/s, anti-pumping), matching EE's measured behaviour. The
-    on-device EE-vs-PW proof is in design-notes.
+    on-device EE-vs-PW proof is in
+    [adaptive-processing.md](research/adaptive-processing.md#r-autogain-pw-translation).
   - *Short windows*: windows shorter than 20 s surface a warning, on the
     console and in the conf-header warning block, that the PW ride may be
     faster than EE's. That covers HDA `--enable autogain` always, and SoundWire
@@ -475,8 +476,10 @@ preset: `maximum-history` → `tgrow_l`/`tfall_l`. The short-window ride
 (`tgrow_s`/`tfall_s`), loudness periods, drift limit and amplification cap stay
 at LSP defaults. EE's `reference` loudness-statistic selector,
 `"Geometric Mean (MSI)"`, has no equivalent port. The mapping is validated on
-device at a 20 s history; design-notes has the measurement. Re-deriving more of
-it is gated on device measurement; see CLAUDE.md "Validating audio changes".
+device at a 20 s history;
+[adaptive-processing.md](research/adaptive-processing.md#r-autogain-pw-translation)
+has the measurement. Re-deriving more of it is gated on device measurement; see
+CLAUDE.md "Validating audio changes".
 
 ## Equivalence to the EE chain
 

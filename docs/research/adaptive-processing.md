@@ -612,6 +612,6 @@ not new plugins.
 - The validation roadmap's dialog and surround pre-screens:
   [design-notes](../design-notes.md#verification-status-and-the-validation-roadmap).
 - MI steering on #46's T495 and the profile choice:
-  [design-notes](loudness-and-limiting.md#a-tuning-pinned-at-the-gain-rail-the-t495-issue-46).
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-gain-rail-tuning).
 - DAX's leveler gain on the dev device, measured for `--enable level-restore`:
-  [design-notes](loudness-and-limiting.md#giving-back-what-normalisation-removed---enable-level-restore-issue-50).
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-level-restore).

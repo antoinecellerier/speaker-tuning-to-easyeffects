@@ -244,12 +244,12 @@ The voice profile combines a high boost with a disabled compressor, so the
 regulator alone has to catch its peaks.
 
 The script applies `volmax-boost` as `input-gain` on the regulator
-(`multiband_compressor#1`), so per-band limiting tames it before the
-brickwall. When the regulator is absent it falls back to
-`limiter#0.input-gain`. `--volmax-slot output-gain` restores the older
-placement (issue #23, see `design-notes.md`). `--disable volmax` disables it,
-for when the boost drives the brick-wall limiter into audible gain reduction on
-already-loud masters.
+(`multiband_compressor#1`), so per-band limiting tames it before the brickwall.
+When the regulator is absent it falls back to `limiter#0.input-gain`.
+`--volmax-slot output-gain` restores the older placement (issue #23, see
+[`volmax-boost` slot](research/loudness-and-limiting.md#r-volmax-boost-slot)).
+`--disable volmax` disables it, for when the boost drives the brick-wall limiter
+into audible gain reduction on already-loud masters.
 
 ---
 
@@ -1167,7 +1167,8 @@ the `tests/corpus` discovery walk. It covered 46,336 `internal_speaker` profile
 rows across 3,055 reachable files.
 
 201 of the 338 fire only on voice-family profiles. That is consistent with the
-volmax-in-`voice` concentration in the design-notes #23 corpus analysis
+volmax-in-`voice` concentration in the
+[#23 corpus analysis](research/loudness-and-limiting.md#r-volmax-boost-slot)
 ("input-gain only does anything when the regulator is active"). The default-run
 cases are `dynamic`/`movie` at +5…+9 dB. These are corpus counts, not audibility
 claims. Firing means the taming rationale doesn't apply, not proven squash.

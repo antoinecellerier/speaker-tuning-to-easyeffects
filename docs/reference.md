@@ -201,21 +201,21 @@ regulator over-tames the bass. The default flipped to `input-gain` after a
 second, aggressive-regulator device confirmed it stays clean and loud: the
 ThinkPad X13 Gen 6 of issue
 [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23).
-See design-notes.
+See
+[`volmax-boost` slot](research/loudness-and-limiting.md#r-volmax-boost-slot).
 
 The opt-out has its own field confirmation: issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)'s
-Yoga Slim 7 14ARE05 runs an eleven-band regulator whose deepest
-threshold is −30.9 dBFS. There `output-gain` measured +6.8 dB more bass below
-300 Hz than the default, and less out-of-band energy, since the bands no longer
-see the boost. The reporter found the result on par with
-Windows. Their Windows capture of the same loud-bass stimulus
-(2026-08-24) then put Dolby itself 0.2–2.8 dB below bypass on sustained bass.
-That is within 0.6–3.3 dB of `output-gain`, and 7–9 dB above the default. On
-this tuning the opt-out is therefore the DAX-faithful order, not merely the
-louder one. Two field devices thus prefer opposite slots. The default stays
-`input-gain`, and no XML-derived rule picks the slot yet (design-notes "Why
-bypass has more bass than the preset").
+Yoga Slim 7 14ARE05 runs an eleven-band regulator whose deepest threshold is
+−30.9 dBFS. There `output-gain` measured +6.8 dB more bass below 300 Hz than the
+default, and less out-of-band energy, since the bands no longer see the boost.
+The reporter found the result on par with Windows. Their Windows capture of the
+same loud-bass stimulus (2026-08-24) then put Dolby itself 0.2–2.8 dB below
+bypass on sustained bass. That is within 0.6–3.3 dB of `output-gain`, and 7–9 dB
+above the default. On this tuning the opt-out is therefore the DAX-faithful
+order, not merely the louder one. Two field devices thus prefer opposite slots.
+The default stays `input-gain`, and no XML-derived rule picks the slot yet
+([Why bypass has more bass than the preset](research/loudness-and-limiting.md#r-deep-threshold-bass-loss)).
 
 **Regulator → per-band limiter.** A second MBC instance is configured as a
 limiter, with Peak sidechain and 1 ms attack. Its thresholds come from
@@ -408,11 +408,12 @@ level cost at ≤1 dB
 - **The level the FIR is normalised by**: the convolver's peak normalisation is
   not compensated on the default path. `volmax-boost` is the only static gain
   that puts level back. On tunings whose peak exceeds it, the preset plays below
-  bypass. The experimental `--enable level-restore` flag hands the
-  normalisation scalar back to the regulator's gain slot. That scalar is
-  XML-derived: it is `make_fir`'s own `peak_db`. The flag was **heard on one
-  device only**, 2026-08-18, where loud speech picked up audible artifacts
-  (design-notes "Giving back what normalisation removed", issue
+  bypass. The experimental `--enable level-restore` flag hands the normalisation
+  scalar back to the regulator's gain slot. That scalar is XML-derived: it is
+  `make_fir`'s own `peak_db`. The flag was **heard on one device only**,
+  2026-08-18, where loud speech picked up audible artifacts
+  ([Giving back what normalisation removed](research/loudness-and-limiting.md#r-level-restore),
+  issue
   [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50)).
   Default output is unchanged.
 - **Virtual Bass Enhancement on HDA**: DAX synthesizes odd-dominated bass

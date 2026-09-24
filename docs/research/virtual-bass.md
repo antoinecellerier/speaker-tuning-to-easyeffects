@@ -595,4 +595,4 @@ is what it exercises.
 - The unused EasyEffects built-ins, Bass Loudness among them:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - #44's loud-bass DAX captures and the dev device's low-end gap:
-  [design-notes](loudness-and-limiting.md#why-bypass-has-more-bass-than-the-preset-issue-44-round-3-2026-08-22).
+  [loudness-and-limiting.md](loudness-and-limiting.md#r-deep-threshold-bass-loss).

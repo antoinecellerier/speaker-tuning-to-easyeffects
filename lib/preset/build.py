@@ -10,7 +10,7 @@ claim a stage the JSON does not contain.
 It also owns the one placement decision that is not a mapping: which slot the
 static volmax boost (and `--enable level-restore`'s giveback) is injected
 into. Both are measured trade-offs rather than XML fields; the evidence is in
-`docs/design-notes.md`.
+research `r-volmax-boost-slot` and `r-level-restore`.
 
 Imports `plugins.py`, so it reaches numpy too and stays behind the generator's
 function-local imports for it.

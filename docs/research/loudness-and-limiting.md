@@ -1,3 +1,51 @@
+# Loudness and limiting: volmax, normalisation, regulator, brickwall and PEQ trim
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits, and
+[ee-to-pipewire.md](../ee-to-pipewire.md) the PipeWire path.
+
+- **`volmax-boost`** rides the regulator's `input-gain` by default, or
+  `limiter#0`'s without a regulator. On the PipeWire backend, #23's X13
+  reporter found it clean in most cases and loud ([#23](#r-volmax-boost-slot)).
+  On #44's deep-threshold tuning, `output-gain` was closest to DAX on loud bass
+  and confirmed by ear, on one device ([#44](#r-deep-threshold-bass-loss)).
+- **The regulator** under-engages vs DAX on the dev device's shallow thresholds,
+  and over-engages on #44's deep ones relative to DAX at the one level both were
+  measured ([dynamics](#r-fixed-dynamics-constants)).
+- **Peak normalisation** is the ≈−8…−12 dB absolute EE−DAX offset on the dev
+  device at nominal level (pink, −17.8 dBFS). `--enable level-restore`,
+  opt-in, gives it back; on the one device heard, loud speech produced audible
+  artifacts ([level restore](#r-level-restore)).
+
+Open:
+
+- The volmax slot default needs a second device. The dev device can serve,
+  with a DAX and EE burst capture whose tones sit inside its regulator's active
+  zone. Whether an XML-derivable predictor could pick the slot per tuning stays
+  a hypothesis ([bass loss](#r-deep-threshold-bass-loss)).
+- Why the regulator's configured 100:1 realizes as ≈1.8 on the dev device needs
+  a regulator-only EE capture. A DAX capture of `stimulus_stepped_loud` would
+  validate or kill the coupled-bands mapping
+  ([dynamics](#r-fixed-dynamics-constants)).
+- The regulator's 1 ms attack against DAX's ~100–150 ms settle, one device's
+  number, waits on a second DAX attack curve
+  ([dynamics](#r-fixed-dynamics-constants)).
+- `regulator-stress-amount` as an engagement modifier is untested
+  ([stress](#r-regulator-stress-amount)).
+- The slope→ratio and timbre→knee mappings need a device with other values. The
+  PEQ trim's `min(1, 2/Q)` shape needs a wide-vs-narrow-Q second device
+  ([slope](#r-regulator-slope-ratio), [timbre](#r-regulator-timbre-knee),
+  [trim](#r-peq-anti-clipping-trim)).
+- Whether `--disable volmax` clears level-restore's artifacts, and whether a
+  `peak − volmax`-aware restore stays under the limiter
+  ([level restore](#r-level-restore)).
+- Unheard: the T495's tuning at the gain rail ([T495](#r-gain-rail-tuning)), and
+  the regulator's distortion on the second deep-threshold tuning
+  ([captures](#r-deep-threshold-distortion)).
+- The per-channel threshold read rests on one corpus device and is unverified on
+  hardware ([per-channel](#r-per-channel-regulator-thresholds)).
+
 <a id="r-per-channel-regulator-thresholds"></a>
 
 ## Per-channel regulator thresholds: newer SoundWire schema (`SUBSYS_37A317AA`)
@@ -524,7 +572,9 @@ pasted generation runs show FIR peaks +1.1…+1.5 dB → restores +0.6/+0.7 dB.
 Field evidence: issue
 [#29](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/29)
 (Zenbook S14) found the SoundWire preset over-loud, and the reporter manually
-set −5 dB output. Removal follows the entry-2 precedent: it *drops* an invented
+set −5 dB output. Removal follows the
+[surround→stereo-base factor](adaptive-processing.md#r-surround-boost-stereo-base)
+precedent: it *drops* an invented
 non-XML gain rather than adopting a new mapping, so the second-device bar
 doesn't apply. Loudness makeup is volmax-boost's job (XML-derived, entry on
 volmax slots). It is not locally measurable (dev device is HDA); the #29
@@ -1341,12 +1391,14 @@ At 234 Hz specifically the restored chain sits 1.0 dB from DAX. So
 on roughly DAX's footing, meaning it would begin to engage on roughly the
 content DAX's engages on.
 
-**It does not explain the entries-6/11 under-engagement.** On this stimulus
-neither side crosses a threshold. For EE default, EE restored *and* DAX, 0 of 4
-active bands are above threshold. DAX's closest approach is −7.04 dB. A dormant
-compressor cannot exhibit a ratio. So `pink` at −17.8 dBFS carries no
-information either way about the 100:1-realises-as-1.8 finding. That figure came
-from a *loud* stepped capture where both sides did engage, and nothing here
+**It does not explain the under-engagement** recorded in the
+[MBC ratio and time constants](adaptive-processing.md#r-mbc-ratio-time-constants)
+and the [fixed dynamics constants](#r-fixed-dynamics-constants). On this
+stimulus neither side crosses a threshold. For EE default, EE restored *and*
+DAX, 0 of 4 active bands are above threshold. DAX's closest approach is −7.04
+dB. A dormant compressor cannot exhibit a ratio. So `pink` at −17.8 dBFS carries
+no information either way about the 100:1-realises-as-1.8 finding. That figure
+came from a *loud* stepped capture where both sides did engage, and nothing here
 touches it. What this does establish is narrower and still useful: at nominal
 level our regulator idles 31 dB under its own thresholds. Any attempt to
 characterise it on ordinary-level content is therefore measuring silence.
@@ -1406,3 +1458,18 @@ costs audible artifacts.** Default output is unchanged and pinned by the
 second-device requirement is met, and the listening gate is answered
 negatively. So the flag stays opt-in, and a default flip is off the table until
 a smaller restore or a mitigation is measured.
+
+## Elsewhere
+
+- The level-dependent half of the loudness gap, DAX's leveler and our autogain:
+  [adaptive-processing.md](adaptive-processing.md#r-autogain-bypassed-by-default).
+- The MBC side of the loud-level dynamics gap:
+  [adaptive-processing.md](adaptive-processing.md#r-mbc-ratio-time-constants).
+- The AO units and leveler magnitude the #44 and #46 units build on:
+  [design-notes](../design-notes.md#r-simplified-schema-ao-units).
+- Where the brickwall and the regulator sit in the chain:
+  [design-notes](../design-notes.md#plugin-chain-order).
+- The scaling-factor catalogue and the validation roadmap:
+  [design-notes](../design-notes.md#unvalidated-converter-scaling-factors-the-ieq-amount-class).
+- #84's other thread, EasyEffects playing hot above 48 kHz:
+  [easyeffects-and-pipewire.md](easyeffects-and-pipewire.md#r-convolver-resample-gain).

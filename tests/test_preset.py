@@ -760,8 +760,8 @@ def test_limiter_is_last_in_plugin_order(generated):
 
 def test_limiter_threshold_is_minus_one_dbfs():
     """The chain-end brickwall sits at −1 dBFS for inter-sample-peak
-    headroom (gain-staging budget table in docs/design-notes.md). A
-    drift here changes the output ceiling on every preset."""
+    headroom (gain-staging budget table, research `r-gain-staging-budget`).
+    A drift here changes the output ceiling on every preset."""
     lim = make_limiter()
     assert lim["threshold"] == -1.0
     # volmax fallback injects into input-gain, never the threshold

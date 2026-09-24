@@ -152,9 +152,9 @@ def _absolute_offset(ee_npz: Path, dax_npz: Path,
     which subtracts this number out by construction. That default hid a
     12 dB offset for two months: it was measured twice during other
     investigations, recorded as an inseparable confound, and never became a
-    finding of its own (design-notes, "Giving back what normalisation
-    removed"). A number that only appears when someone thinks to ask for it
-    is a number that gets mis-filed, so this one always prints.
+    finding of its own (research `r-level-restore`). A number that only
+    appears when someone thinks to ask for it is a number that gets
+    mis-filed, so this one always prints.
     """
     try:
         zee, zdax = np.load(str(ee_npz)), np.load(str(dax_npz))
