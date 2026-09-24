@@ -95,7 +95,7 @@ When auditing whether EE is applying the current preset:
   under-engaging. It is the analysis behind the open questions in the
   [MBC ratio and time constants](../../docs/research/adaptive-processing.md#r-mbc-ratio-time-constants)
   and
-  [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants).
+  [fixed dynamics constants](../../docs/research/loudness-and-limiting.md#r-fixed-dynamics-constants).
   Re-run it when a new device's stepped captures land.
 - `leveler_curve.py`: read-only, no capture. It measures DAX's volume-leveler
   gain versus input level, as DAX-on minus DAX-off at each rung of the pink
@@ -112,7 +112,7 @@ When auditing whether EE is applying the current preset:
   the
   [surround→stereo-base factor](../../docs/research/adaptive-processing.md#r-surround-boost-stereo-base),
   [MBC ratio and time constants](../../docs/research/adaptive-processing.md#r-mbc-ratio-time-constants),
-  [fixed dynamics constants](../../docs/design-notes.md#r-fixed-dynamics-constants)
+  [fixed dynamics constants](../../docs/research/loudness-and-limiting.md#r-fixed-dynamics-constants)
   and q-mode. Point it at a new session with
   `--ee-dir`/`--dax-dir`/`--dax-archive` to get the same table for another
   device.

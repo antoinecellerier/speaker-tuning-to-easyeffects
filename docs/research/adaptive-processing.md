@@ -499,12 +499,12 @@ agent analysis, key numbers re-verified from the converter):
 - (iii) DAX's effective ratio at 234/277 Hz is ≈ 2.95, its near-100:1 regulator
   stacking on the MBC. Our regulator maps the same −10/−9/−8/−5 dB thresholds
   and slope (the
-  [fixed dynamics constants](../design-notes.md#r-fixed-dynamics-constants)),
+  [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants)),
   yet barely fires there.
 
 So the lever is the regulator, not the MBC ratio/threshold, which stays
 XML-derived and unchanged. See the
-[fixed dynamics constants](../design-notes.md#r-fixed-dynamics-constants).
+[fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants).
 
 <a id="r-leveler-autogain-window"></a>
 
@@ -608,10 +608,10 @@ not new plugins.
 - The MBC and autogain rows of the plugin parameter audit:
   [design-notes](../design-notes.md#plugin-parameter-audit).
 - The loudness side of the MBC diagnosis, the regulator's under-engagement:
-  [fixed dynamics constants](../design-notes.md#r-fixed-dynamics-constants).
+  [fixed dynamics constants](loudness-and-limiting.md#r-fixed-dynamics-constants).
 - The validation roadmap's dialog and surround pre-screens:
   [design-notes](../design-notes.md#verification-status-and-the-validation-roadmap).
 - MI steering on #46's T495 and the profile choice:
-  [design-notes](../design-notes.md#a-tuning-pinned-at-the-gain-rail-the-t495-issue-46).
+  [design-notes](loudness-and-limiting.md#a-tuning-pinned-at-the-gain-rail-the-t495-issue-46).
 - DAX's leveler gain on the dev device, measured for `--enable level-restore`:
-  [design-notes](../design-notes.md#giving-back-what-normalisation-removed---enable-level-restore-issue-50).
+  [design-notes](loudness-and-limiting.md#giving-back-what-normalisation-removed---enable-level-restore-issue-50).

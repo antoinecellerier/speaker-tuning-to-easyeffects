@@ -1380,12 +1380,13 @@ Surfaced by the 2483-XML re-derivation; queued, not yet actioned.
    dynamics, with the music profile better than dynamic. They drove the
    2026-07-03 removal of two vestigial SoundWire boosts
    ([dialog-enhancer gain ceiling](research/adaptive-processing.md#r-dialog-enhancer-gain-ceiling),
-   [convolver headroom restore](design-notes.md#r-convolver-headroom-restore)).
+   [convolver headroom restore](research/loudness-and-limiting.md#r-convolver-headroom-restore)).
    They are also the pending A/B for the bass-enhancer default
    ([SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)
    / issue #14), and a candidate second-device loud capture for the
    [MBC ratio and time constants](research/adaptive-processing.md#r-mbc-ratio-time-constants)
-   and [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants).
+   and
+   [fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants).
    **XML received 2026-08-27.** It was pasted inline on the issue, with security
    key
    `SOUNDWIRE\SDCA_06&MAN_01FA&FUNC_3556&…&SUBSYS_1E131043&AGGREGATEDSPEAKER=…`,

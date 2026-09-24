@@ -390,8 +390,9 @@ where it fires, the failure issue
 measured. And an A/B on both a one-zone and a full-band device measured the
 level cost at ≤1 dB
 ([simplified-schema AO units finding](design-notes.md#r-simplified-schema-ao-units)
-/ [fixed dynamics constants](design-notes.md#r-fixed-dynamics-constants) (f),
-issue
+/
+[fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants)
+(f), issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
 
 ## Not implemented (and why)

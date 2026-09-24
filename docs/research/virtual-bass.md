@@ -40,7 +40,7 @@ textbook missing-fundamental harmonic complex. The stimulus is the bass-burst
 battery in `tools/measure_dax/make_stimulus.py:make_bass_burst`: sustained sine
 tones at 50 / 80 / 120 / 180 Hz, ±5 / −25 dBFS peak. The same battery closed the
 unrelated regulator-stress investigation (the
-[`regulator-stress-amount` follow-up](../design-notes.md#r-regulator-stress-amount)).
+[`regulator-stress-amount` follow-up](loudness-and-limiting.md#r-regulator-stress-amount)).
 
 | freq | magnitude | role |
 |---:|---:|---|
@@ -595,4 +595,4 @@ is what it exercises.
 - The unused EasyEffects built-ins, Bass Loudness among them:
   [adaptive-processing.md](adaptive-processing.md#r-unused-ee-builtins).
 - #44's loud-bass DAX captures and the dev device's low-end gap:
-  [design-notes](../design-notes.md#why-bypass-has-more-bass-than-the-preset-issue-44-round-3-2026-08-22).
+  [design-notes](loudness-and-limiting.md#why-bypass-has-more-bass-than-the-preset-issue-44-round-3-2026-08-22).
