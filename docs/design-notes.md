@@ -3232,6 +3232,22 @@ check and a `--speaker-info` annotation. Design choices:
   correction below the newest entry survives, and a broken run fails loudly
   instead of writing a plausible-looking wrong table.
 
+Check the drive path for crackle too, as in issue
+[#39](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/39).
+`docs/ee-to-pipewire.md` "Small-quantum systems under load" covers that
+report's userspace suspect, DSP load at a small quantum.
+
+Crackle can also originate below PipeWire entirely. The ROG Xbox Ally X
+(subsys 1043:1384) had playback dropouts tied to TAS2781 UEFI-calibration
+handling. It was first quirked to skip the unit's calibration
+([b7e26c8bdae70832d7c4b31ec2995b1812a60169](https://github.com/torvalds/linux/commit/b7e26c8bdae70832d7c4b31ec2995b1812a60169)),
+which is still what vanilla 6.18-stable ships. Mainline later superseded that
+with TI's root-cause fix
+([05ac3846ffe5](https://github.com/torvalds/linux/commit/05ac3846ffe5)), which
+Valve backported into its SteamOS 6.16/6.18 kernels. So calibration handling
+differs by kernel lineage: vanilla-stable skips it, and SteamOS/mainline apply
+it with the fix. Rule the kernel out before tuning the graph.
+
 [#33]: https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33
 
 ## Half the speakers, silently: a woofer pin the firmware hides (issue #53)
