@@ -123,8 +123,9 @@ Two findings:
   the 16× a rate-squared estimate predicts. Every run in the table ran with
   turbo on, and the 96 kHz row is from n=2 rounds, so the second digit is soft.
 - The EasyEffects path **plays hot by the rate ratio in dB** above 48 kHz, and
-  the PipeWire path does not. This correctness bug is isolated to the
-  convolver. `docs/design-notes.md` "A preset that plays hot" has the write-up.
+  the PipeWire path does not. This correctness bug is isolated to the convolver.
+  [A preset that plays hot](../../docs/research/easyeffects-and-pipewire.md#r-convolver-resample-gain)
+  has the write-up.
 
 Two gotchas for anyone re-running this:
 

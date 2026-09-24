@@ -490,11 +490,11 @@ documents a `resample_quality` "in case the IR does not match the graph
 samplerate". Its output measured unchanged at 48, 96 and 192 kHz. The conf this
 converter writes never sets that key, so what holds the level is the module's
 default handling, not anything we emit. Full measurement and the isolating test:
-`docs/design-notes.md`, "A preset that plays hot". So on a machine whose graph
-is deliberately above 48 kHz, for example for an external DAC, this path holds
-the level the tuning intends where EasyEffects does not. The statement is about
-output level, measured on one device and preset at three rates, not a claim that
-the whole chain is more faithful.
+[A preset that plays hot](research/easyeffects-and-pipewire.md#r-convolver-resample-gain).
+So on a machine whose graph is deliberately above 48 kHz, for example for an
+external DAC, this path holds the level the tuning intends where EasyEffects
+does not. The statement is about output level, measured on one device and preset
+at three rates, not a claim that the whole chain is more faithful.
 
 The MBC/regulator/limiter linear values round-trip to the source preset's dB
 values to 4 decimals. The full chain measures equivalent to the live EasyEffects

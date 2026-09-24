@@ -16,8 +16,7 @@ upstream's src/tags_local_server.hpp.
 Callers get typed functions, never a raw request string. ``--doctor`` sends
 only the two reads. A generator run sends one hide before it writes (issue
 #95) and one load at the end, reading that one's receipt. Why the socket and
-not the ``easyeffects`` CLI, and the version history: docs/design-notes.md,
-"Rejected approaches".
+not the ``easyeffects`` CLI, and the version history: `r-ee-cli-live-state`.
 """
 
 from __future__ import annotations

@@ -246,8 +246,8 @@ def graph_rate_gain_db(rate: int) -> float:
     compensates no gain for the longer filter, so the error is the rate ratio:
     +6.02 dB at 96 kHz, +12.04 dB at 192 kHz. Measured on the dev box at both
     (+5.9 and +11.8), and isolated to the convolver: bypassing it drops the
-    rate-dependence to -0.4 dB (docs/design-notes.md). Computed rather than
-    tabulated so the sentence stays true at any rate a user can reach.
+    rate-dependence to -0.4 dB (`r-convolver-resample-gain`). Computed rather
+    than tabulated so the sentence stays true at any rate a user can reach.
     """
     return 20.0 * math.log10(rate / SAMPLE_RATE)
 
@@ -603,8 +603,7 @@ def ee_unanswered_status(names) -> CheckResult:
     possibility. Saying so is the whole point: the alternative is falling back
     to its config file in silence and reporting hours-old values as current
     for as long as nobody notices. The values are still shown, marked as
-    coming from that file. Provenance: docs/design-notes.md, "Rejected
-    approaches"."""
+    coming from that file. Provenance: `r-ee-cli-live-state`."""
     # "a usable answer": a reply we can't parse lands here too, and that is
     # not silence. And only the rows this list names fall back: the sink row
     # is read from PipeWire, so an earlier wording, "Values below", called

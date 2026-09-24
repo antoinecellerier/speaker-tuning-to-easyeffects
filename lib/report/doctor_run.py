@@ -100,8 +100,7 @@ def _flatpak_version_text(info_output: str) -> str:
 # load_preset, global_bypass, toggle_global_bypass and set_property, none of
 # which a diagnostic may send. Naming the allowed set means a later edit
 # cannot reach a mutating request by passing a different string. Why the
-# socket and not the CLI, and the version history: docs/design-notes.md,
-# "Rejected approaches".
+# socket and not the CLI, and the version history: `r-ee-cli-live-state`.
 _EE_READ_REQUESTS = frozenset({ee_socket.PRESET_REQUEST, ee_socket.BYPASS_REQUEST})
 
 
@@ -783,8 +782,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     #     in what we emit. Above 48 kHz EasyEffects resamples the convolver
     #     kernel without compensating its gain, so the preset is hot by the
     #     rate ratio (+11.8 dB at 192 kHz, isolated to the convolver;
-    #     docs/design-notes.md). It still infers, because two of its three
-    #     rate sources are settings rather than what ran. But it infers a
+    #     `r-convolver-resample-gain`). It still infers, because two of its
+    #     three rate sources are settings rather than what ran. But it infers a
     #     configuration, not a fault, and the error it reports is arithmetic
     #     from that rate rather than a judgement about load. What it cannot do
     #     is fire on a graph at the rate we build for, which is the objection

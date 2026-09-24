@@ -329,7 +329,7 @@ def _reload_refused_finding(target: str, loaded: str,
 
     A restart is never the ask: EasyEffects rebuilds from its own settings
     db on start, not from the preset file, and comes back exactly as it
-    was (copy audit 2026-08-27; the db fact is in docs/design-notes.md).
+    was (copy audit 2026-08-27; the db fact is in `r-irs-in-place-rewrite`).
     """
     # Each cause gets the ask that fits it (review round 2026-08-27: an earlier
     # "pick it from the menu" under a detail saying EasyEffects looks in

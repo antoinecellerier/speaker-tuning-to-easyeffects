@@ -900,8 +900,9 @@ def check_chain_volume(chains, dump) -> CheckResult | None:
     speaker's. So a chain turned down once, by someone who selected it and
     then switched back, stays down through reboots with no visible cause.
 
-    Ahead of the graph, too, so it is not only quieter: the tuning's compressor
-    and limiter see the attenuated signal (docs/design-notes.md, issue #63).
+    Ahead of the graph, too, so it is not only quieter: the tuning's
+    compressor and limiter see the attenuated signal
+    (`r-chain-as-system-output`, issue #63).
     """
     if dump is None or not chains:
         return None

@@ -814,5 +814,5 @@ it had never matched anything. It was dropped rather than corrected to
 
 ## Elsewhere
 
-- The #95 EasyEffects crash: [design-notes](../design-notes.md) "Rejected
-  approaches → Rewriting `{preset}.irs` in place and reloading".
+- The #95 EasyEffects crash:
+  [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](easyeffects-and-pipewire.md#r-irs-in-place-rewrite).

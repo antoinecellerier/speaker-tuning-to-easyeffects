@@ -20,14 +20,16 @@ chain, units and what's not implemented.
 | Class file | What it holds |
 |---|---|
 | [hardware-and-drivers.md](research/hardware-and-drivers.md) | kernel, codec pins and routing, smart amps, firmware |
+| [easyeffects-and-pipewire.md](research/easyeffects-and-pipewire.md) | EasyEffects, PipeWire, WirePlumber, Flatpak, paths and sample rate |
 
 The rest of this file is being split by class into `docs/research/`.
 
 ### Issues
 
-| Issue | Hardware-and-drivers material | Where |
+| Issue | Material | Where |
 |---|---|---|
 | #18 | single pin, a 2-driver laptop per PSREF | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
+| #22 | field follow-up: the preset loads but is inaudible | [easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible) |
 | #27 | amps read as speakers | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
 | #29 | CS42L43 excluded as a jack codec | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
 | #30 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
@@ -39,7 +41,10 @@ The rest of this file is being split by class into `docs/research/`.
 | #50 | single pin, a 2-driver laptop per PSREF; its missing `38dc` quirk entry concerns its smart amp, not a bass pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #51 | two pins, PSREF names woofers and tweeters | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
 | #53 | hidden woofer pin | [hardware-and-drivers.md#r-woofer-pin-hidden](research/hardware-and-drivers.md#r-woofer-pin-hidden) |
-| #95 | unlisted machine, firmware mic setting; the EasyEffects crash is under "Rejected approaches" below | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
+| #63 | the chain selected as the system output: two sinks in series | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| #84 | EasyEffects plays hot above 48 kHz; the deep-threshold regulator stays in this file | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
+| #93 | presets written where EasyEffects stopped reading; the locale pin | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
+| #95 | unlisted machine, firmware mic setting; the EasyEffects crash is at [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
 
 ### Moved sections
 
@@ -51,6 +56,16 @@ The rest of this file is being split by class into `docs/research/`.
 | When no table lists the machine (issue #95) | [hardware-and-drivers.md#r-fixed-level-speaker-pin](research/hardware-and-drivers.md#r-fixed-level-speaker-pin) |
 | What counts as a smart amp, and which ones we watch for | [hardware-and-drivers.md#r-smart-amp-families](research/hardware-and-drivers.md#r-smart-amp-families) |
 | Swept and rejected | [hardware-and-drivers.md#r-amp-parts-rejected](research/hardware-and-drivers.md#r-amp-parts-rejected) |
+| Selecting the chain as the system output (issue #63) | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| Open: does a hand-picked chain suppress Bluetooth auto-switching? | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| Rejected: `priority.session` on the v1 capture node | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| Rejected: pinning a single v1 chain's playback | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| A preset that plays hot: EasyEffects resamples the kernel and keeps the gain (issue #84) | [easyeffects-and-pipewire.md#r-convolver-resample-gain](research/easyeffects-and-pipewire.md#r-convolver-resample-gain) |
+| Presets written where EasyEffects stopped reading: the Flatpak's two XDG roots (issue #93) | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
+| The same bug on a native install: XDG_DATA_HOME / XDG_CONFIG_HOME | [easyeffects-and-pipewire.md#r-flatpak-xdg-roots](research/easyeffects-and-pipewire.md#r-flatpak-xdg-roots) |
+| Rejected approaches → The `easyeffects` CLI for `--doctor`'s live state | [easyeffects-and-pipewire.md#r-ee-cli-live-state](research/easyeffects-and-pipewire.md#r-ee-cli-live-state) |
+| Rejected approaches → Rewriting `{preset}.irs` in place and reloading | [easyeffects-and-pipewire.md#r-irs-in-place-rewrite](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite) |
+| Rejected approaches → Caching the LV2 port schemas anywhere but in memory | [code-organisation.md#caching-the-lv2-port-schemas-anywhere-but-in-memory](code-organisation.md#caching-the-lv2-port-schemas-anywhere-but-in-memory) |
 
 ### Legacy numbers
 
@@ -194,6 +209,9 @@ tracks the opt-in baseline. So there is nothing simplified-schema-specific to
 add here. The explicit `boost`/`cutoff`/`width` look mappable to Calf
 `bass_enhancer`, but being corpus-frozen, they would be a hardcoded baseline
 rather than derived tuning.
+
+Issue #22's field follow-up is at
+[easyeffects-and-pipewire.md#r-preset-loads-but-inaudible](research/easyeffects-and-pipewire.md#r-preset-loads-but-inaudible).
 
 ### Per-channel regulator thresholds: newer SoundWire schema (`SUBSYS_37A317AA`)
 
@@ -1325,8 +1343,8 @@ convolver IRS-cache by kernel name. Without unique kernel names, EE silently
 reuses the previous variant's cached IR even after the .irs file is overwritten
 on disk. *Historical since 2026-08:* the converter names each impulse after a
 hash of its samples, so a regenerated FIR gets a new kernel name by itself and
-unique prefixes are unneeded. See "Rejected approaches → Rewriting
-`{preset}.irs` in place".
+unique prefixes are unneeded. See
+[Rewriting `{preset}.irs` in place](research/easyeffects-and-pipewire.md#r-irs-in-place-rewrite).
 
 **A note on metrics.** The `summarise_variants.py` output reports two residuals,
 `vsDAX` and `vsXML`. They answer different questions, and `vsXML` is the weaker

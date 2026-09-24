@@ -1,3 +1,38 @@
+# EasyEffects and PipeWire: WirePlumber, Flatpak, paths and sample rate
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits, and
+[ee-to-pipewire.md](../ee-to-pipewire.md) the PipeWire path.
+
+- **EasyEffects 7** loads the filter as nothing ([#93](#r-flatpak-xdg-roots)).
+- **The chain selected as the output** is two sinks in series, so two volume
+  controls, the chain's ahead of the tuning ([#63](#r-chain-as-system-output)).
+- **A graph above 48 kHz** makes the EasyEffects preset run hot by the
+  sample-rate ratio in dB ([#84](#r-convolver-resample-gain)).
+- **Presets** go to EasyEffects 8's data tree: on the Flatpak, the `data` root
+  of `~/.var/app/com.github.wwmm.easyeffects/{data,config}`. Every `lib/`
+  subprocess runs under `tool_env.c_locale()` ([#93](#r-flatpak-xdg-roots)).
+- **A regenerated FIR** gets a new impulse name, and one `load_preset` over
+  the socket makes it audible ([impulse names](#r-irs-in-place-rewrite)).
+- **`--doctor`** reads EasyEffects' live state over its local socket where the
+  socket answers, never the `easyeffects` CLI ([CLI](#r-ee-cli-live-state)).
+
+Open:
+
+- Why #22's reporter hears nothing is not yet confirmed, awaiting his report
+  ([#22](#r-preset-loads-but-inaudible)).
+- Whether a hand-picked chain suppresses Bluetooth auto-switching is untested:
+  the test needs a paired headset ([#63](#r-chain-as-system-output)).
+- The convolver gain error is not reported upstream yet
+  ([#84](#r-convolver-resample-gain)).
+- `FLATPAK_USER_DIR` is knowingly unhandled ([#93](#r-flatpak-xdg-roots)).
+- The upstream crash fix, wwmm/easyeffects#5306, is in no released version. The
+  hide mitigation stays until the installed version is past 8.2.9, a bet that
+  the next tag carries the fix ([#95](#r-irs-in-place-rewrite)).
+- Parked: a flag to opt out of `--doctor`'s redactions
+  ([#95](#r-irs-in-place-rewrite)).
+
 <a id="r-preset-loads-but-inaudible"></a>
 
 ## A preset that loads but is inaudible (issue #22)
@@ -693,3 +728,12 @@ wholesale, for a reporter who would rather send the real names.
 [ee-hide-on-failure]: https://github.com/wwmm/easyeffects/commit/8942fbc391440daa706bfd80e7d6887c523d363d
 [ee-conv-preset]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/convolver_preset.cpp
 [ee-conv-reload]: https://github.com/wwmm/easyeffects/blob/v8.2.8/src/convolver.cpp
+
+## Elsewhere
+
+- #84's deep-threshold regulator:
+  [design-notes](../design-notes.md#second-deep-threshold-tuning-issue-84s-yoga-slim-7-pro-14ach5-2026-08-30).
+- The unused EasyEffects built-ins and the convolver IR trim:
+  [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
+- The PipeWire converter's autogain translation:
+  [design-notes](../design-notes.md#translating-active-autogain-to-lsp-autogain_stereo-pw-converter).

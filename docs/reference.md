@@ -462,7 +462,7 @@ EasyEffects. It resamples the convolver kernel to whatever rate the PipeWire
 graph runs at and compensates no gain. On a graph above 48 kHz the preset
 therefore plays hot by the ratio of the two rates. A run and `--doctor` both
 warn. The PipeWire filter-chain path is unaffected. Measurement and mechanism:
-`docs/design-notes.md`, "A preset that plays hot".
+[A preset that plays hot](research/easyeffects-and-pipewire.md#r-convolver-resample-gain).
 
 ## Open threads — where to pick up work
 

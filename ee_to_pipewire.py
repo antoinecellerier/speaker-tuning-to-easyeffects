@@ -528,7 +528,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # Which control to use has a measured consequence, so say which half is
         # affected. The speaker correction is linear and identical either way;
         # only the compressor's behaviour on loud content moves with it
-        # (docs/design-notes.md, issue #63).
+        # (`r-chain-as-system-output`, issue #63).
         # "compressor and limiter", not "the compressor": the measurement says
         # the MBC, regulator and limiter all see the attenuated signal, and
         # naming one of the three reads as a promise about the other two.

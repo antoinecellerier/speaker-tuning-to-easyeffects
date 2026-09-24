@@ -242,7 +242,7 @@ def test_kernel_name_matches_irs_stem(generated):
 # EasyEffects re-reads an .irs only when the convolver's kernel name changes
 # (its preset loader skips the setter on an equal name), so a same-name
 # rewrite left the old FIR playing through any reload. The name now follows
-# the content. Why: docs/design-notes.md "Rejected approaches".
+# the content. Why: `r-irs-in-place-rewrite`.
 
 _HASHED = re.compile(r"\ADolby-Balanced-[0-9a-f]{8}\Z")
 

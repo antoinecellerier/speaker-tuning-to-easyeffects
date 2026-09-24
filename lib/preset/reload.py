@@ -5,7 +5,7 @@ in-memory chain until a preset is loaded again. The impulse's name follows
 its content (``lib/preset/emit.py`` ``kernel_name``), so one load over
 EasyEffects' local socket (``lib/ee_socket.py``) makes the change audible.
 This module decides when that load is the right thing to do. The policy and
-its declines: docs/design-notes.md "Rejected approaches".
+its declines: `r-irs-in-place-rewrite`.
 
 It sits beside ``autoload.py``, the other thing a run does to EasyEffects
 itself. It is kept apart from ``--doctor``, which never sends a mutating

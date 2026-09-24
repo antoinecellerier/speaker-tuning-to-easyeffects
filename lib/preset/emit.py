@@ -71,7 +71,7 @@ def kernel_name(preset_name: str, taps: np.ndarray) -> str:
     changes exactly when the sound does. Eight hex digits give git-short-SHA
     odds. The samples' last bits can differ between numpy/BLAS builds, so
     the name is stable on one machine, not across machines. Why, and the
-    rejected alternative: docs/design-notes.md "Rejected approaches".
+    rejected alternative: `r-irs-in-place-rewrite`.
     """
     return f"{preset_name}-{hashlib.sha256(taps.tobytes()).hexdigest()[:8]}"
 
