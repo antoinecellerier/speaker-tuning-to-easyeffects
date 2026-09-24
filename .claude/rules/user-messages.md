@@ -52,8 +52,8 @@ Rules that hold for anything added here:
   throughout", so a single-profile run shows nothing, and the default run is
   single-profile.
 - **Specific before generic.** Findings this run raised come before the
-  `--disable`/`--enable` menus. Once a finding has named a flag, the menus
-  shrink to one line per filter.
+  `--disable`/`--enable` menus. Keep the menus one line per filter, rendered the
+  same on every run: `print_troubleshooting` has the why.
 
 Prose long enough to need folding must ask for it, via `_cprint_wrapped` or
 `_print_flag_hint`. `cprint` hands text to the console verbatim, so URLs
@@ -93,11 +93,11 @@ A message must hold for **every** device that can reach it, not the one
 whose bug report prompted it. `--variant`, `--all-profiles`, each `--disable`
 name, SoundWire vs HDA and the simplified schema are all separate readers.
 
-`tests/test_cli.py` ("Closing-block copy contract") traps the one-sentence
-budget, the no-URL and no-empty-action rules, slug uniqueness, and that a
-clean run collapses to just the ask. When you add a raiser that isn't
-table-driven, extend `_every_finding()`, because the traps only cover what
-that walks.
+`tests/test_cli.py` traps the one-sentence budget, the no-URL and
+no-empty-action rules and slug uniqueness under "Closing-block copy contract",
+and that a clean run collapses to just the ask under "Copy that must stay true,
+not just readable". When you add a raiser that isn't table-driven, extend
+`_every_finding()`, because the traps only cover what that walks.
 
 After changing copy here, run the **/user-review** skill. The traps are
 structural and can't tell you a message is confusing, contradictory, or

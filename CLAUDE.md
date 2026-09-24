@@ -75,8 +75,8 @@
   and opening/merging PRs.
 - **Keep commit messages short.** Subject ≤72 chars. Add a body only where the
   *why* isn't evident from the diff, and then just the reason, not the
-  investigation behind it. Rationale and rejected alternatives go in `docs/`,
-  where they stay findable.
+  investigation behind it. A commit body is read once, so rationale and
+  rejected alternatives go in `docs/`, where they stay findable.
 - **Add a `CHANGELOG.md` entry** under `## Unreleased` when a meaningful
   user-facing functional change, a newly reported/tested device, or an in-depth
   research conclusion ships. Other plain docs edits get none. What counts and

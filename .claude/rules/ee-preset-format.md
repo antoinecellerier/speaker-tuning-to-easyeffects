@@ -17,8 +17,8 @@ fails, and the only symptom is untreated audio.
 - Enum parameters are string labels, not integer indices. Write
   `"type": "Bell"`, `"mode": "RLC (BT)"` and `"compression-mode": "Downward"`,
   never the LSP integer behind them. Writing the integer made EE load the
-  preset with the filter off, a bug `91423b8` fixed in our emitter. The
-  integers belong on the PipeWire side only, where
+  preset with the filter off, a bug `91423b8` fixed. The integers belong on
+  the PipeWire side only, where
   `lib/pipewire/plugins.py`'s `EE_*` tables convert the labels back. That
   module is in this rule's scope because the two sides have to agree on the
   exact label strings, character for character.

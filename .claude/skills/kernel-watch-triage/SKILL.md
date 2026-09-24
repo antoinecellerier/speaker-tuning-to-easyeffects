@@ -179,8 +179,8 @@ have carried it:
   Put per-watch verdicts first, then anything found while checking them. That
   includes problems the check exposed in our data, which land here too.
 - Touch `.github/kernel-watchlist.txt` only if the triage opened or closed
-  something, such as an investigation or a wrong term, in the commit that does
-  so. Don't add a term already covered by a broader one in the file: `alc287`
+  an investigation, in the commit that does so. Don't add a term already
+  covered by a broader one in the file: `alc287`
   already hits most Lenovo quirks. A redundant term doubles every future hit
   comment.
 - Triage alone gets no CHANGELOG entry, because `.claude/rules/changelog.md`

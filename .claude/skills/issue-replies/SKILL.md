@@ -96,10 +96,11 @@ spec refuted in one pass.
 
 - Lenovo: resolve the machine type to the global model name first. The name a
   reporter gives may be regional, such as China's XiaoXin / 小新 line, and
-  PSREF carries only global names. The machine type is the region-independent
-  key, and `--speaker-info` prints it as `Product:`, e.g. `83SG`. Search that
-  alone, restricted to `psref.lenovo.com`. Result titles read
-  `<Family>, <Model name>, Model:<MTM>`. Verified both ways: `83SG` gives
+  PSREF carries only global names, so a search on the name they typed lands in
+  regional retail listings and never reaches PSREF. The machine type is the
+  region-independent key, and `--speaker-info` prints it as `Product:`, e.g.
+  `83SG`. Search that alone, restricted to `psref.lenovo.com`. Result titles
+  read `<Family>, <Model name>, Model:<MTM>`. Verified both ways: `83SG` gives
   IdeaPad Pro 5 14AGP11 for #67, whose DMI says "XiaoXinPro 14GT AGP11", and
   `21CD` gives ThinkPad X1 Yoga Gen 7, the development machine. PSREF's own
   APIs return 403/404 and its pages are JS shells, so run this search by hand.

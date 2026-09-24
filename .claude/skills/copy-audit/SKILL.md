@@ -34,8 +34,9 @@ conversation from that report.
   regenerate only what is missing.
 - Use absolute paths in every shell command: a `cd` that fails leaves the
   shell elsewhere for every later call.
-- Run reviewers as subagents at `model: opus`, with one slice and one
-  evidence source each, as §3 says.
+- Run reviewers as subagents at `model: opus`, because this is
+  truth-checking, not comprehension. Give each one slice and one evidence
+  source, as §3 says.
 - Return the step-4 report verbatim as your final message: ranked, every
   finding with severity, the true statement and its evidence, the
   discarded findings with why, the known limits, and the patterns that

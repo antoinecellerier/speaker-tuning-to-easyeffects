@@ -45,5 +45,12 @@ constants.
 Parse no parameter from the base64 biquad blob `filter_coefficients` in
 `tuning-vlldp`. It is VLLDP-internal analysis filtering, **not** an audio-path
 equaliser. The audio-optimizer and speaker-PEQ parameters already capture the
-speaker correction it looks like it might carry. `docs/reference.md` "Not
-implemented" and research `r-filter-coefficients-blob` record the evidence.
+speaker correction it looks like it might carry, so parsing it would add a
+second, wrong source for values that are already right. `docs/reference.md`
+"Not implemented" and research `r-filter-coefficients-blob` record the
+evidence.
+
+This rule does **not** cover PipeWire node/sink selection
+(`lib/hardware/sinks.py`) or hardware probing generally, because they have no
+XML provenance to trace. They are heuristics over the running system, and a
+flag can always override them.
