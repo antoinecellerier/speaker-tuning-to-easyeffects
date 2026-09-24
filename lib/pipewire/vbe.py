@@ -38,7 +38,7 @@ CALF_SATURATOR_URI = "http://calf.sourceforge.net/plugins/Saturator"
 # Saturator shape: measurement-calibrated global engine constants, fit once
 # against the DAX bass-burst capture and identical for every device. They are
 # the same debt class as the SoundWire Calf BassEnhancer constants
-# (design-notes empirical-shortcut list). Each won its sweep by more than the
+# (`r-soundwire-bass-enhancer-constants`). Each won its sweep by more than the
 # 1.5 dB margin. The XML has no field for either.
 VBE_SAT_DRIVE = 4.0
 VBE_SAT_BLEND = -10.0

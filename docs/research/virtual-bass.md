@@ -1,3 +1,36 @@
+# Virtual bass: DAX's VBE, the Calf bass enhancer and `--enable virtual-bass`
+
+## Where this stands
+
+[reference.md](../reference.md) covers what the converter emits, and
+[ee-to-pipewire.md](../ee-to-pipewire.md) the PipeWire path.
+
+- **DAX runs VBE** on the dev X1 Yoga, an HDA device: odd harmonics at
+  near-fundamental amplitude on a 50 Hz tone ([VBE](#r-dax-virtual-bass)).
+- **Whether DAX engages it** is decided outside any file we read. #44's DAX
+  applies none with identical VBE fields ([#44](#r-dax-virtual-bass)).
+- **`--enable virtual-bass`**, opt-in and PipeWire-only, scores S = 4.43 against
+  DAX on one device, the dev X1 Yoga, where emitting nothing scores 10.01
+  ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
+- **The historical Calf BassEnhancer capture** on the dev X1 Yoga scores 18.43,
+  worse than doing nothing
+  ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
+- **SoundWire presets** emit Calf BassEnhancer by default, every knob
+  converter-chosen ([constants](#r-soundwire-bass-enhancer-constants)).
+
+Open:
+
+- What enables VBE on one device and not the other: engine generation and
+  product tier covary on our two data points. #44's machine on an updated
+  driver would be the cleanest discriminator ([#44](#r-dax-virtual-bass)).
+- The SoundWire bass-enhancer constants await a SoundWire device's DAX
+  bass-burst capture, the test that would falsify them
+  ([constants](#r-soundwire-bass-enhancer-constants)).
+- Revisiting a flip of the SoundWire stage to opt-in is gated on #29's capture.
+  The XML-anchored `floor = 35 Hz` / `scope = 160 Hz` candidate, deferred
+  2026-08-28, waits for the reporter's A/B or capture
+  ([#29](#r-soundwire-bass-enhancer-constants)).
+
 <a id="r-dax-virtual-bass"></a>
 
 ## DAX runs psychoacoustic VBE; the schema can't drive a per-device mapping
@@ -552,3 +585,14 @@ steering, the #25 failure mode, while `music`, the profile he likes, has it off.
 ask, and the SoundWire arm of the
 [conservative-autogain offsets](../design-notes.md#r-conservative-autogain-offsets)
 is what it exercises.
+
+## Elsewhere
+
+- The XML field inventory's bass-enhancement paragraph:
+  [design-notes](../design-notes.md#simplified-schema-xmls-gain_lgain_r-audio-optimizer-issue-22).
+- The 50 Hz bass-attenuation gap:
+  [XML-interpretation hypotheses](../design-notes.md#r-xml-interpretation-hypotheses).
+- The unused EasyEffects built-ins, Bass Loudness among them:
+  [design-notes](../design-notes.md#rejected-approaches) "Rejected approaches".
+- #44's loud-bass DAX captures and the dev device's low-end gap:
+  [design-notes](../design-notes.md#why-bypass-has-more-bass-than-the-preset-issue-44-round-3-2026-08-22).
