@@ -122,14 +122,10 @@ Each stage in the chain is a potential gain trap:
   the peak sample, so RMS power ≈ 0.00001 and the EasyEffects default would
   apply a **+50 dB boost**.
 - **Regulator `input-gain` (volmax).** Default slot:
-  `multiband_compressor#1.input-gain`, before band limiting, so the regulator
-  tames the boosted bass before the brickwall. Fallback: `limiter#0.input-gain`
-  when the regulator is absent. `--disable volmax` turns it off.
-  `--volmax-slot output-gain` re-routes it after the regulator. That is the
-  opt-out, pre-#23 placement, which on loud low frequencies could drive the
-  brickwall into distortion. Neither slot is Dolby-derived. Full finding,
-  on-device metrics and corpus verdict:
-  ["volmax-boost slot" below](#volmax-boost-slot-input-gain-vs-output-gain-issue-23).
+  `multiband_compressor#1.input-gain`. Fallback: `limiter#0.input-gain` when the
+  regulator is absent. `--disable volmax` turns it off. Why this slot, and the
+  `--volmax-slot output-gain` opt-out: the
+  [`volmax-boost` slot](#r-volmax-boost-slot).
 
 <a id="r-volmax-boost-slot"></a>
 
@@ -339,11 +335,11 @@ separate axis, the static presence bell DAX applies only on speech: −2.06 dB
 levels, as the scope-honesty note in the
 [fixed dynamics constants](#r-fixed-dynamics-constants) predicts.
 
-This reverses #23's trade on this tuning. There, `output-gain` was the placement
-that distorted on loud low frequencies. Here it is cleaner *and* louder than the
-default. Both readings can hold, because #23's device and this one sit at
-opposite ends of regulator aggressiveness. `--volmax-slot`'s own help already
-names "input-gain costs too much loudness on a device with an aggressive
+This reverses [#23's trade](#r-volmax-boost-slot) on this tuning. There,
+`output-gain` distorted on loud low frequencies; here it is cleaner *and*
+louder than the default. Both readings can hold, because #23's device and this
+one sit at opposite ends of regulator aggressiveness. `--volmax-slot`'s own help
+already names "input-gain costs too much loudness on a device with an aggressive
 regulator" as the exception. The reversal is not a default-flip signal on its
 own: that needs the bar in `.claude/rules/xml-derivability.md`, and this is one
 device measured on one stimulus.
@@ -364,14 +360,14 @@ back to the preset … way more balanced this way and I would say it's on par wi
 what I heard in Windows"*
 ([comment](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44#issuecomment-5399420807)).
 It is the first listener confirmation of the `output-gain` placement, from a
-deeper-threshold tuning than #23's: −30.9 dBFS across eleven bands here, against
-the X13's −24 dB active minimum. The two field verdicts pick opposite slots
-because the devices differ, exactly as the flag's help text predicts, not
-because either measurement is wrong. So the default stays `input-gain`, and the
-README's tested table carries this device with the flag. Whether an
-XML-derivable predictor, such as active-band count or deepest `threshold_high`,
-could pick the slot per tuning stays a hypothesis until a third device lands on
-one side or the other.
+deeper-threshold tuning than [#23's](#r-volmax-boost-slot): −30.9 dBFS across
+eleven bands here, against the X13's −24 dB active minimum. The two field
+verdicts pick opposite slots because the devices differ, exactly as the flag's
+help text predicts, not because either measurement is wrong. So the default
+stays `input-gain`, and the README's tested table carries this device with the
+flag. Whether an XML-derivable predictor, such as active-band count or deepest
+`threshold_high`, could pick the slot per tuning stays a hypothesis until a
+third device lands on one side or the other.
 
 The same comment attached the Windows `stimulus_bass_burst` captures asked for
 above: Dolby off and Dynamic, 48 kHz, from `capture_dax.py`. The reporter's
@@ -706,12 +702,10 @@ currently-ignored regulator fields might inform the engagement.
 
 - (d) Re-examine `regulator-stress-amount` as an engagement/aggressiveness
   modifier, not a threshold offset. It's the only per-device-varying regulator
-  field. On `dynamic` it's `144,144,0,…`, non-zero on exactly bands 0–1 (47/141
-  Hz), the under-engaging bands. The
-  [`regulator-stress-amount` follow-up](#r-regulator-stress-amount) rejected it
-  only under the *threshold-offset* reading, where lowering threshold moved EE
-  away from DAX. The new framing (DAX intensifies limiting on "stressed" bands →
-  effective ratio ~2.95) is untested and could both explain DAX and stay
+  field. On `dynamic` it's `144,144,0,…`, non-zero on exactly the
+  under-engaging bands 0–1 (47/141 Hz). The
+  [`regulator-stress-amount` follow-up](#r-regulator-stress-amount) holds the
+  case for this framing. It is untested and could both explain DAX and stay
   XML-only.
 - (e) ~~`regulator-relaxation-amount` (=96) as the release control~~ **Dropped
   2026-06-18.** It is not XML-derivable: it is frozen at 96 across the whole
@@ -825,8 +819,8 @@ transients to characterise, which is deferred.
 round 3).** That reading came from the dev X1 Yoga, whose regulator has four
 active bands at −10/−9/−8/−5 dBFS. `17AA380D` has eleven active bands, deepest
 −30.875 dBFS. There the regulator measurably engages on the ordinary −18 dBFS
-pink battery: −3.24 dB at 328 Hz, the −30.875 band itself, against ≈0 above 1
-kHz. It removes 10.3 dB below 300 Hz on a −5 dBFS bass burst. So the
+pink battery, and removes 10.3 dB below 300 Hz on a −5 dBFS bass burst (the
+[#44 round-3 measurement](#r-deep-threshold-bass-loss)). So the
 under-engagement thread above is a statement about shallow-threshold tunings. On
 deep-threshold ones the same mapping over-engages relative to what DAX shows at
 the one level both were measured. That also gives the volmax-slot question a
@@ -905,10 +899,8 @@ aggressiveness modifier, intensifying limiting (ratio/attack) on stressed bands,
 which the original threshold-offset experiment never tried. Queue it alongside
 the regulator-only capture (the
 [fixed dynamics constants](#r-fixed-dynamics-constants)). The
-`regulator-relaxation-amount` companion-decode was dropped 2026-06-18: it is not
-XML-derivable, frozen at 96 corpus-wide. The 2026-07-01 re-analysis found the
-under-engagement is static, not release-timing (the
-[fixed dynamics constants](#r-fixed-dynamics-constants)).
+`regulator-relaxation-amount` companion-decode was dropped 2026-06-18 (the
+[fixed dynamics constants](#r-fixed-dynamics-constants) (e)).
 
 The flag has been reverted, per CLAUDE.md "Investigation flags are
 scaffolding". The mapping math is documented here as a permanent finding
@@ -1104,9 +1096,7 @@ bypass. That is why the low end ends up under bypass outright:
 
 The uniform −9.2 dB is consistent with the ≈−8 dB absolute EE−DAX offset
 measured on the dev device in the unvalidated
-[PEQ anti-clipping trim](#r-peq-anti-clipping-trim) entry. That entry records
-the offset as "leveler boost + our −3 dB trim + convolver peak-normalisation,
-inseparable".
+[PEQ anti-clipping trim](#r-peq-anti-clipping-trim) entry.
 
 **Why normalisation was right when it shipped, and why restoring is defensible
 now.** Peak normalisation is not a decision anyone revisited and waved through.
@@ -1141,9 +1131,9 @@ bug. The restore also does not touch the curve's *shape*, which is what "scales
 or clamps the AO curve" would have meant.
 
 **Placement.** It rides the same slot as `volmax-boost`, regulator `input-gain`
-by default, so the per-band limiter sees it before the brickwall. Issue #23
-measured that placement at 0.06% THD against 11.6% for the post-band
-alternative.
+by default, so the per-band limiter sees it before the brickwall. Issue #23's
+dev-device A/B measured that placement at 0.06% THD against 11.6% for the
+post-band alternative ([`volmax-boost` slot](#r-volmax-boost-slot)).
 
 **Channel re-referencing.** Normalising each channel to its own peak also
 flattens the L/R level relationship the two AO curves ask for. Over the 3051
@@ -1183,8 +1173,8 @@ switched on. With the `--enable coupled-bands` flag gone, the `ask` from
 **How a 12 dB offset stayed unexamined for months.** Absolute tooling existed:
 `compare_ee_vs_dax.py --absolute` shipped 2026-06-12 (`7aefebd`), and the
 [PEQ anti-clipping trim](#r-peq-anti-clipping-trim) names the trap outright:
-"the default 1 kHz normalization destroys exactly this observable". The offset
-was measured twice, at −11.5 dB and then ≈−8 dB. Two things buried it anyway:
+"the default 1 kHz normalization destroys exactly this observable". That entry
+measured the offset twice. Two things buried it anyway:
 
 - **The flagship comparison was normalised.** Issue
   [#12](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/12)
