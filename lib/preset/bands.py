@@ -171,7 +171,9 @@ def make_lp_band(freq: float, order: int) -> dict:
     Mirror of make_hp_band with LSP's "Lo-pass" mode. The LSP slope
     doubling convention is the same (see make_hp_band docstring), so order N
     maps to slope ``x{N/2}`` via ``_ORDER_TO_LSP_SLOPE``. Rare: a few hundred
-    LP filters across the corpus, mostly order=8 tweeter-guard rolloff.
+    LP filters across the corpus, but the order-8 19.5 kHz ones (most of them)
+    ship disabled and are never parsed; the enabled ones are order 2-4 at
+    8-10 kHz.
     Experimental path, not yet audibly validated.
     """
     return _make_passfilter(freq, order, "Lo-pass")

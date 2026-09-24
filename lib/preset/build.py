@@ -183,7 +183,8 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
         emitted.add("regulator")
         limiter_boost = 0.0
         # A band that is enabled at a >= 0 dB threshold can only come from
-        # the coupled-bands mapping: the default path disables those.
+        # the coupled-bands mapping: the uncoupled reading
+        # (--disable coupled-bands) disables those.
         coupled_fired = any(
             reg[f"band{i}"]["compressor-enable"]
             and reg[f"band{i}"]["attack-threshold"] >= 0
@@ -200,7 +201,7 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
             # own because the -active one cannot serve here: --disable
             # forces couple_bands off, so `coupled_fired` is false on every
             # run that passes the flag. Keying the "had no effect" warning
-            # off its absence would make it fire on ~99% of opt-out runs,
+            # off its absence would make it fire on every opt-out run,
             # including runs that do drop zones (one dropped 16). Autogain
             # has no such inversion, because --enable is what sets its
             # marker, so mirroring autogain here would be wrong. Trap:

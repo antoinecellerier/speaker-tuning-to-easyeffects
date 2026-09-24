@@ -23,7 +23,7 @@ SAME preset on the SAME machine, controlling live-system measurement noise:
 Routing reuses the proven `tools/measure_ee/setup_null_sink.sh` (loads
 `ee_capture`, repoints EE output there; restored by teardown.sh). The PW
 condition uses a lean self-contained `pipewire -c filter-chain.conf` child
-loader (its PID is the chain's whole CPU; setup_chain.sh is rotted), and EE is
+loader (its PID is the chain's whole CPU), and EE is
 stopped for the bypass and PW conditions so its analyzers don't burn CPU.
 
 Metrics: CPU cycles via perf (headline, frequency-invariant — needs perf and
@@ -334,7 +334,7 @@ def capture_monitor(src_node, src_ports, out_wav, seconds):
 
 
 def pw_chain_up(preset):
-    """Lean, self-contained chain loader (setup_chain.sh is rotted): a v1
+    """Lean, self-contained chain loader: a v1
     virtual-sink conf (no smart-filter) pinned to ee_capture, in an isolated
     `pipewire -c filter-chain.conf` child whose PID is the chain's whole CPU."""
     conf = Path.home() / ".config/pipewire/filter-chain.conf.d" / f"{PERF_NODE}.conf"

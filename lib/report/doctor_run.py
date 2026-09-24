@@ -847,8 +847,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "install": "Flatpak" if ee_paths.USE_FLATPAK else "native",
         "output_dir": doctor.tilde(output_dir),
         "irs_dir": doctor.tilde(irs_dir),
-        # Every file in the folder, ours or not: the Environment row counts
-        # folder contents, and the folded preset line explains the difference.
+        # Every file in the folder, ours or not: the `Install:` row of
+        # `=== EasyEffects setup ===` counts folder contents, and the folded
+        # preset line explains the difference.
         "preset_count": len(generated_names) + foreign + len(unreadable),
         "foreign_preset_count": foreign,
         "bypass_preset_present": bypass_present,
@@ -1086,11 +1087,12 @@ def _collapse_preset_checks(checks: list[CheckResult], *,
             folded = True
             if passing:
                 # The detail reconciles the one number this line cannot
-                # explain by itself: the preset count in the Environment
-                # block above includes the bypass preset (no filters, nothing
-                # to check) and any presets the user put there themselves,
-                # which this tool doesn't judge. The summary needs no
-                # reconciling here: it counts the lines it printed.
+                # explain by itself: the preset count on the `Install:` row
+                # of `=== EasyEffects setup ===` above includes the bypass
+                # preset (no filters, nothing to check) and any presets the
+                # user put there themselves, which this tool doesn't judge.
+                # The summary needs no reconciling here: it counts the lines
+                # it printed.
                 #
                 # The label says "passed", not "load their impulse file": a
                 # preset can fail this check for reasons that have nothing to

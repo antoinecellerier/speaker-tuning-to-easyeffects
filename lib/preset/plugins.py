@@ -315,8 +315,8 @@ def make_multiband_compressor(mb_comp: dict | None,
         if i < n_bands:
             b = decoded[i]
             # Band i sits between its lower edge (crossovers[i-1] for i>0,
-            # else 0/DC) and its upper edge (crossovers[i] for i<n_bands-1,
-            # else 20 kHz Nyquist).
+            # else 10 Hz) and its upper edge (crossovers[i] for i<n_bands-1,
+            # else 20 kHz).
             lower = crossovers[i - 1] if i > 0 else 10.0
             upper = crossovers[i] if i < n_bands - 1 else 20000.0
             band = {}
@@ -419,18 +419,18 @@ def make_regulator(regulator: dict | None, freqs: list[int],
     `regulator-stress-amount`, `regulator-overdrive` and
     `regulator-relaxation-amount` are parsed for visibility, in the debug
     print and the `_UNMODELED_FEATURES` watch list, but not mapped here. See
-    research `r-regulator-stress-amount` for the empirical work that closed
-    that hypothesis.
+    research `r-regulator-stress-amount` for the empirical work that rejected
+    the threshold-offset reading.
 
     couple_bands (default on since 2026-08-11, `--disable coupled-bands`
     opts out, issue #44): a zone whose threshold_high is >= 0 dBFS could
-    be read as "never triggers" and disabled. A second-device DAX capture
-    showed band dynamics on exactly such bands when the XML marks them
-    non-isolated (`isolated_band` 0), so a zero-dB zone whose bands are
-    all isolated_band==0 takes its threshold at face value. That makes it
-    a live limiter at full scale, which engages when upstream gain (e.g.
-    volmax on input-gain) pushes the band past 0 dBFS. Zones without isolated
-    data, or containing an isolated_band==1 band, stay disabled.
+    be read as "never triggers" and disabled. Instead, a zero-dB zone whose
+    bands are all non-isolated (isolated_band==0) takes its threshold at
+    face value. That iso=0 scoping is a conservative gating choice, not
+    established causation. It makes the zone a live limiter at full scale,
+    which engages when upstream gain (e.g. volmax on input-gain) pushes the
+    band past 0 dBFS. Zones without isolated data, or containing an
+    isolated_band==1 band, stay disabled.
 
     The reading is a hypothesis: no capture has confirmed it, because the
     levels that engage it are above what the capture battery reaches
@@ -503,7 +503,7 @@ def make_regulator(regulator: dict | None, freqs: list[int],
                 cross_freq = 10.0  # not used for band 0
 
             # Bands with threshold >= 0 dB never trigger; disable to save CPU,
-            # unless the experimental coupled-bands mapping takes the 0 dBFS
+            # unless the coupled-bands mapping (the default) takes the 0 dBFS
             # threshold at face value on a fully non-isolated zone (docstring).
             is_active = threshold < 0
             if not is_active and couple_bands:
@@ -555,8 +555,8 @@ def _coupled_bands_eligible(regulator: dict | None) -> bool:
     excludes from limiting, and *all* of its bands are marked non-isolated
     (isolated_band == 0).
 
-    Zone-level, deliberately: this gates the run's "Added a limit to some of
-    the bands..." line. A band-level `any()` would claim a limit that never
+    Zone-level, deliberately: this gates the run's "Added a limit to N more
+    bands..." line. A band-level `any()` would claim a limit that never
     appears on 274 of 37,949 eligible corpus profiles (re-derived
     2026-08-11). There the zone containing that band also holds an isolated
     one, and make_regulator declines it. The two must answer alike or the
@@ -627,7 +627,7 @@ def make_limiter(input_gain: float = 0.0) -> dict:
 
     Placed at the very end of the chain as a safety net. Uses the LSP
     limiter plugin with a -1 dB threshold and 1 ms lookahead for
-    transparent true-peak limiting.
+    transparent peak limiting.
 
     input_gain is the fallback injection point for Dolby's volmax-boost
     when the regulator (multiband_compressor#1) is absent, so the

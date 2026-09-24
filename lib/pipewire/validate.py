@@ -389,7 +389,7 @@ def validate(nodes: list[dict], schemas: dict[str, dict[str, Port]],
 # What a run can end as. Four states, named rather than numbered: -1/0/1/2 at
 # a call site would say nothing about which of them must stop a conf being
 # written.
-NO_TOOLING = "no-tooling"   # neither CLI is installed, so nothing was checked
+NO_TOOLING = "no-tooling"   # a CLI it needs is missing, so nothing was checked
 UNCHECKED = "unchecked"     # the check could not run: a skip, not a verdict
 CLEAN = "clean"             # every control value matched its port
 ERRORS = "errors"           # at least one did not; the conf must not be used
@@ -434,8 +434,8 @@ class Report:
 # The budget for the whole check, not for each `lv2info` inside it. The check
 # runs in process, so without this budget only the per-exec timeouts above
 # would bound it, and those multiply by the number of distinct plugin URIs in
-# the conf.
-# Six of them at ten seconds each is a minute of a user staring at nothing.
+# the conf. Six of them at ten seconds each is a minute of a user staring at
+# nothing. 30 s keeps the bound the check had when it ran in a subprocess.
 # The deadline is read between execs rather than threaded into them, so the
 # worst case is this budget plus one hung `lv2info`, and a URI the budget cuts
 # off is reported like any other schema we could not read.

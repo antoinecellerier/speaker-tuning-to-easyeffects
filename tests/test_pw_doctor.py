@@ -795,8 +795,8 @@ def test_the_plugin_list_says_it_is_the_catalogue_not_the_confs_needs(monkeypatc
 
 
 def test_the_report_probes_lv2info_once(tmp_path, monkeypatch):
-    """Two readers of one answer, not two spawns: the Environment listing and
-    the LV2 plugins check. Probing per reader is eight subprocesses paid
+    """Two readers of one answer, not two spawns: the filter-chain setup block
+    and the LV2 plugins check. Probing per reader is eight subprocesses paid
     twice, and — worse — two blocks that can disagree."""
     calls = []
     monkeypatch.setattr(checks, "_probe_plugins",

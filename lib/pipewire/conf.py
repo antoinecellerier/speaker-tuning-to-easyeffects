@@ -244,8 +244,9 @@ def format_conf(stages: list[Stage], links: list[dict],
     transparently to that hardware sink: apps keep targeting the
     speaker sink as the default, WirePlumber's link resolver routes
     them through the filter automatically, the chain auto-bypasses on
-    HDMI/Bluetooth/USB, and there's no second volume layer. When unset,
-    the conf falls back to the v1 virtual-sink behaviour.
+    HDMI/Bluetooth/USB, and apps have no reason to touch the chain sink's
+    own volume, though it still applies (issue #63). When unset, the conf
+    falls back to the v1 virtual-sink behaviour.
 
     ``target_object`` is the lower-level "pin playback to this node"
     used by the measurement rig to redirect into a null sink. It
@@ -291,10 +292,9 @@ def format_conf(stages: list[Stage], links: list[dict],
         # bypasses automatically when audio routes anywhere other than
         # ``target_sink``.
         #
-        # The chain sink keeps its own volume, and it applies here too
-        # (an earlier wording of this comment said "no second volume
-        # layer"): measured 7.9x down with the speaker selected and the
-        # chain at 0.125.
+        # The chain sink keeps its own volume, and it applies here too:
+        # measured 7.9x down with the speaker selected and the chain at
+        # 0.125.
         # What smart-filter routing removes is the *reason to touch it*.
         # --doctor's "Chain volume" check catches one left down
         # (issue #63).

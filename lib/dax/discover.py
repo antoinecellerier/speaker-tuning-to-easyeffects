@@ -65,7 +65,8 @@ def is_dolby_tuning_filename(name: str) -> bool:
     ``SDW``) would skip the ``HDAUDIO_``/``INTELAUDIO_``/``PCI_``/``AUCD_``
     DriverStore spellings of the same tunings, and count the
     ``_dmic``/``_amic`` microphone files as speaker ones.
-    ``tests/test_corpus_audit.py::test_is_dax3_xml_name_filter`` traps it.
+    ``tests/test_corpus_audit.py::test_is_dax3_xml_name_filter`` traps it for
+    all four spellings and both companions.
     """
     if name.lower().endswith(_NON_DAX3_FILENAME_SUFFIXES):
         return False
@@ -317,9 +318,10 @@ def autoprobe_all_dolby_xmls() -> list[Path]:
     share this function so the two walks cannot drift apart:
 
     1. **Mount probe**: every NTFS-family mountpoint whose DriverStore
-       resolves, walked the way ``find_tuning_xml`` walks it. That is the
-       ``dax3_ext_*.inf_*`` wrappers, then the store directory itself, since
-       hand-extracted layouts keep the XMLs flat.
+       resolves. It walks the ``dax3_ext_*.inf_*`` wrappers, then the store
+       directory itself, since hand-extracted layouts keep the XMLs flat.
+       ``find_tuning_xml`` reads the store directory only when it holds no
+       wrappers; this walk always reads both.
     2. **CWD probe**: every directory under the current directory (bounded
        depth, hidden directories pruned) that directly contains a Dolby XML.
 

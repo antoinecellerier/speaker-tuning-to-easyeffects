@@ -237,7 +237,7 @@ def add_filter_tweak_args(container, *, only=None):
         # #44 is NOT a coupled-bands case: coupled-bands measured inert there
         # (research `r-deep-threshold-bass-loss`), so the coupled-bands hint in
         # this help must not cite #44. Its fix was --volmax-slot output-gain,
-        # which E-022 below names.
+        # which the --volmax-slot help below names.
         help="drop a filter from the generated preset (repeatable). "
              f"Valid names: {', '.join(messages.DISABLEABLE_FILTERS)}. "
              "Try --disable volmax if output sounds too loud or saturated. "
@@ -501,8 +501,9 @@ def _configure_autoload(args, autoload_preset: str) -> None:
 def _speaker_environment_findings(endpoint: str) -> list[Finding]:
     """Probe the speaker environment and return the findings raised, in probe order.
 
-    The probes are the smart-amp firmware gate, hidden woofer pin, unlisted
-    pin count and kernel age. Each prints what it finds where it finds it.
+    The probes are the smart-amp firmware gate, hidden woofer pin, misrouted
+    speaker pin, fixed-level speaker pin, unlisted pin count and kernel age.
+    Each prints what it finds where it finds it.
 
     Returns the findings rather than merging them into main()'s dict, so the
     caller's merge stays pure bookkeeping: setdefault prints nothing, so the
@@ -558,9 +559,9 @@ def _speaker_environment_findings(endpoint: str) -> list[Finding]:
 class RunTally:
     """Everything the per-profile loop accumulates for the closing block.
 
-    One record rather than five parallel locals: the loop visits up to nine
-    profiles and every one of them adds to all five. Naming them as one thing
-    keeps the loop's inputs readable at its head."""
+    One record rather than seven parallel locals: the loop visits up to nine
+    profiles and fills all seven. Naming them as one thing keeps the loop's
+    inputs readable at its head."""
 
     # Preset names in emission order. The starting preset falls back to the
     # first (autoload.starting_preset), so the order is part of the contract.
@@ -708,12 +709,12 @@ def main(argv: list[str] | None = None,
     # of its own. `emit` and `profile` are what pull it in: between them they
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
-    # at the top (console, doctor, ee_paths; dax.{discover,parse};
-    # hardware.{speakers,sinks}; preset.autoload; report.{findings,speaker,
-    # doctor_run,environment,messages}) reaches no numpy. That is the whole
-    # predicate, and it is not "stdlib-only": console owns the optional rich
-    # import and still belongs at the top, because rich costs milliseconds
-    # where the DSP stack costs ~0.35 s.
+    # at the top (console, doctor, ee_paths, ee_socket, packages;
+    # dax.{discover,parse}; hardware.{speakers,sinks}; preset.{autoload,reload};
+    # report.{findings,speaker,doctor_run,environment,messages}) reaches no
+    # numpy. That is the whole predicate, and it is not "stdlib-only": console
+    # owns the optional rich import and still belongs at the top, because rich
+    # costs milliseconds where the DSP stack costs ~0.35 s.
     #
     # Before the loop rather than inside it, to skip the repetition:
     # profile_types is never empty by here (the empty case returned above),
@@ -726,7 +727,7 @@ def main(argv: list[str] | None = None,
         from lib.report import profile as report_profile
     except ModuleNotFoundError as exc:
         if (exc.name or "").split(".")[0] == "lib":
-            # Two of the three imports above are first-party. A module missing
+            # Both imports above are first-party. A module missing
             # from inside their graph arrives here as the same exception numpy
             # does: `lib/preset/build.py` does `from lib.preset.bands import …`,
             # two hops down. There is nothing to install for one, so it is

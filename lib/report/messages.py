@@ -502,7 +502,7 @@ def print_troubleshooting(findings: list[Finding],
         print()
         console.cprint("dim", "  Optional extras, switched off by default:")
         # On a device whose tuning pairs the leveler with sub-stages we can't
-        # reproduce, --enable autogain is the switch that turns them on. The
+        # reproduce, --enable autogain runs our leveler without them. The
         # run says so in the leveler-gap note far above, and the menu row
         # below points back at it. Without that, the two would never meet.
         for name in enable_hints:

@@ -972,7 +972,7 @@ def test_regulator_all_zero_thresholds_yields_no_active_band():
     assert not any(reg[f"band{i}"]["compressor-enable"] for i in range(8))
 
 
-# --- Experimental --enable coupled-bands (isolated_band, issue #44) ---
+# --- Coupled-bands (default; isolated_band, issue #44) ---
 
 def test_regulator_coupled_bands_activates_nonisolated_zero_zone():
     """With couple_bands on, a 0 dBFS zone whose bands are all
@@ -4458,7 +4458,7 @@ def test_no_presets_found_names_what_it_can_see():
     assert only_theirs.startswith("no speaker presets from this tool found in ~/o "
                                   "(the 2 preset files there weren't written by it)")
     # With the bypass preset there too the count says "other", so it can be
-    # reconciled with the Environment row's total.
+    # reconciled with the `Install:` row's total.
     assert "(the 1 other preset file there wasn't written by it)" in \
         doctor_run._no_presets_found("~/o", 1, True)
     assert "(the 2 preset files there couldn't be read)" in \

@@ -31,16 +31,16 @@ EasyEffects doctor so the two read as one tool: PASS/WARN/FAIL/UNKNOWN,
 under bare names because string constants and a record type hold no state a
 patch would have to reach. The functions stay module-qualified.
 
-This doctor ends on the same hardware dump the EasyEffects one prints, because
-hardware sits under the whole chain and the questions it answers are the same
-either side. It comes from ``lib/report/speaker.py``, imported at the top
-because it is a sibling under ``lib/``. It needs no deferred, ``try``-guarded
-import: it costs a few milliseconds of stdlib on top of what this module
-already imports, not the generator's NumPy/SciPy, and an ImportError on a lib
-sibling is a bug rather than a condition to degrade around. It keeps the local
-name ``gen`` from an earlier deferred ``import dolby_to_easyeffects``: the two
-call lines are moved lines, and a move commit may not re-point what it
-carries.
+This doctor opens, right after the header, on the same hardware dump the
+EasyEffects one prints, because hardware sits under the whole chain and the
+questions it answers are the same either side. It comes from
+``lib/report/speaker.py``, imported at the top because it is a sibling under
+``lib/``. It needs no deferred, ``try``-guarded import: it costs a few
+milliseconds of stdlib on top of what this module already imports, not the
+generator's NumPy/SciPy, and an ImportError on a lib sibling is a bug rather
+than a condition to degrade around. It keeps the local name ``gen`` from an
+earlier deferred ``import dolby_to_easyeffects``: the two call lines are moved
+lines, and a move commit may not re-point what it carries.
 """
 
 from __future__ import annotations
@@ -193,8 +193,8 @@ def _pw_dump() -> list | None:
 
 # The one unreadable cause with a remedy, so the reason is a constant rather
 # than a phrase spelled twice: `check_conf_contents` keys off it to offer the
-# package, and the Environment line prints it. The other two causes have no
-# command behind them, so they are only ever text.
+# package, and the setup block's conf line prints it. The other two causes
+# have no command behind them, so they are only ever text.
 NO_SPA_JSON_DUMP = "spa-json-dump not installed"
 
 
@@ -397,7 +397,7 @@ def sink_volumes(dump) -> dict[str, float]:
     """node.name → the linear volume PipeWire is applying, per Audio/Sink.
 
     Linear amplitude, not the percentage sound settings show: PulseAudio maps
-    its 0-100 % through a cube, so 40 % is 0.064 and −23.8 dB. Both renderings
+    its 0-100 % through a cube, so 40 % is 0.064 and −23.9 dB. Both renderings
     matter: the percentage is what the reader recognises from their own
     settings, and the dB is the size of the problem. So this returns the raw
     value and ``_volume_reading`` formats it.
@@ -416,7 +416,7 @@ def sink_volumes(dump) -> dict[str, float]:
 
 
 def _volume_reading(linear: float) -> str:
-    """"40 % (−23.8 dB)" — the way the reader's own settings would show it."""
+    """"40 % (-23.8 dB)" — the way the reader's own settings would show it."""
     percent = round(100 * (linear ** (1 / 3)))
     if linear <= 0:
         return "0 % (silent)"
@@ -480,9 +480,10 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
     Measured on WirePlumber 0.5.15: get_filter_from_target returns the first
     filter matching a target and get_filter_target "the next filter with
     matching target", so two installed confs put both chains in the path:
-    every stage twice, convolver included. The tool no longer creates this
-    state, but a machine that reached it before the fix stays broken
-    silently.
+    every stage twice, convolver included. No single run creates this state:
+    a multi-chain run needs --target-sink ''. Two separate runs still can, and
+    the converter only warns as the second conf lands (``warn_if_stacked``),
+    so a machine in this state stays broken silently.
     """
     by_target: dict[str, list[str]] = {}
     for c in chains:
@@ -747,14 +748,14 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
 
     if picked is not None and picked.smart:
         # The target sink is named by the step below, unwrapped, and by the
-        # environment block's `smart→` line. Naming it here too would put a
-        # 70-character node name inside wrapped prose, which folds it mid-name.
-        # The detail claims it is named below only when a step will actually
-        # name it. A smart chain whose filter.smart.target didn't parse reaches
-        # this same detail with no steps, and a pointer to nothing is worse
-        # than none. Same for a target whose name carries an address: that
-        # step is replaced by prose that names nothing, so the pointer must go
-        # with it.
+        # filter-chain setup block's `smart→` line. Naming it here too would
+        # put a 70-character node name inside wrapped prose, which folds it
+        # mid-name. The detail claims it is named below only when a step will
+        # actually name it. A smart chain whose filter.smart.target didn't
+        # parse reaches this same detail with no steps, and a pointer to
+        # nothing is worse than none. Same for a target whose name carries an
+        # address: that step is replaced by prose that names nothing, so the
+        # pointer must go with it.
         names_it = (" (named in the fix below)"
                     if picked.target and _runnable(picked.target) else "")
         detail = (
@@ -861,8 +862,8 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
         # state to reassure anyone about.
         #
         # The effective sink is also named by the step below and marked in the
-        # environment block, so it is not repeated here. A 70-character node
-        # name inside wrapped prose folds across two lines mid-name.
+        # filter-chain setup block, so it is not repeated here. A 70-character
+        # node name inside wrapped prose folds across two lines mid-name.
         reassurance = (" Nothing is wrong right now — audio follows the sink "
                        "marked ← default above — but" if defaults.effective
                        else " But")
@@ -1028,7 +1029,7 @@ def _probe_plugins() -> PluginProbe:
 
     The probe half of the plugin question, kept apart from both its readers
     for the reason the module docstring gives. It is also kept apart because
-    it is eight subprocesses: the Environment block and
+    it is eight subprocesses: the filter-chain setup block and
     `check_plugins_present` are two readers of one answer, not two spawns.
     """
     if tool_env.which("lv2info") is None:
@@ -1046,7 +1047,7 @@ def _probe_plugins() -> PluginProbe:
 
 
 def _plugin_presence(probe: PluginProbe | None = None) -> list[str]:
-    """Which LV2 packages the chain needs are installed, as Environment facts.
+    """Which LV2 packages the chain needs are installed, as setup-block facts.
 
     Inventory, not diagnosis: this block is the listing a reader
     cross-references, and the fix for a missing one lives in the check block
@@ -1080,8 +1081,8 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
 
     module-filter-chain drops the *whole file* when one plugin in it won't
     load, so an absent package is the commonest reason a conf on disk does
-    nothing at all. The Environment block lists eight answers without saying
-    what to do about any of them.
+    nothing at all. The filter-chain setup block lists eight answers without
+    saying what to do about any of them.
 
     Judged against the confs, not against the eight URIs the converter is
     *able* to emit. Which ones a chain uses depends on the profile and the
@@ -1103,7 +1104,7 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
     a package to a reader whose report already says the directory is empty
     (test_no_lv2info_and_no_conf_is_not_a_question_about_nothing). The
     presence of all eight still reaches a pasted report through the
-    Environment block, which is inventory and says only what it found.
+    filter-chain setup block, which is inventory and says only what it found.
     """
     wanted = {uri for c in confs for uri in c.plugins}
     if not wanted:
@@ -1175,9 +1176,9 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     wireplumber = (wireplumber_running_version(dump)
                    or session.wireplumber_version())
     pipewire = session.pipewire_version()
-    # Probed here for the reason the WirePlumber version is: the Environment
-    # block renders these facts and the check below judges them, and eight
-    # lv2info spawns is not a thing to pay for twice.
+    # Probed here for the reason the WirePlumber version is: the filter-chain
+    # setup block renders these facts and the check below judges them, and
+    # eight lv2info spawns is not a thing to pay for twice.
     plugin_probe = _probe_plugins()
 
     checks = [c for c in (

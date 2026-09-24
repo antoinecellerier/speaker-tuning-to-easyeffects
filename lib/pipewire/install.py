@@ -26,11 +26,11 @@ nothing here reaches the DSP stack.
 
 The block from ``QUIT_EE_HINT`` down is the same seam for
 ``dolby_to_pipewire.py``: restart, poll ``pw-cli`` until the nodes appear,
-say what is still to be picked, and say how to undo the whole thing. It has
-no edge to ``lib.pipewire.checks`` and adds none. That direction is the one
-deliberately left open so the two cannot form a cycle. It is also where this
-module's ``shutil``/``subprocess``/``time`` bindings are read, which is what
-the wrapper's tests patch through.
+say what is still to be picked, and say how to undo the whole thing. Its one
+edge to ``lib.pipewire.checks`` is the function-local import in
+``speaker_attenuation``. It is also where this module's
+``shutil``/``subprocess``/``time`` bindings are read, which is what the
+wrapper's tests patch through.
 """
 
 from __future__ import annotations
@@ -257,14 +257,16 @@ V1_SECOND_VOLUME_HINT = ("it has a volume control of its own, on top of your "
 
 
 def speaker_attenuation() -> str:
-    """Return "your speakers are at 40% (-23.8 dB)" when turned down, else "".
+    """Return a reading of the speakers' level when turned down, else "".
+
+    The reading is "your speakers are at 40 % (-23.8 dB) right now".
 
     Telling someone to leave their speakers at 100 % is advice; telling them
     what those speakers are set to right now is a reading, and it is the half
     they cannot see once the chain is their selected output. Costs a pw-dump on
     the v1 path only, which is the fallback mode, not the default one.
     """
-    from lib.pipewire import checks  # local: checks imports this module
+    from lib.pipewire import checks  # local: install's one edge to checks
     name, _ = _autodetect_speaker_sink()
     if not name:
         return ""

@@ -903,7 +903,7 @@ def detect_speaker_firmware_gates() -> list[FirmwareGate]:
     gate exists. Callers ask `amixer_present()` too, since those two mean
     opposite things to the reader.
     """
-    # Demo/preview hook (same ATMOS_* convention as the test corpus env vars):
+    # Demo/preview hook:
     # inject a synthetic gate so the issue-#17 warning can be previewed on a
     # machine without a TI smart amp. The value is the gate *state*:
     # DEMO_FIRMWARE_GATE=off (or 0) shows the muted case a user would see
@@ -1067,7 +1067,7 @@ def find_hidden_speaker_pin(
     codec has no pin 0x14/0x17 to be short of, so a machine-wide PCI id can't
     make it look like the analog one.
 
-    Returns ``(quirk, codec subsystem id, pins actually missing)``. The missing
+    The missing-pins element holds only the pins actually missing, and that
     list is what the messages name. Reporting every pin the fixup declares
     would tell a user their working pin is broken too.
     """

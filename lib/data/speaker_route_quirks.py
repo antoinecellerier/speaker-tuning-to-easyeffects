@@ -55,6 +55,9 @@ class RouteQuirk(NamedTuple):
                       # warning can link what it claims. Usually the commit that
                       # added the entry; after an upstream edit of the line, the
                       # edit. "" = not resolved yet, which links the file instead.
+                      # Carried forward like `since`: resolved once, then kept
+                      # while the row's content is unchanged
+                      # (tools/update_speaker_pin_quirks.py `resolve_commits`).
 
 
 # One row per machine upstream has had to reroute, keyed by subsystem id:

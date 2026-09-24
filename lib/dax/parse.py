@@ -173,7 +173,8 @@ class ParsedTuning:
     positionally. Values are a mix of raw schema ints (freqs, curves,
     ao_left/ao_right, ieq_amount) and already-dB-scaled fields (vol_leveler,
     surround, volmax_boost); main() and the converters apply the remaining
-    /16 and /100 scalings (see M-COUP in docs for the layering).
+    /16 and /100 scalings (docs/reference.md "Units & conventions" gives
+    both).
     """
     freqs: list[int]
     curves: dict[str, list[int]]
@@ -718,13 +719,13 @@ def _parse_regulator(vlldp, constant, freqs, path):
             overdrive = _int_attr(reg_overdrive, default=0)
             reg_relax = vlldp.find("regulator-relaxation-amount")
             relaxation = _int_attr(reg_relax, default=96)
-            # `isolated_band` (0/1 per band) feeds the experimental
-            # `--enable coupled-bands` mapping (research
-            # `r-simplified-schema-ao-units` / `r-fixed-dynamics-constants`
-            # (f)): a second-device capture showed DAX applying band
-            # dynamics on bands whose threshold_high is 0 dBFS but which the
-            # XML marks non-isolated. The default path ignores this field
-            # entirely.
+            # `isolated_band` (0/1 per band) feeds the coupled-bands mapping,
+            # the default since 2026-08-11 (`--disable coupled-bands` opts
+            # out; research `r-fixed-dynamics-constants` (f)). A 0 dBFS zone
+            # whose bands are all non-isolated joins the limiter at face
+            # value. That iso=0 scoping is a conservative gating choice, not
+            # established causation. The uncoupled reading ignores this
+            # field.
             iso_el = reg_tuning.find("isolated_band")
             iso_val = resolve_channel_or_direct(iso_el, constant)
             isolated = parse_csv_ints(iso_val) if iso_val else None
@@ -750,8 +751,9 @@ def _parse_regulator(vlldp, constant, freqs, path):
 # model. Flag them when they're enabled so users can correlate with audible
 # gaps. The list intentionally omits features that are universally present,
 # e.g. `output-mode-partial-{surround,height}-virtualizer-enable` and MI
-# steering. Those are documented in CLAUDE.md / docs/, and flagging them
-# every run would be noise. Only rare, enabled-only feature blocks belong here.
+# steering. Those are documented in docs/cross-device-findings.md (§11 for MI
+# steering, §14 for the virtualizers), and flagging them every run would be
+# noise. Only rare, enabled-only feature blocks belong here.
 #
 # `active` takes the matched element and returns True if the feature is live
 # in this profile; `detail`/`ask` take the same element and return the two

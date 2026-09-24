@@ -174,7 +174,7 @@ def test_rendered_block_shows_the_status_the_scenario_is_for(slug, capsys,
     monkeypatch.setenv("COLUMNS", "80")
     preview_doctor.render(slug)
     out = capsys.readouterr().out
-    # The check line, not the Environment row that now carries the same
+    # The check line, not the setup block's row that carries the same
     # words: only the check is tagged, and the tag is what is under test.
     line = next(ln for ln in out.splitlines()
                 if re.match(r"\s*\[.+\]\s+Selected preset", ln))

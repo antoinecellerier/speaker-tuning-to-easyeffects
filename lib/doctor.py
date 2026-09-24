@@ -306,9 +306,9 @@ def print_verdict(checks, cprint) -> None:
         cprint("err", f"Fix the {tag(DOCTOR_FAIL)} lines above first.")
     elif warn and unknown:
         # Both, because the WARN sentence alone leaves the unknowns
-        # unmentioned. Beside a check saying a missing package is "the usual
-        # reason a conf loads nothing", "the WARN lines are what to fix first"
-        # reads as a ruling on the one line it never looked at.
+        # unmentioned. Beside a check saying a missing plugin "stops the whole
+        # conf loading", "the WARN lines are what to fix first" reads as a
+        # ruling on the one line it never looked at.
         cprint("warn", f"Nothing failed outright. Start with the "
                        f"{tag(DOCTOR_WARN)} lines above; the "
                        f"{tag(DOCTOR_UNKNOWN)} ones are checks that couldn't "

@@ -1,11 +1,12 @@
 """Which PipeWire node the internal speakers are behind.
 
-``pw-dump`` is read exactly once, in ``_enumerate_audio_sinks``, and
-everything above it works on the dicts that come back. That lets the whole
-tiered classification be exercised against synthetic graphs. Selection runs
-in two tiers because the tagging cannot be trusted:
-``device.icon_name == audio-speakers`` is the strict answer, and a laptop
-whose UCM2 profile omits that icon (issue #18) falls back to a relaxed tier of
+``pw-dump`` runs in ``_read_pw_dump``, called by ``_enumerate_audio_sinks`` and
+``soft_mixer_in_use``; ``live_session`` reads its own through
+``lib.pipewire.checks._pw_dump``. The classification works on the parsed dicts,
+which lets the whole tiered classification be exercised against synthetic
+graphs. Selection runs in two tiers because the tagging cannot be trusted:
+``device.icon_name == audio-speakers`` is the strict answer, and a laptop whose
+UCM2 profile omits that icon (issue #18) falls back to a relaxed tier of
 internal analog outputs. The relaxed tier is auto-applied when there is one
 candidate, prompted for when there are several, and always overridable with
 ``--autoload-sink``.
@@ -44,11 +45,11 @@ _NON_SPEAKER_ICONS = {"audio-headphones", "audio-headset"}
 def _enumerate_audio_sinks() -> list[dict]:
     """Return every PipeWire Audio/Sink node with the props we classify on.
 
-    This is the single ``pw-dump`` boundary; tests monkeypatch it to feed
+    This is the sink list's ``pw-dump`` boundary; tests monkeypatch it to feed
     synthetic sink lists. Each dict carries 'name', 'description', 'profile',
-    and 'route' (the fields EasyEffects autoload needs) plus 'icon_name', 'bus',
-    and 'api' (used to tell internal speakers from HDMI / Bluetooth / headsets
-    and to explain the choice in diagnostics).
+    and 'route' (the fields EasyEffects autoload needs) plus 'icon_name',
+    'bus', and 'api' (used to tell internal speakers from HDMI / Bluetooth /
+    headsets and to explain the choice in diagnostics).
 
     'profile' is the card *profile* description (e.g. "Analog Stereo"); 'route'
     is the active output *route* description (e.g. "Speaker"). EasyEffects keys

@@ -243,10 +243,11 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
                "sounded better.")
     else:
         ask = "Tell us whether it sounds right — either answer helps."
-    # Not slug="experimental": the --enable menu describes coupled-bands as
-    # "experimental (issue #44)" on the same screen, so a report quoting
-    # "[experimental]" could mean either. The slug states the situation the
-    # detail describes; the menus keep "experimental" as an adjective.
+    # Not slug="experimental": the --enable menu describes level-restore
+    # (issue #50) and virtual-bass (issue #14) as "experimental" on the same
+    # screen, so a report quoting "[experimental]" could mean either. The
+    # slug states the situation the detail describes; the menus keep
+    # "experimental" as an adjective.
     return Finding(
         slug="unconfirmed-by-ear", kind="ask",
         detail=f"Built from your tuning but never confirmed by ear: {named}. "

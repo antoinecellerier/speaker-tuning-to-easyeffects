@@ -628,7 +628,8 @@ def global_bypass_status() -> CheckResult:
     Raised only on a live reading from the running daemon: the config file's
     copy of this key is written on save, so a stale one would accuse a user
     whose audio is fine. No 'off' counterpart: a check that passes for the
-    overwhelming majority is noise, and the Environment block states it."""
+    overwhelming majority is noise, and the `Global bypass:` row of
+    `=== EasyEffects setup ===` states it."""
     return CheckResult(DOCTOR_FAIL, "Global bypass",
         "EasyEffects' global bypass is ON — every preset is passthrough, so "
         "nothing you load will change the sound. Turn it off with the "
