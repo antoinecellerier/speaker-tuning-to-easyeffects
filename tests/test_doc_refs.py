@@ -1,7 +1,9 @@
 """Citations of the docs from anywhere in the repo still land on something.
 
 Finding numbers, cross-device § sections, numbered entries, quoted section
-names and markdown links are all checked against the doc they point into.
+names, `r-` tags and markdown links are all checked against the doc they point
+into. A design-notes citation resolves against design-notes.md and the
+per-class research files under docs/research/, since units move between them.
 """
 
 import html
@@ -18,6 +20,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 
 DESIGN_NOTES = "docs/design-notes.md"
+RESEARCH_DIR = "docs/research/"
 CROSS_DEVICE = "docs/cross-device-findings.md"
 README = "README.md"
 
@@ -149,8 +152,10 @@ class Doc:
         self.lines = text.splitlines()
         self.headings = []
         self.names = []
+        self.titles = []
         self.anchors = set()
         self._items = {}
+        self._sites = {}
         seen = {}
         block = []
 
@@ -165,7 +170,9 @@ class Doc:
                 close_block()
                 continue
             self.anchors.update(a.lower() for a in HTML_ANCHOR.findall(line))
-            self.names.extend(norm(s) for s in SUMMARY.findall(line))
+            summaries = [norm(s) for s in SUMMARY.findall(line)]
+            self.names += summaries
+            self.titles += summaries
             heading = HEADING.match(line)
             if heading:
                 close_block()
@@ -178,8 +185,10 @@ class Doc:
                 self.anchors.add(slug)
                 name = norm(heading.group(2))
                 self.headings.append((index, len(heading.group(1)), name))
-                self.names += [name, name.partition(": ")[2],
-                               re.sub(r"^\d+\.\s+", "", name)]
+                variants = [name, name.partition(": ")[2],
+                            re.sub(r"^\d+\.\s+", "", name)]
+                self.names += variants
+                self.titles += variants
             elif not line.strip() or line.lstrip().startswith("<"):
                 close_block()
             elif line.lstrip().startswith("|"):
@@ -194,13 +203,22 @@ class Doc:
                 block.append(re.sub(r"^\s*(?:>\s*)*", "", line))
         close_block()
 
-    def has_name(self, name):
-        wanted = norm(name)
-        return bool(wanted) and any(_starts_with(n, wanted) for n in self.names)
+    def has_name(self, name, strict=False):
+        """Whether a heading, <summary>, paragraph or table row starts `name`.
 
-    def has_path(self, name):
-        """A quoted "A → B" also names B inside A's section."""
-        if self.has_name(name):
+        `strict` accepts only a heading or a <summary>.
+        """
+        wanted = norm(name)
+        pool = self.titles if strict else self.names
+        return bool(wanted) and any(_starts_with(n, wanted) for n in pool)
+
+    def has_path(self, name, strict=False):
+        """A quoted "A → B" also names B inside A's section.
+
+        `strict` applies to the whole name and to A, never to B: B is usually
+        a bullet label inside A.
+        """
+        if self.has_name(name, strict):
             return True
         parts = [p for p in re.split(r"\s*(?:→|->)\s*", name) if p.strip()]
         section = self.section(parts[0]) if len(parts) > 1 else None
@@ -227,17 +245,51 @@ class Doc:
         key = (section, item)
         if key not in self._items:
             span = self.section(section) if section else (0, len(self.lines))
-            found, text = {}, None
-            for line in self.lines[span[0]:span[1]] if span else ():
+            found, text, sites = {}, None, {}
+            for index, line in enumerate(
+                    self.lines[span[0]:span[1]] if span else (),
+                    span[0] + 1 if span else 1):
                 match = re.match(item, line)
                 if match:
+                    sites.setdefault(int(match.group(1)), []).append(index)
                     text = found.setdefault(int(match.group(1)), [line])
                 elif HEADING.match(line):
                     text = None
                 elif text is not None:
                     text.append(line)
             self._items[key] = {n: "\n".join(t) for n, t in found.items()}
+            self._sites[key] = sites
         return self._items[key]
+
+    def sites(self, section, item):
+        """Item number → every line that opens an item with that number."""
+        self.items(section, item)
+        return self._sites[(section, item)]
+
+
+class DocSet:
+    """Several docs read as one: a design-notes citation may land in any."""
+
+    def __init__(self, docs):
+        self.docs = [(path, doc) for path, doc in docs if doc]
+
+    def items(self, section, item):
+        merged = {}
+        for _, doc in self.docs:
+            for number, text in doc.items(section, item).items():
+                merged.setdefault(number, text)
+        return merged
+
+    def sites(self, section, item):
+        merged = {}
+        for path, doc in self.docs:
+            for number, lines in doc.sites(section, item).items():
+                merged.setdefault(number, []).extend(
+                    (path, line) for line in lines)
+        return merged
+
+    def has_path(self, name, strict=False):
+        return any(doc.has_path(name, strict) for _, doc in self.docs)
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +350,16 @@ def _one_line(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def check_numbered(source, docs):
+def _where(target):
+    return target + (" or docs/research/" if target == DESIGN_NOTES else "")
+
+
+def check_numbered(source, cited):
     for row in NUMBERED:
-        doc = docs(row.doc)
-        items = doc.items(row.section, row.item) if doc else {}
-        where = row.doc + (f' "{row.section}"' if row.section else "")
+        doc = cited(row.doc)
+        items = doc.items(row.section, row.item)
+        sites = doc.sites(row.section, row.item)
+        where = _where(row.doc) + (f' "{row.section}"' if row.section else "")
         for match in re.finditer(row.cite, source.flat):
             line = source.line_of(match.start())
             if (row.context and source.path != row.doc
@@ -313,6 +370,11 @@ def check_numbered(source, docs):
             for number in _numbers(match.group("n")):
                 if number not in items:
                     problem = f"no item {number} in {where}"
+                    break
+                if len(sites[number]) > 1:
+                    listed = ", ".join(f"{p}:{n}" for p, n in sites[number])
+                    problem = (row.shape.replace("N", str(number))
+                               + f" is defined at {listed}")
                     break
                 if sub and f"({sub})" not in items[number]:
                     problem = f"item {number} in {where} has no ({sub})"
@@ -390,8 +452,18 @@ def _quoted_sites(source, known):
 
 AND_QUOTE = re.compile(rf",?\s+(?:and|or)\s+{QUOTE}")
 
+# A quote into the research log names a heading or a <summary>, because a
+# paragraph opening or a table row is not a stable place to cite. These real
+# cites predate that rule and keep the looser match: a design-notes paragraph
+# opening and a gain-staging table row.
+LOOSE_QUOTED = frozenset({"the 47 hz deviation", "mbc upward compression"})
 
-def check_quoted(source, docs, known):
+
+def in_research_log(path):
+    return path == DESIGN_NOTES or path.startswith(RESEARCH_DIR)
+
+
+def check_quoted(source, docs, cited, known):
     for row, target, offset, match in _quoted_sites(source, known):
         if not match:
             continue
@@ -403,9 +475,15 @@ def check_quoted(source, docs, known):
         for name in names:
             if any(re.fullmatch(numbered.cite, name) for numbered in NUMBERED):
                 continue
-            doc = docs(target)
-            problem = None if doc and doc.has_path(name) else (
-                f"no heading, <summary>, paragraph or row named that in {target}")
+            doc = cited(target) if row.doc != "this doc" else DocSet(
+                [(target, docs(target))])
+            if in_research_log(target) and norm(name) not in LOOSE_QUOTED:
+                problem = None if doc.has_path(name, strict=True) else (
+                    f"no heading or <summary> named that in {_where(target)}")
+            else:
+                problem = None if doc.has_path(name) else (
+                    "no heading, <summary>, paragraph or row named that in "
+                    + target)
             yield Citation(row.shape, source.path, source.line_of(offset),
                            _one_line(f'{target} "{name}"'), problem)
 
@@ -413,7 +491,7 @@ def check_quoted(source, docs, known):
 LINK = re.compile(r"\]\((<[^>]*>|[^)\s]*)(?:\s+[\"'][^\"']*[\"'])?\)")
 
 
-def check_links(source, docs, known, directories):
+def check_links(source, docs, known, directories, tags):
     fenced = fenced_lines(source.lines)
     for number, line in enumerate(source.lines, 1):
         if fenced[number - 1]:
@@ -437,7 +515,77 @@ def check_links(source, docs, known, directories):
             elif (anchor and resolved.endswith(".md")
                     and unquote(anchor).lower() not in docs(resolved).anchors):
                 problem = f"no heading or anchor #{anchor} in {resolved}"
+                tag = unquote(anchor).lower()
+                if tag in tags:
+                    problem += f"; the tag is in {tags[tag][0][0]}"
             yield Citation("markdown link", source.path, number, target, problem)
+
+
+TAG_SLUG = re.compile(r"r-[a-z]+(?:-[a-z]+)*")
+TAG_ANCHOR = re.compile(r"<[^>]*\b(?:id|name)=[\"'](r-[^\"']*)[\"']")
+# A shell string escapes its backticks, so a trailing backslash is not the tag's.
+TAG_CITE = re.compile(r"`(r-[^`\s<][^`\s]*?)\\?`")
+TAG_FRAGMENT = re.compile(r"\.md#r-")
+MALFORMED_TAG = "a tag is r- plus lowercase words joined by hyphens, no digits"
+
+
+def _blank_code(line):
+    return CODE_SPAN.sub(lambda m: " " * len(m.group(0)), line)
+
+
+def tag_definitions(docs, known):
+    """Tag → [(file, line)] of each `r-` id or name in a doc under docs/,
+    and a Citation for each one not written as the convention asks."""
+    tags, citations = {}, []
+    for path in sorted(p for p in known
+                       if p.startswith("docs/") and p.endswith(".md")):
+        doc = docs(path)
+        lines = doc.lines if doc else []
+        fenced = fenced_lines(lines)
+        for index, line in enumerate(lines):
+            if fenced[index]:
+                continue
+            for tag in TAG_ANCHOR.findall(_blank_code(line)):
+                tags.setdefault(tag, []).append((path, index + 1))
+                problem = None
+                if not TAG_SLUG.fullmatch(tag):
+                    problem = MALFORMED_TAG
+                elif not (line.strip() == f'<a id="{tag}"></a>'
+                          and index + 2 < len(lines)
+                          and not lines[index + 1].strip()
+                          and HEADING.match(lines[index + 2])):
+                    problem = (f'write <a id="{tag}"></a> on its own line, '
+                               "then a blank line, then the heading")
+                citations.append(
+                    Citation("r- tag", path, index + 1, tag, problem))
+    return tags, citations
+
+
+def check_tag_definitions(tags):
+    for tag, sites in sorted(tags.items()):
+        if len(sites) > 1:
+            yield Citation("r- tag", sites[0][0], sites[0][1], tag,
+                           f"tag {tag} is defined at "
+                           + ", ".join(f"{p}:{n}" for p, n in sites))
+
+
+def check_tag_cites(source, tags):
+    fenced = fenced_lines(source.lines)
+    for number, line in enumerate(source.lines, 1):
+        if fenced[number - 1]:
+            continue
+        for match in TAG_CITE.finditer(line):
+            tag = match.group(1)
+            problem = (MALFORMED_TAG if not TAG_SLUG.fullmatch(tag) else
+                       None if tag in tags else
+                       f"no <a id=\"{tag}\"> under docs/")
+            yield Citation("r- tag cite", source.path, number, tag, problem)
+        if not source.path.endswith(".md"):
+            for match in TAG_FRAGMENT.finditer(line):
+                yield Citation("r- tag cite", source.path, number,
+                               _one_line(line.strip()),
+                               "outside markdown, cite a tag as the bare "
+                               "backticked `r-…` token")
 
 
 def scan(root, files):
@@ -455,7 +603,15 @@ def scan(root, files):
                             if readable else None)
         return parsed[path]
 
-    citations = []
+    research = sorted(p for p in known
+                      if p.startswith(RESEARCH_DIR) and p.endswith(".md"))
+
+    def cited(path):
+        group = [DESIGN_NOTES, *research] if path == DESIGN_NOTES else [path]
+        return DocSet((p, docs(p)) for p in group)
+
+    tags, citations = tag_definitions(docs, known)
+    citations.extend(check_tag_definitions(tags))
     for path in sorted(filter(is_text, known)):
         try:
             text = (root / path).read_text(encoding="utf-8")
@@ -464,10 +620,12 @@ def scan(root, files):
         if path == "CHANGELOG.md":
             text = unreleased_only(text)
         source = Source(path, text)
-        citations.extend(check_numbered(source, docs))
-        citations.extend(check_quoted(source, docs, known))
+        citations.extend(check_numbered(source, cited))
+        citations.extend(check_quoted(source, docs, cited, known))
+        citations.extend(check_tag_cites(source, tags))
         if path.endswith(".md"):
-            citations.extend(check_links(source, docs, known, directories))
+            citations.extend(check_links(source, docs, known, directories,
+                                         tags))
     return citations
 
 
@@ -540,13 +698,16 @@ LINKING = ("See [the log](design-notes.md#rejected-approaches) and "
            '[top](#other).\n\nAlso "Other" below.\n\n# Other\n')
 
 
-def _tree(tmp_path, design=DESIGN, citing=CITING, linking=LINKING):
-    files = {"docs/design-notes.md": design, "lib/x.py": citing,
-             "docs/other.md": linking}
-    for name, text in files.items():
+def _tree(tmp_path, design=DESIGN, citing=CITING, linking=LINKING,
+          files=None, **research):
+    tree = {"docs/design-notes.md": design, "lib/x.py": citing,
+            "docs/other.md": linking, **(files or {})}
+    tree.update({f"docs/research/{name}.md": text
+                 for name, text in research.items()})
+    for name, text in tree.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text, encoding="utf-8")
-    return problems(scan(tmp_path, list(files)))
+    return problems(scan(tmp_path, list(tree)))
 
 
 def test_an_intact_tree_has_no_problems(tmp_path):
@@ -555,15 +716,24 @@ def test_an_intact_tree_has_no_problems(tmp_path):
 
 def test_a_renamed_finding_heading_goes_red(tmp_path):
     broken = _tree(tmp_path, design=DESIGN.replace("Finding 1:", "Finding 2:"))
-    assert broken == ["lib/x.py:1: Finding 1 → no item 1 in docs/design-notes.md"]
+    assert broken == ["lib/x.py:1: Finding 1 → no item 1 in docs/design-notes.md"
+                      " or docs/research/"]
 
 
 def test_a_renamed_quoted_section_goes_red(tmp_path):
     renamed = DESIGN.replace("Rejected approaches", "Declined ideas")
     broken = _tree(tmp_path, design=renamed)
     assert ('lib/x.py:1: docs/design-notes.md "Rejected approaches" → no '
-            "heading, <summary>, paragraph or row named that in "
-            "docs/design-notes.md") in broken
+            "heading or <summary> named that in docs/design-notes.md or "
+            "docs/research/") in broken
+
+
+def test_a_quote_of_a_research_paragraph_goes_red(tmp_path):
+    """Into the research log, a quote names a heading, not a paragraph."""
+    citing = CITING + '# design-notes "Readings (a)".\n'
+    assert _tree(tmp_path, citing=citing) == [
+        'lib/x.py:4: docs/design-notes.md "Readings (a)" → no heading or '
+        "<summary> named that in docs/design-notes.md or docs/research/"]
 
 
 def test_a_broken_anchor_goes_red(tmp_path):
@@ -576,7 +746,109 @@ def test_a_missing_entry_letter_goes_red(tmp_path):
     broken = _tree(tmp_path, design=DESIGN.replace("(a) (b)", "(b)"))
     assert broken == [
         "lib/x.py:1: scaling entry 1 (a) → item 1 in docs/design-notes.md "
-        '"Unvalidated converter scaling factors" has no (a)']
+        'or docs/research/ "Unvalidated converter scaling factors" has no (a)']
+
+
+TAG = '<a id="r-dax-lti"></a>\n\n'
+TAGGED = TAG + "### DAX is non-LTI\n"
+
+
+def test_a_design_notes_citation_resolves_in_a_research_file(tmp_path):
+    kept, finding, moved = DESIGN.partition("### Finding 1: DAX is non-LTI\n")
+    citing = CITING + '# design-notes "Unvalidated converter scaling factors".\n'
+    research = TAG + finding + moved
+    assert _tree(tmp_path, design=kept, citing=citing, k=research) == []
+    assert len(_tree(tmp_path, design=kept, citing=citing)) == 3
+
+
+def test_a_number_defined_twice_across_the_set_goes_red(tmp_path):
+    twice = "### Finding 1: DAX again\n"
+    defined = ("Finding 1 → Finding 1 is defined at docs/design-notes.md:7, "
+               "docs/research/k.md:1")
+    assert _tree(tmp_path, k=twice) == [
+        f"{site}: {defined}" for site in
+        ("docs/design-notes.md:7", "docs/research/k.md:1", "lib/x.py:1")]
+
+
+def test_a_duplicate_tag_goes_red(tmp_path):
+    broken = _tree(tmp_path, design=DESIGN + "\n" + TAGGED, k=TAGGED)
+    assert broken == ["docs/design-notes.md:15: r-dax-lti → tag r-dax-lti is "
+                      "defined at docs/design-notes.md:15, docs/research/k.md:1"]
+
+
+def test_an_unknown_tag_goes_red(tmp_path):
+    broken = _tree(tmp_path, citing=CITING + "# See `r-dax-lti`.\n")
+    assert broken == ['lib/x.py:4: r-dax-lti → no <a id="r-dax-lti"> '
+                      "under docs/"]
+    assert _tree(tmp_path, citing=CITING + "# See `r-dax-lti`.\n",
+                 k=TAGGED) == []
+
+
+@pytest.mark.parametrize("slug", ["r-dax-lti3", "r-Dax-lti", "r-dax_lti",
+                                  "r-dax-lti-"])
+def test_a_malformed_tag_goes_red(tmp_path, slug):
+    malformed = f'<a id="{slug}"></a>\n\n### DAX\n'
+    cite = CITING + f"# See `{slug}`.\n"
+    assert _tree(tmp_path, citing=cite, k=malformed) == [
+        f"docs/research/k.md:1: {slug} → {MALFORMED_TAG}",
+        f"lib/x.py:4: {slug} → {MALFORMED_TAG}"]
+
+
+def test_a_tag_off_its_own_line_before_a_heading_goes_red(tmp_path):
+    fix = ('write <a id="r-dax-lti"></a> on its own line, then a blank line, '
+           "then the heading")
+    for text in ('<a id="r-dax-lti"></a>\n### DAX\n',
+                 '<a id="r-dax-lti"></a>\n\nA paragraph.\n',
+                 'Text <a id="r-dax-lti"></a>\n\n### DAX\n',
+                 '<span name="r-dax-lti"></span>\n\n### DAX\n'):
+        assert _tree(tmp_path, k=text) == [
+            f"docs/research/k.md:1: r-dax-lti → {fix}"], text
+
+
+def test_a_tag_in_code_defines_nothing(tmp_path):
+    cite = CITING + "# See `r-dax-lti`.\n"
+    unknown = ['lib/x.py:4: r-dax-lti → no <a id="r-dax-lti"> under docs/']
+    fenced = '```\n<a id="r-dax-lti"></a>\n\n### DAX\n```\n'
+    spanned = 'Write `<a id="r-dax-lti"></a>` above the heading.\n'
+    assert _tree(tmp_path, citing=cite, k=fenced) == unknown
+    assert _tree(tmp_path, citing=cite, k=spanned) == unknown
+
+
+def test_a_shell_escaped_tag_cite_resolves(tmp_path):
+    cite = CITING + '# echo "see \\`r-dax-lti\\`"\n'
+    assert _tree(tmp_path, citing=cite, k=TAGGED) == []
+
+
+def test_a_tag_cite_in_a_fenced_block_is_not_read(tmp_path):
+    linking = LINKING + "\n```\n`r-nowhere`\n```\n"
+    assert _tree(tmp_path, linking=linking) == []
+
+
+def test_a_tag_fragment_outside_markdown_goes_red(tmp_path):
+    cite = CITING + "# docs/research/k.md#r-dax-lti\n"
+    assert _tree(tmp_path, citing=cite, k=TAGGED) == [
+        "lib/x.py:4: # docs/research/k.md#r-dax-lti → outside markdown, cite a "
+        "tag as the bare backticked `r-…` token"]
+
+
+def test_a_link_to_a_tag_in_the_wrong_file_goes_red(tmp_path):
+    linking = LINKING + "\n[F1](design-notes.md#R-dax-lti)\n"
+    broken = _tree(tmp_path, linking=linking, k=TAGGED)
+    assert broken == ["docs/other.md:7: design-notes.md#R-dax-lti → no heading "
+                      "or anchor #R-dax-lti in docs/design-notes.md; the tag is "
+                      "in docs/research/k.md"]
+    fixed = linking.replace("(design-notes.md#R-", "(research/k.md#r-")
+    assert _tree(tmp_path, linking=fixed, k=TAGGED) == []
+
+
+def test_released_changelog_sections_are_not_scanned(tmp_path):
+    changelog = ("# Changelog\n\n## Unreleased\n\n- See Finding 1.\n\n"
+                 "## v1\n\n- See Finding 9.\n")
+    assert _tree(tmp_path, files={"CHANGELOG.md": changelog}) == []
+    unreleased = changelog.replace("Finding 1.", "Finding 8.")
+    assert _tree(tmp_path, files={"CHANGELOG.md": unreleased}) == [
+        "CHANGELOG.md:5: Finding 8 → no item 8 in docs/design-notes.md or "
+        "docs/research/"]
 
 
 def test_released_changelog_sections_are_not_read():
