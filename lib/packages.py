@@ -40,7 +40,7 @@ ALPINE = "alpine"
 GENTOO = "gentoo"
 NIXOS = "nixos"
 
-# Ordered as the README lists them, so the two read alike.
+# Ordered as the install docs list them, so the two read alike.
 FAMILIES = (DEBIAN, FEDORA, SUSE, ARCH, ALPINE, GENTOO, NIXOS)
 
 LABELS = {
@@ -411,14 +411,15 @@ def available_version_cmd(key, fam: str) -> list[str] | None:
         *argv, name]
 
 
-# The README section that stays right for a distribution this table does not
+# The doc section that stays right for a distribution this table does not
 # list. Named, not linked: these are terminal messages, and the one-link rule
 # in .claude/rules/user-messages.md keeps URLs out of message bodies.
-README_SECTION = 'the README section "Plugin dependencies and validation"'
+PLUGINS_SECTION = ('the "Plugin dependencies and validation" section of '
+                   "docs/dolby-to-pipewire.md")
 README_INSTALL_SECTION = "the README's Install section"
 
 
-def install_steps(keys, see: str = README_SECTION, indent: str = ""
+def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
                   ) -> tuple[tuple[str, str], ...]:
     """How to install `keys` here, as ``(cprint style, text)`` pairs.
 
@@ -432,7 +433,7 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
     doesn't: a reader on Void or Solus gets nothing from a `sudo apt` line,
     and everyone else gets a wall of commands to find themselves in.
 
-    ``see`` names the README section that stays right for a distribution this
+    ``see`` names the doc section that stays right for a distribution this
     table does not list, and it is a parameter because the two kinds of
     dependency live in different sections — sending someone whose numpy is
     missing to the plugin section is the same wrong answer as naming the wrong
@@ -453,7 +454,7 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
                 out.append(("dim", f"({CAVEATS[(key, fam)]})"))
         if command:
             # Just the command. A reader we could place needs no note about
-            # the distributions they are not on, and the README pointer earns
+            # the distributions they are not on, and the docs pointer earns
             # its line only where we have nothing better — here it would push
             # an actionable error screen further down for no one's benefit. A
             # wrong guess is self-announcing: `sudo apt` on a Fedora box needs
@@ -525,7 +526,7 @@ def install_steps(keys, see: str = README_SECTION, indent: str = ""
     return tuple((style, f"{indent}{text}") for style, text in out)
 
 
-def print_install_hint(keys, cprint, see: str = README_SECTION) -> None:
+def print_install_hint(keys, cprint, see: str = PLUGINS_SECTION) -> None:
     """Print `install_steps` at this project's two-space message margin.
 
     Takes the caller's `cprint` for the reason `lib.doctor`'s printers do —

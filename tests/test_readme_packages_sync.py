@@ -1,8 +1,9 @@
-"""README ↔ `lib/packages.py` sync trap.
+"""README and docs ↔ `lib/packages.py` sync trap.
 
-The README carries three hand-written per-distribution package lists, and the
-scripts print the same facts from `lib/packages.py` at the moment a dependency
-turns up missing. The README itself promises they agree — "You shouldn't need
+The docs carry three hand-written per-distribution package lists — the
+Python one in README.md, the LV2 and `lv2info` ones in
+docs/dolby-to-pipewire.md — and the scripts print the same facts from
+`lib/packages.py` at the moment a dependency turns up missing. The docs themselves promise they agree — "You shouldn't need
 these lists on a run that fails. The converter prints whichever line matches
 your `/etc/os-release`" — and nothing checked it.
 
@@ -28,13 +29,16 @@ import pytest
 
 from lib import packages
 
-README = (Path(__file__).resolve().parent.parent / "README.md").read_text(
-    encoding="utf-8")
+_REPO = Path(__file__).resolve().parent.parent
+# One text, since each lead-in below is unique across the two files.
+README = "\n\n".join(
+    (_REPO / name).read_text(encoding="utf-8")
+    for name in ("README.md", "docs/dolby-to-pipewire.md"))
 
-# Each mirrored list, as (the <summary> or lead-in that precedes it, the keys
+# Each mirrored list, as (the lead-in that precedes it, the keys
 # the scripts would ask `install_command` for). Keyed on the text immediately
 # above the bullets rather than a line number, so the check survives edits
-# elsewhere in the README.
+# elsewhere in the docs.
 LISTS = (
     ("Install commands for your distro", tuple(packages.PYTHON_KEYS)),
     ("Install the **LV2 builds**", (packages.LSP_LV2, packages.CALF_LV2)),
@@ -82,8 +86,8 @@ def test_readme_lists_every_family_in_the_module_order(lead_in, keys):
     told to consult a table that does not mention them.
 
     Order too, and against `FAMILIES` rather than alphabetically: the module's
-    own comment says the tuple is "ordered as the README lists them", which is
-    only a useful thing to say while it is true.
+    own comment says the tuple is "ordered as the install docs list them",
+    which is only a useful thing to say while it is true.
     """
     labels = [label for label, _ in _rows(lead_in)]
     assert labels == [packages.LABELS[f] for f in packages.FAMILIES], (

@@ -38,7 +38,7 @@ from lib.pipewire import checks, install, validate, vbe
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
 
-# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete,
+# Optional tab-completion (docs/shell-completion.md). Absent argcomplete,
 # this module stays stdlib-only and works the same without completion.
 try:
     import argcomplete

@@ -95,7 +95,7 @@ only which question the directory answers.
 |---|---|---|
 | [`measure_dax/`](measure_dax/) | The measured ground truth: what DAX3 itself does, captured on Windows over WASAPI loopback and analysed here. The captures are converter-independent, so they stay valid across our edits | You, when a device's real response is the missing evidence. `make_stimulus.py` on Linux → `capture_dax.py` on Windows → `analyze.py` on Linux |
 | [`measure_ee/`](measure_ee/) | Whether the generated preset, running live in EasyEffects, matches that ground truth. Also the variant sweeps that narrow a candidate change before it is adopted | You, through /audio-validate. EE-side captures go stale after any FIR or scaling change, so regenerate them before comparing |
-| [`measure_perf/`](measure_perf/) | The README's "which should I use?" guidance: CPU cycles and memory for the same preset through EasyEffects vs the PipeWire filter-chain | You, when that cost claim needs re-measuring on a device |
+| [`measure_perf/`](measure_perf/) | The "which should I use?" guidance in [dolby-to-pipewire.md](../docs/dolby-to-pipewire.md#which-should-i-use): CPU cycles and memory for the same preset through EasyEffects vs the PipeWire filter-chain | You, when that cost claim needs re-measuring on a device |
 | [`measure_pw/`](measure_pw/) | That the PipeWire `filter-chain` conf is equivalent to the EasyEffects chain in both frequency and time domain. Through `validate_conf.py`, also that it is schema-valid at all | The comparisons: you, through the handoff. `validate_conf.py`: you, against a conf already on disk. `ee_to_pipewire.py` runs the same check in process on every run |
 
 ## docs/ — gates for a prose rewrite

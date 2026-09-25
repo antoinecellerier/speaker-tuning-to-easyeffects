@@ -41,4 +41,5 @@ Flags: `--windows-version {11,10,both}`, `--exe-url URL` to skip catalog
 resolution, `--machine-type MT`, `--driver-cache DIR`, `--keep-exe`,
 `--dry-run`.
 
-Other vendors aren't automated: see the repo README "Extracting the XML".
+Other vendors aren't automated: see
+[docs/getting-the-xml.md](../../docs/getting-the-xml.md).

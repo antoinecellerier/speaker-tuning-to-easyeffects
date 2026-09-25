@@ -2,7 +2,9 @@
 
 This harness quantifies the runtime cost of the two delivery paths for the
 *same* preset on the *same* machine, so a user with a performance criterion can
-choose. It backs the README's "Which should I use?" guidance. Its sibling
+choose. It backs the "Which should I use?" guidance in
+[docs/dolby-to-pipewire.md](../../docs/dolby-to-pipewire.md#which-should-i-use).
+Its sibling
 [`tools/measure_pw/`](../measure_pw/) proves the two paths are *acoustically*
 equivalent. This one measures what they *cost*.
 

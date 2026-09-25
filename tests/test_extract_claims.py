@@ -81,6 +81,8 @@ ANCHORS = (
     # The prose harvester is a separate path from the AST one; without an
     # anchor on it, the README could stop being read and nothing would say so.
     ("README.md", "EasyEffects"),
+    # The same for the user guides the README hands its reader to.
+    ("docs/troubleshooting.md", "EasyEffects"),
 )
 
 

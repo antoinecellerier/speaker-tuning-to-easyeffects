@@ -227,7 +227,7 @@ def no_next_step(exc):
 
 # An environment variable rather than a flag, for the case it exists for: the
 # desktop session is itself root's, so what we write does reach it. That is
-# rare enough not to earn a line in three --help listings and in the README's
+# rare enough not to earn a line in three --help listings and in the docs'
 # mirror of them, and this way it reaches dolby_to_pipewire.py's in-process
 # child runs without being rebuilt into their argv. The cost is that it fails
 # open: an ALLOW_ROOT inherited from something else skips the guard silently,

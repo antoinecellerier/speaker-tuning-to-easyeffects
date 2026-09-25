@@ -29,7 +29,20 @@ SCRIPTS = {
     "W": "dolby_to_pipewire.py",
     "C": "ee_to_pipewire.py",
 }
-PROSE = {"R": "README.md", "I": ".github/ISSUE_TEMPLATE/device-report.yml"}
+# The README and the docs pages it hands its reader to share one prefix: they
+# were one file, and a claim does not change evidence by moving page.
+PROSE = (
+    ("R", "README.md"),
+    ("R", "docs/README.md"),
+    ("R", "docs/development.md"),
+    ("R", "docs/dolby-to-easyeffects.md"),
+    ("R", "docs/dolby-to-pipewire.md"),
+    ("R", "docs/filters.md"),
+    ("R", "docs/getting-the-xml.md"),
+    ("R", "docs/shell-completion.md"),
+    ("R", "docs/troubleshooting.md"),
+    ("I", ".github/ISSUE_TEMPLATE/device-report.yml"),
+)
 
 
 def lib_modules() -> dict[str, str]:
@@ -327,7 +340,7 @@ def main() -> int:
     consts = module_constants(sorted(set(sources.values())))
     for prefix, rel in sources.items():
         harvest_script(prefix, rel, rows, args.since, consts)
-    for prefix, rel in PROSE.items():
+    for prefix, rel in PROSE:
         harvest_prose(prefix, rel, rows, args.since)
     harvest_prose("L", "CHANGELOG.md", rows, args.since,
                   only_section="## Unreleased")

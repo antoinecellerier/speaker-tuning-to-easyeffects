@@ -978,14 +978,16 @@ def test_a_commit_off_the_history_goes_red(tmp_path, monkeypatch):
         "that replaced it (same subject)"]
 
 
-def test_packages_readme_sections_exist():
-    """The README sections `lib/packages.py` sends readers to still exist."""
+def test_packages_doc_sections_exist():
+    """The doc sections `lib/packages.py` sends readers to still exist."""
     from lib import packages
     readme = Doc((ROOT / README).read_text(encoding="utf-8"))
-    quoted = re.search(r'"([^"]+)"', packages.README_SECTION).group(1)
+    quoted, doc = re.search(r'"([^"]+)" section of (\S+)',
+                            packages.PLUGINS_SECTION).groups()
     named = re.search(r"README's (\w+) section",
                       packages.README_INSTALL_SECTION).group(1)
-    assert readme.has_name(quoted), packages.README_SECTION
+    plugins = Doc((ROOT / doc).read_text(encoding="utf-8"))
+    assert plugins.has_name(quoted), packages.PLUGINS_SECTION
     assert readme.has_name(named), packages.README_INSTALL_SECTION
 
 

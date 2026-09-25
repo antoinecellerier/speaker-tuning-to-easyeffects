@@ -1,12 +1,14 @@
-"""README ↔ argparse sync traps (2026-07 README drift audit follow-up).
+"""Docs ↔ argparse sync traps (2026-07 README drift audit follow-up).
 
 Each script's full CLI listing lives in exactly two mirrored surfaces: the
 argparse declarations (source of truth for names, grouping, order) and the
-README options list (same group labels, same order, one bullet per flag).
+options list in its docs page (same group labels, same order, one bullet per
+flag): docs/dolby-to-easyeffects.md, and docs/dolby-to-pipewire.md for both
+PipeWire scripts.
 These traps lock flag names, ordering, and group labels together so drift
 shows up as a test failure instead of a doc-review find. They deliberately
 don't check *claims* (defaults, valid-name lists, prose) — when either side
-changes, diff `--no-color --help` against the README bullets by hand.
+changes, diff `--no-color --help` against the docs bullets by hand.
 """
 
 import re
@@ -17,9 +19,10 @@ import dolby_to_pipewire
 import ee_to_pipewire
 
 REPO = Path(__file__).resolve().parent.parent
-README = (REPO / "README.md").read_text(encoding="utf-8")
+EE_DOC = (REPO / "docs/dolby-to-easyeffects.md").read_text(encoding="utf-8")
+PW_DOC = (REPO / "docs/dolby-to-pipewire.md").read_text(encoding="utf-8")
 
-# Flags deliberately undocumented in the README. Extend only for a conscious
+# Flags deliberately undocumented in the docs. Extend only for a conscious
 # omission (e.g. measurement-only routing) — never to quiet a failing trap.
 DOLBY_README_OMITS: set[str] = set()
 EE_README_OMITS: set[str] = {"--target-object"}
@@ -46,7 +49,7 @@ def _parser_groups(parser, omits):
 
 
 def _readme_groups(section):
-    """Parse a README options list into the same [(label, (flag, ...))]
+    """Parse a docs options list into the same [(label, (flag, ...))]
     shape: bold lines start a group (None before the first), each bullet
     contributes its leading backticked token(s) (slash-joined bullets like
     `--node-name NAME` / `--node-description DESC` count as two flags).
@@ -70,25 +73,25 @@ def _readme_groups(section):
 
 
 def _section(text, start, end):
+    """From `start` to the next `end`, or to the end of the page."""
     begin = text.index(start)
-    return text[begin:text.index(end, begin)]
+    stop = text.find(end, begin)
+    return text[begin:] if stop < 0 else text[begin:stop]
 
 
 def test_dolby_options_list_matches_parser():
     expected = _parser_groups(dolby_to_easyeffects.build_parser(),
                               DOLBY_README_OMITS)
     actual = _readme_groups(
-        _section(README, "### Command-line options", "\n### "))
+        _section(EE_DOC, "## Command-line options", "\n## "))
     assert actual == expected
 
 
 def test_ee_options_list_matches_parser():
     expected = _parser_groups(ee_to_pipewire.build_parser([]), EE_README_OMITS)
     actual = _readme_groups(
-        _section(README,
-                 "<summary><code>ee_to_pipewire.py</code> command-line "
-                 "options</summary>",
-                 "</details>"))
+        _section(PW_DOC, "## `ee_to_pipewire.py` command-line options",
+                 "\n## "))
     assert actual == expected
 
 
@@ -96,8 +99,6 @@ def test_wrapper_options_list_matches_parser():
     expected = _parser_groups(dolby_to_pipewire.build_parser([]),
                               WRAPPER_README_OMITS)
     actual = _readme_groups(
-        _section(README,
-                 "<summary><code>dolby_to_pipewire.py</code> command-line "
-                 "options</summary>",
-                 "</details>"))
+        _section(PW_DOC, "## `dolby_to_pipewire.py` command-line options",
+                 "\n## "))
     assert actual == expected

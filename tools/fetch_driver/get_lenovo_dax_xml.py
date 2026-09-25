@@ -10,7 +10,7 @@ public update catalog, downloads and checksum-verifies the EXE, extracts the
 Dolby tuning XMLs into the repo's driver-cache/, and prints the directory to
 hand to whichever converter you want to run.
 
-Lenovo only, for now. Other vendors: see the README "Extracting the XML".
+Lenovo only, for now. Other vendors: see docs/getting-the-xml.md.
 
   python3 tools/fetch_driver/get_lenovo_dax_xml.py            # fetch + unpack
   python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run  # show the plan, touch nothing
@@ -408,8 +408,8 @@ def run(args: argparse.Namespace) -> int:
         if not mt:
             raise Fail("this does not look like a Lenovo machine "
                        "(/sys/class/dmi/id/sys_vendor). Only Lenovo is "
-                       "automated — see the README 'Extracting the XML' "
-                       "for a manual route.")
+                       "automated — see docs/getting-the-xml.md for a "
+                       "manual route.")
         wins = {"11": ["11"], "10": ["10"], "both": ["11", "10"]}[
             args.windows_version]
         print(f"machine type: {mt}  (catalog: Win{', Win'.join(wins)})")

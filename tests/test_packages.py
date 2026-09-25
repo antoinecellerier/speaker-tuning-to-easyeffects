@@ -384,8 +384,8 @@ def test_print_install_hint_forwards_the_readme_section_it_was_given(monkeypatch
     nothing else.
     """
     monkeypatch.setattr(packages, "family", lambda *a, **k: "")
-    sections = (packages.README_SECTION, packages.README_INSTALL_SECTION)
-    for keys, see in (([packages.LSP_LV2], packages.README_SECTION),
+    sections = (packages.PLUGINS_SECTION, packages.README_INSTALL_SECTION)
+    for keys, see in (([packages.LSP_LV2], packages.PLUGINS_SECTION),
                       ([packages.NUMPY], packages.README_INSTALL_SECTION)):
         lines: list[tuple[str, str]] = []
         packages.print_install_hint(
@@ -401,7 +401,7 @@ def test_print_install_hint_forwards_the_readme_section_it_was_given(monkeypatch
     lines = []
     packages.print_install_hint([packages.LSP_LV2],
                                 lambda style, text="": lines.append((style, text)))
-    assert any(packages.README_SECTION in t for _s, t in lines), lines
+    assert any(packages.PLUGINS_SECTION in t for _s, t in lines), lines
 
 
 def test_print_install_hint_falls_back_to_every_family(monkeypatch):

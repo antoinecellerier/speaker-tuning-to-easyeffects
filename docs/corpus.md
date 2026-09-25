@@ -11,8 +11,9 @@ nobody can check the findings.
 
 This page is that description: how a file is counted, what the collection holds,
 which download each part came from, and what it is skewed towards. It is not a
-guide to obtaining tuning XMLs. The [README](../README.md#extracting-the-xml)
-covers extracting the one for your own device.
+guide to obtaining tuning XMLs.
+[Extracting the XML](getting-the-xml.md) covers extracting the one for your own
+device.
 
 > Figures below are from a `tools/corpus_audit.py --composition` run on
 > **2026-08-28**, and are re-derived on their own date. They will not match
@@ -188,7 +189,7 @@ python3 tools/corpus_audit.py --composition /path/to/xmls
 
 Drop `--composition` for the full per-parameter sweep behind
 [cross-device-findings.md](cross-device-findings.md).
-[Running the tests](../README.md#running-the-tests) covers pointing the
+[Running the tests](development.md) covers pointing the
 `tests/corpus/` tier at the same directory.
 
 ## Reconciling the counts

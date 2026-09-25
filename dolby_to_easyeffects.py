@@ -44,7 +44,7 @@ from lib.report import findings as report_findings
 from lib.report import speaker as report_speaker
 from lib.report import doctor_run, environment, messages
 
-# Optional tab-completion (README "Shell tab-completion"). Absent argcomplete,
+# Optional tab-completion (docs/shell-completion.md). Absent argcomplete,
 # the script works the same without completion: the contract rich has in
 # lib/console.py.
 try:

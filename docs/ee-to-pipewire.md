@@ -116,9 +116,10 @@ Which release ships version 8 changes every few months. So the run asks the
 machine's own package manager what it would install, and offers the distro
 package only when that answer is 8 or newer.
 
-The README's "Plugin dependencies and validation" and Install sections list the
-same rows for someone reading before they run anything.
-`tests/test_readme_packages_sync.py` fails if the two disagree.
+[dolby-to-pipewire.md](dolby-to-pipewire.md) "Plugin dependencies and
+validation" and the README's Install section list the same rows for someone
+reading before they run anything. `tests/test_readme_packages_sync.py` fails if
+the two disagree.
 
 ## Smart-filter routing (the load-bearing UX choice)
 
