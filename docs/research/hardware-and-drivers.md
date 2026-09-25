@@ -37,6 +37,10 @@ Open:
   for a report of the mono symptom ([routing](#r-speaker-dac-misrouted)).
 - TAC5XX2's firmware-name guess is unseen, and its watchlist entry waits on a
   machine ([smart amps](#r-smart-amp-families)).
+- `lib/hardware/speakers.py` states that SOF zeroes the PCI subsystem id, and
+  `_quirk_for_codec` skips PCI-SSID matches on SOF because of it. That is
+  unverified. A SOF-card report with a "picked fixup … PCI SSID" kernel log
+  line, or a read of SOF's `hda.c` against a live SSID, would settle it.
 
 <a id="r-kernel-misconfigured-codec"></a>
 

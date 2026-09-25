@@ -37,6 +37,10 @@ so it can reproduce every stage of the EE chain.
 
 **Status: ready to use now**
 
+Open: the dev machine's `sof-hda-generic-4ch.tplg` appears to put `EQIIR2.0`
+on the capture pipeline, not playback. If a topology reader (`sof-tplgreader`)
+or a blob write confirms it, this option and Option 4 need rewriting.
+
 The `sof-hda-generic` topology already loads an IIR EQ component on the analog
 playback pipeline. It's exposed as an ALSA byte control:
 

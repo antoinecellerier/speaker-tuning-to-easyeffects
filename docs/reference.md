@@ -478,8 +478,11 @@ warn. The PipeWire filter-chain path is unaffected. Measurement and mechanism:
   capture.
 - **Corpus / cross-device follow-ups**: cross-device-findings.md "Open
   follow-ups". The open ones are 1-band-MBC audibility, the Zenbook
-  S14 report (issue #29, reporter-gated) and re-running the audit on each new
-  driver pull.
+  S14 report (issue #29, reporter-gated), re-running the audit on each new
+  driver pull, the stale counts the 2026-09-25 re-count found and the Yoga
+  Slim 7x headroom figure.
+- **Research, device and upstream checks**: the `Open:` list at the head of
+  each file in [research/](research/).
 - **Measurement tooling** to produce the captures: `tools/measure_dax/` for
   Windows DAX, `tools/measure_ee/` for live EE on Linux, and
   `tools/measure_pw/` for PipeWire `filter-chain`.

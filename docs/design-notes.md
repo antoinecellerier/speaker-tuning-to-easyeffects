@@ -171,7 +171,9 @@ Risk class:
     DAX's leveler adapts per held tone, ±3 dB ≫ the 0.43 dB bell signature. The
     convention delta is smaller than the dev device's content-adaptive
     variability, so settling it likely needs a device with higher-Q /
-    higher-gain bells.
+    higher-gain bells. Open: which RLC−RBJ quantity the 0.43 dB is, beside
+    the 0.58 dB max and 0.23 dB rms above. The conclusion holds for any value
+    up to 0.58 dB.
   - *Candidate fix* if cookbook is ever confirmed: emit bells as `APO (DR)`,
     with HP staying `RLC (BT)` (verified); the second-device bar applies.
   - *Offline model*: `compare_ee_analytical.py` models bells as LSP `RLC (BT)`

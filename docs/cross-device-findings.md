@@ -1442,3 +1442,42 @@ Surfaced by the 2483-XML re-derivation. Each item carries its own status.
    ([SoundWire bass-enhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants)).
    Still pending from the reporter: that A/B, the capture and the generation
    stdout.
+9. **Stale counts against the 3641-file corpus (re-count).** A re-count on
+   2026-09-25 over the full corpus (3641 XMLs, 898 content-unique, 861 devices,
+   54055 rows; `tools/corpus_audit.py` plus ad-hoc queries) contradicts these
+   statements. Each needs its text updated and dated:
+   - §2 and §12, 1-band MBC: 698 profiles enable it, 686 of them on `music`.
+     Band-0 ratios reach 10:1 (13 rows, 4 devices), not ~6:1, and 1:1 or 2:1
+     covers 86.7% of rows. On `music`, ratios reach 6:1 at −12 dB and 10:1 at
+     −7 dB (item 4). The "978" profiles that declare 3 or 4 bands with the
+     compressor gated off are 1200. The `make_multiband_compressor` docstring's
+     "full-band ratio up to 2:1" is wrong the same way.
+   - §5, dialog enhancer: "consistently disabled for music and game profiles
+     across all devices" is false. 4 of 861 devices enable it on `music` (8 of
+     5639 rows), and 16 of 854 on `game` (159 of 5524 rows).
+   - §14 Band A, sliding bass: non-inert on 969 rows / 172 XMLs / 63 devices,
+     with 20 enabled rows fully inert. By profile: 403 `music` rows, 91 on each
+     of six other profiles, and 20 on `off`, which the row leaves out. The
+     curve has 5 points on 988 of 989 enabled rows.
+   - §14 Band B and the catalogued rows: the DRC sub-component is in 669 XMLs,
+     enabled on 10622 of 11880 rows. The compressor sub-component is in 139
+     XMLs on 79 devices, enabled on 2427 of 2430 rows. MI steering is present
+     on all 3641 XMLs, with the dialog-enhancer flag enabled on 5659 rows and
+     the surround-compressor flag on 5531. MBC channel deviation is in 1942
+     XMLs, non-zero on 96 rows. The rows "present in 1345" are 1738, still
+     enabled in 0.
+   - §14 Band C: "Identical on all 40732 rows" is false for the three
+     `virtualizer-*-speaker-angle` elements, which take 9, 8 and 4 distinct
+     values (front, surround, height). The front angle is 10 on 52689 rows.
+     The six bass constants are identical on all 54055 rows.
+   - `lib/dax/parse.py`, the `<ieq-enable>` comment "roughly 45% of
+     dynamic-profile corpus rows": 2469 of 5639 (43.8%), or 488 of 1503
+     (32.5%) counting each distinct tuning once.
+   - [ee-to-pipewire.md](ee-to-pipewire.md), the regulator row's "typically
+     +6 dB": it holds, at 74.6–77.2% of `dynamic`/`movie`/`music`/`game` rows,
+     but carries no figure or date.
+10. **Yoga Slim 7x headroom figure (§6).** "About 22 dB of headroom thrown
+    away" sums taprobane99's four UCM mixer trims and a 7% WirePlumber cap,
+    which are in different units, and no conversion is shown. Convert them with
+    the WSA884x and codec control dB scales from that repo, or cite the repo
+    for the figure.

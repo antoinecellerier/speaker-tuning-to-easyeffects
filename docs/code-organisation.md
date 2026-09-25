@@ -218,7 +218,10 @@ web blame won't. The rules below exist to mitigate that.
   a pairing that already worked. So seed a slice even where a flat commit would
   trace, bar the two exceptions under "Lessons for the next extraction". A
   recipe that is right 97% of the time on every file beats one that is right 99%
-  or 0% depending on the file, and only says which afterwards.
+  or 0% depending on the file, and only says which afterwards. Open: this
+  paragraph credits `fir.py`'s 47 of 96 to depth of history, while the next
+  bullet reads a low count as a copy edge that did not take. Re-running the
+  move-trace measurement would say which cause applies.
 - **Verify on the real commit before pushing.** Run
   `tools/check_move_purity.py` on the trim commit for the motion itself. Run
   `git blame -C -C -C lib/<new>.py` to see how much provenance survived. With

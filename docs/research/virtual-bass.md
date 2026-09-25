@@ -30,6 +30,11 @@ Open:
   The XML-anchored `floor = 35 Hz` / `scope = 160 Hz` candidate, deferred
   2026-08-28, waits for the reporter's A/B or capture
   ([#29](#r-soundwire-bass-enhancer-constants)).
+- DAX's 50 Hz fundamental has two values: −36.3 dBFS in the loud bass-burst
+  table and −45 dBFS in the ceiling-break caveat. The fundamental gap the
+  caveat measures depends on which is right. Re-analyse the archived
+  dev-device DAX bass-burst capture with `tools/measure_ee/analyze_vbe_chain.py`
+  ([VBE](#r-dax-virtual-bass)).
 
 <a id="r-dax-virtual-bass"></a>
 

@@ -45,6 +45,15 @@ Open:
   ([captures](#r-deep-threshold-distortion)).
 - The per-channel threshold read rests on one corpus device and is unverified on
   hardware ([per-channel](#r-per-channel-regulator-thresholds)).
+- The dynamics unit says every archived DAX capture is −18 dBFS, but
+  `tools/measure_dax/CLAUDE_WINDOWS.md` lists dev-device `stepped_loud`
+  (−2 dBFS) captures for `dynamic` and `off`. Analyse them for a knee in the
+  bands whose `threshold_high` decodes as 0 dBFS, then correct the sentence. It
+  stays dev-device evidence, not a second device
+  ([dynamics](#r-fixed-dynamics-constants)).
+- #44 round 3 says the bursts were "flattened", while the crest factor it
+  records rises from 3.8 to 17.5 dB. An envelope pass over the round-3 EE
+  captures would settle the wording ([bass loss](#r-deep-threshold-bass-loss)).
 
 <a id="r-per-channel-regulator-thresholds"></a>
 

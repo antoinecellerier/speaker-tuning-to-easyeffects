@@ -28,7 +28,8 @@ Open:
   `regulator-distortion-slope` ([roadmap](#r-validation-roadmap)).
 - The `ieq-amount` fix met the second-device bar through two independent
   methods on a Yoga Slim 7x, not yet through a DAX capture on a second device
-  ([roadmap](#r-validation-roadmap)).
+  ([roadmap](#r-validation-roadmap)). Whether #44's 2026-07-30 DAX battery
+  already tells `/10` from `/100` on its device is unchecked.
 - The PEQ anti-clipping trim's `min(1, 2/Q)` shape needs a wide-vs-narrow-Q
   second device: the dev device's PEQ is identical in every profile
   ([trim](loudness-and-limiting.md#r-peq-anti-clipping-trim)).
