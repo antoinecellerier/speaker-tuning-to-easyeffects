@@ -949,11 +949,21 @@ def test_every_cited_commit_is_in_the_history():
     assert not stale, "\n  ".join(["stale commit ids:", *stale])
 
 
-def test_a_commit_off_the_history_goes_red(tmp_path):
+def test_a_commit_off_the_history_goes_red(tmp_path, monkeypatch):
+    # Pinned identity and dates make every commit id the same on each run. A
+    # fresh id's short form is all digits about one run in 26, and
+    # COMMIT_HASH does not read that as a hash, so the test would flake.
+    for who in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{who}_NAME", "t")
+        monkeypatch.setenv(f"GIT_{who}_EMAIL", "t@t")
+        monkeypatch.setenv(f"GIT_{who}_DATE", "2026-01-01T00:00:00Z")
+
     def commit(message):
-        _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit",
-             "-q", "--allow-empty", "-m", message)
-        return _git(tmp_path, "rev-parse", "--short=7", "HEAD").strip()
+        _git(tmp_path, "commit", "-q", "--allow-empty", "-m", message)
+        short = _git(tmp_path, "rev-parse", "--short=7", "HEAD").strip()
+        assert COMMIT_HASH.fullmatch(short), (
+            f"{short} is not hash-shaped: change the pinned date or message")
+        return short
 
     _git(tmp_path, "init", "-q", "-b", "main")
     kept = commit("kept")
