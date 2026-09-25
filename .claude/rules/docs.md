@@ -79,3 +79,6 @@ their question, then stop. A short section is never the defect.
 12. Wrap markdown prose at 80 columns and never split a link or a code
     span (`tools/docs/docwrap.py check`, `fix`). Released CHANGELOG
     sections and the issue forms keep their layout.
+
+After changing README or a user guide, run the **/docs-review** skill. The doc
+tests trap links and drift, not a reader who gets lost.
