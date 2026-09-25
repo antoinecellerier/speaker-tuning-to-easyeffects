@@ -294,13 +294,18 @@ jobs:
             Otherwise do exactly this, matching this repo's existing conventions:
 
             1. Add one row to the "Supported devices" table in README.md
-               (the `## Supported devices` section): device name, then the
-               codec and its subsystem ID, then a link to this issue in the
+               (the `## Supported devices` section). The table has two
+               columns: the device cell, then a link to this issue in the
                existing
                `[#N](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/N)`
-               style.
+               style. The device cell is the device name followed by an HTML
+               comment holding the codec and its subsystem ID, like every
+               existing row:
+                 `| ThinkPad X1 Yoga Gen 7 (21CD) <!-- Realtek ALC287, 17AA:22E6 --> | author |`
+               The comment is hidden on GitHub but required:
+               tests/test_readme_devices_order.py fails a row without one.
 
-               The codec cell comes from the `=== HDA codecs ===` block of
+               The codec comment comes from the `=== HDA codecs ===` block of
                the `--speaker-info` output, from the ANALOG codec line — the
                Realtek/Cirrus/etc. one. Never an HDMI or display codec (ATI,
                Nvidia, Intel … HDMI): those sit in the same block and carry
@@ -309,18 +314,19 @@ jobs:
                plain `Subsystem:`), and reformat the value by dropping `0x`
                and inserting a colon after four digits:
                  `Realtek ALC257 — Vendor: 0x10EC0257  Codec subsystem: 0x17AA38BC`
-                 -> `Realtek ALC257, 17AA:38BC`
+                 -> `<!-- Realtek ALC257, 17AA:38BC -->`
                Do NOT use the `=== PCI audio subsystem ===` line. It is a
                different ID (that same machine reports `17AA:3805` there) and
-               the table does not carry it. Use "—" for the whole cell only
-               if no analog codec line is present at all.
+               the table does not carry it. Use `<!-- — -->` only if no
+               analog codec line is present at all.
 
                Insert the row where it keeps the table sorted by device
                name, case-insensitively and number-aware: compare each run of
                digits as a whole number, so "X1 Carbon Gen 9" sorts before
                "X1 Carbon Gen 11", and "X1" before "X13".
 
-               tests/test_readme_devices_order.py enforces that order. Once
+               tests/test_readme_devices_order.py enforces that order, and
+               the comment. Once
                the row is in, verify it by running EXACTLY this, and nothing
                else:
 
@@ -330,8 +336,8 @@ jobs:
                no other test path, no `cd`. It is the one test command you
                may run and it is matched exactly; any variation is denied,
                and this run is unattended, so there is nobody to approve it.
-               If it fails, move your row to the slot it names and run it
-               again.
+               If it fails, fix what it names — move your row to the slot
+               it names, or add the missing comment — and run it again.
 
             2. Add this device to the CHANGELOG.md `## Unreleased` /
                `### Added` section, per .claude/rules/changelog.md. Find the

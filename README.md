@@ -217,54 +217,53 @@ output, so there's nothing to regenerate.
 The converter works on the internal speakers of laptops, handhelds and other
 devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 
-| Device | Codec / Subsystem | Reported by |
-|---|---|---|
-| ASUS TUF Gaming A15 (FA507NV) | Realtek ALC256, 1043:19DD | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
-| ASUS Zenbook 14 UX3405CA, UX3405MA | Realtek ALC294, 1043:1A63 | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
-| Framework Laptop 13 Pro (Intel Core Ultra Series 3) | Realtek ALC285, F111:000F | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
-| Lenovo IdeaPad 3 15ALC6 (82KU) | Realtek ALC257, 17AA:38BC | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) |
-| Lenovo IdeaPad Pro 5 14AHP9 (83D3) | Realtek ALC287, 17AA:38D0 | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
-| Lenovo IdeaPad Pro 5 14APH8 (83AM) | Realtek ALC287, 17AA:38C5 | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
-| Lenovo IdeaPad Pro 5 14IMH9 (83D2) | Realtek ALC287, 17AA:38CE | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
-| Lenovo Legion Y540-15IRH (81SX) | Realtek ALC257, 17AA:380F | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
-| Lenovo Legion Y7000 2020 (82AV) | Realtek ALC257, 17AA:3872 | [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93) |
-| Lenovo ThinkBook 16p G5 IRX (21N5) | Realtek ALC287, 17AA:38F9 | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
-| Lenovo XiaoXinPro-13ARE 2020 (82DM) | Realtek ALC257, 17AA:387F | [#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91) |
-| Lenovo Yoga 7 2-in-1 16AKP10 | — | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
-| Lenovo Yoga 7 16IAH7 (82UF) | Realtek ALC287, 17AA:386A | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
-| Lenovo Yoga Pro 7 14APH8 (82Y8) | Realtek ALC287, 17AA:38C6 | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
-| Lenovo Yoga Pro 7 14ASP9 (83HN) | Realtek ALC287, 17AA:38A7 | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
-| Lenovo Yoga Pro 7 14IMH9 (83E2) | Realtek ALC287, 17AA:38CF | [#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83) |
-| Lenovo Yoga Pro 9i 14IRP8 (83BU) | Realtek ALC287, 17AA:38BE | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
-| Lenovo Yoga Slim 7 14ARE05 (82A2) | Realtek ALC287, 17AA:380D | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
-| Lenovo Yoga Slim 7 14ILL10 (83JX) | Soundwire 17AA:3838 | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
-| Lenovo Yoga Slim 7 Pro 14ACH5 (82MS, reported as Yoga 14sACH 2021) | Realtek ALC287, 17AA:384F | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
-| ThinkPad E14 Gen 2 AMD (20T6) | Realtek ALC257, 17AA:507F | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
-| ThinkPad L14 Gen 6 AMD (21S8) | Realtek ALC257, 17AA:50FF | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
-| ThinkPad T14 Gen 1 (20S1) | Realtek ALC257, 17AA:22B1 | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
-| ThinkPad T14 Gen 1 AMD (20UD, 20UE) | Realtek ALC257, 17AA:5081 | [#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45) |
-| ThinkPad T14 Gen 2 AMD (20XL) | Realtek ALC257, 17AA:5094 | [#80](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/80) |
-| ThinkPad T14 Gen 2 Intel (20W1) | Realtek ALC257, 17AA:22C9 | [#55](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/55) |
-| ThinkPad T14 Gen 7 AMD (21WV, 21WW) | Realtek ALC257, 17AA:5144 | [#48](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/48) |
-| ThinkPad T14 Gen 7 Intel (21WN) | Realtek ALC257, 17AA:2356 | [#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42) |
-| ThinkPad T14s Gen 2 AMD (20XG) | Realtek ALC257, 17AA:5096 | [#57](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/57) |
-| ThinkPad T14s Gen 3 (21BS) | Realtek ALC257, 17AA:22EE | [#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88) |
-| ThinkPad T14s Gen 6 AMD | 17AA:50F0 | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
-| ThinkPad X1 Carbon Gen 9 (20XW) | Realtek ALC287, 17AA:22D5 | [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63) |
-| ThinkPad X1 Carbon Gen 10 (21CC) | Realtek ALC287, 17AA:22E7 | [#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99) |
-| ThinkPad X1 Carbon Gen 11 (21HN) | Realtek ALC287, 17AA:2315 | [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95) |
-| ThinkPad X1 Carbon Gen 13 | Soundwire 17AA:2339 | [#7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
-| ThinkPad X1 Yoga Gen 6 (20Y0) | Realtek ALC287, 17AA:22D4 | [#78](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/78) |
-| ThinkPad X1 Yoga Gen 7 (21CD) | Realtek ALC287, 17AA:22E6 | author |
-| ThinkPad X13 Gen 2 Intel (20WK) | Realtek ALC257, 17AA:22CF | [#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105) |
-| ThinkPad X13 Gen 6 Intel (21RK) | Realtek ALC257, 17AA:2344 | [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23) |
-| ThinkPad X13 Yoga Gen 2 (20W9) | Realtek ALC285, 17AA:22D6 | [#101](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/101) |
-| ThinkPad X13 Yoga Gen 4 (21F3) | Realtek ALC257, 17AA:230D | [#97](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/97) |
+| Device | Reported by |
+|---|---|
+| ASUS TUF Gaming A15 (FA507NV) <!-- Realtek ALC256, 1043:19DD --> | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
+| ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
+| Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
+| Lenovo IdeaPad 3 15ALC6 (82KU) <!-- Realtek ALC257, 17AA:38BC --> | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) |
+| Lenovo IdeaPad Pro 5 14AHP9 (83D3) <!-- Realtek ALC287, 17AA:38D0 --> | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
+| Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
+| Lenovo IdeaPad Pro 5 14IMH9 (83D2) <!-- Realtek ALC287, 17AA:38CE --> | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
+| Lenovo Legion Y540-15IRH (81SX) <!-- Realtek ALC257, 17AA:380F --> | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
+| Lenovo Legion Y7000 2020 (82AV) <!-- Realtek ALC257, 17AA:3872 --> | [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93) |
+| Lenovo ThinkBook 16p G5 IRX (21N5) <!-- Realtek ALC287, 17AA:38F9 --> | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
+| Lenovo XiaoXinPro-13ARE 2020 (82DM) <!-- Realtek ALC257, 17AA:387F --> | [#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91) |
+| Lenovo Yoga 7 2-in-1 16AKP10 <!-- — --> | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
+| Lenovo Yoga 7 16IAH7 (82UF) <!-- Realtek ALC287, 17AA:386A --> | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
+| Lenovo Yoga Pro 7 14APH8 (82Y8) <!-- Realtek ALC287, 17AA:38C6 --> | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
+| Lenovo Yoga Pro 7 14ASP9 (83HN) <!-- Realtek ALC287, 17AA:38A7 --> | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
+| Lenovo Yoga Pro 7 14IMH9 (83E2) <!-- Realtek ALC287, 17AA:38CF --> | [#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83) |
+| Lenovo Yoga Pro 9i 14IRP8 (83BU) <!-- Realtek ALC287, 17AA:38BE --> | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
+| Lenovo Yoga Slim 7 14ARE05 (82A2) <!-- Realtek ALC287, 17AA:380D --> | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
+| Lenovo Yoga Slim 7 14ILL10 (83JX) <!-- Soundwire 17AA:3838 --> | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
+| Lenovo Yoga Slim 7 Pro 14ACH5 (82MS, reported as Yoga 14sACH 2021) <!-- Realtek ALC287, 17AA:384F --> | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
+| ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
+| ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
+| ThinkPad T14 Gen 1 (20S1) <!-- Realtek ALC257, 17AA:22B1 --> | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
+| ThinkPad T14 Gen 1 AMD (20UD, 20UE) <!-- Realtek ALC257, 17AA:5081 --> | [#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45) |
+| ThinkPad T14 Gen 2 AMD (20XL) <!-- Realtek ALC257, 17AA:5094 --> | [#80](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/80) |
+| ThinkPad T14 Gen 2 Intel (20W1) <!-- Realtek ALC257, 17AA:22C9 --> | [#55](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/55) |
+| ThinkPad T14 Gen 7 AMD (21WV, 21WW) <!-- Realtek ALC257, 17AA:5144 --> | [#48](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/48) |
+| ThinkPad T14 Gen 7 Intel (21WN) <!-- Realtek ALC257, 17AA:2356 --> | [#42](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/42) |
+| ThinkPad T14s Gen 2 AMD (20XG) <!-- Realtek ALC257, 17AA:5096 --> | [#57](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/57) |
+| ThinkPad T14s Gen 3 (21BS) <!-- Realtek ALC257, 17AA:22EE --> | [#88](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/88) |
+| ThinkPad T14s Gen 6 AMD <!-- 17AA:50F0 --> | [#3](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/3) |
+| ThinkPad X1 Carbon Gen 9 (20XW) <!-- Realtek ALC287, 17AA:22D5 --> | [#63](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/63) |
+| ThinkPad X1 Carbon Gen 10 (21CC) <!-- Realtek ALC287, 17AA:22E7 --> | [#99](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/99) |
+| ThinkPad X1 Carbon Gen 11 (21HN) <!-- Realtek ALC287, 17AA:2315 --> | [#95](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/95) |
+| ThinkPad X1 Carbon Gen 13 <!-- Soundwire 17AA:2339 --> | [#7](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/7/) |
+| ThinkPad X1 Yoga Gen 6 (20Y0) <!-- Realtek ALC287, 17AA:22D4 --> | [#78](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/78) |
+| ThinkPad X1 Yoga Gen 7 (21CD) <!-- Realtek ALC287, 17AA:22E6 --> | author |
+| ThinkPad X13 Gen 2 Intel (20WK) <!-- Realtek ALC257, 17AA:22CF --> | [#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105) |
+| ThinkPad X13 Gen 6 Intel (21RK) <!-- Realtek ALC257, 17AA:2344 --> | [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23) |
+| ThinkPad X13 Yoga Gen 2 (20W9) <!-- Realtek ALC285, 17AA:22D6 --> | [#101](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/101) |
+| ThinkPad X13 Yoga Gen 4 (21F3) <!-- Realtek ALC257, 17AA:230D --> | [#97](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/97) |
 
 If you test it on other hardware, please
 [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml)
 whether it works or not.
-
 ## How it works
 
 The script parses the DAX3 XML's two processing stages. It emits a minimum-phase

@@ -21,10 +21,19 @@ README = (Path(__file__).resolve().parent.parent / "README.md").read_text(
     encoding="utf-8")
 
 
-def _device_names() -> list[str]:
+# Each device cell ends in a comment holding the codec and subsystem ID:
+# hidden on GitHub, still found by grep and the kernel-watch triage.
+_ID_COMMENT = re.compile(r"\s*<!-- (.+?) -->$")
+
+
+def _device_cells() -> list[str]:
     section = README.split("\n## Supported devices\n", 1)[1].split("\n## ", 1)[0]
     rows = [line for line in section.splitlines() if line.startswith("| ")]
     return [row.split("|")[1].strip() for row in rows[1:]]  # drop the header
+
+
+def _device_names() -> list[str]:
+    return [_ID_COMMENT.sub("", cell) for cell in _device_cells()]
 
 
 def _natural_key(name: str) -> list:
@@ -44,3 +53,10 @@ def test_supported_devices_are_in_number_aware_order():
     names = _device_names()
     assert len(names) > 30, "table not found — did the section heading change?"
     assert names == sorted(names, key=_natural_key)
+
+
+def test_every_device_carries_its_codec_comment():
+    """The codec and subsystem ID left the visible table for a comment, so
+    nothing on the rendered page shows one going missing."""
+    missing = [cell for cell in _device_cells() if not _ID_COMMENT.search(cell)]
+    assert not missing, f"no <!-- codec, subsystem --> comment: {missing}"
