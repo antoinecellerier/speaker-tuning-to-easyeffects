@@ -1,5 +1,42 @@
 # Troubleshooting
 
+[README](../README.md) · [All docs](README.md)
+
+Run `python3 dolby_to_easyeffects.py --doctor` first, or
+`python3 dolby_to_pipewire.py --doctor` on the PipeWire filter-chain. Each
+reports what it finds and what to do about it.
+
+## Symptoms
+
+- **I hear no difference from bypass.**
+  [Check the EasyEffects setup](#troubleshooting-a-preset-that-sounds-like-nothing)
+  before suspecting the preset.
+- **It sounds right, but quieter than Windows.**
+  [Try the loudness options](#troubleshooting-correct-but-too-quiet) in order.
+- **Loud parts distort or sound crushed, the volume pumps, or highs are
+  harsh.** [Rebuild the preset without the filter responsible](filters.md).
+- **The effect is gone after I close EasyEffects or reboot.**
+  [Enable its Background Service](#troubleshooting-a-preset-that-sounds-like-nothing).
+- **The Dolby tuning plays on HDMI, Bluetooth or a headset.**
+  [Let autoload bypass other outputs](dolby-to-easyeffects.md#how-speaker-detection-and-the-bypass-fallback-work).
+  It needs `--autoload`.
+- **I re-ran the script but hear no change.** The run can't reload a Flatpak
+  EasyEffects, so pick the preset again in its Presets menu. With `--autoload`,
+  restarting EasyEffects works too. Only releases whose changelog entry is
+  tagged **[AUDIBLE]** change the sound:
+  [Staying up to date](../README.md#staying-up-to-date).
+- **Autoload picked the wrong output, or found none.**
+  [Name the output with `--autoload-sink`](dolby-to-easyeffects.md#command-line-options).
+- **"No matching DAX3 tuning XML found".** On a SoundWire machine, try
+  [`--best-guess`](dolby-to-easyeffects.md#command-line-options). Otherwise,
+  [get the tuning XML](getting-the-xml.md) another way.
+- **Speakers thin and quiet even with EasyEffects off.**
+  [Check for missing amplifier firmware](#troubleshooting-correct-but-too-quiet)
+  with `--speaker-info`.
+- **I'd rather not run EasyEffects.**
+  [Use the PipeWire filter-chain](dolby-to-pipewire.md) instead.
+- **Something else.** [Report it](#reporting-a-problem).
+
 ## Troubleshooting: a preset that sounds like nothing
 
 If you loaded a generated preset in EasyEffects and hear no difference from
@@ -16,7 +53,7 @@ It checks the common causes and prints a pasteable report:
   speaker-correction filter loads nothing, so the preset is effectively
   bypassed. This repo targets EasyEffects 8.x. If your distro ships 7, install
   the [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects), as the
-  note at the top of the [README](../README.md#quick-start) says.
+  note in the README's [Quick start](../README.md#quick-start) says.
 - **Wrong install location.** The presets were written to the Flatpak path while
   you run the native package, or vice versa. EasyEffects never sees them.
 - **A missing impulse file.** The convolver references a `.irs` that isn't in
@@ -37,8 +74,8 @@ It checks the common causes and prints a pasteable report:
 ![EasyEffects Background Service preferences. Enable service mode and autostart on login so the preset keeps applying after you close the window or reboot.](images/ee-background-service.jpg)
 
 A normal generation run also warns at the end if it detects an EasyEffects
-version that can't use the presets it just wrote. To check your version
-directly, open EasyEffects' About dialog:
+version that can't use the presets it just wrote. `--doctor` reports the
+version too. To check it in EasyEffects itself, open its About dialog:
 
 ![Checking the EasyEffects version](images/ee-version.jpg)
 
@@ -100,3 +137,14 @@ Try these in order:
   [Issue #27](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/27)
   links a worked, device-specific example of extracting the firmware from the
   Windows driver.
+
+## Reporting a problem
+
+Include the `--doctor` report, and a `-v` log for a sound problem. To report
+a device, whether it works or not, use the
+[device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml).
+
+Each generated preset and `.conf` is stamped with the version that produced it,
+so you can always tell what made a file when reporting an issue. The preset
+JSON holds it in a `_generator` field, and the conf in a `# version:` line.
+`--version` prints the version.

@@ -6,33 +6,66 @@ Dolby Atmos DAX3 tuning XML shipped inside Windows audio drivers into
 speakers get the same speaker correction, EQ, and dynamics processing as on
 Windows, at zero added latency.
 
-> **EasyEffects 8.x required.** If your distro ships EasyEffects 7, install the
-> [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects). The EE 7 and
-> EE 8 preset formats aren't compatible. Debian trixie, Ubuntu 24.04 and
-> 25.10, and Fedora 43 and earlier ship EE 7.
+Confirmed on over 40 laptops from ASUS, Framework and Lenovo: see
+[Supported devices](#supported-devices). Tested yours?
+[Report it](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml),
+whether it works or not.
 
 Don't want to run EasyEffects? The same tuning also runs as a self-contained
 PipeWire filter-chain, with no GUI and no extra daemon. See
 [PipeWire filter-chain](docs/dolby-to-pipewire.md).
 
-**Contents:** [Quick start](#quick-start) ·
+**Contents:** [Quick start](#quick-start) · [Install](#install) ·
+[Something not right?](#something-not-right) ·
+[Documentation](#documentation) ·
 [Staying up to date](#staying-up-to-date) ·
-[Supported devices](#supported-devices) · [Install](#install) ·
-[Documentation](#documentation) · [How it works](#how-it-works)
+[Supported devices](#supported-devices) · [How it works](#how-it-works)
 
 ## Quick start
 
-1. Install the dependencies listed under [Install](#install). In short: Python 3
-   with NumPy and SciPy.
+> **EasyEffects 8.x required.** If your distro ships EasyEffects 7, install the
+> [Flatpak](https://flathub.org/apps/com.github.wwmm.easyeffects). The EE 7 and
+> EE 8 preset formats aren't compatible. Debian trixie, Ubuntu 25.10 and
+> Fedora 43, and earlier releases of each, ship EE 7 or older. Or skip EasyEffects: the
+> [PipeWire filter-chain](docs/dolby-to-pipewire.md) runs the same tuning
+> without it.
 
-2. Run the script. It needs no path if your Windows partition is mounted or a
-   driver package is extracted in the current directory:
+1. Download the code. Take the *Source code (zip)* from the
+   [latest release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases/latest),
+   unzip it, and open a terminal in the unzipped folder.
+
+   If you use git, clone the repository instead:
+
+   ```bash
+   git clone https://github.com/antoinecellerier/speaker-tuning-to-easyeffects.git
+   cd speaker-tuning-to-easyeffects
+   ```
+
+2. Install EasyEffects 8.x. Prefer your distribution's `easyeffects` package
+   when it ships version 8, since it then updates with the rest of your
+   system. If it ships an older version, use the Flatpak instead:
+
+   ```bash
+   flatpak install flathub com.github.wwmm.easyeffects
+   ```
+
+   Then install the dependencies listed under [Install](#install). In short:
+   Python 3 with NumPy and SciPy.
+
+3. Run the script.
+
+   No Windows partition? [Get the tuning XML](docs/getting-the-xml.md)
+   first.
+
+   The script needs no path if your Windows partition is mounted or a driver
+   package is extracted in the current directory:
 
    ```bash
    python3 dolby_to_easyeffects.py --autoload
    ```
 
-   Or point it at the Windows directory or a tuning XML:
+   Or point it at the Windows directory, extracted driver package or a tuning
+   XML:
 
    ```bash
    python3 dolby_to_easyeffects.py --windows /mnt/windows/Windows --autoload
@@ -44,29 +77,140 @@ speaker automatically. Skip it if you'd rather select Dolby-Balanced,
 Dolby-Detailed or Dolby-Warm yourself under Presets. See
 [Autoload](docs/dolby-to-easyeffects.md#autoload) for details.
 
+To keep the correction after you close EasyEffects or reboot, enable
+Background Service and Autostart on login in EasyEffects' preferences.
+
+**Safe to try.** The three scripts need no root: they refuse to run under
+`sudo`. By default they keep what they write under your home directory, apart
+from temporary files they delete.
+[Undo](docs/dolby-to-easyeffects.md#undo) lists what a run writes and how to
+remove it. On the filter-chain, see
+[PipeWire filter-chain](docs/dolby-to-pipewire.md), under "To remove the
+filter".
+
 ![Selecting a generated Dolby preset in EasyEffects](docs/images/ee-preset-select.jpg)
+
+## Install
+
+The script needs Python 3, [NumPy](https://numpy.org/), and
+[SciPy](https://scipy.org/).
+
+PipeWire's `pw-dump` is also required by the script's `--autoload`. The PipeWire
+scripts need it whenever they auto-detect your speaker sink, which is every run
+without `--target-sink`. It ships in the same package as the daemon on Debian,
+Ubuntu and Arch. Fedora, openSUSE and Alpine split the command-line tools into
+their own package. If it's missing, the scripts name its package for your
+distribution.
+
+[Rich](https://github.com/Textualize/rich) and
+[rich-argparse](https://github.com/hamdanal/rich-argparse) are optional. With
+them, the script renders its output and `--help` with semantic colors. Without
+them, everything works in plain monochrome.
+[argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for
+[shell tab-completion](docs/shell-completion.md).
+
+Install commands for your distro:
+
+- **Debian/Ubuntu/Mint/Pop!_OS:**
+  `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Fedora/RHEL/Rocky/Alma:**
+  `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **openSUSE:**
+  `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
+- **Arch/Manjaro/EndeavourOS:**
+  `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
+- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich` — Alpine has no
+  rich-argparse package, so `--help` stays plain there
+- **Gentoo:**
+  `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
+- **NixOS:**
+  `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
+
+If your distro isn't listed or you'd rather not touch system
+packages, a Python virtual environment works too:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+<a id="troubleshooting-a-preset-that-sounds-like-nothing"></a>
+<a id="troubleshooting-correct-but-too-quiet"></a>
+<a id="disabling-and-enabling-filters"></a>
+
+## Something not right?
+
+Start with `--doctor`: run `python3 dolby_to_easyeffects.py --doctor`, or
+`python3 dolby_to_pipewire.py --doctor` if you use the PipeWire filter-chain.
+Each reports what it finds and what to do about it.
+
+- **No audible difference.**
+  [Check the EasyEffects setup](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing)
+  before suspecting the preset.
+- **Right, but quieter than Windows.**
+  [Try the loudness options](docs/troubleshooting.md#troubleshooting-correct-but-too-quiet),
+  such as `--enable autogain`.
+- **Loud parts crushed, pumping or harsh highs.**
+  [Rebuild the preset without the filter responsible](docs/filters.md).
+- **"No matching DAX3 tuning XML found".**
+  [Get the tuning XML](docs/getting-the-xml.md) another way.
+- **The effect stops after you close EasyEffects or reboot.**
+  [Enable its Background Service](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing).
+- **The Dolby tuning plays on HDMI, Bluetooth or a headset.**
+  [Let autoload bypass other outputs](docs/dolby-to-easyeffects.md#how-speaker-detection-and-the-bypass-fallback-work).
+  It needs `--autoload`.
+- **Re-ran the script but hear no change.** Pick the preset again in
+  EasyEffects' Presets menu. Only releases whose changelog entry is tagged
+  **[AUDIBLE]** change the sound: [Staying up to date](#staying-up-to-date).
+
+The [troubleshooting guide](docs/troubleshooting.md) covers more symptoms.
+
+<a id="usage"></a>
+<a id="command-line-options"></a>
+<a id="advanced"></a>
+<a id="autoload"></a>
+<a id="pipewire-filter-chain-instead-of-easyeffects"></a>
+<a id="quick-start-pipewire"></a>
+<a id="which-should-i-use"></a>
+<a id="extracting-the-xml"></a>
+<a id="auto-detection-notes"></a>
+<a id="shell-tab-completion"></a>
+<a id="running-the-tests"></a>
+<a id="further-reading"></a>
+
+## Documentation
+
+- [Extracting the XML](docs/getting-the-xml.md) — when you have no Windows
+  partition, or the script can't find your tuning
+- [EasyEffects presets](docs/dolby-to-easyeffects.md) — every
+  `dolby_to_easyeffects.py` option, autoload, and how to undo a run
+- [PipeWire filter-chain](docs/dolby-to-pipewire.md) — the same tuning without
+  EasyEffects, through `dolby_to_pipewire.py`
+- [Disabling and enabling filters](docs/filters.md) — to remove an artifact, or
+  try an optional stage
+- [Troubleshooting](docs/troubleshooting.md) — no difference, too quiet, and
+  other symptoms
+- [Shell tab-completion](docs/shell-completion.md) — flag and value completion
+  for all three scripts
+
+The [docs index](docs/README.md) also lists the technical reference, the
+research log and how to run the tests.
 
 ## Staying up to date
 
-[CHANGELOG.md](CHANGELOG.md) tracks notable changes. Each version is published
-as a
-[GitHub Release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases).
-To be notified when a new version ships, click **Watch → Custom → Releases** at
-the top of the GitHub page.
+[CHANGELOG.md](CHANGELOG.md) tracks notable changes. To be notified when a new
+version ships, click **Watch → Custom → Releases** at the top of the GitHub
+page.
 
 Entries tagged **[AUDIBLE]** change the *sound* of the generated preset. When
-you see one, pull the latest and **re-run the script** to regenerate and reload
-your preset. The run loads it into a running EasyEffects when it can, and says
-what to pick otherwise. Users of the `dolby_to_pipewire.py` wrapper re-run the
-wrapper instead. Filter-chain users of the manual two-step re-run
-`ee_to_pipewire.py` too, since a conf keeps the impulse it was converted with.
-Other entries are tooling, packaging, docs, or new-device support that doesn't
-alter existing devices' output, so there's nothing to regenerate.
-
-Each generated preset and `.conf` is stamped with the version that produced it,
-so you can always tell what made a file when reporting an issue. The preset
-JSON holds it in a `_generator` field, and the conf in a `# version:` line.
-`--version` prints the version.
+you see one, get the
+[latest release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases/latest)
+or `git pull`, and **re-run the script** to regenerate and reload your preset,
+or the `dolby_to_pipewire.py` wrapper if you use it. The run loads it into a
+running EasyEffects when it can, and says what to pick otherwise. Other entries
+are tooling,
+packaging, docs, or new-device support that doesn't alter existing devices'
+output, so there's nothing to regenerate.
 
 ## Supported devices
 
@@ -121,61 +265,6 @@ If you test it on other hardware, please
 [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml)
 whether it works or not.
 
-## Install
-
-The script needs Python 3, [NumPy](https://numpy.org/), and
-[SciPy](https://scipy.org/).
-
-PipeWire's `pw-dump` is also required by the script's `--autoload`. The PipeWire
-scripts need it whenever they auto-detect your speaker sink, which is every run
-without `--target-sink`. It ships in the same package as the daemon on Debian,
-Ubuntu and Arch. Fedora, openSUSE and Alpine split the command-line tools into
-their own package. If it's missing, the scripts name its package for your
-distribution.
-
-[Rich](https://github.com/Textualize/rich) and
-[rich-argparse](https://github.com/hamdanal/rich-argparse) are optional. With
-them, the script renders its output and `--help` with semantic colors. Without
-them, everything works in plain monochrome.
-[argcomplete](https://github.com/kislyuk/argcomplete) is optional too, for
-[shell tab-completion](docs/shell-completion.md).
-
-Install commands for your distro:
-
-- **Debian/Ubuntu/Mint/Pop!_OS:**
-  `sudo apt install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Fedora/RHEL/Rocky/Alma:**
-  `sudo dnf install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **openSUSE:**
-  `sudo zypper install python3-numpy python3-scipy python3-rich python3-rich-argparse`
-- **Arch/Manjaro/EndeavourOS:**
-  `sudo pacman -S python-numpy python-scipy python-rich python-rich-argparse`
-- **Alpine:** `sudo apk add py3-numpy py3-scipy py3-rich` — Alpine has no
-  rich-argparse package, so `--help` stays plain there
-- **Gentoo:**
-  `sudo emerge dev-python/numpy dev-python/scipy dev-python/rich dev-python/rich-argparse`
-- **NixOS:**
-  `nix-shell -p "python3.withPackages (ps: with ps; [ numpy scipy rich rich-argparse ])"`
-
-A venv works too, if your distro isn't listed or you'd rather not touch system
-packages:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Documentation
-
-- [Troubleshooting](docs/troubleshooting.md)
-- [Disabling and enabling filters](docs/filters.md)
-- [`dolby_to_easyeffects.py`](docs/dolby-to-easyeffects.md)
-- [PipeWire filter-chain instead of EasyEffects](docs/dolby-to-pipewire.md)
-- [Extracting the XML](docs/getting-the-xml.md)
-- [Shell tab-completion](docs/shell-completion.md)
-- [Running the tests](docs/development.md)
-- [Further reading](docs/README.md)
-
 ## How it works
 
 The script parses the DAX3 XML's two processing stages. It emits a minimum-phase
@@ -205,20 +294,7 @@ The preset is up to eight plugins, in this order:
 
 ![A generated preset loaded in EasyEffects, convolver through limiter](docs/images/ee-chain-loaded.jpg)
 
-For the full detail, see the docs:
-
-- **[docs/reference.md](docs/reference.md)** — the current-state reference:
-  every XML→parameter mapping, the plugin chain in detail, units, profile
-  differences, which mappings are DAX-validated, and what's deliberately not
-  implemented, and why.
-- **[docs/design-notes.md](docs/design-notes.md)** and
-  **[docs/research/](docs/research)** — the research log: why the chain is
-  ordered this way, the FIR cepstral construction, what was attempted and
-  rejected, and the open threads worth picking up.
-- **[docs/cross-device-findings.md](docs/cross-device-findings.md)** — empirical
-  analysis across ~2,800 DAX3 files: which DSP blocks are universal vs.
-  device-specific. [docs/corpus.md](docs/corpus.md) describes what that
-  collection is made of.
+For the full detail, see the [docs index](docs/README.md).
 
 ## References
 
@@ -228,8 +304,8 @@ For the full detail, see the docs:
   — alternative approach using captured impulse responses via WASAPI loopback
 - [taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio](https://github.com/taprobane99/Lenovo-Yoga-Slim-7x-Dolby-Linux-Audio)
   — downstream port of this script's output to a PipeWire filter-chain config
-  with 4-speaker upmix on Snapdragon X. See `docs/alternative-pipelines.md`
-  Option 3.
+  with 4-speaker upmix on Snapdragon X. See
+  [docs/alternative-pipelines.md](docs/alternative-pipelines.md) Option 3.
 - [sklynic/easyeffects-tuf-gaming-a15](https://github.com/sklynic/easyeffects-tuf-gaming-a15)
   — manual DAX3 EQ extraction for ASUS laptops
 - [mister2d/thinkpad-linux-audio](https://github.com/mister2d/thinkpad-linux-audio/)

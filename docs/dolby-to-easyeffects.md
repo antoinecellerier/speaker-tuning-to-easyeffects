@@ -1,4 +1,11 @@
-# `dolby_to_easyeffects.py`
+# EasyEffects presets: `dolby_to_easyeffects.py`
+
+[README](../README.md) · [All docs](README.md)
+
+`dolby_to_easyeffects.py` turns a Dolby tuning XML into EasyEffects presets.
+This page lists its options, then covers autoload, the Flatpak install paths,
+and how to undo a run. The README's [Quick start](../README.md#quick-start)
+has the basic run.
 
 ## Command-line options
 
@@ -155,11 +162,13 @@ mitigates this by also writing the `Nothing` bypass preset and turning on
 EasyEffects' global Fallback Preset, pointed at `Nothing`. Any sink without its
 own autoload entry then falls back to a no-op chain. An existing `Nothing.json`
 preset is preserved. An already-enabled fallback is left untouched, whatever
-preset it points at.
+preset it points at. If the Dolby tuning still plays on other outputs, check in
+EasyEffects' autoload settings that the Fallback Preset is on and points at
+`Nothing`, then restart EasyEffects.
 
 ## Flatpak EasyEffects
 
-**Flatpak EasyEffects.** The script picks the Flatpak paths when a Flatpak has
+The script picks the Flatpak paths when a Flatpak has
 left files under `~/.var/app/com.github.wwmm.easyeffects/`, or is installed but
 never launched. Otherwise it uses the native `~/.local/share/easyeffects/`. On
 the Flatpak, presets, impulse responses and autoload entries go to
@@ -169,3 +178,23 @@ the XDG defaults. Set `XDG_DATA_HOME` or `XDG_CONFIG_HOME` and the script
 follows them, as EasyEffects does. The Flatpak paths don't move, because
 `flatpak run` overrides those variables inside its own sandbox. Override any of
 it with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
+
+## Undo
+
+Switch EasyEffects to another preset, then delete what the run wrote. In the
+default native folders, that is:
+
+- the `Dolby-*.json` presets in `~/.local/share/easyeffects/output/`
+- their `Dolby-*.irs` impulse responses in `~/.local/share/easyeffects/irs/`
+- with `--autoload`, the speaker's `{node.name}:{route}.json` file in
+  `~/.local/share/easyeffects/autoload/output/`
+
+On a Flatpak EasyEffects, the same folders sit under
+`~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/`. With `--prefix`,
+the preset and impulse file names start with that prefix instead of `Dolby`.
+
+`--autoload` also writes the empty `Nothing` bypass preset and turns on
+EasyEffects' global Fallback Preset, unless you passed `--no-autoload-bypass` or
+either was already there. Kept, they make every output without its own autoload
+entry play unprocessed. To remove them, delete `Nothing.json` from the presets
+folder and turn the Fallback Preset off in EasyEffects' autoload settings.

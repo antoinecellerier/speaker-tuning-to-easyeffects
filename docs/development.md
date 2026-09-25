@@ -1,5 +1,7 @@
 # Running the tests
 
+[README](../README.md) · [All docs](README.md)
+
 The `pytest` suite under `tests/` covers the converter without requiring any
 proprietary Dolby tuning data as input.
 

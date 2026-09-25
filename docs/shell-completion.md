@@ -1,5 +1,7 @@
 # Shell tab-completion
 
+[README](../README.md) · [All docs](README.md)
+
 All three scripts support tab-completion through the optional
 [argcomplete](https://github.com/kislyuk/argcomplete) package. They complete
 their flags, the `--disable` / `--enable` / `--variant` value lists, file and

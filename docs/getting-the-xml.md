@@ -1,15 +1,24 @@
 # Extracting the XML
 
-The easiest way is `--windows`, which auto-discovers the XML from a mounted
-Windows partition. The script reads your audio codec's device and subsystem IDs
-from `/proc/asound` and matches them against the XMLs in the DriverStore.
+[README](../README.md) · [All docs](README.md)
+
+With a Windows partition mounted, the easiest way is to run the script with no
+path, as in the README's
+[Quick start](../README.md#quick-start). It finds the XML on a mounted Windows
+partition, or in a driver package extracted in the current directory. The script
+reads your audio codec's device and subsystem IDs from `/proc/asound` and
+matches them against the XMLs in the DriverStore. `--windows DIR` points it at a
+directory it doesn't find on its own, or picks one when it finds several, as
+[How the script finds your XML and codec](#how-the-script-finds-your-xml-and-codec)
+describes.
 
 **No Windows partition, on a Lenovo laptop?** Run
 `tools/fetch_driver/get_lenovo_dax_xml.py`. It resolves the audio-driver package
 for your machine type from Lenovo's update catalog, downloads and
 checksum-verifies it, and extracts the DAX3 tuning XML. It needs
-[`innoextract`](https://constexpr.org/innoextract/install). It then prints the
-directory to pass to either converter:
+[`innoextract`](https://constexpr.org/innoextract/install). If it's missing,
+the fetcher says how to install it on your distribution. It then
+prints the directory to pass to either converter:
 
 ```bash
 python3 tools/fetch_driver/get_lenovo_dax_xml.py --dry-run   # show what it resolved
@@ -19,7 +28,9 @@ python3 tools/fetch_driver/get_lenovo_dax_xml.py             # fetch, verify, un
 From the repo root, the next step is just `python3 dolby_to_easyeffects.py`,
 with no path to pass. The fetcher unpacks into the repo's `driver-cache/`, which
 the converters' autoprobe already covers. It prints the exact command to run,
-with `--windows` filled in on the rare occasions it's needed.
+with `--windows` filled in on the rare occasions it's needed. Add `--autoload`,
+as in the README's [Quick start](../README.md#quick-start), to have EasyEffects
+apply the preset automatically.
 
 ## Manual extraction, or from a Lenovo driver EXE without a Windows partition
 
@@ -33,10 +44,12 @@ Match **both** parts of the filename to your codec:
   → `DEV_0287`.
 - `SUBSYS_` to its subsystem ID.
 
-`cat /proc/asound/card*/codec* | grep -E 'Vendor|Subsystem'` shows both IDs. The
-subsystem alone is not enough, because Lenovo reuses subsystem IDs across
-different codecs. Picking the other codec's tuning sounds clearly wrong. See the
-[details](cross-device-findings.md). You don't need the `_settings.xml`
+`python3 dolby_to_easyeffects.py --speaker-info` shows both IDs for each codec,
+as `Vendor:` and `Codec subsystem:`. Before the Python dependencies are
+installed, `cat /proc/asound/card*/codec* | grep -E 'Vendor|Subsystem'` shows
+them too. The subsystem alone is not enough, because Lenovo reuses subsystem IDs
+across different codecs. Picking the other codec's tuning sounds clearly wrong.
+See the [details](cross-device-findings.md). You don't need the `_settings.xml`
 companion file, which contains UI/profile defaults.
 
 **From a Lenovo driver EXE.** Install

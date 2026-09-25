@@ -1,18 +1,18 @@
-# PipeWire filter-chain instead of EasyEffects
+# PipeWire filter-chain: `dolby_to_pipewire.py`
 
-The same tuning runs as a self-contained PipeWire filter-chain `.conf`. It needs
-no GUI, uses less CPU, runs set-and-forget, and works whether or not EasyEffects
-is installed. `dolby_to_pipewire.py` produces it in one command by driving the
-preset generator and the `ee_to_pipewire.py` converter.
+[README](../README.md) · [All docs](README.md)
+
+`dolby_to_pipewire.py` runs your laptop's Dolby speaker tuning as a
+self-contained PipeWire filter-chain `.conf`, instead of as an EasyEffects
+preset. It needs no GUI, uses less CPU, runs set-and-forget, and works whether
+or not EasyEffects is installed.
 [`docs/ee-to-pipewire.md`](ee-to-pipewire.md) has the design notes and
 equivalence measurements.
 
 ## Quick start (PipeWire)
 
-One command goes from tuning XML to an active sink. It generates the EasyEffects
-preset in a throwaway temporary directory, so nothing is installed under
-`~/.local/share/easyeffects`. It converts the preset to a conf and copies the
-matching `.irs` beside it. Then it restarts PipeWire and verifies the sink.
+One command goes from tuning XML to an active sink. First get the code, as in
+step 1 of the README's [Quick start](../README.md#quick-start).
 
 Prerequisites are NumPy and SciPy, which the generator needs, and the LSP/Calf
 LV2 plugins. [Install](../README.md#install) and *Plugin dependencies and
@@ -23,6 +23,12 @@ main [Quick start](../README.md#quick-start): auto-discovery, `--windows`, or
 ```bash
 python3 dolby_to_pipewire.py         # add --no-activate to restart PipeWire yourself
 ```
+
+It drives the preset generator and the `ee_to_pipewire.py` converter. It
+generates the EasyEffects preset in a throwaway temporary directory, so nothing
+is installed under `~/.local/share/easyeffects`. It converts the preset to a
+conf and copies the matching `.irs` beside it. Then it restarts PipeWire and
+verifies the sink.
 
 The default converts the **Balanced** voicing, which is Dolby's default.
 `--variant detailed` and `--variant warm` pick the others.
@@ -47,12 +53,13 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   again: turn off its Background Service and autostart, or remove its autoload.
   Otherwise both chains process the audio at once. Restarting PipeWire stops
   EasyEffects for the session anyway, along with whatever it was applying.
-- **No sound, or it doesn't sound right?**
-  `python3 dolby_to_pipewire.py --doctor` reports what's installed, what
-  PipeWire is doing with it, and what to do about each problem it finds.
+- **To check it's active later**, after a reboot for example, or if there's no
+  sound or it doesn't sound right: `python3 dolby_to_pipewire.py --doctor`
+  reports what's installed, what PipeWire is doing with it, and what to do
+  about each problem it finds.
 - **To remove the filter:** delete
   `~/.config/pipewire/pipewire.conf.d/Dolby_Balanced.conf` and the `.irs` beside
-  it, then restart pipewire.
+  it, then run `systemctl --user restart pipewire pipewire-pulse`.
 
 ## Which should I use?
 
@@ -100,12 +107,16 @@ python3 ee_to_pipewire.py ~/.local/share/easyeffects/output/Dolby-Balanced.json
 # 3. Activate
 systemctl --user restart pipewire pipewire-pulse
 
-# 4. Confirm the sink is loaded
-pw-cli ls Node | grep Dolby_Balanced
+# 4. Confirm the chain loaded
+python3 ee_to_pipewire.py --doctor
 ```
 
 `ee_to_pipewire.py` itself adds no Python dependencies. At runtime it needs only
 the LSP/Calf LV2 plugins.
+
+After a CHANGELOG entry tagged **[AUDIBLE]**, filter-chain users of the manual
+two-step re-run `ee_to_pipewire.py` too, since a conf keeps the impulse it was
+converted with.
 
 ## Plugin dependencies and validation
 
@@ -245,6 +256,12 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--version` — print the version and exit
 
 ## `ee_to_pipewire.py` command-line options
+
+`ee_to_pipewire.py` converts an EasyEffects preset that
+`dolby_to_easyeffects.py` wrote into a PipeWire filter-chain `.conf`, and by
+default copies the matching `.irs` beside it. It is step 2 of the
+[manual two-step](#manual-two-step-keep-the-easyeffects-preset-files-full-flag-surface),
+and `dolby_to_pipewire.py` runs it for you.
 
 - `preset` — positional path to the EasyEffects preset JSON that
   `dolby_to_easyeffects.py` writes, such as

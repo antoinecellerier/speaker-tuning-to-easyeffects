@@ -1,9 +1,24 @@
 # Disabling and enabling filters
 
+[README](../README.md) · [All docs](README.md)
+
 If the generated preset has audible artifacts on your hardware, you can rebuild
 it without specific filters rather than hand-editing the chain inside
 EasyEffects. Such artifacts include saturation, pumping, harsh highs and
-uncomfortable stereo width. Repeat `--disable NAME` as many times as needed:
+uncomfortable stereo width.
+
+To work out *which* stage you're hearing, switch effects off one at a time in
+the EasyEffects window instead of rebuilding. Turning off **Convolver** isolates
+the speaker-correction curve from everything dynamic. Turning off the
+**Multiband Compressor** that carries the per-band limiter also takes out the
+loudness boost riding it. Most tunings produce only one Multiband Compressor,
+which is that limiter. Where Dolby's own multi-band compressor is also present,
+you get two, and the limiter is the second of them. The run's own output names
+which stages it built.
+
+Add `--disable NAME` to the command you ran before,
+such as `python3 dolby_to_easyeffects.py --autoload --disable volmax`, and
+repeat it as many times as needed:
 
 | Name | What to try if you hear... |
 |------|----------------------------|
@@ -59,12 +74,3 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI.
 They're the FIR correction, speaker PEQ, and safety net.
-
-To work out *which* stage you're hearing, switch effects off one at a time in
-the EasyEffects window instead of rebuilding. Turning off **Convolver** isolates
-the speaker-correction curve from everything dynamic. Turning off the
-**Multiband Compressor** that carries the per-band limiter also takes out the
-loudness boost riding it. Most tunings produce only one Multiband Compressor,
-which is that limiter. Where Dolby's own multi-band compressor is also present,
-you get two, and the limiter is the second of them. The run's own output names
-which stages it built.
