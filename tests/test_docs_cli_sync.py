@@ -1,4 +1,4 @@
-"""Docs ↔ argparse sync traps (2026-07 README drift audit follow-up).
+"""Docs ↔ argparse sync traps.
 
 Each script's full CLI listing lives in exactly two mirrored surfaces: the
 argparse declarations (source of truth for names, grouping, order) and the
@@ -24,9 +24,9 @@ PW_DOC = (REPO / "docs/dolby-to-pipewire.md").read_text(encoding="utf-8")
 
 # Flags deliberately undocumented in the docs. Extend only for a conscious
 # omission (e.g. measurement-only routing) — never to quiet a failing trap.
-DOLBY_README_OMITS: set[str] = set()
-EE_README_OMITS: set[str] = {"--target-object"}
-WRAPPER_README_OMITS: set[str] = set()
+DOLBY_DOC_OMITS: set[str] = set()
+EE_DOC_OMITS: set[str] = {"--target-object"}
+WRAPPER_DOC_OMITS: set[str] = set()
 
 
 def _parser_groups(parser, omits):
@@ -48,7 +48,7 @@ def _parser_groups(parser, omits):
     return groups
 
 
-def _readme_groups(section):
+def _doc_groups(section):
     """Parse a docs options list into the same [(label, (flag, ...))]
     shape: bold lines start a group (None before the first), each bullet
     contributes its leading backticked token(s) (slash-joined bullets like
@@ -81,15 +81,15 @@ def _section(text, start, end):
 
 def test_dolby_options_list_matches_parser():
     expected = _parser_groups(dolby_to_easyeffects.build_parser(),
-                              DOLBY_README_OMITS)
-    actual = _readme_groups(
+                              DOLBY_DOC_OMITS)
+    actual = _doc_groups(
         _section(EE_DOC, "## Command-line options", "\n## "))
     assert actual == expected
 
 
 def test_ee_options_list_matches_parser():
-    expected = _parser_groups(ee_to_pipewire.build_parser([]), EE_README_OMITS)
-    actual = _readme_groups(
+    expected = _parser_groups(ee_to_pipewire.build_parser([]), EE_DOC_OMITS)
+    actual = _doc_groups(
         _section(PW_DOC, "## `ee_to_pipewire.py` command-line options",
                  "\n## "))
     assert actual == expected
@@ -97,8 +97,44 @@ def test_ee_options_list_matches_parser():
 
 def test_wrapper_options_list_matches_parser():
     expected = _parser_groups(dolby_to_pipewire.build_parser([]),
-                              WRAPPER_README_OMITS)
-    actual = _readme_groups(
+                              WRAPPER_DOC_OMITS)
+    actual = _doc_groups(
         _section(PW_DOC, "## `dolby_to_pipewire.py` command-line options",
                  "\n## "))
     assert actual == expected
+
+
+FILTERS_DOC = (REPO / "docs/filters.md").read_text(encoding="utf-8")
+
+
+def _choices(flag):
+    parser = dolby_to_easyeffects.build_parser()
+    return next(list(a.choices) for a in parser._actions
+                if flag in a.option_strings)
+
+
+def _table_names(text, first_row):
+    """The backticked names in the first column of the table that holds
+    `first_row`, in order."""
+    start = text.rindex("\n| Name |", 0, text.index(first_row))
+    table = text[start:text.index("\n\n", start)]
+    return re.findall(r"^\| `([^`]+)` \|", table, re.M)
+
+
+def test_filters_tables_list_every_disable_and_enable_name():
+    """docs/filters.md has one row per `--disable` / `--enable` name, in the
+    argparse order. A name without a row has no symptom to reach it by."""
+    assert _table_names(FILTERS_DOC, "| `volmax` |") == _choices("--disable")
+    assert _table_names(FILTERS_DOC, "| `level-restore` |") == \
+        _choices("--enable")
+
+
+def test_valid_names_lists_match_the_choices():
+    """The "Valid names:" clause on each `--disable` / `--enable` bullet."""
+    for flag in ("--disable", "--enable"):
+        bullet = re.search(rf"^- `{flag} NAME`.*?(?=^- |^\*\*|\Z)", EE_DOC,
+                           re.M | re.S).group(0)
+        listed = re.search(r"Valid names: (.*?)\.", " ".join(bullet.split()))
+        names = re.findall(r"`([^`]+)`", listed.group(1))
+        assert names == _choices(flag), flag
+

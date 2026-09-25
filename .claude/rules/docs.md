@@ -15,17 +15,23 @@ Put new content where its reader looks, and keep the others' content out.
 CLAUDE.md "Docs are layered" maps what each file holds. This section covers each
 file's *audience* and the placement discipline.
 
-- **README** serves the end user: discover, install, use, troubleshoot, stay
-  current. Keep it to that journey. Link to the docs for deep DSP/XML internals
-  instead of putting them here. Keep safety-critical or searchable text outside
-  `<details>`, because in-page find doesn't match collapsed text and anchors
-  into it are unreliable.
-  - **Flags list and troubleshooting rows are one line each**, objectively. A
-    flag entry is *what it does* plus *when you'd reach for it*, plus the
-    default if there is one. A troubleshooting row maps a *symptom* to *which
-    flag*. No DSP mechanism, no measurement numbers, no device IDs: link to
-    reference or the research log for the why. A second sentence of mechanism
-    belongs in the docs, not the README.
+- **README** is the end user's landing page: what the tool is, whether it
+  works on their device, quick start, install, what to do when something is
+  wrong, and where to read on. Anything a reader needs after the first run
+  goes to a user guide, and README links it.
+- **User guides** serve the same end user: use, tune, troubleshoot. They are
+  the pages under `docs/README.md` "Using it", each opening with the
+  `[README](../README.md) · [All docs](README.md)` line. Link to reference
+  or the research log for DSP/XML internals instead of putting them here.
+- **Flags lists and symptom rows are one line each**, objectively, in the
+  guides and in README "Something not right?". A flag entry is *what it does*
+  plus *when you'd reach for it*, plus the default if there is one. A symptom
+  row maps a *symptom* to *which flag or page*. No DSP mechanism, no
+  measurement numbers, no device IDs: link to reference or the research log
+  for the why. A second sentence of mechanism belongs there.
+- **No collapsible sections** (`<details>`) in any doc. Use a heading, because
+  in-page find and search engines miss collapsed text and anchors into it are
+  unreliable.
 - **docs/reference.md** serves a technically-inclined user asking "what does the
   converter do *now*". It holds settled facts only.
 - **docs/design-notes.md** and the per-class **docs/research/** files serve a
@@ -34,7 +40,7 @@ file's *audience* and the placement discipline.
 
 When unsure, "what it does now" goes to reference, "why / evidence / rejected
 approaches" to the research log (placement: research-log.md "Where new content
-goes"), and user-facing how-to to README.
+goes"), and user-facing how-to to a user guide.
 
 ## Sentences
 

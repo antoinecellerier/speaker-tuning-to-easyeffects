@@ -99,8 +99,8 @@ PCI SSID ≠ codec SSID, and a machine collides with a different quirk under
 each. Pull the pair from the device report before claiming a tested device is
 or isn't affected, and say which id you matched on. `--speaker-info` names
 both: `Codec subsystem:` under `HDA codecs`, and `Controller subsystem:` under
-`PCI audio subsystem`. The README tested table's "Codec / Subsystem" column
-may hold either.
+`PCI audio subsystem`. The README tested table's hidden codec and subsystem
+comment on each device row may hold either.
 
 ## Sweep what the grep did not hit
 

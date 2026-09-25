@@ -15,7 +15,7 @@ failed the whole transaction and left the reader with none of the packages it
 did name. A reader who pastes a README line and a reader who pastes what the
 tool printed have to end up in the same place.
 
-Like `tests/test_readme_cli_sync.py`, this locks names, order and labels — not
+Like `tests/test_docs_cli_sync.py`, this locks names, order and labels — not
 the prose around them. A trailing "— …" clause on a bullet is the row's own
 caveat and is deliberately not compared; what is compared is the command.
 """

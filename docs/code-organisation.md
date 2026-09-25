@@ -292,7 +292,7 @@ overrun. `main()` plus the seven `add_*_args` builders and `build_parser` are
 thirds to three quarters of each, in the two things a split of this shape may
 not touch. The counts come from `ast` over the root scripts at `1f8a3c9`. The
 argparse block is the mirror `.claude/rules/cli-help.md` holds against the
-options lists in the docs, and `tests/test_readme_cli_sync.py` traps it
+options lists in the docs, and `tests/test_docs_cli_sync.py` traps it
 group-by-group, so breaking it up buys nothing and puts the flag order at risk.
 `main()` is the orchestration itself. The wrapper is 262 of 453. It is lower
 only because it borrows the other two scripts' argument builders instead of

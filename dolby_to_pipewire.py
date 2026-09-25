@@ -175,7 +175,7 @@ def _compose_parser(argv=None):
 def build_parser(argv=None) -> argparse.ArgumentParser:
     """Return the parser alone.
 
-    This is the introspection seam tests/test_readme_cli_sync.py uses."""
+    This is the introspection seam tests/test_docs_cli_sync.py uses."""
     parser, _, _ = _compose_parser(argv)
     return parser
 

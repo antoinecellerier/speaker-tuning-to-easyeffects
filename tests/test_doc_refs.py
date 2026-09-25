@@ -978,6 +978,17 @@ def test_a_commit_off_the_history_goes_red(tmp_path, monkeypatch):
         "that replaced it (same subject)"]
 
 
+def test_docs_index_links_every_doc():
+    """`docs/README.md` links every doc, as CLAUDE.md "Docs are layered" says,
+    so a new page cannot go missing from the index."""
+    index = (ROOT / "docs/README.md").read_text(encoding="utf-8")
+    targets = {unquote(t.split("#")[0]).rstrip("/")
+               for t in re.findall(r"\]\(([^)\s]+)\)", index)}
+    docs = {path.name for path in (ROOT / "docs").glob("*.md")
+            if path.name != "README.md"} | {"research"}
+    assert docs <= targets, f"not in docs/README.md: {sorted(docs - targets)}"
+
+
 def test_packages_doc_sections_exist():
     """The doc sections `lib/packages.py` sends readers to still exist."""
     from lib import packages
