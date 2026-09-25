@@ -101,7 +101,7 @@ web blame won't. The rules below exist to mitigate that.
 - **One commit per extracted module**, for readability, not for `git blame`.
   The blame argument was tested and does not hold. Extracting
   `lib/preset/fir.py` alone, in its own commit, recovers exactly the same 5
-  lines of 96 that it does when it shares `d498e4d` with two other modules.
+  lines of 96 that it does when it shares `4d54385` with two other modules.
   Commit granularity is not the lever. Keep the rule anyway, because a reviewer
   reading one module's move is better served than one reading three. The next
   rule *is* a lever: splitting each slice into a seed and a trim. The theory
@@ -118,7 +118,7 @@ web blame won't. The rules below exist to mitigate that.
   added lines against an 8,000-line file that shrank in the same commit. Git
   solves it winner-takes-all and unpredictably, as the table below shows. An
   exact-content pairing is decided by blob hash instead and cannot fail. Storage
-  is not a consideration: the three paths `330d351` seeded share the root
+  is not a consideration: the three paths `9c133e7` seeded share the root
   script's blob, one blob under four names.
 
   The seed is deliberately *not* `git rm`-then-copy. Deleting the root script
@@ -174,7 +174,7 @@ web blame won't. The rules below exist to mitigate that.
 - **The incantations, measured rather than assumed.** Four already-landed
   slices were re-shaped as seed/trim pairs. Every row was re-measured on the
   same paths either side, so the difference is attributable to commit shape and
-  nothing else. Every figure in this bullet was **measured once, at `6c848fb`,
+  nothing else. Every figure in this bullet was **measured once, at `9a42492`,
   and is not re-derived here**. Read it as what the seed bought then, not as a
   claim about the tree today:
 
@@ -230,7 +230,7 @@ web blame won't. The rules below exist to mitigate that.
 - **Re-anchor `__file__`-relative paths when they move.** `lib/version.py`'s
   `Path(__file__).resolve().parent` works, because git walks up to find the
   checkout. The shared anchor for anything deeper exists: `lib/paths.py`'s
-  `REPO_ROOT` (`63449ef`). Nothing resolves through it today. The check it was
+  `REPO_ROOT` (`fe7d846`). Nothing resolves through it today. The check it was
   built for, `tools/measure_pw/validate_conf.py`, runs in process against
   `lib.pipewire.validate` and needs no path at all. The scripts under `tools/`
   keep their own walk-ups, because they insert the result into `sys.path` before
@@ -240,7 +240,7 @@ web blame won't. The rules below exist to mitigate that.
   drag the package in behind any single import and hand every future module a
   ready-made cycle. `tests/test_layout.py` enforces this.
 
-`tools/check_move_purity.py` (`1e414de`) mechanises the first of those rules. It
+`tools/check_move_purity.py` (`555c8e1`) mechanises the first of those rules. It
 reads a commit's diff and asserts a subset relation: every line the commit adds
 under `lib/` must appear verbatim among the lines it removed from the root
 scripts. Three kinds of added line are exempt, because a freshly extracted
@@ -290,7 +290,7 @@ that reads as the program. What is left at root is therefore a floor, not an
 overrun. `main()` plus the seven `add_*_args` builders and `build_parser` are
 626 of the generator's 931 lines, and 358 of the converter's 479. That is two
 thirds to three quarters of each, in the two things a split of this shape may
-not touch. The counts come from `ast` over the root scripts at `62a43de`. The
+not touch. The counts come from `ast` over the root scripts at `1f8a3c9`. The
 argparse block is the mirror `.claude/rules/cli-help.md` holds against the
 README, and `tests/test_readme_cli_sync.py` traps it group-by-group, so breaking
 it up buys nothing and puts the flag order at risk. `main()` is the
@@ -308,16 +308,16 @@ lower it. Cut such a helper at a seam, not at a line count. Figures below are
   is.** The claim "every line taken out becomes a parameter passed back in" is
   false. Two extractions out of `main()` took 102 lines for three parameters
   and one return:
-  - `_configure_autoload` (`c34979c`) took 77 lines out for two names in, none
+  - `_configure_autoload` (`41bcaa0`) took 77 lines out for two names in, none
     out. It reads `args` and `all_preset_names` and returns `None`. It binds 13
     names, among them `sinks`, `route`, `bypass_status` and `_rc`, and not one
     is read below it.
-  - `_speaker_environment_findings` (`d299cb1`) took 25 lines for one name in,
+  - `_speaker_environment_findings` (`3bc9024`) took 25 lines for one name in,
     one out. The block read a single attribute of `args`, hence the `str`
     parameter. It touched `findings` only through `setdefault`, an output
     channel that became the return value.
 - **A line-count threshold is a worse reason to cut than a seam is.** `main()`
-  was 488 total / 275 code lines at `196178b^`. It is 388 / 204 at `556a396`,
+  was 488 total / 275 code lines at `a18674a^`. It is 388 / 204 at `0189c43`,
   after both extractions, and still above the 150-line bucket the plan behind
   them aimed for, on either metric. Both commits are justified by their seams,
   at the same width whatever bucket `main()` ended in. Each block is
@@ -366,7 +366,7 @@ generator:
 
 - **A "noticed and left" count is a lower bound, not an inventory.** Record each
   duplication a slice sees and defers, per the sequencing rule above. When
-  `8072bed` collapsed one of them, the DriverStore `dax3_ext_*.inf_*` wrapper
+  `8230e54` collapsed one of them, the DriverStore `dax3_ext_*.inf_*` wrapper
   scan, it had five spellings, not the two the note claimed. One site had
   decomposed the glob into `name.startswith("dax3_ext_") and ".inf_" in name`,
   and a grep for the pattern did not find it. Re-derive the count when you

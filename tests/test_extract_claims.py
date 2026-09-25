@@ -3,7 +3,7 @@
 `tools/extract_claims.py` has failed twice by *shrinking*, never by erroring.
 `16c4723` moved `doctor.py` into `lib/` and its three verdict lines left the
 inventory with it, because the harvester walked a hardcoded list of root
-filenames. `d6eed66` hoisted `PIPEWIRE_RESTART_CMD` into `lib/pipewire/conf.py`
+filenames. `039a0fd` hoisted `PIPEWIRE_RESTART_CMD` into `lib/pipewire/conf.py`
 and the lines that spell it in became `{PIPEWIRE_RESTART_CMD}` — a stub with no
 sentence in it, which the copy filter then dropped. Both times the tool exited
 0, printed a plausible row count, and the next audit reviewed less than it

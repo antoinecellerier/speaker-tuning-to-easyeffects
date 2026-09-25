@@ -6,6 +6,7 @@ design-notes citation resolves against design-notes.md and the per-class
 research files under docs/research/, since units move between them. The
 research log's retired numbers (Finding N, scaling entry N, Follow-ups item
 N) no longer resolve: a cite of one fails and names the unit's `r-` tag.
+A cited commit of this repo must be in HEAD's history.
 """
 
 import html
@@ -867,6 +868,51 @@ def problems(citations):
 
 
 # ---------------------------------------------------------------------------
+# Commit hashes.
+# ---------------------------------------------------------------------------
+
+# 7 to 40 hex characters with at least one digit and one letter, not part of a
+# path, URL, anchor or longer word.
+COMMIT_HASH = re.compile(r"(?<![\w/#.-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])"
+                         r"[0-9a-f]{7,40}(?![\w/-])")
+
+
+def _git(root, *args, stdin=None):
+    return subprocess.run(["git", "-C", str(root), *args], input=stdin,
+                          capture_output=True, text=True, check=True).stdout
+
+
+def stale_commit_cites(root, files):
+    """Each cite of one of this repo's commits that HEAD's history lacks.
+
+    Rebasing unpushed commits gives them new ids, and text written before the
+    rebase keeps the old ones, which then resolve nowhere on GitHub. Only a
+    hash this clone knows as a commit is checked. Another project's commit, a
+    checksum, an old id git has since pruned, and anything in a shallow clone
+    such as CI's all pass unchecked.
+    """
+    sites = {}
+    for path in files:
+        if not is_text(path) or not (root / path).is_file():
+            continue
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
+        if path == "CHANGELOG.md":
+            text = unreleased_only(text)
+        for number, line in enumerate(text.splitlines(), 1):
+            for match in COMMIT_HASH.finditer(line):
+                sites.setdefault(match.group(), []).append(f"{path}:{number}")
+    names = sorted(sites)
+    kinds = _git(root, "cat-file", "--batch-check=%(objecttype) %(objectname)",
+                 stdin="".join(f"{name}\n" for name in names)).splitlines()
+    history = set(_git(root, "rev-list", "HEAD").split())
+    return [f"{site}: {name} → a commit HEAD's history lacks; cite the commit "
+            "that replaced it (same subject)"
+            for name, kind in zip(names, kinds)
+            if kind.split()[0] == "commit" and kind.split()[1] not in history
+            for site in sites[name]]
+
+
+# ---------------------------------------------------------------------------
 # The real tree.
 # ---------------------------------------------------------------------------
 
@@ -893,6 +939,33 @@ def test_every_citation_shape_still_finds_sites(real_citations):
     shapes = ({row.shape for row in NUMBERED + QUOTED}
               | {"markdown link", "legacy number", "tag sub-letter"})
     assert shapes <= found, f"no site left for: {sorted(shapes - found)}"
+
+
+def test_every_cited_commit_is_in_the_history():
+    """No text cites a commit id a rebase left behind."""
+    this_file = Path(__file__).resolve().relative_to(ROOT).as_posix()
+    stale = stale_commit_cites(
+        ROOT, [p for p in tracked_files(ROOT) if p != this_file])
+    assert not stale, "\n  ".join(["stale commit ids:", *stale])
+
+
+def test_a_commit_off_the_history_goes_red(tmp_path):
+    def commit(message):
+        _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit",
+             "-q", "--allow-empty", "-m", message)
+        return _git(tmp_path, "rev-parse", "--short=7", "HEAD").strip()
+
+    _git(tmp_path, "init", "-q", "-b", "main")
+    kept = commit("kept")
+    _git(tmp_path, "checkout", "-q", "-b", "side")
+    left = commit("left behind")
+    _git(tmp_path, "checkout", "-q", "main")
+    (tmp_path / "notes.md").write_text(
+        f"See `{kept}`, `{left}^` and 0123456789abcdef, another project's.\n",
+        encoding="utf-8")
+    assert stale_commit_cites(tmp_path, ["notes.md"]) == [
+        f"notes.md:1: {left} → a commit HEAD's history lacks; cite the commit "
+        "that replaced it (same subject)"]
 
 
 def test_packages_readme_sections_exist():

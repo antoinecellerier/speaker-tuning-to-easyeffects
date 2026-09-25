@@ -697,7 +697,7 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     for p in unreadable:
         # UNKNOWN, not FAIL: whose file it is can't be told from a file that
         # won't parse, and the two remedies differ. Not silent either: at
-        # feb0739 this was a FAIL, and dropping it would turn a truncated
+        # 3e86c5e this was a FAIL, and dropping it would turn a truncated
         # preset of ours into "no problems detected".
         report.checks.append(CheckResult(DOCTOR_UNKNOWN, f"Preset {p.stem}",
             "couldn't be read (not valid JSON), so it wasn't checked — if this "

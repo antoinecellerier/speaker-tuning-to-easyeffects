@@ -346,7 +346,7 @@ def main() -> int:
     # Rows are per *site*, so one sentence written at two places is two rows
     # and each stays citable by id. That makes the row count fall on a commit
     # that collapses a duplicate into one definition, with the rendered output
-    # byte-identical: `8dcab03` dropped four rows and no claim. Counting texts
+    # byte-identical: `92f81d1` dropped four rows and no claim. Counting texts
     # too gives the comparison a number that survives such a commit. Not an
     # invariant — hoisting a literal into a constant rewrites the text to
     # `{expr}`, which moves both counts and can push a row under the filters
