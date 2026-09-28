@@ -258,6 +258,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | ThinkPad X1 Yoga Gen 7 (21CD) <!-- Realtek ALC287, 17AA:22E6 --> | author |
 | ThinkPad X13 Gen 2 Intel (20WK) <!-- Realtek ALC257, 17AA:22CF --> | [#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105) |
 | ThinkPad X13 Gen 6 Intel (21RK) <!-- Realtek ALC257, 17AA:2344 --> | [#23](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/23) |
+| ThinkPad X13 Yoga Gen 1 (20SX) <!-- Realtek ALC257, 17AA:22AD --> | [#107](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/107) |
 | ThinkPad X13 Yoga Gen 2 (20W9) <!-- Realtek ALC285, 17AA:22D6 --> | [#101](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/101) |
 | ThinkPad X13 Yoga Gen 4 (21F3) <!-- Realtek ALC257, 17AA:230D --> | [#97](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/97) |
 
