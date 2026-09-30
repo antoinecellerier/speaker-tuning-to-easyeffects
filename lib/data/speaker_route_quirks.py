@@ -192,6 +192,7 @@ _SPEAKER_ROUTE_QUIRKS = {
     (0x17AA, 0x22BE): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="6.11", codec_only=False, commit="ca707b3f00b4"),
     (0x17AA, 0x2326): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="6.11", codec_only=False, commit="1e5597e5ff18"),
     (0x17AA, 0x3802): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="6.13", codec_only=False, commit="504f052aa343"),
+    (0x17AA, 0x3846): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="", codec_only=False, commit="41d60cbfde10"),
     (0x17AA, 0x386E): RouteQuirk("", pin="0x17", sources="0x02", since="6.13", codec_only=False, commit="a34038f3b6c2"),
     (0x17AA, 0x3870): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="6.11", codec_only=False, commit="b5cb53fd3277"),
     (0x17AA, 0x387D): RouteQuirk("", pin="0x17", sources="0x02 0x03", since="6.11", codec_only=False, commit="3babae915f4c"),
