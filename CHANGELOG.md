@@ -94,7 +94,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - Mark additional tested devices: ThinkPad X13 Gen 2 Intel (20WK)
   ([#105](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/105)),
   ThinkPad X13 Yoga Gen 1 (20SX)
-  ([#107](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/107)).
+  ([#107](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/107)),
+  Lenovo IdeaPad Slim 5 14ARP10 (83HT)
+  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
 
 ## v2026.09 — Sharper Diagnosis and Fixes for Uncommon Setups
 
