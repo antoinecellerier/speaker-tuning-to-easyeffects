@@ -101,7 +101,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad X13 Yoga Gen 1 (20SX)
   ([#107](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/107)),
   Lenovo IdeaPad Slim 5 14ARP10 (83HT)
-  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)).
+  ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)),
+  ThinkPad Z13 Gen 1 (21D2)
+  ([#115](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/115)).
 
 ### Fixed
 
