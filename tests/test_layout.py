@@ -1048,6 +1048,27 @@ def test_tool_env_run_pins_the_locale(monkeypatch):
     assert seen["capture_output"] is True
 
 
+def test_tool_env_run_takes_per_call_variables_but_not_the_locale(monkeypatch):
+    """`env_extra` steers one tool (the LV2 probe keeps PipeWire out of the
+    journal); None removes a variable. The locale stays this module's."""
+    monkeypatch.delenv(tool_env.NO_LIVE_TOOLS, raising=False)
+    monkeypatch.setenv("PIPEWIRE_LOG", "/tmp/pw.log")
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(tool_env.subprocess, "run", fake_run)
+    tool_env.run(["pw-cli"], env_extra={"PIPEWIRE_LOG_SYSTEMD": "false",
+                                        "PIPEWIRE_LOG": None})
+    assert seen["env"]["PIPEWIRE_LOG_SYSTEMD"] == "false"
+    assert "PIPEWIRE_LOG" not in seen["env"]
+    assert seen["env"]["LC_ALL"] == "C.UTF-8"
+    with pytest.raises(ValueError):
+        tool_env.run(["pw-cli"], env_extra={"LC_ALL": "fr_FR.UTF-8"})
+
+
 def test_tool_env_answers_as_a_machine_without_the_tool_while_live_machine_are_off(
         monkeypatch):
     """The isolation half: every tool looks uninstalled — the state each

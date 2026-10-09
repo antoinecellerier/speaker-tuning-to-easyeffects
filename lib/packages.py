@@ -24,6 +24,14 @@ archlinux.org's package API, pkgs.alpinelinux.org (including its file-contents
 index), packages.gentoo.org plus the ebuilds' ``IUSE``, and nixpkgs master.
 The LV2 build is the one that matters — the base ``lsp-plugins`` and ``calf``
 packages do not all ship the .lv2 bundle PipeWire loads.
+
+The PipeWire LV2-loader rows (``PW_LV2_LOADER``) were checked end to end on
+2026-10-09 by ``tools/pw_distro_matrix.py``: a stock PipeWire probed in a
+container, the printed command run, and the probe asked again. Fedora 44,
+Ubuntu 26.04 and Alpine edge went from absent to present on the package
+named; Ubuntu 24.04 and Rocky 9 came back absent with no package their
+package manager has; Debian 12 and stable, openSUSE Leap 16.0 and Arch (with
+``pipewire-pulse``) had it already.
 """
 
 from __future__ import annotations
@@ -88,6 +96,7 @@ LSP_LV2 = "lsp-lv2"
 CALF_LV2 = "calf-lv2"
 LV2INFO = "lv2info"
 PW_TOOLS = "pipewire-tools"
+PW_LV2_LOADER = "pipewire-lv2-loader"
 SPA_TOOLS = "spa-tools"
 ALSA_UTILS = "alsa-utils"
 EASYEFFECTS = "easyeffects"
@@ -134,6 +143,23 @@ _NAMES = {
                SUSE: "pipewire-tools", ALPINE: "pipewire-tools"},
     SPA_TOOLS: {DEBIAN: "pipewire-bin", FEDORA: "pipewire-utils",
                 SUSE: "pipewire-spa-tools", ALPINE: "pipewire-spa-tools"},
+    # PipeWire's LV2 loader for filter chains: the filter-graph plugin
+    # `libspa-filter-graph-plugin-lv2.so` from 1.4, the module
+    # `libpipewire-module-filter-chain-lv2.so` on 0.3.73-1.2 (issue #123).
+    # The Debian row is Ubuntu's name, from 25.10: Debian folds the loader
+    # into `libspa-0.2-modules`, a hard dependency of libpipewire, and has no
+    # `-extra` package. Ubuntu 24.04 and EL build PipeWire without LV2. Both
+    # rows are in `_KNOWN_GAPS`, so the name is printed only where the
+    # package manager has it. Arch's `pipewire-audio` also carries the graph
+    # core every filter chain needs. Alpine edge splits the graph core
+    # (`pipewire-filter-graph`) from one package per plugin type; its stable
+    # releases ship the loader in `pipewire-libs`, which PipeWire needs, so
+    # only edge can be missing it. openSUSE and NixOS ship it in packages
+    # PipeWire already depends on, so they get no name to print.
+    PW_LV2_LOADER: {DEBIAN: "libspa-0.2-modules-extra",
+                    FEDORA: "pipewire-module-filter-chain-lv2",
+                    ARCH: "pipewire-audio", ALPINE: "pipewire-filter-graph-lv2",
+                    GENTOO: "media-video/pipewire"},
     ALSA_UTILS: {DEBIAN: "alsa-utils", FEDORA: "alsa-utils",
                  SUSE: "alsa-utils", ARCH: "alsa-utils", ALPINE: "alsa-utils",
                  GENTOO: "media-sound/alsa-utils", NIXOS: "alsa-utils"},
@@ -195,6 +221,18 @@ UNPACKAGED = {
     (SPA_TOOLS, NIXOS): _PW_OWN.format("spa-json-dump"),
 }
 
+# What to say where no package name for PipeWire's LV2 loader can be printed:
+# a family with no row, a row its package manager doesn't have, or a
+# distribution we can't place. The file names are what a reader can search
+# their distribution's package index for.
+LV2_LOADER_GENERIC = (
+    "install the package that provides PipeWire's LV2 filter-chain support — "
+    "libspa-filter-graph-plugin-lv2.so, or libpipewire-module-filter-chain-"
+    "lv2.so before PipeWire 1.4; some distributions build PipeWire without "
+    "it")
+UNPACKAGED.update({(PW_LV2_LOADER, fam): LV2_LOADER_GENERIC
+                   for fam in (SUSE, NIXOS)})
+
 # What NixOS installs system-wide rather than into a shell, by attribute.
 # These are the things the PipeWire daemon or the desktop has to find, and a
 # `nix-shell` never reaches either. Kept as its own table because the answer
@@ -232,6 +270,8 @@ CAVEATS = {
                         "default build ships no .lv2 bundle",
     (LV2INFO, GENTOO): "first set USE=tools for media-libs/lilv — lv2info is "
                        "not in the default build",
+    (PW_LV2_LOADER, GENTOO): "first set USE=lv2 for media-video/pipewire — "
+                             "the default build has no LV2 support",
 }
 
 
@@ -429,8 +469,8 @@ def available_version_cmd(key, fam: str) -> list[str] | None:
 # nothing for an optional package and mislead for a required one, as an apt
 # that never ran `apt update` saying it has no numpy.
 _KNOWN_GAPS = {
-    DEBIAN: (RICH_ARGPARSE,),
-    FEDORA: (RICH, RICH_ARGPARSE),
+    DEBIAN: (RICH_ARGPARSE, PW_LV2_LOADER),
+    FEDORA: (RICH, RICH_ARGPARSE, PW_LV2_LOADER),
     SUSE: (RICH_ARGPARSE, SCIPY),
 }
 
@@ -682,6 +722,40 @@ def system_python_has(modules) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return proc.returncode == 0
+
+
+def lv2_loader_steps(built_without: bool = False, indent: str = "",
+                     line: str = "", then=()
+                     ) -> tuple[tuple[str, str], ...]:
+    """How to get PipeWire's LV2 loader here, as ``(cprint style, text)``.
+
+    ``line`` is PipeWire's own error, printed first and verbatim: it is the
+    journal line a reader searches for, and wrapped prose would split it.
+    ``then`` is the caller's follow-up (restart, or re-run), dropped when no
+    package can help, since there is then nothing to follow up.
+
+    Unlike `install_steps`, a reader we can't place gets no list of every
+    family: here the families' rows are mostly "already installed", and the
+    one sentence that holds everywhere says more. A row is printed only where
+    `installable` says the package manager has it, so Debian, Ubuntu 24.04
+    and EL readers get that sentence too, not a name apt or dnf would reject.
+    ``built_without`` is a PipeWire whose filter-chain module says it was
+    compiled without LV2, which no package changes. A restart belongs in
+    ``then``: a conf PipeWire already skipped loads only on the next one.
+    """
+    said = (("dim", f"{indent}PipeWire said: {line}"),) if line else ()
+    if built_without:
+        return said + (("dim", f"{indent}(this PipeWire was built without LV2 "
+                               "support, and no package adds it)"),)
+    fam = family()
+    if fam and installable(PW_LV2_LOADER, fam):
+        fix = install_steps([PW_LV2_LOADER], indent=indent)
+    else:
+        # The action itself here, not a note beside a command.
+        fix = (("cta", f"{indent}{LV2_LOADER_GENERIC[0].upper()}"
+                       f"{LV2_LOADER_GENERIC[1:]}."),)
+    return said + fix + tuple((style, f"{indent}{text}")
+                              for style, text in then)
 
 
 def print_install_hint(keys, cprint, see: str = PLUGINS_SECTION) -> None:

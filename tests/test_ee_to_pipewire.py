@@ -3294,3 +3294,79 @@ def test_vbe_conf_validates_against_lv2info(generated):
                                              report.warnings)
     assert not report.errors
     assert not report.warnings
+
+
+# --- PipeWire's own LV2 loader (issue #123) ---------------------------------
+
+def _no_tooling_validate(monkeypatch):
+    """lv2info absent: the loader refusal must not lean on it."""
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(
+            validate.NO_TOOLING, reason="lv2info and spa-json-dump not in PATH",
+            missing_tools=("lv2info", "spa-json-dump")))
+
+
+def _run_converter(generated, tmp_path, *extra):
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    return ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                       "--dry-run", *extra])
+
+
+def test_a_pipewire_that_cannot_load_lv2_gets_no_conf(generated, tmp_path,
+                                                      monkeypatch, capsys,
+                                                      fake_host):
+    """Issue #123: the conf would install, the restart would skip it, and the
+    sink would never appear. Refused before the restart, with PipeWire's own
+    line and the package that fixes it, on a machine without lv2info."""
+    from lib import packages
+    from lib.pipewire import session
+    fake_host("/etc/os-release", "ID=fedora\n")
+    monkeypatch.setattr(packages, "unavailable", lambda key, fam: False)
+    _no_tooling_validate(monkeypatch)
+    line = ("spa.filter-graph: can't load plugin type 'lv2': No such file or "
+            "directory")
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: session.Lv2Loader(present=False, line=line))
+    assert _run_converter(generated, tmp_path) == 1
+    out = capsys.readouterr().out
+    assert "conf not written" in out
+    assert line in out
+    assert "sudo dnf install pipewire-module-filter-chain-lv2" in out
+    assert "Would write conf" not in out
+
+
+def test_an_unanswered_loader_probe_never_refuses(generated, tmp_path,
+                                                  monkeypatch, capsys):
+    from lib.pipewire import session
+    _no_tooling_validate(monkeypatch)
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: session.Lv2Loader(present=None, reason="x"))
+    assert _run_converter(generated, tmp_path) == 0
+    assert "Would write conf" in capsys.readouterr().out
+
+
+def test_no_validate_skips_the_loader_probe(generated, tmp_path, monkeypatch):
+    from lib.pipewire import session
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: pytest.fail("probed under --no-validate"))
+    assert _run_converter(generated, tmp_path, "--no-validate") == 0
+
+
+def test_the_loader_refusal_is_the_only_verdict_printed(generated, tmp_path,
+                                                        monkeypatch, capsys):
+    """The schema check's copy assumes a conf that gets written and a restart
+    that follows; after a refusal neither happens, so it stays silent."""
+    from lib.pipewire import session, validate
+    monkeypatch.setattr(validate, "run",
+                        lambda conf: pytest.fail("validated a refused conf"))
+    calls = []
+    monkeypatch.setattr(session, "lv2_loader", lambda: (
+        calls.append(1), session.Lv2Loader(present=False))[1])
+    assert _run_converter(generated, tmp_path) == 1
+    out = capsys.readouterr().out
+    assert "[validate]" not in out and out.count("conf not written") == 1
+    assert len(calls) == 1

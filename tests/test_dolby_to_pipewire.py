@@ -407,6 +407,28 @@ def _instant_polling(monkeypatch):
                         lambda seconds: now.__setitem__(0, now[0] + seconds))
 
 
+def test_a_missing_sink_on_a_pipewire_without_lv2_names_the_loader(
+        recorders, monkeypatch, capsys):
+    """Issue #123: offering LSP and Calf to a machine whose PipeWire can't
+    load LV2 at all is a loop: the reporter installed them, and the chain
+    stayed dead. PipeWire's answer comes first when it has one."""
+    from lib.pipewire import session
+    monkeypatch.setattr(
+        tool_env, "run",
+        lambda cmd, **kwargs: SimpleNamespace(
+            returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
+    line = ("spa.filter-graph: can't load plugin type 'lv2': No such file or "
+            "directory")
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: session.Lv2Loader(present=False, line=line))
+    _instant_polling(monkeypatch)
+    assert wrapper_main([]) == 1
+    out = capsys.readouterr().out
+    assert "did not appear" in out
+    assert "can't load LV2 plugins" in out and line in out
+    assert "lsp-plugins-lv2" not in out
+
+
 def test_routing_missing_sink_after_restart_is_an_error(recorders,
                                                         monkeypatch, capsys):
     """Restart succeeds, pw-cli answers, and our node isn't in the graph — the
@@ -714,3 +736,36 @@ def test_activated_virtual_sink_run_names_the_sink_to_pick(recorders, capsys):
     out = capsys.readouterr().out
     assert "pick it as your output" in out
     assert "Dolby_Balanced" in out
+
+
+def test_a_chain_without_lv2_is_not_blamed_on_the_lv2_loader(monkeypatch,
+                                                              capsys, tmp_path):
+    """A convolver-only conf has no LV2 node, so a missing loader can't be why
+    its sink is absent; naming it would send the reader to a package that
+    changes nothing."""
+    from lib.pipewire import session
+    conf_path = tmp_path / "Conv.conf"
+    conf_path.write_text('nodes = [ { type = "builtin" label = "convolver" } ]')
+    assert install._confs_use_lv2([conf_path]) is False
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        tool_env, "run",
+        lambda cmd, **kwargs: SimpleNamespace(
+            returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: pytest.fail("asked about LV2 for no LV2 node"))
+    _instant_polling(monkeypatch)
+    assert install._verify_sinks(["Conv"], uses_lv2=False) == 1
+    assert "can't load LV2 plugins" not in capsys.readouterr().out
+
+
+def test_the_lv2_marker_matches_what_the_conf_writer_emits():
+    """`_confs_use_lv2` reads the confs this run wrote by their text, so it
+    must match the writer's own rendering of an LV2 node."""
+    from lib.pipewire.plugins import Stage
+    node = {"type": "lv2", "name": "peq",
+            "plugin": "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_lr"}
+    stage = Stage(nodes=[node], in_l=("peq", "in_l"), in_r=("peq", "in_r"),
+                  out_l=("peq", "out_l"), out_r=("peq", "out_r"))
+    text = pw_conf.format_conf([stage], [], "X", "X")
+    assert install._LV2_NODE in text

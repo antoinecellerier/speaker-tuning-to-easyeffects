@@ -121,6 +121,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The PipeWire route now catches a PipeWire that can't load LV2 plugins, such
+  as Fedora without `pipewire-module-filter-chain-lv2`. The converter refuses
+  to write the conf, and `--doctor` and the post-restart check say so, naming
+  the package where one exists. `--no-validate` skips it
+  ([#123](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/123)).
 - `--doctor` no longer warns "Background service" when a startup file it
   reads launches EasyEffects instead of its autostart toggle: the running
   compositor's config or an autostart entry. With EasyEffects running in

@@ -585,11 +585,11 @@ def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
     return CheckResult(
         DOCTOR_FAIL, "Chains loaded",
         f"{len(missing)} of {len(readable)} conf(s) are on disk but absent from "
-        f"the graph ({', '.join(str(c.path.name) for c in missing)}). A missing "
-        "LSP or Calf LV2 plugin (or impulse file) stops the whole conf loading "
-        "— the LV2 plugins and impulse response checks below say whether one "
-        "is missing — or PipeWire hasn't been restarted since the file was "
-        "written.",
+        f"the graph ({', '.join(str(c.path.name) for c in missing)}). PipeWire "
+        "skips the whole conf when it can't load LV2 plugins at all, when one "
+        "LSP or Calf plugin is missing, or when an impulse file is — the LV2 "
+        "loader, LV2 plugins and impulse response checks below say which — or "
+        "PipeWire hasn't been restarted since the file was written.",
         steps=(("dim", "To try loading it, restart PipeWire "
                        "(re-run --doctor to confirm):"),
                ("cta", f"  {PIPEWIRE_RESTART_CMD}")))
@@ -1076,6 +1076,63 @@ _PLUGIN_VENDORS = (
 )
 
 
+def _lv2_wanted(confs) -> set[str]:
+    """Every LV2 URI the confs name: what the two LV2 checks judge against."""
+    return {uri for c in confs for uri in c.plugins}
+
+
+def _lv2_proven(confs, chains) -> bool:
+    """Whether a chain in the graph runs LV2 nodes: the daemon's own proof
+    that its loader works, which outranks what a pw-cli probe in this shell's
+    environment says."""
+    live = {f"effect_input.{c.name}" for c in chains}
+    return any(c.plugins and c.node_name in live for c in confs)
+
+
+def check_lv2_loader(loader: "session.Lv2Loader | None", confs=(),
+                     dump=None, chains=()) -> CheckResult | None:
+    """Whether PipeWire itself can load LV2 plugins (issue #123).
+
+    `check_plugins_present` asks lv2info, which loads plugins through lilv on
+    its own. PipeWire loads them through an LV2 loader that some
+    distributions package apart from PipeWire: Fedora's is not installed by
+    default. Without it every LV2 node fails, the whole conf is skipped, and
+    the plugin check still passes. So this check sits above that one, and a
+    FAIL here is the answer to a conf missing from the graph.
+
+    None for a conf with no LV2 node, as `check_plugins_present` does. An
+    unanswered probe is UNKNOWN only when the graph answered: without a
+    daemon, the report's PipeWire line already says why nothing could be
+    asked. A live chain with LV2 nodes PASSes whatever the probe said: the
+    probe runs with this shell's environment, the daemon with its own.
+    """
+    if not _lv2_wanted(confs):
+        return None
+    if _lv2_proven(confs, chains):
+        return CheckResult(DOCTOR_PASS, "LV2 loader",
+                           "PipeWire is running a chain with LV2 plugins.")
+    if loader is None:
+        return None
+    if loader.present:
+        return CheckResult(DOCTOR_PASS, "LV2 loader",
+                           "PipeWire can load LV2 plugins.")
+    if loader.present is None:
+        if dump is None:
+            return None
+        return CheckResult(DOCTOR_UNKNOWN, "LV2 loader",
+                           f"whether PipeWire can load LV2 plugins couldn't be "
+                           f"checked — {loader.reason}.")
+    return CheckResult(
+        DOCTOR_FAIL, "LV2 loader",
+        "PipeWire can't load any LV2 plugin here, so it skips every conf that "
+        "uses one and audio plays untreated. lv2info finding the plugins "
+        "doesn't cover this: it loads them without PipeWire.",
+        steps=packages.lv2_loader_steps(
+            loader.built_without, line=loader.line,
+            then=(("dim", "Then restart PipeWire:"),
+                  ("cta", PIPEWIRE_RESTART_CMD))))
+
+
 def check_plugins_present(probe, confs=()) -> CheckResult | None:
     """Whether the LV2 plugins *this machine's confs* name are installed.
 
@@ -1106,7 +1163,7 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
     presence of all eight still reaches a pasted report through the
     filter-chain setup block, which is inventory and says only what it found.
     """
-    wanted = {uri for c in confs for uri in c.plugins}
+    wanted = _lv2_wanted(confs)
     if not wanted:
         # No conf, or none readable. `check_conf_contents` and the
         # installed-confs check each say so in their own words; a verdict here
@@ -1180,6 +1237,11 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # setup block renders these facts and the check below judges them, and
     # eight lv2info spawns is not a thing to pay for twice.
     plugin_probe = _probe_plugins()
+    # Asked of PipeWire itself, which lv2info never is: the same pair of
+    # readers as the plugins, the setup block and the check below. Only for
+    # a conf with LV2 nodes, the one thing the answer is judged against.
+    lv2_loader = (session.lv2_loader()
+                  if dump is not None and _lv2_wanted(confs) else None)
 
     checks = [c for c in (
         # First: everything under it that reads a conf's *contents* is blind
@@ -1189,8 +1251,10 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_stacked_chains(chains, confs),
         check_unpinned_siblings(chains),
         check_confs_loaded(confs, chains, dump),
-        # Directly under the check whose detail points at it: a conf that
-        # never loaded is usually a conf naming a plugin that isn't there.
+        # Directly under the check whose detail points at them, the loader
+        # first: without it, every plugin the next check finds still fails
+        # to load.
+        check_lv2_loader(lv2_loader, confs, dump, chains),
         check_plugins_present(plugin_probe, confs),
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
@@ -1245,6 +1309,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         "pipewire_version": pipewire,
         "version": running,
         "plugins": plugin_probe,
+        "lv2_loader": lv2_loader,
     }
     return checks, confs, chains, facts
 
@@ -1299,6 +1364,14 @@ def _environment_lines(confs, chains, facts) -> list[str]:
         lines.append(layout.row(
             "Remembered", f"{default.configured} (not in the graph)",
             layout.GUTTER))
+    # PipeWire's own answer about LV2, above the plugin list it qualifies:
+    # with the loader MISSING, every "present" below still won't load.
+    loader = facts.get("lv2_loader")
+    if loader is not None:
+        state = ("present" if loader.present
+                 else f"unknown ({loader.reason})" if loader.present is None
+                 else "MISSING")
+        lines += layout.wrapped_row("LV2 loader", state, layout.GUTTER)
     # `.get` for the same reason `default` uses it: the run's own probe comes
     # through `facts`, and a stubbed facts dict must render, not raise.
     # A labelled hanging list like Confs and Sinks: unlabelled, the eight rows

@@ -33,7 +33,7 @@ from pathlib import Path
 
 from lib import console, doctor, ee_paths, packages, tool_env
 from lib.hardware import sinks
-from lib.pipewire import checks, install, validate, vbe
+from lib.pipewire import checks, install, session, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
 # would shadow the module for every later line that reads through it.
 from lib.pipewire import conf as pw_conf
@@ -170,10 +170,13 @@ def add_general_args(container, *, only=None):
              "port metadata of the LV2 plugins the conf names, within a time "
              "budget. The check catches unknown port symbols and "
              "out-of-range values. It refuses to write a conf naming a "
-             "plugin lv2info cannot load at all. Without both tools nothing "
-             "can be checked, and this flag only silences the reminder "
-             "saying so. Pass it to build a conf for a different machine, or "
-             "when the check is wrong about a plugin you know works.",
+             "plugin lv2info cannot load at all. Without both tools the "
+             "schema can't be checked, and this flag silences the reminder "
+             "saying so. It also skips asking PipeWire whether it can load "
+             "LV2 plugins at all, which refuses the conf when it can't, "
+             "with or without those tools. Pass it to build a conf for a "
+             "different machine, or when a check is wrong about a plugin you "
+             "know works.",
     )
     add(
         "--dry-run",
@@ -359,6 +362,21 @@ def _print_missing_plugins(uris: tuple[str, ...],
     # the one step in this block that cannot be pasted.
     console.cprint("cta", "Install them, then run this command again:")
     packages.print_install_hint(keys, console.cprint)
+
+
+def _print_missing_lv2_loader(loader) -> None:
+    """Refuse a chain PipeWire has no way to load, and say how to fix that.
+
+    The conf would install cleanly and the restart would skip it, so the
+    sink never appears. PipeWire's own line goes under the error, as
+    `_print_missing_plugins` prints lv2info's, because it is what a reader
+    searching for the fault will find."""
+    console.cprint("err", "error: PipeWire can't load LV2 plugins on this "
+                   "machine, and this chain needs them; conf not written")
+    for style, text in packages.lv2_loader_steps(
+            loader.built_without, line=loader.line,
+            then=(("cta", "Then run this command again."),)):
+        console.cprint(style, f"  {text}")
 
 
 def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
@@ -604,6 +622,17 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console.cprint("warn", f"[warn] {w}")
 
     if not args.no_validate:
+        # PipeWire's own LV2 support, asked of PipeWire: lv2info loads plugins
+        # through lilv itself, so it passes on a machine whose PipeWire can't
+        # load any of them (issue #123). First, and alone: nothing the schema
+        # check says matters until PipeWire can load the plugins at all, and
+        # its copy assumes a conf that gets written. Only an answer refuses:
+        # an unasked or unanswered probe writes the conf as before.
+        if any(n.get("type") == "lv2" for st in chain.stages for n in st.nodes):
+            loader = session.lv2_loader()
+            if loader.present is False:
+                _print_missing_lv2_loader(loader)
+                return 1
         try:
             report = validate.run(conf)
         except Exception as e:
@@ -616,8 +645,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
             # missing package becomes a chain that quietly never loads. Say
             # what that looks like, and that installing one package buys the
             # check back. Not required: PipeWire loads plugins through the
-            # lilv *library*, not this CLI, so a machine with LSP and Calf
-            # correctly installed needs nothing more to run the chain.
+            # lilv *library*, not this CLI. Its own LV2 loader is the one
+            # other piece, and the probe above asks PipeWire for it.
             fam = packages.family()
             needed = _vendor_labels(_chain_vendors(chain.stages), fam)
             # A chain can be entirely builtin — a convolver-only preset has no
@@ -683,8 +712,9 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                     console.cprint("err", f"[validate] error: {err}")
                 if report.unloadable:
                     # Not a schema problem: lv2info resolves plugins through
-                    # the same lilv the filter-chain does, so a URI it won't
-                    # answer for is one the daemon won't load. The remedy is a
+                    # the same lilv the filter-chain's LV2 loader does, so a
+                    # URI it won't answer for is one the daemon won't load.
+                    # The converse needs the loader too (the probe above). The remedy is a
                     # package, not a value, and the lines above are lv2info's
                     # own words about a URI — neither names what to install.
                     _print_missing_plugins(report.unloadable,

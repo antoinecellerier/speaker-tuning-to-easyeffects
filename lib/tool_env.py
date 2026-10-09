@@ -79,15 +79,28 @@ def which(name: str) -> str | None:
     return shutil.which(name)
 
 
-def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+def run(argv: list[str], env_extra: dict[str, str | None] | None = None,
+        **kwargs) -> subprocess.CompletedProcess:
     """``subprocess.run`` under ``c_locale()``. While live tools are off, a
     stand-in runs in the tool's place, or ``FileNotFoundError`` is raised as
     for a tool that isn't installed. Takes ``subprocess.run``'s keywords
-    except ``env``, which is this module's to set."""
+    except ``env``, which is this module's to set.
+
+    ``env_extra`` adjusts that environment for one call: a value sets the
+    variable, None removes it. The locale pin is applied first, so a caller
+    can steer the tool (``PIPEWIRE_LOG_SYSTEMD``) but not its language."""
     if _gated(argv[0]):
         stand_in = _stand_in(argv[0])
         if stand_in is None:
             raise FileNotFoundError(errno.ENOENT,
                                     f"not run: {NO_LIVE_TOOLS} is set", argv[0])
         argv = [stand_in, *argv[1:]]
-    return subprocess.run(argv, env=c_locale(), **kwargs)
+    env = c_locale()
+    for key, value in (env_extra or {}).items():
+        if key in ("LC_ALL", "LANGUAGE"):
+            raise ValueError(f"{key} is tool_env's to set")
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
+    return subprocess.run(argv, env=env, **kwargs)

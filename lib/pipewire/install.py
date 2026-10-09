@@ -41,6 +41,7 @@ from pathlib import Path
 
 from lib import console, doctor, packages, tool_env
 from lib.hardware import sinks
+from lib.pipewire import session
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 
@@ -172,6 +173,10 @@ def _grep_expectation(tail: str = "") -> str:
     differs between the callers, and empty where the caller says nothing about
     it.
 
+    PipeWire's own LV2 support is the first cause it names: some
+    distributions package it apart from PipeWire (issue #123), and without it
+    no LV2 plugin loads however many are installed.
+
     It names the *category*, not LSP and Calf by name. The converter says
     which packages this particular chain needs: a chain with no Calf stage is
     told LSP only. A generic "LSP or Calf" a few lines later would read as a
@@ -180,8 +185,9 @@ def _grep_expectation(tail: str = "") -> str:
     """
     once = f" — {tail}" if tail else ""
     return ('     (it should print a line, showing node.name = "..."; '
-            "nothing means the whole file failed to load — an LV2 plugin it "
-            f"needs, or its impulse file, isn't there{once})")
+            "nothing means the whole file failed to load — PipeWire's LV2 "
+            "support, an LV2 plugin it needs, or its impulse file isn't "
+            f"there{once})")
 
 
 def _print_next_steps(node_name: str,
@@ -333,11 +339,31 @@ def _print_manual_activation(node_names: list[str],
     _print_undo(written)
 
 
-def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
+# How `conf.format_conf` writes an LV2 node; a conf without it is builtins only
+# (a convolver-only preset), and PipeWire's LV2 loader is nothing to it.
+_LV2_NODE = 'type = "lv2"'
+
+
+def _confs_use_lv2(confs) -> bool | None:
+    """Whether any conf this run wrote has an LV2 node, or None if unread."""
+    if not confs:
+        return None
+    try:
+        return any(_LV2_NODE in Path(c).read_text(encoding="utf-8")
+                   for c in confs)
+    except OSError:
+        return None
+
+
+def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5,
+                  uses_lv2: bool | None = None) -> int:
     """Poll pw-cli until every expected node shows up.
 
     The chain takes a moment to load after the restart. Missing after the
-    timeout usually means a missing LV2 plugin."""
+    timeout means PipeWire skipped the conf: its LV2 support, an LV2 plugin
+    or an impulse file is missing (`_grep_expectation`). The first of those
+    PipeWire can answer for itself, so it is asked before the other two are
+    offered."""
     if tool_env.which("pw-cli") is None:
         # The check command comes *after* the install, not beside the "not
         # found". Beside it, a "check with: pw-cli ls Node" (an earlier
@@ -400,6 +426,19 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
                       "running. PipeWire skips a chain it can't load rather "
                       "than refusing to start, so your speakers still work — "
                       "just without the tuning.")
+        # PipeWire's own answer first, when it has one and the chain has LV2
+        # nodes for it to matter to: without the loader no LSP or Calf
+        # package makes the chain load, so offering them would be wrong.
+        loader = (session.lv2_loader() if uses_lv2 is not False
+                  else session.Lv2Loader(present=None))
+        if loader.present is False:
+            console.cprint("cta", "PipeWire can't load LV2 plugins on this "
+                           "machine, so it skips the whole conf:")
+            for style, text in packages.lv2_loader_steps(
+                    loader.built_without, line=loader.line,
+                    then=(("cta", f"Then retry: {PIPEWIRE_RESTART_CMD}"),)):
+                console.cprint(style, f"  {text}")
+            return 1
         # Both packages, and said to be both: this step sees only that a node
         # is absent, so it cannot narrow it to one the way the converter's
         # pre-write check does. Naming them without that sentence reads as a
@@ -410,7 +449,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
         console.cprint("cta", "A missing LV2 plugin stops the whole conf "
                       "loading. All this step sees is a node that isn't "
                       "there, so install both — or run --doctor, which checks "
-                      "them one by one:")
+                      "them one by one, and PipeWire's LV2 support:")
         packages.print_install_hint([packages.LSP_LV2, packages.CALF_LV2],
                                     console.cprint)
         console.cprint("cta", f"Then retry: {PIPEWIRE_RESTART_CMD}")
@@ -418,7 +457,7 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5) -> int:
     return 0
 
 
-def _activate(node_names: list[str], selectable: bool) -> int:
+def _activate(node_names: list[str], selectable: bool, confs=()) -> int:
     console.cprint("head", "[3/3] Activating: restarting PipeWire")
     # Not only "otherwise both chains process the audio": the restart itself
     # stops a running EasyEffects (it doesn't survive its server going away),
@@ -441,7 +480,7 @@ def _activate(node_names: list[str], selectable: bool) -> int:
                       f"{proc.returncode}) — run it manually: "
                       f"{PIPEWIRE_RESTART_CMD}")
         return 1
-    rc = _verify_sinks(node_names)
+    rc = _verify_sinks(node_names, uses_lv2=_confs_use_lv2(confs))
     if rc == 0:
         _print_selection_step(node_names, selectable)
     return rc

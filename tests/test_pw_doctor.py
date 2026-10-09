@@ -902,10 +902,10 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
     result = checks.check_confs_loaded([_conf(tmp_path, "Dolby_Balanced")],
                                        [], dump=[])
     assert "README" not in result.detail
-    assert "LV2 plugins and impulse response checks" in result.detail
-    # Not a diagnosis of a missing plugin — both causes stay on the line, and
-    # neither is ranked: nothing here has counted how often either happens.
-    assert "stops the whole conf loading" in result.detail
+    assert "LV2 loader, LV2 plugins and impulse response checks" in result.detail
+    # Not a diagnosis of a missing plugin — every cause stays on the line, and
+    # none is ranked: nothing here has counted how often either happens.
+    assert "skips the whole conf" in result.detail
     assert "restarted" in result.detail
     assert "Usually" not in result.detail
     # The restart is the FAIL's own fix, not just a cause it names — before it
@@ -919,9 +919,9 @@ def test_a_dropped_conf_points_at_the_check_not_at_the_readme(tmp_path):
 
 def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
                                                               monkeypatch):
-    """"the LV2 plugins and impulse response checks below" is a direction,
-    and the order of the check list is what makes it true — for both names
-    the chains-loaded FAIL sends its reader to."""
+    """"the LV2 loader, LV2 plugins and impulse response checks below" is a
+    direction, and the order of the check list is what makes it true — for
+    every name the chains-loaded FAIL sends its reader to."""
     monkeypatch.setattr(checks, "_pw_dump", lambda: [])
     monkeypatch.setattr(session, "wireplumber_version",
                         lambda: session.Version(text="0.5", parts=(0, 5)))
@@ -943,8 +943,12 @@ def test_the_lv2_check_is_printed_under_the_one_that_names_it(tmp_path,
                                 irs=[tmp_path / "Dolby_Balanced.irs"])
     monkeypatch.setattr(checks, "installed_confs", lambda *a, **k: [conf])
 
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: session.Lv2Loader(present=True))
+
     labels = [c.label for c in checks.gather_pw_doctor()[0]]
     assert (labels.index("Chains loaded")
+            < labels.index("LV2 loader")
             < labels.index("LV2 plugins")
             < labels.index("Impulse responses"))
 
@@ -1988,3 +1992,226 @@ def test_gather_labels_the_default_sink_off_its_own_dump(tmp_path, monkeypatch):
     assert checks.gather_pw_doctor()[3]["default_label"] == ""
     monkeypatch.setattr(checks, "_pw_dump", lambda: None)
     assert checks.gather_pw_doctor()[3]["default_label"] == ""
+
+
+# --- PipeWire's own LV2 loader (issue #123) ---------------------------------
+#
+# The probe's output, verbatim from PipeWire 1.6.9 on the dev machine: loader
+# present, and loader absent (an SPA_PLUGIN_DIR tree without the lv2 plugin).
+_PROBE_PRESENT = (
+    f"[W][21:32:48.548240][    plugin_lv2.c:  661 impl_init()] can't load "
+    f"plugin {session.LV2_PROBE_URI}\n"
+    "[E][21:32:48.549373] spa.filter-graph | [  filter-graph.c:  934 "
+    "plugin_load()] can't load plugin type 'lv2': Invalid argument\n"
+    "[E][21:32:48.549395] spa.filter-graph | [  filter-graph.c: 2442 "
+    "impl_init()] can't load graph: Invalid argument\n"
+    'Error: "Could not load module"\n')
+_PROBE_ABSENT = (
+    "[E][21:32:56.993136] spa.filter-graph | [  filter-graph.c:  934 "
+    "plugin_load()] can't load plugin type 'lv2': No such file or directory\n"
+    "[E][21:32:56.993200] spa.filter-graph | [  filter-graph.c: 2442 "
+    "impl_init()] can't load graph: No such file or directory\n"
+    'Error: "Could not load module"\n')
+
+
+def test_the_probe_reads_its_own_uri_as_a_loader_that_ran():
+    assert session.classify_lv2_probe(_PROBE_PRESENT).present is True
+
+
+def test_the_probe_reads_the_reporters_line_as_a_missing_loader():
+    """Issue #123's journal line, reduced to the form the journal shows."""
+    loader = session.classify_lv2_probe(_PROBE_ABSENT)
+    assert loader.present is False and not loader.built_without
+    assert loader.line == ("spa.filter-graph: can't load plugin type 'lv2': "
+                           "No such file or directory")
+
+
+def test_the_probe_reads_the_pre_1_4_module_wording_too():
+    """0.3.73–1.2.x: the loader is a module, and the topic is
+    mod.filter-chain (PipeWire 1.2.7 module-filter-chain.c)."""
+    out = ("[E][00:00:00.000000] mod.filter-chain | [module-filter-chain.c: "
+           "1723 load_plugin()] can't load plugin type 'lv2': No such file "
+           "or directory\n")
+    loader = session.classify_lv2_probe(out)
+    assert loader.present is False
+    assert loader.line.startswith("mod.filter-chain: can't load plugin type")
+
+
+def test_a_pipewire_built_without_lv2_has_no_package_to_offer():
+    loader = session.classify_lv2_probe(
+        "[E][00:00:00.000000] filter-chain is compiled without lv2 support\n")
+    assert loader.present is False and loader.built_without
+
+
+@pytest.mark.parametrize("out", [
+    'Error: "Could not load module"\n',   # missing module or graph core
+    "",                                    # nothing at all
+])
+def test_anything_else_is_not_an_answer(out):
+    """A bare module failure is what a missing graph core (Arch without
+    pipewire-audio) and a missing filter-chain module both print, so the
+    probe says it doesn't know rather than guess."""
+    loader = session.classify_lv2_probe(out)
+    assert loader.present is None and loader.reason
+
+
+def test_the_probe_stays_out_of_the_journal_and_reads_both_streams(
+        monkeypatch):
+    """The absent-case line is indistinguishable from a real chain failing,
+    so it must not land in the journal; and the lines it reads are warnings
+    and errors on stderr, which the existing `SimpleNamespace(stdout=…)`
+    stubs carry only if the probe folds stderr into stdout."""
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen.update(kwargs, argv=argv)
+        return SimpleNamespace(returncode=0, stdout=_PROBE_ABSENT)
+
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    assert session.lv2_loader().present is False
+    assert seen["env_extra"]["PIPEWIRE_LOG_SYSTEMD"] == "false"
+    assert seen["env_extra"]["PIPEWIRE_LOG"] is None
+    assert seen["stderr"] is session.subprocess.STDOUT
+    assert seen["argv"][:3] == ["pw-cli", "load-module",
+                                "libpipewire-module-filter-chain"]
+    assert session.LV2_PROBE_URI in seen["argv"][3]
+
+
+def test_the_probe_is_asked_once_per_run(monkeypatch):
+    """The wrapper converts up to three presets and verifies after the
+    restart; one pw-cli spawn answers all of them."""
+    calls = []
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", lambda argv, **kw: (
+        calls.append(argv), SimpleNamespace(stdout=_PROBE_PRESENT))[1])
+    assert session.lv2_loader().present and session.lv2_loader().present
+    assert len(calls) == 1
+
+
+def test_inside_a_toolbox_the_probe_does_not_answer_for_the_host(
+        monkeypatch, fake_host):
+    """pw-cli in a toolbox loads the container's modules; the daemon is the
+    host's, so its answer would be about the wrong PipeWire."""
+    fake_host("/run/.containerenv", "")
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", lambda *a, **k: pytest.fail("ran"))
+    loader = session.lv2_loader()
+    assert loader.present is None and "container" in loader.reason
+
+
+def test_without_pw_cli_the_probe_says_so(monkeypatch):
+    monkeypatch.setattr(tool_env, "which", lambda name: None)
+    loader = session.lv2_loader()
+    assert loader.present is None and "pw-cli" in loader.reason
+
+
+def _lv2_conf(tmp_path):
+    return _conf(tmp_path, "Dolby_Balanced",
+                 plugins=["http://lsp-plug.in/plugins/lv2/para_equalizer_x32_lr"])
+
+
+def test_a_missing_loader_fails_while_the_plugins_pass(tmp_path, monkeypatch,
+                                                       fake_host):
+    """Issue #123's exact shape: every LV2 bundle installed, so lv2info passes
+    them, and PipeWire still can't load one. The loader check is the FAIL
+    that explains the dropped conf, and on Fedora it names the package that
+    fixes it, then the restart that loads the conf."""
+    fake_host("/etc/os-release", "ID=fedora\n")
+    monkeypatch.setattr(packages, "unavailable", lambda key, fam: False)
+    confs = [_lv2_conf(tmp_path)]
+    loader = session.classify_lv2_probe(_PROBE_ABSENT)
+    result = checks.check_lv2_loader(loader, confs, dump=[])
+    assert result.status == DOCTOR_FAIL
+    assert "lv2info" in result.detail
+    steps = [text.strip() for _style, text in result.steps]
+    # Verbatim, unwrapped: the line a reader searches the journal for.
+    assert ("PipeWire said: spa.filter-graph: can't load plugin type 'lv2': "
+            "No such file or directory") in steps
+    assert "sudo dnf install pipewire-module-filter-chain-lv2" in steps
+    assert conf.PIPEWIRE_RESTART_CMD in steps
+    probe = checks.PluginProbe(entries=(
+        ("LSP PEQ", "http://lsp-plug.in/plugins/lv2/para_equalizer_x32_lr",
+         True),))
+    assert checks.check_plugins_present(probe, confs).status == DOCTOR_PASS
+
+
+def test_a_loader_apt_has_no_package_for_gets_the_sentence_not_a_name(
+        tmp_path, monkeypatch, fake_host):
+    """Debian folds the loader into a package libpipewire depends on, and
+    Ubuntu 24.04 builds PipeWire without LV2: on both, `apt` has no
+    libspa-0.2-modules-extra, and naming it would fail the install."""
+    fake_host("/etc/os-release", "ID=debian\n")
+    monkeypatch.setattr(packages, "unavailable", lambda key, fam: True)
+    result = checks.check_lv2_loader(session.classify_lv2_probe(_PROBE_ABSENT),
+                                     [_lv2_conf(tmp_path)], dump=[])
+    text = " ".join(t for _s, t in result.steps)
+    assert "libspa-0.2-modules-extra" not in text
+    assert "libspa-filter-graph-plugin-lv2.so" in text
+
+
+def test_a_build_without_lv2_offers_neither_a_package_nor_a_restart(tmp_path):
+    loader = session.Lv2Loader(present=False, built_without=True)
+    result = checks.check_lv2_loader(loader, [_lv2_conf(tmp_path)], dump=[])
+    text = " ".join(t for _s, t in result.steps)
+    assert "no package adds it" in text
+    assert conf.PIPEWIRE_RESTART_CMD not in text
+
+
+def test_the_loader_is_judged_only_for_a_conf_that_uses_lv2(tmp_path):
+    """A convolver-only conf has no LV2 node, so a missing loader costs it
+    nothing: no verdict, as with the plugin check."""
+    loader = session.Lv2Loader(present=False)
+    assert checks.check_lv2_loader(loader, [_conf(tmp_path, "x")], dump=[]) is None
+
+
+def test_an_unanswered_probe_is_unknown_only_when_the_graph_answered(tmp_path):
+    loader = session.Lv2Loader(present=None, reason="pw-cli didn't answer")
+    confs = [_lv2_conf(tmp_path)]
+    assert checks.check_lv2_loader(loader, confs, dump=None) is None
+    result = checks.check_lv2_loader(loader, confs, dump=[])
+    assert result.status == DOCTOR_UNKNOWN
+    assert "pw-cli didn't answer" in result.detail
+
+
+def test_a_present_loader_passes(tmp_path):
+    result = checks.check_lv2_loader(session.Lv2Loader(present=True),
+                                     [_lv2_conf(tmp_path)], dump=[])
+    assert result.status == DOCTOR_PASS
+
+
+def test_a_live_lv2_chain_outranks_the_probe(tmp_path):
+    """The probe runs with this shell's environment and the daemon with its
+    own, so they can disagree; a chain running LV2 nodes is the daemon's own
+    answer, and a report that FAILed it would contradict "Chains loaded"."""
+    confs = [_lv2_conf(tmp_path)]
+    chains = [checks.LiveChain(name="Dolby_Balanced")]
+    result = checks.check_lv2_loader(session.Lv2Loader(present=False), confs,
+                                     dump=[], chains=chains)
+    assert result.status == DOCTOR_PASS
+
+
+def test_the_doctor_does_not_probe_for_a_chain_without_lv2(tmp_path,
+                                                           monkeypatch):
+    monkeypatch.setattr(checks, "_pw_dump", lambda: [])
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
+    monkeypatch.setattr(checks, "installed_confs",
+                        lambda *a, **k: [_conf(tmp_path, "Conv_Only")])
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: pytest.fail("probed for a builtin-only conf"))
+    _checks, _confs, _chains, facts = checks.gather_pw_doctor()
+    assert facts["lv2_loader"] is None
+
+
+def test_an_unanswered_probe_is_asked_again(monkeypatch):
+    """A daemon that was down before the restart can answer after it; only a
+    present or absent answer holds for the run."""
+    calls = []
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", lambda argv, **kw: (
+        calls.append(argv),
+        SimpleNamespace(stdout="" if len(calls) == 1 else _PROBE_PRESENT))[1])
+    assert session.lv2_loader().present is None
+    assert session.lv2_loader().present is True
+    assert session.lv2_loader().present is True
+    assert len(calls) == 2

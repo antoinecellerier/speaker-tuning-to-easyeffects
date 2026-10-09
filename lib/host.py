@@ -2,8 +2,8 @@
 
 What these tools report about the hardware — codecs and speaker pins, the
 PCI subsystem, SoundWire devices, DMI, loaded modules and firmware files, the
-distro, the kernel — is read from ``/proc``, ``/sys``, ``/etc`` and
-``/lib/firmware``. A test that reaches the real ones depends on the machine
+distro, the kernel, whether this is a container — is read from ``/proc``,
+``/sys``, ``/etc``, ``/lib/firmware`` and ``/run/.containerenv``. A test that reaches the real ones depends on the machine
 running it, and an HDA codec's ``/proc/asound/card*/codec#*`` is not even a
 cheap read: each goes to the hardware, and the kernel serialises them, so a
 dozen test workers reading the same codec queued behind each other for most of
@@ -31,7 +31,7 @@ HOST_ROOT = "ATMOS_HOST_ROOT"
 # Where lib/ reads machine state. Anything else handed to `path` is the
 # caller's own and passes through.
 HOST_PREFIXES = ("/proc/", "/sys/", "/etc/", "/lib/firmware",
-                 "/var/lib/flatpak/")
+                 "/var/lib/flatpak/", "/run/.containerenv")
 
 
 def path(location: str | os.PathLike) -> Path:

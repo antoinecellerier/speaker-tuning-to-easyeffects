@@ -165,11 +165,19 @@ installed plugin metadata. If `lv2info` can't load a plugin, the run **refuses
 to write the conf** and names the package to install. PipeWire couldn't load
 that plugin either, because both resolve plugins through the same library.
 `lv2info` itself is optional. PipeWire needs the lilv *library*, not the
-command, so a machine with LSP and Calf installed runs the chain without it.
-Without it, nothing checks the plugin set before the conf is written. A missing
-package then shows up only as a sink that never appears after the restart. The
-run says so and names the package that would have caught it. Pass
-`--no-validate` to skip the check entirely.
+command. Without it, nothing checks the plugin set before the conf is written.
+A missing package then shows up only as a sink that never appears after the
+restart. The run says so and names the package that would have caught it.
+
+PipeWire also needs its own LV2 loader, and some distributions package it
+apart from PipeWire. Fedora is one. Without the loader, PipeWire loads no LV2
+plugin at all, while `lv2info` still finds every one. So the converter asks
+PipeWire directly, with a probe that creates no node and leaves nothing in the
+journal. If PipeWire can't load LV2 plugins, the run refuses to write the conf
+and names the package where your package manager has one. Some distributions
+build PipeWire without LV2 support, and then no package adds it. `--doctor`
+and the post-restart check ask the same question. Pass `--no-validate` to skip
+both checks.
 
 The run also uses `spa-json-dump` to read the conf back. It uses `pw-cli` and
 `pw-dump` to find your speaker sink and confirm the chain loaded. These ship in
@@ -251,7 +259,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--dry-run` — report where each conf would be written without installing it.
   Nothing is written outside the staging directory, and PipeWire is not
   restarted. To keep the confs, use `--output-dir DIR --no-activate` instead.
-- `--no-validate` — skip the `lv2info` schema self-check
+- `--no-validate` — skip the pre-write checks: the `lv2info` schema self-check
+  and PipeWire's own LV2 support
 - `--no-color` — disable colored terminal output
 - `--version` — print the version and exit
 
@@ -297,8 +306,9 @@ and `dolby_to_pipewire.py` runs it for you.
   its impulse gets a new name.
 
 **General**
-- `--no-validate` — skip the `lv2info` schema self-check. The check also refuses
-  a conf naming a plugin `lv2info` can't load.
+- `--no-validate` — skip the pre-write checks. They refuse a conf naming a
+  plugin `lv2info` can't load, or one whose LV2 plugins PipeWire itself can't
+  load.
 - `--dry-run` — report where the conf and impulse response would be written
   without writing them. To keep the conf, use `--output` instead.
 - `--skip-next-steps` — replace the post-write next-steps checklist with a

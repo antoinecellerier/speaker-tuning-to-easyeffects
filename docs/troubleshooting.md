@@ -83,8 +83,8 @@ version too. To check it in EasyEffects itself, open its About dialog:
 Everything above is about the EasyEffects setup. On the
 [PipeWire filter-chain](dolby-to-pipewire.md) route,
 run `python3 dolby_to_pipewire.py --doctor` instead. It checks that route's own
-failures: chains stacked on one sink, a conf that didn't load, a missing impulse
-file, and a target sink that's gone.
+failures: chains stacked on one sink, a conf that didn't load, a PipeWire that
+can't load LV2 plugins, a missing impulse file, and a target sink that's gone.
 
 ## Troubleshooting: correct but too quiet
 

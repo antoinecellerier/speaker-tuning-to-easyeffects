@@ -465,7 +465,8 @@ def main(argv: list[str] | None = None) -> int:
                                          selectable=args.target_sink == "")
         rc = 0
     else:
-        rc = install._activate(node_names, selectable=args.target_sink == "")
+        rc = install._activate(node_names, selectable=args.target_sink == "",
+                               confs=[w for w in written if w.suffix == ".conf"])
         # The path where the sound just changed under them, so this is where
         # knowing the way back matters most — and on a failure it stops being
         # a footnote: removing the conf is the next thing the reader does.

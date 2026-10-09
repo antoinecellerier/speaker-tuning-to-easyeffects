@@ -129,6 +129,42 @@ def test_pw_cli_node_listing_still_names_nodes_verbatim():
     assert [n for n in names if n not in listing] == []
 
 
+def test_pipewire_still_answers_the_lv2_loader_probe_both_ways(
+        monkeypatch, tmp_path):
+    """`session.lv2_loader` reads PipeWire's own log wording, so a reworded
+    message would turn every answer into "unknown". Asked twice: as the
+    machine is, and with the loader hidden behind an `SPA_PLUGIN_DIR` tree
+    that holds everything else. Hiding it that way works from PipeWire 1.4,
+    where the loader is an SPA plugin; before, it is a module in
+    `PIPEWIRE_MODULE_DIR`."""
+    _need("pw-cli")
+    _need_pipewire()
+    loader = session.lv2_loader()
+    if loader.present is not True:
+        pytest.skip(f"this machine's PipeWire can't load LV2: {loader}")
+    if session.pipewire_version().parts < (1, 3, 81):
+        pytest.skip("loader is a module before PipeWire 1.4")
+    real = next((d for pattern in ("/usr/lib/*/spa-0.2", "/usr/lib64/spa-0.2",
+                                   "/usr/lib/spa-0.2")
+                 for d in sorted(Path("/").glob(pattern.lstrip("/")))
+                 if (d / "filter-graph").is_dir()), None)
+    if real is None:
+        pytest.skip("no spa-0.2/filter-graph directory where it's looked for")
+    hidden = tmp_path / "spa-0.2"
+    (hidden / "filter-graph").mkdir(parents=True)
+    for entry in real.iterdir():
+        if entry.name != "filter-graph":
+            (hidden / entry.name).symlink_to(entry)
+    for entry in (real / "filter-graph").iterdir():
+        if "plugin-lv2" not in entry.name:
+            (hidden / "filter-graph" / entry.name).symlink_to(entry)
+    monkeypatch.setenv("SPA_PLUGIN_DIR", str(hidden))
+    session.forget_lv2_loader()
+    loader = session.lv2_loader()
+    assert loader.present is False, loader
+    assert "can't load plugin type 'lv2'" in loader.line
+
+
 def test_pgrep_still_answers_for_a_running_process():
     _need("pgrep")
     _need_pipewire()
@@ -479,6 +515,7 @@ _HOST_LOCATIONS = {
     "/etc/xdg/i3/config": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
     "/etc/xdg/labwc/autostart": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",
     "/var/lib/flatpak/app": "exempt: an existence check, nothing parsed",
+    "/run/.containerenv": "exempt: an existence check, nothing parsed",
     "/sys/class/firmware-attributes/thinklmi/attributes/MicrophoneAccess":
         "exempt: an existence check, nothing parsed",
     "/etc/modprobe.d/speaker-pin-fix.conf":

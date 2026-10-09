@@ -618,3 +618,53 @@ def test_system_python_has_forwards_this_process_isolation_flags(monkeypatch):
         seen.append(argv) or subprocess.CompletedProcess(argv, 1)))
     assert not packages.system_python_has(("numpy",))
     assert seen[0][1:3] == ["-s", "-S"]
+
+
+# --- PipeWire's LV2 loader (issue #123) -------------------------------------
+
+def _steps_text(steps):
+    return [text for _style, text in steps]
+
+
+def test_the_loader_name_prints_only_where_the_package_manager_has_it(
+        monkeypatch):
+    """Debian's apt has no libspa-0.2-modules-extra (the loader is in a
+    package libpipewire depends on), and Ubuntu 24.04's PipeWire has no LV2
+    support at all. The name is asked of apt before it is printed."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    asked = []
+    monkeypatch.setattr(packages, "unavailable",
+                        lambda key, fam: asked.append(key) or True)
+    text = " ".join(_steps_text(packages.lv2_loader_steps()))
+    assert asked == [packages.PW_LV2_LOADER]
+    assert "libspa-0.2-modules-extra" not in text
+    assert "libspa-filter-graph-plugin-lv2.so" in text
+
+    monkeypatch.setattr(packages, "unavailable", lambda key, fam: False)
+    assert _steps_text(packages.lv2_loader_steps()) == [
+        "sudo apt install libspa-0.2-modules-extra"]
+
+
+def test_an_unplaced_machine_gets_one_sentence_not_every_familys_command(
+        monkeypatch):
+    """Most families' rows are "already installed", so the per-family list
+    would be mostly wrong for the reader; the file names hold everywhere."""
+    monkeypatch.setattr(packages, "family", lambda *a, **k: "")
+    steps = packages.lv2_loader_steps()
+    assert len(steps) == 1 and steps[0][0] == "cta"
+    assert "dnf" not in steps[0][1] and "apt" not in steps[0][1]
+
+
+def test_gentoo_is_told_the_use_flag_before_the_rebuild(monkeypatch):
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.GENTOO)
+    text = _steps_text(packages.lv2_loader_steps())
+    assert "USE=lv2" in text[0]
+    assert text[-1] == "sudo emerge media-video/pipewire"
+
+
+def test_a_pipewire_built_without_lv2_is_told_no_package_helps(monkeypatch):
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.FEDORA)
+    monkeypatch.setattr(packages, "unavailable", lambda key, fam: False)
+    text = " ".join(_steps_text(packages.lv2_loader_steps(built_without=True)))
+    assert "no package adds it" in text
+    assert "dnf" not in text

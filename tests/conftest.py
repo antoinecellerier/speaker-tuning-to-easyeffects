@@ -108,6 +108,18 @@ def no_live_easyeffects_probe(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_lv2_loader_probe():
+    """`session.lv2_loader` answers once per process, and a pytest-xdist
+    worker is one process for many tests: without this, the first test's
+    answer (usually "pw-cli not found", with the machine off) would be every
+    later test's, whatever it stubs."""
+    from lib.pipewire import session
+    session.forget_lv2_loader()
+    yield
+    session.forget_lv2_loader()
+
+
+@pytest.fixture(autouse=True)
 def no_live_easyeffects_socket(monkeypatch):
     """The generator now *loads* a preset into a running EasyEffects at the
     end of a real run (lib/preset/reload.py). On a dev machine that is the

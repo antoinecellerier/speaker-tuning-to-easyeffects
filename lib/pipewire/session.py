@@ -13,6 +13,9 @@ by hand (`docs/ee-to-pipewire.md`, "Small-quantum systems under load"). The
 one place this project does it, `tools/measure_perf/compare_paths.py`, is a
 measurement harness behind the audio handoff.
 
+`lv2_loader` is the one probe that asks PipeWire to load something, and what
+it asks for cannot load, so it too leaves the session as it found it.
+
 Stdlib-only, deliberately: both doctors print from it through
 `lib/report/doctor_layout.py`, and `tests/test_layout.py` lists it.
 """
@@ -391,6 +394,157 @@ def age_from_stat(stat: str, uptime_s: float, clk_tck: int) -> float | None:
     except (IndexError, ValueError):
         return None
     return max(0.0, uptime_s - start_ticks / clk_tck)
+
+
+# The plugin the LV2 probe asks for. A URN no LV2 bundle declares, named after
+# the entry point that owns the check (`dolby_to_pipewire.py` runs it through
+# `ee_to_pipewire.py`), so the one line it can leave in a log says whose it is.
+LV2_PROBE_URI = "urn:ee-to-pipewire:lv2-loader-probe"
+
+# A graph of one LV2 node naming that plugin. It can never load, so the module
+# fails and creates nothing; where it fails is the answer.
+_LV2_PROBE_GRAPH = ("{ filter.graph = { nodes = [ { type = lv2 name = probe "
+                    f'plugin = "{LV2_PROBE_URI}" }} ] }} }}')
+
+# What PipeWire logs on the way to that failure, at warning level. Read off
+# PipeWire 1.6.9 here, loader present and loader absent (an `SPA_PLUGIN_DIR`
+# tree without it), and found verbatim in the 1.2.7 source
+# (`lv2_plugin.c`, `module-filter-chain.c`), where the loader is a module
+# rather than an SPA plugin. Matched as substrings, never on the errno text
+# after them.
+_LV2_LOOKED_UP = f"can't load plugin {LV2_PROBE_URI}"   # the loader ran lilv
+_LV2_TYPE_FAILED = "can't load plugin type 'lv2'"
+_LV2_NOT_BUILT = "compiled without lv2 support"         # PipeWire <= 0.3.72
+
+
+@dataclass(frozen=True)
+class Lv2Loader:
+    """Whether PipeWire can load LV2 plugins here, as PipeWire answered.
+
+    ``present`` is None when the question went unanswered, and ``reason``
+    then says why in the words the report prints. ``built_without`` marks the
+    absent case no package can fix: a PipeWire built without LV2 at all.
+    ``line`` is PipeWire's own error line when the loader is absent, worth
+    having verbatim in a pasted report.
+    """
+    present: bool | None
+    reason: str = ""
+    line: str = ""
+    built_without: bool = False
+
+
+# `[E][21:32:56.993136] spa.filter-graph | [  filter-graph.c:  934
+# plugin_load()] message`: level, timestamp, topic, source location. The
+# topic is absent on older builds, the location under PIPEWIRE_LOG_LINE=false.
+_PW_LOG_LINE = re.compile(
+    r"^\[[A-Z]\]\[[^]]*\]\s*(?:(?P<topic>[\w.-]+)\s*\|\s*)?"
+    r"(?:\[[^]]*\]\s*)?(?P<msg>.*)$")
+
+
+def _journal_form(line: str) -> str:
+    """A PipeWire stderr log line as the journal shows it: `topic: message`.
+
+    That is the form a reader has already met in `journalctl`, and the one a
+    search for the error finds."""
+    m = _PW_LOG_LINE.match(line.strip())
+    if not m:
+        return line.strip()
+    topic, msg = m.group("topic"), m.group("msg").strip()
+    return f"{topic}: {msg}" if topic else msg
+
+
+def classify_lv2_probe(output: str) -> Lv2Loader:
+    """Pure: the probe's combined output → an `Lv2Loader`.
+
+    Our URI in a "can't load plugin" line means the LV2 loader loaded and
+    asked lilv for it, so the loader is there. A failure to load the `lv2`
+    plugin *type* without that line means it isn't: the reporter's
+    `spa.filter-graph: can't load plugin type 'lv2': No such file or
+    directory` (issue #123). Anything else is not an answer. A bare
+    `Error: "Could not load module"` is what a missing filter-chain module and
+    a missing graph core (Arch's `pipewire-audio`) both print, so it stays
+    unknown rather than guess between them.
+    """
+    lines = output.splitlines()
+    if any(_LV2_LOOKED_UP in ln for ln in lines):
+        return Lv2Loader(present=True)
+    for marker, built_without in ((_LV2_NOT_BUILT, True),
+                                  (_LV2_TYPE_FAILED, False)):
+        hit = next((ln for ln in lines if marker in ln), None)
+        if hit is not None:
+            return Lv2Loader(present=False, line=_journal_form(hit),
+                             built_without=built_without)
+    if "Could not load module" in output:
+        return Lv2Loader(present=None, reason="PipeWire's filter-chain module "
+                         "didn't load at all, so its LV2 support couldn't be "
+                         "checked")
+    return Lv2Loader(present=None, reason="pw-cli gave no answer about LV2 "
+                     "support")
+
+
+def _probe_lv2_loader() -> Lv2Loader:
+    """Ask PipeWire to load the probe graph, and classify what it says.
+
+    `pw-cli load-module` loads the module in pw-cli's own process, with the
+    same plugin search the daemon uses: `SPA_PLUGIN_DIR` or the compiled-in
+    directory, and the 1.2 or 1.4 layout, without this code knowing either.
+    pw-cli connects before it parses its command, so with no daemon it exits
+    at once. It exits 0 on a failed load, hence the text.
+
+    `PIPEWIRE_LOG_SYSTEMD=false` keeps the probe out of the journal, where
+    its absent-case line would be indistinguishable from a real chain
+    failing. `PIPEWIRE_LOG` would divert the lines to a file, so it goes.
+    The environment is ours, not the daemon's: a `SPA_PLUGIN_DIR` set only in
+    the daemon's unit is not seen.
+    """
+    try:
+        if host.path("/run/.containerenv").exists():
+            # Toolbox and distrobox: pw-cli would load the container's
+            # modules, and the daemon is the host's.
+            return Lv2Loader(present=None, reason="running in a container, "
+                             "where pw-cli loads the container's PipeWire "
+                             "modules rather than the host's")
+    except OSError:
+        pass
+    if tool_env.which("pw-cli") is None:
+        return Lv2Loader(present=None, reason="pw-cli not found")
+    try:
+        result = tool_env.run(
+            ["pw-cli", "load-module", "libpipewire-module-filter-chain",
+             _LV2_PROBE_GRAPH],
+            env_extra={"PIPEWIRE_DEBUG": "2", "PIPEWIRE_LOG_SYSTEMD": "false",
+                       "PIPEWIRE_LOG": None},
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=_TIMEOUT)
+    except (subprocess.SubprocessError, OSError):
+        return Lv2Loader(present=None, reason="pw-cli didn't answer")
+    return classify_lv2_probe(result.stdout or "")
+
+
+_lv2_loader_answer: Lv2Loader | None = None
+
+
+def lv2_loader() -> Lv2Loader:
+    """`_probe_lv2_loader`, asked once per process once it has an answer.
+
+    The wrapper converts up to three presets per run and the activation check
+    asks again after the restart. A restart installs nothing, so a present or
+    absent answer holds for the run. An unknown one doesn't: a daemon that
+    was down or slow before the restart can answer after it.
+    """
+    global _lv2_loader_answer
+    if _lv2_loader_answer is not None:
+        return _lv2_loader_answer
+    answer = _probe_lv2_loader()
+    if answer.present is not None:
+        _lv2_loader_answer = answer
+    return answer
+
+
+def forget_lv2_loader() -> None:
+    """Drop the cached answer (tests, which stub the probe per case)."""
+    global _lv2_loader_answer
+    _lv2_loader_answer = None
 
 
 def process_age(name: str) -> float | None:
