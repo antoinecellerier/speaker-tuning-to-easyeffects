@@ -225,7 +225,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 
 | Device | Reported by |
 |---|---|
-| ASUS TUF Gaming A15 (FA507NV) <!-- Realtek ALC256, 1043:19DD --> | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
+| ASUS TUF Gaming A15 (FA507NV) <!-- Realtek ALC256, 1043:14B3 --> | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
 | ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
 | ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
@@ -234,14 +234,14 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
 | Lenovo IdeaPad Pro 5 14IMH9 (83D2) <!-- Realtek ALC287, 17AA:38CE --> | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
 | Lenovo IdeaPad Slim 5 14ARP10 (83HT) <!-- Conexant SN6140, 17AA:3811 --> | [#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111) |
-| Lenovo Legion Y540-15IRH (81SX) <!-- Realtek ALC257, 17AA:380F --> | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
+| Lenovo Legion Y540-15IRH (81SX) <!-- Realtek ALC257, 17AA:3810 --> | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
 | Lenovo Legion Y7000 2020 (82AV) <!-- Realtek ALC257, 17AA:3872 --> | [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93) |
 | Lenovo ThinkBook 16p G5 IRX (21N5) <!-- Realtek ALC287, 17AA:38F9 --> | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
 | Lenovo XiaoXinPro-13ARE 2020 (82DM) <!-- Realtek ALC257, 17AA:387F --> | [#91](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/91) |
 | Lenovo Yoga 7 2-in-1 16AKP10 <!-- — --> | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | Lenovo Yoga 7 16IAH7 (82UF) <!-- Realtek ALC287, 17AA:386A --> | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
 | Lenovo Yoga Pro 7 14APH8 (82Y8) <!-- Realtek ALC287, 17AA:38C6 --> | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
-| Lenovo Yoga Pro 7 14ASP9 (83HN) <!-- Realtek ALC287, 17AA:38A7 --> | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
+| Lenovo Yoga Pro 7 14ASP9 (83HN) <!-- Realtek ALC287, 17AA:3903 --> | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
 | Lenovo Yoga Pro 7 14IMH9 (83E2) <!-- Realtek ALC287, 17AA:38CF --> | [#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83) |
 | Lenovo Yoga Pro 9i 14IRP8 (83BU) <!-- Realtek ALC287, 17AA:38BE --> | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |
 | Lenovo Yoga Slim 7 14ARE05 (82A2) <!-- Realtek ALC287, 17AA:380D --> | [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44) — reporter finds it on par with Windows with `--volmax-slot output-gain`, which brings back bass the default placement loses |
