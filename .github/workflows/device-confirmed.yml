@@ -336,8 +336,12 @@ jobs:
                  -> `<!-- Realtek ALC257, 17AA:38BC -->`
                Do NOT use the `=== PCI audio subsystem ===` line. It is a
                different ID (that same machine reports `17AA:3805` there) and
-               the table does not carry it. Use `<!-- — -->` only if no
-               analog codec line is present at all.
+               the table does not carry it — except on a SoundWire machine,
+               where the HDA block holds only an HDMI line and the
+               `=== SoundWire devices ===` block lists the codecs: there is
+               no codec subsystem then, so write that PCI line's value as
+               `<!-- Soundwire 17AA:3838 -->`. Use `<!-- — -->` only if
+               neither applies.
 
                Insert the row where it keeps the table sorted by device
                name, case-insensitively and number-aware: compare each run of
@@ -411,7 +415,13 @@ jobs:
             family is a ThinkPad with no "Gen <number>i"/"a" letter, add: "DMI
             names no CPU vendor. Lenovo may sell this family as both Intel and
             AMD — check PSREF for machine type <the four characters> and add
-            ' Intel'/' AMD' before merging if it does."
+            '<CPU vendor>' before merging if it does." The CPU vendor is
+            in the `=== HDA codecs ===` block: an `Intel … HDMI` line means
+            Intel (the CPU's own display audio); failing that, an `ATI … HDMI`
+            line means AMD. Only an Intel line decides when both are there,
+            since a discrete Radeon adds an ATI line to an Intel machine, and
+            an Nvidia line never decides. Quote the line you used. With
+            neither, write ' Intel'/' AMD' instead.
             If the family looked regional, add: "DMI reports a regional name.
             Search machine type <the four characters> on psref.lenovo.com; if
             the global name differs, rename the row to '<global name> (<machine
