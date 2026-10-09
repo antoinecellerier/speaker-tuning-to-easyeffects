@@ -107,7 +107,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ASUS Zenbook Pro 16X OLED UX7602BZ
   ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)),
   Microsoft Surface Laptop 4
-  ([#118](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/118)).
+  ([#118](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/118)),
+  Motorola Moto Book 60 14IRH10R (83J7)
+  ([#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121)).
 
 ### Changed
 
