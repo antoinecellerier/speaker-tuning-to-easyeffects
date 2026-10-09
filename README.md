@@ -234,7 +234,6 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
 | Lenovo IdeaPad Pro 5 14IMH9 (83D2) <!-- Realtek ALC287, 17AA:38CE --> | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
 | Lenovo IdeaPad Slim 5 14ARP10 (83HT) <!-- Conexant SN6140, 17AA:3811 --> | [#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111) |
-| Motorola Moto Book 60 14IRH10R (83J7) <!-- Conexant SN6140, 17AA:3830 --> | [#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121) — tested with the Lenovo IdeaPad Slim 5 14ARP10 (83HT) Dolby XML |
 | Lenovo Legion Y540-15IRH (81SX) <!-- Realtek ALC257, 17AA:3810 --> | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
 | Lenovo Legion Y7000 2020 (82AV) <!-- Realtek ALC257, 17AA:3872 --> | [#93](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/93) |
 | Lenovo ThinkBook 16p G5 IRX (21N5) <!-- Realtek ALC287, 17AA:38F9 --> | [#76](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/76) |
@@ -249,6 +248,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | Lenovo Yoga Slim 7 14ILL10 (83JX) <!-- Soundwire 17AA:3838 --> | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
 | Lenovo Yoga Slim 7 Pro 14ACH5 (82MS, reported as Yoga 14sACH 2021) <!-- Realtek ALC287, 17AA:384F --> | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
 | Microsoft Surface Laptop 4 <!-- Realtek ALC274, 10EC:123E --> | [#118](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/118) |
+| Motorola Moto Book 60 14IRH10R (83J7) <!-- Conexant SN6140, 17AA:3830 --> | [#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121) — its tuning XML comes from the Lenovo IdeaPad Slim 5 14ARP10 (83HT) driver package |
 | ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
 | ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
 | ThinkPad T14 Gen 1 (20S1) <!-- Realtek ALC257, 17AA:22B1 --> | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
