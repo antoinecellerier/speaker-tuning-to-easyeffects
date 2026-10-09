@@ -40,7 +40,10 @@ name: Mark confirmed device as tested
 # below builds `<Vendor> <Product>` for a generic family. A report pasted
 # before that line existed falls back to the one word the issue title leads
 # with — charset-gated and flagged in the PR body, not the free-text title
-# the earlier hardening moved away from.
+# the earlier hardening moved away from. A third shape is a model-name Family
+# with a bare code in Product: Motorola's motobook is Lenovo-built and reads
+# Vendor "MOTOROLA" / Family "motobook 60 14IRH10R" / Product "83J7" (#121),
+# so step 4 names it like a Lenovo consumer row under the Vendor brand.
 #
 # The prompt also says outright that the push and the PR need no
 # confirmation. The first run under those rules (#73) derived the name,
@@ -200,7 +203,7 @@ jobs:
                  (Yoga, IdeaPad, Legion); ThinkPad rows carry no vendor prefix.
                  That prefix is a convention of the table — no DMI field
                  supplies it. If `Family` is none of ThinkPad, Yoga, IdeaPad or
-                 Legion, this is not a Lenovo: skip to step 4.
+                 Legion, skip to step 4, which takes the brand from `Vendor`.
               2. Where a ThinkPad `Family` ends in "Gen <number>i" or
                  "Gen <number>a", spell the letter out as " Intel" or " AMD" —
                  that is how Lenovo's DMI abbreviates the CPU vendor there.
@@ -225,24 +228,36 @@ jobs:
                  marketing name there, and only DMI's `SKU Number` carries the
                  code, which `--speaker-info` does not print. Append nothing
                  then, and flag it in the PR body.
-              4. Any other vendor: the name is `<brand> <model>`, brand first
-                 because the table sorts on it.
-                   - `Family` leads with the brand ("ASUS TUF Gaming A15"):
-                     the name is `Family` as printed, plus Product's model
-                     token in parentheses — the part of `Product` after the
-                     family, up to any `_` repeat.
-                   - `Family` is a generic word ("Laptop", "Notebook") or
-                     blank: `Product` is the branding, so the name is
-                     `<brand> <Product as printed>`, with no code appended —
-                     DMI gives none. The brand is the `Vendor` line (runs
-                     newer than v2026.08 print it). DMI may spell it as a
-                     legal name — "ASUSTeK COMPUTER INC." is the brand ASUS —
-                     so write the brand the table uses, and say in the PR
-                     body when you shortened it. An older report has no
-                     `Vendor` line: then take the single word the issue title
-                     starts with, and only that word, subject to the charset
-                     gate under SHELL SAFETY; say in the PR body that the
-                     brand came from the title.
+              4. Any other family: the name is `<brand> <model>`, brand first
+                 because the table sorts on it. Take the first case that fits:
+                   a. `Family` leads with the brand ("ASUS TUF Gaming A15"):
+                      the name is `Family` as printed, plus Product's model
+                      token in parentheses — the part of `Product` after the
+                      family, up to any `_` repeat.
+                   b. `Family` is blank, or `Product` starts with `Family`
+                      ("Surface" / "Surface Laptop 4", "Laptop" / "Laptop 13
+                      Pro (…)"): `Product` is the branding, so the name is
+                      `<brand> <Product>`, cut before any `_` repeat, with no
+                      code appended — DMI gives none.
+                   c. `Product` is one word with no spaces: it is a model
+                      code and `Family` is the model name, so the name is
+                      `<brand> <Family as printed>` plus the code in
+                      parentheses. Lenovo builds machines sold under other
+                      brands (Motorola's motobook) and theirs carry a Lenovo
+                      machine type there — trim it to four characters as in
+                      step 3; any other code goes in whole.
+                   Anything else, stop and report `blocked`.
+                 The brand is the `Vendor` line (runs newer than v2026.08
+                 print it), even on a Lenovo-built rebrand: the table names
+                 the machine as it is sold. DMI may spell the brand as a legal
+                 name ("ASUSTeK COMPUTER INC." is ASUS) or in capitals
+                 ("MOTOROLA" is Motorola, "LENOVO" is Lenovo), so write the
+                 brand as the table or the maker spells it, and say in the PR
+                 body when you changed it. An older report has no `Vendor`
+                 line: then take the single word the issue title starts with,
+                 and only that word, subject to the charset gate under SHELL
+                 SAFETY; say in the PR body that the brand came from the
+                 title.
 
             <examples>
             <example>Family "ThinkPad T14 Gen 2i" + Product "20W1S7QR00"
@@ -265,6 +280,10 @@ jobs:
               -> ASUS TUF Gaming A15 (FA507NV)</example>
             <example>Vendor "Framework" + Family "Laptop" + Product "Laptop 13 Pro (Intel Core Ultra Series 3)"
               -> Framework Laptop 13 Pro (Intel Core Ultra Series 3)</example>
+            <example>Vendor "ASUSTeK COMPUTER INC." + Family "Zenbook" + Product "Zenbook UX7602BZ_UX7602BZ"
+              -> ASUS Zenbook UX7602BZ</example>
+            <example>Vendor "MOTOROLA" + Family "motobook 60 14IRH10R" + Product "83J7"
+              -> Motorola motobook 60 14IRH10R (83J7)</example>
             </examples>
 
             SHELL SAFETY: single-quote every argument you pass to `git` and
@@ -280,9 +299,9 @@ jobs:
             First, idempotency check — this label can be applied more than once:
               - If the "Supported devices" table in README.md already lists this
                 device, OR an open pull request already adds it (search a
-                quote-free distinguishing token — the machine type for a
-                ThinkPad, the model code for a Yoga or IdeaPad, another
-                vendor's model token (`FA507NV`), or the first distinctive
+                quote-free distinguishing token — the code in parentheses
+                where the name carries one (`20W1`, `82UF`, `FA507NV`,
+                `83J7`), or else the first distinctive
                 words of a prose `Product` (`Laptop 13 Pro`):
                 `gh pr list --state open --search 'in:title 20W1'`), then do
                 nothing: do not edit files, do not open a PR. Stop and report
