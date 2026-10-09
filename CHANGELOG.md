@@ -103,7 +103,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo IdeaPad Slim 5 14ARP10 (83HT)
   ([#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111)),
   ThinkPad Z13 Gen 1 (21D2)
-  ([#115](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/115)).
+  ([#115](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/115)),
+  ASUS Zenbook Pro 16X OLED UX7602BZ
+  ([#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117)).
 
 ### Fixed
 
