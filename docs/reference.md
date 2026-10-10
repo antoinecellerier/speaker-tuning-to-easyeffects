@@ -501,8 +501,8 @@ warn. The PipeWire filter-chain path is unaffected. Measurement and mechanism:
   design-notes "Unvalidated converter scaling factors" and
   [Follow-ups to close the gap to DAX](research/measuring-against-windows.md#r-dax-gap-follow-ups).
 - **Second-device confirmation** of any default mapping:
-  cross-device-findings.md. The bar to change a default is ≥1 second-device
-  capture.
+  cross-device-findings.md. The bar to change a default mapping is ≥1
+  second-device capture.
 - **Corpus / cross-device follow-ups**: cross-device-findings.md "Open
   follow-ups". The open ones are 1-band-MBC audibility, the Zenbook
   S14 report (issue #29, reporter-gated), re-running the audit on each new

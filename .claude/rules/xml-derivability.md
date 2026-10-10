@@ -33,8 +33,12 @@ vendor's schema means. Several Dolby ones have been wrong. When you edit one:
   explains that device, not the schema.
 - Below that bar, ship the finding as an `--enable …` opt-in. The established
   path then stays the default, and whoever has the second device can test the
-  hypothesis. A new vendor APO layer ships as an opt-in until a second-device
-  capture confirms it.
+  hypothesis.
+- A new vendor APO layer adds a source rather than changing a default
+  mapping, so a capture does not gate it. It ships as an opt-in until a
+  listener on a device it binds confirms the layer by ear. It then defaults
+  on where it binds, and its mappings stay unvalidated until a Windows
+  capture (research `r-surface-apo-efx`).
 - Unit conversions count as mappings. 1/16 dB, percent-vs-fraction and Q15 fixed
   point have each been read wrong at least once. Each misreading is a silent
   factor error, not a crash.
