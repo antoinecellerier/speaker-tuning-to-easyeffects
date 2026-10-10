@@ -111,7 +111,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Motorola Moto Book 60 14IRH10R (83J7)
   ([#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121)),
   Microsoft Surface Pro 9
-  ([#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
+  ([#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)),
+  Lenovo IdeaPad Slim 3 16ARP10 (83K8)
+  ([#124](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/124)).
 
 ### Changed
 
