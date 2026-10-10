@@ -167,6 +167,12 @@ patches.
 Re-derive corpus figures as `.claude/rules/claims.md` "What each claim rests
 on" says.
 
+A finding in README, a user guide or CHANGELOG is fixed at its fact's home.
+A reviewer's corrected wording is true but carries reference-level
+qualifiers, so pasting it in place pushes a guide down to reference altitude.
+Move the claim to reference or the research log and link it, per
+`.claude/rules/docs.md` "Audience & placement" and `.claude/rules/changelog.md`.
+
 Verify after: `pytest tests/`, and check that `tests/test_golden_preset.py`
 did **not** move. A copy-only fix that shifts the golden digest touched
 behaviour, so investigate before re-recording. Re-run `preview_output.py` and

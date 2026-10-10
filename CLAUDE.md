@@ -95,12 +95,13 @@
 - **Comments and docstrings state the current fact and its why.** Cite where
   the evidence lives, such as its research unit's `r-` tag, instead of restating
   it. History belongs in git. A docstring's first line says what it does.
-- **Docs are layered**; `docs/README.md` links all. `docs/reference.md`
-  is the current-state reference: mappings, plugin chain, units,
-  not-implemented. `docs/design-notes.md` and the per-class `docs/research/`
-  files are the research log, where the why, findings and rejected approaches
-  go. `docs/cross-device-findings.md` is the corpus; README and the user guides
-  it links are the guide.
+- **Docs are layered**; `docs/README.md` links all. `docs/reference.md` is the
+  current-state reference: mappings, plugin chain, units, not-implemented.
+  `docs/design-notes.md` and the per-class `docs/research/` files are the
+  research log, where the why, findings and rejected approaches go.
+  `docs/cross-device-findings.md` is the corpus; README and the user guides it
+  links are the guide. A plan names each doc edit's layer, since a guide links
+  out for mechanism and status: `.claude/rules/docs.md` "Audience & placement".
 - **Repo root is the command surface:** only the three entry-point scripts.
   `tests/test_layout.py` enforces it; other modules go in `lib/`. Extraction
   recipe: `docs/code-organisation.md` "Splitting the single-file scripts".

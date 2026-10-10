@@ -202,3 +202,29 @@ def test_every_release_heading_in_the_real_changelog_titles_a_release():
             following = next(l for l in lines[i + 1:] if l.strip())
             assert not following.startswith("#"), (
                 f"{line!r} has a tagline but no summary paragraph under it")
+
+
+# The mechanical part of the entry rules in CHANGELOG.md's header comment
+# ("Keep these out of the entry"): corpus counts, measurement numbers and
+# device IDs belong behind the link. Unreleased only: released sections keep
+# their layout. Link targets are stripped, so issue URLs never match.
+_KEPT_OUT = {
+    "a corpus count": re.compile(r"\b\d+ of (?:the )?\d+\b"),
+    "a percentage": re.compile(r"\d(?:\.\d+)?\s?%"),
+    "a dB figure": re.compile(r"\d(?:\.\d+)?\s?dB\b"),
+    "a device ID": re.compile(r"\b[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\b"
+                              r"|SUBSYS_[0-9A-Fa-f]{8}"),
+}
+
+
+def test_unreleased_entries_keep_numbers_behind_the_link():
+    """An "11 of the 25 models surveyed" survived a user-review and a
+    copy-audit, which judge readability and truth, not the entry rules."""
+    text = REAL_CHANGELOG.read_text()
+    section = text[text.index("## Unreleased"):text.index("\n## v")]
+    section = re.sub(r"\]\([^)]*\)", "]", section)
+    hits = [f"{what}: {m.group(0)!r}" for what, pattern in _KEPT_OUT.items()
+            for m in pattern.finditer(section)]
+    assert not hits, ("Unreleased entries carry what the entry rules keep "
+                      "behind the link (CHANGELOG.md header): "
+                      + "; ".join(hits))
