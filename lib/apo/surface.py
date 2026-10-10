@@ -329,7 +329,10 @@ def parse_config(config: Path, inf: Path, hwid: str) -> ApoLayer | None:
     None when the config has no endpoint chain at all, as the Surface Laptop
     Studio 2's: it then holds only per-mode `R/MFX` EQs, which this reader
     skips. In the configs read they are identity in every mode but
-    NOTIFICATION (`r-surface-apo-efx`, `r-surface-apo-fleet`).
+    NOTIFICATION (`r-surface-apo-efx`, `r-surface-apo-fleet`). None too
+    when the chain leaves nothing to build, no EQ section and no dynamics
+    stage: a layer that is on by default must not report an empty stage
+    as applied.
     """
     try:
         text = config.read_text(encoding="utf-8-sig")
@@ -371,6 +374,8 @@ def _layer(config: Path, doc, inf: Path, hwid: str) -> ApoLayer | None:
         if stage:
             dynamics.append(stage)
             translated += crystals
+    if not (eq_left or eq_right or dynamics):
+        return None
     # Hold times: neither LSP stage has one, so every block's go into one note.
     held = [n for n in translated
             if any(h for h in live[n].get("HoldTimeMs", []))]
@@ -413,7 +418,10 @@ def _layer(config: Path, doc, inf: Path, hwid: str) -> ApoLayer | None:
         label=LABEL, config_path=config, inf_path=inf,
         hardware_id=hwid, sample_rate=_SAMPLE_RATE,
         eq_left=eq_left, eq_right=eq_right, dynamics=tuple(dynamics),
-        notes=tuple(notes), skipped=tuple(skipped))
+        notes=tuple(notes), skipped=tuple(skipped),
+        # On by default since the #113 reporter preferred it by ear on a
+        # Surface Pro 9 (`r-surface-apo-efx`); no Windows capture yet.
+        default_on=True)
 
 
 # `_efx_chain`'s answer for a config with no R/EFX node at all, as the

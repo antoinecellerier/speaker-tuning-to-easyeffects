@@ -30,7 +30,7 @@ chain, units and what's not implemented.
 | [loudness-and-limiting.md](research/loudness-and-limiting.md) | `volmax-boost` and its slot, peak normalisation and `--enable level-restore`, the per-band regulator, the brickwall limiter and the PEQ anti-clipping trim |
 | [eq-and-frequency-response.md](research/eq-and-frequency-response.md) | the IEQ and its `ieq-amount` weight, the audio optimizer and its XML units, the PEQ curve, the FIR and its phase |
 | [measuring-against-windows.md](research/measuring-against-windows.md) | the DAX and EasyEffects capture method and stimuli, the validation roadmap and bar, and the follow-ups to close the gap to DAX |
-| [vendor-apo.md](research/vendor-apo.md) | speaker voicing a vendor APO ships beside the DAX3 XML, such as Microsoft's Surface APO, and `--enable vendor-apo` |
+| [vendor-apo.md](research/vendor-apo.md) | speaker voicing a vendor APO ships beside the DAX3 XML, such as Microsoft's Surface APO, and the default-on layer that reads it |
 
 This file holds Dolby's signal flow, the plugin chain order, the plugin
 parameter audit with its recorded contradiction, the unvalidated scaling-factor
@@ -306,7 +306,7 @@ two marked ✅ as removed.
 | [SoundWire Calf BassEnhancer constants](research/virtual-bass.md#r-soundwire-bass-enhancer-constants) | (none: the XML's `bass-enhancer-*`/VBE fields are corpus-frozen; the [DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass)) | default audible on SoundWire, the most audible invented stage on those devices |
 | [Conservative-autogain offsets](research/adaptive-processing.md#r-conservative-autogain-offsets) | `volume-leveler-out-target` | active on SoundWire; audible on HDA only via `--enable autogain` or manual GUI enable |
 | [Fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants) | (none) | dormant at nominal levels (the [dynamics-dormant measurement](research/adaptive-processing.md#r-dynamics-dormancy); device-specific, see the end of the [fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants)); engaged on loud content |
-| [Vendor APO dynamics constants](research/vendor-apo.md#r-surface-apo-efx) | (none: Surface APO's DRC and `Crystal` state no knee, ratio for Crystal, or detector) | opt-in, `--enable vendor-apo`: knee 0 dB, Crystal ratio 100, RMS detection for the DRC and Peak for Crystal, a stereo-linked (`Middle`) sidechain and LSP's default 10 ms reactivity; the FIR target's 40 dB floor is design, not tuning |
+| [Vendor APO dynamics constants](research/vendor-apo.md#r-surface-apo-efx) | (none: Surface APO's DRC and `Crystal` state no knee, ratio for Crystal, or detector) | default audible on the Surface models the layer binds (Crystal's constants only where Crystal is built, not the Laptop 7 / 7 5G), `--disable vendor-apo` drops it: knee 0 dB, Crystal ratio 100, RMS detection for the DRC and Peak for Crystal, a stereo-linked (`Middle`) sidechain and LSP's default 10 ms reactivity; the FIR target's 40 dB floor is design, not tuning |
 
 For contrast, the `/16`-dB convention is verified (issue #15, in the section
 introduction), and the

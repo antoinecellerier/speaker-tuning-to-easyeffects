@@ -244,11 +244,10 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
     # regulator to carry it, the static boost moves from the limiter onto the
     # first of them, which keeps it ahead of them as Dolby's volmax is.
     if apo is not None:
-        if len(apo.dynamics) > 2:
-            raise ValueError(f"{apo.label}: {len(apo.dynamics)} dynamics "
-                             "stages; multiband_compressor#2/#3 carry two")
-        active = apo_layer.is_active(apo, enabled, disabled)
-        if active:
+        if apo_layer.is_active(apo, enabled, disabled):
+            if len(apo.dynamics) > 2:
+                raise ValueError(f"{apo.label}: {len(apo.dynamics)} dynamics "
+                                 "stages; multiband_compressor#2/#3 carry two")
             for i, stage in enumerate(apo.dynamics):
                 key = f"multiband_compressor#{2 + i}"
                 preset["output"][key] = make_band_dynamics(
@@ -256,15 +255,13 @@ def make_preset(kernel_name: str, peq_filters: list[dict],
                 preset["output"]["plugins_order"].append(key)
             if apo.dynamics:
                 limiter_boost = 0.0
-        if apo.default_on:
-            if active:
-                emitted.add(apo_layer.FLAG)
-        elif active:
-            # Marker, not an --enable candidate; same contract as
-            # autogain-active.
+            # Marker, not an --enable candidate: _DISABLE_MENU_MARKER keys
+            # the --disable row off it, as it does autogain-active's.
             emitted.add(f"{apo_layer.FLAG}-active")
-        else:
+        elif not apo.default_on:
             emitted.add(apo_layer.FLAG)  # actionable via --enable on a rerun
+        # A default-on layer that is off was dropped by --disable: the undo
+        # is removing the flag, so it offers nothing.
 
     # Brickwall limiter at the end as a safety net
     preset["output"]["limiter#0"] = make_limiter(input_gain=limiter_boost)

@@ -35,7 +35,7 @@ def test_finds_the_config_its_inf_binds(tmp_path, layout, utf16):
     assert apo is not None
     assert apo.config_path.name == "SurfaceAPO_TEST.json"
     assert "DEV_0274&SUBSYS_10EC1284" in apo.hardware_id
-    assert apo.label == "Microsoft Surface APO" and not apo.default_on
+    assert apo.label == "Microsoft Surface APO" and apo.default_on
 
 
 def test_binding_is_read_from_the_inf_not_the_filename(tmp_path):
@@ -145,6 +145,17 @@ def test_a_config_with_no_endpoint_chain_binds_no_layer(tmp_path):
     """Only per-mode EQs, which are not a source: no layer, no warning."""
     doc = surface_apo_json()
     doc["entities"][0]["children"][0]["name"] = "R/MFX/DEFAULT"
+    xml = write_surface_package(tmp_path, config_json=doc)
+    assert discover.find_for_xml(xml) is None
+
+
+def test_a_chain_with_nothing_to_build_binds_no_layer(tmp_path):
+    """Identity EQ and no dynamics: a layer on by default would otherwise
+    report an empty stage as applied."""
+    doc = surface_apo_json(sections=[])
+    efx = doc["entities"][0]["children"][0]["children"]
+    efx[:] = [b for b in efx if b["name"] not in ("VolumeDepMBDRC4",
+                                                 "Crystal")]
     xml = write_surface_package(tmp_path, config_json=doc)
     assert discover.find_for_xml(xml) is None
 

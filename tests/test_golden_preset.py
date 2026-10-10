@@ -178,6 +178,8 @@ SCENARIOS = {
     "enable-vendor-apo": _base(apo=synthetic_apo_layer(),
                                enabled={"vendor-apo"}),
     "vendor-apo-available-but-off": _base(apo=synthetic_apo_layer()),
+    # A layer on by default (Surface's) must build what --enable does.
+    "vendor-apo-default-on": _base(apo=synthetic_apo_layer(default_on=True)),
     "enable-vendor-apo-no-regulator": _base(apo=synthetic_apo_layer(),
                                             regulator=None, volmax_boost=9.0,
                                             enabled={"vendor-apo"}),
@@ -318,6 +320,7 @@ def test_flags_do_what_their_names_say(digests):
     # A vendor APO layer found but not enabled must change nothing.
     assert digests["vendor-apo-available-but-off"] == digests["full-chain"]
     assert digests["enable-vendor-apo"] != digests["full-chain"]
+    assert digests["vendor-apo-default-on"] == digests["enable-vendor-apo"]
 
 
 def test_digest_ignores_the_generator_version():

@@ -120,7 +120,7 @@ def test_disable_choices_match_documented_set():
     """
     expected = {
         "volmax", "mbc", "regulator", "coupled-bands", "autogain",
-        "bass-enhancer", "dialog", "high-shelf", "lo-pass",
+        "bass-enhancer", "dialog", "high-shelf", "lo-pass", "vendor-apo",
     }
     assert set(DISABLEABLE_FILTERS) == expected
 
@@ -2845,7 +2845,11 @@ def test_every_disableable_filter_is_classified_for_the_section_trap():
     row type. Left to drift, the next filter joins neither list and the
     trap's coverage quietly shrinks."""
     peq_row_types = {"high-shelf", "lo-pass"}
-    assert _SECTION_OWNING_FILTERS | peq_row_types == set(
+    # Its section needs a bound layer, which _fully_stocked_tuning has none
+    # of: tests/test_apo_preset.py
+    # `test_disable_leaves_a_default_on_layer_out` is its trap.
+    vendor_layer = {"vendor-apo"}
+    assert _SECTION_OWNING_FILTERS | peq_row_types | vendor_layer == set(
         messages.DISABLEABLE_FILTERS)
 
 

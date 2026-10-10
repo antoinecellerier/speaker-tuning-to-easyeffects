@@ -94,13 +94,14 @@ the bass enhancer is SoundWire-only.
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
 | 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net. Fallback slot for `volmax-boost` when the regulator isn't emitted |
 
-With `--enable vendor-apo` and a vendor APO config bound to the device, up to
-two more multiband compressors (`#2`, `#3`), one per dynamics block the config
-enables, sit between the regulator and the limiter. The vendor EQ is folded into
+Where a vendor APO config binds the device, up to two more multiband
+compressors (`#2`, `#3`), one per dynamics block the layer can build, sit
+between the regulator and the limiter. The vendor EQ is folded into
 the convolver's FIR. With no regulator, the `volmax-boost` moves from the
 limiter onto the first of them. On the PipeWire chain, `--enable virtual-bass`
 sums its branch after all of this, so its harmonics skip the vendor layer.
-Microsoft's Surface APO is the one format read:
+Microsoft's Surface APO is the one format read. It is on by default, and
+`--disable vendor-apo` leaves it out:
 
 | Surface APO block | Becomes |
 |---|---|
@@ -394,11 +395,13 @@ saturator constants are measurement-calibrated rather than XML-derived
 ([DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass), issue
 [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
 
-Unvalidated, opt-in, `--enable vendor-apo`: every Surface APO mapping. That
-covers the biquad layout and sign convention, the DRC's pregain and full-volume
-state, and the Crystal-to-limiter-band reading, the weakest of them. No Windows
-capture exists for any Surface device, and the parser has read only the 11
-models' configs in
+Unvalidated, on by default, `--disable vendor-apo`: every Surface APO mapping.
+That covers the biquad layout and sign convention, the DRC's pregain and
+full-volume state, and the Crystal-to-limiter-band reading, the weakest of
+them. One listener, on a Surface Pro 9 (Intel), has heard the layer through the
+PipeWire chain and reported much better tuning. Nobody has listened to the
+EasyEffects preset. No Windows capture exists for any Surface device,
+and the parser has read only the 11 models' configs in
 [the fleet survey](research/vendor-apo.md#r-surface-apo-fleet)
 ([Surface APO finding](research/vendor-apo.md#r-surface-apo-efx), issue
 [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).

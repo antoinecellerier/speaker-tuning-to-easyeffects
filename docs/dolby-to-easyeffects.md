@@ -69,7 +69,7 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated preset (repeatable). Valid
   names: `volmax`, `mbc`, `regulator`, `coupled-bands`, `autogain`,
-  `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`. See
+  `bass-enhancer`, `dialog`, `high-shelf`, `lo-pass`, `vendor-apo`. See
   [Disabling and enabling filters](filters.md).
 - `--enable NAME` — switch on an optional stage the preset leaves off
   (repeatable). Valid names: `autogain`, `level-restore`, `virtual-bass`,

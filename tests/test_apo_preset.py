@@ -1,7 +1,8 @@
 """A vendor APO layer stacked on the Dolby preset: chain, gain, FIR and run.
 
 `tests/test_apo_surface.py` covers reading the vendor file. This covers what
-`--enable vendor-apo` does with the `ApoLayer` it yields. Every input is
+the run, and `--enable`/`--disable vendor-apo`, do with the `ApoLayer` it
+yields. Every input is
 synthetic.
 """
 
@@ -19,6 +20,7 @@ from lib.pipewire.conf import _assert_positional
 from lib.preset import fir
 from lib.preset.build import make_preset
 from lib.preset.plugins import make_band_dynamics
+from lib.report import messages
 from tests.conftest import (SYNTHETIC_FREQS_20, read_irs_file,
                             synthetic_apo_layer, synthetic_mb_comp,
                             synthetic_peq_filters, synthetic_regulator,
@@ -50,11 +52,26 @@ def test_found_but_off_offers_the_flag_and_adds_nothing():
 
 
 def test_default_on_layer_is_a_disable_candidate():
+    """On by default it marks itself running, never as an --enable
+    candidate; switched off by --disable it offers nothing, since the undo
+    is removing the flag."""
     layer = synthetic_apo_layer(default_on=True)
     out, emitted = _preset(layer)
-    assert "multiband_compressor#2" in out and "vendor-apo" in emitted
+    assert "multiband_compressor#2" in out
+    assert "vendor-apo-active" in emitted and "vendor-apo" not in emitted
     out, emitted = _preset(layer, disabled={"vendor-apo"})
-    assert "multiband_compressor#2" not in out and "vendor-apo" not in emitted
+    assert "multiband_compressor#2" not in out
+    assert not {"vendor-apo", "vendor-apo-active"} & emitted
+
+
+def test_default_on_layer_sits_in_the_disable_menu_only(silence_console,
+                                                        capsys):
+    silence_console(console)
+    _, emitted = _preset(synthetic_apo_layer(default_on=True))
+    messages.print_troubleshooting([], {k: [] for k in emitted})
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--disable vendor-apo" in out
+    assert "--enable vendor-apo" not in out
 
 
 def test_volmax_moves_ahead_of_the_layer_when_no_regulator_carries_it():
@@ -109,24 +126,32 @@ def _run(tmp_path, capsys, *flags):
     return " ".join(capsys.readouterr().out.split()), out_dir, irs_dir
 
 
-def test_run_offers_a_found_layer_without_applying_it(tmp_path,
-                                                      silence_console,
-                                                      capsys):
+def test_disable_leaves_a_default_on_layer_out(tmp_path, silence_console,
+                                              capsys):
     silence_console(console)
-    out, out_dir, _ = _run(tmp_path, capsys)
+    out, out_dir, _ = _run(tmp_path, capsys, "--disable", "vendor-apo")
     assert "Vendor speaker tuning: Synthetic" not in out  # real label below
     assert "Vendor speaker tuning: Microsoft Surface APO" in out
-    assert "Not applied" in out and "--enable vendor-apo" in out
-    for p in out_dir.glob("*.json"):
+    assert "Not applied: --disable vendor-apo left it out." in out
+    assert "--enable vendor-apo" not in out
+    presets = sorted(out_dir.glob("*.json"))
+    assert presets
+    for p in presets:
         assert "multiband_compressor#2" not in json.loads(p.read_text())[
             "output"]
 
 
+@pytest.mark.parametrize("flags", [(), ("--enable", "vendor-apo")])
 def test_run_folds_the_eq_and_adds_the_stages(tmp_path, silence_console,
-                                              capsys):
+                                              capsys, flags):
+    """On by default; --enable, which older command lines carry, changes
+    nothing."""
     silence_console(console)
-    out, out_dir, irs_dir = _run(tmp_path, capsys, "--enable", "vendor-apo")
+    out, out_dir, irs_dir = _run(tmp_path, capsys, *flags)
     assert "Microsoft Surface APO" in out and ", applied" in out
+    assert "--disable vendor-apo leaves it out." in out
+    # The menu offers the off-switch even to an old --enable command line.
+    assert "--disable vendor-apo #" in out
     assert "IEQ+AO+APO" in out
     assert "Correction check passed" in out
     assert "[vendor-apo-not-reproduced] Nothing to do." in out
@@ -145,14 +170,15 @@ def test_run_folds_the_eq_and_adds_the_stages(tmp_path, silence_console,
     assert db[0] - db[1] < -9.0
 
 
-def test_enable_without_a_layer_says_it_did_nothing(tmp_path,
+@pytest.mark.parametrize("flag", ["--enable", "--disable"])
+def test_a_flag_without_a_layer_says_it_did_nothing(tmp_path, flag,
                                                     silence_console, capsys):
     silence_console(console)
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
-                               "--skip-closing", "--enable", "vendor-apo"])
+                               "--skip-closing", flag, "vendor-apo"])
     out = " ".join(capsys.readouterr().out.split())
-    assert f"--enable {apo_layer.FLAG} had no effect" in out
+    assert f"{flag} {apo_layer.FLAG} had no effect" in out
 
 
 def test_an_unusable_config_is_reported_once(tmp_path, silence_console,
@@ -178,24 +204,33 @@ def test_closing_confirms_the_layer_took_effect(tmp_path, silence_console,
     silence_console(console)
     xml = write_surface_package(tmp_path / "pkg")
     write_synthetic_tuning_xml(xml)
-    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
-                               "--enable", "vendor-apo"])
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
     out = " ".join(capsys.readouterr().out.split())
-    assert ("These would include the Microsoft Surface APO speaker tuning "
-            "(--enable vendor-apo)") in out
+    assert ("These would include the Microsoft Surface APO speaker tuning, "
+            "on by default (--disable vendor-apo leaves it out)") in out
 
 
-def test_closing_names_a_found_layer_left_out(tmp_path, silence_console,
-                                             capsys):
+def test_closing_names_an_opt_in_layer_left_out(silence_console, capsys):
     """Off, the hint's ask prints above the last screen; the Done block is
     what a reader who never scrolls sees (vendor-apo review, round 2)."""
     silence_console(console)
+    messages.print_what_now(["Dolby-Balanced"], False, True,
+                            vendor_apo_off="Synthetic APO")
+    out = " ".join(capsys.readouterr().out.split())
+    assert ("Not included: the Synthetic APO speaker tuning found "
+            "beside the Dolby file — --enable vendor-apo adds it") in out
+
+
+def test_closing_says_nothing_of_a_layer_the_reader_disabled(
+        tmp_path, silence_console, capsys):
+    silence_console(console)
     xml = write_surface_package(tmp_path / "pkg")
     write_synthetic_tuning_xml(xml)
-    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
+    dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
+                               "--disable", "vendor-apo"])
     out = " ".join(capsys.readouterr().out.split())
-    assert ("Not included: the Microsoft Surface APO speaker tuning found "
-            "beside the Dolby file — --enable vendor-apo adds it") in out
+    assert "Not included" not in out
+    assert "These would include the Microsoft" not in out
 
 
 def test_a_stage_the_layer_could_not_build_sits_with_the_stages(

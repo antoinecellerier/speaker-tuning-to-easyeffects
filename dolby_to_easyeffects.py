@@ -267,11 +267,12 @@ def add_filter_tweak_args(container, *, only=None):
              "than Windows (issue #25). Try the experimental --enable "
              "level-restore if audio is quieter with the preset than without "
              "it (issue #50). virtual-bass is experimental and plays only in "
-             "the PipeWire chain (issue #14). vendor-apo is experimental and "
-             "adds speaker tuning a vendor ships beside the Dolby file, where "
-             "the run finds some (issue #113). When the tuning has a volume "
-             "leveler, autogain ships off on HDA and on for SoundWire. "
-             "--disable autogain removes it either way.",
+             "the PipeWire chain (issue #14). vendor-apo does nothing today: "
+             "Microsoft's Surface tuning, the one vendor format read, is on "
+             "by default, and --disable vendor-apo leaves it out (issue "
+             "#113). When the "
+             "tuning has a volume leveler, autogain ships off on HDA and on "
+             "for SoundWire. --disable autogain removes it either way.",
     )
     add(
         "--volmax-slot",
@@ -1041,12 +1042,14 @@ def main(argv: list[str] | None = None,
                                         "virtual-bass block to derive the "
                                         "stage from. The preset is unchanged.")
     # An unusable config already said so where it was found.
-    if apo_layer.FLAG in args.enable and apo is None and not apo_unusable:
+    apo_flag_given = ("--enable" if apo_layer.FLAG in args.enable
+                      else "--disable" if apo_layer.FLAG in disabled else "")
+    if apo_flag_given and apo is None and not apo_unusable:
         print()
-        console._cprint_wrapped("warn", f"--enable {apo_layer.FLAG} had no "
-                                "effect: no vendor speaker tuning this tool "
-                                "reads binds this device beside the Dolby "
-                                "file. The preset is unchanged.")
+        console._cprint_wrapped("warn", f"{apo_flag_given} {apo_layer.FLAG} "
+                                "had no effect: no vendor speaker tuning this "
+                                "tool can apply sits beside the Dolby file "
+                                "for this device. The preset is unchanged.")
     if ("coupled-bands" in disabled
             and "coupled-bands-dropped" not in tally.filters_by_profile):
         print()
@@ -1158,16 +1161,20 @@ def main(argv: list[str] | None = None,
     # the reader what to re-run before setup had finished, with two more
     # phases of output below it (round 4).
     menu_printed = False
+    # --enable on a layer on by default changed nothing, so it must not hide
+    # that layer's --disable row the way a typed --enable hides autogain's.
+    enabled_by_flag = frozenset(args.enable) - (
+        {apo_layer.FLAG} if apo is not None and apo.default_on else set())
     if troubleshooting is not None:
         troubleshooting.update(
             findings=scoped,
             filters_by_profile=tally.filters_by_profile,
-            enabled_by_flag=frozenset(args.enable))
+            enabled_by_flag=enabled_by_flag)
     else:
         menu_printed = messages.print_troubleshooting(
             scoped, tally.filters_by_profile,
             installs_presets=not args.skip_closing,
-            enabled_by_flag=frozenset(args.enable),
+            enabled_by_flag=enabled_by_flag,
             dry_run=args.dry_run,
             auto_reload=bool(reloaded.loaded))
     # After the troubleshooting, not before it. Printed first, the success
@@ -1207,7 +1214,12 @@ def main(argv: list[str] | None = None,
                        vendor_apo=(apo.label if apo is not None
                                    and f"{apo_layer.FLAG}-active"
                                    in tally.filters_by_profile else ""),
+                       vendor_apo_default=(apo is not None
+                                           and apo.default_on),
+                       # Opt-in layers only: a default-on one is off only
+                       # because the reader typed --disable.
                        vendor_apo_off=(apo.label if apo is not None
+                                       and not apo.default_on
                                        and not apo_layer.is_active(
                                            apo, set(args.enable), disabled)
                                        else ""),

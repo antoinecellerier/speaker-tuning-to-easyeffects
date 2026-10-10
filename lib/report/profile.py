@@ -167,7 +167,8 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
 
     Off, it names the file and the flag that applies it; the Done block
     repeats that on the last screen. It is not a hint: an untested stage is
-    not a fix for anything the reader heard (copy audit). On, each stage is
+    not a fix for anything the reader heard (copy audit). A layer on by
+    default is off only under --disable, so it says just that. On, each stage is
     one sentence in a listener's words, its numbers behind -v, then a
     detail-only finding for what the layer leaves out.
 
@@ -185,11 +186,22 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     if not apo_on:
         print(f"\nVendor speaker tuning: {apo.label} ({where})")
         console._cprint_wrapped(
-            "", "  Not applied. This device's speaker is also tuned outside "
+            "", f"  Not applied: --disable {apo_layer.FLAG} left it out."
+            if apo.default_on else
+            "  Not applied. This device's speaker is also tuned outside "
             f"the Dolby file, and --enable {apo_layer.FLAG} adds that tuning "
-            "on top (experimental and untested, issue #113).", indent="    ")
+            "on top (experimental, issue #113).", indent="    ")
         return []
     print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
+    if apo.default_on:
+        # Nobody typed a flag for it, so the section says why it is here and
+        # how to skip it. The wrapper prints no closing note, so this line is
+        # the PipeWire reader's only off-switch beside the menu row (#113
+        # default-on review).
+        console._cprint_wrapped(
+            "", "  On by default: the speaker tuning the vendor ships for "
+            "this device beside the Dolby file. --disable "
+            f"{apo_layer.FLAG} leaves it out.", indent="    ")
     if apo.eq_left or apo.eq_right:
         f = np.geomspace(20.0, 20000.0, 400)
         db = np.minimum(fir.biquad_cascade_db(apo.eq_left, f),

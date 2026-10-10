@@ -78,6 +78,10 @@ DISABLEABLE_FILTERS = {
                    "drops Dolby's type-3 high-shelf boost (experimental)"),
     "lo-pass": ("the top end sounds dull or muffled",
                 "drops Dolby's type-6/8 low-pass rolloff (experimental)"),
+    # The vendor layer shapes the whole tone, so the symptom names the
+    # balance rather than one register: the registers are the other rows'.
+    "vendor-apo": ("the overall balance of bass, mids and treble sounds off",
+                   "drops the vendor speaker tuning (issue #113)"),
 }
 
 # One stage sits in both menus: the volume leveler ships active on SoundWire
@@ -92,8 +96,11 @@ DISABLEABLE_FILTERS = {
 # the tunings with nothing to couple in: 0.8% of corpus profiles, and one
 # device outright (re-derived 2026-08-11: 37,675 of 37,976 profiles, 978 of
 # 979 devices).
+# vendor-apo is in both menus like autogain: a format on by default (Surface)
+# is a --disable candidate, an opt-in one an --enable candidate.
 _DISABLE_MENU_MARKER = {"autogain": "autogain-active",
-                        "coupled-bands": "coupled-bands-active"}
+                        "coupled-bands": "coupled-bands-active",
+                        "vendor-apo": "vendor-apo-active"}
 
 # Mirror of DISABLEABLE_FILTERS for stages that ship present but inactive:
 # --enable NAME activates them on a rebuild. Same contract: adding an
@@ -138,11 +145,13 @@ ENABLEABLE_FILTERS = {
                      "experimental; only the PipeWire chain plays it "
                      "(issue #14)"),
     # Offered only where a vendor APO config binds the device
-    # (lib/apo/discover.py), so the trigger can name what it adds.
+    # (lib/apo/discover.py) and its format is opt-in, so the trigger can name
+    # what it adds. Surface's is on by default, and there the name is a
+    # no-op that keeps older command lines parsing.
     "vendor-apo": ("it sounds flat next to Windows, and the run found "
                    "vendor speaker tuning",
-                   "experimental and untested; tell us if it sounds closer "
-                   "to Windows (issue #113)"),
+                   "experimental; tell us if it sounds closer to Windows "
+                   "(issue #113)"),
 }
 
 # Emission paths that are numerically verified but not yet user-validated
@@ -192,6 +201,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    declared_default_preset: str = "",
                    virtual_bass_pw: bool = False,
                    vendor_apo: str = "",
+                   vendor_apo_default: bool = False,
                    vendor_apo_off: str = "",
                    reloaded: str = "",
                    loaded: str = "",
@@ -255,17 +265,21 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                   "can't play — these presets only record its values; "
                   "dolby_to_pipewire.py builds it into a PipeWire chain "
                   "instead.")
-    # The one place a Done-stopper learns --enable vendor-apo took effect, or
-    # that a found vendor tuning was left out: the report section saying so
+    # The one place a Done-stopper learns the vendor tuning is in the
+    # presets, or that a found one was left out: the report section saying so
     # has scrolled off by now, and so has the hint's ask (vendor-apo review,
     # rounds 1 and 2). Same class as the autogain note: a guaranteed
-    # difference from Windows the reader can fix with one flag.
+    # difference from Windows the reader can change with one flag, so it
+    # names the flag that changes it: --disable for a layer on by default
+    # (``vendor_apo_default``), --enable for an opt-in one.
+    apo_flag = (", on by default (--disable vendor-apo leaves it out)"
+                if vendor_apo_default else " (--enable vendor-apo)")
     apo_note = (f"  {'These would include' if dry_run else 'They include'} "
-                f"the {vendor_apo} speaker tuning (--enable vendor-apo)."
+                f"the {vendor_apo} speaker tuning{apo_flag}."
                 if vendor_apo else
                 f"  Not included: the {vendor_apo_off} speaker tuning found "
                 "beside the Dolby file — --enable vendor-apo adds it "
-                "(experimental, untested)." if vendor_apo_off else "")
+                "(experimental)." if vendor_apo_off else "")
     # The mismatch echo mirrors the autogain-note pattern (round 10): without
     # it the most actionable fix in the run lives only at the top and in the
     # ask small-print, never on the screen people act from.

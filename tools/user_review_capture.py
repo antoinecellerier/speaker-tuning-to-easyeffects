@@ -39,7 +39,7 @@ Two options cover a run whose copy depends on more than the XML:
                           sits one level down, in a folder named like its
                           real one, so the package layout survives staging.
     --generator-args STR  flags the persona typed, appended to both full
-                          runs (`--generator-args "--enable vendor-apo"`).
+                          runs (`--generator-args "--disable vendor-apo"`).
                           They are the reader's own command, so the skill
                           names them in the persona, not as a harness flag.
 
@@ -342,7 +342,7 @@ def main(argv=None) -> int:
                          "folder, for a run that looks there (repeatable)")
     ap.add_argument("--generator-args", default="", metavar="STR",
                     help="flags appended to both full runs, as the persona "
-                         "typed them, e.g. \"--enable vendor-apo\"")
+                         "typed them, e.g. \"--disable vendor-apo\"")
     ap.add_argument("--no-sandbox", action="store_true",
                     help="skip the fake-home namespace even if available; "
                          "captures then show real harness paths and use "

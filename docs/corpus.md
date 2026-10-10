@@ -141,7 +141,7 @@ through issues. Its Dolby extension download does carry them: the
 Twelve of the Surface `.msi`s also ship Microsoft's Surface APO configs,
 `SurfaceAPO_*.json`, eleven of them with a speaker chain. They are not counted
 here, since every figure
-on this page counts DAX3 XMLs; `--enable vendor-apo` reads them
+on this page counts DAX3 XMLs; the vendor-apo layer reads them
 ([Surface fleet](research/vendor-apo.md#r-surface-apo-fleet)).
 
 ### The development machine's Windows partition

@@ -31,6 +31,7 @@ repeat it as many times as needed:
 | `dialog` | Vocals feel over-boosted or harsh in the presence region. Drops the 2.5 kHz speech-band EQ. |
 | `high-shelf` | Harsh or sibilant high frequencies on devices whose tuning includes a type-3 shelf. **Experimental** path: see the note below. |
 | `lo-pass` | Highs sound rolled off or dull on devices whose tuning includes a type-6/8 low-pass. **Experimental**, with the same caveat as the `high-shelf` note below. |
+| `vendor-apo` | The overall balance of bass, mids and treble sounds off, and the run reports "Vendor speaker tuning: … applied". Drops the speaker tuning the vendor ships beside the Dolby file. See the note below. |
 
 - **`volmax`.** The default `--volmax-slot input-gain` already handles
   distortion on loud **low** frequencies. If the preset instead sounds
@@ -48,6 +49,13 @@ repeat it as many times as needed:
 - **`lo-pass`.**
   [docs/cross-device-findings.md](cross-device-findings.md#types-6-and-8--low-pass-variants-experimental)
   lists where the type-6/8 low-pass appears.
+- **`vendor-apo`.** On Surface devices, Microsoft tunes the speaker outside
+  Dolby's file. The run finds that tuning in the driver package and applies it
+  by default ([Extracting the XML](getting-the-xml.md#surface-devices)). One
+  listener has heard it, and nobody has compared it with Windows
+  ([reference](reference.md#validated-vs-unvalidated-mappings)). Report what you
+  hear on
+  [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113).
 
 Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 
@@ -56,7 +64,7 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 | `autogain` | The preset sounds right but noticeably quieter than Windows. Turns on the volume leveler. See [Troubleshooting: correct but too quiet](troubleshooting.md#troubleshooting-correct-but-too-quiet). |
 | `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. **Experimental**: see the note below. |
 | `virtual-bass` | Bass feels thinner than it did on Windows, on HDA internal speakers. You need `dolby_to_pipewire.py` to hear it. **Experimental**: measured close to DAX on one device. |
-| `vendor-apo` | The preset sounds flat next to Windows, and the run reports "Vendor speaker tuning". Adds the speaker tuning the vendor ships beside the Dolby file. **Experimental**: see the note below. |
+| `vendor-apo` | Nothing today: Surface's tuning, the one vendor format read, is on by default. |
 
 - **`level-restore`.** The impulse response is normalised so its loudest band
   sits at 0 dB, which drops everything else below unity. On tunings whose peak
@@ -72,13 +80,6 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
   that stage. EasyEffects itself can't express it, so the EE preset's audio is
   unchanged. Report what you hear on
   [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14).
-- **`vendor-apo`.** Some vendors tune the speaker in their own Windows audio
-  processing object rather than in Dolby's file. Microsoft's Surface APO is the
-  one this tool reads. This flag folds that tuning's EQ into the impulse
-  response and adds its compressor and resonance limiter after Dolby's stages.
-  `--enable virtual-bass` on the PipeWire chain bypasses them.
-  Nobody has compared the result with Windows yet. Report what you hear on
-  [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113).
 
 Convolver, PEQ, and the final brickwall limiter can't be toggled from the CLI.
 They're the FIR correction, speaker PEQ, and safety net.

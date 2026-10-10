@@ -7,8 +7,9 @@
 - **Surface Pro 9 (Intel) voices its speaker in Microsoft's Surface APO**, not
   in Dolby. Its DAX3 XML switches off its audio-optimizer, IEQ and graphic EQ
   in every profile ([Surface APO](#r-surface-apo-efx)).
-- **`--enable vendor-apo`** translates that config's `R/EFX` chain. It is
-  opt-in and unvalidated: no Windows capture exists for any Surface
+- **The vendor-apo layer** translates that config's `R/EFX` chain. It is on by
+  default where a bound config has a speaker chain, and unvalidated: one
+  listener has heard it and no Windows capture exists for any Surface
   ([Surface APO](#r-surface-apo-efx)).
 - **Eleven of the 25 surveyed Surface models ship a Surface APO endpoint
   chain**, on HD-Audio and SoundWire speakers. The parser reads all 16 of their
@@ -17,6 +18,14 @@
 
 Open:
 
+- The layer is one `--disable` name for its EQ, DRC and `Crystal` stages
+  together. Per-stage names, the way Dolby's stages each have one, would let
+  a listener drop the weakest mapping, `Crystal`, and keep the EQ. One
+  by-ear report doesn't yet call for that split.
+- A second, opt-in format would meet two gaps the Surface default hides:
+  `is_active` ignores `--disable` on an opt-in layer, so that flag is then a
+  silent no-op, and the `--enable` help says `vendor-apo` "does nothing
+  today".
 - Fortemedia's render APO ships a per-device speaker file,
   `SAMSfpaspk_<SUBSYS>.dat`, in an opaque binary format. One Yoga Slim 7 ProX
   14ARH7 package's `OemXAudioExtFM_L.inf` names 96 of them. It is
@@ -122,6 +131,14 @@ F0 ± Bandwidth/2, split at the geometric midpoints between F0s. "Limit"
 could be a level ceiling or a maximum cut, and the file holds no separate
 threshold. Ratio 100, knee 0 dB, RMS detection for the DRC and Peak for
 Crystal are converter choices; the config states none of them.
+
+**Heard on one device.** The #113 reporter ran the layer on this Surface Pro 9
+(Intel) and reported, 2026-10-10, that it "creates much better tuning". The run
+they pasted is `dolby_to_pipewire.py`, so it was heard on the PipeWire chain;
+the EasyEffects preset is unheard. They have no Windows install. The report
+names no reference, most likely the preset they ran before without the layer. On
+that report the layer became the default wherever a bound Surface config has a
+speaker chain; the mappings stay unvalidated.
 
 Open:
 

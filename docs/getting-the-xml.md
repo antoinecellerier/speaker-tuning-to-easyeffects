@@ -68,6 +68,13 @@ python3 dolby_to_easyeffects.py --autoload
 If the autoprobe reports ambiguity, for example with several extracted driver
 trees, pass `--windows ./driver-cache` to point it at the one you want.
 
+## Surface devices
+
+Point the script at the whole extracted driver package, or let it find the
+Windows partition, rather than at an XML copied out on its own. Microsoft keeps
+the speaker's own tuning in a folder whose name starts with
+`surfaceapoextension`, beside the Dolby one, and the run finds it only there.
+
 ## How the script finds your XML and codec
 
 **Windows partition or extracted DriverStore.** Omitting `--windows` and the
