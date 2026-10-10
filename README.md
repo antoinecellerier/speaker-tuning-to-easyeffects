@@ -248,6 +248,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | Lenovo Yoga Slim 7 14ILL10 (83JX) <!-- Soundwire 17AA:3838 --> | [#59](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/59) |
 | Lenovo Yoga Slim 7 Pro 14ACH5 (82MS, reported as Yoga 14sACH 2021) <!-- Realtek ALC287, 17AA:384F --> | [#84](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/84) |
 | Microsoft Surface Laptop 4 <!-- Realtek ALC274, 10EC:123E --> | [#118](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/118) |
+| Microsoft Surface Pro 9 <!-- Realtek ALC274, 10EC:1284 --> | [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113) |
 | Motorola Moto Book 60 14IRH10R (83J7) <!-- Conexant SN6140, 17AA:3830 --> | [#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121) — its tuning XML comes from the Lenovo IdeaPad Slim 5 14ARP10 (83HT) driver package |
 | ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
 | ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
