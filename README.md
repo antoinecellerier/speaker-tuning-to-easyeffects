@@ -308,6 +308,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | Motorola Moto Book 60 14IRH10R (83J7) <!-- Conexant SN6140, 17AA:3830 --> | [#121](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/121) — its tuning XML comes from the Lenovo IdeaPad Slim 5 14ARP10 (83HT) driver package |
 | ThinkPad E14 Gen 2 AMD (20T6) <!-- Realtek ALC257, 17AA:507F --> | [#25](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/25) — verified close-to-Windows: needs `--enable autogain`, plus to taste a raised Autogain *Target* (EE GUI) and desktop volume >100% |
 | ThinkPad L14 Gen 6 AMD (21S8) <!-- Realtek ALC257, 17AA:50FF --> | [#61](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/61) |
+| ThinkPad P53 (20QQ) <!-- Conexant CX11880, 17AA:2297 --> | [#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131) |
 | ThinkPad T14 Gen 1 (20S1) <!-- Realtek ALC257, 17AA:22B1 --> | [#86](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/86) |
 | ThinkPad T14 Gen 1 AMD (20UD, 20UE) <!-- Realtek ALC257, 17AA:5081 --> | [#45](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/45) |
 | ThinkPad T14 Gen 2 AMD (20XL) <!-- Realtek ALC257, 17AA:5094 --> | [#80](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/80) |

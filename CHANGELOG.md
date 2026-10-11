@@ -89,6 +89,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- Mark additional tested devices: ThinkPad P53 (20QQ)
+  ([#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131)).
+
 ### Fixed
 
 - **[AUDIBLE]** Tunings whose compressor threshold is deeper than the plugin
