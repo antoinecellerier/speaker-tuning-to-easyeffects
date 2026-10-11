@@ -114,7 +114,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo IdeaPad Slim 3 16ARP10 (83K8)
   ([#124](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/124)),
   ThinkPad X13 Gen 3 (21BQ)
-  ([#127](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/127)).
+  ([#127](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/127)),
+  Microsoft Surface Laptop 5
+  ([#128](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/128)).
 
 ### Changed
 
