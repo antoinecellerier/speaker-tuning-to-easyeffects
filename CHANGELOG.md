@@ -92,7 +92,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 ### Added
 
 - Mark additional tested devices: ThinkPad P53 (20QQ)
-  ([#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131)).
+  ([#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131)),
+  ThinkPad T490s (20NX)
+  ([#133](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/133)).
 
 ### Fixed
 
