@@ -36,7 +36,7 @@ from tools import extract_claims
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools" / "extract_claims.py"
 
-_ROW = re.compile(r"^[\w.]+-\d{3}$")
+_ROW = re.compile(r"^[\w.]+-\d{3,}$")
 
 
 @pytest.fixture(scope="module")
