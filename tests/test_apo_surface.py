@@ -377,6 +377,22 @@ def test_a_block_missing_a_field_is_reported_not_raised(tmp_path):
         discover.find_for_xml(xml)
 
 
+@pytest.mark.parametrize("block,param,value", [
+    ("MainEQ", "Coefficients", [float("nan")] + [0.0] * 9),
+    ("MainEQ", "Coefficients", ["nan"] + [0.0] * 9),
+    ("VolumeDepMBDRC4", "CrossoverFreqs", [float("inf")]),
+])
+def test_a_non_finite_number_is_reported_not_folded(tmp_path, block, param,
+                                                    value):
+    """`json.loads` reads NaN and Infinity, and `float` reads "nan"; past
+    the parse either would turn every FIR tap into NaN."""
+    doc = surface_apo_json()
+    _set(doc, block, **{param: value})
+    xml = write_surface_package(tmp_path, config_json=doc)
+    with pytest.raises(layer.UnsupportedApoConfig, match="not a finite"):
+        discover.find_for_xml(xml)
+
+
 def test_an_unreadable_inf_binds_nothing(tmp_path):
     xml = write_surface_package(tmp_path)
     inf = xml.parent.parent / "surfaceapoextension" / "SurfaceAPOExtension.inf"

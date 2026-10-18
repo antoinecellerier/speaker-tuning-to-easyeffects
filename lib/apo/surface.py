@@ -472,11 +472,22 @@ def _first(block: dict, key: str, default):
     return value[0] if isinstance(value, list) and value else value
 
 
+def _num(value) -> float:
+    """*value* as a finite float. A NaN or an infinity, which `json.loads`
+    and `float` both accept, raises ValueError like any other bad number,
+    and `parse_config` reports the config as unusable: past this point it
+    would turn every FIR tap into NaN."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{value!r} is not a finite number")
+    return number
+
+
 _IDENTITY: Biquad = (1.0, 0.0, 0.0, 0.0, 0.0)
 
 
 def _sections(coeffs: list) -> list[Biquad]:
-    return [tuple(float(c) for c in coeffs[i:i + 5])
+    return [tuple(_num(c) for c in coeffs[i:i + 5])
             for i in range(0, len(coeffs), 5)]
 
 
@@ -514,7 +525,7 @@ def _main_eq(config: Path, blocks: list[tuple[str, dict]]
 def _state_row(config: Path, block: dict, key: str, bands: int,
                notes: list[str], name: str) -> list[float]:
     """The first volume state's row of a per-state, per-band table."""
-    values = [float(v) for v in block[key]]
+    values = [_num(v) for v in block[key]]
     if not values or len(values) % bands:
         raise UnsupportedApoConfig(
             config, f"{name}.{key} holds {len(values)} values, not a "
@@ -539,14 +550,14 @@ def _drc(config: Path, name: str, block: dict, notes: list[str]
     A band with ratio 1 and no pregain does nothing. When the band below it
     is inert too, the two pass audio alike, so their split is dropped.
     """
-    xovers = [float(f) for f in block["CrossoverFreqs"]]
+    xovers = [_num(f) for f in block["CrossoverFreqs"]]
     n = len(xovers) + 1
     threshold = _state_row(config, block, "ThresholdDb", n, notes, name)
     ratio = _state_row(config, block, "Ratio", n, notes, name)
     pregain = _state_row(config, block, "PreGainDb", n, notes, name)
     limit = _state_row(config, block, "OutputLimit", n, notes, name)
-    attack = [float(v) for v in block["AttackTimeMs"]]
-    release = [float(v) for v in block["ReleaseTimeMs"]]
+    attack = [_num(v) for v in block["AttackTimeMs"]]
+    release = [_num(v) for v in block["ReleaseTimeMs"]]
     if xovers != sorted(xovers) or len(attack) < n or len(release) < n:
         raise UnsupportedApoConfig(
             config, f"{name} has {len(xovers)} crossovers, out of order or "
@@ -571,7 +582,7 @@ def _drc(config: Path, name: str, block: dict, notes: list[str]
             f"stage holds {_MAX_BANDS}")
     if any(v != 0.0 for v in limit[:audible]):
         notes.append(f"its compressor's per-band output limits ({name})")
-    lookahead = [float(v) for v in block.get("LookaheadTimeMs", [])]
+    lookahead = [_num(v) for v in block.get("LookaheadTimeMs", [])]
     if any(lookahead[:audible]):
         notes.append(f"its compressor's look-ahead, left out so the chain "
                      f"adds no delay ({name})")
@@ -599,7 +610,7 @@ def _crystal(config: Path, blocks: dict[str, dict],
     """
     entries = []
     for name, block in blocks.items():
-        cols = [[float(v) for v in block[k]] for k in
+        cols = [[_num(v) for v in block[k]] for k in
                 ("F0", "Bandwidth", "Limit", "AttackTimeMs", "ReleaseTimeMs")]
         count = int(_first(block, "ActiveLimiterCount", len(cols[0])))
         if not all(len(c) >= count for c in cols):
