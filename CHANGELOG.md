@@ -111,7 +111,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad T490s (20NX)
   ([#133](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/133)),
   ASUS Zenbook 14 (UM3406HA)
-  ([#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134)).
+  ([#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134)),
+  ASUS TUF Gaming A16 (FA607PV)
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137)).
 
 ### Fixed
 
