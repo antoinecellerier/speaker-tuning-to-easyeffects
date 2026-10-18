@@ -24,6 +24,8 @@ Output chain:
 from __future__ import annotations
 
 import argparse
+import errno
+import os
 import shlex
 import sys
 from dataclasses import dataclass, field, replace
@@ -73,6 +75,24 @@ TUNING_INPUT_DESCRIPTION = (
 )
 
 
+def _hw_id(text: str) -> str:
+    """--hw-id's value, checked and normalised to "[BUS:]CODEC:SUBSYS".
+
+    Takes the IDs as --speaker-info prints them, so a 0x prefix is fine. A
+    string, not a tuple, because dolby_to_pipewire.py forwards it as one."""
+    parts = text.strip().upper().split(":")
+    bus = parts.pop(0) if len(parts) == 3 else None
+    ids = [p.removeprefix("0X") for p in parts]
+    if (len(ids) != 2 or (bus is not None and bus not in sonitude.BUSES)
+            or not all(len(i) == 8 and all(c in "0123456789ABCDEF" for c in i)
+                       for i in ids)):
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: expected CODEC:SUBSYS, 8 hex digits each, such as "
+            "0x10EC0285:0x103C860F, optionally after HDAUDIO: or "
+            "INTELAUDIO:")
+    return ":".join([*([bus] if bus else []), *ids])
+
+
 def add_tuning_input_args(container, *, only=None):
     """Tuning-input flags (group shared with dolby_to_pipewire.py)."""
     add, added = console._make_adder(container, only)
@@ -109,11 +129,14 @@ def add_tuning_input_args(container, *, only=None):
     add(
         "--hw-id",
         default=None,
-        metavar="CODEC:SUBSYS",
+        type=_hw_id,
+        metavar="[BUS:]CODEC:SUBSYS",
         help="with HP's Bang & Olufsen tuning (a driver download or "
              "SEAPODAT archive in place of the XML), the audio codec and "
-             "subsystem ID to pick the preset for, such as "
-             "10EC0285:103C860F, instead of this machine's. Experimental.",
+             "subsystem ID to pick the preset for, as --speaker-info "
+             "prints them on that laptop, instead of this machine's. BUS, "
+             "HDAUDIO or INTELAUDIO, picks between the two archives when "
+             "both hold the ID. Experimental.",
     )
     return added
 
@@ -225,8 +248,9 @@ def add_output_args(container, *, only=None):
     add, added = console._make_adder(container, only)
     add(
         "--prefix",
-        default="Dolby",
-        help="prefix for preset names (default: Dolby → Dolby-Balanced, etc.)",
+        default=None,
+        help="prefix for preset names (default: Dolby → Dolby-Balanced, "
+             "etc.; HP-BO for HP's Bang & Olufsen tuning)",
     )
     add(
         "--output-dir",
@@ -625,33 +649,88 @@ class RunTally:
 
 def _vendor_only_layer(source: Path, hw_id: str | None):
     """The Sonitude layer *source*'s archives hold for this machine, or for
-    *hw_id* ("CODEC:SUBSYS"); raises when none binds it."""
+    the laptop *hw_id* names (see `_hw_id`); raises when none binds it."""
+    src = doctor.tilde(source)
     if hw_id:
-        codec, _, subsys = hw_id.upper().partition(":")
-        if not (len(codec) == 8 and len(subsys) == 8):
-            raise RuntimeError(f"--hw-id {hw_id}: expected CODEC:SUBSYS, "
-                               "such as 10EC0285:103C860F")
+        *bus, codec, subsys = hw_id.split(":")
+        bus = bus[0] if bus else None
         ids = [(codec, subsys)]
     else:
+        bus = None
         ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
                if "HDMI" not in name.upper()
                and "DISPLAYPORT" not in name.upper()]
+        if not ids:
+            raise RuntimeError(
+                f"{src} holds HP's Bang & Olufsen tunings, but this "
+                "machine's audio codec IDs can't be read to pick one. Pass "
+                "the laptop's with --hw-id, as its --speaker-info prints "
+                "them.")
     cards = host.path("/proc/asound/cards")
     try:
         sof = speakers._card_uses_sof(cards.read_text().splitlines())
     except OSError:
         sof = False
+    unreadable: list[Path] = []
     for codec, subsys in ids:
-        layer = sonitude.find(source, codec, subsys, prefer_intelaudio=sof)
-        if layer is not None:
+        found = sonitude.bindings(source, codec, subsys)
+        unreadable += found.unreadable
+        hits = {b: h for b, h in found.hits.items() if bus in (None, b)}
+        if bus and found.hits and not hits:
+            (other,) = found.hits
+            raise RuntimeError(
+                f"{src} holds a tuning for {codec}:{subsys} in its {other} "
+                f"archive only. Pass --hw-id {other}:{codec}:{subsys}, or "
+                "leave the bus out.")
+        if not hits:
+            continue
+        # A SOF machine runs Intel's DSP, which on Windows is the INTELAUDIO
+        # bus; the other archive is for Windows' standard driver.
+        order = sonitude.BUSES[::-1] if sof else sonitude.BUSES
+        picked = min(hits, key=order.index)
+        layer = sonitude.load(*hits[picked], picked, codec, subsys)
+        other = next((b for b in hits if b != picked), None)
+        if other is None:
             return layer
-    said = (", ".join(f"{c}:{s}" for c, s in ids) if ids
-            else "none could be read")
+        try:
+            alt = sonitude.load(*hits[other], other, codec, subsys)
+        except apo_layer.UnsupportedApoConfig:
+            return layer
+        if (alt.curve_left_db, alt.curve_right_db) == (
+                layer.curve_left_db, layer.curve_right_db):
+            return layer
+        both = (f"preset {hits[picked][1]} in its {picked} archive and "
+                f"preset {hits[other][1]} in its {other} one")
+        if hw_id:
+            raise RuntimeError(
+                f"{src} holds two different tunings for {codec}:{subsys}: "
+                f"{both}. Pass the bus too, as the speakers' hardware ID "
+                "starts in Windows' Device Manager: --hw-id "
+                f"INTELAUDIO:{codec}:{subsys} or HDAUDIO:{codec}:{subsys}.")
+        runs = "runs" if sof else "doesn't run"
+        console._cprint_wrapped(
+            "warn", f"{src} holds two different tunings for this laptop: "
+            f"{both}. Using the {picked} one, because this machine {runs} "
+            "Intel's audio DSP driver (SOF). If the speakers' hardware ID in "
+            f"Windows' Device Manager starts with {other}, rebuild with "
+            f"--hw-id {other}:{codec}:{subsys}.")
+        return layer
+    if unreadable:
+        raise RuntimeError(
+            f"{doctor.tilde(unreadable[0])} can't be read as one of HP's "
+            "tuning archives, so whether it holds this laptop's tuning is "
+            "unknown. Try a fresh copy of the download.")
+    said = ", ".join(f"{c}:{s}" for c, s in ids)
+    if hw_id:
+        raise RuntimeError(
+            f"{src} holds no HP Bang & Olufsen tuning for "
+            f"{bus + ':' if bus else ''}{said}. Check the IDs against that "
+            "laptop's --speaker-info, or use its model's driver download.")
     raise RuntimeError(
-        f"{doctor.tilde(source)} holds HP's Bang & Olufsen tunings, but none "
-        f"for this laptop's audio hardware (codec:subsystem {said}). If this "
-        "is your model's download, pass --hw-id with the IDs --speaker-info "
-        "prints.")
+        f"{src} holds HP's Bang & Olufsen tunings, but none for this "
+        f"laptop's audio hardware (codec:subsystem {said}), so it is likely "
+        "another model's download. Use the audio driver download HP lists "
+        "for this model.")
 
 
 def main(argv: list[str] | None = None,
@@ -726,6 +805,11 @@ def main(argv: list[str] | None = None,
         console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
     elif args.xml_file and sonitude.is_archive(args.xml_file):
         vendor_source = Path(args.xml_file)
+        # Said as a missing XML is, rather than as an archive holding no
+        # tuning for this laptop.
+        if not vendor_source.is_file():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    str(args.xml_file))
     elif args.xml_file and driver_package.kind(args.xml_file):
         # A vendor's driver download in place of the XML: its tuning files
         # are unpacked into driver-cache/, and this machine's is picked there.
@@ -757,10 +841,20 @@ def main(argv: list[str] | None = None,
         # without it.
         for flag, given in (("--list", args.list),
                             ("--all-profiles", args.all_profiles),
-                            ("--profile", args.profile)):
+                            ("--profile", args.profile),
+                            ("--endpoint",
+                             args.endpoint != "internal_speaker"),
+                            ("--mode", args.mode != "normal")):
             if given:
                 parser.error(f"{flag} reads a Dolby file, and this laptop's "
                              "tuning is HP's Bang & Olufsen one instead")
+        # Each builds or restores a Dolby stage, and there is none: refused
+        # rather than run and reported as having had no effect.
+        for name in ("autogain", "dialog", "virtual-bass", "level-restore"):
+            if name in args.enable:
+                parser.error(f"--enable {name} acts on a Dolby stage, and "
+                             "this laptop's tuning is HP's Bang & Olufsen "
+                             "one instead")
         if apo_layer.FLAG in disabled:
             parser.error(f"--disable {apo_layer.FLAG} would leave nothing to "
                          "build: HP's Bang & Olufsen tuning is this laptop's "
@@ -768,8 +862,9 @@ def main(argv: list[str] | None = None,
         try:
             vendor_layer = _vendor_only_layer(vendor_source, args.hw_id)
         except apo_layer.UnsupportedApoConfig as exc:
+            target = "--hw-id's IDs" if args.hw_id else "this laptop"
             raise RuntimeError(f"HP's Bang & Olufsen tuning at "
-                               f"{doctor.tilde(exc.path)} binds this laptop "
+                               f"{doctor.tilde(exc.path)} binds {target} "
                                f"but can't be used: {exc.reason}.") from exc
         # The archive stands where the XML would: the file the run names.
         xml_path = vendor_layer.inf_path
@@ -783,6 +878,7 @@ def main(argv: list[str] | None = None,
     # closing would otherwise name the archive as one.
     if resolved is not None:
         resolved["xml_path"] = xml_path if vendor_source is None else None
+        resolved["vendor_only"] = vendor_source is not None
 
     is_soundwire = (vendor_source is None
                     and discover.is_soundwire_xml(Path(xml_path).name))
@@ -829,8 +925,9 @@ def main(argv: list[str] | None = None,
     # of its own. `emit` and `profile` are what pull it in: between them they
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
-    # at the top (console, doctor, driver_package, ee_paths, ee_socket, packages;
-    # dax.{discover,parse}; hardware.{speakers,sinks}; preset.{autoload,reload};
+    # at the top (console, doctor, driver_package, ee_paths, ee_socket, host,
+    # packages; apo.{discover,layer,sonitude}; dax.{discover,parse};
+    # hardware.{codecs,speakers,sinks}; preset.{autoload,reload};
     # report.{findings,speaker,doctor_run,environment,messages}) reaches no
     # numpy. That is the whole predicate, and it is not "stdlib-only": console
     # owns the optional rich import and still belongs at the top, because rich
@@ -963,10 +1060,10 @@ def main(argv: list[str] | None = None,
         profile_label = profile_type or "default"
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
-        # "Dolby" is the default prefix, and it would mislabel a preset built
-        # from HP's own tuning; a prefix the reader typed stands.
-        name_parts = ["HP-BO" if vendor_source is not None
-                      and args.prefix == "Dolby" else args.prefix]
+        # "Dolby" would mislabel a preset built from HP's own tuning; a
+        # prefix the reader typed stands, "Dolby" included.
+        name_parts = [args.prefix if args.prefix is not None
+                      else "HP-BO" if vendor_source is not None else "Dolby"]
         if args.mode != "normal":
             name_parts.append(args.mode.title())
         if profile_type or args.all_profiles:
@@ -1192,9 +1289,12 @@ def main(argv: list[str] | None = None,
 
     # A vendor-only preset is the vendor layer, so the menus' --disable row
     # and the closing's "on by default" note would offer a run this command
-    # refuses. Both key on the marker.
+    # refuses. Both key on the marker. level-restore's --enable row goes too:
+    # the curve only cuts, so the peak it would hand back is a rounding
+    # error, and the flag is refused here.
     if vendor_source is not None:
         tally.filters_by_profile.pop(f"{apo_layer.FLAG}-active", None)
+        tally.filters_by_profile.pop("level-restore", None)
 
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there
@@ -1235,8 +1335,8 @@ def main(argv: list[str] | None = None,
                 [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
         _print_finding_detail(tally.findings["unconfirmed-by-ear"])
 
-    # A preset built from HP's tuning alone has been compared with one
-    # laptop's Windows recordings, never heard: ask for the comparison.
+    # A preset built from HP's tuning alone has been compared with two
+    # laptops' Windows recordings, never heard: ask for the comparison.
     if vendor_source is not None and tally.all_preset_names:
         tally.findings.setdefault(
             "vendor-tuning-unconfirmed",

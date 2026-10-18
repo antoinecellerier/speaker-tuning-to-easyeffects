@@ -6,8 +6,9 @@ carrying an archive in its resources (ASUS), a Windows Installer `.msi`
 (Surface) or a `.zip` (Samsung). The archive is listed first. Only the files
 the readers open are kept, at their archive paths, in
 ``driver-cache/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
-tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`) and what a vendor
-APO finder reads (`lib.apo.discover.wanted_members`). Each reader owns its
+tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), HP's Sonitude
+archives, which stand in for one (`lib.apo.sonitude.is_archive`), and what a
+vendor APO finder reads (`lib.apo.discover.wanted_members`). Each reader owns its
 predicate, so a new format adds its own and this module never learns it. A
 `.msi` is the exception to extracting only those: `msiextract` has no member
 filter, so it is unpacked in full beside the tree and pruned.
@@ -19,7 +20,7 @@ which tool a missing-tool error names, because they misroute: an ASUS `.exe`
 embeds an Inno loader in its resources, and plain `7z` opens that loader
 instead of the archive beside it.
 
-A download with no tuning XML in its listing leaves nothing in the cache;
+A download with no tuning file in its listing leaves nothing in the cache;
 the ASUS route's resources go to a temporary directory that is removed. A
 tree is written to a hidden ``.partial-*`` directory and renamed into place
 once its ``PROVENANCE.txt`` is written, so a tree without one is never ours:
@@ -673,7 +674,7 @@ def unpack(path: Path, cache_root: Path | None = None) -> Path:
     Reused when a tree already records this download, by name, size and
     modification time, or failing that by SHA-256, so a re-download or a
     copy makes no second tree. Raises `PackageError` for a download with no
-    tuning XML (nothing is written), one no installed tool can open, or a
+    tuning file (nothing is written), one no installed tool can open, or a
     member path that would land outside the tree.
     """
     path = Path(path)

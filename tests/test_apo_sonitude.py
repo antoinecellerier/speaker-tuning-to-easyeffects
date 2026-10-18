@@ -7,9 +7,13 @@ the tests. The corpus tier reads the real archives.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import os
 import struct
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -22,9 +26,11 @@ from lib.apo import layer as apo_layer
 from lib.apo import sonitude
 from lib.dax import parse
 from lib.preset import emit, fir
+from tests.conftest import write_synthetic_tuning_xml
 
 _ARCHIVE = "SEAPODAT.INTELAUDIO.FUNC_01-VEN_10EC-DEV_0285.zip"
 _HDA_ARCHIVE = "SEAPODAT.HDAUDIO.FUNC_01-VEN_10EC-DEV_0285.zip"
+_WRAPPER = Path(dolby_to_easyeffects.__file__).parent / "dolby_to_pipewire.py"
 
 
 def _ssidmap(entries: dict[str, int], size: int = 20) -> bytes:
@@ -371,3 +377,265 @@ def test_a_download_holding_only_the_archives_unpacks_them(tmp_path):
                   if p.is_file())
     assert kept == [dp.PROVENANCE, f"src/SR/SNAPO64Ext/{_ARCHIVE}"]
     assert sonitude.find(tree, "10EC0285", "103C860F", True) is not None
+
+
+def _download(tmp_path, extra: dict[str, bytes] | None = None) -> Path:
+    inner = _archive(tmp_path / "src" / _ARCHIVE, {"103C860F": 177},
+                     {177: _preset_bin(_curve())})
+    download = tmp_path / "sp000000.zip"
+    with zipfile.ZipFile(download, "w") as z:
+        z.write(inner, f"src/SR/SNAPO64Ext/{_ARCHIVE}")
+        for name, data in (extra or {}).items():
+            z.writestr(name, data)
+    return download
+
+
+def test_a_download_of_only_the_archives_builds_the_vendor_preset(
+        tmp_path, silence_console, capsys):
+    silence_console(console)
+    out, out_dir = _run(tmp_path, capsys, _download(tmp_path),
+                        "--hw-id", "10EC0285:103C860F")
+    assert "Found HP Bang & Olufsen (Sonitude preset 177, X_Synth)" in out
+    assert [p.name for p in out_dir.glob("*.json")] == ["HP-BO-Balanced.json"]
+
+
+def test_a_download_with_a_dolby_file_stays_on_the_dolby_path(
+        tmp_path, silence_console, capsys, monkeypatch):
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_0285_SUBSYS_103C860F.xml")
+    download = _download(tmp_path, {
+        "src/Dolby/DEV_0285_SUBSYS_103C860F.xml": xml.read_bytes()})
+    picked = []
+
+    def pick(tree, path, best_guess=False):
+        picked.append(tree)
+        return next(tree.rglob("DEV_0285_SUBSYS_103C860F.xml"))
+
+    monkeypatch.setattr(dp, "pick_xml", pick)
+    out, _ = _run(tmp_path, capsys, download, "--dry-run")
+    assert picked and "Bang & Olufsen (Sonitude" not in out
+
+
+# --- choosing the preset -----------------------------------------------------
+
+@pytest.mark.parametrize("text,want", [
+    ("10EC0285:103C860F", "10EC0285:103C860F"),
+    # As --speaker-info prints them.
+    ("0x10ec0285:0x103c860f", "10EC0285:103C860F"),
+    ("intelaudio:10EC0285:103C860F", "INTELAUDIO:10EC0285:103C860F"),
+])
+def test_hw_id_takes_the_ids_as_speaker_info_prints_them(text, want):
+    assert dolby_to_easyeffects._hw_id(text) == want
+
+
+@pytest.mark.parametrize("text", ["10EC0285", "10EC0285:103C86GZ",
+                                  "10EC285:103C860F", "PCI:10EC0285:103C860F",
+                                  "10EC0285:103C860F:X"])
+def test_hw_id_refuses_what_is_not_two_hex_ids(text):
+    with pytest.raises(argparse.ArgumentTypeError):
+        dolby_to_easyeffects._hw_id(text)
+
+
+def _bundle(tmp_path, *archives: Path) -> Path:
+    """A driver download holding *archives*."""
+    download = tmp_path / "sp000001.zip"
+    with zipfile.ZipFile(download, "w") as z:
+        for a in archives:
+            z.write(a, f"src/SR/SNAPO64Ext/{a.name}")
+    return download
+
+
+def _two_buses(tmp_path, same=False):
+    """A download whose two archives both bind 103C860F, to presets whose
+    curves differ unless *same*."""
+    return _bundle(
+        tmp_path,
+        _archive(tmp_path / "src" / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve())}),
+        _archive(tmp_path / "src" / _HDA_ARCHIVE, {"103C860F": 2},
+                 {2: _preset_bin(_curve() if same
+                                 else _curve(step_at=90))}))
+
+
+def test_two_tunings_for_one_id_need_the_bus_with_hw_id(
+        tmp_path, silence_console):
+    silence_console(console)
+    with pytest.raises(RuntimeError, match="--hw-id INTELAUDIO:10EC0285"):
+        dolby_to_easyeffects.main([str(_two_buses(tmp_path)), "--dry-run",
+                                   "--skip-ee-check",
+                                   "--hw-id", "10EC0285:103C860F"])
+
+
+@pytest.mark.parametrize("bus,preset", [("INTELAUDIO", 1), ("HDAUDIO", 2)])
+def test_the_bus_in_hw_id_picks_its_archive(tmp_path, silence_console,
+                                            capsys, bus, preset):
+    silence_console(console)
+    out, _ = _run(tmp_path, capsys, _two_buses(tmp_path), "--dry-run",
+                  "--hw-id", f"{bus}:10EC0285:103C860F")
+    assert f"Sonitude preset {preset}," in out
+    assert "two different tunings" not in out
+
+
+def test_a_bus_without_the_id_names_the_bus_with_it(tmp_path,
+                                                    silence_console):
+    silence_console(console)
+    download = _bundle(tmp_path, _archive(
+        tmp_path / "src" / _HDA_ARCHIVE, {"103C860F": 2},
+        {2: _preset_bin(_curve())}))
+    with pytest.raises(RuntimeError, match="HDAUDIO archive only"):
+        dolby_to_easyeffects.main([str(download), "--dry-run",
+                                   "--skip-ee-check", "--hw-id",
+                                   "INTELAUDIO:10EC0285:103C860F"])
+
+
+def _this_machine(fake_host, sof):
+    fake_host("/proc/asound/card0/codec#0",
+              "Codec: Realtek ALC285\nVendor Id: 0x10ec0285\n"
+              "Subsystem Id: 0x103c860f\n")
+    fake_host("/proc/asound/cards",
+              " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp\n" if sof
+              else " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n")
+
+
+@pytest.mark.parametrize("sof,preset,other", [(True, 1, "HDAUDIO"),
+                                              (False, 2, "INTELAUDIO")])
+def test_two_tunings_for_this_laptop_say_which_was_used_and_why(
+        tmp_path, fake_host, silence_console, capsys, sof, preset, other):
+    silence_console(console)
+    _this_machine(fake_host, sof)
+    out, _ = _run(tmp_path, capsys, _two_buses(tmp_path), "--dry-run")
+    assert f"Sonitude preset {preset}," in out
+    assert "two different tunings for this laptop" in out
+    assert f"--hw-id {other}:10EC0285:103C860F" in out
+
+
+def test_one_tuning_under_two_buses_is_not_a_choice(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host, True)
+    out, _ = _run(tmp_path, capsys, _two_buses(tmp_path, same=True),
+                  "--dry-run")
+    assert "Sonitude preset 1," in out
+    assert "two different tunings" not in out
+
+
+# --- what a failed lookup says -----------------------------------------------
+
+def test_a_missing_archive_is_said_as_a_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        dolby_to_easyeffects.main([str(tmp_path / _ARCHIVE), "--dry-run",
+                                   "--skip-ee-check",
+                                   "--hw-id", "10EC0285:103C860F"])
+
+
+def test_a_damaged_archive_is_said_as_unreadable_not_as_another_model(
+        tmp_path, silence_console):
+    silence_console(console)
+    (tmp_path / _ARCHIVE).write_bytes(b"PK\x03\x04 not a zip")
+    with pytest.raises(RuntimeError, match="can't be read") as exc:
+        dolby_to_easyeffects.main([str(tmp_path / _ARCHIVE), "--dry-run",
+                                   "--skip-ee-check",
+                                   "--hw-id", "10EC0285:103C860F"])
+    assert "another model" not in str(exc.value)
+
+
+def test_a_miss_with_hw_id_does_not_suggest_hw_id(tmp_path, silence_console):
+    silence_console(console)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    with pytest.raises(RuntimeError) as exc:
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
+                                   "--hw-id", "10EC0285:103C8600"])
+    assert "with --hw-id" not in str(exc.value)
+    assert "--speaker-info" in str(exc.value)
+
+
+def test_a_miss_on_this_laptop_points_at_the_download(
+        tmp_path, fake_host, silence_console):
+    silence_console(console)
+    _this_machine(fake_host, True)
+    a = _archive(tmp_path / _ARCHIVE, {"103C8600": 177},
+                 {177: _preset_bin(_curve())})
+    with pytest.raises(RuntimeError, match="10EC0285:103C860F.*download"):
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"])
+
+
+# --- flags with nothing to act on --------------------------------------------
+
+@pytest.mark.parametrize("flags", [
+    ("--enable", "autogain"), ("--enable", "dialog"),
+    ("--enable", "virtual-bass"), ("--enable", "level-restore"),
+    ("--mode", "headphone"), ("--endpoint", "headphone")])
+def test_flags_for_a_dolby_stage_are_refused(tmp_path, flags, capsys):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    with pytest.raises(SystemExit):
+        dolby_to_easyeffects.main([str(a), "--hw-id", "10EC0285:103C860F",
+                                   *flags])
+    assert "Bang & Olufsen" in capsys.readouterr().err
+
+
+def test_level_restore_is_not_offered_on_a_curve_that_only_cuts(
+        tmp_path, silence_console, capsys):
+    silence_console(console)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    out, _ = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F")
+    assert "level-restore" not in out
+
+
+@pytest.mark.parametrize("prefix,stem", [(None, "HP-BO"), ("Dolby", "Dolby"),
+                                         ("Mine", "Mine")])
+def test_a_typed_prefix_stands(tmp_path, silence_console, capsys, prefix,
+                               stem):
+    silence_console(console)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    _, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F",
+                      *(["--prefix", prefix] if prefix else []))
+    assert [p.name for p in out_dir.glob("*.json")] == [
+        f"{stem}-Balanced.json"]
+
+
+def test_a_vendor_only_run_hands_a_wrapper_no_xml(tmp_path, silence_console):
+    silence_console(console)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    resolved = {}
+    dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
+                               "--hw-id", "10EC0285:103C860F"],
+                              resolved=resolved)
+    assert resolved == {"xml_path": None, "vendor_only": True}
+
+
+# --- the PipeWire wrapper ----------------------------------------------------
+
+def _wrapper(tmp_path, *flags):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("XDG_DATA_HOME", "XDG_CONFIG_HOME")}
+    return subprocess.run(
+        [sys.executable, str(_WRAPPER), str(a), "--hw-id",
+         "10EC0285:103C860F", "--output-dir", str(tmp_path / "confs"),
+         "--target-sink", "", "--no-activate", "--no-color", *flags],
+        capture_output=True, text=True, timeout=120,
+        env={**env, "HOME": str(home)})
+
+
+def test_the_wrapper_converts_the_one_vendor_preset(tmp_path):
+    result = _wrapper(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(p.name for p in (tmp_path / "confs").iterdir()) == [
+        "HP_BO_Balanced.conf", "HP_BO_Balanced.irs"]
+    assert "other voicings" not in result.stdout
+    assert "Dolby's default voicing" not in result.stdout
+
+
+def test_the_wrapper_says_a_vendor_tuning_has_one_voicing(tmp_path):
+    result = _wrapper(tmp_path, "--variant", "warm")
+    assert result.returncode == 1
+    assert "one voicing, Balanced" in result.stdout
+    assert "see the log above" not in result.stdout

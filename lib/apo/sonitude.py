@@ -37,6 +37,7 @@ import re
 import struct
 import zipfile
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 
 from lib.apo.layer import ApoLayer, UnsupportedApoConfig
@@ -163,40 +164,76 @@ def _preset_label(names: dict[str, str], number: int) -> str:
     return ""
 
 
-def find(source: Path, codec_vendor_id: str, subsys: str,
-         prefer_intelaudio: bool) -> ApoLayer | None:
-    """The speaker layer *source*'s archives hold for this codec and ID.
+BUSES = ("HDAUDIO", "INTELAUDIO")
 
-    *codec_vendor_id* is the HDA codec's ID ("10EC0285"); *subsys* is its
-    subsystem ID ("103C860F"). When both an `INTELAUDIO` and an `HDAUDIO`
-    archive bind the device, *prefer_intelaudio* (a SOF machine, whose
-    Windows driver is Intel's) picks between them. Returns None when no
-    archive binds it; raises `UnsupportedApoConfig` when one does but its
-    preset can't be read.
+
+@dataclass(frozen=True)
+class Bindings:
+    """What *source*'s archives hold for one codec and subsystem ID."""
+    # Bus → (archive, preset number), for each archive whose map names the ID.
+    hits: dict[str, tuple[Path, int]]
+    # Archives for this codec that could not be read, so may hold the ID.
+    unreadable: tuple[Path, ...]
+    # Whether any archive is for this codec at all.
+    codec_seen: bool
+
+
+def bindings(source: Path, codec_vendor_id: str, subsys: str) -> Bindings:
+    """Which of *source*'s archives bind this codec ("10EC0285") and
+    subsystem ID ("103C860F"), and to which preset.
+
+    Windows names the codec `INTELAUDIO\\…` behind Intel's audio DSP driver
+    and `HDAUDIO\\…` behind the standard one, and a download carries an
+    archive for each, so one ID can bind two presets.
     """
     vendor, device = codec_vendor_id[:4].upper(), codec_vendor_id[4:].upper()
     subsys = subsys.upper()
-    hits = []
+    hits, unreadable, seen = {}, [], False
     for path in archives_in(source):
         bus, ven, dev = _ARCHIVE_RE.fullmatch(path.name).groups()
         if (ven.upper(), dev.upper()) != (vendor, device):
             continue
+        seen = True
         try:
             with zipfile.ZipFile(path) as z:
                 names = _members(z)
                 if "ssidmap.bin" not in names:
+                    unreadable.append(path)
                     continue
                 number = read_ssidmap(
                     _read(z, names["ssidmap.bin"])).get(subsys)
         except _READ_ERRORS:
+            unreadable.append(path)
             continue
         if number is not None:
-            hits.append((bus.upper(), path, number))
+            hits.setdefault(bus.upper(), (path, number))
+    return Bindings(hits, tuple(unreadable), seen)
+
+
+def find(source: Path, codec_vendor_id: str, subsys: str,
+         prefer_intelaudio: bool) -> ApoLayer | None:
+    """The speaker layer *source*'s archives hold for this codec and ID.
+
+    When both buses bind the device, *prefer_intelaudio* picks between them.
+    Returns None when no archive binds it; raises `UnsupportedApoConfig`
+    when one does but its preset can't be read.
+    """
+    hits = bindings(source, codec_vendor_id, subsys).hits
     if not hits:
         return None
-    order = ("INTELAUDIO", "HDAUDIO") if prefer_intelaudio else ("HDAUDIO",
-                                                                 "INTELAUDIO")
-    bus, path, number = min(hits, key=lambda h: order.index(h[0]))
+    order = BUSES[::-1] if prefer_intelaudio else BUSES
+    bus = min(hits, key=order.index)
+    return load(*hits[bus], bus, codec_vendor_id, subsys)
+
+
+def load(path: Path, number: int, bus: str, codec_vendor_id: str,
+         subsys: str) -> ApoLayer:
+    """Preset *number*'s speaker layer, from the archive at *path*.
+
+    Raises `UnsupportedApoConfig` when the preset can't be read.
+    """
+    vendor, device = codec_vendor_id[:4].upper(), codec_vendor_id[4:].upper()
+    subsys = subsys.upper()
     member = f"{number}/{SPEAKER_PRESET}"
     try:
         with zipfile.ZipFile(path) as z:

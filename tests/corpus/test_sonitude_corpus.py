@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from lib.apo import sonitude
+from lib.apo.layer import UnsupportedApoConfig
 
 
 def _archives() -> list[Path]:
@@ -50,3 +51,30 @@ def test_every_mapped_speaker_preset_yields_its_curves(archive):
             assert len(sonitude.read_curves(z.read(names[key]))) == 2, key
             read += 1
     assert read, f"{archive.name}: no mapped preset has a speaker file"
+
+
+@pytest.mark.skipif(not ARCHIVES, reason="no SEAPODAT archive under "
+                    "ATMOS_CORPUS_DIR")
+@pytest.mark.parametrize("archive", ARCHIVES, ids=[a.name for a in ARCHIVES])
+def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
+    """`bindings` then `load`, the converter's path, reads every subsystem the
+    map names into a cuts-only layer, or refuses it as unsupported; never a
+    crash."""
+    bus, ven, dev = sonitude._ARCHIVE_RE.fullmatch(archive.name).groups()
+    bus = bus.upper()
+    with zipfile.ZipFile(archive) as z:
+        names = {n.replace("\\", "/").lower(): n for n in z.namelist()}
+        mapping = sonitude.read_ssidmap(z.read(names["ssidmap.bin"]))
+    built = 0
+    for subsys in mapping:
+        found = sonitude.bindings(archive, ven + dev, subsys)
+        assert found.unreadable == () and found.codec_seen
+        assert list(found.hits) == [bus]
+        try:
+            layer = sonitude.load(*found.hits[bus], bus, ven + dev, subsys)
+        except UnsupportedApoConfig:
+            continue
+        assert max(layer.curve_left_db) <= 0 and max(layer.curve_right_db) <= 0
+        assert len(layer.curve_hz) == sonitude.CURVE_POINTS
+        built += 1
+    assert built, f"{archive.name}: no mapped ID built a layer"

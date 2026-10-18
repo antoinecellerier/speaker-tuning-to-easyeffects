@@ -358,6 +358,12 @@ def main(argv: list[str] | None = None) -> int:
 
         presets = [p for v in variants
                    for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
+        if not presets and resolved.get("vendor_only"):
+            console.cprint("err", f"error: HP's Bang & Olufsen tuning builds "
+                          "one voicing, Balanced, so there is no "
+                          f"{args.variant.capitalize()} — drop --variant "
+                          f"{args.variant}")
+            return 1
         if not presets:
             wanted = ", ".join(variants)
             console.cprint("err", f"error: no {wanted} preset was generated — see "
@@ -399,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
                               "so choosing one doesn't route the others "
                               "through it)")
         if args.variant != "all" and staged_others:
-            others = [v for v in VARIANT_STEMS if v != args.variant]
+            others = [k for k, v in VARIANT_STEMS.items() if v in staged_others]
             # Printed under --all-profiles too, the run that needs it most:
             # 27 presets staged, 9 converted, and without this line the two
             # voicings left behind would be the least visible thing on a
@@ -420,7 +426,8 @@ def main(argv: list[str] | None = None) -> int:
             # explanation above uses (round 10: a reader would guess
             # --voicing next week).
             console.cprint("dim", f"      Pass {alts} to convert another voicing, or "
-                          f"--variant all --target-sink '' to get all three{each} "
+                          f"--variant all --target-sink '' to get "
+                          f"{'all three' if len(others) == 2 else 'both'}{each} "
                           "as outputs you can switch between in your sound "
                           "settings.")
         step2_common = (rebuild_argv(step2_actions, args)
