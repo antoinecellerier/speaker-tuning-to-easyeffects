@@ -17,7 +17,8 @@
   its voicing off ([Surface fleet](#r-surface-apo-fleet)).
 - **HP's Bang & Olufsen laptops can ship no Dolby file at all**: the ZBook 15
   G6 voices its speaker in a Sonitude APO preset. Applied as cuts only, its
-  curve tracks Windows from 200 Hz up on two HP laptops' Windows recordings
+  curve is within 1.00 dB rms of what the B&O switch changes on the ZBook, and
+  1.61 dB rms of an OMEN's published Windows response, from 200 Hz to 12.5 kHz
   ([Sonitude presets](#r-sonitude-apo-presets)).
 
 Open:
@@ -288,7 +289,7 @@ static curve describes them:
 | pink at −42, −18 and −14 dBFS RMS | music − off within 0.02 dB per 1/3 octave |
 | sweep vs pink, music − off shape | within 0.21 dB |
 | music − off at 1 kHz | −6.25 dB |
-| `off` against the stimulus | −36 dB at 31.5 Hz, −8.8 at 80, −5.0 at 500, +1.2 to +1.7 over 1.6–6.3 kHz, −8.0 at 16 kHz |
+| `off` against the stimulus, pink at −18 dBFS | −36 dB at 31.5 Hz, −8.8 at 80, −5.0 at 500, +1.2 to +1.7 over 1.6–6.3 kHz, −8.0 at 16 kHz |
 | `music` delay after `off` | 20.0, 22.4 and 21.3 ms at the three pink levels |
 
 **The readings.** One broadband offset is fitted, then 1/3-octave bands are
@@ -353,3 +354,10 @@ Open:
   cuts-only reading.
 - The dynamics stages, the `Movie` and `Voice` modes, and DriverStore
   discovery are unread or unbuilt.
+- Which archive Windows reads when both an `INTELAUDIO` and an `HDAUDIO` one
+  hold a subsystem ID with different curves. In `sp161474.exe`, 45 IDs sit in
+  both and 26 of them differ; `103C860F` is in the `INTELAUDIO` one only. The
+  converter takes the bus from whether Linux runs SOF, a heuristic, and says
+  so.
+- A download that carries Dolby XMLs for some models and a Sonitude preset
+  for this one takes the Dolby route, and never tries the preset.
