@@ -113,7 +113,8 @@ def test_find_binds_the_subsystem_and_reads_the_speaker_curve(tmp_path):
                                  "&SUBSYS_103C860F")
     assert layer.eq_left == () and layer.dynamics == ()
     assert len(layer.curve_hz) == 265
-    assert np.allclose(layer.curve_left_db, _curve(), atol=1e-5)
+    assert np.allclose(layer.curve_left_db, np.minimum(_curve(), 0),
+                       atol=1e-5)
 
 
 def test_another_codec_or_subsystem_binds_nothing(tmp_path):
@@ -268,12 +269,21 @@ def test_no_curve_leaves_the_design_bit_identical():
     assert np.array_equal(a, b) and pa == pb
 
 
-def test_a_step_sharper_than_the_bins_is_found():
-    curve = (sonitude.curve_grid_hz(), tuple(_curve()))
-    hz, step = emit._curve_jump(curve)
-    assert math.isclose(hz, 80.0) and step > 6
-    assert emit._curve_jump((sonitude.curve_grid_hz(),
-                             tuple(_curve(step_at=None)))) is None
+def test_the_check_grades_a_curve_from_where_its_points_clear_a_bin():
+    """Below ~400 Hz a 1/24-octave curve's points sit closer than the FIR's
+    11.7 Hz bins, so it states detail no 4096-tap filter separates."""
+    grid = sonitude.curve_grid_hz()
+    from_hz = emit._curve_resolved_from_hz((grid, tuple(_curve())))
+    assert 400 < from_hz < 410
+    assert emit._curve_resolved_from_hz(None) == 0.0
+
+
+def test_the_curve_is_applied_as_cuts_only(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve())})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert max(layer.curve_left_db) == 0.0 and max(_curve()) > 5
+    assert min(layer.curve_left_db) == pytest.approx(min(_curve()), abs=1e-4)
 
 
 # --- the run -----------------------------------------------------------------
@@ -297,7 +307,7 @@ def test_a_vendor_only_run_builds_one_preset_from_the_curve(
     order = json.loads(presets[0].read_text())["output"]["plugins_order"]
     assert order == ["convolver#0", "limiter#0"]
     assert "The only speaker tuning this laptop ships" in out
-    assert "Correction check passed from 200 Hz up" in out
+    assert "Correction check passed from 403 Hz up" in out
     assert "[vendor-tuning-unconfirmed]" in out
     # Nothing that refers to a Dolby file or offers a refused flag.
     assert "--disable vendor-apo" not in out

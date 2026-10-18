@@ -266,10 +266,10 @@ def _vendor_only_finding(label: str) -> Finding:
     return Finding(
         slug="vendor-tuning-unconfirmed", kind="ask",
         detail=f"Built from {label} alone: this laptop ships no Dolby file. "
-               "Checked against one HP laptop's Windows recordings, it "
-               "follows the B&O switch's effect within about 3 dB from "
-               "160 Hz up, but plays more deep bass than Windows does, and "
-               "nobody has listened to it yet.",
+               "Against Windows recordings from two HP laptops it tracks the "
+               "B&O sound from 200 Hz up, within 1.0 and 1.6 dB rms, but "
+               "plays more of the deepest bass, below about 60 Hz, than "
+               "Windows does. Nobody has listened to it yet.",
         ask="Compare it with Windows and B&O Music, and tell us on issue "
             "#140 how close it sounds.")
 

@@ -193,28 +193,22 @@ DENSE_CHECK_OVERSAMPLE = 8
 DENSE_CHECK_HZ = (20.0, 20000.0)
 
 
-# A vendor curve can step between two of its points by more than the FIR's
-# ~11.7 Hz bins can follow: Sonitude preset 177 jumps 15.5 dB between its
-# 80.0 and 82.3 Hz points. No filter length realises such a step, and a
-# 4096-tap one rings around it, up to ~2 dB to 2x its frequency and 0.45 dB
-# above 2.5x on that preset (research `r-sonitude-apo-presets`). The check
-# grades the shape from CURVE_JUMP_CLEAR times the step up, and reports the
-# rounding below that separately rather than as a broken build.
-CURVE_JUMP_DB = 6.0
-CURVE_JUMP_CLEAR = 2.5
+def _curve_resolved_from_hz(eq_curve) -> float:
+    """The frequency above which a vendor curve's points sit at least one FIR
+    bin apart, or 0.0 without a curve.
 
-
-def _curve_jump(eq_curve):
-    """``(hz, db)`` of a vendor curve's sharpest point-to-point step, when it
-    exceeds `CURVE_JUMP_DB`; else None."""
+    Below it the curve states detail finer than the filter's ~11.7 Hz bins:
+    a log-spaced curve such as Sonitude's 1/24-octave one (400 Hz there) can
+    change by several dB between two points no 4096-tap filter separates.
+    The check grades the shape strictly from here up and reports the
+    deviation below it apart, rather than calling an unrealisable target a
+    broken build (research `r-sonitude-apo-presets`).
+    """
     if eq_curve is None:
-        return None
-    db = np.asarray(eq_curve[1], dtype=float)
-    if len(db) < 2:
-        return None
-    i = int(np.argmax(np.abs(np.diff(db))))
-    step = float(db[i + 1] - db[i])
-    return (float(eq_curve[0][i]), step) if abs(step) > CURVE_JUMP_DB else None
+        return 0.0
+    hz = np.asarray(eq_curve[0], dtype=float)
+    apart = np.flatnonzero(np.diff(hz) >= fir.SAMPLE_RATE / fir.FIR_LENGTH)
+    return float(hz[apart[0]]) if apart.size else float(hz[-1])
 
 
 def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
@@ -350,9 +344,9 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     # one consolidated verdict after the loop, because three identical green
     # "passed" lines read as three separate validations (round 6).
     check_results: list[tuple[str, float]] = []
-    # ((jump Hz, jump dB), graded-from Hz, worst below it) per preset whose
-    # vendor curve steps sharper than the filter can follow (`_curve_jump`).
-    jump_notes: list[tuple[tuple[float, float], float, float]] = []
+    # (graded-from Hz, worst deviation below it) per preset whose vendor curve
+    # is stated finer than the filter resolves (`_curve_resolved_from_hz`).
+    fine_notes: list[tuple[float, float]] = []
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
@@ -481,8 +475,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         if args.verbose:
             console.cprint("dim", "\n  FIR verification (left, normalized to "
                           "peak=0):")
-        jump = _curve_jump(curve_left) or _curve_jump(curve_right)
-        from_hz = jump[0] * CURVE_JUMP_CLEAR if jump else 0.0
+        from_hz = max(_curve_resolved_from_hz(curve_left),
+                      _curve_resolved_from_hz(curve_right))
         worst_left = _worst_shape_error(fir_left, combined_left,
                                         left_offset_db, freqs, fft_freqs,
                                         rows=args.verbose,
@@ -499,9 +493,9 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                          eq_curve=curve_right,
                                          from_hz=from_hz)
         worst = max(worst_left, worst_right)
-        if jump:
-            # How far the rounding below the graded range goes, said once
-            # per preset beside the verdict rather than failing it.
+        if from_hz:
+            # How far the build strays below the graded range, said once per
+            # preset beside the verdict rather than failing it.
             rounded = max(
                 _worst_shape_error(fir_left, combined_left, left_offset_db,
                                    freqs, fft_freqs, rows=False,
@@ -510,7 +504,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                    right_offset_db, freqs, fft_freqs,
                                    rows=False, eq_sections=eq_right,
                                    eq_curve=curve_right))
-            jump_notes.append((jump, from_hz, rounded))
+            fine_notes.append((from_hz, rounded))
         # A table of sixty "error" rows with no verdict reads as a slow
         # drift going wrong, and nobody outside this file knows 0.03 dB is a
         # pass. The threshold is far above the minimum-phase design's
@@ -529,7 +523,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
             # point at. The target is the curve computed from their tuning.
             # Say that, since the whole value of the line is which side it
             # certifies.
-            scope = f" from {from_hz:.0f} Hz up" if jump else ""
+            scope = f" from {from_hz:.0f} Hz up" if from_hz else ""
             if worst <= FIR_VERIFY_OK_DB:
                 console.cprint("ok", f"  Correction check passed{scope}: the "
                              "built filter "
@@ -544,13 +538,13 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                f"(left {worst_left:.2f}, "
                                f"right {worst_right:.2f}) — unexpected, "
                                "please report this run")
-            if jump:
-                _print_jump_note(jump_notes[-1])
+            if from_hz:
+                _print_fine_note(fine_notes[-1])
         print()
 
     fails = [(n, w) for n, w in check_results if w > FIR_VERIFY_OK_DB]
     if not args.verbose and check_results:
-        scope = (f" from {jump_notes[0][1]:.0f} Hz up" if jump_notes else "")
+        scope = (f" from {fine_notes[0][0]:.0f} Hz up" if fine_notes else "")
         if not fails:
             worst_all = max(w for _, w in check_results)
             what = ("the filter matches" if len(check_results) == 1
@@ -568,15 +562,14 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                f"from the shape of the curve {asked}, at "
                                "worst — unexpected, please "
                                "report this run")
-        if jump_notes:
-            _print_jump_note(max(jump_notes, key=lambda j: j[2]))
+        if fine_notes:
+            _print_fine_note(max(fine_notes, key=lambda j: j[1]))
         print()
 
 
-def _print_jump_note(note):
-    """The rounding below a correction check's graded range, in one line."""
-    (hz, step), from_hz, rounded = note
-    console.cprint("dim", f"  Below {from_hz:.0f} Hz the filter rounds off the "
-                   f"vendor curve's {step:+.1f} dB step at {hz:.0f} Hz, by up "
-                   f"to {rounded:.1f} dB: the step is sharper than the "
-                   "filter can resolve.")
+def _print_fine_note(note):
+    """The deviation below a correction check's graded range, in one line."""
+    from_hz, rounded = note
+    console.cprint("dim", f"  Below {from_hz:.0f} Hz the vendor curve is stated "
+                   "in finer steps than the filter can resolve; there the "
+                   f"built filter is within {rounded:.1f} dB of it.")

@@ -14,11 +14,13 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   then count × (u32 preset number, NUL-padded "SUBSYS_xxxxxxxx[&REV_…]").
   The layout fits every archive in the one download read.
 - `Preset.bin`: length-prefixed values. Two of them are u16 265 followed by
-  265 float32: a dB curve per channel, read on the grid 10·2^(k/24) Hz.
-  Both the grid and "this curve is the EQ" are hypotheses. Against one
-  laptop's Windows captures (#140) the curve matches what the B&O switch
-  toggles within 1.22 dB rms from 160 Hz to 12.5 kHz, but asks for more bass
-  than Windows applies.
+  265 float32: a dB curve per channel, read on the grid 10·2^(k/24) Hz and
+  applied as cuts only (positive gains dropped). The grid, "this curve is
+  the EQ" and the cuts-only reading are hypotheses. Against Windows
+  recordings of two laptops, from 200 Hz to 12.5 kHz, the cuts-only curve
+  is within 1.00 dB rms of what the B&O switch toggles on the ZBook (#140)
+  and 1.61 dB rms of an OMEN's published Windows response; the full curve is
+  1.02 and 7.15.
 - Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
   preset: the archive's own manifest names that file "<model> Music".
   Everything else in the preset (dynamics, the user equaliser, the other
@@ -213,8 +215,12 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
     if not all(_sane(c) for c in curves):
         raise UnsupportedApoConfig(path, f"preset {number}'s EQ curve holds "
                                    "values no tuning uses")
-    left = curves[0]
-    right = curves[1] if len(curves) > 1 else curves[0]
+    # Cuts only: Windows applies the curve's negative gains and none of its
+    # boosts. A hypothesis that two devices' Windows captures support and no
+    # file states (research `r-sonitude-apo-presets`).
+    left = tuple(min(v, 0.0) for v in curves[0])
+    right = (tuple(min(v, 0.0) for v in curves[1]) if len(curves) > 1
+             else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(
         label=f"HP Bang & Olufsen (Sonitude {name})",
@@ -228,14 +234,15 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
             "the compressor and limiter stages (not read yet)",
             "the B&O Audio Control equaliser, flat in the preset",
             "the Movie and Voice modes",
-            "a bass limit and a fixed EQ Windows applies on top, measured on "
-            "one HP laptop (issue #140) and found in no file read",
+            "a steeper cut below about 60 Hz, and on one laptop a fixed EQ "
+            "that stays on with Windows' audio enhancements off, both "
+            "measured on Windows (issue #140) and found in no file read",
         ),
         default_on=True,
         standalone=True,
         curve_hz=curve_grid_hz(),
-        curve_left_db=tuple(left),
-        curve_right_db=tuple(right),
+        curve_left_db=left,
+        curve_right_db=right,
     )
 
 
