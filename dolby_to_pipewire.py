@@ -367,7 +367,12 @@ def main(argv: list[str] | None = None) -> int:
         # Name what is being converted and what isn't. Step 1 lists all three
         # voicings as generated. Converting one without saying which, or that
         # the others are reachable, would read as two of them being silently
-        # dropped, with no way to try Warm if Balanced sounds wrong.
+        # dropped, with no way to try Warm if Balanced sounds wrong. A tuning
+        # with no Dolby file (lib/apo/sonitude.py) builds one preset only,
+        # so there are no other voicings to name.
+        staged_others = [v for v in VARIANT_STEMS.values()
+                         if v not in variants
+                         and any(Path(tmp).glob(f"*-{v}.json"))]
         if len(presets) == 1:
             console.cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
                            "filter-chain conf")
@@ -377,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
             # default": on the ~45% of profiles that set ieq-enable=0,
             # Windows engages no voicing at all, so the stronger claim is
             # wrong for them.
-            if args.variant == "balanced":
+            if args.variant == "balanced" and staged_others:
                 console.cprint("dim", "      (Balanced is Dolby's default voicing)")
         else:
             console.cprint("head", f"[2/3] Converting {len(presets)} presets to "
@@ -393,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
                 console.cprint("dim", f"      (each plays into {pin_target} — pinned "
                               "so choosing one doesn't route the others "
                               "through it)")
-        if args.variant != "all":
+        if args.variant != "all" and staged_others:
             others = [v for v in VARIANT_STEMS if v != args.variant]
             # Printed under --all-profiles too, the run that needs it most:
             # 27 presets staged, 9 converted, and without this line the two

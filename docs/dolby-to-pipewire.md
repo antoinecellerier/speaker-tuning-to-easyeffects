@@ -247,6 +247,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   directory, by matching the audio codec subsystem ID from `/proc/asound`
 - `--best-guess` — on a SoundWire machine, fall back to a manufacturer-matched
   tuning when auto-detection finds no exact hardware match
+- `--hw-id CODEC:SUBSYS` — with HP's Bang & Olufsen tuning in place of the
+  XML, pick the preset for these IDs instead of this machine's. Experimental.
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit

@@ -1,0 +1,200 @@
+"""HP's Bang & Olufsen speaker tuning: Sonitude (formerly Sound Research) presets.
+
+HP ships no Dolby file on these laptops. The speaker voicing is the Sonitude
+APO's per-model preset, packed in `SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip`
+archives inside HP's Realtek driver download (`SNAPO64Ext`). An archive maps
+each subsystem ID to a numbered preset (`SSIDMAP.bin`), and each preset holds
+one `Preset.bin` per endpoint, output and content mode. This module reads the
+speaker preset's 265-point EQ curve into an `ApoLayer` that stands in for the
+whole tuning, because there is no Dolby chain under it.
+
+What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
+
+- `SSIDMAP.bin`: "SRSM", u32 version, u32 count, u32 record size (20 or 32),
+  then count × (u32 preset number, NUL-padded "SUBSYS_xxxxxxxx[&REV_…]").
+  The layout fits every archive in the one download read.
+- `Preset.bin`: length-prefixed values. Two of them are u16 265 followed by
+  265 float32: a dB curve per channel, read on the grid 10·2^(k/24) Hz.
+  Both the grid and "this curve is the EQ" are hypotheses. Against one
+  laptop's Windows captures (#140) the curve matches what the B&O switch
+  toggles within 1.22 dB rms from 160 Hz to 12.5 kHz, but asks for more bass
+  than Windows applies.
+- Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
+  preset: the archive's own manifest names that file "<model> Music".
+  Everything else in the preset (dynamics, the user equaliser, the other
+  content modes) is not read.
+
+Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), because discovery runs
+before the generator's deferred DSP imports.
+"""
+
+from __future__ import annotations
+
+import re
+import struct
+import zipfile
+from pathlib import Path, PurePosixPath
+
+from lib.apo.layer import ApoLayer, UnsupportedApoConfig
+
+# A SEAPODAT archive's name carries the bus and codec it binds, as the
+# Windows hardware ID does (`INTELAUDIO\FUNC_01&VEN_10EC&DEV_0285`). 29 of
+# the 33 in the one download read are named so; the other four bind Intel
+# DSP-controller or DIF IDs instead, and are not read.
+_ARCHIVE_RE = re.compile(
+    r"^SEAPODAT\.(HDAUDIO|INTELAUDIO)\.FUNC_01-VEN_([0-9A-F]{4})-DEV_"
+    r"([0-9A-F]{4})\.zip$", re.IGNORECASE)
+
+# The speaker preset: endpoint 0, the endpoint effect on any output, the
+# default content mode. The archive's manifest names this file "<model>
+# Music" on the one device checked (#140).
+SPEAKER_PRESET = "0/EFX/AnyOutput/AnyContent/Preset.bin"
+
+CURVE_POINTS = 265
+
+
+def curve_grid_hz() -> tuple[float, ...]:
+    """The frequency of each curve point, read as 1/24 octave from 10 Hz."""
+    return tuple(10.0 * 2.0 ** (k / 24.0) for k in range(CURVE_POINTS))
+
+
+def is_archive(path: Path) -> bool:
+    """Whether *path* is named like a Sonitude tuning archive."""
+    return bool(_ARCHIVE_RE.match(Path(path).name))
+
+
+def wanted_members(paths: list[str]) -> set[str]:
+    """The Sonitude tuning archives in a driver download's file list."""
+    return {p for p in paths if is_archive(PurePosixPath(p).name)}
+
+
+def archives_in(source: Path) -> list[Path]:
+    """*source* itself when it is an archive, else every archive under it."""
+    source = Path(source)
+    if source.is_file():
+        return [source] if is_archive(source) else []
+    return sorted(p for p in source.rglob("*") if p.is_file()
+                  and is_archive(p))
+
+
+def read_ssidmap(data: bytes) -> dict[str, int]:
+    """Subsystem ID ("103C860F") → preset number, from an `SSIDMAP.bin`."""
+    if len(data) < 16:
+        raise ValueError("SSIDMAP.bin is shorter than its header")
+    magic, _version, count, size = struct.unpack_from("<4sIII", data, 0)
+    if magic != b"SRSM" or size not in (20, 32) or 16 + count * size != len(data):
+        raise ValueError("SSIDMAP.bin has an unknown layout")
+    out = {}
+    for i in range(count):
+        number, raw = struct.unpack_from(f"<I{size - 4}s", data, 16 + i * size)
+        m = re.match(rb"SUBSYS_([0-9A-Fa-f]{8})", raw)
+        if m:
+            out.setdefault(m.group(1).decode().upper(), number)
+    return out
+
+
+def read_curves(data: bytes) -> list[tuple[float, ...]]:
+    """Every 265-point float block in a `Preset.bin`, in file order.
+
+    A block is u32 length, u16 point count, the points as float32, and two
+    trailing bytes the length includes.
+    """
+    out = []
+    want = 2 + 4 * CURVE_POINTS
+    for o in range(len(data) - 6):
+        length, count = struct.unpack_from("<IH", data, o)
+        if (count == CURVE_POINTS and length in (want, want + 2)
+                and o + 4 + length <= len(data)):
+            out.append(struct.unpack_from(f"<{CURVE_POINTS}f", data, o + 6))
+    return out
+
+
+def _members(archive: zipfile.ZipFile) -> dict[str, str]:
+    """Archive member names keyed by their `/`-separated, case-folded form."""
+    return {n.replace("\\", "/").lower(): n for n in archive.namelist()}
+
+
+def _preset_label(names: dict[str, str], number: int) -> str:
+    """The model codename the archive's manifest gives preset *number*."""
+    for key in names:
+        m = re.fullmatch(rf"{number}\.(.+)\.txt", key)
+        if m:
+            return names[key].replace("\\", "/").split("/")[-1][
+                len(str(number)) + 1:-4]
+    return ""
+
+
+def find(source: Path, codec_vendor_id: str, subsys: str,
+         prefer_intelaudio: bool) -> ApoLayer | None:
+    """The speaker layer *source*'s archives hold for this codec and ID.
+
+    *codec_vendor_id* is the HDA codec's ID ("10EC0285"); *subsys* is its
+    subsystem ID ("103C860F"). When both an `INTELAUDIO` and an `HDAUDIO`
+    archive bind the device, *prefer_intelaudio* (a SOF machine, whose
+    Windows driver is Intel's) picks between them. Returns None when no
+    archive binds it; raises `UnsupportedApoConfig` when one does but its
+    preset can't be read.
+    """
+    vendor, device = codec_vendor_id[:4].upper(), codec_vendor_id[4:].upper()
+    subsys = subsys.upper()
+    hits = []
+    for path in archives_in(source):
+        bus, ven, dev = _ARCHIVE_RE.match(path.name).groups()
+        if (ven.upper(), dev.upper()) != (vendor, device):
+            continue
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = _members(z)
+                if "ssidmap.bin" not in names:
+                    continue
+                number = read_ssidmap(z.read(names["ssidmap.bin"])).get(subsys)
+        except (OSError, zipfile.BadZipFile, ValueError):
+            continue
+        if number is not None:
+            hits.append((bus.upper(), path, number))
+    if not hits:
+        return None
+    order = ("INTELAUDIO", "HDAUDIO") if prefer_intelaudio else ("HDAUDIO",
+                                                                 "INTELAUDIO")
+    bus, path, number = min(hits, key=lambda h: order.index(h[0]))
+    member = f"{number}/{SPEAKER_PRESET}"
+    with zipfile.ZipFile(path) as z:
+        names = _members(z)
+        if member.lower() not in names:
+            raise UnsupportedApoConfig(path, f"preset {number} has no "
+                                       f"speaker file ({member})")
+        curves = read_curves(z.read(names[member.lower()]))
+        codename = _preset_label(names, number)
+    if not curves:
+        raise UnsupportedApoConfig(path, f"preset {number}'s speaker file "
+                                   "holds no EQ curve this tool can read")
+    left = curves[0]
+    right = curves[1] if len(curves) > 1 else curves[0]
+    name = f"preset {number}" + (f", {codename}" if codename else "")
+    return ApoLayer(
+        label=f"HP Bang & Olufsen (Sonitude {name})",
+        config_path=path / member,
+        inf_path=path,
+        hardware_id=(f"{bus}\\FUNC_01&VEN_{vendor}&DEV_{device}"
+                     f"&SUBSYS_{subsys}"),
+        sample_rate=48000,
+        eq_left=(), eq_right=(), dynamics=(),
+        notes=(
+            "the compressor and limiter stages (not read yet)",
+            "the B&O Audio Control equaliser, flat in the preset",
+            "the Movie and Voice modes",
+            "a bass limit and a fixed EQ Windows applies on top, measured on "
+            "one HP laptop (issue #140) and found in no file read",
+        ),
+        default_on=True,
+        standalone=True,
+        curve_hz=curve_grid_hz(),
+        curve_left_db=tuple(left),
+        curve_right_db=tuple(right),
+    )
+
+
+def probe_freqs() -> list[int]:
+    """The curve's own grid thinned to 1/3 octave, 20 Hz–16 kHz: where the
+    correction check probes a vendor-only build."""
+    return [round(10.0 * 2.0 ** (m / 3.0)) for m in range(3, 33)]

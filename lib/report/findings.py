@@ -257,6 +257,23 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
         ask=ask)
 
 
+def _vendor_only_finding(label: str) -> Finding:
+    """A preset built from HP's Bang & Olufsen tuning alone (issue #140).
+
+    Its EQ was compared against one laptop's Windows recordings, not heard,
+    so the ask names the comparison that tells us whether it holds.
+    """
+    return Finding(
+        slug="vendor-tuning-unconfirmed", kind="ask",
+        detail=f"Built from {label} alone: this laptop ships no Dolby file. "
+               "Checked against one HP laptop's Windows recordings, it "
+               "follows the B&O switch's effect within about 3 dB from "
+               "160 Hz up, but plays more deep bass than Windows does, and "
+               "nobody has listened to it yet.",
+        ask="Compare it with Windows and B&O Music, and tell us on issue "
+            "#140 how close it sounds.")
+
+
 def _level_restore_finding() -> Finding:
     """--enable level-restore is on, and one device has heard it.
 

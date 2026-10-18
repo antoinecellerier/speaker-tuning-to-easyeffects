@@ -1,10 +1,11 @@
 """The format-neutral shape of a vendor APO layer.
 
-A layer is what one vendor APO config contributes on top of the Dolby chain.
-It is a linear EQ, folded into the convolver's FIR, plus zero or more
-multiband dynamics stages placed after Dolby's own. Each format's parser
-(`lib/apo/surface.py`) fills one in. `lib/preset/` consumes it, and never
-looks at the vendor file itself.
+A layer is what one vendor APO config contributes on top of the Dolby chain,
+or, for a vendor-only device, instead of it. It is a linear EQ, folded into
+the convolver's FIR, plus zero or more multiband dynamics stages placed after
+Dolby's own. The EQ is a biquad cascade, a dB curve, or both. Each format's
+parser (`lib/apo/surface.py`, `lib/apo/sonitude.py`) fills one in.
+`lib/preset/` consumes it, and never looks at the vendor file itself.
 
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), because discovery runs
 before the generator's deferred DSP imports.
@@ -67,6 +68,15 @@ class ApoLayer:
     the layer could not build, as `(stage, reason)`. The run prints each
     beside the stages it did build, so a missing stage doesn't read like a
     detail.
+
+    `curve_hz` with `curve_left_db`/`curve_right_db` is an EQ the vendor
+    ships as a magnitude curve rather than as filters. It is interpolated in
+    log frequency, flat beyond its ends, and folded into the FIR with the
+    biquads (`lib/preset/fir.py` `design_target_db`). Empty when the format
+    has none.
+
+    `standalone` marks a layer that is the device's whole tuning: no Dolby
+    file ships beside it, so nothing is stacked under it.
     """
     label: str
     config_path: Path
@@ -79,6 +89,17 @@ class ApoLayer:
     notes: tuple[str, ...]
     skipped: tuple[tuple[str, str], ...] = ()
     default_on: bool = False
+    standalone: bool = False
+    curve_hz: tuple[float, ...] = ()
+    curve_left_db: tuple[float, ...] = ()
+    curve_right_db: tuple[float, ...] = ()
+
+    def curve(self, side: str):
+        """``(hz, db)`` for *side* ("left" or "right"), or None."""
+        if not self.curve_hz:
+            return None
+        return self.curve_hz, (self.curve_left_db if side == "left"
+                               else self.curve_right_db)
 
 
 class UnsupportedApoConfig(Exception):

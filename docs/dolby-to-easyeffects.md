@@ -24,6 +24,10 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   manufacturer is present. When more than one qualifies, it lists the candidates
   to pick one with the positional XML path. Reach for it when a SoundWire device
   reports "No matching DAX3 tuning XML found".
+- `--hw-id CODEC:SUBSYS` — with HP's Bang & Olufsen tuning (its driver
+  download or a `SEAPODAT` archive in place of the XML), pick the preset for
+  these IDs, such as `10EC0285:103C860F`, instead of this machine's.
+  Experimental.
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit

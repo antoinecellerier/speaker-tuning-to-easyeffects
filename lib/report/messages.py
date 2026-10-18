@@ -374,7 +374,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # output_dir. The .irs impulse response goes to --irs-dir, a different
     # directory by default. An earlier "wrote N presets to <dir>" named half
     # of what the run had just listed above.
-    console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
+    noun = "preset" if len(preset_names) == 1 else "presets"
+    console.cprint("ok", f"Done — wrote {len(preset_names)} {noun}"
                  + (f", starting in {doctor.tilde(output_dir)}:"
                     if output_dir else ":"))
     # Name them all: naming only the first left the reader wondering what
