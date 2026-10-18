@@ -752,11 +752,12 @@ def make_band_dynamics(stage, input_gain: float = 0.0) -> dict:
 
 
 def make_limiter(input_gain: float = 0.0) -> dict:
-    """Brickwall output limiter to catch any remaining overshoot.
+    """Output limiter: holds sustained overs smoothly, brickwalls the peaks.
 
     Placed at the very end of the chain as a safety net. Uses the LSP
-    limiter plugin with a -1 dB threshold and 1 ms lookahead for
-    transparent peak limiting.
+    limiter plugin with a -1 dB threshold and 1 ms lookahead. Its
+    automatic level regulation (ALR) takes a held over down smoothly, so
+    the brickwall no longer reshapes every cycle of a loud sustained tone.
 
     input_gain is the fallback injection point for Dolby's volmax-boost
     when the regulator (multiband_compressor#1) is absent, so the
@@ -773,10 +774,19 @@ def make_limiter(input_gain: float = 0.0) -> dict:
         "sidechain-type": "Internal",
         "lookahead": 1.0,
         "attack": 1.0,
+        # LSP truncates release to twice the lookahead in this mode, so this
+        # runs as 2 ms.
         "release": 5.0,
         "threshold": -1.0,
         "gain-boost": False,
         "stereo-link": 100.0,
-        "alr": False,
+        # ALR takes a held over down smoothly within tens of milliseconds, as
+        # DAX's final stage does; the knee places it relative to the
+        # threshold and smooth is LSP's default (research `r-limiter-alr`).
+        "alr": True,
+        "alr-attack": 10.0,
+        "alr-release": 200.0,
+        "alr-knee": 6.0,
+        "alr-knee-smooth": -5.0,
         "sidechain-preamp": 0.0,
     }

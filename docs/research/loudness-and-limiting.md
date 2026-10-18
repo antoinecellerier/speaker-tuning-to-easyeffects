@@ -26,6 +26,10 @@
   artifacts ([level restore](#r-level-restore)). On #137, with autogain and
   `output-gain` also on, a listener heard crackle on loud bass
   ([#137](#r-low-mid-regulator-vs-dax)).
+- **The brickwall** holds loud sustained tones with automatic level regulation,
+  so it no longer reshapes each cycle of one; on the dev device a held 234 Hz
+  tone on `output-gain` went from 9.39 % to 0.15 % THD
+  ([limiter](#r-limiter-alr)).
 
 Open:
 
@@ -50,9 +54,10 @@ Open:
   unheard on the default slot and on the reporters' hardware. On
   `output-gain` it cuts slightly less than DAX in places. The 50 ms release is
   unmeasured on DAX ([dynamics](#r-fixed-dynamics-constants)).
-- Whether the regulator's and `limiter#0`'s 1 ms lookahead delays the signal,
-  against the zero-added-latency rule, and whether the regulator's still serves
-  a purpose with a 20 ms attack.
+- The regulator's and `limiter#0`'s 1 ms lookaheads delay the output 1.0 ms
+  each, against the zero-added-latency rule. Dropping them adds an onset burst
+  above 1 kHz ([limiter](#r-limiter-alr)). Whether the regulator's lookahead
+  still serves a purpose with a 20 ms attack is unmeasured.
 - `regulator-stress-amount` as an engagement modifier is untested
   ([stress](#r-regulator-stress-amount)).
 - The slope→ratio and timbre→knee mappings need a device with other values. The
@@ -1210,6 +1215,82 @@ default slot at 1 and 20 ms sounded the same; with level-restore both saturated
 audibly, and equally. The attack stays at 20 ms until evidence of an audible
 cost turns up.
 
+<a id="r-limiter-alr"></a>
+
+## Final limiter: automatic level regulation
+
+`limiter#0` holds a loud sustained tone down smoothly with LSP's automatic level
+regulation (ALR) instead of flattening every cycle at its −1 dBFS brickwall.
+ALR runs at attack 10 ms, release 200 ms, knee +6 dB and smooth −5 dB.
+Conditions: the dev device's tuning (`17AA22E6`), Dynamic; EE → null-sink route,
+smoke gate passed; 2026-10-18, against `18b5940`. Stimuli: four 3 s tones at
+180 / 234 / 280 / 328 Hz, −5 dBFS peak; `stimulus_speech`; `stimulus_pink`; and
+pink soft-clipped to −8 LUFS, peak −0.3 dBFS, as a hot master. Held window
+0.5–2.75 s, THD over H2–H10:
+
+| held tone | before | with ALR |
+| --- | --- | --- |
+| default slot, 234 Hz | 0.38 %, −1.0 dBFS | 0.12 %, −3.3 dBFS |
+| default slot, 180 / 280 Hz | 0.01 / 0.00 %, −3.7 / −2.2 dBFS | 0.07 / 0.06 %, −4.5 / −3.7 dBFS |
+| `output-gain`, 234 Hz | 9.39 %, −0.1 dBFS | 0.15 %, −3.2 dBFS |
+| `output-gain`, 234 Hz, energy above 1 kHz | −55.1 dBFS | −74.8 dBFS |
+
+Speech, pink and the hot master are unchanged on both slots: the same integrated
+loudness (−19.19 / −19.45 / −10.98 LUFS), a flat gain track against the preset
+without ALR, and a 4× oversampled true peak of −0.85 dBTP or lower.
+
+**The knee.** ALR held each tone about 8.2 dB below threshold plus knee. At a
+−0.1 dBFS ceiling, knee 0 held them at −8.3 dBFS, +6 at −2.3, and +9 put them
+back on the brickwall at 1.1–1.7 % THD. The ceiling moves that point one for
+one: at knee 0, −1 against −0.1 dBFS moved held tones 0.9 dB with identical THD.
+
+**The ceiling** stays at −1 dBFS
+([gain-staging budget](#r-gain-staging-budget)). At −0.1 the same limiter went
+over 0 dBTP whenever level-restore drove it: +0.68 dBTP on −14 dBFS RMS pink,
++0.25 on a loud voice clip. At −1 no capture did.
+
+**DAX on the same device** holds −2 dBFS tones from 141 Hz to 1031 Hz at up to
+0.0 dBFS with 0.00 % THD (`loopback_stepped_loud_dynamic`, 2026-06-13). At a
+234 Hz onset it clips the first one or two cycles, in 8-sample flat tops, pulls
+back about 0.5 dB within 20 ms, then recovers slowly. Our limiter without ALR,
+on `output-gain`, held −1.00 dBFS with 27-sample flat tops on every cycle.
+
+**The LSP manual** (`limiter_stereo`) says ALR "acts like a compressor with
+infinite ratio", and the knee "allows to control the threshold of the ALR gain
+curve". The brickwall's release "can not be twice greater than Lookahead time
+(greater values are truncated) for some modes". At the 1 ms lookahead the 5 ms
+release therefore runs as 2 ms, which is why releases of 5, 20 and 50 ms
+measured identical.
+
+**Heard (2026-10-18), on the −0.1 dBFS-ceiling variant.** The `output-gain`
+234 Hz burst chirped without ALR and was clean with it, but the chirp came and
+went on later listens. The distortion did not: three cold-chain and three
+warm-chain captures without ALR all read 9.39 % held, so the variation lies
+past EE's output or in the listening. Arctic Monkeys' *Do I
+Wanna Know?* sounded fine on the default slot with ALR. The −1 dBFS version that
+ships was measured, not heard.
+
+ALR's constants are not decoded, since the XML carries no limiter timing. They
+reproduce DAX's measured final stage on one device, as the regulator attack
+does. They do not cure level-restore's voice artifacts. On a loud voice clip the
+restore sends peaks about 10.7 dB over full scale into the dynamics. Energy
+below 80 Hz is −67 dBFS with the regulator alone, −41 with the brickwall, and
+−45 with ALR. The listener heard the artifacts with the regulator disabled and
+with ALR on.
+
+Open:
+
+- The regulator's and `limiter#0`'s 1 ms lookaheads each delay the output by
+  1.0 ms (48 samples), 2 ms in all, against the zero-added-latency rule.
+  Dropping both (regulator 0, limiter at its 0.1 ms minimum) removes 1.9 ms and
+  keeps held tones clean. It also raises the energy above 1 kHz in a 234 Hz
+  burst's first 0.2 s by 24 dB (−43 against −68 dBFS). By ear it was not
+  separable from a click heard in bypass too.
+- Other devices' tunings, and hot masters with sustained bass at the FIR peak:
+  the one music-like case ALR acts on here.
+- The 8.2 dB offset between threshold plus knee and the held level. Smooth
+  −5 dB is a plausible cause, unverified.
+
 <a id="r-regulator-stress-amount"></a>
 
 ## `regulator-stress-amount` mapping investigated and rejected
@@ -1824,7 +1905,9 @@ Measured 2026-10-18 on `stimulus_speech` (peak −1 dBFS): the restore drives
 `limiter#0` to −9.3 LUFS against −19.2 for the default preset, and the
 coherence-based signal-to-distortion ratio at 500 Hz–2 kHz falls from 39.9 to
 11.8 dB. Neither the regulator attack nor `limiter#0`'s release changes it
-([dev-device attack check](#r-fixed-dynamics-constants)).
+([dev-device attack check](#r-fixed-dynamics-constants)). Nor does the
+limiter's automatic level regulation, or disabling the regulator, by ear or by
+measurement ([limiter](#r-limiter-alr)).
 
 **What it settles.** Restoring the whole peak cannot become the default. The
 flag stays opt-in, as it shipped. Its copy names what was heard rather than

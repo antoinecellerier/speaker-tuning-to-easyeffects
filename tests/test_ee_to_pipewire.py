@@ -926,6 +926,22 @@ def test_limiter_threshold_round_trips(generated):
     assert lim_controls["lk"] == src["lookahead"]
 
 
+def test_limiter_alr_round_trips(generated):
+    """EE binds the ALR knee dB-to-linear and smooth in plain dB; a slip
+    either way moves where ALR engages and the brickwall clips again."""
+    preset, irs_path = generated
+    chain = build_chain(preset, irs_path.parent, must_exist=False)
+    links = emit_links(chain.stages)
+    conf = format_conf(chain.stages, links, "test_node", "test")
+    lim_controls = _extract_node_control(conf, "limiter")
+    src = preset["output"]["limiter#0"]
+    assert lim_controls["alr"] == 1
+    assert lim_controls["alr_at"] == src["alr-attack"]
+    assert lim_controls["alr_rt"] == src["alr-release"]
+    assert abs(lin_to_db(lim_controls["knee"]) - src["alr-knee"]) < 1e-4
+    assert lim_controls["smooth"] == src["alr-knee-smooth"]
+
+
 def test_peq_filter_type_integers(generated):
     """The PEQ stage must encode filter types as integers (Hi-pass=2,
     Bell=1) — string types in `t_N` would silently break LSP.

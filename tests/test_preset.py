@@ -773,6 +773,19 @@ def test_limiter_threshold_is_minus_one_dbfs():
     assert make_limiter(input_gain=6.0)["input-gain"] == 6.0
 
 
+def test_limiter_holds_sustained_overs_with_alr():
+    """ALR takes a held over down before the brickwall reshapes it. Off, a
+    loud sustained tone at the ceiling came out at 9.4% THD on the dev
+    device; the knee places ALR relative to the threshold, so these move
+    together (research `r-limiter-alr`)."""
+    lim = make_limiter()
+    assert lim["alr"] is True
+    assert lim["alr-attack"] == 10.0
+    assert lim["alr-release"] == 200.0
+    assert lim["alr-knee"] == 6.0
+    assert lim["alr-knee-smooth"] == -5.0
+
+
 # --- Atomic writes ---
 # Output files are written via a same-dir temp + os.replace so a crash
 # mid-write can't leave a truncated .json/.irs that EasyEffects would

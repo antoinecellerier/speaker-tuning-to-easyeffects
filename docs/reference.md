@@ -92,7 +92,7 @@ the bass enhancer is SoundWire-only.
 | 5 | Autogain | `volume-leveler-*` | Volume leveler. Bypassed by default on HDA, where `--enable autogain` opts in. Active on SoundWire; see below. Placed before the compressor to match Dolby's CP→VLLDP flow |
 | 6 | Multiband Compressor | `mb-compressor-tuning` | 1–4 bands of dynamics processing per `group_count` |
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
-| 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net. Fallback slot for `volmax-boost` when the regulator isn't emitted |
+| 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net, with automatic level regulation holding sustained overs below it ([limiter](research/loudness-and-limiting.md#r-limiter-alr)). Fallback slot for `volmax-boost` when the regulator isn't emitted |
 
 Where a vendor APO config binds the device, up to two more multiband
 compressors (`#2`, `#3`), one per dynamics block the layer can build, sit

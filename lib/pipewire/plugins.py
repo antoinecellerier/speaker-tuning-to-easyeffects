@@ -443,6 +443,12 @@ def emit_limiter(plugin: dict, name: str = "limiter") -> Stage | None:
         # `stereo-link` (also percent) directly. Verified at limiter.cpp:179.
         "slink": float(plugin.get("stereo-link", 100.0)),
         "alr": 1 if plugin.get("alr", False) else 0,
+        # Bound as EE's limiter.cpp binds them, defaults from its kcfg: the
+        # knee goes in as a dB-to-linear gain, smooth stays in dB.
+        "alr_at": float(plugin.get("alr-attack", 5.0)),
+        "alr_rt": float(plugin.get("alr-release", 50.0)),
+        "knee": db_to_lin(plugin.get("alr-knee", 0.0)),
+        "smooth": float(plugin.get("alr-knee-smooth", -5.0)),
         "boost": 1 if plugin.get("gain-boost", False) else 0,
     }
     node = {

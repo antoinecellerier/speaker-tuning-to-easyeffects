@@ -352,7 +352,7 @@ can't reach.
 | `equalizer#1` (dialog) | Same plugin as PEQ | Disambiguated by position in `plugins_order`, not by shape. `_assert_positional` fails loud if reordered. |
 | `multiband_compressor#0` (MBC) | LSP `mb_compressor_stereo` | Per-band linear values round-trip to source dB to 1e-4. The per-control mapping is in the table below. |
 | `multiband_compressor#1` (regulator) | Same plugin | Carries `volmax_boost`, typically +6 dB, on `input-gain`, the default `--volmax-slot`. |
-| `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. |
+| `limiter#0` | LSP `limiter_stereo` | `slink` is U_PERCENT (0–100), not 0–1. ALR's `alr-knee` goes in dB-to-linear (`knee`), as EE binds it; `alr-knee-smooth` stays in dB (`smooth`). |
 | `bass_enhancer#0` | Calf `BassEnhancer` | EE wraps Calf BassEnhancer (`src/bass_enhancer.cpp:67-74`). Triggers on SoundWire devices with small drivers. |
 | `stereo_tools#0` | Calf `StereoTools` | EE wraps Calf StereoTools (`src/stereo_tools.cpp:65-80`). The generator emits no `stereo_tools#0` block; see below. |
 | `autogain#0` (bypassed) | *(silent skip)* | HDA default is bypass=true, unless the preset was generated with `--enable autogain`. Emitting a bypassed node would just clutter. |

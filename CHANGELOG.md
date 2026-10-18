@@ -91,10 +91,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- **[AUDIBLE]** Loud held bass notes are no longer distorted by the final
+  limiter; they are held slightly quieter instead. Measured on one device, not
+  heard. Re-run to regenerate.
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
+  why in `docs/research/loudness-and-limiting.md`)
 - **[AUDIBLE]** Loud bass keeps more of each note's start, closer to Windows,
   because the speaker-protection stage reacts more slowly. Held loud bass
-  distorts less with some tunings and slightly more with others; one listener
-  heard no clear difference. Re-run to regenerate.
+  distorts less with two of the three tunings measured and more with the third;
+  one listener heard no clear difference. Re-run to regenerate.
   ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
   why in `docs/research/loudness-and-limiting.md`)
 - **[AUDIBLE]** Slightly less voice presence, and less over-emphasis on music
