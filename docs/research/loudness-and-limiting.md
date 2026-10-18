@@ -1115,8 +1115,9 @@ DAX's regulator settles over roughly 0.1–0.3 s against our 1 ms attack.
 **Attack experiment (2026-10-18).** Attacks of 20 and 50 ms bracket DAX's
 regulator onset on both captured devices, where 1 ms is two to four times too
 fast. 20 ms was chosen: on `output-gain` it brings #44's steady bass within
-1.2 dB of DAX's, it makes sustained bass cleaner on both slots, and on the
-default slot it moves every measured level toward DAX's. Conditions: presets
+1.2 dB of DAX's, it makes sustained bass cleaner on both slots of both captured
+tunings, and on the default slot it moves every measured level toward DAX's.
+The dev device's own tuning is the exception (below). Conditions: presets
 for #137's tuning and #44's (`SUBSYS_17AA380D`, the round-3 thresholds), built
 on both volmax slots, then the regulator bands' `attack-time` rewritten to 1,
 20 or 50 ms in the generated preset; EE → null-sink route, smoke gate passed;
@@ -1181,9 +1182,33 @@ headphones, #44's tuning with `output-gain` at 1 and 20 ms showed no clear
 difference to the listener on two rock tracks (Muse, *Supermassive Black
 Hole*; Queens of the Stone Age, *Make It Wit Chu*). The device's speakers would
 have hidden the low bass, and this tests the processing, not #44's hardware.
-The default slot was measured, not heard. The attack is one global constant,
-not a per-device value, and two devices' captures on both slots back it, so it
-replaced the 1 ms default. The golden digest moved by that field alone.
+On #137's and #44's tunings the default slot was measured, not heard. The
+attack is one global constant, not a per-device value, and two devices' captures
+on both slots back it, so it replaced the 1 ms default. The golden digest moved
+by that field alone.
+
+**The dev device's own tuning (2026-10-18).** On the dev device's tuning, 20 ms
+raises held-tone distortion on every slot, and the listener heard no difference
+on its speakers. Conditions: `17AA22E6`, Dynamic, at `18b5940`, with the attack
+rewritten to 1 ms for the reference; EE → null-sink route, smoke gate passed;
+`stimulus_midbass_burst` (180/234/280/328 Hz, −5 dBFS peak); THD over H2–H10.
+
+| 234 Hz unless noted | 1 ms | 20 ms |
+| --- | --- | --- |
+| default slot, first 0.2 s | 0.04 % | 1.64 % |
+| default slot, held | 0.03 % | 0.38 % |
+| `output-gain`, held | 7.1 % | 9.4 % |
+| `--enable level-restore`, held, 180–328 Hz | 0.2–6.0 % | 5.3–11.4 % |
+
+The shallower held cut leaves the 234 Hz tone, at this tuning's FIR peak, 1.2
+dB louder on the default slot (−2.2 to −1.0 dBFS), where `limiter#0` reshapes
+it. #137's and #44's deeper thresholds keep their tones off the brickwall, which
+is why 20 ms lowered their products. Speech and pink noise are unchanged within
+0.1 LU. `limiter#0`'s release is inert here: 5 and 20 ms (the plugin's maximum)
+match to 0.01 dB on every stimulus and slot. On the device's speakers the
+default slot at 1 and 20 ms sounded the same; with level-restore both saturated
+audibly, and equally. The attack stays at 20 ms until evidence of an audible
+cost turns up.
 
 <a id="r-regulator-stress-amount"></a>
 
@@ -1794,6 +1819,12 @@ that battery, "the cost is on loud content, and nothing in the chain catches
 it", is confirmed by ear as well as by number. It holds on the device where the
 restore is largest, and where every EE–DAX table above says the *level* is
 right.
+
+Measured 2026-10-18 on `stimulus_speech` (peak −1 dBFS): the restore drives
+`limiter#0` to −9.3 LUFS against −19.2 for the default preset, and the
+coherence-based signal-to-distortion ratio at 500 Hz–2 kHz falls from 39.9 to
+11.8 dB. Neither the regulator attack nor `limiter#0`'s release changes it
+([dev-device attack check](#r-fixed-dynamics-constants)).
 
 **What it settles.** Restoring the whole peak cannot become the default. The
 flag stays opt-in, as it shipped. Its copy names what was heard rather than
