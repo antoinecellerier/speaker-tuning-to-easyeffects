@@ -15,6 +15,10 @@
   chain**, on HD-Audio and SoundWire speakers. The parser reads all 16 of their
   configs; on 3 it leaves `Crystal` out. Every Dolby XML one of them binds has
   its voicing off ([Surface fleet](#r-surface-apo-fleet)).
+- **HP's Bang & Olufsen laptops can ship no Dolby file at all**: the ZBook 15
+  G6 voices its speaker in a Sonitude APO preset. Its curve follows Windows'
+  B&O switch from 160 Hz up, on one device's captures
+  ([Sonitude presets](#r-sonitude-apo-presets)).
 
 Open:
 
@@ -234,3 +238,83 @@ Open:
   of reach either way.
 - L and R differ in 10 of the 16 configs' EQs, so the interleave's channel
   order matters there, and it is still unread.
+
+<a id="r-sonitude-apo-presets"></a>
+
+## HP's Sonitude presets: the Bang & Olufsen voicing with no Dolby file
+
+On the HP ZBook 15 G6 (issue #140) the Windows B&O voicing is a Sonitude
+(formerly Sound Research) APO preset, and its 265-point curve follows what the
+B&O switch toggles within 1.22 dB rms from 160 Hz to 12.5 kHz. Windows plays
+about 9 dB less bass at 80–100 Hz than the curve asks for, and adds a layer
+that stays on with enhancements off, which no file read holds. Conditions: HP
+softpaq `sp161474.exe` (Realtek HD Audio Driver, SHA-256 `a47d4827…`),
+Sonitude APO 2.1.1.99, codec ALC285 on SOF, subsystem `103C860F`; the
+reporter's Windows 11 loopback captures, `off` (Audio enhancements: Off)
+against `music` (B&O Audio Control "Music"), volume 50 %, 2026-10-17.
+
+**The package.** `SNAPO64Ext.inf` binds the device and copies 33
+`SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip` archives. No DAX3 XML ships.
+Realtek's `RTAIODAT.DAT` has no record for `103C860F`
+([database](hardware-and-drivers.md#r-realtek-codec-database)).
+
+| Container | Layout (fits every archive in the package) |
+|---|---|
+| `SSIDMAP.bin` | `SRSM`, u32 version, u32 count, u32 record size (20 or 32), then count × (u32 preset number, `SUBSYS_…` name) |
+| `<N>.<codename>.txt` | plain-text manifest: device ID, then each `Preset.bin` and the `.srproject` it came from |
+| `<N>/<endpoint>/EFX/<output>/<content>/Preset.bin` | header, a section table whose last section ends at the end of the file, then length-prefixed values |
+| speaker curve | two blocks of u16 265 + 265 float32 per preset (L, R; identical in 313 of 318 endpoint-0 presets) |
+
+`103C860F` maps to preset 177, `X_Venus`; its manifest names endpoint 0's
+`AnyContent` file "Venus Music". The archives hold 1,348 distinct subsystem
+IDs, 1,339 of them HP's. One more, `72708086`, is also in the local corpus's
+XML filenames; it is an Intel reference ID.
+
+**The captures** are level-independent and identical across channels, so one
+static curve describes them:
+
+| Check | Result |
+|---|---|
+| L − R, 141 Hz–13.9 kHz | ≤ 0.002 dB, every stimulus |
+| pink at −42, −18 and −14 dBFS RMS | music − off within 0.02 dB per 1/3 octave |
+| sweep vs pink, music − off shape | within 0.21 dB |
+| music − off at 1 kHz | −6.25 dB |
+| `off` against the stimulus | −36 dB at 31.5 Hz, −8.8 at 80, −5.0 at 500, +1.2 to +1.7 over 1.6–6.3 kHz, −8.0 at 16 kHz |
+| `music` impulse | peak ~20 ms after `off`'s; 5.9 dB more energy after the peak than before |
+
+**The readings, scored as pre-registered** (one broadband offset fitted,
+1/3-octave bands 160 Hz–12.5 kHz, preset 177 `AnyContent`, n = 1 device).
+`AnyContent` fits better than `Movie` and `Voice` under every model:
+
+| Model | vs music − off: rms / max (dB) | vs the full chain: rms / max (dB) |
+|---|---|---|
+| flat | 3.96 / 7.9 | 5.40 / 13.3 |
+| the 265-point curve on 10·2^(k/24) Hz | 1.22 / 3.2 | 2.25 / 5.0 |
+| the 21 (Hz, Q, dB) triples as RBJ peaking | 1.16 / 3.4 | 2.17 / 5.0 |
+| curve + triples | 5.33 / 11.3 | 4.68 / 11.8 |
+
+Below 141 Hz the curve leaves Windows 8.8 dB lower at 80 and 100 Hz, and
+12.5 dB lower at 31.5 Hz. The triples read as a curve fit of the curve: summed,
+they double count, which plausibly explains why
+[a measured-IR project for an HP OMEN](https://github.com/iphysicc/hp-omen-bo-linux-audio)
+found a static rebuild from these parameters 16 dB off at 330 Hz. The missing
+bass cap and the always-on layer plausibly run on the Intel DSP: the package
+ships `sraudio_lib.bin` and `rtksep_lib.bin` as DSP modules, the topology's
+speaker path has an effect slot that runs in RAW mode too, and the APO's
+strings name `Module_Raw` and `PresetDSPParamBytesSent`. Which module fills
+the slot, and with what, no file read says. The minimum-phase FIR (4096 taps)
+realises the curve within 0.45 dB from 200 Hz up, and rounds off its 15.5 dB
+jump between 80.0 and 82.3 Hz by up to 11.3 dB below that.
+
+Rejected: shipping a measured impulse response, as that project does. A
+capture is not a tuning field, and its look-ahead limiter adds latency.
+
+Open:
+
+- By-ear confirmation on the ZBook (the `vendor-tuning-unconfirmed` ask).
+- Windows' own decode of the preset. The APO keeps its parameters under
+  `Software\SoundResearch\APO\Instances\`, read as the LocalService account's
+  hive (`HKU\S-1-5-19`), a hypothesis: `HKLM` held nothing.
+- A second HP device's capture, for the grid and the endpoint reading.
+- The dynamics stages, the `Movie` and `Voice` modes, and DriverStore
+  discovery are unread or unbuilt.
