@@ -304,7 +304,12 @@ speaker path has an effect slot that runs in RAW mode too, and the APO's
 strings name `Module_Raw` and `PresetDSPParamBytesSent`. Which module fills
 the slot, and with what, no file read says. The minimum-phase FIR (4096 taps)
 realises the curve within 0.45 dB from 200 Hz up, and rounds off its 15.5 dB
-jump between 80.0 and 82.3 Hz by up to 11.3 dB below that.
+jump between 80.0 and 82.3 Hz by up to 11.3 dB below that. A live
+EasyEffects capture of the built preset (null-sink route, 2026-10-18) matches
+that FIR within 0.01 dB per 1/3 octave, and scores as the curve does against
+Windows (1.21 dB rms against the B&O switch, 2.25 against the full chain). At
+the same input, Windows with B&O on plays 10.7 dB louder from 141 Hz to
+13.9 kHz.
 
 Rejected: shipping a measured impulse response, as that project does. A
 capture is not a tuning field, and its look-ahead limiter adds latency.
