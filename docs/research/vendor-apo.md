@@ -326,8 +326,9 @@ cuts-only curve from 403 Hz up. Below that, the curve's 1/24-octave points sit
 closer than the FIR's 11.7 Hz bins, and the build is within 3.9 dB of it. It
 plays 1.0 dB from Windows' level against the B&O switch, and 1.3 dB against
 the full chain, in the loopback, before the endpoint volume. A live
-EasyEffects capture of the earlier full-curve build matched its FIR within
-0.01 dB per 1/3 octave (null-sink route, 2026-10-18).
+EasyEffects capture of the build (null-sink route, 2026-10-18) matches its FIR
+within 0.01 dB per 1/3 octave at all three pink levels, and scores against
+Windows as the FIR does.
 
 Rejected:
 
