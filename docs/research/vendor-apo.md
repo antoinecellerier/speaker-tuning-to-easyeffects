@@ -16,8 +16,8 @@
   configs; on 3 it leaves `Crystal` out. Every Dolby XML one of them binds has
   its voicing off ([Surface fleet](#r-surface-apo-fleet)).
 - **HP's Bang & Olufsen laptops can ship no Dolby file at all**: the ZBook 15
-  G6 voices its speaker in a Sonitude APO preset. Its curve follows Windows'
-  B&O switch from 160 Hz up, on one device's captures
+  G6 voices its speaker in a Sonitude APO preset. Applied as cuts only, its
+  curve tracks Windows from 200 Hz up on two HP laptops' Windows recordings
   ([Sonitude presets](#r-sonitude-apo-presets)).
 
 Open:
@@ -244,14 +244,21 @@ Open:
 ## HP's Sonitude presets: the Bang & Olufsen voicing with no Dolby file
 
 On the HP ZBook 15 G6 (issue #140) the Windows B&O voicing is a Sonitude
-(formerly Sound Research) APO preset, and its 265-point curve follows what the
-B&O switch toggles within 1.22 dB rms from 160 Hz to 12.5 kHz. Windows plays
-about 9 dB less bass at 80–100 Hz than the curve asks for, and adds a layer
-that stays on with enhancements off, which no file read holds. Conditions: HP
-softpaq `sp161474.exe` (Realtek HD Audio Driver, SHA-256 `a47d4827…`),
-Sonitude APO 2.1.1.99, codec ALC285 on SOF, subsystem `103C860F`; the
-reporter's Windows 11 loopback captures, `off` (Audio enhancements: Off)
-against `music` (B&O Audio Control "Music"), volume 50 %, 2026-10-17.
+(formerly Sound Research) APO preset. Its 265-point curve, applied as cuts
+only, is within 1.00 dB rms of what the B&O switch toggles from 200 Hz to
+12.5 kHz. On a second device, an HP OMEN, the same reading is within 1.61 dB
+rms of its published Windows response, where the curve as stored misses by
+7.15. Windows also cuts harder than the curve below about 60 Hz. On the ZBook
+it adds a layer that stays on with enhancements off, which no file read
+holds. Conditions: HP softpaq `sp161474.exe` (Realtek HD Audio Driver,
+SHA-256 `a47d4827…`), Sonitude APO 2.1.1.99, codec ALC285 on SOF, subsystem
+`103C860F`; the reporter's Windows 11 loopback captures, `off` (Audio
+enhancements: Off) against `music` (B&O Audio Control "Music"), volume 50 %,
+2026-10-17. OMEN: `103C8A3F`, preset 70 of the same package's ALC245 archive,
+scored against the impulse response
+[hp-omen-bo-linux-audio](https://github.com/iphysicc/hp-omen-bo-linux-audio)
+measured on Windows with Sound Research APO 2.0.11
+(`linux/ir/hp-bo-speaker-ir-48k.wav`, SHA-256 `29103776…`).
 
 **The package.** `SNAPO64Ext.inf` binds the device and copies 33
 `SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip` archives. No DAX3 XML ships.
@@ -267,8 +274,10 @@ Realtek's `RTAIODAT.DAT` has no record for `103C860F`
 
 `103C860F` maps to preset 177, `X_Venus`; its manifest names endpoint 0's
 `AnyContent` file "Venus Music". The archives hold 1,348 distinct subsystem
-IDs, 1,339 of them HP's. One more, `72708086`, is also in the local corpus's
-XML filenames; it is an Intel reference ID.
+IDs. 1,345 are HP's, six of them stored as `xxxx103C`. The local corpus's XML
+filenames hold no `103C` ID at all, so it says nothing about HP's Dolby use.
+The endpoint-0 headphone curves span 0.0 dB (median, n = 210) against 21.0 dB
+for the speaker ones (n = 318), as "the curve is the EQ" predicts.
 
 **The captures** are level-independent and identical across channels, so one
 static curve describes them:
@@ -280,39 +289,52 @@ static curve describes them:
 | sweep vs pink, music − off shape | within 0.21 dB |
 | music − off at 1 kHz | −6.25 dB |
 | `off` against the stimulus | −36 dB at 31.5 Hz, −8.8 at 80, −5.0 at 500, +1.2 to +1.7 over 1.6–6.3 kHz, −8.0 at 16 kHz |
-| `music` impulse | peak ~20 ms after `off`'s; 5.9 dB more energy after the peak than before |
+| `music` delay after `off` | 20.0, 22.4 and 21.3 ms at the three pink levels |
 
-**The readings, scored as pre-registered** (one broadband offset fitted,
-1/3-octave bands 160 Hz–12.5 kHz, preset 177 `AnyContent`, n = 1 device).
-`AnyContent` fits better than `Movie` and `Voice` under every model:
+**The readings.** One broadband offset is fitted, then 1/3-octave bands are
+scored. The first four rows were pre-registered on the ZBook alone (bands
+160 Hz–12.5 kHz). `AnyContent` fits better than `Movie` and `Voice` under
+every model:
 
-| Model | vs music − off: rms / max (dB) | vs the full chain: rms / max (dB) |
-|---|---|---|
-| flat | 3.96 / 7.9 | 5.40 / 13.3 |
-| the 265-point curve on 10·2^(k/24) Hz | 1.22 / 3.2 | 2.25 / 5.0 |
-| the 21 (Hz, Q, dB) triples as RBJ peaking | 1.16 / 3.4 | 2.17 / 5.0 |
-| curve + triples | 5.33 / 11.3 | 4.68 / 11.8 |
+| Model | ZBook vs music − off: rms / max (dB) | ZBook vs the full chain | OMEN IR, 200 Hz–12.5 kHz |
+|---|---|---|---|
+| flat | 3.96 / 7.9 | 5.40 / 13.3 | — |
+| the curve on 10·2^(k/24) Hz | 1.22 / 3.2 | 2.25 / 5.0 | 7.15 / 18.3 |
+| the 21 (Hz, Q, dB) triples as RBJ peaking | 1.16 / 3.4 | 2.17 / 5.0 | — |
+| curve + triples | 5.33 / 11.3 | 4.68 / 11.8 | — |
+| the curve, cuts only | 0.98 / 3.07 | 2.08 / 5.0 | 1.61 / 4.6 |
 
-Below 141 Hz the curve leaves Windows 8.8 dB lower at 80 and 100 Hz, and
-12.5 dB lower at 31.5 Hz. The triples read as a curve fit of the curve: summed,
-they double count, which plausibly explains why
-[a measured-IR project for an HP OMEN](https://github.com/iphysicc/hp-omen-bo-linux-audio)
-found a static rebuild from these parameters 16 dB off at 330 Hz. The missing
-bass cap and the always-on layer plausibly run on the Intel DSP: the package
-ships `sraudio_lib.bin` and `rtksep_lib.bin` as DSP modules, the topology's
-speaker path has an effect slot that runs in RAW mode too, and the APO's
-strings name `Module_Raw` and `PresetDSPParamBytesSent`. Which module fills
-the slot, and with what, no file read says. The minimum-phase FIR (4096 taps)
-realises the curve within 0.45 dB from 200 Hz up, and rounds off its 15.5 dB
-jump between 80.0 and 82.3 Hz by up to 11.3 dB below that. A live
-EasyEffects capture of the built preset (null-sink route, 2026-10-18) matches
-that FIR within 0.01 dB per 1/3 octave, and scores as the curve does against
-Windows (1.21 dB rms against the B&O switch, 2.25 against the full chain). At
-the same input, Windows with B&O on plays 10.7 dB louder from 141 Hz to
-13.9 kHz.
+The cuts-only reading was proposed after the ZBook scores were seen. Its
+OMEN score was pre-registered, with adoption at ≤ 2 dB rms and ≥ 2 dB better
+than the curve; it passed. On the ZBook it changes little above 200 Hz (1.00
+against 1.02 dB rms). It accounts for the bass: at 80, 100 and 125 Hz the
+curve leaves Windows 8.8, 8.8 and 5.6 dB lower, and the cuts-only curve
+−0.4, +0.3 and +0.7 dB. The OMEN static rebuild that failed by 16 dB at
+330 Hz is the curve's boost there, +29.6 dB above 1 kHz against +12.3
+measured, not a sum of the curve and its triples. The triples read as a fit
+of the curve, and summing the two double counts. Across the fleet the curve
+peaks above +6 dB in 247 of 318 speaker presets (median +9.8 dB), so reading
+the boosts would give most of them a bass hump neither device's Windows
+plays. Below about 60 Hz Windows cuts more than the curve: −12.5 dB at
+31.5 Hz on the ZBook toggle, −64 dB on the OMEN response. The `off` layer is
+host-side processing, since WASAPI loopback taps the audio engine's output;
+Sonitude's `.inf` registers its MFX and EFX in no RAW mode for this device,
+and the sidecars show a spatial-audio CLSID active, an unverified candidate.
 
-Rejected: shipping a measured impulse response, as that project does. A
-capture is not a tuning field, and its look-ahead limiter adds latency.
+**The build.** The minimum-phase FIR (4096 taps) is within 0.07 dB of the
+cuts-only curve from 403 Hz up. Below that, the curve's 1/24-octave points sit
+closer than the FIR's 11.7 Hz bins, and the build is within 3.9 dB of it. It
+plays 1.0 dB from Windows' level against the B&O switch, and 1.3 dB against
+the full chain, in the loopback, before the endpoint volume. A live
+EasyEffects capture of the earlier full-curve build matched its FIR within
+0.01 dB per 1/3 octave (null-sink route, 2026-10-18).
+
+Rejected:
+
+- Shipping a measured impulse response, as hp-omen-bo-linux-audio does. A
+  capture is not a tuning field, and its look-ahead limiter adds latency.
+- Applying the curve's boosts. Neither device's Windows output has them: the
+  OMEN response is 7.15 dB rms from the curve and 1.61 from its cuts.
 
 Open:
 
@@ -320,6 +342,13 @@ Open:
 - Windows' own decode of the preset. The APO keeps its parameters under
   `Software\SoundResearch\APO\Instances\`, read as the LocalService account's
   hive (`HKU\S-1-5-19`), a hypothesis: `HKLM` held nothing.
-- A second HP device's capture, for the grid and the endpoint reading.
+- What the `off` layer is: Windows spatial audio, or HP processing outside the
+  APO's modes. A capture with spatial audio off separates them, and one with
+  B&O Audio Control's own off switch, where it has one, would too.
+- The deeper cut below 60 Hz. The preset's (Hz, Q) field at 0x5d7 (88 Hz,
+  2.275 in Music; 137.5 Hz in Voice; 100 Hz in the OMEN preset) moves with the
+  curve's own high-pass and is unread.
+- A third device, ideally one whose curve boosts the treble, for the
+  cuts-only reading.
 - The dynamics stages, the `Movie` and `Voice` modes, and DriverStore
   discovery are unread or unbuilt.
