@@ -140,6 +140,104 @@ def test_a_bound_preset_without_a_speaker_file_is_unsupported(tmp_path):
         sonitude.find(a, "10EC0285", "103C860F", True)
 
 
+# --- hostile archives ---------------------------------------------------------
+# The download can come from a mirror, so each of these is a shape an attacker
+# controls (security review, 2026-10-18).
+
+def test_a_preset_of_repeated_headers_reads_two_curves_and_stops():
+    data = struct.pack("<IH", 1062, 265) * 200_000  # 1.2 MB of candidates
+    curves = sonitude.read_curves(data)
+    assert len(curves) <= 2
+
+
+def _deflated(path: Path, members: dict[str, bytes]) -> Path:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in members.items():
+            z.writestr(name, data)
+    return path
+
+
+def test_an_ssidmap_claiming_megabytes_is_refused_unread(tmp_path,
+                                                         monkeypatch):
+    a = _deflated(tmp_path / _ARCHIVE,
+                  {"SSIDMAP.bin": b"\0" * (sonitude.MAX_MEMBER_BYTES + 1)})
+    reads = []
+    monkeypatch.setattr(zipfile.ZipFile, "read",
+                        lambda self, name, pwd=None: reads.append(name))
+    assert sonitude.find(a, "10EC0285", "103C860F", True) is None
+    assert reads == []
+
+
+def test_a_preset_claiming_megabytes_is_unsupported(tmp_path):
+    a = _deflated(tmp_path / _ARCHIVE, {
+        "SSIDMAP.bin": _ssidmap({"103C860F": 1}),
+        f"1/{sonitude.SPEAKER_PRESET}":
+            b"\0" * (sonitude.MAX_MEMBER_BYTES + 1)})
+    with pytest.raises(apo_layer.UnsupportedApoConfig):
+        sonitude.find(a, "10EC0285", "103C860F", True)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 4000.0, -3e38])
+def test_a_curve_no_tuning_uses_is_unsupported(tmp_path, bad):
+    curve = _curve()
+    curve[100] = bad
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(curve)})
+    with pytest.raises(apo_layer.UnsupportedApoConfig):
+        sonitude.find(a, "10EC0285", "103C860F", True)
+
+
+def test_the_printed_codename_keeps_no_control_characters(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 7},
+                 {7: _preset_bin(_curve())},
+                 codename="\x1b[2J\x1b]52;c;ZXZpbA==\x07Venus\r\nx" + "y" * 99)
+    label = sonitude.find(a, "10EC0285", "103C860F", True).label
+    assert not any(ord(c) < 32 or ord(c) == 127 for c in label)
+    assert "Venus" in label and len(label) < 120
+
+
+def _corrupt(path: Path, member: str) -> None:
+    """Flip the bytes of *member*'s deflated data in place."""
+    with zipfile.ZipFile(path) as z:
+        info = z.getinfo(member)
+    data = bytearray(path.read_bytes())
+    o = info.header_offset
+    start = o + 30 + struct.unpack_from("<HH", data, o + 26)[0] \
+        + struct.unpack_from("<HH", data, o + 26)[1]
+    for i in range(start, start + min(info.compress_size, 64)):
+        data[i] ^= 0xFF
+    path.write_bytes(bytes(data))
+
+
+def test_a_damaged_ssidmap_skips_the_archive(tmp_path):
+    a = _deflated(tmp_path / _ARCHIVE, {"SSIDMAP.bin": _ssidmap(
+        {f"103C{i:04X}": i for i in range(400)})})
+    _corrupt(a, "SSIDMAP.bin")
+    assert sonitude.find(a, "10EC0285", "103C0001", True) is None
+
+
+def test_a_damaged_preset_is_unsupported_not_a_crash(tmp_path):
+    member = f"1/{sonitude.SPEAKER_PRESET}"
+    a = _deflated(tmp_path / _ARCHIVE, {
+        "SSIDMAP.bin": _ssidmap({"103C860F": 1}),
+        member: _preset_bin(_curve())})
+    _corrupt(a, member)
+    with pytest.raises(apo_layer.UnsupportedApoConfig):
+        sonitude.find(a, "10EC0285", "103C860F", True)
+
+
+def test_an_archive_name_with_a_trailing_newline_is_not_one():
+    assert not sonitude.is_archive(Path(_ARCHIVE + "\n"))
+
+
+def test_a_non_finite_filter_fails_the_correction_check():
+    taps = np.zeros(fir.FIR_LENGTH)
+    taps[0] = float("nan")
+    bins = np.fft.rfftfreq(fir.FIR_LENGTH, 1 / fir.SAMPLE_RATE)
+    assert emit._worst_shape_error(taps, [0.0], 0.0, [1000], bins,
+                                   rows=False) == float("inf")
+
+
 # --- the FIR fold ------------------------------------------------------------
 
 def test_a_curve_fold_realises_a_smooth_curve():

@@ -779,8 +779,10 @@ def main(argv: list[str] | None = None,
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
     # working from.
+    # None on a vendor-only run: there is no XML to ask for, and a wrapper's
+    # closing would otherwise name the archive as one.
     if resolved is not None:
-        resolved["xml_path"] = xml_path
+        resolved["xml_path"] = xml_path if vendor_source is None else None
 
     is_soundwire = (vendor_source is None
                     and discover.is_soundwire_xml(Path(xml_path).name))

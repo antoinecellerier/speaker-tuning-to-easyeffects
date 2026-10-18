@@ -232,6 +232,10 @@ def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
     With a vendor EQ folded in (*eq_sections*, *eq_curve*), the curve is
     `fir.design_target_db`, and it is graded on a dense grid as well.
     """
+    # A non-finite tap fails outright: `max` below would skip a NaN error and
+    # report the broken filter as passing.
+    if not np.all(np.isfinite(taps)):
+        return float("inf")
     H = np.fft.rfft(taps, n=fir.FIR_LENGTH)
     mag_db = 20.0 * np.log10(np.abs(H) + fir.LOG_MAG_FLOOR)
     folded = bool(eq_sections) or eq_curve is not None

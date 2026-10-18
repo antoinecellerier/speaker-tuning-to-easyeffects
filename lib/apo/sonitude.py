@@ -30,10 +30,12 @@ before the generator's deferred DSP imports.
 
 from __future__ import annotations
 
+import math
 import re
 import struct
 import zipfile
-from pathlib import Path, PurePosixPath
+import zlib
+from pathlib import Path
 
 from lib.apo.layer import ApoLayer, UnsupportedApoConfig
 
@@ -42,8 +44,23 @@ from lib.apo.layer import ApoLayer, UnsupportedApoConfig
 # the 33 in the one download read are named so; the other four bind Intel
 # DSP-controller or DIF IDs instead, and are not read.
 _ARCHIVE_RE = re.compile(
-    r"^SEAPODAT\.(HDAUDIO|INTELAUDIO)\.FUNC_01-VEN_([0-9A-F]{4})-DEV_"
-    r"([0-9A-F]{4})\.zip$", re.IGNORECASE)
+    r"SEAPODAT\.(HDAUDIO|INTELAUDIO)\.FUNC_01-VEN_([0-9A-F]{4})-DEV_"
+    r"([0-9A-F]{4})\.zip", re.IGNORECASE)
+
+# The archives come from a download anyone can rehost, so what is read out of
+# them is bounded before it is read. The real ones hold at most 483 members,
+# none over 8 KB, and their curves span -105.1 to +19.9 dB over all 5,912
+# in the one download read. A member over the cap is refused unread, which a
+# deflate bomb would otherwise expand into memory; a curve outside the range
+# is refused before it reaches the FIR design, where a NaN or a value above
+# ~3000 dB turns every tap into NaN.
+MAX_MEMBERS = 10_000
+MAX_MEMBER_BYTES = 1 << 20
+MAX_CURVE_DB = 120.0
+
+# What a damaged, encrypted or unsupported archive raises while being read.
+_READ_ERRORS = (OSError, EOFError, zipfile.BadZipFile, zlib.error,
+                RuntimeError, NotImplementedError, ValueError)
 
 # The speaker preset: endpoint 0, the endpoint effect on any output, the
 # default content mode. The archive's manifest names this file "<model>
@@ -60,12 +77,7 @@ def curve_grid_hz() -> tuple[float, ...]:
 
 def is_archive(path: Path) -> bool:
     """Whether *path* is named like a Sonitude tuning archive."""
-    return bool(_ARCHIVE_RE.match(Path(path).name))
-
-
-def wanted_members(paths: list[str]) -> set[str]:
-    """The Sonitude tuning archives in a driver download's file list."""
-    return {p for p in paths if is_archive(PurePosixPath(p).name)}
+    return bool(_ARCHIVE_RE.fullmatch(Path(path).name))
 
 
 def archives_in(source: Path) -> list[Path]:
@@ -93,34 +105,59 @@ def read_ssidmap(data: bytes) -> dict[str, int]:
     return out
 
 
-def read_curves(data: bytes) -> list[tuple[float, ...]]:
-    """Every 265-point float block in a `Preset.bin`, in file order.
+def read_curves(data: bytes, limit: int = 2) -> list[tuple[float, ...]]:
+    """The first *limit* 265-point float blocks in a `Preset.bin`, in order.
 
     A block is u32 length, u16 point count, the points as float32, and two
-    trailing bytes the length includes.
+    trailing bytes the length includes. Candidates are found by the count's
+    bytes, so the scan stays linear in the file and stops at *limit*.
     """
     out = []
     want = 2 + 4 * CURVE_POINTS
-    for o in range(len(data) - 6):
-        length, count = struct.unpack_from("<IH", data, o)
-        if (count == CURVE_POINTS and length in (want, want + 2)
-                and o + 4 + length <= len(data)):
+    marker = struct.pack("<H", CURVE_POINTS)
+    i = data.find(marker, 4)
+    while i != -1 and len(out) < limit:
+        o = i - 4
+        (length,) = struct.unpack_from("<I", data, o)
+        if length in (want, want + 2) and o + 4 + length <= len(data):
             out.append(struct.unpack_from(f"<{CURVE_POINTS}f", data, o + 6))
+        i = data.find(marker, i + 1)
     return out
+
+
+def _read(archive: zipfile.ZipFile, name: str) -> bytes:
+    """Member *name*'s bytes, refused unread when it claims more than
+    `MAX_MEMBER_BYTES`."""
+    if archive.getinfo(name).file_size > MAX_MEMBER_BYTES:
+        raise ValueError(f"{name} is larger than a tuning file")
+    return archive.read(name)
+
+
+def _sane(curve) -> bool:
+    return all(math.isfinite(v) and abs(v) <= MAX_CURVE_DB for v in curve)
 
 
 def _members(archive: zipfile.ZipFile) -> dict[str, str]:
     """Archive member names keyed by their `/`-separated, case-folded form."""
-    return {n.replace("\\", "/").lower(): n for n in archive.namelist()}
+    names = archive.namelist()
+    if len(names) > MAX_MEMBERS:
+        raise ValueError("more members than a tuning archive holds")
+    return {n.replace("\\", "/").lower(): n for n in names}
+
+
+# The codename is printed, so only characters a model codename uses survive:
+# a member name is the one string here that reaches the terminal, and an
+# escape sequence in it would reach it raw.
+_LABEL_CHARS = re.compile(r"[^A-Za-z0-9 _.()-]")
 
 
 def _preset_label(names: dict[str, str], number: int) -> str:
     """The model codename the archive's manifest gives preset *number*."""
     for key in names:
-        m = re.fullmatch(rf"{number}\.(.+)\.txt", key)
-        if m:
-            return names[key].replace("\\", "/").split("/")[-1][
+        if re.fullmatch(rf"{number}\.(.+)\.txt", key, re.DOTALL):
+            raw = names[key].replace("\\", "/").split("/")[-1][
                 len(str(number)) + 1:-4]
+            return _LABEL_CHARS.sub("", raw)[:64]
     return ""
 
 
@@ -139,7 +176,7 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
     subsys = subsys.upper()
     hits = []
     for path in archives_in(source):
-        bus, ven, dev = _ARCHIVE_RE.match(path.name).groups()
+        bus, ven, dev = _ARCHIVE_RE.fullmatch(path.name).groups()
         if (ven.upper(), dev.upper()) != (vendor, device):
             continue
         try:
@@ -147,8 +184,9 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
                 names = _members(z)
                 if "ssidmap.bin" not in names:
                     continue
-                number = read_ssidmap(z.read(names["ssidmap.bin"])).get(subsys)
-        except (OSError, zipfile.BadZipFile, ValueError):
+                number = read_ssidmap(
+                    _read(z, names["ssidmap.bin"])).get(subsys)
+        except _READ_ERRORS:
             continue
         if number is not None:
             hits.append((bus.upper(), path, number))
@@ -158,16 +196,23 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
                                                                  "INTELAUDIO")
     bus, path, number = min(hits, key=lambda h: order.index(h[0]))
     member = f"{number}/{SPEAKER_PRESET}"
-    with zipfile.ZipFile(path) as z:
-        names = _members(z)
-        if member.lower() not in names:
-            raise UnsupportedApoConfig(path, f"preset {number} has no "
-                                       f"speaker file ({member})")
-        curves = read_curves(z.read(names[member.lower()]))
-        codename = _preset_label(names, number)
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = _members(z)
+            if member.lower() not in names:
+                raise UnsupportedApoConfig(path, f"preset {number} has no "
+                                           f"speaker file ({member})")
+            curves = read_curves(_read(z, names[member.lower()]))
+            codename = _preset_label(names, number)
+    except _READ_ERRORS as exc:
+        raise UnsupportedApoConfig(path, f"its preset {number} can't be "
+                                   f"read ({exc})") from exc
     if not curves:
         raise UnsupportedApoConfig(path, f"preset {number}'s speaker file "
                                    "holds no EQ curve this tool can read")
+    if not all(_sane(c) for c in curves):
+        raise UnsupportedApoConfig(path, f"preset {number}'s EQ curve holds "
+                                   "values no tuning uses")
     left = curves[0]
     right = curves[1] if len(curves) > 1 else curves[0]
     name = f"preset {number}" + (f", {codename}" if codename else "")
