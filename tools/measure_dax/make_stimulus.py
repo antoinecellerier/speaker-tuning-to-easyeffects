@@ -1056,6 +1056,128 @@ def make_stepped_sine(level_dbfs_peak: float, seed: int = 7
     return stereo, meta
 
 
+# ----- level ladder and level steps (vendor dynamics, issue #140) -----
+
+# One frequency where each kind of level-dependent loss was seen on loud
+# stepped tones (HP B&O: 141–234 Hz and 2.2–2.6 kHz; its `off` state around
+# 470 Hz), plus mids and treble.
+LEVELS_FREQS_HZ = (150.0, 470.0, 1000.0, 2400.0, 5000.0, 10000.0)
+LEVELS_DBFS_PEAK = tuple(range(-34, -1, 4))   # -34 … -2 dBFS in 4 dB steps
+LEVELSTEP_FREQS_HZ = (150.0, 1000.0, 2400.0)
+# (level dBFS peak, seconds): quiet long enough to settle, a loud step for
+# the attack, then back down long enough to see the release.
+LEVELSTEP_PLAN = ((-30.0, 2.0), (-4.0, 2.0), (-30.0, 3.0))
+LEVELSTEP_GAP_S = 0.5
+LEVELSTEP_RAMP_MS = 1.0
+
+
+def _snap(f: float, n: int) -> float:
+    """*f* moved to an exact bin of an *n*-sample window."""
+    return max(1, round(f * n / SR)) * SR / n
+
+
+def make_levels() -> tuple[np.ndarray, dict]:
+    """Per-frequency level ladder: each of `LEVELS_FREQS_HZ` held at every
+    level in `LEVELS_DBFS_PEAK`, quietest first. Read each tone's
+    steady-state amplitude (after `settle_s`) against its own level: a
+    linear chain gives the same gain on every rung, compression a falling
+    one. Tone and gap lengths match the stepped sine, so the dynamics relax
+    between tones as they do there."""
+    n_tone = int(round(STEPPED_TONE_S * SR))
+    n_gap = int(round(STEPPED_GAP_S * SR))
+    fade_n = int(round(STEPPED_FADE_MS * 1e-3 * SR))
+    fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_n) / fade_n))
+    t = np.arange(n_tone) / SR
+    pieces = [np.zeros(n_gap)]
+    segments = []
+    cursor = n_gap
+    for f in LEVELS_FREQS_HZ:
+        f_snap = _snap(f, n_tone)
+        for level in LEVELS_DBFS_PEAK:
+            tone = 10.0 ** (level / 20.0) * np.sin(2.0 * np.pi * f_snap * t)
+            tone[:fade_n] *= fade
+            tone[-fade_n:] *= fade[::-1]
+            segments.append({"freq_hz": f_snap, "level_dbfs_peak": float(level),
+                             "start_sample": cursor, "len_sample": n_tone})
+            pieces += [tone, np.zeros(n_gap)]
+            cursor += n_tone + n_gap
+    mono = np.concatenate(pieces).astype(np.float32)
+    stereo = np.column_stack([mono, mono])
+    meta = {
+        "kind": "levels",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": STEPPED_GAP_S,
+        "tone_s": STEPPED_TONE_S,
+        "gap_s": STEPPED_GAP_S,
+        "fade_ms": STEPPED_FADE_MS,
+        "settle_s": STEPPED_SETTLE_S,
+        "levels_dbfs_peak": [float(x) for x in LEVELS_DBFS_PEAK],
+        "segments": segments,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
+def make_levelstep() -> tuple[np.ndarray, dict]:
+    """Level steps for attack and release: at each of `LEVELSTEP_FREQS_HZ`,
+    one continuous tone stepping through `LEVELSTEP_PLAN` (1 ms ramps, so
+    the step itself adds no click). A stage that acts on level shows as a
+    gain that moves after each step; its time course is the attack (up
+    step) and the release (down step)."""
+    ramp_n = int(round(LEVELSTEP_RAMP_MS * 1e-3 * SR))
+    n_gap = int(round(LEVELSTEP_GAP_S * SR))
+    pieces = [np.zeros(n_gap)]
+    steps = []
+    cursor = n_gap
+    total_s = sum(s for _, s in LEVELSTEP_PLAN)
+    n_total = int(round(total_s * SR))
+    for f in LEVELSTEP_FREQS_HZ:
+        f_snap = _snap(f, int(round(STEPPED_TONE_S * SR)))
+        gain = np.empty(n_total)
+        o, prev = 0, None
+        for level, secs in LEVELSTEP_PLAN:
+            n = int(round(secs * SR))
+            amp = 10.0 ** (level / 20.0)
+            gain[o:o + n] = amp
+            if prev is not None:
+                gain[o:o + ramp_n] = np.linspace(prev, amp, ramp_n)
+            steps.append({"freq_hz": f_snap, "level_dbfs_peak": level,
+                          "start_sample": cursor + o, "len_sample": n})
+            o, prev = o + n, amp
+        ramp = 0.5 * (1.0 - np.cos(np.pi * np.arange(ramp_n) / ramp_n))
+        gain[:ramp_n] *= ramp
+        gain[-ramp_n:] *= ramp[::-1]
+        t = np.arange(n_total) / SR
+        pieces += [gain * np.sin(2.0 * np.pi * f_snap * t), np.zeros(n_gap)]
+        cursor += n_total + n_gap
+    mono = np.concatenate(pieces).astype(np.float32)
+    stereo = np.column_stack([mono, mono])
+    meta = {
+        "kind": "levelstep",
+        "sample_rate": SR,
+        "duration_seconds": stereo.shape[0] / SR,
+        "tail_seconds": LEVELSTEP_GAP_S,
+        "ramp_ms": LEVELSTEP_RAMP_MS,
+        "plan": [list(p) for p in LEVELSTEP_PLAN],
+        "steps": steps,
+        "stimulus_samples": int(stereo.shape[0]),
+        "format": "float32 stereo L=R",
+        "stereo_mode": "symmetric",
+    }
+    return stereo, meta
+
+
+def _dynamics_suite() -> None:
+    """The level ladder and level steps (issue #140)."""
+    stereo, meta = make_levels()
+    write_stimulus("stimulus_levels", stereo, meta)
+    stereo, meta = make_levelstep()
+    write_stimulus("stimulus_levelstep", stereo, meta)
+
+
 # ----- entry point -----
 
 def write_stimulus(name: str, stereo: np.ndarray, meta: dict,
@@ -1127,6 +1249,9 @@ def main(argv: list[str] | None = None) -> None:
                          "dialog-enhancer probes from it")
     ap.add_argument("--speech-only", action="store_true",
                     help="build only the four --speech-source probes")
+    ap.add_argument("--dynamics-only", action="store_true",
+                    help="build only the level ladder and level steps "
+                         "(stimulus_levels, stimulus_levelstep)")
     ap.add_argument("--ieq-only", action="store_true",
                     help="build only the IEQ probes: pink_steps and "
                          "pink_bump_2250, plus pink_then_speech with "
@@ -1137,6 +1262,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.speech_only:
         print("Building human-speech probes:")
         _human_speech_suite(args.speech_source)
+        return
+    if args.dynamics_only:
+        print("Building dynamics probes:")
+        _dynamics_suite()
         return
     if args.ieq_only:
         print("Building IEQ probes:")
@@ -1251,6 +1380,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.speech_source is not None:
         _human_speech_suite(args.speech_source)
+
+    _dynamics_suite()
 
     print(f"\ninverse_sweep.npy: written ({inverse.size} samples, "
           "shared by stimulus_sweep and stimulus_sweep_quiet)")

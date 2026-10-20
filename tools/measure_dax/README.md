@@ -58,6 +58,8 @@ directory, then the script directory.
 | `stimulus_speech_then_pink.wav` | −18 dBFS RMS | 20 s of the speech, then 20 s of pink: shows how long a speech-gated boost holds |
 | `stimulus_pink_then_speech.wav` | −18 dBFS RMS | the reverse, 20 s of pink then 20 s of speech: shows how fast an adaptive EQ follows a change of content |
 | `stimulus_pink_steps.wav` | −18, −30, −18 dBFS RMS, 30 s each | one pink stream stepping in level with the spectrum fixed: shows whether the IEQ tracks level, and how fast after a drop and a rise |
+| `stimulus_levels.wav` | −34 … −2 dBFS peak | one tone each at 150, 470, 1k, 2.4k, 5k and 10 kHz, held 1 s at every level in 4 dB steps, quietest first: each band's gain-versus-level curve |
+| `stimulus_levelstep.wav` | −30 / −4 dBFS peak | at 150 Hz, 1 kHz and 2.4 kHz, one continuous tone stepping −30 → −4 → −30 dBFS (2, 2, 3 s): attack and release |
 | `stimulus_pink_bump_2250.wav` | −18 dBFS RMS | pink with a +9 dB, ~0.4-octave bump at 2.25 kHz: shows how wide the IEQ's correction of one spectral feature is |
 
 - **`--speech-source WAV`.** The four human-speech probes need a recording;
@@ -70,6 +72,10 @@ directory, then the script directory.
 
 - **`--ieq-only`.** Builds just `pink_steps` and `pink_bump_2250`, plus
   `pink_then_speech` when `--speech-source` is given.
+
+- **`--dynamics-only`.** Builds just `levels` and `levelstep`. `analyze.py`
+  has no branch for them yet; read each tone's steady-state amplitude
+  against its level from the sidecar's `segments` or `steps`.
 
 - **`stimulus_pink{60,48,30,24,14}.wav`.** −14 is the loud end pink can reach
   without clipping, given its ~13 dB crest factor. Use
@@ -134,6 +140,7 @@ your question needs rather than all of it:
 | Anything level-dependent: does a stage's gain change with input level? | `stimulus_stepped`, `stimulus_stepped_quiet`, `stimulus_stepped_loud`: the same 39-frequency grid at −18 / −42 / −2 dBFS | ~180 MB |
 | The leveler's gain across input level | `stimulus_pink{60,48,30,24,14}`, with `stimulus_pink[_quiet]` from the first row: the seven-rung ladder | ~25 MB |
 | Bass-specific behaviour | `stimulus_bass_burst[_quiet]`: sustained 50/80/120/180 Hz bursts | ~10 MB |
+| Compression per band, and its attack and release | `stimulus_levels`, `stimulus_levelstep`; `--dynamics-only` builds just these two | ~37 MB |
 | Stereo width | `stimulus_stereo_pink`, `stimulus_stereo_correlated` | ~10 MB |
 | Leveler behaviour on real content | `stimulus_speech` | ~5 MB |
 

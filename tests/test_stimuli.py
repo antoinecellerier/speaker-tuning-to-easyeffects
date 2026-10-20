@@ -316,3 +316,61 @@ def test_eq_raw_cancels_capture_latency(tmp_path):
     assert float(np.std(np.diff(res.eq_gain_db_raw_L[band]))) < 0.05
     assert float(np.median(res.eq_gain_db_raw_L[band])) == pytest.approx(
         -3.0, abs=0.05)
+
+
+# ----- level ladder and level steps (issue #140) -----
+
+def _tone_peak_db(x: np.ndarray) -> float:
+    return 20.0 * np.log10(float(np.max(np.abs(x))) + 1e-30)
+
+
+def test_level_ladder_holds_each_rung_at_its_level():
+    stereo, meta = ms.make_levels()
+    assert meta["kind"] == "levels"
+    assert np.array_equal(stereo[:, 0], stereo[:, 1])
+    segs = meta["segments"]
+    assert len(segs) == len(ms.LEVELS_FREQS_HZ) * len(ms.LEVELS_DBFS_PEAK)
+    assert ms.LEVELS_DBFS_PEAK[0] == -34 and ms.LEVELS_DBFS_PEAK[-1] == -2
+    for s in segs:
+        tone = stereo[s["start_sample"]:s["start_sample"] + s["len_sample"], 0]
+        assert _tone_peak_db(tone) == pytest.approx(s["level_dbfs_peak"],
+                                                     abs=0.05)
+        amp, _ = analyze._single_bin_dft(tone[int(ms.STEPPED_SETTLE_S * ms.SR):],
+                                         ms.SR, s["freq_hz"])
+        assert 20 * np.log10(amp) == pytest.approx(s["level_dbfs_peak"],
+                                                   abs=0.1)
+    assert stereo.shape[0] == meta["stimulus_samples"]
+    assert _tone_peak_db(stereo) < 0.0
+
+
+def test_level_steps_step_where_the_plan_says():
+    stereo, meta = ms.make_levelstep()
+    assert meta["kind"] == "levelstep"
+    steps = meta["steps"]
+    assert len(steps) == len(ms.LEVELSTEP_FREQS_HZ) * len(ms.LEVELSTEP_PLAN)
+    ramp = int(ms.LEVELSTEP_RAMP_MS * 1e-3 * ms.SR) + 1
+    for s in steps:
+        seg = stereo[s["start_sample"] + ramp:
+                     s["start_sample"] + s["len_sample"] - ramp, 0]
+        assert _tone_peak_db(seg) == pytest.approx(s["level_dbfs_peak"],
+                                                   abs=0.05)
+    # each frequency's steps are contiguous: one continuous tone
+    for i in range(0, len(steps), len(ms.LEVELSTEP_PLAN)):
+        run = steps[i:i + len(ms.LEVELSTEP_PLAN)]
+        for a, b in zip(run, run[1:]):
+            assert a["start_sample"] + a["len_sample"] == b["start_sample"]
+
+
+def test_the_dynamics_probes_are_deterministic():
+    for make in (ms.make_levels, ms.make_levelstep):
+        a, _ = make()
+        b, _ = make()
+        assert np.array_equal(a, b)
+
+
+def test_dynamics_only_writes_just_the_two_probes(tmp_path, monkeypatch):
+    monkeypatch.setattr(ms, "OUT_DIR", tmp_path)
+    ms.main(["--dynamics-only"])
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "stimulus_levels.json", "stimulus_levels.wav",
+        "stimulus_levelstep.json", "stimulus_levelstep.wav"]
