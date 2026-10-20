@@ -118,8 +118,8 @@ on laptops that ship no Dolby file, from HP's audio driver download or its
 | Sonitude field | Becomes |
 |---|---|
 | `SSIDMAP.bin` | Picks the preset by codec subsystem ID. Where both an `INTELAUDIO` and an `HDAUDIO` archive hold it, a SOF machine takes `INTELAUDIO`; `--hw-id` can name the bus |
-| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak |
-| Dynamics, the B&O equaliser, the `Movie` and `Voice` modes | Not reproduced; the run lists them |
+| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak. Below a step of more than 6 dB, a 4th-order Butterworth high-pass at the step |
+| Dynamics, psychoacoustic bass, the B&O equaliser, the `Movie` and `Voice` modes | Not reproduced; the run lists them |
 
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
@@ -437,10 +437,12 @@ and the parser has read only the 11 models' configs in
 
 Unvalidated, on wherever a laptop's only tuning is a Sonitude preset: every
 Sonitude mapping. That covers the curve's grid, reading the curve as the EQ,
-and applying only its cuts. From 200 Hz to 12.5 kHz the cuts-only curve is
+applying only its cuts, and the high-pass below its step. The high-pass
+reading was pre-registered on the ZBook's Voice mode and fit within 0.97 dB
+rms from 50 to 160 Hz. From 200 Hz to 12.5 kHz the cuts-only curve is
 within 1.00 dB rms of what the B&O switch changes in one HP ZBook 15 G6's
 Windows recordings, and within 1.61 dB rms of an HP OMEN's published Windows
-response. Nobody has listened to the preset
+response. One listener has heard the build from before the high-pass reading
 ([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets), issue
 [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
 
