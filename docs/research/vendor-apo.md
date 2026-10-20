@@ -389,9 +389,11 @@ Open:
   throughout; HP processing outside the APO's modes remains.
 - Volume-dependent processing: every capture ran at 50 %.
 - The low end of a preset whose high-pass is on but whose curve has no step
-  (54 of 318 speaker presets), and of one whose curve steps but whose
-  high-pass is off (11). The converter keeps the stored segment for both;
-  no capture covers either.
+  (54 of 318 speaker presets), where the converter applies the high-pass;
+  of one whose curve steps but whose high-pass is off (11), where it keeps
+  the stored curve; and of the 2 whose step sits well above a 70 Hz
+  corner, where it keeps the stored curve above the corner. No capture
+  covers any of them.
 - A third device, ideally one whose curve boosts the treble, for the
   cuts-only reading.
 - The dynamics stages, the `Movie` and `Voice` modes, and DriverStore

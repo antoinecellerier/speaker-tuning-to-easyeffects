@@ -86,10 +86,10 @@ def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
                     "ATMOS_CORPUS_DIR")
 def test_real_speaker_curves_take_both_low_end_readings():
     """Every real preset walks to its end in the stage/key layout, and real
-    presets take both low-end readings: a Butterworth-4 high-pass below the
-    step, and the stored segment kept (no step, or the high-pass off); a
-    rule that sent every curve down one path would pass the unit tests."""
-    stepped = smooth = 0
+    presets take both low-end readings: a Butterworth-4 below the corner of
+    a high-pass that is on, and the stored curve where it is off; a rule
+    that sent every curve down one path would pass the unit tests."""
+    high_passed = kept = 0
     for archive in ARCHIVES:
         with zipfile.ZipFile(archive) as z:
             for name in z.namelist():
@@ -104,8 +104,8 @@ def test_real_speaker_curves_take_both_low_end_readings():
                     continue
                 c = curves[0]
                 corner = sonitude._high_pass_hz(values, 19)
-                if sonitude._high_pass_below_break(c, corner) == tuple(c):
-                    smooth += 1
+                if sonitude._apply_high_pass(c, corner) == tuple(c):
+                    kept += 1
                 else:
-                    stepped += 1
-    assert stepped and smooth, (stepped, smooth)
+                    high_passed += 1
+    assert high_passed and kept, (high_passed, kept)

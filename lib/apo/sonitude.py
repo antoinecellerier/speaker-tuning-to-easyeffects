@@ -20,10 +20,10 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   recordings of two laptops, from 200 Hz to 12.5 kHz, the cuts-only curve
   is within 1.00 dB rms of what the B&O switch toggles on the ZBook (#140)
   and 1.61 dB rms of an OMEN's published Windows response; the full curve is
-  1.02 and 7.15. Below the curve's break (`BREAK_STEP_DB`), its segment is
-  read as a Butterworth-4 high-pass at the corner the preset's high-pass
-  field gives (`HIGH_PASS_KEYS`), a reading pre-registered on the ZBook's
-  Voice mode and within 0.97 dB rms there, 50–160 Hz.
+  1.02 and 7.15. Below the corner of the preset's high-pass
+  (`HIGH_PASS_KEYS`), the curve is read as a Butterworth-4 high-pass there,
+  a reading pre-registered on the ZBook's Voice mode and within 0.97 dB rms
+  there, 50–160 Hz.
 - The rest of `Preset.bin` is read as stage blocks of keyed values
   (`stage_values`); of those, only the high-pass is used.
 - Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
@@ -141,28 +141,34 @@ def _read(archive: zipfile.ZipFile, name: str) -> bytes:
     return archive.read(name)
 
 
-# Most speaker curves end their low-frequency segment in one step up to the
-# in-band level. Below that step Windows cuts as a 4th-order Butterworth
-# high-pass, not as the segment the curve stores (research
-# `r-sonitude-apo-presets`, pre-registered on the ZBook's Voice mode). A
-# curve with no step this large rolls off smoothly and keeps its own
-# segment, as does one whose preset has the high-pass off. Of the 318 speaker presets in the one download read, 256 have
-# such a step; at 6.5 dB one fewer would, at 5.5 dB five more (2026-10-20).
+# Below the high-pass corner Windows cuts as a 4th-order Butterworth there,
+# not as the segment the curve stores (research `r-sonitude-apo-presets`,
+# pre-registered on the ZBook's Voice mode); above it, the curve stands. The
+# curve's 1/24-octave grid and the corner don't always line up: where the
+# curve steps up to its in-band level within one grid point above the
+# corner, the step's bottom point belongs to the stored segment and is
+# replaced too, or it would be left as a one-point notch. A step is a rise
+# of more than `BREAK_STEP_DB` between neighbouring points; in the one
+# download read it sits within 5 % of the corner in 243 of the 245 speaker
+# presets that have both.
 BREAK_STEP_DB = 6.0
+_GRID_STEP = 2.0 ** (1.0 / 24.0)
 
 
-def _high_pass_below_break(curve, corner_hz: float | None
-                           ) -> tuple[float, ...]:
-    """*curve* with its segment below the break read as a Butterworth-4
-    high-pass at *corner_hz*; unchanged when it has no break or the preset's
-    high-pass is off (None)."""
+def _apply_high_pass(curve, corner_hz: float | None) -> tuple[float, ...]:
+    """*curve* with its points below *corner_hz* read as a Butterworth-4
+    high-pass there; unchanged when the preset's high-pass is off (None)."""
+    if corner_hz is None:
+        return tuple(curve)
     hz = curve_grid_hz()
+    edge = corner_hz * (1.0 + 1e-9)
+    n = sum(1 for f in hz if f <= edge)
     k = next((i for i in range(len(curve) - 1)
               if curve[i + 1] - curve[i] > BREAK_STEP_DB), None)
-    if k is None or corner_hz is None:
-        return tuple(curve)
+    if k is not None and k >= n and hz[k] <= edge * _GRID_STEP:
+        n = k + 1
     return (tuple(-10.0 * math.log10(1.0 + (corner_hz / f) ** 8)
-                  for f in hz[:k + 1]) + tuple(curve[k + 1:]))
+                  for f in hz[:n]) + tuple(curve[n:]))
 
 
 # Past a fixed header, Preset.bin is a run of stage blocks to the end of the
@@ -348,9 +354,9 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
     # boosts. A hypothesis that two devices' Windows captures support and no
     # file states (research `r-sonitude-apo-presets`).
     left = tuple(min(v, 0.0)
-                 for v in _high_pass_below_break(curves[0], corners[0]))
+                 for v in _apply_high_pass(curves[0], corners[0]))
     right = (tuple(min(v, 0.0)
-                   for v in _high_pass_below_break(curves[1], corners[1]))
+                   for v in _apply_high_pass(curves[1], corners[1]))
              if len(curves) > 1 else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(

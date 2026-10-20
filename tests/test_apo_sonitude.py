@@ -305,7 +305,8 @@ def test_the_check_grades_a_curve_from_where_its_points_clear_a_bin():
 
 def test_the_curve_is_applied_as_cuts_only(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
-                 {1: _preset_bin(_curve(step_at=None))})
+                 {1: _preset_bin(_curve(step_at=None),
+                                 high_pass=(None, None))})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
     assert max(layer.curve_left_db) == 0.0 and max(_curve(step_at=None)) > 5
     assert min(layer.curve_left_db) == pytest.approx(
@@ -334,24 +335,41 @@ def _ramp() -> list[float]:
     return [min(0.0, -0.5 * (100 - k)) for k in range(sonitude.CURVE_POINTS)]
 
 
-def test_a_curve_without_a_break_keeps_its_own_roll_off(tmp_path):
+def _below(corner: float) -> int:
+    """How many curve points sit at or below *corner* Hz."""
+    return int(np.sum(np.array(sonitude.curve_grid_hz()) <= corner + 1e-6))
+
+
+def test_a_curve_without_a_step_is_high_passed_below_the_corner(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
                  {1: _preset_bin(_ramp())})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
-    assert np.allclose(layer.curve_left_db, _ramp(), atol=1e-5)
+    n = _below(80.0)
+    hz = np.array(layer.curve_hz[:n])
+    assert np.allclose(layer.curve_left_db[:n], _butterworth4_db(80.0, hz),
+                       atol=1e-4)
+    assert np.allclose(layer.curve_left_db[n:], _ramp()[n:], atol=1e-5)
 
 
-@pytest.mark.parametrize("step,replaced", [(5.9, False), (6.1, True)])
-def test_the_break_is_a_step_of_more_than_6_db(step, replaced):
-    curve = [-20.0] * 100 + [-20.0 + step] * (sonitude.CURVE_POINTS - 100)
-    out = sonitude._high_pass_below_break(curve, 80.0)
-    assert (out[:100] != tuple(curve[:100])) == replaced
-    assert out[100:] == tuple(curve[100:])
+@pytest.mark.parametrize("bottom,step,replaced", [
+    (73, 6.1, 74),   # a step one grid point above 80 Hz: its bottom goes too
+    (73, 5.9, 73),   # not a step: the point above the corner stands
+    (75, 6.1, 73),   # a step further up: the stored segment above stands
+])
+def test_a_step_just_above_the_corner_leaves_no_notch(bottom, step, replaced):
+    curve = ([-20.0] * (bottom + 1)
+             + [-20.0 + step] * (sonitude.CURVE_POINTS - bottom - 1))
+    out = sonitude._apply_high_pass(curve, 80.0)
+    assert _below(80.0) == 73
+    hz = sonitude.curve_grid_hz()
+    assert np.allclose(out[:replaced], _butterworth4_db(80.0, np.array(
+        hz[:replaced])), atol=1e-9)
+    assert out[replaced:] == tuple(curve[replaced:])
 
 
-def test_each_channel_finds_its_own_break(tmp_path):
+def test_each_channel_takes_its_own_high_pass(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
-                 {1: _preset_bin(_curve(), _ramp())})
+                 {1: _preset_bin(_curve(), _ramp(), high_pass=(80.0, None))})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
     assert layer.curve_left_db[0] < -70
     assert np.allclose(layer.curve_right_db, _ramp(), atol=1e-5)
@@ -715,16 +733,18 @@ def test_the_stage_blocks_walk_to_the_end_of_the_file():
 
 
 def test_the_high_pass_corner_comes_from_its_field(tmp_path):
-    """_curve() steps up after 80 Hz; a 75 Hz corner in the field moves the
-    Butterworth there, and the stepped segment is still what it replaces."""
+    """_curve() steps up after 80 Hz; with a 70 Hz corner the Butterworth
+    sits at 70 Hz, and the stored segment between 70 and 80 Hz, more than a
+    grid point above the corner, stands."""
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
-                 {1: _preset_bin(_curve(), high_pass=(75.0, 75.0))})
+                 {1: _preset_bin(_curve(), high_pass=(70.0, 70.0))})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
-    hz = np.array(layer.curve_hz[:73])
-    assert np.allclose(layer.curve_left_db[:73], _butterworth4_db(75.0, hz),
+    n = _below(70.0)
+    hz = np.array(layer.curve_hz[:n])
+    assert np.allclose(layer.curve_left_db[:n], _butterworth4_db(70.0, hz),
                        atol=1e-4)
-    assert np.allclose(layer.curve_left_db[73:],
-                       np.minimum(_curve(), 0)[73:], atol=1e-5)
+    assert np.allclose(layer.curve_left_db[n:],
+                       np.minimum(_curve(), 0)[n:], atol=1e-5)
 
 
 def test_a_preset_with_its_high_pass_off_keeps_the_stored_segment(tmp_path):

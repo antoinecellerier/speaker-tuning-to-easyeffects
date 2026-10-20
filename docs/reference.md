@@ -118,7 +118,7 @@ on laptops that ship no Dolby file, from HP's audio driver download or its
 | Sonitude field | Becomes |
 |---|---|
 | `SSIDMAP.bin` | Picks the preset by codec subsystem ID. Where both an `INTELAUDIO` and an `HDAUDIO` archive hold it, a SOF machine takes `INTELAUDIO`; `--hw-id` can name the bus |
-| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak. Below a step of more than 6 dB, a 4th-order Butterworth high-pass at the preset's high-pass corner (stage 5, keys 19/20), when that is on |
+| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak. Below the preset's high-pass corner (stage 5, keys 19/20), when that is on, a 4th-order Butterworth at the corner |
 | Dynamics, psychoacoustic bass, the B&O equaliser, the `Movie` and `Voice` modes | Not reproduced; the run lists them |
 
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
