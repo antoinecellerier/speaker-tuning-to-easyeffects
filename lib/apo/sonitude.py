@@ -20,7 +20,10 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   recordings of two laptops, from 200 Hz to 12.5 kHz, the cuts-only curve
   is within 1.00 dB rms of what the B&O switch toggles on the ZBook (#140)
   and 1.61 dB rms of an OMEN's published Windows response; the full curve is
-  1.02 and 7.15.
+  1.02 and 7.15. Below the curve's break, its segment is read as a
+  Butterworth-4 high-pass at the break (`BREAK_STEP_DB`), a reading
+  pre-registered on the ZBook's Voice mode and within 0.97 dB rms there,
+  50–160 Hz.
 - Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
   preset: the archive's own manifest names that file "<model> Music".
   Everything else in the preset (dynamics, the user equaliser, the other
@@ -134,6 +137,28 @@ def _read(archive: zipfile.ZipFile, name: str) -> bytes:
     if archive.getinfo(name).file_size > MAX_MEMBER_BYTES:
         raise ValueError(f"{name} is larger than a tuning file")
     return archive.read(name)
+
+
+# Most speaker curves end their low-frequency segment in one step up to the
+# in-band level. Below that step Windows cuts as a 4th-order Butterworth
+# high-pass at the step's lower point, not as the segment the curve stores
+# (research `r-sonitude-apo-presets`, pre-registered on the ZBook's Voice
+# mode). A curve with no step this large rolls off smoothly and keeps its
+# own segment. Of the 318 speaker presets in the one download read, 256 have
+# such a step; at 6.5 dB one fewer would, at 5.5 dB five more (2026-10-20).
+BREAK_STEP_DB = 6.0
+
+
+def _high_pass_below_break(curve) -> tuple[float, ...]:
+    """*curve* with its segment below the break read as a Butterworth-4
+    high-pass at the break; unchanged when it has no break."""
+    hz = curve_grid_hz()
+    k = next((i for i in range(len(curve) - 1)
+              if curve[i + 1] - curve[i] > BREAK_STEP_DB), None)
+    if k is None:
+        return tuple(curve)
+    return (tuple(-10.0 * math.log10(1.0 + (hz[k] / f) ** 8)
+                  for f in hz[:k + 1]) + tuple(curve[k + 1:]))
 
 
 def _sane(curve) -> bool:
@@ -255,9 +280,9 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
     # Cuts only: Windows applies the curve's negative gains and none of its
     # boosts. A hypothesis that two devices' Windows captures support and no
     # file states (research `r-sonitude-apo-presets`).
-    left = tuple(min(v, 0.0) for v in curves[0])
-    right = (tuple(min(v, 0.0) for v in curves[1]) if len(curves) > 1
-             else left)
+    left = tuple(min(v, 0.0) for v in _high_pass_below_break(curves[0]))
+    right = (tuple(min(v, 0.0) for v in _high_pass_below_break(curves[1]))
+             if len(curves) > 1 else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(
         label=f"HP Bang & Olufsen (Sonitude {name})",
@@ -269,11 +294,13 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
         eq_left=(), eq_right=(), dynamics=(),
         notes=(
             "the compressor and limiter stages (not read yet)",
+            "the psychoacoustic bass stage, which adds harmonics to the "
+            "deepest bass (not read yet)",
             "the B&O Audio Control equaliser, flat in the preset",
             "the Movie and Voice modes",
-            "a steeper cut below about 60 Hz, and on one laptop a fixed EQ "
-            "that stays on with Windows' audio enhancements off, both "
-            "measured on Windows (issue #140) and found in no file read",
+            "on one laptop, a fixed EQ that stays on with Windows' audio "
+            "enhancements off, measured on Windows (issue #140) and found "
+            "in no file read",
         ),
         default_on=True,
         standalone=True,

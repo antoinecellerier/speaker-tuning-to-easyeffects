@@ -119,7 +119,8 @@ def test_find_binds_the_subsystem_and_reads_the_speaker_curve(tmp_path):
                                  "&SUBSYS_103C860F")
     assert layer.eq_left == () and layer.dynamics == ()
     assert len(layer.curve_hz) == 265
-    assert np.allclose(layer.curve_left_db, np.minimum(_curve(), 0),
+    # Above the break (80 Hz, point 72) the curve is read as is, cuts only.
+    assert np.allclose(layer.curve_left_db[73:], np.minimum(_curve(), 0)[73:],
                        atol=1e-5)
 
 
@@ -286,10 +287,56 @@ def test_the_check_grades_a_curve_from_where_its_points_clear_a_bin():
 
 def test_the_curve_is_applied_as_cuts_only(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(step_at=None))})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert max(layer.curve_left_db) == 0.0 and max(_curve(step_at=None)) > 5
+    assert min(layer.curve_left_db) == pytest.approx(
+        min(_curve(step_at=None)), abs=1e-4)
+
+
+def _butterworth4_db(fc: float, f: np.ndarray) -> np.ndarray:
+    return -10 * np.log10(1 + (fc / f) ** 8)
+
+
+def test_below_the_break_is_a_butterworth_4_high_pass_at_it(tmp_path):
+    """_curve() steps up by ~11 dB after its point 72, 80 Hz: below that, the
+    stored segment gives way to a 4th-order Butterworth cornered there."""
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
                  {1: _preset_bin(_curve())})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
-    assert max(layer.curve_left_db) == 0.0 and max(_curve()) > 5
-    assert min(layer.curve_left_db) == pytest.approx(min(_curve()), abs=1e-4)
+    hz = np.array(layer.curve_hz[:73])
+    assert hz[-1] == pytest.approx(80.0)
+    assert np.allclose(layer.curve_left_db[:73], _butterworth4_db(80.0, hz),
+                       atol=1e-4)
+    assert layer.curve_left_db[72] == pytest.approx(-3.01, abs=0.01)
+
+
+def _ramp() -> list[float]:
+    """A smooth roll-off: 0.5 dB per point up to 0 dB, no step anywhere."""
+    return [min(0.0, -0.5 * (100 - k)) for k in range(sonitude.CURVE_POINTS)]
+
+
+def test_a_curve_without_a_break_keeps_its_own_roll_off(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_ramp())})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert np.allclose(layer.curve_left_db, _ramp(), atol=1e-5)
+
+
+@pytest.mark.parametrize("step,replaced", [(5.9, False), (6.1, True)])
+def test_the_break_is_a_step_of_more_than_6_db(step, replaced):
+    curve = [-20.0] * 100 + [-20.0 + step] * (sonitude.CURVE_POINTS - 100)
+    out = sonitude._high_pass_below_break(curve)
+    assert (out[:100] != tuple(curve[:100])) == replaced
+    assert out[100:] == tuple(curve[100:])
+
+
+def test_each_channel_finds_its_own_break(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(), _ramp())})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert layer.curve_left_db[0] < -70
+    assert np.allclose(layer.curve_right_db, _ramp(), atol=1e-5)
 
 
 # --- the run -----------------------------------------------------------------

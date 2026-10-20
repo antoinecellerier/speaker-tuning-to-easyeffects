@@ -260,11 +260,11 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
 def _vendor_only_finding(label: str) -> Finding:
     """A preset built from HP's Bang & Olufsen tuning alone (issue #140).
 
-    Its EQ was compared against two laptops' Windows recordings, not heard,
-    so the ask names the comparison that tells us whether it holds. The
-    figures are research `r-sonitude-apo-presets`'s, and each keeps its
-    band and its device: the 1.0 is against what the B&O switch changes on
-    the ZBook, not against everything Windows does there.
+    Its EQ was compared against two laptops' Windows recordings and heard
+    by one listener, so the ask names the comparison that tells us whether
+    it holds elsewhere. The figures are research `r-sonitude-apo-presets`'s,
+    and each keeps its band and its device: the 1.0 is against what the B&O
+    switch changes on the ZBook, not against everything Windows does there.
     """
     return Finding(
         slug="vendor-tuning-unconfirmed", kind="ask",
@@ -272,10 +272,10 @@ def _vendor_only_finding(label: str) -> Finding:
                "this model. From 200 Hz to 12.5 kHz its EQ is within 1.0 dB "
                "rms of what the B&O switch changes in one HP laptop's "
                "Windows recordings, and within 1.6 dB rms of a second HP "
-               "laptop's published Windows response. It plays more of the "
-               "deepest bass, below about 60 Hz, than Windows does, and on "
-               "the first laptop it leaves out an EQ Windows applies even "
-               "with B&O off. Nobody has listened to it yet.",
+               "laptop's published Windows response. It leaves out the "
+               "harmonics B&O adds to the deepest bass, and on the first "
+               "laptop an EQ Windows applies even with B&O off. One listener "
+               "has heard it, on that laptop.",
         ask="Compare it with Windows on B&O 'Music', and tell us on issue "
             "#140 how close it sounds.")
 

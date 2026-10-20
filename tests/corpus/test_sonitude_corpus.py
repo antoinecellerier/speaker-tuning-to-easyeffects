@@ -7,6 +7,7 @@ not beside any DAX3 XML, so the XML discovery never reaches them.
 
 from __future__ import annotations
 
+import math
 import os
 import zipfile
 from pathlib import Path
@@ -74,7 +75,32 @@ def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
             layer = sonitude.load(*found.hits[bus], bus, ven + dev, subsys)
         except UnsupportedApoConfig:
             continue
-        assert max(layer.curve_left_db) <= 0 and max(layer.curve_right_db) <= 0
+        for db in (layer.curve_left_db, layer.curve_right_db):
+            assert all(math.isfinite(v) and v <= 0 for v in db)
         assert len(layer.curve_hz) == sonitude.CURVE_POINTS
         built += 1
     assert built, f"{archive.name}: no mapped ID built a layer"
+
+
+@pytest.mark.skipif(not ARCHIVES, reason="no SEAPODAT archive under "
+                    "ATMOS_CORPUS_DIR")
+def test_real_speaker_curves_take_both_low_end_readings():
+    """Real presets both step up to their in-band level, read as a
+    Butterworth-4 high-pass, and roll off smoothly, kept as stored; a
+    threshold that sent every curve down one path would pass the unit tests."""
+    stepped = smooth = 0
+    for archive in ARCHIVES:
+        with zipfile.ZipFile(archive) as z:
+            for name in z.namelist():
+                if not name.replace("\\", "/").lower().endswith(
+                        sonitude.SPEAKER_PRESET.lower()):
+                    continue
+                curves = sonitude.read_curves(z.read(name))
+                if not curves:
+                    continue
+                c = curves[0]
+                if sonitude._high_pass_below_break(c) == tuple(c):
+                    smooth += 1
+                else:
+                    stepped += 1
+    assert stepped and smooth, (stepped, smooth)
