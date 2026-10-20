@@ -56,14 +56,32 @@ def _curve(step_at: int | None = 72) -> list[float]:
     return out
 
 
-def _preset_bin(left: list[float], right: list[float] | None = None) -> bytes:
-    """Header bytes the parser skips, filler values, then the two curves."""
-    def block(c):
-        return (struct.pack("<IH", 2 + 4 * len(c) + 2, len(c))
-                + struct.pack(f"<{len(c)}f", *c) + b"\0\0")
-    filler = struct.pack("<I", 4) + struct.pack("<f", 0.001)
-    return (b"\x06\x00\x10\x00" + b"\0" * 64 + filler + block(left)
-            + block(right if right is not None else left) + filler)
+def _preset_bin(left: list[float], right: list[float] | None = None,
+                high_pass=(80.0, 80.0)) -> bytes:
+    """A Preset.bin in the stage/key layout: a header the parser skips, a
+    section table pointing at the body, an empty stage, then stage 5 with
+    the two curves (keys 13, 14) and the high-pass corners (keys 19, 20;
+    None = off)."""
+    def rec(payload: bytes) -> bytes:
+        return struct.pack("<I", len(payload)) + payload
+
+    def curve(c):
+        return (struct.pack("<H", len(c)) + struct.pack(f"<{len(c)}f", *c)
+                + b"\0\0")
+
+    def corner(hz):
+        return rec(struct.pack("<Bf", 0 if hz is None else 1, hz or 0.0))
+
+    keys = {13: rec(curve(left)),
+            14: rec(curve(right if right is not None else left)),
+            19: corner(high_pass[0]), 20: corner(high_pass[1])}
+    body = (struct.pack("<iii", 6, 2**31 - 1, -2**31)
+            + struct.pack("<iii", 5, 13, 20)
+            + b"".join(keys.get(k, struct.pack("<I", 0))
+                       for k in range(13, 21)))
+    start = 0x28 + 32
+    table = struct.pack("<8I", 0, 0, 0, 0, start, len(body), 0, 0)
+    return struct.pack("<I", 0x100006) + b"\0" * 36 + table + body
 
 
 def _archive(path: Path, entries: dict[str, int], presets: dict[int, bytes],
@@ -326,7 +344,7 @@ def test_a_curve_without_a_break_keeps_its_own_roll_off(tmp_path):
 @pytest.mark.parametrize("step,replaced", [(5.9, False), (6.1, True)])
 def test_the_break_is_a_step_of_more_than_6_db(step, replaced):
     curve = [-20.0] * 100 + [-20.0 + step] * (sonitude.CURVE_POINTS - 100)
-    out = sonitude._high_pass_below_break(curve)
+    out = sonitude._high_pass_below_break(curve, 80.0)
     assert (out[:100] != tuple(curve[:100])) == replaced
     assert out[100:] == tuple(curve[100:])
 
@@ -686,3 +704,41 @@ def test_the_wrapper_says_a_vendor_tuning_has_one_voicing(tmp_path):
     assert result.returncode == 1
     assert "one voicing, Balanced" in result.stdout
     assert "see the log above" not in result.stdout
+
+
+# --- the high-pass field -----------------------------------------------------
+
+def test_the_stage_blocks_walk_to_the_end_of_the_file():
+    values = sonitude.stage_values(_preset_bin(_curve()))
+    assert sorted(values) == [(5, 13), (5, 14), (5, 19), (5, 20)]
+    assert sonitude.stage_values(_preset_bin(_curve()) + b"\0") == {}
+
+
+def test_the_high_pass_corner_comes_from_its_field(tmp_path):
+    """_curve() steps up after 80 Hz; a 75 Hz corner in the field moves the
+    Butterworth there, and the stepped segment is still what it replaces."""
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(), high_pass=(75.0, 75.0))})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    hz = np.array(layer.curve_hz[:73])
+    assert np.allclose(layer.curve_left_db[:73], _butterworth4_db(75.0, hz),
+                       atol=1e-4)
+    assert np.allclose(layer.curve_left_db[73:],
+                       np.minimum(_curve(), 0)[73:], atol=1e-5)
+
+
+def test_a_preset_with_its_high_pass_off_keeps_the_stored_segment(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(), high_pass=(None, 80.0))})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert np.allclose(layer.curve_left_db, np.minimum(_curve(), 0),
+                       atol=1e-5)
+    assert layer.curve_right_db[0] < -70
+
+
+@pytest.mark.parametrize("corner", [float("nan"), 5.0, 5000.0])
+def test_a_high_pass_no_tuning_uses_is_unsupported(tmp_path, corner):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(), high_pass=(corner, 80.0))})
+    with pytest.raises(apo_layer.UnsupportedApoConfig, match="high-pass"):
+        sonitude.find(a, "10EC0285", "103C860F", True)

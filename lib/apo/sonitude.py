@@ -20,10 +20,12 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   recordings of two laptops, from 200 Hz to 12.5 kHz, the cuts-only curve
   is within 1.00 dB rms of what the B&O switch toggles on the ZBook (#140)
   and 1.61 dB rms of an OMEN's published Windows response; the full curve is
-  1.02 and 7.15. Below the curve's break, its segment is read as a
-  Butterworth-4 high-pass at the break (`BREAK_STEP_DB`), a reading
-  pre-registered on the ZBook's Voice mode and within 0.97 dB rms there,
-  50–160 Hz.
+  1.02 and 7.15. Below the curve's break (`BREAK_STEP_DB`), its segment is
+  read as a Butterworth-4 high-pass at the corner the preset's high-pass
+  field gives (`HIGH_PASS_KEYS`), a reading pre-registered on the ZBook's
+  Voice mode and within 0.97 dB rms there, 50–160 Hz.
+- The rest of `Preset.bin` is read as stage blocks of keyed values
+  (`stage_values`); of those, only the high-pass is used.
 - Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
   preset: the archive's own manifest names that file "<model> Music".
   Everything else in the preset (dynamics, the user equaliser, the other
@@ -141,24 +143,86 @@ def _read(archive: zipfile.ZipFile, name: str) -> bytes:
 
 # Most speaker curves end their low-frequency segment in one step up to the
 # in-band level. Below that step Windows cuts as a 4th-order Butterworth
-# high-pass at the step's lower point, not as the segment the curve stores
-# (research `r-sonitude-apo-presets`, pre-registered on the ZBook's Voice
-# mode). A curve with no step this large rolls off smoothly and keeps its
-# own segment. Of the 318 speaker presets in the one download read, 256 have
+# high-pass, not as the segment the curve stores (research
+# `r-sonitude-apo-presets`, pre-registered on the ZBook's Voice mode). A
+# curve with no step this large rolls off smoothly and keeps its own
+# segment, as does one whose preset has the high-pass off. Of the 318 speaker presets in the one download read, 256 have
 # such a step; at 6.5 dB one fewer would, at 5.5 dB five more (2026-10-20).
 BREAK_STEP_DB = 6.0
 
 
-def _high_pass_below_break(curve) -> tuple[float, ...]:
+def _high_pass_below_break(curve, corner_hz: float | None
+                           ) -> tuple[float, ...]:
     """*curve* with its segment below the break read as a Butterworth-4
-    high-pass at the break; unchanged when it has no break."""
+    high-pass at *corner_hz*; unchanged when it has no break or the preset's
+    high-pass is off (None)."""
     hz = curve_grid_hz()
     k = next((i for i in range(len(curve) - 1)
               if curve[i + 1] - curve[i] > BREAK_STEP_DB), None)
-    if k is None:
+    if k is None or corner_hz is None:
         return tuple(curve)
-    return (tuple(-10.0 * math.log10(1.0 + (hz[k] / f) ** 8)
+    return (tuple(-10.0 * math.log10(1.0 + (corner_hz / f) ** 8)
                   for f in hz[:k + 1]) + tuple(curve[k + 1:]))
+
+
+# Past a fixed header, Preset.bin is a run of stage blocks to the end of the
+# file: i32 stage, i32 first key, i32 last key, then per key a u32 length and
+# that many bytes (length 0 = absent; an empty stage has first > last). The
+# section table's third entry at 0x28 gives where the blocks start. The walk
+# ends exactly at the end of all 1,829 endpoint-0 presets in the one
+# download read.
+_SECTION_TABLE = 0x28
+MAX_KEYS = 4096
+
+
+def stage_values(data: bytes) -> dict[tuple[int, int], bytes]:
+    """Preset.bin's values keyed by (stage, key); empty when the file
+    doesn't walk to its end in that layout."""
+    if len(data) < _SECTION_TABLE + 32:
+        return {}
+    (o,) = struct.unpack_from("<I", data, _SECTION_TABLE + 16)
+    out = {}
+    while o < len(data):
+        if o + 12 > len(data):
+            return {}
+        stage, first, last = struct.unpack_from("<iii", data, o)
+        o += 12
+        if first > last:
+            continue
+        if last - first >= MAX_KEYS:
+            return {}
+        for key in range(first, last + 1):
+            if o + 4 > len(data):
+                return {}
+            (n,) = struct.unpack_from("<I", data, o)
+            o += 4
+            if o + n > len(data):
+                return {}
+            if n:
+                out[(stage, key)] = data[o:o + n]
+            o += n
+    return out if o == len(data) else {}
+
+
+# Stage 5 keys 19 and 20 hold the speaker's high-pass, left and right: a flag
+# byte (bit 0 on) then its corner in Hz as float32. Where the curve steps up,
+# it does so within 5 % of this corner in 243 of the 245 speaker presets
+# that have both, and on the ZBook's Voice mode Windows cuts as a
+# Butterworth-4 there (research `r-sonitude-apo-presets`). Enabled corners
+# run 40–250 Hz in the download read.
+HIGH_PASS_KEYS = (19, 20)
+
+
+def _high_pass_hz(values: dict, key: int) -> float | None:
+    """The corner of channel *key*'s high-pass in Hz; None when off or
+    absent. Raises ValueError for a corner no tuning uses."""
+    payload = values.get((5, key))
+    if payload is None or len(payload) != 5 or not payload[0] & 1:
+        return None
+    (corner,) = struct.unpack_from("<f", payload, 1)
+    if not (math.isfinite(corner) and 10.0 <= corner <= 1000.0):
+        raise ValueError(f"a high-pass at {corner} Hz")
+    return corner
 
 
 def _sane(curve) -> bool:
@@ -266,7 +330,10 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
             if member.lower() not in names:
                 raise UnsupportedApoConfig(path, f"preset {number} has no "
                                            f"speaker file ({member})")
-            curves = read_curves(_read(z, names[member.lower()]))
+            data = _read(z, names[member.lower()])
+            curves = read_curves(data)
+            values = stage_values(data)
+            corners = [_high_pass_hz(values, k) for k in HIGH_PASS_KEYS]
             codename = _preset_label(names, number)
     except _READ_ERRORS as exc:
         raise UnsupportedApoConfig(path, f"its preset {number} can't be "
@@ -280,8 +347,10 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
     # Cuts only: Windows applies the curve's negative gains and none of its
     # boosts. A hypothesis that two devices' Windows captures support and no
     # file states (research `r-sonitude-apo-presets`).
-    left = tuple(min(v, 0.0) for v in _high_pass_below_break(curves[0]))
-    right = (tuple(min(v, 0.0) for v in _high_pass_below_break(curves[1]))
+    left = tuple(min(v, 0.0)
+                 for v in _high_pass_below_break(curves[0], corners[0]))
+    right = (tuple(min(v, 0.0)
+                   for v in _high_pass_below_break(curves[1], corners[1]))
              if len(curves) > 1 else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(

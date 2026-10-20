@@ -85,9 +85,10 @@ def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
 @pytest.mark.skipif(not ARCHIVES, reason="no SEAPODAT archive under "
                     "ATMOS_CORPUS_DIR")
 def test_real_speaker_curves_take_both_low_end_readings():
-    """Real presets both step up to their in-band level, read as a
-    Butterworth-4 high-pass, and roll off smoothly, kept as stored; a
-    threshold that sent every curve down one path would pass the unit tests."""
+    """Every real preset walks to its end in the stage/key layout, and real
+    presets take both low-end readings: a Butterworth-4 high-pass below the
+    step, and the stored segment kept (no step, or the high-pass off); a
+    rule that sent every curve down one path would pass the unit tests."""
     stepped = smooth = 0
     for archive in ARCHIVES:
         with zipfile.ZipFile(archive) as z:
@@ -95,11 +96,15 @@ def test_real_speaker_curves_take_both_low_end_readings():
                 if not name.replace("\\", "/").lower().endswith(
                         sonitude.SPEAKER_PRESET.lower()):
                     continue
-                curves = sonitude.read_curves(z.read(name))
+                data = z.read(name)
+                curves = sonitude.read_curves(data)
+                values = sonitude.stage_values(data)
+                assert values, f"{archive.name}: {name} doesn't walk to its end"
                 if not curves:
                     continue
                 c = curves[0]
-                if sonitude._high_pass_below_break(c) == tuple(c):
+                corner = sonitude._high_pass_hz(values, 19)
+                if sonitude._high_pass_below_break(c, corner) == tuple(c):
                     smooth += 1
                 else:
                     stepped += 1

@@ -271,8 +271,15 @@ Realtek's `RTAIODAT.DAT` has no record for `103C860F`
 |---|---|
 | `SSIDMAP.bin` | `SRSM`, u32 version, u32 count, u32 record size (20 or 32), then count × (u32 preset number, `SUBSYS_…` name) |
 | `<N>.<codename>.txt` | plain-text manifest: device ID, then each `Preset.bin` and the `.srproject` it came from |
-| `<N>/<endpoint>/EFX/<output>/<content>/Preset.bin` | header, a section table whose last section ends at the end of the file, then length-prefixed values |
+| `<N>/<endpoint>/EFX/<output>/<content>/Preset.bin` | header, a section table whose third entry points at the body, then stage blocks to the end of the file: i32 stage, i32 first and last key, then per key a u32 length and its bytes |
 | speaker curve | two blocks of u16 265 + 265 float32 per preset (L, R; identical in 313 of 318 endpoint-0 presets) |
+
+The stage-block walk ends exactly at the end of all 1,829 endpoint-0
+presets. Stage 5 keys 19 and 20 hold a flag byte and a float32 corner in Hz
+per channel: 80 Hz in Music and Movie, 125 in Voice. It is on in 299 of 318
+speaker presets, at 40 to 250 Hz. Where the curve steps up by more than
+6 dB, the step sits within 5 % of this corner in 243 of the 245 presets
+that have both, so it reads as the speaker's high-pass.
 
 `103C860F` maps to preset 177, `X_Venus`; its manifest names endpoint 0's
 `AnyContent` file "Venus Music". The archives hold 1,348 distinct subsystem
@@ -381,6 +388,10 @@ Open:
 - What the `off` layer is. It isn't Windows spatial audio, which was off
   throughout; HP processing outside the APO's modes remains.
 - Volume-dependent processing: every capture ran at 50 %.
+- The low end of a preset whose high-pass is on but whose curve has no step
+  (54 of 318 speaker presets), and of one whose curve steps but whose
+  high-pass is off (11). The converter keeps the stored segment for both;
+  no capture covers either.
 - A third device, ideally one whose curve boosts the treble, for the
   cuts-only reading.
 - The dynamics stages, the `Movie` and `Voice` modes, and DriverStore
