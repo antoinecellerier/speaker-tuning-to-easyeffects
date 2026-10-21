@@ -359,16 +359,16 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             return rc
 
-        # A standalone tuning (lib/tuning_source.py) builds one preset per
-        # profile and no voicings, so every preset it staged is converted,
-        # in the order it built them.
-        standalone = resolved.get("source") == "standalone"
-        if standalone and args.variant != parser.get_default("variant"):
+        # A source without voicings (lib/tuning_source.py `has_voicings`)
+        # builds one preset per profile, so every preset it staged is
+        # converted, in the order it built them.
+        voicings = resolved.get("voicings", True)
+        if not voicings and args.variant != parser.get_default("variant"):
             console.cprint("err", "error: --variant picks among a Dolby "
                           "tuning's voicings, and this tuning has none — "
                           f"drop --variant {args.variant}")
             return 1
-        if standalone:
+        if not voicings:
             presets = [Path(tmp) / f"{name}.json"
                        for name in resolved.get("presets", [])]
         else:

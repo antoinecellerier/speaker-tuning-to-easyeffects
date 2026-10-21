@@ -737,9 +737,10 @@ def main(argv: list[str] | None = None,
     ``resolved`` takes what only this function can work out:
     ``tuning_file``, the XML or archive the closing block names as the file
     to attach (`TuningSource.closing_file`), which auto-discovery may have
-    found on a mounted Windows partition, and ``source``, the
-    `TuningSource.kind` it read (`lib/tuning_source.py`). A caller printing
-    that block on our behalf has no other way to learn either.
+    found on a mounted Windows partition, and ``voicings``, whether the
+    source's presets come in voicings (`TuningSource.has_voicings`). A
+    caller printing that block on our behalf has no other way to learn
+    either.
 
     ``staged`` marks the output dirs as a wrapper's throwaway staging area,
     so the per-file announcements say "Staged", not "Wrote"."""
@@ -792,12 +793,12 @@ def main(argv: list[str] | None = None,
     # working from.
     if resolved is not None:
         resolved["tuning_file"] = source.closing_file
-        resolved["source"] = source.kind
+        resolved["voicings"] = source.has_voicings
 
-    is_soundwire = (source.kind == tuning_source.DOLBY
+    is_soundwire = (xml_path is not None
                     and discover.is_soundwire_xml(Path(xml_path).name))
 
-    if args.list and source.kind == tuning_source.STANDALONE:
+    if args.list and source.profiles:
         # The Dolby listing's shape: the profiles are the tuning's content
         # modes, all for the one output a standalone tuning is read for.
         console.cprint("head", "Endpoints and profiles in "
@@ -834,8 +835,9 @@ def main(argv: list[str] | None = None,
                                 f"but can't be used: {exc.reason}. Building "
                                 "from the Dolby file alone.")
 
-    # Determine which profiles to process
-    if source.kind == tuning_source.STANDALONE:
+    # Determine which profiles to process: the source's own when it carries
+    # them, else the Dolby file's.
+    if source.profiles:
         profile_types = source.profiles_to_build(args.profile,
                                                  args.all_profiles)
         if args.all_profiles:
@@ -1006,6 +1008,9 @@ def main(argv: list[str] | None = None,
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
+        # The vendor layer that is this profile's whole tuning, or None when
+        # the Dolby file holds it.
+        whole = source.layer_for(profile_type)
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
         # A standalone tuning has no voicings to tell its presets apart, so
@@ -1013,7 +1018,7 @@ def main(argv: list[str] | None = None,
         name_parts = [source.prefix]
         if args.mode != "normal":
             name_parts.append(args.mode.title())
-        if source.kind == tuning_source.STANDALONE:
+        if not source.has_voicings:
             name_parts.append(profile_type.title())
         elif profile_type or args.all_profiles:
             safe_profile = parse.sanitize_profile_type(profile_type or "default")
@@ -1038,7 +1043,7 @@ def main(argv: list[str] | None = None,
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
-        if source.kind == tuning_source.STANDALONE:
+        if whole is not None:
             console.cprint("head", source.format.heading)
             # The Dolby banner's wording, from the tuning's own profiles. A
             # mode that changes nothing is never built, so when the first
@@ -1082,11 +1087,11 @@ def main(argv: list[str] | None = None,
             hide_attempted = True
             reload.hide_window_before_writing(args)
 
-        if source.kind == tuning_source.STANDALONE:
+        if whole is not None:
             # The Dolby sections would all describe absent stages; the vendor
             # layer's own section is the whole report. Each profile has its
             # own layer, so each preset is built from its own.
-            apo = source.profiles[profile_type]
+            apo = whole
             profile_findings = report_profile._print_apo_layer(
                 apo, True, args.verbose, shown=apo_shown,
                 experimental=source.experimental(profile_type))
@@ -1315,7 +1320,7 @@ def main(argv: list[str] | None = None,
     # A preset built from a standalone tuning alone has been compared with
     # two laptops' Windows recordings and heard by one listener: ask for the
     # comparison.
-    if source.kind == tuning_source.STANDALONE and tally.all_preset_names:
+    if source.layer is not None and tally.all_preset_names:
         tally.findings.setdefault(
             "vendor-tuning-unconfirmed",
             report_findings._vendor_only_finding())
@@ -1402,12 +1407,10 @@ def main(argv: list[str] | None = None,
         # A standalone mode that changes nothing is never built, so it is
         # not one of the modes --all-profiles would add.
         profile_used = n_modes = None
-        unbuilt = (source.unbuildable
-                   if source.kind == tuning_source.STANDALONE else [])
+        unbuilt = source.unbuildable
         if not args.all_profiles and len(profile_types) == 1:
             profile_used = last_profile_used
-            n_modes = (len(source.buildable)
-                       if source.kind == tuning_source.STANDALONE
+            n_modes = (len(source.buildable) if source.profiles
                        else len(parse.get_profile_types(
                            xml_path, args.endpoint, args.mode)))
         messages.print_what_now(tally.all_preset_names, bool(args.autoload), args.dry_run,

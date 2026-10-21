@@ -1048,7 +1048,7 @@ def test_a_vendor_only_run_hands_a_wrapper_its_archive(tmp_path, fake_host,
     resolved = {}
     dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"],
                               resolved=resolved)
-    assert resolved == {"tuning_file": a, "source": "standalone",
+    assert resolved == {"tuning_file": a, "voicings": False,
                         "presets": ["Sonitude-Music"], "experimental": []}
 
 
@@ -1187,10 +1187,13 @@ def test_the_registry_knows_an_archive_by_name_and_a_folder_by_content(
 def test_a_dolby_xml_is_a_dolby_source(tmp_path):
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_0285_SUBSYS_103C860F.xml")
     src = _source([str(xml)])
-    assert (src.kind, src.xml_path, src.closing_file, src.prefix,
-            src.layer, src.profiles, src.unoffered) == (
-        tuning_source.DOLBY, xml, xml, "Dolby", None, {}, ())
+    assert (src.format, src.has_voicings, src.xml_path, src.closing_file,
+            src.prefix, src.layer, src.profiles, src.unoffered) == (
+        None, True, xml, xml, "Dolby", None, {}, ())
     assert not src.experimental("music")
+    # The Dolby file holds every profile, so none is a vendor layer's.
+    assert src.layer_for("music") is None and src.layer_for(None) is None
+    assert src.buildable == src.unbuildable == []
 
 
 def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
@@ -1200,13 +1203,17 @@ def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _three_modes()})
     src = _source([str(a)])
-    assert (src.kind, src.xml_path, src.closing_file, src.prefix,
+    assert (src.has_voicings, src.xml_path, src.closing_file, src.prefix,
             src.origin, src.unoffered) == (
-        tuning_source.STANDALONE, None, a, "Sonitude", a,
+        False, None, a, "Sonitude", a,
         ("vendor-apo-active", "level-restore"))
     assert src.format is sonitude.FORMAT
     assert list(src.profiles) == ["music", "movie", "voice"]
     assert src.layer is src.profiles["music"]
+    assert src.layer_for("voice") is src.profiles["voice"]
+    # A profile the tuning doesn't carry is no layer's; profiles_to_build
+    # refuses it before any lookup.
+    assert src.layer_for("game") is None
     assert src.layer.label == ("Sonitude speaker tuning (preset 177, "
                                "X_Synth)")
     assert [p for p in src.profiles if src.experimental(p)] == [
@@ -1221,7 +1228,7 @@ def test_a_download_of_only_archives_is_a_standalone_source(
     silence_console(console)
     _this_machine(fake_host)
     src = _source([str(_download(tmp_path)), "--prefix", "Mine"])
-    assert src.kind == tuning_source.STANDALONE and src.prefix == "Mine"
+    assert src.format is sonitude.FORMAT and src.prefix == "Mine"
     assert src.origin.is_dir() and sonitude.archives_in(src.origin)
     assert src.layer is not None and src.xml_path is None
     # The archive in the unpacked download that holds this device's tuning.
@@ -1239,7 +1246,7 @@ def test_a_download_with_a_dolby_xml_is_a_dolby_source(
     monkeypatch.setattr(dp, "pick_xml", lambda tree, path, best_guess=False:
                         next(tree.rglob("DEV_0285_SUBSYS_103C860F.xml")))
     src = _source([str(download)])
-    assert src.kind == tuning_source.DOLBY and src.layer is None
+    assert src.format is None and src.has_voicings and src.layer is None
     assert src.xml_path.name == "DEV_0285_SUBSYS_103C860F.xml"
 
 

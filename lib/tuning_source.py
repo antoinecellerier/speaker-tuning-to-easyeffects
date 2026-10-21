@@ -4,10 +4,11 @@ format that stands in for one.
 Most devices ship a DAX3 XML, and a vendor APO layer may stack on it
 (`lib/apo/discover.py` `find_for_xml`). A device that ships no Dolby file has
 its whole tuning in a standalone vendor format instead (`STANDALONE` there).
-main() resolves which once, from the parsed arguments, and reads every
-difference between the two kinds of run off the `TuningSource`: the preset
-names, the profiles a standalone tuning holds, the flags that can't apply, and
-the file the closing asks for.
+main() resolves which once, from the parsed arguments, and asks the
+`TuningSource` what the run can do rather than which kind it is: whether its
+presets come in voicings, which profiles it carries itself, which layer is a
+profile's whole tuning, the flags that can't apply, and the file the closing
+asks for.
 
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), and it prints nothing:
 the run reports what it returns. Finding the XML itself, by auto-detection
@@ -22,10 +23,6 @@ from pathlib import Path
 
 from lib.apo import layer as apo_layer
 from lib.apo.layer import ApoLayer, StandaloneFormat
-
-# `TuningSource.kind`'s two values.
-DOLBY = "dolby"
-STANDALONE = "standalone"
 
 # Each builds a Dolby stage, and a standalone source has none:
 # refused rather than run and reported as having had no effect.
@@ -43,8 +40,6 @@ def _ends_on_its_reason(exc: ValueError) -> ValueError:
 @dataclass(frozen=True)
 class TuningSource:
     """The tuning a run builds from, as main() reads it."""
-    # DOLBY or STANDALONE.
-    kind: str
     # The Dolby file the run reads, which the closing also asks for. None
     # for a standalone source, whose closing asks for its archive instead
     # (`closing_file`).
@@ -70,19 +65,32 @@ class TuningSource:
 
     def experimental(self, profile: str | None) -> bool:
         """Whether no listener has heard *profile*'s tuning yet."""
-        return (self.kind == STANDALONE
+        return (self.format is not None
                 and profile in self.format.experimental)
 
     @property
+    def has_voicings(self) -> bool:
+        """Whether each profile's presets come in Dolby's voicings
+        (Balanced, Detailed, Warm). A standalone format has one stand-in
+        curve, so its presets are told apart by profile alone."""
+        return self.format is None
+
+    def layer_for(self, profile: str | None) -> ApoLayer | None:
+        """The layer that is *profile*'s whole tuning, or None when the
+        Dolby file is."""
+        return self.profiles.get(profile)
+
+    @property
     def buildable(self) -> list[str]:
-        """Standalone only: the profiles whose layer changes the sound, in
-        order. A preset of one that changes nothing would be of no use."""
+        """The profiles the source carries whose layer changes the sound,
+        in order; none when the Dolby file holds them. A preset of one that
+        changes nothing would be of no use."""
         return [p for p, layer in self.profiles.items()
                 if not layer.changes_nothing]
 
     @property
     def unbuildable(self) -> list[str]:
-        """Standalone only: the profiles whose layer changes nothing."""
+        """The profiles the source carries whose layer changes nothing."""
         return [p for p in self.profiles if p not in self.buildable]
 
     def profiles_to_build(self, profile: str | None,
@@ -120,7 +128,7 @@ class TuningSource:
         profile was read from. In a driver download that is the archive as
         unpacked, which holds this device's tuning without the rest of the
         download."""
-        if self.kind == DOLBY:
+        if self.format is None:
             return self.xml_path
         return self.layer.inf_path if self.layer is not None else None
 
@@ -134,14 +142,14 @@ class TuningSource:
         so the peak it would hand back is a rounding error, and the flag is
         refused.
         """
-        if self.kind == DOLBY:
+        if self.format is None:
             return ()
         return (f"{apo_layer.FLAG}-active", "level-restore")
 
     def refusal(self, args) -> str | None:
         """The error for the first flag in *args* this source can't take,
         or None."""
-        if self.kind == DOLBY:
+        if self.format is None:
             return None
         # No Dolby file: the tuning's profiles are its content modes, all for
         # the internal speakers, so there is no other endpoint or operating
@@ -186,7 +194,7 @@ class TuningSource:
 
         Raises RuntimeError, from the format, when no layer binds this
         machine."""
-        if self.kind == DOLBY:
+        if self.format is None:
             return self
         return replace(self, profiles=self.format.resolve(self.origin, warn))
 
@@ -194,13 +202,11 @@ class TuningSource:
 def dolby(xml_path: Path, prefix: str | None) -> TuningSource:
     """A run from the DAX3 XML at *xml_path*."""
     # A prefix the reader typed stands, "Dolby" included.
-    return TuningSource(DOLBY, xml_path,
-                        "Dolby" if prefix is None else prefix)
+    return TuningSource(xml_path, "Dolby" if prefix is None else prefix)
 
 
 def standalone(fmt: StandaloneFormat, origin: Path,
                prefix: str | None) -> TuningSource:
     """A run from *fmt*'s tuning in *origin*, read by `resolved`."""
-    return TuningSource(STANDALONE, None,
-                        fmt.prefix if prefix is None else prefix,
+    return TuningSource(None, fmt.prefix if prefix is None else prefix,
                         format=fmt, origin=Path(origin))
