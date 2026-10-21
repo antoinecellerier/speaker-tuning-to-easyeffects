@@ -13,6 +13,8 @@
 #
 # Defaults:
 #   <node-name> = "Dolby_PW_Test"
+#   IRS_DIR      = ~/.local/share/easyeffects/irs (env; where the preset's
+#                  .irs lives, for presets generated outside EasyEffects)
 #
 # The script:
 #   1. Generates a conf via ee_to_pipewire.py and drops it in
@@ -102,7 +104,7 @@ python3 "${REPO_ROOT}/ee_to_pipewire.py" \
     --target-sink '' \
     --target-object ee_capture \
     --force \
-    --irs-dir "${HOME}/.local/share/easyeffects/irs"
+    --irs-dir "${IRS_DIR:-${HOME}/.local/share/easyeffects/irs}"
 echo "generated $CONF_PATH"
 
 # 2. Start the child pipewire process — it picks up filter-chain.conf
@@ -158,10 +160,11 @@ for sink in $(pw-cli ls Node 2>/dev/null \
 done
 
 # 7. Verify only ee_capture receives chain output. Anything else means
-#    the comb-filter trap is active.
+#    the comb-filter trap is active. No stray link is the clean case, so
+#    grep's no-match status must not trip `set -e`.
 extra="$(pw-link -l 2>/dev/null \
          | awk -v n="effect_output.${NODE_NAME}" '$0 ~ n":output_(FL|FR)"{f=1; next} f && /^[[:space:]]*\|/{print; next} {f=0}' \
-         | grep -v "ee_capture:playback" | head -5)"
+         | { grep -v "ee_capture:playback" || true; } | head -5)"
 if [[ -n "$extra" ]]; then
     echo "WARNING: chain output is also linked to non-ee_capture sinks:" >&2
     echo "$extra" >&2
