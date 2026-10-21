@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -1248,6 +1249,47 @@ def test_a_download_with_a_dolby_xml_is_a_dolby_source(
     src = _source([str(download)])
     assert src.format is None and src.has_voicings and src.layer is None
     assert src.xml_path.name == "DEV_0285_SUBSYS_103C860F.xml"
+
+
+def _source_of(tmp_path, flat: tuple[str, ...],
+               names=("music", "movie", "voice")):
+    """A standalone `TuningSource` holding *names*, those in *flat*
+    changing nothing, built without a machine to bind."""
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    return replace(tuning_source.standalone(sonitude.FORMAT, a, None),
+                   profiles={n: replace(layer, changes_nothing=n in flat)
+                             for n in names})
+
+
+@pytest.mark.parametrize("flat,names,profile,picked,banner", [
+    ((), ("music", "movie", "voice"), "voice", True, "voice"),
+    ((), ("music",), "music", False,
+     "music (this speaker's only sound mode)"),
+    (("music", "voice"), ("music", "movie", "voice"), "movie", False,
+     "movie (the only one of this speaker's 3 sound modes that changes the "
+     "sound)"),
+    (("music",), ("music", "movie", "voice"), "movie", False,
+     "movie (the first-listed of the 2 sound modes that change this "
+     "speaker's sound — --list names them; --profile picks)"),
+    ((), ("music", "movie", "voice"), "music", False,
+     "music (the first-listed of this speaker's 3 sound modes — --list "
+     "names them; --profile picks)"),
+])
+def test_the_profile_banner_says_why_this_mode(tmp_path, flat, names,
+                                               profile, picked, banner):
+    src = _source_of(tmp_path, flat, names)
+    assert src.profile_banner(profile, picked) == banner
+
+
+def test_the_listing_marks_each_mode(tmp_path):
+    src = _source_of(tmp_path, ("music",))
+    assert src.listing() == [
+        "  endpoint: internal_speaker (operating_mode=normal)",
+        "    profile: music (changes nothing in this tuning)",
+        "    profile: movie (experimental)",
+        "    profile: voice (experimental)"]
 
 
 _NO_DOLBY = "reads a Dolby file, and this tuning has none — drop it"

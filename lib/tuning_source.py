@@ -121,6 +121,42 @@ class TuningSource:
                 f"the sound: {', '.join(buildable)}"))
         return [profile.lower()]
 
+    def listing(self) -> list[str]:
+        """Standalone only: the --list lines below its header, in the
+        Dolby listing's shape. The profiles are the tuning's content modes,
+        all for the one output a standalone tuning is read for."""
+        lines = ["  endpoint: internal_speaker (operating_mode=normal)"]
+        for name in self.profiles:
+            mark = (" (changes nothing in this tuning)"
+                    if name in self.unbuildable
+                    else " (experimental)" if self.experimental(name)
+                    else "")
+            lines.append(f"    profile: {name}{mark}")
+        return lines
+
+    def profile_banner(self, profile: str, picked: bool) -> str:
+        """Standalone only: what the run's "Profile: " line says of
+        *profile*, in the Dolby banner's wording. *picked* is whether
+        --profile or --all-profiles chose it, which needs no reason given.
+
+        A mode that changes nothing is never built, so when the first is
+        such, the pick is the first that changes the sound."""
+        n_profiles, n_built = len(self.profiles), len(self.buildable)
+        if picked:
+            return profile
+        if n_profiles == 1:
+            return f"{profile} (this speaker's only sound mode)"
+        if n_built == 1:
+            return (f"{profile} (the only one of this speaker's "
+                    f"{n_profiles} sound modes that changes the sound)")
+        if profile != next(iter(self.profiles)):
+            return (f"{profile} (the first-listed of the {n_built} sound "
+                    "modes that change this speaker's sound — --list names "
+                    "them; --profile picks)")
+        return (f"{profile} (the first-listed of this speaker's "
+                f"{n_profiles} sound modes — --list names them; --profile "
+                "picks)")
+
     @property
     def closing_file(self) -> Path | None:
         """The tuning file the closing asks a report to attach: the XML, or
