@@ -762,3 +762,40 @@ def test_a_high_pass_no_tuning_uses_is_unsupported(tmp_path, corner):
                  {1: _preset_bin(_curve(), high_pass=(corner, 80.0))})
     with pytest.raises(apo_layer.UnsupportedApoConfig, match="high-pass"):
         sonitude.find(a, "10EC0285", "103C860F", True)
+
+
+# --- the pin a refactor must not move -----------------------------------------
+
+# Recorded from the build below before the source refactor (2026-10-21).
+# A change in behaviour re-records both in the same commit as its cause
+# (.claude/rules/testing.md); a refactor leaves them as they are.
+_PIN_PRESET_SHA = (
+    "20577810ae3da8de8d1d282907664728a8fe2ed6a483df6010299d8dd636f007")
+_PIN_HZ = np.geomspace(30, 16000, 24)
+_PIN_DB = [-33.39, -24.39, -15.28, -6.83, 0.43, -0.02, 0.08, 0.09, -0.44,
+           -1.77, -4.44, -5.96, -4.31, -1.68, -0.35, -0.03, -0.0, 0.01, -0.0,
+           -0.0, 0.0, -0.0, 0.0, 0.0]
+
+
+def test_the_vendor_only_build_is_pinned(tmp_path, fake_host,
+                                         silence_console, capsys):
+    import hashlib
+    from scipy.io import wavfile
+    silence_console(console)
+    _this_machine(fake_host, True)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    _, out_dir = _run(tmp_path, capsys, a)
+    preset = json.loads(next(out_dir.glob("*.json")).read_text())
+    # The kernel name hashes the taps, and `_generator` carries the release
+    # version; the taps are pinned below instead.
+    preset["output"]["convolver#0"].pop("kernel-name")
+    preset.pop("_generator")
+    digest = hashlib.sha256(
+        json.dumps(preset, sort_keys=True).encode()).hexdigest()
+    assert digest == _PIN_PRESET_SHA, digest
+    sr, taps = wavfile.read(next((tmp_path / "irs").glob("*.irs")))
+    H = np.fft.rfft(taps[:, 0].astype(float), 1 << 16)
+    f = np.fft.rfftfreq(1 << 16, 1 / sr)
+    db = np.interp(_PIN_HZ, f, 20 * np.log10(np.abs(H) + 1e-15))
+    assert np.allclose(db, _PIN_DB, atol=0.05)
