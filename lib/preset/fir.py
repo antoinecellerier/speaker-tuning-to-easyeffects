@@ -78,22 +78,30 @@ FIR_TARGET_RANGE_DB = 40.0
 
 
 def design_target_db(band_freqs, gains_db, freqs: np.ndarray,
-                     eq_sections=()) -> np.ndarray:
+                     eq_sections=(), eq_curve=None) -> np.ndarray:
     """The dB curve `make_fir` designs from, evaluated at *freqs*.
 
     The band curve is interpolated as `interpolate_curve_db` does. A vendor
-    EQ, when given, is added exactly at each frequency, then the sum is
-    floored smoothly, in power, `FIR_TARGET_RANGE_DB` below its peak. The
-    peak is always taken over the FFT bins `make_fir` designs on, so a check
-    graded on any other grid sees the floor the filter was designed with.
+    EQ, when given, is added at each frequency: its biquads exactly, its
+    *eq_curve* ``(hz, db)`` interpolated the same way as the band curve. The
+    sum is then floored smoothly, in power, `FIR_TARGET_RANGE_DB` below its
+    peak. The peak is always taken over the FFT bins `make_fir` designs on,
+    so a check graded on any other grid sees the floor the filter was
+    designed with.
     """
     def unfloored(at):
-        return (interpolate_curve_db(np.array(band_freqs, dtype=float),
-                                     np.array(gains_db, dtype=float),
-                                     np.asarray(at, dtype=float))
-                + (biquad_cascade_db(eq_sections, at) if eq_sections else 0.0))
+        at = np.asarray(at, dtype=float)
+        db = interpolate_curve_db(np.array(band_freqs, dtype=float),
+                                  np.array(gains_db, dtype=float), at)
+        if eq_sections:
+            db = db + biquad_cascade_db(eq_sections, at)
+        if eq_curve is not None:
+            db = db + interpolate_curve_db(np.array(eq_curve[0], dtype=float),
+                                           np.array(eq_curve[1], dtype=float),
+                                           at)
+        return db
     target = unfloored(freqs)
-    if eq_sections:
+    if eq_sections or eq_curve is not None:
         bins = np.fft.rfftfreq(FIR_LENGTH, d=1.0 / SAMPLE_RATE)
         floor_db = unfloored(bins).max() - FIR_TARGET_RANGE_DB
         target = 10.0 * np.log10(10.0 ** (target / 10.0) +
@@ -103,22 +111,22 @@ def design_target_db(band_freqs, gains_db, freqs: np.ndarray,
 
 def make_fir(band_freqs: np.ndarray, gains_db: np.ndarray,
              normalize: bool = True,
-             eq_sections=()) -> tuple[np.ndarray, float]:
+             eq_sections=(), eq_curve=None) -> tuple[np.ndarray, float]:
     """Generate a minimum-phase FIR filter from a target dB curve.
 
     Uses homomorphic processing: the minimum-phase impulse response
     is constructed from the log-magnitude spectrum via the cepstrum.
-    *eq_sections* folds a vendor APO's biquad cascade into the same
-    filter (`design_target_db`). Without it the design is the band curve
-    alone, bit for bit.
+    *eq_sections* and *eq_curve* fold a vendor APO's biquad cascade and dB
+    curve into the same filter (`design_target_db`). Without either the
+    design is the band curve alone, bit for bit.
     """
     n = FIR_LENGTH
     fft_freqs = np.fft.rfftfreq(n, d=1.0 / SAMPLE_RATE)
 
     # Interpolate target curve to FFT bins
-    if eq_sections:
+    if eq_sections or eq_curve is not None:
         gains_at_bins = design_target_db(band_freqs, gains_db, fft_freqs,
-                                         eq_sections)
+                                         eq_sections, eq_curve)
     else:
         gains_at_bins = interpolate_curve_db(
             np.array(band_freqs, dtype=float),

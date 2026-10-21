@@ -328,8 +328,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # cta, not ok: green is this run's "check passed, nothing to do"
         # color, and the one line that still demands a re-run read as "all
         # done" in the same green (round-2 color finding).
+        what = (f"these {len(preset_names)} presets"
+                if len(preset_names) > 1 else "this preset")
         console.cprint("cta", f"Dry run — no presets were written. Re-run without "
-                      f"--dry-run to install these {len(preset_names)} presets:")
+                      f"--dry-run to install {what}:")
         # One comma-separated line, not one name per line (round 7): the
         # vertical list ate the last screen's budget.
         console._cprint_wrapped("dim", "    " + ", ".join(preset_names),
@@ -346,8 +348,9 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         # declines onto a non-speaker output or the bypass preset. The
         # steps clause is what holds in every one of those cases (copy
         # audit 2026-08-27).
-        console._cprint_wrapped("dim", "  You'll then pick one in EasyEffects — "
-                               f"start with {first}"
+        pick = ("pick one in EasyEffects — start with" if len(preset_names) > 1
+                else "pick it in EasyEffects:")
+        console._cprint_wrapped("dim", f"  You'll then {pick} {first}"
                                f"{voicing_hint}; the real run loads it into "
                                "EasyEffects for you when it can (--no-reload "
                                "skips that), and says what to pick when it "
@@ -374,7 +377,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # output_dir. The .irs impulse response goes to --irs-dir, a different
     # directory by default. An earlier "wrote N presets to <dir>" named half
     # of what the run had just listed above.
-    console.cprint("ok", f"Done — wrote {len(preset_names)} presets"
+    noun = "preset" if len(preset_names) == 1 else "presets"
+    console.cprint("ok", f"Done — wrote {len(preset_names)} {noun}"
                  + (f", starting in {doctor.tilde(output_dir)}:"
                     if output_dir else ":"))
     # Name them all: naming only the first left the reader wondering what
@@ -407,9 +411,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                f"this run — the [{reload_slug}] line above "
                                "says what to do.", indent="  ")
     else:
-        console._cprint_wrapped("dim", "  To use them: open EasyEffects, go to Output, and "
-                               f"pick '{first}' from the Presets menu — "
-                               f"that's the one to start with{voicing_hint}. "
+        them = "them" if len(preset_names) > 1 else "it"
+        start = (f" — that's the one to start with{voicing_hint}"
+                 if len(preset_names) > 1 else "")
+        console._cprint_wrapped("dim", f"  To use {them}: open EasyEffects, go to Output, and "
+                               f"pick '{first}' from the Presets menu{start}. "
                                "Or re-run with "
                                "--autoload to have it load itself for your "
                                "speakers.", indent="  ")

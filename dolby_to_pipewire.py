@@ -358,6 +358,12 @@ def main(argv: list[str] | None = None) -> int:
 
         presets = [p for v in variants
                    for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
+        if not presets and resolved.get("vendor_only"):
+            console.cprint("err", f"error: HP's Bang & Olufsen tuning builds "
+                          "one voicing, Balanced, so there is no "
+                          f"{args.variant.capitalize()} — drop --variant "
+                          f"{args.variant}")
+            return 1
         if not presets:
             wanted = ", ".join(variants)
             console.cprint("err", f"error: no {wanted} preset was generated — see "
@@ -367,7 +373,12 @@ def main(argv: list[str] | None = None) -> int:
         # Name what is being converted and what isn't. Step 1 lists all three
         # voicings as generated. Converting one without saying which, or that
         # the others are reachable, would read as two of them being silently
-        # dropped, with no way to try Warm if Balanced sounds wrong.
+        # dropped, with no way to try Warm if Balanced sounds wrong. A tuning
+        # with no Dolby file (lib/apo/sonitude.py) builds one preset only,
+        # so there are no other voicings to name.
+        staged_others = [v for v in VARIANT_STEMS.values()
+                         if v not in variants
+                         and any(Path(tmp).glob(f"*-{v}.json"))]
         if len(presets) == 1:
             console.cprint("head", f"[2/3] Converting {presets[0].stem} to a PipeWire "
                            "filter-chain conf")
@@ -377,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
             # default": on the ~45% of profiles that set ieq-enable=0,
             # Windows engages no voicing at all, so the stronger claim is
             # wrong for them.
-            if args.variant == "balanced":
+            if args.variant == "balanced" and staged_others:
                 console.cprint("dim", "      (Balanced is Dolby's default voicing)")
         else:
             console.cprint("head", f"[2/3] Converting {len(presets)} presets to "
@@ -393,8 +404,8 @@ def main(argv: list[str] | None = None) -> int:
                 console.cprint("dim", f"      (each plays into {pin_target} — pinned "
                               "so choosing one doesn't route the others "
                               "through it)")
-        if args.variant != "all":
-            others = [v for v in VARIANT_STEMS if v != args.variant]
+        if args.variant != "all" and staged_others:
+            others = [k for k, v in VARIANT_STEMS.items() if v in staged_others]
             # Printed under --all-profiles too, the run that needs it most:
             # 27 presets staged, 9 converted, and without this line the two
             # voicings left behind would be the least visible thing on a
@@ -415,7 +426,8 @@ def main(argv: list[str] | None = None) -> int:
             # explanation above uses (round 10: a reader would guess
             # --voicing next week).
             console.cprint("dim", f"      Pass {alts} to convert another voicing, or "
-                          f"--variant all --target-sink '' to get all three{each} "
+                          f"--variant all --target-sink '' to get "
+                          f"{'all three' if len(others) == 2 else 'both'}{each} "
                           "as outputs you can switch between in your sound "
                           "settings.")
         step2_common = (rebuild_argv(step2_actions, args)

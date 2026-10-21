@@ -15,6 +15,11 @@
   chain**, on HD-Audio and SoundWire speakers. The parser reads all 16 of their
   configs; on 3 it leaves `Crystal` out. Every Dolby XML one of them binds has
   its voicing off ([Surface fleet](#r-surface-apo-fleet)).
+- **HP's Bang & Olufsen laptops can ship no Dolby file at all**: the ZBook 15
+  G6 voices its speaker in a Sonitude APO preset. Applied as cuts only, its
+  curve is within 1.00 dB rms of what the B&O switch changes on the ZBook, and
+  1.61 dB rms of an OMEN's published Windows response, from 200 Hz to 12.5 kHz
+  ([Sonitude presets](#r-sonitude-apo-presets)).
 
 Open:
 
@@ -234,3 +239,170 @@ Open:
   of reach either way.
 - L and R differ in 10 of the 16 configs' EQs, so the interleave's channel
   order matters there, and it is still unread.
+
+<a id="r-sonitude-apo-presets"></a>
+
+## HP's Sonitude presets: the Bang & Olufsen voicing with no Dolby file
+
+On the HP ZBook 15 G6 (issue #140) the Windows B&O voicing is a Sonitude
+(formerly Sound Research) APO preset. Its 265-point curve, applied as cuts only,
+is within 1.00 dB rms of what the B&O switch toggles from 200 Hz to 12.5 kHz. On
+a second device, an HP OMEN, the same reading is within 1.61 dB rms of its
+published Windows response, where the curve as stored misses by 7.15. Below the
+curve's break, its last step of more than 6 dB, Windows cuts as a 4th-order
+Butterworth high-pass at the break, a reading a second capture set confirmed
+under pre-registration. On the ZBook Windows adds a layer that stays on with
+enhancements off, which no file read holds. Conditions: HP softpaq
+`sp161474.exe` (Realtek HD Audio Driver, SHA-256 `a47d4827…`), Sonitude APO
+2.1.1.99, codec ALC285 on SOF, subsystem `103C860F`; the reporter's Windows 11
+loopback captures, `off` (Audio enhancements: Off) against `music` (B&O Audio
+Control "Music"), volume 50 %, 2026-10-17. OMEN: `103C8A3F`, preset 70 of the
+same package's ALC245 archive, scored against the impulse response
+[hp-omen-bo-linux-audio](https://github.com/iphysicc/hp-omen-bo-linux-audio)
+measured on Windows with Sound Research APO 2.0.11
+(`linux/ir/hp-bo-speaker-ir-48k.wav`, SHA-256 `29103776…`).
+
+**The package.** `SNAPO64Ext.inf` binds the device and copies 33
+`SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip` archives. No DAX3 XML ships.
+Realtek's `RTAIODAT.DAT` has no record for `103C860F`
+([database](hardware-and-drivers.md#r-realtek-codec-database)).
+
+| Container | Layout (fits every archive in the package) |
+|---|---|
+| `SSIDMAP.bin` | `SRSM`, u32 version, u32 count, u32 record size (20 or 32), then count × (u32 preset number, `SUBSYS_…` name) |
+| `<N>.<codename>.txt` | plain-text manifest: device ID, then each `Preset.bin` and the `.srproject` it came from |
+| `<N>/<endpoint>/EFX/<output>/<content>/Preset.bin` | header, a section table whose third entry points at the body, then stage blocks to the end of the file: i32 stage, i32 first and last key, then per key a u32 length and its bytes |
+| speaker curve | two blocks of u16 265 + 265 float32 per preset (L, R; identical in 313 of the 318 `AnyContent` speaker presets) |
+
+The stage-block walk ends exactly at the end of all 1,829 endpoint-0
+`Preset.bin` files, every output and mode. Stage 5 keys 19 and 20 hold a flag
+byte and a float32 corner in Hz per channel: on the ZBook, 80 Hz in Music and
+Movie, 125 in Voice. It is on in 299 of the 318 `AnyContent` speaker presets,
+at 40 to 232 Hz. Where the curve steps up by more than
+6 dB, the step sits within 5 % of this corner in 243 of the 245 presets
+that have both, so it reads as the speaker's high-pass.
+
+`103C860F` maps to preset 177, `X_Venus`; its manifest names endpoint 0's
+`AnyContent` file "Venus Music". The archives hold 1,348 distinct subsystem
+IDs. 1,345 are HP's, six of them stored as `xxxx103C`. The local corpus's XML
+filenames hold no `103C` ID at all, so it says nothing about HP's Dolby use.
+The endpoint-0 headphone curves span 0.0 dB (median, n = 210) against 21.0 dB
+for the speaker ones (n = 318), as "the curve is the EQ" predicts.
+
+**The captures** are level-independent and identical across channels, so one
+static curve describes them:
+
+| Check | Result |
+|---|---|
+| L − R, 141 Hz–13.9 kHz | ≤ 0.002 dB, every stimulus |
+| pink at −42, −18 and −14 dBFS RMS | music − off within 0.02 dB per 1/3 octave |
+| sweep vs pink, music − off shape | within 0.21 dB |
+| music − off at 1 kHz | −6.25 dB |
+| `off` against the stimulus, relative to 1 kHz, pink at −18 dBFS | −36 dB at 31.5 Hz, −8.7 at 80, −4.9 at 500, +1.3 to +1.9 over 1.6–6.3 kHz, −7.8 at 16 kHz |
+| `music` delay after `off` | 20.0, 22.4 and 21.3 ms at the three pink levels |
+
+**The readings.** One broadband offset is fitted, then 1/3-octave bands are
+scored. The first four rows were pre-registered on the ZBook alone (bands
+160 Hz–12.5 kHz). `AnyContent` fits better than `Movie` and `Voice` under
+every model:
+
+| Model | ZBook vs music − off: rms / max (dB) | ZBook vs the full chain | OMEN IR, 200 Hz–12.5 kHz |
+|---|---|---|---|
+| flat | 3.96 / 7.9 | 5.40 / 13.3 | — |
+| the curve on 10·2^(k/24) Hz | 1.22 / 3.2 | 2.25 / 5.0 | 7.15 / 18.3 |
+| the 21 (Hz, Q, dB) triples as RBJ peaking | 1.16 / 3.4 | 2.17 / 5.0 | — |
+| curve + triples | 5.33 / 11.3 | 4.68 / 11.8 | — |
+| the curve, cuts only | 0.98 / 3.07 | 2.08 / 5.0 | 1.61 / 4.6 |
+
+The cuts-only reading was proposed after the ZBook scores were seen. Its OMEN
+score was pre-registered, with adoption at ≤ 2 dB rms and ≥ 2 dB better than the
+curve; it passed. On the ZBook it changes little above 200 Hz (1.00 against 1.02
+dB rms). It accounts for the bass: at 80, 100 and 125 Hz the curve leaves
+Windows 8.8, 8.8 and 5.6 dB lower, and the cuts-only curve −0.4, +0.3 and +0.7
+dB. The OMEN static rebuild that failed by 16 dB at 330 Hz is the curve's boost
+there, +29.6 dB above 1 kHz against +12.3 measured, not a sum of the curve and
+its triples. The triples read as a fit of the curve, and summing the two double
+counts. Across the fleet the curve peaks above +6 dB in 247 of the 318
+`AnyContent` speaker presets (median +9.8 dB), so reading the boosts would give
+most of them a bass hump neither device's Windows plays. Below about 60 Hz
+Windows cuts more than the curve: −12.5 dB at 31.5 Hz on the ZBook toggle, −64
+dB on the OMEN response. The `off` layer is host-side processing, since WASAPI
+loopback taps the audio engine's output; Sonitude's `.inf` registers its MFX and
+EFX in no RAW mode for this device, and the sidecars show a spatial-audio CLSID,
+though spatial audio was off.
+
+**The build.** The minimum-phase FIR (4096 taps) is within 0.05 dB of the
+target from 403 Hz up. Below that, the curve's 1/24-octave points sit closer
+than the FIR's 11.7 Hz bins, and the build is within 1.9 dB of it. It plays
+1.0 dB from Windows' level against the B&O switch, and 1.3 dB against the full
+chain, in the loopback, before the endpoint volume. From 31.5 to 125 Hz it
+leaves Windows −2.7, −2.2, −1.0, −0.5, −1.5, +0.4 and +0.7 dB from it against
+the B&O switch; the cuts-only build before the high-pass reading left −12.9,
+−8.2 and −4.4 dB in the bottom three bands. A live EasyEffects capture of the
+build (null-sink route, 2026-10-20) matches its FIR within 0.01 dB per
+1/3 octave at all three pink levels, and scores against Windows as the FIR
+does.
+
+**The second capture set** (the same laptop, 2026-10-19, volume 50 %, every
+stimulus hash matching) recorded Voice, Movie and a level battery. Each test
+was pre-registered before the recordings existed:
+
+| Test | Pre-registered | Result |
+|---|---|---|
+| Voice − Music, 50–160 Hz | high-pass at each curve's break (Music 80 Hz, Voice 127 Hz): −16.0 dB at 50 Hz rising to 0 at 160; cuts only: +12.3 to 0 | −16.4 at 50 Hz to +1.3 at 160. High-pass within 0.97 dB rms (pink) and 0.80 (sweep), cuts only 17.5: adopted |
+| Voice − Music, 200 Hz–12.5 kHz | cuts only supported at ≤ 1.0 dB rms and ≤ half the difference's own rms (2.23) | 1.67: inconclusive. The curve as stored: 1.44 |
+| Movie − Music, 200 Hz–12.5 kHz | the same bar; the difference's rms is 1.01 | 0.68: inconclusive. The curve as stored: 0.55. Movie plays 2.3 dB louder |
+| a level-dependent B&O stage | present if music − off moves > 1 dB with level | pink at −60 to −14 dBFS RMS: within 0.01 dB. Tones at −2 dBFS peak: up to 5.2 dB at 469 Hz, so present |
+
+On the loud tones `off` loses 2 to 5 dB from 141 Hz to 11 kHz. Music loses
+4.5 to 5.4 dB at 141–234 Hz and 1.5 to 1.9 dB at 2.2–2.6 kHz, and nothing
+where B&O cuts its own output deep. A stage downstream of B&O that compresses
+near full scale, present in both states, would produce both; that reading
+came after the data. B&O Music also adds harmonics to bass bursts, which
+`off` doesn't. At 50 Hz the third harmonic matches the fundamental at −5 dBFS
+peak and sits 11 dB under it at −25 dBFS. At 80 Hz it sits 18 and 29 dB
+under, and at 120 and 180 Hz there is none. The preset's record group at
+0x5c2–0x5e3 fits a psychoacoustic bass stage: a mix gain (−10 dB in Music,
+−36 in Voice), an enable flag, a source frequency (88 Hz in Music, 137.5 in
+Voice) and a band from twice that to 300 Hz. Spatial audio was off for every
+capture of both sets.
+
+Rejected:
+
+- Shipping a measured impulse response, as hp-omen-bo-linux-audio does. A
+  capture is not a tuning field, and its look-ahead limiter adds latency.
+- Applying the curve's boosts. Neither device's Windows output has them: the
+  OMEN response is 7.15 dB rms from the curve and 1.61 from its cuts.
+
+Open:
+
+- By-ear confirmation. One listener on the ZBook found the cuts-only build
+  close to Windows, with less punch in the bass and quieter at the same
+  slider position. Windows' 50 % is −10.3 dB at the endpoint, where
+  PipeWire's cubic 50 % is −18.1 dB, so the slider positions don't compare.
+- The psychoacoustic bass stage, the likely missing punch. Its fields are
+  read above but not built: the converter's virtual-bass branch plays only
+  through PipeWire.
+- Windows' own decode of the preset. A registry search found no
+  `SoundResearch` key under any account, only browser native-messaging hosts
+  for `com.soundresearch.contentclassifier`.
+- What the `off` layer is. It isn't Windows spatial audio, which was off
+  throughout; HP processing outside the APO's modes remains.
+- Volume-dependent processing: every capture ran at 50 %.
+- The low end of a preset whose high-pass is on but whose curve has no step
+  (54 of 318 speaker presets), where the converter applies the high-pass;
+  of one whose curve steps but whose high-pass is off (11), where it keeps
+  the stored curve; and of the 2 whose step sits well above a 70 Hz
+  corner, where it keeps the stored curve above the corner. No capture
+  covers any of them.
+- A third device, ideally one whose curve boosts the treble, for the
+  cuts-only reading.
+- The dynamics stages, the `Movie` and `Voice` modes, and DriverStore
+  discovery are unread or unbuilt.
+- Which archive Windows reads when both an `INTELAUDIO` and an `HDAUDIO` one
+  hold a subsystem ID with different curves. In `sp161474.exe`, 45 IDs sit in
+  both and 26 of them differ; `103C860F` is in the `INTELAUDIO` one only. The
+  converter takes the bus from whether Linux runs SOF, a heuristic, and says
+  so.
+- A download that carries Dolby XMLs for some models and a Sonitude preset
+  for this one takes the Dolby route, and never tries the preset.

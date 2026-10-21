@@ -6,8 +6,9 @@ carrying an archive in its resources (ASUS), a Windows Installer `.msi`
 (Surface) or a `.zip` (Samsung). The archive is listed first. Only the files
 the readers open are kept, at their archive paths, in
 ``driver-cache/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
-tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`) and what a vendor
-APO finder reads (`lib.apo.discover.wanted_members`). Each reader owns its
+tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), HP's Sonitude
+archives, which stand in for one (`lib.apo.sonitude.is_archive`), and what a
+vendor APO finder reads (`lib.apo.discover.wanted_members`). Each reader owns its
 predicate, so a new format adds its own and this module never learns it. A
 `.msi` is the exception to extracting only those: `msiextract` has no member
 filter, so it is unpacked in full beside the tree and pruned.
@@ -19,7 +20,7 @@ which tool a missing-tool error names, because they misroute: an ASUS `.exe`
 embeds an Inno loader in its resources, and plain `7z` opens that loader
 instead of the archive beside it.
 
-A download with no tuning XML in its listing leaves nothing in the cache;
+A download with no tuning file in its listing leaves nothing in the cache;
 the ASUS route's resources go to a temporary directory that is removed. A
 tree is written to a hidden ``.partial-*`` directory and renamed into place
 once its ``PROVENANCE.txt`` is written, so a tree without one is never ours:
@@ -48,6 +49,7 @@ from pathlib import Path, PurePosixPath
 
 from lib import console, doctor, packages, tool_env
 from lib.apo import discover as apo_discover
+from lib.apo import sonitude
 from lib.dax import discover
 from lib.hardware import codecs
 from lib.paths import REPO_ROOT
@@ -509,8 +511,15 @@ def _missing_tool(key: str, binaries: str, path: Path) -> PackageError:
     return exc
 
 
+def _is_tuning(name: str) -> bool:
+    """A Dolby tuning XML, or the archive of a vendor-only tuning (HP's
+    Sonitude presets, `lib/apo/sonitude.py`) that ships in place of one."""
+    return (discover.is_dolby_tuning_filename(name)
+            or sonitude.is_archive(name))
+
+
 def _has_tuning(opened: _Opened) -> bool:
-    return any(discover.is_dolby_tuning_filename(PurePosixPath(m.path).name)
+    return any(_is_tuning(PurePosixPath(m.path).name)
                for m in opened.members)
 
 
@@ -665,7 +674,7 @@ def unpack(path: Path, cache_root: Path | None = None) -> Path:
     Reused when a tree already records this download, by name, size and
     modification time, or failing that by SHA-256, so a re-download or a
     copy makes no second tree. Raises `PackageError` for a download with no
-    tuning XML (nothing is written), one no installed tool can open, or a
+    tuning file (nothing is written), one no installed tool can open, or a
     member path that would land outside the tree.
     """
     path = Path(path)
@@ -705,8 +714,7 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
         raise PackageError(f"{path.name} holds a link or a path that leads "
                            "outside its own folder; not unpacking it.")
     names = [m.path for m in opened.members]
-    tuning = [p for p in names
-              if discover.is_dolby_tuning_filename(PurePosixPath(p).name)]
+    tuning = [p for p in names if _is_tuning(PurePosixPath(p).name)]
     if not tuning:
         raise PackageError(
             f"{path.name} opened ({label}), but it holds no Dolby tuning "
@@ -744,8 +752,7 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
             raise PackageError(f"{path.name} unpacked a link; not using it.")
         kept = sorted(str(p.relative_to(partial).as_posix())
                       for p in partial.rglob("*") if p.is_file())
-        if not any(discover.is_dolby_tuning_filename(PurePosixPath(p).name)
-                   for p in kept):
+        if not any(_is_tuning(PurePosixPath(p).name) for p in kept):
             raise PackageError(f"Unpacking {path.name} produced none of the "
                                "tuning files its listing names.")
         (partial / PROVENANCE).write_text(
@@ -764,8 +771,7 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
     except BaseException:
         shutil.rmtree(partial, ignore_errors=True)
         raise
-    n = sum(discover.is_dolby_tuning_filename(PurePosixPath(p).name)
-            for p in kept)
+    n = sum(_is_tuning(PurePosixPath(p).name) for p in kept)
     console.cprint("ok", f"Unpacked {n} tuning files into {doctor.tilde(dest)}")
     return dest
 

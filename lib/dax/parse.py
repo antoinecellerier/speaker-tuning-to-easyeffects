@@ -217,6 +217,27 @@ class ParsedTuning:
     # when the family is absent or malformed. Corpus-frozen, so it feeds
     # only the opt-in --enable virtual-bass path (issue #14).
     virtual_bass: dict | None = None
+    # True for the flat stand-in `lib/apo/sonitude.py` builds when the device
+    # ships no Dolby file: every field above is then neutral, and the vendor
+    # layer is the whole tuning.
+    vendor_only: bool = False
+
+
+def flat_tuning(freqs: list[int]) -> ParsedTuning:
+    """A neutral `ParsedTuning` for a device with no Dolby file.
+
+    The Balanced voicing curve is the only one, flat, so the emit loop builds
+    one preset; every Dolby stage is absent and the vendor layer is the whole
+    tuning (`lib/apo/sonitude.py`). *freqs* is where the correction check
+    probes the build.
+    """
+    flat = [0] * len(freqs)
+    return ParsedTuning(
+        freqs=list(freqs), curves={"ieq_balanced": list(flat)}, ieq_amount=0,
+        ao_left=list(flat), ao_right=list(flat), peq_filters=[],
+        vol_leveler=None, dialog_enhancer=None, surround=None, mb_comp=None,
+        regulator=None, volmax_boost=0.0, ao_enabled=False,
+        ieq_enabled=False, vendor_only=True)
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point

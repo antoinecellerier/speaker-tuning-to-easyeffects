@@ -2405,6 +2405,8 @@ def _every_finding():
         report_findings._experimental_finding("type-3 high-shelf",
                                                    ["high-shelf"]),
         report_findings._level_restore_finding(),
+        report_findings._vendor_only_finding(
+            "HP Bang & Olufsen (Sonitude preset 177, X_Venus)"),
         # One slug, three detail wordings (one site); the ask is shared.
         report_findings._reload_refused_finding("Dolby-Balanced", "Podcast", True),
         report_findings._reload_unanswered_finding("Dolby-Balanced"),

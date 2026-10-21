@@ -100,8 +100,8 @@ between the regulator and the limiter. The vendor EQ is folded into
 the convolver's FIR. With no regulator, the `volmax-boost` moves from the
 limiter onto the first of them. On the PipeWire chain, `--enable virtual-bass`
 sums its branch after all of this, so its harmonics skip the vendor layer.
-Microsoft's Surface APO is the one format read. It is on by default, and
-`--disable vendor-apo` leaves it out:
+Two formats are read. Microsoft's Surface APO adds to a Dolby tuning. It is
+on by default, and `--disable vendor-apo` leaves it out:
 
 | Surface APO block | Becomes |
 |---|---|
@@ -109,6 +109,17 @@ Microsoft's Surface APO is the one format read. It is on by default, and
 | `VolumeDepMBDRC4`, `VolumeDepMBDRC` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume; bands above 20 kHz dropped |
 | `Crystal`, `Crystal1`, `Crystal2` | `multiband_compressor#3`, one limiter band per resonance; entries identical in the fields it uses collapse. With more than 6 resonances, or two sharing an F0, the whole stage is left out and the run says so |
 | `VolumeDepLS/PN/HS`, hold times, `OutputLimiter`, any other block | Not reproduced; the run lists them |
+
+HP's Sonitude APO, the Bang & Olufsen tuning, stands alone instead. It is read
+on laptops that ship no Dolby file, from HP's audio driver download or its
+`SEAPODAT` archive passed in place of the XML. The run builds one preset,
+`HP-BO-Balanced`, a convolver then the limiter:
+
+| Sonitude field | Becomes |
+|---|---|
+| `SSIDMAP.bin` | Picks the preset by codec subsystem ID. Where both an `INTELAUDIO` and an `HDAUDIO` archive hold it, a SOF machine takes `INTELAUDIO`; `--hw-id` can name the bus |
+| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak. Below the preset's high-pass corner (stage 5, keys 19/20), when that is on, a 4th-order Butterworth at the corner |
+| Dynamics, psychoacoustic bass, the B&O equaliser, the `Movie` and `Voice` modes | Not reproduced; the run lists them |
 
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
@@ -423,6 +434,17 @@ and the parser has read only the 11 models' configs in
 [the fleet survey](research/vendor-apo.md#r-surface-apo-fleet)
 ([Surface APO finding](research/vendor-apo.md#r-surface-apo-efx), issue
 [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
+
+Unvalidated, on wherever a laptop's only tuning is a Sonitude preset: every
+Sonitude mapping. That covers the curve's grid, reading the curve as the EQ,
+applying only its cuts, and the high-pass below its step. The high-pass
+reading was pre-registered on the ZBook's Voice mode and fit within 0.97 dB
+rms from 50 to 160 Hz. From 200 Hz to 12.5 kHz the cuts-only curve is
+within 1.00 dB rms of what the B&O switch changes in one HP ZBook 15 G6's
+Windows recordings, and within 1.61 dB rms of an HP OMEN's published Windows
+response. One listener has heard the build from before the high-pass reading
+([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets), issue
+[#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
 
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
 0 dBFS and whose bands are all marked non-isolated joins the limiter at full

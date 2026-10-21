@@ -193,7 +193,14 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
             "on top (experimental, issue #113).", indent="    ")
         return []
     print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
-    if apo.default_on:
+    if apo.standalone:
+        # No Dolby file ships for this device, so this layer is the whole
+        # preset and there is nothing to switch it off back to.
+        console._cprint_wrapped(
+            "", "  The only speaker tuning this laptop ships: no Dolby file "
+            "comes with it, so the preset is built from this alone. "
+            "Experimental (issue #140).", indent="    ")
+    elif apo.default_on:
         # Nobody typed a flag for it, so the section says why it is here and
         # how to skip it. The wrapper prints no closing note, so this line is
         # the PipeWire reader's only off-switch beside the menu row (#113
@@ -202,10 +209,18 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
             "", "  On by default: the speaker tuning the vendor ships for "
             "this device beside the Dolby file. --disable "
             f"{apo_layer.FLAG} leaves it out.", indent="    ")
-    if apo.eq_left or apo.eq_right:
+    if apo.eq_left or apo.eq_right or apo.curve_hz:
         f = np.geomspace(20.0, 20000.0, 400)
-        db = np.minimum(fir.biquad_cascade_db(apo.eq_left, f),
-                        fir.biquad_cascade_db(apo.eq_right, f))
+        sides = []
+        for side, eq in (("left", apo.eq_left), ("right", apo.eq_right)):
+            side_db = fir.biquad_cascade_db(eq, f)
+            curve = apo.curve(side)
+            if curve is not None:
+                side_db = side_db + fir.interpolate_curve_db(
+                    np.array(curve[0], dtype=float),
+                    np.array(curve[1], dtype=float), f)
+            sides.append(side_db)
+        db = np.minimum(*sides)
         parts = []
         if db[0] < -6.0:
             corner = f[int(np.argmax(db >= -6.0))]
