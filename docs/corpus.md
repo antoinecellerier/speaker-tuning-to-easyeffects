@@ -150,6 +150,15 @@ here, since every figure
 on this page counts DAX3 XMLs; the vendor-apo layer reads them
 ([Surface fleet](research/vendor-apo.md#r-surface-apo-fleet)).
 
+The collection also holds HP's `sp161474.exe`, which ships no DAX3 XML and is
+not counted here either. Its 33 Sonitude `SEAPODAT` archives carry the
+speaker presets a laptop with no Dolby file is built from
+([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets)).
+`tests/corpus/test_sonitude_corpus.py` walks the 29 whose name binds a codec,
+one copy of each. Their maps bind 1,341 distinct subsystem IDs to 314 speaker
+presets, and every binding reads into all three content modes. Those counts
+come from an ad-hoc query over the test's own archive list, on 2026-10-21.
+
 ### The development machine's Windows partition
 
 Nothing is lost by not having this source: Lenovo's downloadable packages carry

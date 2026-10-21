@@ -94,32 +94,13 @@ the bass enhancer is SoundWire-only.
 | 7 | Regulator | `regulator-tuning` (+ `volmax-boost`) | Per-band limiter, a 2nd MBC instance. `volmax-boost` defaults to its `input-gain` slot: ≈+6 dB, pre-band-limiting. The opt-out `--volmax-slot output-gain` moves the boost post-band-limiting; see below |
 | 8 | Limiter | — (+ `volmax-boost` fallback) | Brickwall at -1 dBFS, the safety net, with automatic level regulation holding sustained overs below it ([limiter](research/loudness-and-limiting.md#r-limiter-alr)). Fallback slot for `volmax-boost` when the regulator isn't emitted |
 
-Where a vendor APO config binds the device, up to two more multiband
-compressors (`#2`, `#3`), one per dynamics block the layer can build, sit
-between the regulator and the limiter. The vendor EQ is folded into
-the convolver's FIR. With no regulator, the `volmax-boost` moves from the
-limiter onto the first of them. On the PipeWire chain, `--enable virtual-bass`
-sums its branch after all of this, so its harmonics skip the vendor layer.
-Two formats are read. Microsoft's Surface APO adds to a Dolby tuning. It is
-on by default, and `--disable vendor-apo` leaves it out:
-
-| Surface APO block | Becomes |
-|---|---|
-| `MainEQ` biquads, every `MainEQ*` block in file order | Folded into the FIR, its target floored 40 dB under its peak |
-| `VolumeDepMBDRC4`, `VolumeDepMBDRC` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume; bands above 20 kHz dropped |
-| `Crystal`, `Crystal1`, `Crystal2` | `multiband_compressor#3`, one limiter band per resonance; entries identical in the fields it uses collapse. With more than 6 resonances, or two sharing an F0, the whole stage is left out and the run says so |
-| `VolumeDepLS/PN/HS`, hold times, `OutputLimiter`, any other block | Not reproduced; the run lists them |
-
-HP's Sonitude APO, the Bang & Olufsen tuning, stands alone instead. It is read
-on laptops that ship no Dolby file, from HP's audio driver download or its
-`SEAPODAT` archive passed in place of the XML. The run builds one preset,
-`HP-BO-Balanced`, a convolver then the limiter:
-
-| Sonitude field | Becomes |
-|---|---|
-| `SSIDMAP.bin` | Picks the preset by codec subsystem ID. Where both an `INTELAUDIO` and an `HDAUDIO` archive hold it, a SOF machine takes `INTELAUDIO`; passing one archive alone in place of the download reads that one |
-| Endpoint 0 `EFX/AnyOutput/AnyContent` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak. Below the preset's high-pass corner (stage 5, keys 19/20), when that is on, a 4th-order Butterworth at the corner |
-| Dynamics, psychoacoustic bass, the B&O equaliser, the `Movie` and `Voice` modes | Not reproduced; the run lists them |
+Where a vendor APO config binds the device, up to two more multiband compressors
+(`#2`, `#3`), one per dynamics block the layer can build, sit between the
+regulator and the limiter. The vendor EQ is folded into the convolver's FIR.
+With no regulator, the `volmax-boost` moves from the limiter onto the first of
+them. On the PipeWire chain, `--enable virtual-bass` sums its branch after all
+of this, so its harmonics skip the vendor layer. Which vendor formats are read,
+and what each block becomes: [Vendor tunings](#vendor-tunings).
 
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
@@ -384,6 +365,85 @@ quiet when the default coupled-bands mapping limits any zone. Under
 EE 7 uses an incompatible preset format. On EE 7 the speaker-correction filter
 loads nothing. Use the Flatpak if your distro still ships EE 7.
 
+## Vendor tunings
+
+Two vendor formats are read. Microsoft's Surface APO adds to a Dolby tuning. A
+Sonitude preset stands alone, on a laptop with no Dolby file.
+
+### Surface APO
+
+It is on by default, and `--disable vendor-apo` leaves it out:
+
+| Surface APO block | Becomes |
+|---|---|
+| `MainEQ` biquads, every `MainEQ*` block in file order | Folded into the FIR, its target floored 40 dB under its peak |
+| `VolumeDepMBDRC4`, `VolumeDepMBDRC` | `multiband_compressor#2`, at volume state 0, read (unvalidated) as full volume; bands above 20 kHz dropped |
+| `Crystal`, `Crystal1`, `Crystal2` | `multiband_compressor#3`, one limiter band per resonance; entries identical in the fields it uses collapse. With more than 6 resonances, or two sharing an F0, the whole stage is left out and the run says so |
+| `VolumeDepLS/PN/HS`, hold times, `OutputLimiter`, any other block | Not reproduced; the run lists them |
+
+### Sonitude input
+
+A laptop that ships no Dolby file can voice its speakers in a Sonitude APO
+preset instead. The run reads that preset as the device's whole tuning. It
+builds one preset per content mode, each the convolver then the limiter of the
+chain above. Flags that act on a Dolby stage are refused.
+
+The run finds the tuning in one of two places:
+
+- **A driver download or one of its archives**, passed in place of the XML.
+  The archives are `SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip`. A download
+  that also holds a Dolby XML takes the Dolby route.
+- **An installed Windows**, through auto-detection or `--windows`. A Dolby
+  file there that matches the device wins. Otherwise the run reads the
+  `snapo64ext.inf_amd64_*` package folder in its DriverStore. Of several
+  package versions, the newest by its INF's `DriverVer` is read.
+
+| Sonitude field | Becomes |
+|---|---|
+| `SSIDMAP.bin` | Picks the preset by codec subsystem ID |
+| Endpoint 0 `EFX/AnyOutput/<mode>/Preset.bin` curves, L and R | Folded into the FIR as cuts only, on a 1/24-octave grid from 10 Hz, its target floored 40 dB under its peak |
+| The same file's high-pass, stage 5 keys 19/20 | When on, a 4th-order Butterworth at its corner replaces the curve at and below the corner. When off, the curve's own low end is kept |
+| Dynamics, psychoacoustic bass, the 10-band equaliser, the headphone and posture modes | Not read |
+
+Where the curve's first rise of more than 6 dB between neighbouring points
+starts within one grid point above the corner, that point is replaced too.
+
+Where both an `INTELAUDIO` and an `HDAUDIO` archive bind the device to
+different curves, a machine running SOF takes `INTELAUDIO` and any other takes
+`HDAUDIO`. The run says which it used and names the other archive. One archive
+passed alone is the one read.
+
+Each content mode is a profile:
+
+| `--profile` | Content mode | Preset |
+|---|---|---|
+| `music`, the default | `AnyContent` | `Sonitude-Music` |
+| `movie` | `Movie` | `Sonitude-Movie`, marked experimental |
+| `voice` | `Voice` | `Sonitude-Voice`, marked experimental |
+
+`--all-profiles` builds every mode the archive holds, and `--list` names them.
+A mode the archive lacks is left out, except `music`, which the run requires.
+Each preset's FIR is normalised so its loudest point sits at 0 dB. The level
+difference between modes is therefore not reproduced.
+
+The run reports each stage on one line, as `built`, `approximated` (built,
+knowingly not as the file states it) or `not reproduced`. A Sonitude preset
+reports:
+
+| Stage | Status | Says |
+|---|---|---|
+| EQ curve | built | its boosts left out, where it has any (the evidence covers Music; untested for Movie and Voice) |
+| high-pass | built | its corner, or that it is off |
+| compressor and limiter | not reproduced | not read yet |
+| psychoacoustic bass | not reproduced | not read yet; on one laptop the tuning adds harmonics to the deepest bass, likely from this stage |
+| 10-band equaliser | not reproduced | not read; taken to be the app's user equaliser, flat in the one preset checked |
+| outside this tuning | not reproduced | on one laptop Windows also shapes the sound with its audio enhancements off (measured at 50 % volume); its source is unknown |
+
+Output files are `output/Sonitude-<Profile>.json` and
+`irs/Sonitude-<Profile>-<8 hex>.irs` under `~/.local/share/easyeffects/`.
+Every mapping here is unvalidated: see
+[Validated vs unvalidated mappings](#validated-vs-unvalidated-mappings).
+
 ## Validated vs unvalidated mappings
 
 Validated against DAX captures:
@@ -436,14 +496,18 @@ and the parser has read only the 11 models' configs in
 [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
 
 Unvalidated, on wherever a laptop's only tuning is a Sonitude preset: every
-Sonitude mapping. That covers the curve's grid, reading the curve as the EQ,
-applying only its cuts, and the high-pass below its step. The high-pass
-reading was pre-registered on the ZBook's Voice mode and fit within 0.97 dB
-rms from 50 to 160 Hz. From 200 Hz to 12.5 kHz the cuts-only curve is
-within 1.00 dB rms of what the B&O switch changes in one HP ZBook 15 G6's
-Windows recordings, and within 1.61 dB rms of an HP OMEN's published Windows
-response. One listener has heard the build from before the high-pass reading
-([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets), issue
+[Sonitude](#sonitude-input) mapping. That covers the curve's grid, reading the
+curve as the EQ, applying only its cuts, the high-pass at its field's corner,
+and reading `AnyContent` as the Music mode. A 4th-order Butterworth high-pass
+cornered at the curve's own step was pre-registered on one laptop's Voice mode
+and fit within 0.97 dB rms from 50 to 160 Hz. Taking the corner from the field
+came afterwards, and has not been scored on its own there. From 200 Hz to 12.5
+kHz the cuts-only curve is within 1.00 dB rms of what switching the tuning on
+changes in that laptop's Windows recordings, and within 1.61 dB rms of a second
+laptop's published Windows response. One listener has heard the current Music
+preset, on the first laptop: "considerably better… almost like Windows", with
+bass that wants to be "more dense and full". Nobody has heard the Movie or Voice
+preset ([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets), issue
 [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
 
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
