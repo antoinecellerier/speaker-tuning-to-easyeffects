@@ -24,6 +24,7 @@ import pytest
 import dolby_to_easyeffects
 import dolby_to_pipewire
 import ee_to_pipewire
+from lib.pipewire import checks
 from lib.pipewire import conf as pw_conf
 from lib.pipewire import install
 from lib import tool_env, version
@@ -152,10 +153,14 @@ def test_inherited_help_describes_this_surface():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def recorders(monkeypatch):
+def recorders(monkeypatch, tmp_path):
     """Replace the generator, the converter, and subprocess with recorders.
     The fake generator writes the three variant stubs into the --output-dir
-    it was handed, like the real one; the fake pw-cli lists every node."""
+    it was handed, like the real one; the fake pw-cli lists every node.
+    The install directory is a tmp dir: it is computed at import, so a run
+    without --output-dir would otherwise read the real one, and the confs
+    on the machine running the suite would decide what these tests see."""
+    monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path / "conf.d")
     # Warm the git-describe version cache before the recorder hooks in:
     # whichever test runs first in a fresh worker would otherwise record
     # the one-time version lookup and fail the no-subprocess assertions.
@@ -342,6 +347,52 @@ def test_user_target_object_is_not_doubled(recorders):
     for argv in recorders.step2:
         assert argv.count("--target-object") == 1
         assert argv[argv.index("--target-object") + 1] == "mine"
+
+
+# Several virtual-sink chains each cost their full DSP whenever they run, and
+# enough of them at once got PipeWire killed (issue #144). The warning is the
+# wrapper's to print, once, after its last conf lands: the children each see
+# only the confs written before them.
+
+def _fake_v1_confs(monkeypatch, names):
+    """Our v1 confs already on disk, as virtual_sink_confs would find them."""
+    def found(directory, exclude=()):
+        skip = {Path(p).resolve() for p in exclude}
+        return [p for p in (Path(directory) / n for n in names)
+                if p.resolve() not in skip]
+    monkeypatch.setattr(checks, "virtual_sink_confs", found)
+
+
+def test_multi_chain_run_warns_once_with_its_count(recorders, capsys):
+    assert wrapper_main(["--variant", "all", "--target-sink", "",
+                         "--no-activate"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("chains installed as separate outputs") == 1
+    assert "makes 3 chains" in out
+
+
+def test_single_v1_run_counts_the_chains_already_there(recorders, monkeypatch,
+                                                       tmp_path, capsys):
+    """The reporter's path: a voicing set first, then a profile on its own."""
+    _fake_v1_confs(monkeypatch, ["Dolby_Detailed.conf", "Dolby_Warm.conf"])
+    assert wrapper_main(["--profile", "music", "--target-sink", "",
+                         "--output-dir", str(tmp_path), "--no-activate"]) == 0
+    assert "makes 3 chains" in capsys.readouterr().out
+
+
+def test_rewriting_a_lone_chain_never_counts_itself(recorders, monkeypatch,
+                                                    tmp_path, capsys):
+    _fake_v1_confs(monkeypatch, ["Dolby_Balanced.conf"])
+    assert wrapper_main(["--target-sink", "", "--output-dir", str(tmp_path),
+                         "--force", "--no-activate"]) == 0
+    assert "separate outputs" not in capsys.readouterr().out
+
+
+def test_smart_filter_runs_never_count_chains(recorders, monkeypatch, tmp_path,
+                                              capsys):
+    _fake_v1_confs(monkeypatch, ["Dolby_Warm.conf", "Dolby_Detailed.conf"])
+    assert wrapper_main(["--output-dir", str(tmp_path), "--no-activate"]) == 0
+    assert "separate outputs" not in capsys.readouterr().out
 
 
 def test_undetectable_speaker_sink_fails_before_writing(recorders, monkeypatch):

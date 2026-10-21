@@ -159,20 +159,76 @@ def test_virtual_sinks_do_not_count_as_stacked():
     assert checks.check_stacked_chains(checks.live_chains(dump), []) is None
 
 
-@pytest.mark.parametrize("chains,flagged", [
-    ([("A", ""), ("B", "")], True),            # both follow the default sink
-    ([("A", SPEAKER), ("B", SPEAKER)], False),  # both pinned
-    ([("A", ""), ("B", SPEAKER)], False),       # only one is loose
-    ([("A", "")], False),                       # nothing to chain into
+def _ours(*names):
+    """Confs this tool installed, for the chains of those names."""
+    return [checks.InstalledConf(path=Path(f"{n}.conf"),
+                                 node_name=f"effect_input.{n}") for n in names]
+
+
+@pytest.mark.parametrize("chains,flagged,unpinned", [
+    ([("A", ""), ("B", "")], True, True),             # both follow the default
+    ([("A", SPEAKER), ("B", SPEAKER)], True, False),   # pinned, still two loaded
+    ([("A", ""), ("B", SPEAKER)], True, False),        # only one is loose
+    ([("A", "")], False, False),                       # a lone chain
+    ([("A", SPEAKER)], False, False),
 ])
-def test_unpinned_siblings(chains, flagged):
+def test_crowded_chains(chains, flagged, unpinned):
+    """Two or more virtual-sink chains is the finding, pinned or not: each costs
+    its full DSP whenever it runs (issue #144). The unpinned sentence rides
+    along only where it is true, in the same result, so one set of chains never
+    gets two checks with two remedies."""
     dump = [_speaker_sink()]
     for name, pin in chains:
         dump += _virtual_chain(name, pin)
-    result = checks.check_unpinned_siblings(checks.live_chains(dump))
+    result = checks.check_crowded_chains(checks.live_chains(dump),
+                                         _ours(*(n for n, _ in chains)))
     assert (result is not None) is flagged
     if flagged:
         assert result.status == DOCTOR_WARN
+        assert "as much CPU unselected" in result.detail
+        assert ("aren't tied to your speakers" in result.detail) is unpinned
+
+
+def test_crowded_chains_count_suspended_ones_and_skip_smart_filters():
+    """An idle chain is suspended, not gone: pw-dump still lists it, and it
+    loads the moment it runs, so it counts. Smart filters are a different
+    finding (check_stacked_chains) and never count here."""
+    suspended = _virtual_chain("B", SPEAKER)
+    for node in suspended:
+        node["info"]["state"] = "suspended"
+    dump = [_speaker_sink(), *_virtual_chain("A", SPEAKER), *suspended]
+    assert checks.check_crowded_chains(checks.live_chains(dump),
+                                       _ours("A", "B")) is not None
+
+    dump = [_speaker_sink(), *_virtual_chain("A", SPEAKER),
+            *_smart_chain("S")]
+    assert checks.check_crowded_chains(checks.live_chains(dump),
+                                       _ours("A", "S")) is None
+
+
+def test_crowded_chains_count_only_chains_this_tool_installed():
+    """live_chains matches every module-filter-chain, a reader's own
+    equaliser sink included; the remedy is deleting our confs, so theirs
+    never count toward it."""
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced", SPEAKER),
+            *_virtual_chain("eq6", ""), *_virtual_chain("hesuvi", "")]
+    chains = checks.live_chains(dump)
+    assert checks.check_crowded_chains(chains, _ours("Dolby_Balanced")) is None
+    assert checks.check_crowded_chains(chains, []) is None
+
+
+def test_crowded_chains_name_our_confs_and_their_folder(tmp_path):
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced", SPEAKER),
+            *_virtual_chain("Dolby_Warm", SPEAKER)]
+    confs = [checks.InstalledConf(path=tmp_path / "Dolby_Balanced.conf",
+                                  node_name="effect_input.Dolby_Balanced"),
+             checks.InstalledConf(path=tmp_path / "Dolby_Warm.conf",
+                                  node_name="effect_input.Dolby_Warm")]
+    result = checks.check_crowded_chains(checks.live_chains(dump), confs)
+    assert "Dolby_Balanced.conf, Dolby_Warm.conf" in result.detail
+    assert "pipewire.conf.d" in result.detail
+    # One remedy: a second, conditional fix path read as a competing one.
+    assert "--target-sink" not in result.detail
 
 
 # --- Default output: which sink is selected --------------------------------
@@ -1461,6 +1517,55 @@ def test_the_versions_are_probed_once_per_run(tmp_path, monkeypatch):
 
 
 # --- Warning at the moment it happens ---------------------------------------
+
+def test_virtual_sink_confs_counts_only_v1_confs(tmp_path, monkeypatch):
+    """A conf spa-json-dump couldn't parse keeps smart=False, so its routing
+    is read off its text: U is a smart conf on a machine without the tool,
+    and must not count. The excluded path is the conf a run is rewriting."""
+    found = [checks.InstalledConf(path=tmp_path / "A.conf"),
+             checks.InstalledConf(path=tmp_path / "B.conf"),
+             checks.InstalledConf(path=tmp_path / "S.conf", smart=True),
+             checks.InstalledConf(path=tmp_path / "U.conf", readable=False)]
+    (tmp_path / "U.conf").write_text("filter.smart = true\n")
+    monkeypatch.setattr(checks, "installed_confs", lambda d: found)
+    assert checks.virtual_sink_confs(tmp_path) == [tmp_path / "A.conf",
+                                                   tmp_path / "B.conf"]
+    assert checks.virtual_sink_confs(
+        tmp_path, exclude=[tmp_path / "A.conf"]) == [tmp_path / "B.conf"]
+
+
+def test_virtual_sink_confs_reads_routing_off_an_unparsed_conf(tmp_path,
+                                                               monkeypatch):
+    """Without spa-json-dump every conf is unparsed; the reporter's path (a
+    second run beside existing chains) must still count them, and a smart
+    conf must still not count."""
+    v1, smart = tmp_path / "A.conf", tmp_path / "S.conf"
+    v1.write_text("capture.props = { node.name = \"effect_input.A\" }\n")
+    smart.write_text("capture.props = {\n    filter.smart = true\n}\n")
+    monkeypatch.setattr(checks, "installed_confs", lambda d: [
+        checks.InstalledConf(path=v1, readable=False),
+        checks.InstalledConf(path=smart, readable=False)])
+    assert checks.virtual_sink_confs(tmp_path) == [v1]
+
+
+@pytest.mark.parametrize("total,warned", [(0, False), (1, False), (2, True),
+                                          (27, True)])
+def test_crowded_install_warns_from_two_chains(total, warned,
+                                               silence_console, capsys):
+    silence_console(console)
+    checks.warn_if_crowded(total)
+    out = capsys.readouterr().out
+    assert bool(out) is warned
+    if warned:
+        assert f"makes {total} chains" in out
+        assert ".conf and .irs" in " ".join(out.split())
+
+
+def test_crowded_dry_run_speaks_in_the_conditional(silence_console, capsys):
+    silence_console(console)
+    checks.warn_if_crowded(3, dry_run=True)
+    assert "would make 3 chains" in capsys.readouterr().out
+
 
 def _write_conf(path: Path, target=SPEAKER, node="Dolby_Balanced"):
     path.write_text(

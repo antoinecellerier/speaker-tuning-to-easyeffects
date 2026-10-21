@@ -221,8 +221,8 @@ def _print_next_steps(node_name: str,
         console.cprint("cta", f"  {step}. Select it as output:     pactl "
                       f"set-default-sink effect_input.{_sanitize_name(node_name)}")
         console._cprint_wrapped(
-            "dim", "     (or pick it in sound settings — until you do it "
-            f"processes nothing; {V1_SECOND_VOLUME_HINT})", indent="     ")
+            "dim", "     (or pick it in sound settings — until you do, no "
+            f"audio goes through it; {V1_SECOND_VOLUME_HINT})", indent="     ")
         step += 1
     else:
         console.cprint("dim", "     (nothing to select afterwards: it attaches to "
@@ -515,7 +515,7 @@ def _print_selection_step(node_names: list[str], selectable: bool) -> None:
             indent="     ")
         return
     console.cprint("cta", "  Now pick it as your output in sound settings — until "
-                  "you do, it processes nothing:")
+                  "you do, no audio goes through it:")
     for name in node_names:
         console.cprint("cta", f"    {name}")
     console._cprint_wrapped("dim", f"     ({V1_SECOND_VOLUME_HINT})",

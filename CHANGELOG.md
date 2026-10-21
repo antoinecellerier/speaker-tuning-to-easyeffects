@@ -117,6 +117,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   `--all-profiles`, which nobody has listened to.
   ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140);
   how to run it in `docs/sonitude.md`)
+- The PipeWire route warns when a run leaves two or more chains installed as
+  separate outputs, and `--doctor` reports it: each can cost CPU even when it
+  isn't selected, and enough of them at once can get PipeWire killed.
+  ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144);
+  why in `docs/research/easyeffects-and-pipewire.md`)
 - Mark additional tested devices: ThinkPad P53 (20QQ)
   ([#131](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/131)),
   ThinkPad T490s (20NX)

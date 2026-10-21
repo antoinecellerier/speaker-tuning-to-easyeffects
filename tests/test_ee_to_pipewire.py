@@ -2125,7 +2125,7 @@ def test_next_steps_tell_a_v1_user_to_select_the_sink(generated, tmp_path, capsy
     _run_main(generated, tmp_path, "--target-sink", "")
     out = capsys.readouterr().out
     assert "pactl set-default-sink effect_input.TestChain" in out
-    assert "processes nothing" in out
+    assert "no audio goes through it" in out
     assert "both apply" in out, "the two-volume-controls consequence must be said"
 
 
@@ -2161,8 +2161,35 @@ def test_detection_failure_still_says_the_chain_is_inert(
                         lambda: (None, ["no speaker sink found"]))
     _run_main(generated, tmp_path)
     out = capsys.readouterr().out
-    assert "processes nothing" in out
+    assert "no audio goes through it" in out
     assert "pactl set-default-sink effect_input.TestChain" in out
+
+
+def test_a_wrapped_run_that_fell_back_to_v1_counts_its_own_chain(
+        generated, tmp_path, capsys, monkeypatch):
+    """The wrapper counts the chains its run leaves only for --target-sink '';
+    a default run whose speaker detection failed went v1 in the child, so the
+    child is the one that knows, and the warning must not go missing."""
+    import ee_to_pipewire as ee2pw
+    from lib.pipewire import checks
+    monkeypatch.setattr(install, "_autodetect_speaker_sink",
+                        lambda: (None, ["no speaker sink found"]))
+    monkeypatch.setattr(checks, "virtual_sink_confs",
+                        lambda d, exclude=(): [d / "Other.conf"])
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    argv = [str(preset_path), "--irs-dir", str(irs_path.parent),
+            "--node-name", "TestChain", "--output",
+            str(tmp_path / "out" / "TestChain.conf"), "--no-validate",
+            "--skip-next-steps"]
+    assert ee2pw.main(argv, wrapped=True) == 0
+    assert "makes 2 chains installed as separate outputs" in \
+        capsys.readouterr().out
+    # An explicit --target-sink '' under the wrapper is the wrapper's to count.
+    assert ee2pw.main([*argv, "--force", "--target-sink", ""],
+                      wrapped=True) == 0
+    assert "separate outputs" not in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

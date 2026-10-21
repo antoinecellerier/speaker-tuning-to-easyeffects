@@ -33,6 +33,10 @@ reports what it finds and what to do about it.
 - **Speakers thin and quiet even with EasyEffects off.**
   [Check for missing amplifier firmware](#troubleshooting-correct-but-too-quiet)
   with `--speaker-info`.
+- **Audio cuts out for a moment when I switch outputs, with several PipeWire
+  chains installed.** PipeWire may be getting overloaded and restarted:
+  [keep one chain](ee-to-pipewire.md#several-virtual-sink-chains-at-once), and
+  `--doctor` lists them.
 - **I'd rather not run EasyEffects.**
   [Use the PipeWire filter-chain](dolby-to-pipewire.md) instead.
 - **Something else.** [Report it](#reporting-a-problem).

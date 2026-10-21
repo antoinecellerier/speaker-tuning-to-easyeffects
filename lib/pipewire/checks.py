@@ -518,22 +518,57 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
     return CheckResult(DOCTOR_FAIL, "Stacked filter chains", detail)
 
 
-def check_unpinned_siblings(chains) -> CheckResult | None:
-    """Several virtual sinks with no playback target of their own.
+def check_crowded_chains(chains, confs) -> CheckResult | None:
+    """Several virtual-sink chains loaded at once.
 
-    They follow the *default* sink, so selecting one of them in sound settings
-    makes the others follow it and chain into it (measured: Balanced → Warm).
-    One on its own is fine — there is nothing for it to chain into.
+    Each costs its full DSP whenever it runs, selected output or not, and the
+    daemon's chains share its processing. Enough of them at once overloaded
+    PipeWire until RLIMIT_RTTIME killed it (issue #144, measured with ten
+    chains, `r-virtual-sink-chain-cpu`). The count
+    alone is the finding, because a chain that is idle right now still loads
+    the moment it runs, so nothing live tells a safe install from this one.
+
+    The unpinned case is part of the same finding, with the same remedy:
+    keeping one fixes it. Unpinned siblings follow the *default* sink, so
+    selecting one makes the others chain into it (measured: Balanced → Warm).
+    One on its own has nothing to chain into.
     """
-    loose = [c.name for c in chains if not c.smart and not c.pinned]
-    if len(loose) < 2:
+    # Ours only: live_chains matches every module-filter-chain, a reader's own
+    # equaliser sink included, and this check's remedy is deleting our confs.
+    mine = [c for c in chains if not c.smart and _conf_for(c.name, confs)]
+    if len(mine) < 2:
         return None
-    return CheckResult(
-        DOCTOR_WARN, "Unpinned virtual sinks",
-        f"{len(loose)} chains ({', '.join(sorted(loose))}) have no playback "
-        "target of their own, so they follow whichever sink is default. Pick "
-        "one of them as your output and the others feed into it. Re-run the "
-        "converter with --target-object <your speaker sink> to pin them.")
+    virtual = sorted(c.name for c in mine)
+    loose = [c.name for c in mine if not c.pinned]
+    ours = [_conf_for(n, confs) for n in virtual]
+    # "as much CPU unselected as selected": measured, an idle chain's DSP costs
+    # the same on silence. "a level meter can wake it": on PipeWire 1.6.9 an
+    # idle chain is suspended until a stream opens on its sink's monitor, and
+    # pavucontrol's meters open one on every sink; "can", not "typically",
+    # because other panels are unmeasured, the #144 reporter's KDE applet
+    # included. "enough of them",
+    # not a safe count: where it tips over depends on the machine (ten here,
+    # five on the reporter's). All in `r-virtual-sink-chain-cpu`. The cleanup
+    # is conditional on the symptom: comparing chains is the mode's purpose,
+    # and an install that never cuts out has nothing to fix.
+    detail = (
+        f"{len(virtual)} chains are loaded as separate outputs "
+        f"({', '.join(virtual)}). Each can use as much CPU unselected as "
+        "selected (a level meter can wake it), and enough of them can "
+        "get PipeWire killed, cutting audio for a moment.")
+    if len(loose) >= 2:
+        detail += (
+            f" {', '.join(sorted(loose))} aren't tied to your speakers, so "
+            "selecting one sends the others' sound through it.")
+    detail += (f" If your audio ever cuts out like that, delete the .conf "
+               f"and .irs of the ones you don't use from "
+               f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} ({', '.join(ours)}), "
+               "then restart PipeWire.")
+    # One remedy only: re-running without --target-sink '' would depend on how
+    # the conf went v1 and on WirePlumber 0.5+, so it stays out of a check
+    # whose fix is keeping one.
+    return CheckResult(DOCTOR_WARN, "Several chains as separate outputs",
+                       detail)
 
 
 def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
@@ -1249,7 +1284,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # no impulse file.
         check_conf_contents(confs),
         check_stacked_chains(chains, confs),
-        check_unpinned_siblings(chains),
+        check_crowded_chains(chains, confs),
         check_confs_loaded(confs, chains, dump),
         # Directly under the check whose detail points at them, the loader
         # first: without it, every plugin the next check finds still fails
@@ -1500,6 +1535,60 @@ def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
                   "(and its .irs), then")
     console.cprint("dim", "   restart PipeWire.")
     console.cprint("dim", "   --doctor lists what is installed and what it does.")
+
+
+def virtual_sink_confs(directory: Path, exclude=()) -> list[Path]:
+    """Our v1 (virtual-sink) confs in *directory*, minus *exclude*.
+
+    An unparsed conf keeps the dataclass default ``smart=False``, so routing
+    is judged by ``_smart_conf`` rather than read off the field."""
+    skip = {Path(p).resolve() for p in exclude}
+    return [c.path for c in installed_confs(directory)
+            if c.path.resolve() not in skip and not _smart_conf(c)]
+
+
+def _smart_conf(c: InstalledConf) -> bool:
+    """Whether one of our confs is a smart filter, parsed or not.
+
+    Parsed, the answer is spa-json-dump's. Unparsed, it is read off the text:
+    the conf is ours (installed_confs matched its header), and format_conf
+    writes the key on a line of its own whenever it sets it. Without this, a
+    machine lacking spa-json-dump would count no conf at all, and the
+    reporter's own path (a second run beside existing chains) would stay
+    silent."""
+    if c.readable:
+        return c.smart
+    try:
+        text = c.path.read_text(errors="replace")
+    except OSError:
+        return True      # unknown: not counted
+    return re.search(r"^\s*filter\.smart\s*=\s*true\b", text, re.M) is not None
+
+
+def warn_if_crowded(total: int, dry_run: bool = False) -> None:
+    """Warn when a run leaves several virtual-sink chains installed.
+
+    Each runs its full DSP whenever it runs, selected output or not, and
+    enough of them at once overloaded PipeWire until it was killed (issue
+    #144, `r-virtual-sink-chain-cpu`). The multi-chain
+    modes install several on purpose, to compare, so this says when to stop
+    rather than refusing. Printed once per run by whichever script owns it:
+    the wrapper counts what its whole run leaves, a standalone conversion
+    counts itself plus what was already there.
+    """
+    if total < 2:
+        return
+    console.cprint("warn", "")
+    console.cprint("warn", f"⚠  That {'would make' if dry_run else 'makes'} "
+                   f"{total} chains installed as separate outputs.")
+    # Each qualifier's evidence is beside check_crowded_chains' wording.
+    console._cprint_wrapped(
+        "dim", "   Each can use as much CPU unselected as selected (a level meter "
+        "can wake it), and enough of them can get PipeWire killed, "
+        "cutting audio for a moment. If that ever happens, delete the .conf "
+        "and .irs of the ones you don't use, then restart PipeWire. --doctor "
+        "lists them.",
+        indent="   ")
 
 
 def warn_if_easyeffects_running(running: bool | None = None) -> None:

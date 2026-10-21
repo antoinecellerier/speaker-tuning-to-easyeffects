@@ -17,6 +17,8 @@
   the socket makes it audible ([impulse names](#r-irs-in-place-rewrite)).
 - **`--doctor`** reads EasyEffects' live state over its local socket where the
   socket answers, never the `easyeffects` CLI ([CLI](#r-ee-cli-live-state)).
+- **Several virtual-sink chains** each cost their full DSP whenever they run,
+  and ten at once got PipeWire killed ([#144](#r-virtual-sink-chain-cpu)).
 
 Open:
 
@@ -33,6 +35,8 @@ Open:
   the next tag carries the fix ([#95](#r-irs-in-place-rewrite)).
 - Parked: a flag to opt out of `--doctor`'s redactions
   ([#95](#r-irs-in-place-rewrite)).
+- What wakes the #144 reporter's idle chains is unconfirmed
+  ([#144](#r-virtual-sink-chain-cpu)).
 
 <a id="r-preset-loads-but-inaudible"></a>
 
@@ -468,6 +472,125 @@ the EasyEffects commit because `docs/code-organisation.md` names this exact
 pair, `DEFAULT_OUTPUT_DIR` in `ee_paths.py` and in `checks.py`, as the two
 definitions a reviewer will misread as one. They still resolve to different
 trees. Only the root each starts from is shared.
+
+<a id="r-virtual-sink-chain-cpu"></a>
+
+## Several virtual-sink chains at once: CPU cost and a killed PipeWire (issue #144)
+
+Enough awake virtual-sink chains overload PipeWire's processing until the
+kernel's real-time CPU limit kills the daemon. Ten did it on the dev device;
+the reporter of issue #144 hit it with five. Conditions: dev X1 Yoga Gen 7
+(HDA, i7-1270P), PipeWire 1.6.9, WirePlumber 0.5.18, quantum forced to 2048 at
+48 kHz, 2026-10-21 (`2117e72`). Each chain was the dev XML's conf with
+`--enable virtual-bass`: the three voicings plus `--profile music` and
+`--profile movie`, each pinned with `target.object` to the speaker sink, which
+was muted. Load was pink noise with a 55 Hz kick played into one chain. A
+chain was woken by a `pw-record` monitor capture on its sink
+(`stream.capture.sink = true`).
+
+| Chains loaded | Awake | Per-chain busy | Graph time per cycle | Result |
+|---|---|---|---|---|
+| 5 | 1, the one playing | 2.8 ms (`pw-top`) | — | the other 4 suspended (`S`), costing nothing |
+| 5 | 5, a monitor on each, with output switches (12 profiled, 30 more unprofiled) | 5.0 ms median, 16 ms worst (`pw-profiler`, 948 cycles) | 21.5 ms median, 36.1 ms p99, 42.72 ms worst, of a 42.67 ms period | no kill |
+| 10 | woken one by one in a single switch | — | summed busy 44–49 ms at 8–9 awake | SIGKILL on the first switch |
+| 5 (reporter, ThinkPad E16 Gen 2, PipeWire 1.6.0, WirePlumber 0.5.10) | all, per their `pw-top` | 3–4 ms idle, 6.9 ms playing | — | 3 kills in ~10 min of switching outputs in the KDE applet; none in ~30 scripted `pactl` switches on silence |
+
+**The mechanism.** Every chain loaded in the daemon ran on its one data thread
+(`data-loop.0`, SCHED_RR 20). Once the summed busy time passes the period, the
+cycles run back to back, and the thread never blocks. RTKit grants real-time
+scheduling only to a process that caps `RLIMIT_RTTIME`, here at 200000 µs
+soft and hard. Past the hard limit of real-time CPU without a blocking call,
+the kernel sends SIGKILL (`man 2 getrlimit`). The user journal logged
+`pipewire.service: Main process exited, code=killed, status=9/KILL`, and the
+kernel log nothing. Systemd restarts the daemon, so all audio cuts out for a
+moment.
+
+**Cost is per chain loaded, not per chain selected.** On this setup an idle
+pinned chain is suspended until something opens a stream on its sink's monitor.
+Awake, it runs its full DSP on silence every cycle. An offline lilv host ran
+each chain's LV2 plugins over 5 s of that signal and 15 s of exact zeros, in
+2048-frame blocks. The median stayed at 2.4 ms per block before and after the
+signal stopped, with the x86 flush-to-zero bits set or clear. So the cost does
+not depend on content, and denormals in a decaying tail are not the cause.
+
+**A sound panel's level meter can wake them all.** With three pinned chains
+loaded, nothing playing and none selected, pavucontrol 6.1 open on its Output
+Devices tab held a peak-meter capture (`stream.capture.sink = true`) on every
+sink, the chains' own included. All three went from suspended to running, at
+0.36 ms per 256-frame cycle each (`pw-profiler`, n = 1499 cycles per chain, at
+the session's own quantum of 256), and were suspended or idle again 8 s after
+it closed. Other panels are unmeasured.
+
+Shipped from this: the converter warns once per run when it leaves two or more
+virtual-sink chains installed (`checks.warn_if_crowded`), and `--doctor`'s
+"Several chains as separate outputs" check, which absorbed the unpinned-siblings
+check. Both warn rather than refuse. Comparing chains is what the multi-chain
+modes exist for, and `--all-profiles --variant all` alone can install 27.
+
+Open:
+
+- What wakes the reporter's idle chains. Their `pw-top` showed all five
+  processed every cycle. Either the KDE applet's level meters open a monitor
+  on every sink while it is open, as pavucontrol's do, or PipeWire 1.6.0 does
+  not suspend an idle pinned chain. The test: watch a chain's `pw-top` row
+  while opening the applet.
+- Spreading chains over several data loops (`context.num-data-loops`,
+  `node.loop.name`) is untested. It would avoid the shared thread, not the
+  per-chain cost.
+- Where PipeWire gets real-time priority from `rlimits` rather than RTKit,
+  `RLIMIT_RTTIME` may be unlimited, so overload would stall rather than kill.
+  Unverified.
+
+### Rejected: `node.passive` on the chain's input to keep it asleep
+
+The hypothesis was that `node.passive = "out"` on `capture.props` would make
+the sink's monitor links passive: the documented meaning of `"out"` is that
+output ports "will not make the peers active and active peers will not make
+this node active", which would let a level meter watch an idle chain without
+waking it, while a playing app still did. Measured on the same device
+(PipeWire 1.6.9, WirePlumber 0.5.18, 2026-10-21): three otherwise identical
+chains loaded from `pw-cli -m load-module`, each woken by a `pw-record`
+monitor capture (`stream.capture.sink = true`), profiled with `pw-profiler`.
+
+| Input sink | Woken | Busy per cycle |
+|---|---|---|
+| as shipped | yes | 1.49 ms (n = 280) |
+| `node.passive = "out"` | yes | 1.48 ms (n = 280) |
+| `node.passive = true` | yes | 2.78 ms (n = 233, a separate run) |
+
+The property reached the node, but its monitor ports carried no
+`port.passive` and the monitor link was not passive. Even `true`, which would
+also stop a playing app from waking the chain, did not keep it asleep.
+Declined: no `node.passive` value keeps a meter from waking a chain on this
+version. Disabling monitor ports is no alternative either:
+`node.features.audio.monitor-ports` is one WirePlumber setting for every audio
+node, so it would take every level meter with it. PipeWire also schedules by
+links, not by signal, so a chain fed silence does its full work. PipeWire 1.5.81
+changed how passive leaf nodes run, so another version may differ.
+
+### Rejected: detecting the kill from the journal
+
+The doctor could count `status=9/KILL` in the user journal of `pipewire.service`
+for the current boot. Declined: the line names no cause, since a stop timeout,
+the OOM killer and `kill -9` print the same. It reads as nothing on a volatile
+journal the user can't read and on a session without systemd. The doctor already
+reports PipeWire's uptime.
+
+### Rejected: `priority.session` to keep a v1 chain as the fallback
+
+The reporter proposed `priority.session = 1100` on the capture node. On
+WirePlumber 0.5.10 the stored-history fallback ranks each previously picked
+sink at `priority.session + 20001 - i`, where `i` is its place in the history.
+So when the configured sink, a Bluetooth headset, disconnected, the raw speaker
+(1000) beat a more recently picked chain (0). WirePlumber 0.5.18 (2026-09-29)
+ranks the history by position alone
+([wireplumber#1005](https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/1005)).
+Declined, for the reasons of the
+[earlier rejection](#rejected-prioritysession-on-the-v1-capture-node) plus
+one: below 0.5.18, a fixed value only moves the wrong pick. At 1100, a chain
+would outrank a Bluetooth headset (1010) or the speaker picked after it. The
+default smart-filter routing has no such gap, because there the fallback is the
+speaker sink the chain attaches to.
 
 ## Rejected approaches
 

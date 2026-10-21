@@ -760,6 +760,12 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     output_path.write_text(conf)
     install._print_results(output_path, copied_irs, dry_run=False)
     checks.warn_if_stacked(output_path, target_sink)
+    if target_sink is None and (not wrapped or args.target_sink != ""):
+        # The wrapper counts its whole run once, after its last conf lands, but
+        # only for a run it knows is v1 (--target-sink ''). One that fell back
+        # here because no speaker sink was detected is this conf's to count.
+        checks.warn_if_crowded(1 + len(checks.virtual_sink_confs(
+            output_path.parent, exclude=[output_path])))
     checks.warn_if_easyeffects_running()
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go

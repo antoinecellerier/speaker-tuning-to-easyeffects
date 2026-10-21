@@ -483,6 +483,16 @@ def main(argv: list[str] | None = None) -> int:
                 return rc
             node_names.append(node_name)
 
+    if args.target_sink == "":
+        # Once for the whole run, which the children can't do: each sees only
+        # the confs that landed before it. Ours already there count too, minus
+        # the ones this run rewrote, so a --force re-run never counts itself.
+        # `out_dir` is the loop's: every preset lands in the same directory.
+        checks.warn_if_crowded(
+            len(node_names) + len(checks.virtual_sink_confs(out_dir,
+                                                            exclude=written)),
+            dry_run=args.dry_run)
+
     if args.dry_run:
         # "installed", not "written": staging really does write the presets,
         # to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines

@@ -315,12 +315,28 @@ profile. `--force` guards a single output path, so a differently-named conf
 lands beside the first with no collision. Neither the run nor the audio would
 otherwise say so.
 
+### Several virtual-sink chains at once
+
+Each loaded chain can cost its full DSP even when it isn't the selected output,
+for instance while a sound panel's level meter watches it (measured with
+pavucontrol), and the daemon's chains share its processing. Enough of them at
+once overloads PipeWire until the kernel's real-time CPU limit kills it, which
+cuts all audio for a moment. Ten did that on the development laptop, and five on
+a reporter's
+([measurements](research/easyeffects-and-pipewire.md#r-virtual-sink-chain-cpu)).
+So a conversion that writes a virtual-sink chain warns once when that leaves two
+or more installed, counting those already there, and `--doctor` reports the same
+state. Neither refuses: comparing chains is what `--variant all` and
+`--all-profiles` are for. If audio does cut out, delete the `.conf` and `.irs`
+of the chains not in use.
+
 ### Diagnosing an installed chain (`--doctor`)
 
 `ee_to_pipewire.py --doctor` reports the state of what is installed rather than
 converting anything. `dolby_to_pipewire.py --doctor` reaches it too. It reports:
 
 - chains stacked on one target sink
+- several virtual-sink chains loaded at once, and whether they are pinned
 - a conf on disk with no node in the graph, as when a missing LSP/Calf plugin
   makes `module-filter-chain` drop the whole file
 - an `.irs` a conf names but that isn't there

@@ -37,7 +37,10 @@ PipeWire runs the three in series instead of offering a choice. Expect a subtle
 difference. The three voicings sit at most about 1 dB apart, in a broad tilt
 through the mids and treble, so an A/B that isn't gapless may not show it. The
 voicing curves are Dolby-global, and the device-specific correction applies
-under every one: [details](cross-device-findings.md). A
+under every one: [details](cross-device-findings.md). Every chain loaded can
+cost CPU even when it isn't the output you picked, and enough of them can get
+PipeWire killed, cutting audio for a moment. If that happens, delete the ones
+you don't use ([why](ee-to-pipewire.md#several-virtual-sink-chains-at-once)). A
 [Sonitude tuning](sonitude.md) has no voicings, so the run refuses `--variant`
 on one.
 
