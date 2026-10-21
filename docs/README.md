@@ -6,14 +6,18 @@
 
 In the order you're likely to need them:
 
-- [Extracting the XML](getting-the-xml.md) — when you have no Windows
-  partition, or the script can't find your tuning
+- [Getting your tuning file](getting-the-tuning-file.md) — when you have no
+  Windows partition, or the script can't find your tuning
+- [Extracting the XML](getting-the-xml.md) — the Dolby tuning XML from a
+  driver download, or picked by hand
 - [EasyEffects presets](dolby-to-easyeffects.md) — every
   `dolby_to_easyeffects.py` option, autoload, and how to undo a run
 - [PipeWire filter-chain](dolby-to-pipewire.md) — the same tuning without
   EasyEffects, through `dolby_to_pipewire.py`, and which of the two to use
 - [Disabling and enabling filters](filters.md) — to remove an artifact, or try
   an optional stage
+- [Sonitude tunings](sonitude.md) — for a laptop with no Dolby file whose
+  speaker tuning is a Sonitude preset
 - [Troubleshooting](troubleshooting.md) — no difference, too quiet, and other
   symptoms
 - [Shell tab-completion](shell-completion.md) — flag and value completion for

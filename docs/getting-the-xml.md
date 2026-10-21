@@ -2,6 +2,10 @@
 
 [README](../README.md) · [All docs](README.md)
 
+This page covers the Dolby DAX3 tuning XML.
+[Getting your tuning file](getting-the-tuning-file.md) says which other tunings
+the converter reads.
+
 With a Windows partition mounted, the easiest way is to run the script with no
 path, as in the README's
 [Quick start](../README.md#quick-start). It finds the XML on a mounted Windows

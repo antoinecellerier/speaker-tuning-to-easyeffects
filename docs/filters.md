@@ -59,6 +59,8 @@ it.
   ([reference](reference.md#validated-vs-unvalidated-mappings)). Report what you
   hear on
   [#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113).
+  A [Sonitude tuning](sonitude.md) is the whole preset, so the run refuses
+  `--disable vendor-apo` on one, and every other `--disable` name.
 
 Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 
@@ -68,7 +70,7 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
 | `level-restore` | The preset is quieter than with it switched off entirely, and thin with it. **Experimental**: see the note below. |
 | `virtual-bass` | Bass feels thinner than it did on Windows, on HDA internal speakers. You need `dolby_to_pipewire.py` to hear it. **Experimental**: measured close to DAX on one device. |
 | `dialog` | Voices are hard to follow over music or effects. Turns on a fixed speech-band boost at 2.5 kHz, which also lifts music. See the note below. |
-| `vendor-apo` | Nothing today: Surface's tuning, the one vendor format read, is on by default. |
+| `vendor-apo` | Nothing today: every vendor tuning the run reads is on by default. |
 
 - **`level-restore`.** The impulse response is normalised so its loudest band
   sits at 0 dB, which drops everything else below unity. On tunings whose peak

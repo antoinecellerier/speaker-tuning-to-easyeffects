@@ -1282,8 +1282,9 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
             DOCTOR_WARN, "Installed confs",
             f"no filter-chain conf from this tool in "
             f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run dolby_to_pipewire.py on your "
-            "tuning XML (or ee_to_pipewire.py on a preset) first; confs "
-            "written elsewhere with --output aren't checked."))
+            "tuning file or driver download (or ee_to_pipewire.py on a "
+            "preset) first; confs written elsewhere with --output aren't "
+            "checked."))
     if dump is None:
         checks.append(CheckResult(
             DOCTOR_UNKNOWN, "PipeWire",

@@ -38,8 +38,10 @@ PROSE = (
     ("R", "docs/dolby-to-easyeffects.md"),
     ("R", "docs/dolby-to-pipewire.md"),
     ("R", "docs/filters.md"),
+    ("R", "docs/getting-the-tuning-file.md"),
     ("R", "docs/getting-the-xml.md"),
     ("R", "docs/shell-completion.md"),
+    ("R", "docs/sonitude.md"),
     ("R", "docs/troubleshooting.md"),
     ("I", ".github/ISSUE_TEMPLATE/device-report.yml"),
 )

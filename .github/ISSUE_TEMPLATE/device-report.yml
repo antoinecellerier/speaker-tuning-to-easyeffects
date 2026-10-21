@@ -31,8 +31,12 @@ body:
     id: xml-source
     attributes:
       label: Where did you get the tuning XML, and did the script auto-detect it?
+      description: >-
+        No Dolby file on your device? Give the link to its audio driver
+        download.
       placeholder: |
         Auto-detected from my mounted Windows partition
+        — or — Passed the audio driver download
         — or — Extracted the driver package
         — or — Passed the XML path manually
     validations:

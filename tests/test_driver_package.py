@@ -170,7 +170,7 @@ def test_a_download_with_no_tuning_writes_nothing(tmp_path, cache):
     with zipfile.ZipFile(download, "w") as zf:
         zf.writestr("Realtek/HDXRT.inf", "x")
         zf.writestr("Realtek/DEV_0274_SUBSYS_10EC1284_settings.xml", "<x/>")
-    with pytest.raises(dp.PackageError, match="holds no Dolby tuning file"):
+    with pytest.raises(dp.PackageError, match="holds no Dolby or Sonitude tuning file"):
         dp.unpack(download, cache_root=cache)
     assert not cache.exists()
 
@@ -180,7 +180,7 @@ def test_apo_files_alone_are_not_a_tuning(tmp_path, cache):
     with zipfile.ZipFile(download, "w") as zf:
         zf.writestr("apo/SurfaceAPOExtension.inf", "x")
         zf.writestr("apo/SurfaceAPO_1.json", "{}")
-    with pytest.raises(dp.PackageError, match="holds no Dolby tuning file"):
+    with pytest.raises(dp.PackageError, match="holds no Dolby or Sonitude tuning file"):
         dp.unpack(download, cache_root=cache)
     assert not cache.exists()
 

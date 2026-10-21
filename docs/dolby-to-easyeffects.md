@@ -17,10 +17,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `.msi` or `.zip`). The run unpacks a download's tuning files into
   `driver-cache/`. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
-- `--windows DIR` — auto-discover the tuning XML from a mounted Windows
-  directory, by matching the audio codec subsystem ID from `/proc/asound`.
-  When no Dolby file there matches, it uses a Sonitude tuning in the same
-  DriverStore.
+- `--windows DIR` — auto-discover this device's tuning from a mounted Windows
+  directory, by matching the audio codec subsystem ID from `/proc/asound`
 - `--best-guess` — on a SoundWire machine, if auto-detection finds no exact
   hardware match, fall back to the only internal-speaker tuning whose
   manufacturer is present. When more than one qualifies, it lists the candidates
@@ -59,7 +57,7 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 
 **Autoload**
 - `--autoload [PRESET]` — write EasyEffects autoload config for speaker outputs.
-  It defaults to the first Balanced preset generated.
+  It defaults to the first preset generated.
 - `--autoload-dir DIR` — autoload config directory (default:
   `~/.local/share/easyeffects/autoload/output/`)
 - `--autoload-sink NODE_NAME` — bind autoload to a named PipeWire sink,
@@ -194,14 +192,17 @@ it with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
 Switch EasyEffects to another preset, then delete what the run wrote. In the
 default native folders, that is:
 
-- the `Dolby-*.json` presets in `~/.local/share/easyeffects/output/`
-- their `Dolby-*.irs` impulse responses in `~/.local/share/easyeffects/irs/`
+- the `Dolby-*.json` or `Sonitude-*.json` presets in
+  `~/.local/share/easyeffects/output/`
+- their `Dolby-*.irs` or `Sonitude-*.irs` impulse responses in
+  `~/.local/share/easyeffects/irs/`
 - with `--autoload`, the speaker's `{node.name}:{route}.json` file in
   `~/.local/share/easyeffects/autoload/output/`
 
 On a Flatpak EasyEffects, the same folders sit under
 `~/.var/app/com.github.wwmm.easyeffects/data/easyeffects/`. With `--prefix`,
-the preset and impulse file names start with that prefix instead of `Dolby`.
+the preset and impulse file names start with that prefix instead of `Dolby` or
+`Sonitude`.
 
 `--autoload` also writes the empty `Nothing` bypass preset and turns on
 EasyEffects' global Fallback Preset, unless you passed `--no-autoload-bypass` or

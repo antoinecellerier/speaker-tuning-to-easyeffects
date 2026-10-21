@@ -723,9 +723,9 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
     tuning = [p for p in names if _is_tuning(PurePosixPath(p).name)]
     if not tuning:
         raise PackageError(
-            f"{path.name} opened ({label}), but it holds no Dolby tuning "
-            "file, so it is not the download this needs. Look for your "
-            "model's Dolby or audio driver download instead, as "
+            f"{path.name} opened ({label}), but it holds no Dolby or "
+            "Sonitude tuning file, so it is not the download this needs. "
+            "Look for your model's Dolby or audio driver download instead, as "
             f"{_GUIDE} describes.")
     wanted = sorted(set(tuning) | apo_discover.wanted_members(names))
 

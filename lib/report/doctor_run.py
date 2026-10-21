@@ -642,7 +642,8 @@ def _no_presets_found(where: str, foreign: int, bypass_present: bool,
         found = f"no presets other than the bypass preset found in {where}"
     else:
         found = f"no presets found in {where}"
-    return f"{found} — run the script on your tuning XML first."
+    return (f"{found} — run the script on your tuning file or driver "
+            "download first.")
 
 
 def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
@@ -724,8 +725,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "Presets from another version", "preset",
         [autoload.generator_version(data) for _p, data in dolby_presets],
         version.get_version(),
-        "re-run dolby_to_easyeffects.py on your tuning XML, the way you "
-        "last ran it")
+        "re-run dolby_to_easyeffects.py on your tuning file or driver "
+        "download, the way you last ran it")
     if stale is not None:
         report.checks.append(stale)
 

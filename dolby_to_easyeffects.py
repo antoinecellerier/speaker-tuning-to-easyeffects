@@ -176,7 +176,7 @@ def add_autoload_args(container, *, only=None):
         metavar="PRESET",
         help="write EasyEffects autoload config for speaker outputs. "
              "PRESET optionally names the preset to autoload. It defaults to "
-             "the first Balanced preset generated.",
+             "the first preset generated.",
     )
     add(
         "--autoload-dir",

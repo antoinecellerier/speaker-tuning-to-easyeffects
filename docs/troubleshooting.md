@@ -29,7 +29,7 @@ reports what it finds and what to do about it.
   [Name the output with `--autoload-sink`](dolby-to-easyeffects.md#command-line-options).
 - **"No matching DAX3 tuning XML found".** On a SoundWire machine, try
   [`--best-guess`](dolby-to-easyeffects.md#command-line-options). Otherwise,
-  [get the tuning XML](getting-the-xml.md) another way.
+  [get your tuning file](getting-the-tuning-file.md) another way.
 - **Speakers thin and quiet even with EasyEffects off.**
   [Check for missing amplifier firmware](#troubleshooting-correct-but-too-quiet)
   with `--speaker-info`.
@@ -122,6 +122,9 @@ Try these in order:
   Over-amplification is digital gain applied after the preset's limiter, so
   extreme values can clip.
 - **Check mixer levels.** In `alsamixer`, set Master/PCM/Speaker to 100%.
+- **Built from a [Sonitude tuning](sonitude.md)?** The run refuses
+  `--enable autogain`, `--enable level-restore` and `--volmax-slot` on one. The
+  other steps here apply.
 - **On the PipeWire path, check which output is selected.** If your sound
   settings show the filter chain itself, `Dolby-… (speaker filter)`, instead of
   your speakers, both volumes apply. Pick your speakers, since the chain is

@@ -1,12 +1,12 @@
 # Dolby Atmos Speaker Tuning to EasyEffects Presets for Linux
 
 Bring your laptop's Windows speaker tuning to Linux. This script converts the
-Dolby Atmos DAX3 tuning XML shipped inside Windows audio drivers into
-[EasyEffects](https://github.com/wwmm/easyeffects) 8.x output presets. Your
-speakers get the same speaker correction, EQ, and dynamics processing as on
-Windows, at zero added latency.
+Dolby Atmos DAX3, Surface or Sonitude tuning shipped inside Windows audio
+drivers into [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output
+presets. Your speakers get the same speaker correction, EQ, and
+dynamics processing as on Windows, at zero added latency.
 
-Confirmed on over 50 laptops from ASUS, Framework, Lenovo and Microsoft: see
+Confirmed on over 50 laptops from ASUS, Framework, HP, Lenovo and Microsoft: see
 [Supported devices](#supported-devices). Tested yours?
 [Report it](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml),
 whether it works or not.
@@ -74,10 +74,10 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    speaker automatically. See [Autoload](docs/dolby-to-easyeffects.md#autoload)
    for details.
 
-3. Open EasyEffects: Dolby-Balanced should be selected under Presets, as
-   below. If not, as with the Flatpak, pick it there. To keep the correction
-   after a reboot, turn on *Enable service mode* and *Autostart on login* under
-   Preferences → Background Service.
+3. Open EasyEffects: Dolby-Balanced, or Sonitude-Music, should be selected under
+   Presets, as below. If not, as with the Flatpak, pick it there. To keep the
+   correction after a reboot, turn on *Enable service mode* and *Autostart on
+   login* under Preferences → Background Service.
 
 ![Selecting a generated Dolby preset in EasyEffects](docs/images/ee-preset-select.jpg)
 
@@ -107,8 +107,8 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
 
 ### If the script can't find your tuning
 
-[Extracting the XML](docs/getting-the-xml.md) says which downloads carry the
-tuning, and has a fetcher that downloads a Lenovo's for you.
+[Getting your tuning file](docs/getting-the-tuning-file.md) says where else to
+find it.
 
 To skip the automatic search, point either script at a Windows directory or a
 tuning XML yourself:
@@ -212,7 +212,7 @@ Each reports what it finds and what to do about it.
 - **Loud parts crushed, pumping or harsh highs.**
   [Rebuild the preset without the filter responsible](docs/filters.md).
 - **"No matching DAX3 tuning XML found".**
-  [Get the tuning XML](docs/getting-the-xml.md) another way.
+  [Get your tuning file](docs/getting-the-tuning-file.md) another way.
 - **The effect stops after you close EasyEffects or reboot.**
   [Enable its Background Service](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
@@ -239,8 +239,8 @@ The [troubleshooting guide](docs/troubleshooting.md) covers more symptoms.
 
 ## Documentation
 
-- [Extracting the XML](docs/getting-the-xml.md) — when you have no Windows
-  partition, or the script can't find your tuning
+- [Getting your tuning file](docs/getting-the-tuning-file.md) — when you have
+  no Windows partition, or the script can't find your tuning
 - [EasyEffects presets](docs/dolby-to-easyeffects.md) — every
   `dolby_to_easyeffects.py` option, autoload, and how to undo a run
 - [PipeWire filter-chain](docs/dolby-to-pipewire.md) — the same tuning without
@@ -275,7 +275,8 @@ output, so there's nothing to regenerate.
 ## Supported devices
 
 The converter works on the internal speakers of laptops, handhelds and other
-devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
+devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
+[Sonitude](docs/sonitude.md) one. Confirmed on:
 
 | Device | Reported by |
 |---|---|
@@ -285,6 +286,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 | ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
 | ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
+| HP ZBook 15 G6 <!-- Realtek ALC285, 103C:860F --> | [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140) — experimental, from its [Sonitude tuning](docs/sonitude.md); reporter finds Music close to Windows, with less dense bass |
 | Lenovo IdeaPad 3 15ALC6 (82KU) <!-- Realtek ALC257, 17AA:38BC --> | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) |
 | Lenovo IdeaPad Pro 5 14AHP9 (83D3) <!-- Realtek ALC287, 17AA:38D0 --> | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
@@ -339,6 +341,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning. Confirmed on:
 If you test it on other hardware, please
 [open a device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml)
 whether it works or not.
+
 ## How it works
 
 The script parses the DAX3 XML's two processing stages. It emits a minimum-phase
@@ -365,6 +368,9 @@ The preset is up to eight plugins, in this order:
 6. Multiband Compressor
 7. Regulator: per-band limiter
 8. Limiter: brickwall safety net
+
+A [Sonitude tuning](docs/sonitude.md) builds a shorter preset: its EQ in the
+convolver, then the limiter.
 
 ![A generated preset loaded in EasyEffects, convolver through limiter](docs/images/ee-chain-loaded.jpg)
 

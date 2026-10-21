@@ -279,9 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     # EasyEffects on this path is a temporary implementation detail: the
     # preset is staged in a tempdir and deleted. So the generator's checks
     # don't just read as noise here, they give wrong advice: "no presets found
-    # in ~/.local/share/easyeffects/output — run the script on your tuning XML
-    # first" describes a directory this script will never write to. The
-    # hardware sections a reader does need come along with the PipeWire report.
+    # in ~/.local/share/easyeffects/output — run the script on your tuning
+    # file or driver download first" describes a directory this script will
+    # never write to. The hardware sections a reader does need come along
+    # with the PipeWire report.
     if args.doctor:
         return checks.report_pw_doctor()
 

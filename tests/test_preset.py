@@ -5398,7 +5398,7 @@ def test_presets_from_another_version_are_reported_once():
     check = doctor_module.another_version_check(
         "Presets from another version", "preset",
         ["v1", "", "v0", "v2", "v1"], "v2",
-        "re-run dolby_to_easyeffects.py on your tuning XML")
+        "re-run dolby_to_easyeffects.py on your tuning file or driver download")
     assert check.status == DOCTOR_WARN
     # 4, not 5: the stampless (GUI re-saved) preset leaves both counts.
     assert check.detail.startswith(
@@ -5433,7 +5433,8 @@ def test_generator_version_reads_only_our_own_stamp():
 
 def test_no_presets_found_names_what_it_can_see():
     assert doctor_run._no_presets_found("~/o", 0, False) == (
-        "no presets found in ~/o — run the script on your tuning XML first.")
+        "no presets found in ~/o — run the script on your tuning file or "
+        "driver download first.")
     assert doctor_run._no_presets_found("~/o", 0, True).startswith(
         "no presets other than the bypass preset found in ~/o")
     only_theirs = doctor_run._no_presets_found("~/o", 2, False)

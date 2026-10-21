@@ -37,7 +37,9 @@ PipeWire runs the three in series instead of offering a choice. Expect a subtle
 difference. The three voicings sit at most about 1 dB apart, in a broad tilt
 through the mids and treble, so an A/B that isn't gapless may not show it. The
 voicing curves are Dolby-global, and the device-specific correction applies
-under every one: [details](cross-device-findings.md).
+under every one: [details](cross-device-findings.md). A
+[Sonitude tuning](sonitude.md) has no voicings, so the run refuses `--variant`
+on one.
 
 The conf lands in `~/.config/pipewire/pipewire.conf.d/`, or under
 `$XDG_CONFIG_HOME` instead if you've set it. It attaches transparently to your
@@ -243,10 +245,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `.msi` or `.zip`). The run unpacks a download's tuning files into
   `driver-cache/`. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
-- `--windows DIR` — auto-discover the tuning XML from a mounted Windows
-  directory, by matching the audio codec subsystem ID from `/proc/asound`.
-  When no Dolby file there matches, it uses a Sonitude tuning in the same
-  DriverStore.
+- `--windows DIR` — auto-discover this device's tuning from a mounted Windows
+  directory, by matching the audio codec subsystem ID from `/proc/asound`
 - `--best-guess` — on a SoundWire machine, fall back to a manufacturer-matched
   tuning when auto-detection finds no exact hardware match
 
