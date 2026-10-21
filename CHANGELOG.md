@@ -126,7 +126,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ASUS TUF Gaming A16 (FA607PV)
   ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137)),
   ThinkPad E16 Gen 2 (21MA)
-  ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144)).
+  ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144)),
+  HP ZBook 15 G6
+  ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
 
 ### Fixed
 
