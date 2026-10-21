@@ -39,7 +39,7 @@ __all__ = ["FLATPAK_APP_ID", "FLATPAK_BASE", "FLATPAK_CONFIG_BASE",
            "flatpak_tree_exists", "prefer_flatpak", "easyeffects_base",
            "USE_FLATPAK", "EASYEFFECTS_BASE",
            "DEFAULT_OUTPUT_DIR", "DEFAULT_IRS_DIR", "DEFAULT_AUTOLOAD_DIR",
-           "DEFAULT_EASYEFFECTS_RC", "uses_custom_dirs"]
+           "DEFAULT_EASYEFFECTS_RC", "uses_custom_dirs", "install_trees"]
 
 FLATPAK_APP_ID = "com.github.wwmm.easyeffects"
 # $HOME, deliberately, where everything else here goes through lib/xdg.py:
@@ -170,3 +170,14 @@ def writes_into_ee_tree(output_dir: Path, irs_dir: Path) -> bool:
 
 
 DEFAULT_EASYEFFECTS_RC = _FLATPAK_RC if USE_FLATPAK else _NATIVE_RC
+
+
+def install_trees() -> tuple[tuple[str, Path, Path], ...]:
+    """Both installs' (label, data base, rc path), native first.
+
+    For a reader that must see every tree a run may have written into, not
+    the one ``prefer_flatpak`` picks today: ``--uninstall``. A user who
+    switched EasyEffects packaging has our files in the tree that lost.
+    """
+    return (("native", NATIVE_BASE, _NATIVE_RC),
+            ("Flatpak", FLATPAK_BASE, _FLATPAK_RC))

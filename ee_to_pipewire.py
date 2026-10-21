@@ -31,7 +31,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, packages, tool_env
+from lib import console, doctor, ee_paths, packages, tool_env, uninstall
 from lib.hardware import sinks
 from lib.pipewire import checks, install, session, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -76,6 +76,16 @@ def add_routing_args(container, *, only=None):
              "auto-detected speaker sink as a WirePlumber 0.5+ smart filter, "
              "so apps keep targeting your speakers as usual.",
     )
+    return added
+
+
+def add_uninstall_args(container, *, only=None):
+    """Uninstall flags (dolby_to_pipewire.py shares both)."""
+    add, added = console._make_adder(container, only)
+    uninstall.add_args(
+        add, "remove the filter-chain confs and .irs copies this tool "
+             "installed, after listing them and asking. Your own files are "
+             "kept.")
     return added
 
 
@@ -234,6 +244,8 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_routing_args(parser.add_argument_group("routing"))
     add_output_args(parser.add_argument_group("output"))
     add_impulse_response_args(parser.add_argument_group("impulse response"))
+    # A mode of its own, so after the groups a conversion reads through.
+    add_uninstall_args(parser.add_argument_group("uninstall"))
     add_general_args(parser.add_argument_group("general"))
     return parser
 
@@ -396,6 +408,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         console._disable_color()
     console.refuse_root()
 
+    if uninstall.requested(parser, args, {"output"}):
+        return _uninstall(args)
     # Inspection mode: reads the installed state, converts nothing, so the
     # preset positional is optional — and required for everything else.
     if args.doctor:
@@ -777,6 +791,34 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         install._print_next_steps(node_name, target_object=args.target_object,
                                   selectable=target_sink is None)
     return 0
+
+
+def _uninstall(args) -> int:
+    """``--uninstall``: this route's confs, then a pointer to the EasyEffects
+    route's when it has presets installed too. ``--output`` names the
+    directory a custom install went to. Prints the restart rather than
+    running it, as this converter does on install."""
+    from lib.pipewire import uninstall as pw_uninstall
+    output_dir = (args.output.expanduser().parent if args.output is not None
+                  else None)
+    rc = pw_uninstall.run(output_dir, dry_run=args.dry_run,
+                       assume_yes=args.yes, restart=False)
+    point_to_easyeffects_uninstall()
+    return rc
+
+
+def point_to_easyeffects_uninstall() -> None:
+    """Say so when the EasyEffects route has presets installed too, which a
+    PipeWire uninstall leaves. Lazy: the check reaches lib/preset, which this
+    converter otherwise never imports."""
+    from lib.preset import uninstall as ee_uninstall
+    if ee_uninstall.ours_present():
+        print()
+        console._cprint_wrapped(
+            "dim", "EasyEffects presets from dolby_to_easyeffects.py are "
+            "installed too. This leaves them; to remove them as well:")
+        console.cprint("dim", "  " + uninstall.command(
+            "dolby_to_easyeffects.py", "--uninstall"))
 
 
 def run_cli(argv: list[str] | None = None) -> int:

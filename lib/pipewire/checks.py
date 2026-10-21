@@ -249,22 +249,94 @@ def parse_conf(path: Path) -> InstalledConf:
     return conf
 
 
-def installed_confs(*dirs: Path) -> list[InstalledConf]:
-    """Every conf this tool wrote, across the directories it might be in."""
-    found = []
+def is_generated_conf(path: Path) -> bool:
+    """Whether a conf is one this tool wrote: the one ownership test, shared
+    by the doctor and ``--uninstall`` so they can't disagree about a file."""
+    try:
+        return path.read_text(errors="replace").startswith(CONF_HEADER_MARK)
+    except OSError:
+        return False
+
+
+def _conf_files(dirs) -> list[Path]:
+    """The ``*.conf`` files in ``dirs``, each directory read once however it
+    is spelled (``~``, relative, symlinked), in the first spelling given."""
+    seen, found = set(), []
     for d in dirs:
+        key = Path(d).expanduser().resolve()
+        if key in seen:
+            continue
+        seen.add(key)
         try:
-            paths = sorted(d.glob("*.conf"))
+            found += sorted(Path(d).glob("*.conf"))
         except OSError:
             continue
-        for p in paths:
-            try:
-                if not p.read_text(errors="replace").startswith(CONF_HEADER_MARK):
-                    continue
-            except OSError:
-                continue
-            found.append(parse_conf(p))
     return found
+
+
+def _conf_text(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def generated_conf_paths(*dirs: Path) -> list[Path]:
+    """The confs this tool wrote in ``dirs``, by header alone: no
+    spa-json-dump, for a caller that only needs to know they are there."""
+    return [p for p in _conf_files(dirs) if is_generated_conf(p)]
+
+
+def confs_naming(name: str, *dirs: Path) -> list[str]:
+    """Every conf in ``dirs``, ours or not, whose text contains ``name``.
+
+    The "is a conf still using this impulse?" scan for the EasyEffects
+    route's removers (`lib/preset/impulses.py`), which know a stem but not
+    the directory a conf would name it in. A bare substring on purpose: a
+    conf can spell the path with ``~``, relatively or through a symlink,
+    and a scan that misses one of those spellings deletes a file the conf
+    needs, so it matches the name alone and errs toward keeping."""
+    return [p.name for p in _conf_files(dirs) if name in _conf_text(p)]
+
+
+def confs_naming_file(target: Path, *dirs: Path, exclude=()) -> list[str]:
+    """Every conf in ``dirs``, ours or not, naming ``target`` itself.
+
+    Compared resolved, so a ``~`` or symlinked spelling still counts, while
+    a file of the same name in another directory doesn't: a staging
+    folder's copy is not held by the live chain of the same name. A
+    relative filename can't be placed, so it counts on the name alone,
+    erring toward keeping. ``exclude`` is matched resolved too."""
+    target = target.resolve()
+    skip = {Path(p).resolve() for p in exclude}
+    users = []
+    for p in _conf_files(dirs):
+        if p.resolve() in skip:
+            continue
+        for f in conf_filenames(p):
+            if (f.resolve() == target if f.is_absolute()
+                    else f.name == target.name):
+                users.append(p.name)
+                break
+    return users
+
+
+# SPA-JSON takes the value quoted (spaces allowed) or bare, after "=" or ":".
+_FILENAME_RE = re.compile(r'\bfilename"?\s*[=:]\s*(?:"([^"]*)"|([^\s,}"]+))')
+
+
+def conf_filenames(path: Path) -> list[Path]:
+    """The ``filename`` values a conf names, read from its text.
+
+    For a conf spa-json-dump didn't parse: the converter writes each
+    convolver's file that way, absolute, so this is exact for our confs."""
+    return [Path(quoted or bare).expanduser()
+            for quoted, bare in _FILENAME_RE.findall(_conf_text(path))]
+
+
+def installed_confs(*dirs: Path) -> list[InstalledConf]:
+    """Every conf this tool wrote, across the directories it might be in."""
+    return [parse_conf(p) for p in generated_conf_paths(*dirs)]
 
 
 def _target_node_name(target) -> str:
@@ -965,11 +1037,7 @@ def check_chain_volume(chains, dump) -> CheckResult | None:
 
 def check_conf_directory() -> CheckResult | None:
     """Confs in filter-chain.conf.d/, which the running daemon never reads."""
-    try:
-        strays = [p for p in sorted(_UNSCANNED_CONF_DIR.glob("*.conf"))
-                  if p.read_text(errors="replace").startswith(CONF_HEADER_MARK)]
-    except OSError:
-        return None
+    strays = generated_conf_paths(_UNSCANNED_CONF_DIR)
     if not strays:
         return None
     return CheckResult(

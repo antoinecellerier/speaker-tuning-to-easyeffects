@@ -87,6 +87,13 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
   See [Disabling and enabling filters](filters.md).
 
+**Uninstall**
+- `--uninstall` — remove the presets, impulse files and autoload settings this
+  tool installed, after listing them and asking. Your own presets are kept. See
+  [Undo](#undo).
+- `--yes` — with `--uninstall`, don't ask first. Use it where no terminal can
+  answer.
+
 **General**
 - `--verbose` (alias `-v`) — print the full frequency tables, hidden by default.
   Include a `-v` log when reporting a sound problem.
@@ -188,6 +195,43 @@ follows them, as EasyEffects does. The Flatpak paths don't move, because
 it with `--output-dir`, `--irs-dir`, and `--autoload-dir`.
 
 ## Undo
+
+Run `python3 dolby_to_easyeffects.py --uninstall`. It lists what it will
+change, then asks before changing anything. Add `--dry-run` to see the list
+only, or `--yes` to skip the question.
+
+It removes:
+
+- this tool's presets and their impulse responses
+- the autoload entries that load one of those presets
+- the `Nothing` bypass preset that `--autoload` writes
+
+It also turns EasyEffects' Fallback Preset off when the setting points at that
+`Nothing`. If EasyEffects is running, that change applies when it next starts.
+
+It looks in both the native and the Flatpak EasyEffects folders. If you
+installed with `--output-dir`, `--irs-dir` or `--autoload-dir`, pass the same
+flags again. Removed files go to the Trash when `gio` is installed. Without
+`gio` they are deleted.
+
+It keeps whatever it can't show is its own: your presets, a `Nothing.json`
+without the tool's stamp, and an impulse response another preset still uses.
+Presets from before v2026.05 carry no stamp, so it keeps those too. The list
+names each of the tool's files that it keeps, and why. A preset you re-saved
+under the same name from EasyEffects' window still counts as this tool's, and
+the list marks it.
+
+EasyEffects keeps applying the last loaded preset's effects from its own
+settings after the preset file is gone. If a native EasyEffects is playing one
+of the removed presets, the run switches it to an empty preset first. On a
+Flatpak EasyEffects, or one that isn't running, the run asks you to load
+another preset in EasyEffects.
+
+It can't bring back a preset of yours that an earlier run overwrote under the
+same name. It also can't bring back the Fallback Preset value that `--autoload`
+replaced.
+
+### Undo by hand
 
 Switch EasyEffects to another preset, then delete what the run wrote. In the
 default native folders, that is:

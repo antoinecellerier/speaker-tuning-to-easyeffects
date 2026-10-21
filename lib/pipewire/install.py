@@ -39,9 +39,9 @@ import subprocess
 import time
 from pathlib import Path
 
-from lib import console, doctor, packages, tool_env
+from lib import console, doctor, packages, tool_env, uninstall
 from lib.hardware import sinks
-from lib.pipewire import session
+from lib.pipewire import checks, session
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 
@@ -305,6 +305,17 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
     files = " ".join(f"'{p}'" for p in paths)
     console.cprint(style, "  To undo: rm " + files)
     console.cprint(style, f"           {PIPEWIRE_RESTART_CMD}")
+    # The rm line is this run's files only; this one is every chain, earlier
+    # runs' included, so it is offered as the wider option, not a synonym.
+    # With --output-dir the uninstall must be told the same directory, or it
+    # looks in the default one and finds nothing.
+    out_dir = paths[0].parent
+    extra = (() if out_dir == checks.DEFAULT_OUTPUT_DIR.expanduser()
+             else ("--output-dir", str(out_dir)))
+    where = "" if not extra else " there"
+    console.cprint(style, f"  Or remove every chain this tool installed{where}: "
+                   + uninstall.command("dolby_to_pipewire.py", "--uninstall",
+                                       *extra))
 
 
 def _print_manual_activation(node_names: list[str],
@@ -457,17 +468,13 @@ def _verify_sinks(node_names: list[str], timeout=6.0, interval=0.5,
     return 0
 
 
-def _activate(node_names: list[str], selectable: bool, confs=()) -> int:
-    console.cprint("head", "[3/3] Activating: restarting PipeWire")
-    # Not only "otherwise both chains process the audio": the restart itself
-    # stops a running EasyEffects (it doesn't survive its server going away),
-    # so whatever EasyEffects was applying stops here whether or not the
-    # reader acts. Said plainly, because the alternative is discovering it as
-    # "the update broke my audio".
-    console.cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
-                   "audio at once. The restart below stops it for this "
-                   "session either way, so anything it was applying goes "
-                   "with it.")
+def restart_pipewire() -> int | None:
+    """Restart PipeWire. None once it restarted, else the run's exit code.
+
+    0 on a machine with no systemctl, where the reader is told to restart it
+    their own way: not a failure of this run. Shared by activation and by
+    ``dolby_to_pipewire.py --uninstall``, which restarts to unload what it
+    removed."""
     try:
         proc = tool_env.run(PIPEWIRE_RESTART_CMD.split())
     except FileNotFoundError:
@@ -480,6 +487,23 @@ def _activate(node_names: list[str], selectable: bool, confs=()) -> int:
                       f"{proc.returncode}) — run it manually: "
                       f"{PIPEWIRE_RESTART_CMD}")
         return 1
+    return None
+
+
+def _activate(node_names: list[str], selectable: bool, confs=()) -> int:
+    console.cprint("head", "[3/3] Activating: restarting PipeWire")
+    # Not only "otherwise both chains process the audio": the restart itself
+    # stops a running EasyEffects (it doesn't survive its server going away),
+    # so whatever EasyEffects was applying stops here whether or not the
+    # reader acts. Said plainly, because the alternative is discovering it as
+    # "the update broke my audio".
+    console.cprint("warn", f"{QUIT_EE_HINT} — otherwise both chains process the "
+                   "audio at once. The restart below stops it for this "
+                   "session either way, so anything it was applying goes "
+                   "with it.")
+    rc = restart_pipewire()
+    if rc is not None:
+        return rc
     rc = _verify_sinks(node_names, uses_lv2=_confs_use_lv2(confs))
     if rc == 0:
         _print_selection_step(node_names, selectable)

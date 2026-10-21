@@ -592,6 +592,41 @@ would outrank a Bluetooth headset (1010) or the speaker picked after it. The
 default smart-filter routing has no such gap, because there the fallback is the
 speaker sink the chain attaches to.
 
+<a id="r-uninstall-live-state"></a>
+
+## Removing what a run installed (`--uninstall`)
+
+What `--uninstall` has to undo besides files, observed on the dev machine on
+2026-10-21: X1 Yoga Gen 7, native EasyEffects 8.3.0 in service mode, PipeWire
+1.6.9, WirePlumber 0.5.18. Each EasyEffects state was read twice: as plugin
+nodes in `pw-dump` while silence played, and as the socket's
+`get_last_loaded_preset`.
+
+- **Deleting the preset files leaves the chain playing.** EasyEffects keeps the
+  active chain in its settings (`[StreamOutputs] plugins` and one rc per
+  plugin). Loading an empty preset over the socket emptied it at once. Deleting
+  that preset file right after the load changed nothing. After an EasyEffects
+  restart the chain was still empty, because the saved `plugins` key was
+  cleared at quit.
+- **An external rc edit survives a running EasyEffects.** The rc was edited to
+  `outputAutoloadingUsesFallback=false` while EasyEffects ran, and EasyEffects
+  then quit. The edit was still there. `KCoreConfigSkeleton` writes an item only
+  when its value changed during the session, and KConfig merges what it writes
+  into the file on disk. EasyEffects reads the file only at start.
+- **A fallback naming a missing preset loads nothing.** The autoload asks for
+  the fallback by name, and a missing preset file is logged ("Can't find the
+  local preset") and skipped (upstream `presets_manager.cpp`). Read from the
+  source, not observed.
+- **The window's Fallback dropdown can't show a missing preset.** It searches
+  the preset list for the saved name and otherwise shows index 0
+  (`PresetsDialog.qml`). The saved setting is unchanged until something is
+  picked.
+- **WirePlumber falls back by itself when a selected v1 chain is removed.** The
+  chain was set as default, then removed and PipeWire restarted. The default
+  became the speaker sink, while `default.configured.audio.sink` in
+  `~/.local/state/wireplumber/default-nodes` still named
+  `effect_input.Dolby_Balanced`.
+
 ## Rejected approaches
 
 <a id="r-ee-cli-live-state"></a>

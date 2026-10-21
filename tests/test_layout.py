@@ -117,6 +117,9 @@ STDLIB_ONLY = (
     # for that reason, not by oversight.
     "lib.preset.bands",
     "lib.preset.autoload",
+    # Who still names an impulse file: both removers ask it, and the
+    # uninstall one must not pay for numpy. Its PipeWire import is lazy.
+    "lib.preset.impulses",
     # No lib.report module is listed, and none can be: the package exists to
     # print. doctor_run.py prints the --doctor report, speaker.py the hardware
     # dump, profile.py the per-profile diagnostics, findings/messages/

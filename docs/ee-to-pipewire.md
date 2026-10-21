@@ -359,6 +359,18 @@ Probing and judging are separate. Every check is a pure function over gathered
 data, so `tests/test_pw_doctor.py` unit-tests states this developer machine
 can't reach.
 
+### Removing installed chains (`--uninstall`)
+
+`ee_to_pipewire.py --uninstall` and `dolby_to_pipewire.py --uninstall` remove
+every conf carrying the tool's header from `pipewire.conf.d/` and
+`filter-chain.conf.d/`, plus the `.irs` copied beside each. An `.irs` the conf
+names anywhere else is left in place. When a removed conf sat where PipeWire
+reads, the wrapper then restarts PipeWire. It also restarts
+`filter-chain.service` when that unit is active and the conf sat in its
+directory. The
+converter prints those commands instead. Ownership rules:
+[reference](reference.md#uninstall---uninstall).
+
 ## Plugin coverage
 
 | EE plugin key | Translated as | Notes |

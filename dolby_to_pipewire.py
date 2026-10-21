@@ -26,7 +26,7 @@ from pathlib import Path
 # --help, a tab completion and an argparse error cost nothing here either.
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib import console, doctor
+from lib import console, doctor, uninstall
 from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
@@ -146,12 +146,17 @@ def _compose_parser(argv=None):
     group.add_argument(
         "--no-activate",
         action="store_true",
-        help="don't restart PipeWire or verify the sink after writing. "
-             "Print the manual activation steps instead.",
+        help="don't restart PipeWire or verify the sink after writing, or "
+             "restart it after --uninstall. Print the manual steps instead.",
     )
 
     group = parser.add_argument_group("filter tweaks")
     step1_actions += dolby_to_easyeffects.add_filter_tweak_args(group)
+
+    # A mode of its own, so after the groups a conversion reads through.
+    # Recorded in neither list: --uninstall returns before either step runs,
+    # so neither child may be handed it.
+    ee_to_pipewire.add_uninstall_args(parser.add_argument_group("uninstall"))
 
     group = parser.add_argument_group("general")
     step1_actions += dolby_to_easyeffects.add_general_args(
@@ -226,6 +231,16 @@ def _run_generator(child_argv: list[str], closing=None,
         return e.code if isinstance(e.code, int) else 2
 
 
+def _uninstall(args) -> int:
+    """``--uninstall``: the chains, restarted away unless --no-activate, as
+    installing them is; then the EasyEffects pointer the converter prints."""
+    from lib.pipewire import uninstall as pw_uninstall
+    rc = pw_uninstall.run(args.output_dir, dry_run=args.dry_run,
+                       assume_yes=args.yes, restart=not args.no_activate)
+    ee_to_pipewire.point_to_easyeffects_uninstall()
+    return rc
+
+
 def main(argv: list[str] | None = None) -> int:
     parser, step1_actions, step2_actions = _compose_parser(argv)
     # The parser is composed from both converters' argument builders, so its
@@ -241,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     # Ahead of the child runs, which carry the same guard: the wrapper's own
     # is the one that fires, so the refusal is rendered once, here.
     console.refuse_root()
+
+    if uninstall.requested(parser, args, {"output_dir", "no_activate"}):
+        return _uninstall(args)
 
     # Pre-check the one cross-flag rule the generator enforces post-parse,
     # so the error is framed by the wrapper instead of mid-run by the child.

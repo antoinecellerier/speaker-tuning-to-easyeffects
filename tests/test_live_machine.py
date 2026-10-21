@@ -505,6 +505,8 @@ _NO_LIVE_CHECK = {
     "systemctl": "restarting PipeWire would cut the developer's audio",
     "git": "never gated; tests/test_version.py runs it for real",
     "spa-json-dump": "tests/test_pw_doctor.py reads real confs back through it",
+    "gio": "--uninstall reads only `gio trash`'s exit status, and a live call "
+           "would move a file into the developer's Trash",
 }
 
 

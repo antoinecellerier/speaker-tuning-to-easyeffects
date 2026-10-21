@@ -152,11 +152,17 @@ def read_autoload_entries(autoload_dir: Path) -> list[dict]:
     non-JSON one all come back as "no mapping" — a diagnostic that crashes on
     a file EasyEffects tolerates is worse than one that reports nothing.
     """
-    entries: list[dict] = []
+    return [data for _path, data in autoload_files(autoload_dir)]
+
+
+def autoload_files(autoload_dir: Path) -> list[tuple[Path, dict]]:
+    """`read_autoload_entries` with each mapping's file, for ``--uninstall``,
+    which removes the files that name a preset it removes."""
+    found: list[tuple[Path, dict]] = []
     try:
         paths = sorted(autoload_dir.glob("*.json"))
     except OSError:
-        return entries
+        return found
     for path in paths:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -165,8 +171,8 @@ def read_autoload_entries(autoload_dir: Path) -> list[dict]:
         # EasyEffects reads these as objects; a JSON array or scalar in the
         # directory is somebody else's file, not a mapping we can act on.
         if isinstance(data, dict):
-            entries.append(data)
-    return entries
+            found.append((path, data))
+    return found
 
 
 def write_bypass_preset(output_dir: Path, preset_name: str,
@@ -308,3 +314,32 @@ def set_autoload_fallback(rc_path: Path, preset_name: str,
     with _atomic_write(rc_path) as tmp, tmp.open("w", encoding="utf-8") as f:
         parser.write(f, space_around_delimiters=False)
     return "patched", existing_preset
+
+
+def unset_autoload_fallback(rc_path: Path) -> bool:
+    """Turn EasyEffects' global Fallback Preset toggle off again.
+
+    The undo of `set_autoload_fallback`, for ``--uninstall``. Flips only
+    ``outputAutoloadingUsesFallback``: the preset key may have held the
+    user's own value before ``--autoload`` overwrote it, and with the toggle
+    off EasyEffects ignores the key, so leaving it is the smaller edit.
+    Returns False when the file can't be read or written.
+    """
+    try:
+        rc_text = rc_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    parser = _ee_rc_parser()
+    try:
+        parser.read_string(rc_text)
+    except configparser.Error:
+        return False
+    if not parser.has_section("Window"):
+        return False
+    parser.set("Window", "outputAutoloadingUsesFallback", "false")
+    try:
+        with _atomic_write(rc_path) as tmp, tmp.open("w", encoding="utf-8") as f:
+            parser.write(f, space_around_delimiters=False)
+    except OSError:
+        return False
+    return True

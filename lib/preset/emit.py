@@ -33,16 +33,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
 
-from lib import console, doctor, ee_paths
+from lib import console, doctor
 from lib.apo import layer as apo_layer
 from lib.dax import parse
-from lib.preset import autoload, build, fir
+from lib.preset import autoload, build, fir, impulses
 from lib.report import messages
 
 
@@ -77,77 +76,6 @@ def kernel_name(preset_name: str, taps: np.ndarray) -> str:
     return f"{preset_name}-{hashlib.sha256(taps.tobytes()).hexdigest()[:8]}"
 
 
-def _impulse_referrers(stem: str, output_dir: Path) -> list[str]:
-    """Presets, PipeWire confs and EE saved settings that name `{stem}.irs`.
-
-    A preset saved from EasyEffects' GUI keeps the kernel name of the preset
-    it was derived from, so a file this run would call stale can be the only
-    impulse another preset has. EasyEffects loads a missing kernel without a
-    word, leaving that preset convolving nothing. A conf written
-    with `ee_to_pipewire.py --no-copy-irs` pins the EE-side path the same
-    way, and there a missing file stops the whole conf loading. And
-    EasyEffects restores the convolver's kernel *name* from its config db on
-    start, not from the preset JSON: with that file gone, a fresh instance
-    logged "Kernel 'Dolby-Balanced' not found … Entering passthrough mode"
-    (dev machine, 2026-08-27). That stays silent until the next preset load,
-    which without autoload is never. Until a load names the new impulse, the
-    one the db names is what the next start plays.
-
-    Reads EasyEffects' own preset directory as well as this run's, and both
-    PipeWire conf directories. The comment beside each scan says why.
-    """
-    users: list[str] = []
-    try:
-        db = (ee_paths.DEFAULT_EASYEFFECTS_RC.parent / "convolverrc").read_text()
-        if re.search(rf"^kernelName={re.escape(stem)}\s*$", db, re.M):
-            users.append("EasyEffects' saved settings")
-    except OSError:
-        pass
-    # This run's tree and EasyEffects' own. They differ when --output-dir
-    # alone was passed: --irs-dir then still means the live tree, and the
-    # presets naming a file there are the live ones, which this run never
-    # rewrote. A directory too many only ever keeps a file.
-    preset_dirs = [output_dir]
-    if ee_paths.DEFAULT_OUTPUT_DIR.resolve() != output_dir.resolve():
-        preset_dirs.append(ee_paths.DEFAULT_OUTPUT_DIR)
-    for preset_dir in preset_dirs:
-        try:
-            presets = sorted(preset_dir.glob("*.json"))
-        except OSError:
-            continue
-        for path in presets:
-            try:
-                data = json.loads(path.read_text())
-            except (OSError, ValueError):
-                continue
-            out = data.get("output") if isinstance(data, dict) else None
-            if not isinstance(out, dict):
-                continue
-            if any(key.startswith("convolver") and isinstance(block, dict)
-                   and block.get("kernel-name") == stem
-                   for key, block in out.items()):
-                users.append(path.stem if preset_dir is output_dir
-                             else f"{path.stem} in {doctor.tilde(preset_dir)}")
-    # Lazy and one-way: nothing under lib/pipewire imports lib/preset, and
-    # this is the one place the EasyEffects writer needs to know where the
-    # PipeWire confs live. It scans both directories a conf is live from:
-    # the daemon's and filter-chain.service's. docs/alternative-pipelines.md
-    # hands out a skeleton for the second.
-    from lib.pipewire import checks
-    for conf_dir in checks.live_conf_dirs():
-        try:
-            confs = sorted(conf_dir.glob("*.conf"))
-        except OSError:
-            continue
-        for conf in confs:
-            try:
-                if f"{stem}.irs" in conf.read_text():
-                    users.append(conf.name)
-            except OSError:
-                continue
-    return users
-
-
 def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
                          output_dir: Path) -> None:
     """Delete the .irs files earlier runs of *this* preset left behind.
@@ -168,7 +96,7 @@ def _drop_stale_impulses(irs_dir: Path, preset_name: str, keep: Path,
     except OSError:
         return
     for path in stale:
-        users = _impulse_referrers(path.stem, output_dir)
+        users = impulses.referrers(path.stem, output_dir)
         if users:
             console.cprint("dim", f"  Kept {doctor.tilde(path)} — still used by "
                            f"{', '.join(users)}; those keep that older impulse")

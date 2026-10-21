@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 
 from lib import console, doctor, packages, tool_env
 
@@ -415,7 +414,7 @@ def _prompt_pick_sink(candidates: list[dict]) -> dict | None:
     see. EOF / interrupt / empty / invalid input counts as a skip, so
     non-interactive runs (pipes, CI, pytest) never block.
     """
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+    if not console.interactive():
         return None
     try:
         raw = input(f"Select speaker sink [1-{len(candidates)}], "

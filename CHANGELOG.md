@@ -115,6 +115,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- `--uninstall` on all three scripts removes what this tool installed from
+  v2026.05 on: presets, impulse files, autoload settings or filter-chain confs.
+  It lists them and asks first, and moves files to the Trash when it can. (how
+  in `docs/dolby-to-easyeffects.md`)
 - Laptops that ship no Dolby file but tune their speakers with the Sonitude APO
   get experimental presets from that tuning, read from the driver download or a
   mounted Windows: `Sonitude-Music` first, and Movie and Voice with

@@ -124,7 +124,8 @@ python3 dolby_to_pipewire.py path/to/DEV_0287_SUBSYS_*.xml
 
 The scripts need no root: they refuse to run under `sudo`. By default they keep
 what they write under your home directory, apart from temporary files they
-delete. To remove what a run wrote, see
+delete. To remove what they installed, run the same script with
+`--uninstall`. It lists what it will remove and asks first. See
 [Undo](docs/dolby-to-easyeffects.md#undo) for EasyEffects, or
 [PipeWire filter-chain](docs/dolby-to-pipewire.md#remove-the-filter) for the
 filter.

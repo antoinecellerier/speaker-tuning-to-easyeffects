@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib import (console, doctor, driver_package, ee_paths, ee_socket,
-                 packages, tuning_source)
+                 packages, tuning_source, uninstall)
 # Aliased: `discover` is the DAX3 one, read far more often in this file.
 from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
@@ -134,6 +134,17 @@ def add_inspection_args(container, *, only=None):
              "the PipeWire graph sample rate. If a preset seems inaudible, "
              "paste the output into an issue.",
     )
+    return added
+
+
+def add_uninstall_args(container, *, only=None):
+    """Uninstall flags: EasyEffects-only. The PipeWire scripts declare their
+    own in ee_to_pipewire.py, since what they remove differs."""
+    add, added = console._make_adder(container, only)
+    uninstall.add_args(
+        add, "remove the presets, impulse files and autoload settings this "
+             "tool installed, after listing them and asking. Your own presets "
+             "are kept.")
     return added
 
 
@@ -361,6 +372,9 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
     add_output_args(parser.add_argument_group("output"))
     add_autoload_args(parser.add_argument_group("autoload"))
     add_filter_tweak_args(parser.add_argument_group("filter tweaks"))
+    # A mode of its own rather than a step of a conversion, so after the
+    # groups a conversion reads through.
+    add_uninstall_args(parser.add_argument_group("uninstall"))
     add_general_args(parser.add_argument_group("general"))
     return parser
 
@@ -498,9 +512,8 @@ def _configure_autoload(args, autoload_preset: str) -> None:
                 console.cprint("ok", f"  Enabled fallback preset in {rc_shown}")
                 if ee_socket.easyeffects_running():
                     console.cprint("warn", "  EasyEffects is currently running — restart it for "
-                                   "the fallback setting to take effect (EE rewrites "
-                                   "this file when it quits and on its autosave "
-                                   "timer while its window is open).")
+                                   "the fallback setting to take effect (it reads "
+                                   "this file only when it starts).")
 
         # Autoload only persists across logins if EasyEffects both starts at
         # login (autostart) and stays alive in the background (service mode).
@@ -774,6 +787,10 @@ def main(argv: list[str] | None = None,
     if overlap:
         parser.error(f"{', '.join(overlap)} given to both --disable and "
                      f"--enable — drop one of the two flags")
+
+    if uninstall.requested(parser, args,
+                           {"output_dir", "irs_dir", "autoload_dir"}):
+        return _uninstall(args)
 
     if args.speaker_info:
         report_speaker.report_speaker_info()
@@ -1430,6 +1447,18 @@ def main(argv: list[str] | None = None,
                                     else ""),
                        start_with=start)
 
+    # The way back, as the PipeWire route prints its own
+    # (lib/pipewire/install.py _print_undo). A footnote, so above the
+    # closing block rather than in it: the link stays last.
+    if (tally.all_preset_names and not args.dry_run and not args.staged
+            and not args.skip_closing):
+        print()
+        # Two lines: the note wraps, the command must not.
+        console.cprint("dim", "To undo (removes this tool's files; your own "
+                       "presets are kept):")
+        console.cprint("dim", "  " + uninstall.command(
+            "dolby_to_easyeffects.py", "--uninstall", *_dir_flags(args)))
+
     # Last, so the link is still on screen when the run ends. A wrapper that
     # keeps running after us takes the block instead and prints it at its own
     # end — always collected, so nothing is lost either way.
@@ -1438,6 +1467,36 @@ def main(argv: list[str] | None = None,
     if not args.skip_closing:
         report_findings.print_project_asks(
             scoped, dry_run=args.dry_run, tuning_file=source.closing_file)
+
+
+def _dir_flags(args) -> list[str]:
+    """The directory flags this run moved off their defaults, for the undo
+    line: ``--uninstall`` looks only where it is told, so a hint without
+    them would find nothing."""
+    flags = []
+    for flag, value, default in (
+            ("--output-dir", args.output_dir, ee_paths.DEFAULT_OUTPUT_DIR),
+            ("--irs-dir", args.irs_dir, ee_paths.DEFAULT_IRS_DIR),
+            ("--autoload-dir", args.autoload_dir, ee_paths.DEFAULT_AUTOLOAD_DIR)):
+        if value != default:
+            flags += [flag, str(Path(value).expanduser().resolve())]
+    return flags
+
+
+def _uninstall(args) -> int:
+    """``--uninstall``: the EasyEffects route's files, and a pointer to the
+    PipeWire route's when that one has chains installed too."""
+    from lib.pipewire import checks
+    from lib.preset import uninstall as ee_uninstall
+    rc = ee_uninstall.run(args)
+    if checks.generated_conf_paths(*checks.live_conf_dirs()):
+        print()
+        console._cprint_wrapped(
+            "dim", "PipeWire filter-chain confs from this tool are installed "
+            "too. This leaves them; to remove them as well:")
+        console.cprint("dim", "  " + uninstall.command("dolby_to_pipewire.py",
+                                                       "--uninstall"))
+    return rc
 
 
 def run_cli(argv: list[str] | None = None,

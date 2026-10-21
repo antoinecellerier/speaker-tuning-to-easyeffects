@@ -525,6 +525,19 @@ def help_style(argv: list[str] | None = None):
     return formatter_class, epilog
 
 
+def interactive() -> bool:
+    """Whether this run may stop and ask the reader something.
+
+    Both stdin and stdout must be terminals: with stdout piped (``| tee
+    log``) a prompt would block where nobody can see it, and with stdin
+    redirected nobody can answer. The one rule for every prompt the scripts
+    print (the autoload sink picker, ``--uninstall``'s confirmation), so
+    they cannot disagree about when to ask. What a prompt does on EOF stays
+    its caller's: a skip for one, a "no" for the other.
+    """
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def cprint(style: str, text: str = "") -> None:
     """Print `text` in the given semantic style, or plain if rich is absent.
 

@@ -365,6 +365,46 @@ quiet when the default coupled-bands mapping limits any zone. Under
 EE 7 uses an incompatible preset format. On EE 7 the speaker-correction filter
 loads nothing. Use the Flatpak if your distro still ships EE 7.
 
+## Uninstall (`--uninstall`)
+
+Each route removes only files that an existing ownership test proves are its
+own. The EasyEffects route's tests live in `lib/preset/uninstall.py`, and the
+PipeWire route's in `lib/pipewire/uninstall.py`.
+
+- **Preset:** the `_generator` stamp, or a convolver naming our hashed
+  `<preset>-<8 hex>` impulse. That is the doctor's `is_generated_preset`
+  without its bare-name match, which a user's own `MyRoom` preset on
+  `MyRoom.irs` would pass. A match on the impulse name alone is listed as
+  re-saved.
+- **`Nothing.json`:** only with the stamp, and only when no remaining autoload
+  entry names it.
+- **Impulse:** a name `kernel_belongs_to` ties to a removed preset. The legacy
+  unhashed `<preset>.irs` counts only beside a stamped preset. It is kept while
+  a remaining preset or PipeWire conf names it. It is also kept while
+  EasyEffects' `convolverrc` names it, unless this run emptied a running
+  EasyEffects' chain first.
+- **Autoload entry:** it names a removed preset, in the autoload folder of the
+  tree being scanned. With `--output-dir` elsewhere, a match in EasyEffects'
+  own folder is listed as left in place.
+- **Fallback Preset:** it is on and names our `Nothing`, that `Nothing` is
+  being removed, and the tree has a settings file. The run flips only
+  `outputAutoloadingUsesFallback`. A running EasyEffects keeps that edit: it
+  saves only the keys it changed itself, and it reads the file when it starts.
+- **Conf:** it starts with `CONF_HEADER_MARK`. Its impulse is removed only as
+  the `<conf dir>/<node>.irs` or `<conf dir>/<conf stem>.irs` copy, and only
+  when no other conf names it.
+
+The steps run in this order: switch a running EasyEffects to an empty preset,
+then the rc edit, autoload entries, presets and impulses. A failed rc edit stops
+the run before anything is removed. Each file is re-tested just before it goes.
+Files go to the Trash through `gio trash` when it is installed. A failed trash
+is reported, not turned into a delete.
+
+EasyEffects keeps the active chain in its own settings, not in the preset file.
+Its own `Manager::remove` only resets `lastLoadedOutputPreset`. So the empty
+preset is loaded over the socket, which only a native EasyEffects answers.
+Otherwise the run prints a manual step.
+
 ## Vendor tunings
 
 Two vendor formats are read. Microsoft's Surface APO adds to a Dolby tuning. A

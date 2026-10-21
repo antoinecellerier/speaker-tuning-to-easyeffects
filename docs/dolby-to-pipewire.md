@@ -61,12 +61,15 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   sound or it doesn't sound right: `python3 dolby_to_pipewire.py --doctor`
   reports what's installed, what PipeWire is doing with it, and what to do
   about each problem it finds.
-- <a id="remove-the-filter"></a>**To remove the filter:** run the two lines the
-  run printed after "To undo". They delete the exact `.conf` and `.irs` files
-  it wrote, then restart PipeWire. Without that output, `--doctor` lists the
-  confs it finds in `~/.config/pipewire/pipewire.conf.d/`. Delete those and the
-  `.irs` beside each, then run
-  `systemctl --user restart pipewire pipewire-pulse`.
+- <a id="remove-the-filter"></a>**To remove the filter:** run
+  `python3 dolby_to_pipewire.py --uninstall`. It lists every conf this tool
+  installed in PipeWire's config folders, plus the `.irs` copied beside each. It
+  asks before removing them, then restarts PipeWire. If you installed with
+  `--output-dir`, pass the same flag again; it restarts nothing when that folder
+  is one PipeWire doesn't read. Add `--dry-run` to see the list
+  only, or `--no-activate` to skip the restart. Files of your own are kept.
+  Removed files go to the Trash when `gio` is installed. To remove only one
+  run's files, run the two lines that run printed after "To undo".
 
 ## Which should I use?
 
@@ -289,8 +292,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--force` — overwrite existing conf and `.irs` files
 
 **Activation**
-- `--no-activate` — don't restart PipeWire or verify the sink; print the manual
-  activation steps instead
+- `--no-activate` — don't restart PipeWire or verify the sink, after
+  installing or after `--uninstall`; print the manual steps instead
 
 **Filter tweaks**
 - `--disable NAME` — drop a filter from the generated chain (repeatable); same
@@ -299,6 +302,13 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   (repeatable), such as `autogain`
 - `--volmax-slot {input-gain,output-gain}` — which regulator gain slot carries
   the static volmax boost (default: `input-gain`)
+
+**Uninstall**
+- `--uninstall` — remove the filter-chain confs and `.irs` copies this tool
+  installed, after listing them and asking. It restarts PipeWire when a
+  removed conf sat in a folder PipeWire reads. Your own files are kept. See
+  [To remove the filter](#remove-the-filter).
+- `--yes` — with `--uninstall`, don't ask first
 
 **General**
 - `--verbose` (alias `-v`) — print the generator's full frequency tables; same
@@ -323,7 +333,7 @@ and `dolby_to_pipewire.py` runs it for you.
 - `preset` — positional path to the EasyEffects preset JSON that
   `dolby_to_easyeffects.py` writes, such as
   `~/.local/share/easyeffects/output/Dolby-Balanced.json`. Optional with
-  `--doctor`.
+  `--doctor`, and not taken with `--uninstall`.
 
 **Inspection**
 - `--doctor` — report the state of the installed filter chain, then exit. It
@@ -352,6 +362,13 @@ and `dolby_to_pipewire.py` runs it for you.
   instead of copying it beside the conf. The conf then pins that one file.
   Re-run this converter after regenerating a preset whose sound changed, because
   its impulse gets a new name.
+
+**Uninstall**
+- `--uninstall` — remove the filter-chain confs and `.irs` copies this tool
+  installed, after listing them and asking. Your own files are kept. It prints
+  the PipeWire restart rather than running it. With `--output`, it looks in that
+  file's folder.
+- `--yes` — with `--uninstall`, don't ask first
 
 **General**
 - `--no-validate` — skip the pre-write checks. They refuse a conf naming a

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import sys
 import subprocess
 
 import pytest
@@ -158,8 +159,8 @@ def test_sink_kind_relaxed_tier_is_a_speaker_too(monkeypatch):
 
 def _set_tty(monkeypatch, *, stdin=True, stdout=True):
     """Force stdin/stdout isatty() — a prompt requires both to be TTYs."""
-    monkeypatch.setattr(hw_sinks.sys.stdin, "isatty", lambda: stdin)
-    monkeypatch.setattr(hw_sinks.sys.stdout, "isatty", lambda: stdout)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: stdin)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: stdout)
 
 
 # --- Classification ---------------------------------------------------------
