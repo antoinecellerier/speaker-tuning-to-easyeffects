@@ -56,7 +56,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from lib import doctor, host
-from lib.apo.layer import ApoLayer, StandaloneFormat, UnsupportedApoConfig
+from lib.apo.layer import (BUILT, NOT_REPRODUCED, ApoLayer, Stage,
+                           StandaloneFormat, UnsupportedApoConfig)
 from lib.hardware import codecs, speakers
 
 # A SEAPODAT archive's name carries the bus and codec it binds, as the
@@ -463,10 +464,9 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
     # Cuts only: Windows applies the curve's negative gains and none of its
     # boosts. A hypothesis that two devices' Windows captures support and no
     # file states (research `r-sonitude-apo-presets`).
-    left = tuple(min(v, 0.0)
-                 for v in _apply_high_pass(curves[0], corners[0]))
-    right = (tuple(min(v, 0.0)
-                   for v in _apply_high_pass(curves[1], corners[1]))
+    shaped = [_apply_high_pass(c, hz) for c, hz in zip(curves, corners)]
+    left = tuple(min(v, 0.0) for v in shaped[0])
+    right = (tuple(min(v, 0.0) for v in shaped[1])
              if len(curves) > 1 else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(
@@ -477,21 +477,73 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
                      f"&SUBSYS_{subsys}"),
         sample_rate=48000,
         eq_left=(), eq_right=(), dynamics=(),
-        notes=(
-            "the compressor and limiter stages (not read yet)",
-            "the psychoacoustic bass stage, which adds harmonics to the "
-            "deepest bass (not read yet)",
-            "the user equaliser, flat in the preset",
-            "on one laptop, a fixed EQ that stays on with Windows' audio "
-            "enhancements off, measured on Windows and found in no file "
-            "read",
-        ),
+        stages=_stages(corners[:len(shaped)],
+                       any(v > 0.0 for c in shaped for v in c), profile),
         default_on=True,
         standalone=True,
         curve_hz=curve_grid_hz(),
         curve_left_db=left,
         curve_right_db=right,
     )
+
+
+# The order a preset's stages run in is unread, so the built ones are listed
+# first, then the rest.
+_RESEARCH = "r-sonitude-apo-presets"
+
+
+def _stages(corners: list[float | str | None], boosts: bool,
+            profile: str = "music") -> tuple[Stage, ...]:
+    """*profile*'s speaker preset stages, as the run reports them, for the
+    high-pass *corners* its curves were built with (left, then right if it
+    has its own; None when off, `UNREAD` when not read), and whether the
+    curve *boosts* anywhere."""
+    # The boosts' evidence is two laptops' Music mode only.
+    tested = ("two laptops' Windows recordings have none" if profile == "music"
+              else "as in Music; untested for this mode")
+    # Off is built as it is, by keeping the curve; an unread field isn't.
+    high_pass = (NOT_REPRODUCED if all(c is UNREAD for c in corners)
+                 else BUILT)
+    return (
+        Stage("EQ curve", BUILT, f"its boosts left out: {tested}"
+              if boosts else "", builds="eq", evidence=_RESEARCH),
+        Stage("high-pass", high_pass, _corner_summary(corners),
+              evidence=_RESEARCH),
+        Stage("compressor and limiter", NOT_REPRODUCED, "not read yet",
+              evidence=_RESEARCH),
+        # Which stage adds the harmonics is a reading of the file; that the
+        # tuning adds them is measured.
+        Stage("psychoacoustic bass", NOT_REPRODUCED,
+              "not read yet; on one laptop the tuning adds harmonics to the "
+              "deepest bass, likely from this stage", evidence=_RESEARCH),
+        # Not reproduced rather than built as flat: the converter doesn't
+        # read it, so it can't know this preset's is flat. That it is the
+        # app's user equaliser is a reading too.
+        Stage("10-band equaliser", NOT_REPRODUCED,
+              "not read; taken to be the app's user equaliser, flat in the "
+              "one preset checked", evidence=_RESEARCH),
+        Stage("outside this tuning", NOT_REPRODUCED,
+              "on one laptop Windows also shapes the sound with its audio "
+              "enhancements off (measured at 50 % volume); its source is "
+              "unknown", evidence=_RESEARCH),
+    )
+
+
+def _corner_summary(corners: list[float | str | None]) -> str:
+    """The high-pass stage's clause: its corner, per channel where they
+    differ."""
+    def one(hz):
+        if hz is None:
+            return "off"
+        return "not read" if hz is UNREAD else f"{hz:g} Hz"
+    left, right = (corners * 2)[:2]
+    if left is None and right is None:
+        return "off in this preset, so the curve's own low end is kept"
+    if left is UNREAD and right is UNREAD:
+        return "not read from this preset, so the curve's own low end is kept"
+    if one(left) == one(right):
+        return f"corner at {one(left)}"
+    return f"corner at {one(left)} left, {one(right)} right"
 
 
 def load_profiles(path: Path, number: int, bus: str, codec_vendor_id: str,

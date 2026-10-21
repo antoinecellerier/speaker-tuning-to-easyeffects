@@ -173,6 +173,9 @@ def test_each_profile_reads_its_own_curve_and_high_pass(tmp_path):
         assert np.allclose(layer.curve_left_db[:n], _butterworth4_db(
             corner, np.array(layer.curve_hz[:n])), atol=1e-4)
     assert np.allclose(voice.curve_left_db, _ramp(), atol=1e-5)
+    assert [_high_pass_stage(m).summary for m in layers.values()] == [
+        "corner at 80 Hz", "corner at 120 Hz",
+        "off in this preset, so the curve's own low end is kept"]
     # And its own curve above it.
     assert np.allclose(movie.curve_left_db[92:],
                        np.minimum(_curve(step_at=90), 0)[92:], atol=1e-5)
@@ -429,6 +432,26 @@ def test_each_channel_takes_its_own_high_pass(tmp_path):
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
     assert layer.curve_left_db[0] < -70
     assert np.allclose(layer.curve_right_db, _ramp(), atol=1e-5)
+    assert _high_pass_stage(layer).summary == "corner at 80 Hz left, off right"
+
+
+def _high_pass_stage(layer):
+    return next(s for s in layer.stages if s.name == "high-pass")
+
+
+def test_the_stages_say_what_is_built_and_what_is_left_out(tmp_path):
+    """Built from the file: the curve and the high-pass. Everything else is
+    named as left out, for a listener comparing with Windows."""
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1}, {1: _preset_bin(_curve())})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    built, left_out = apo_layer.BUILT, apo_layer.NOT_REPRODUCED
+    assert [(s.name, s.status) for s in layer.stages] == [
+        ("EQ curve", built), ("high-pass", built),
+        ("compressor and limiter", left_out),
+        ("psychoacoustic bass", left_out), ("10-band equaliser", left_out),
+        ("outside this tuning", left_out)]
+    assert layer.stages[0].builds == "eq"
+    assert all(s.status in apo_layer.STATUSES for s in layer.stages)
 
 
 # --- the run -----------------------------------------------------------------
@@ -523,7 +546,11 @@ def test_all_profiles_builds_one_preset_per_mode(tmp_path, fake_host,
             in out)
     # The device's section once; each mode's file and tone each time.
     assert out.count("No Dolby file was given or found") == 1
-    assert out.count("Nothing to do. Left out of the vendor tuning") == 1
+    assert out.count("Nothing to do. Left out of the preset") == 1
+    # Each mode's built stages, and what all of them leave out once.
+    assert out.count("What the tuning does, stage by stage:") == 3
+    assert out.count("not reproduced compressor and limiter") == 1
+    assert out.count("not reproduced the same stages as above") == 2
     assert out.count("Nobody has listened to this sound mode yet.") == 2
     assert "Sonitude-Music, Sonitude-Movie, Sonitude-Voice" in out
     assert ("Sonitude-Movie and Sonitude-Voice are experimental: nobody has "
@@ -1231,6 +1258,31 @@ def test_a_preset_with_its_high_pass_off_keeps_the_stored_segment(tmp_path):
     assert np.allclose(layer.curve_left_db, np.minimum(_curve(), 0),
                        atol=1e-5)
     assert layer.curve_right_db[0] < -70
+
+
+@pytest.mark.parametrize("data", [
+    _preset_bin(_curve()) + b"\0",   # the stage blocks don't walk to the end
+    _preset_bin(_curve(), high_pass=(struct.pack("<Bf", 1, 80.0) + b"\0",) * 2),
+], ids=["walk", "length"])
+def test_a_high_pass_field_not_read_is_not_said_to_be_off(tmp_path, data):
+    """Built as off, by keeping the stored segment, but said as unread."""
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1}, {1: data})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    assert np.allclose(layer.curve_left_db, np.minimum(_curve(), 0),
+                       atol=1e-5)
+    stage = _high_pass_stage(layer)
+    assert stage.status == apo_layer.NOT_REPRODUCED
+    assert stage.summary == ("not read from this preset, so the curve's own "
+                             "low end is kept")
+
+
+def test_a_high_pass_read_on_one_channel_only_says_which(tmp_path):
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
+                 {1: _preset_bin(_curve(), high_pass=(80.0, b"\1"))})
+    layer = sonitude.find(a, "10EC0285", "103C860F", True)
+    stage = _high_pass_stage(layer)
+    assert stage.status == apo_layer.BUILT
+    assert stage.summary == "corner at 80 Hz left, not read right"
 
 
 @pytest.mark.parametrize("corner", [float("nan"), 5.0, 5000.0])

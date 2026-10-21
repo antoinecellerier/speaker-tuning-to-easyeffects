@@ -791,7 +791,8 @@ def write_surface_package(root: Path, *, layout="msi", inf_subsys="10EC1284",
 def synthetic_apo_layer(default_on=False):
     """An `ApoLayer` shaped like the one `surface_apo_json` parses into,
     built directly so preset tests need no package on disk."""
-    from lib.apo.layer import ApoLayer, BandDynamics, DynBand
+    from lib.apo.layer import (BUILT, NOT_REPRODUCED, ApoLayer, BandDynamics,
+                               DynBand, Stage)
     eq = tuple(synthetic_surface_eq())
     drc = BandDynamics(
         name="drc", crossovers_hz=(120.0, 800.0), detection="RMS",
@@ -817,6 +818,12 @@ def synthetic_apo_layer(default_on=False):
                                 "&SUBSYS_10EC1284",
                     sample_rate=48000, eq_left=eq, eq_right=eq,
                     dynamics=(drc, crystal),
-                    notes=("VolumeDepLS: volume-dependent shelf, not "
-                           "reproduced",),
+                    stages=(
+                        Stage("EQ (MainEQ)", BUILT, builds="eq"),
+                        Stage("bass and treble shelves set by volume "
+                              "(VolumeDepLS)", NOT_REPRODUCED),
+                        Stage("compressor (VolumeDepMBDRC4)", BUILT,
+                              builds="drc"),
+                        Stage("resonance limiter (Crystal)", BUILT,
+                              builds="crystal")),
                     default_on=default_on)

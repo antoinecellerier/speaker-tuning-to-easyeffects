@@ -209,7 +209,9 @@ def test_drc_uses_the_full_volume_state_and_says_when_states_differ(tmp_path):
                                                       config_json=doc))
     drc = next(d for d in apo.dynamics if d.name == "drc")
     assert drc.bands[0].threshold_db == -10.0
-    assert any("state 0, read as full volume, is used" in n for n in apo.notes)
+    stage = next(s for s in apo.stages if s.builds == "drc")
+    assert stage.status == layer.APPROXIMATED
+    assert "only volume state 0, read as full volume, is used" in stage.summary
 
 
 def test_an_n_band_drc_drops_its_inaudible_bands(tmp_path):
@@ -276,9 +278,10 @@ def test_more_resonances_than_bands_are_listed_not_fatal(tmp_path):
     apo = discover.find_for_xml(write_surface_package(tmp_path,
                                                       config_json=doc))
     assert [d.name for d in apo.dynamics] == ["drc"]
-    assert apo.skipped == (("Resonance limiter", "its 7 resonances are more "
-                            "than one limiter stage can split apart "
-                            "(Crystal)"),)
+    assert layer.Stage("resonance limiter (Crystal)", layer.NOT_REPRODUCED,
+                       "its 7 resonances are more than one limiter stage "
+                       "can split apart",
+                       evidence="r-surface-apo-efx") in apo.stages
 
 
 def test_resonances_sharing_a_frequency_say_so(tmp_path):
@@ -289,7 +292,9 @@ def test_resonances_sharing_a_frequency_say_so(tmp_path):
     apo = discover.find_for_xml(write_surface_package(tmp_path,
                                                       config_json=doc))
     assert [d.name for d in apo.dynamics] == ["drc"]
-    assert "share a frequency" in apo.skipped[0][1]
+    stage = next(s for s in apo.stages if s.name.startswith("resonance"))
+    assert stage.status == layer.NOT_REPRODUCED
+    assert "share a frequency" in stage.summary
 
 
 def test_crystal_bands_bracket_each_resonance(tmp_path):
@@ -305,12 +310,34 @@ def test_crystal_bands_bracket_each_resonance(tmp_path):
     assert crystal.detection == "Peak"
 
 
-def test_unreproduced_blocks_are_listed(tmp_path):
+def test_every_stage_is_listed_in_file_order(tmp_path):
+    """Built, approximated and left out alike, each with its block's name,
+    in the order the R/EFX chain lists the blocks."""
     apo = discover.find_for_xml(write_surface_package(tmp_path))
-    text = "\n".join(apo.notes)
-    assert "(VolumeDepLS)" in text
-    assert "look-ahead" in text
-    assert "(VolumeDepMBDRC4 hold times)" in text  # Crystal holds 0 ms here
+    assert [(s.name, s.status) for s in apo.stages] == [
+        ("EQ (MainEQ)", layer.BUILT),
+        ("bass and treble shelves set by volume (VolumeDepLS)",
+         layer.NOT_REPRODUCED),
+        # Its hold time; Crystal holds 0 ms here, and its two resonances
+        # don't overlap.
+        ("compressor (VolumeDepMBDRC4)", layer.APPROXIMATED),
+        ("resonance limiter (Crystal)", layer.BUILT),
+        ("final limiter (OutputLimiter)", layer.NOT_REPRODUCED)]
+    assert "hold time" in apo.stages[2].summary
+    assert "look-ahead" in apo.stages[4].summary
+    assert [s.builds for s in apo.stages] == ["eq", "", "drc", "crystal", ""]
+
+
+def test_overlapping_resonances_are_approximated(tmp_path):
+    doc = surface_apo_json()
+    _set(doc, "Crystal", F0=[200.0, 300.0], Bandwidth=[150.0, 150.0],
+         Limit=[-10.0, -20.0], AttackTimeMs=[1.0, 1.0],
+         HoldTimeMs=[0.0, 0.0], ReleaseTimeMs=[40.0, 40.0])
+    apo = discover.find_for_xml(write_surface_package(tmp_path,
+                                                      config_json=doc))
+    stage = next(s for s in apo.stages if s.builds == "crystal")
+    assert stage.status == layer.APPROXIMATED
+    assert "overlapping resonance bands" in stage.summary
 
 
 def test_an_unknown_block_is_listed_and_an_identity_one_is_not(tmp_path):
@@ -319,15 +346,15 @@ def test_an_unknown_block_is_listed_and_an_identity_one_is_not(tmp_path):
     _efx(doc).append(_apo_block("Widener", 48000, Enabled=[True]))
     apo = discover.find_for_xml(write_surface_package(tmp_path,
                                                       config_json=doc))
-    text = "\n".join(apo.notes)
-    assert "(Widener)" in text
+    text = "\n".join(s.name for s in apo.stages)
+    assert "processing this tool doesn't recognise (Widener)" in text
     assert "VolumeDepLS" not in text
 
 
 def test_is_active_follows_the_flags():
     apo = layer.ApoLayer(label="", config_path=None, inf_path=None,
                          hardware_id="", sample_rate=48000, eq_left=(),
-                         eq_right=(), dynamics=(), notes=())
+                         eq_right=(), dynamics=(), stages=())
     flag = {layer.FLAG}
     assert layer.FLAG == "vendor-apo"
     assert not layer.is_active(None, flag, set())
@@ -362,7 +389,9 @@ def test_an_active_output_limiter_is_listed_as_replaced(tmp_path):
         "value"] = [-3.0]
     apo = discover.find_for_xml(write_surface_package(tmp_path,
                                                       config_json=doc))
-    assert any("preset's own limiter replaces" in n for n in apo.notes)
+    stage = next(s for s in apo.stages if "OutputLimiter" in s.name)
+    assert stage.status == layer.NOT_REPRODUCED
+    assert "preset's own limiter replaces" in stage.summary
 
 
 def test_a_block_missing_a_field_is_reported_not_raised(tmp_path):

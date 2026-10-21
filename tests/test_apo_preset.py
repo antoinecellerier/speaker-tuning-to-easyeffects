@@ -248,18 +248,42 @@ def test_closing_says_nothing_of_a_layer_the_reader_disabled(
 
 def test_a_stage_the_layer_could_not_build_sits_with_the_stages(
         silence_console, capsys):
-    """Not only inside the dim left-out list, where it read like a detail."""
+    """Not only inside the finding's left-out list, where it read like a
+    detail; and the finding names only the stages left out."""
     import dataclasses
 
     from lib.report import profile
     silence_console(console)
-    apo = dataclasses.replace(
-        synthetic_apo_layer(),
-        skipped=(("Resonance limiter", "its 7 resonances are too many"),))
+    base = synthetic_apo_layer()
+    apo = dataclasses.replace(base, stages=base.stages[:3] + (apo_layer.Stage(
+        "resonance limiter (Crystal1/Crystal2)", apo_layer.NOT_REPRODUCED,
+        "its 7 resonances are too many"),))
     profile._print_apo_layer(apo, True, False)
     out = " ".join(capsys.readouterr().out.split())
-    assert "Resonance limiter: not applied, since its 7 resonances" in out
-    assert out.index("not applied") < out.index("[vendor-apo-not-reproduced]")
+    assert ("not reproduced resonance limiter (Crystal1/Crystal2): its 7 "
+            "resonances are too many") in out
+    assert ("built compressor (VolumeDepMBDRC4): lifts everything below 800 "
+            "Hz by +2 dB and compresses it when loud") in out
+    assert out.index("its 7 resonances") < out.index(
+        "[vendor-apo-not-reproduced]")
+    assert ("[vendor-apo-not-reproduced] Nothing to do. Left out of the "
+            "preset: bass and treble shelves set by volume (VolumeDepLS), "
+            "resonance limiter (Crystal1/Crystal2).") in out
+
+
+def test_a_layer_that_leaves_nothing_out_raises_no_finding(silence_console,
+                                                           capsys):
+    """Approximated is built: only a stage not reproduced is left out."""
+    import dataclasses
+
+    from lib.report import profile
+    silence_console(console)
+    base = synthetic_apo_layer()
+    apo = dataclasses.replace(base, stages=tuple(
+        dataclasses.replace(s, status=apo_layer.APPROXIMATED)
+        for s in base.stages))
+    assert profile._print_apo_layer(apo, True, False) == []
+    assert "vendor-apo-not-reproduced" not in capsys.readouterr().out
 
 
 def test_all_profiles_prints_the_vendor_section_once(tmp_path,

@@ -56,19 +56,46 @@ class BandDynamics:
     knee_db: float
 
 
+# What a run says of each vendor stage. Approximated is built, but knowingly
+# not as the file states it. None of them says a mapping is confirmed:
+# `docs/reference.md` "Validated vs unvalidated mappings" holds that.
+BUILT = "built"
+APPROXIMATED = "approximated"
+NOT_REPRODUCED = "not reproduced"
+STATUSES = (BUILT, APPROXIMATED, NOT_REPRODUCED)
+
+
+@dataclass(frozen=True)
+class Stage:
+    """One stage of a vendor chain, as the run reports it.
+
+    `name` is in a listener's words, with the vendor block's name in
+    parentheses for triage where the format names its blocks. `summary` is
+    a short clause or two: for a built stage, what it holds or where the
+    build differs from the file; for one not reproduced, why. `builds` ties
+    a built stage to what the report describes it from: "eq" for the
+    layer's EQ, which it describes as a tone, or the `BandDynamics.name`
+    built from it. That description needs the DSP imports this module runs
+    before. `evidence` is the research unit's `r-` tag the stage's reading
+    rests on, if one does.
+    """
+    name: str
+    status: str  # BUILT, APPROXIMATED or NOT_REPRODUCED
+    summary: str = ""
+    builds: str = ""
+    evidence: str = ""
+
+
 @dataclass(frozen=True)
 class ApoLayer:
     """What one vendor APO config adds to the preset.
 
     `default_on` decides whether `FLAG` reaches it through `--enable` or
     `--disable` (`is_active`). It is per layer, because each format earns
-    its default separately. `notes` lists what the layer does not
-    reproduce, each in a listener's words with the vendor block's name in
-    parentheses for triage. The run prints them, so a listener comparing
-    with Windows knows what is missing. `skipped` lists the whole stages
-    the layer could not build, as `(stage, reason)`. The run prints each
-    beside the stages it did build, so a missing stage doesn't read like a
-    detail.
+    its default separately. `stages` lists every stage of the vendor chain
+    the run reports, built or not (`Stage`). The run prints one line each,
+    so a listener comparing with Windows knows what is missing, and a stage
+    left out reads as a stage rather than as a detail of one.
 
     `curve_hz` with `curve_left_db`/`curve_right_db` is an EQ the vendor
     ships as a magnitude curve rather than as filters. It is interpolated in
@@ -87,8 +114,7 @@ class ApoLayer:
     eq_left: tuple[Biquad, ...]
     eq_right: tuple[Biquad, ...]
     dynamics: tuple[BandDynamics, ...]
-    notes: tuple[str, ...]
-    skipped: tuple[tuple[str, str], ...] = ()
+    stages: tuple[Stage, ...]
     default_on: bool = False
     standalone: bool = False
     curve_hz: tuple[float, ...] = ()

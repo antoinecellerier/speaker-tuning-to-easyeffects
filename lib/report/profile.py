@@ -169,15 +169,16 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     Off, it names the file and the flag that applies it; the Done block
     repeats that on the last screen. It is not a hint: an untested stage is
     not a fix for anything the reader heard (copy audit). A layer on by
-    default is off only under --disable, so it says just that. On, each stage is
-    one sentence in a listener's words, its numbers behind -v, then a
-    detail-only finding for what the layer leaves out.
+    default is off only under --disable, so it says just that. On, each
+    stage is one line: its status, then what it does in a listener's words,
+    with its numbers and research tag behind -v. A detail-only finding then
+    names the stages the preset leaves out.
 
     The layer belongs to the device, not to a profile, so under
     --all-profiles the section prints once: *shown* returns its finding,
     still raised in every profile, without printing it again. A standalone
     tuning is the exception: each profile has its own layer, so each prints
-    its file and tone, and *experimental* marks one no listener has heard.
+    its file and stages, and *experimental* marks one no listener has heard.
     """
     if apo is None:
         return []
@@ -212,90 +213,45 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
             "", "  On by default: the speaker tuning the vendor ships for "
             "this device beside the Dolby file. --disable "
             f"{apo_layer.FLAG} leaves it out.", indent="    ")
-    if apo.eq_left or apo.eq_right or apo.curve_hz:
-        f = np.geomspace(20.0, 20000.0, 400)
-        sides = []
-        for side, eq in (("left", apo.eq_left), ("right", apo.eq_right)):
-            side_db = fir.biquad_cascade_db(eq, f)
-            curve = apo.curve(side)
-            if curve is not None:
-                side_db = side_db + fir.interpolate_curve_db(
-                    np.array(curve[0], dtype=float),
-                    np.array(curve[1], dtype=float), f)
-            sides.append(side_db)
-        db = np.minimum(*sides)
-        parts = []
-        if db[0] < -6.0:
-            corner = f[int(np.argmax(db >= -6.0))]
-            parts.append(f"cuts the deep bass below {corner:.0f} Hz")
-        # Under 1 dB is too small to name: a +0.7 dB boost read as a feature
-        # (vendor-apo fleet review).
-        cut_i = int(np.argmin(np.where(f >= 100.0, db, np.inf)))
-        if db[cut_i] < -1.0:
-            parts.append(f"cuts to {db[cut_i]:+.1f} dB at {f[cut_i]:.0f} Hz "
-                         f"({register(f[cut_i])})")
-        boost_i = int(np.argmax(db))
-        if db[boost_i] > 1.0:
-            parts.append(f"boosts to {db[boost_i]:+.1f} dB at "
-                         f"{f[boost_i]:.0f} Hz ({register(f[boost_i])})")
-        if not parts:
-            # Nothing above caught it: a shallow bass cut, say.
-            span = float(np.max(np.abs(db)))
-            parts.append("within ±1 dB" if span <= 1.0
-                         else f"shapes it by up to {span:.1f} dB")
-        # Whose tuning it is: bare dB figures such as a 13 dB midrange cut
-        # read as damage (vendor-apo fleet review). The config is bound to
-        # this device's hardware ID.
-        console._cprint_wrapped("", "  Tone, as tuned for this speaker: "
-                                + ", ".join(parts), indent="    ")
-    for stage in apo.dynamics:
-        live = [(i, b) for i, b in enumerate(stage.bands) if b.enabled]
-        if not live:
-            continue
-        edges = (0.0,) + tuple(stage.crossovers_hz) + (None,)
-        if stage.name == "crystal":
-            lo = min(b.sidechain_hz[0] for _, b in live)
-            hi = max(b.sidechain_hz[1] for _, b in live)
-            console._cprint_wrapped(
-                "", f"  Resonance limiter: holds {len(live)} narrow bands "
-                f"between {lo:.0f} and {hi:.0f} Hz down when they get loud",
-                indent="    ")
-            detail = [f"{b.sidechain_hz[0]:.0f}–{b.sidechain_hz[1]:.0f} Hz "
-                      f"at {b.threshold_db:+.1f} dB" for _, b in live]
-        else:
-            bottom = edges[live[0][0]]
-            top = edges[live[-1][0] + 1]
-            if bottom and top:
-                span = f"{bottom:.0f}–{top:.0f} Hz"
-            elif top:
-                span = ("the bass" if top <= 250
-                        else f"everything below {top:.0f} Hz")
-            else:
-                span = (f"everything above {bottom:.0f} Hz" if bottom
-                        else "everything")
-            lifts = {b.pregain_db for _, b in live if b.pregain_db > 0}
-            what = (f"lifts {span} by {'up to ' if len(lifts) > 1 else ''}"
-                    f"{max(lifts):+g} dB and compresses it when loud"
-                    if lifts else f"compresses {span} when loud")
-            console._cprint_wrapped("", f"  Compressor: {what}",
-                                    indent="    ")
-            detail = []
-            for i, b in live:
-                hi = edges[i + 1]
-                band = (f"{edges[i]:.0f}–{hi:.0f} Hz" if hi
-                        else f"above {edges[i]:.0f} Hz")
-                detail.append(f"{band} {b.ratio:g}:1 above "
-                              f"{b.threshold_db:+g} dB"
-                              + (f" after {b.pregain_db:+g} dB"
-                                 if b.pregain_db else ""))
-        if verbose:
-            console._cprint_wrapped("dim", "    " + "; ".join(detail),
-                                    indent="    ")
-    # A whole stage left out sits with the stages built, not inside the
-    # dim list below, where it read like a detail (vendor-apo fleet review).
-    for stage, reason in apo.skipped:
-        console._cprint_wrapped("", f"  {stage}: not applied, since {reason}",
+    # One line per stage, its status in a column, so a stage left out reads
+    # as a stage rather than as a detail of one (vendor-apo fleet review).
+    # "What the tuning does" says whose the cuts are: bare dB figures such
+    # as a 13 dB midrange cut read as damage (vendor-apo fleet review).
+    if apo.stages:
+        console._cprint_wrapped("", "  What the tuning does, stage by stage:",
                                 indent="    ")
+    column = max(map(len, apo_layer.STATUSES)) + 2
+    dynamics = {d.name: d for d in apo.dynamics}
+    # A standalone tuning's profiles leave out the same stages
+    # (`lib/apo/sonitude.py` `_stages`), so after the first profile those
+    # are one line.
+    collapse = shown and any(s.status == apo_layer.NOT_REPRODUCED
+                             for s in apo.stages)
+    for stage in apo.stages:
+        if collapse and stage.status == apo_layer.NOT_REPRODUCED:
+            continue
+        built, detail = "", []
+        if stage.builds == "eq":
+            built = _apo_tone(apo)
+        elif stage.builds in dynamics:
+            described = _apo_dynamics(dynamics[stage.builds])
+            if described is None:
+                continue  # no band acts: nothing to describe
+            built, detail = described
+        clauses = "; ".join(c for c in (built, stage.summary) if c)
+        console._cprint_wrapped(
+            "", f"    {stage.status:<{column}}{stage.name}"
+            + (f": {clauses}" if clauses else ""), indent=" " * (4 + column))
+        if verbose and stage.evidence:
+            detail = detail + [f"research {stage.evidence}"]
+        if verbose and detail:
+            console._cprint_wrapped("dim", " " * (4 + column)
+                                    + "; ".join(detail),
+                                    indent=" " * (4 + column))
+    if collapse:
+        console._cprint_wrapped(
+            "", f"    {apo_layer.NOT_REPRODUCED:<{column}}the same stages as "
+            "above", indent=" " * (4 + column))
     finding = _vendor_apo_not_reproduced_finding(apo)
     if finding is None:
         return []
@@ -304,18 +260,96 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     return [finding]
 
 
+def _apo_tone(apo) -> str:
+    """The tone of the EQ a vendor layer folds into the FIR, both sides'
+    cuts and boosts, in a listener's words."""
+    f = np.geomspace(20.0, 20000.0, 400)
+    sides = []
+    for side, eq in (("left", apo.eq_left), ("right", apo.eq_right)):
+        side_db = fir.biquad_cascade_db(eq, f)
+        curve = apo.curve(side)
+        if curve is not None:
+            side_db = side_db + fir.interpolate_curve_db(
+                np.array(curve[0], dtype=float),
+                np.array(curve[1], dtype=float), f)
+        sides.append(side_db)
+    db = np.minimum(*sides)
+    parts = []
+    if db[0] < -6.0:
+        corner = f[int(np.argmax(db >= -6.0))]
+        parts.append(f"cuts the deep bass below {corner:.0f} Hz")
+    # Under 1 dB is too small to name: a +0.7 dB boost read as a feature
+    # (vendor-apo fleet review).
+    cut_i = int(np.argmin(np.where(f >= 100.0, db, np.inf)))
+    if db[cut_i] < -1.0:
+        parts.append(f"cuts to {db[cut_i]:+.1f} dB at {f[cut_i]:.0f} Hz "
+                     f"({register(f[cut_i])})")
+    boost_i = int(np.argmax(db))
+    if db[boost_i] > 1.0:
+        parts.append(f"boosts to {db[boost_i]:+.1f} dB at "
+                     f"{f[boost_i]:.0f} Hz ({register(f[boost_i])})")
+    if not parts:
+        # Nothing above caught it: a shallow bass cut, say.
+        span = float(np.max(np.abs(db)))
+        parts.append("within ±1 dB" if span <= 1.0
+                     else f"shapes it by up to {span:.1f} dB")
+    return ", ".join(parts)
+
+
+def _apo_dynamics(stage) -> tuple[str, list[str]] | None:
+    """A vendor dynamics stage in a listener's words, with its bands'
+    numbers for -v; None when no band acts."""
+    live = [(i, b) for i, b in enumerate(stage.bands) if b.enabled]
+    if not live:
+        return None
+    edges = (0.0,) + tuple(stage.crossovers_hz) + (None,)
+    if stage.name == "crystal":
+        lo = min(b.sidechain_hz[0] for _, b in live)
+        hi = max(b.sidechain_hz[1] for _, b in live)
+        return (f"holds {len(live)} narrow bands between {lo:.0f} and "
+                f"{hi:.0f} Hz down when they get loud",
+                [f"{b.sidechain_hz[0]:.0f}–{b.sidechain_hz[1]:.0f} Hz "
+                 f"at {b.threshold_db:+.1f} dB" for _, b in live])
+    bottom = edges[live[0][0]]
+    top = edges[live[-1][0] + 1]
+    if bottom and top:
+        span = f"{bottom:.0f}–{top:.0f} Hz"
+    elif top:
+        span = ("the bass" if top <= 250
+                else f"everything below {top:.0f} Hz")
+    else:
+        span = (f"everything above {bottom:.0f} Hz" if bottom
+                else "everything")
+    lifts = {b.pregain_db for _, b in live if b.pregain_db > 0}
+    what = (f"lifts {span} by {'up to ' if len(lifts) > 1 else ''}"
+            f"{max(lifts):+g} dB and compresses it when loud"
+            if lifts else f"compresses {span} when loud")
+    detail = []
+    for i, b in live:
+        hi = edges[i + 1]
+        band = (f"{edges[i]:.0f}–{hi:.0f} Hz" if hi
+                else f"above {edges[i]:.0f} Hz")
+        detail.append(f"{band} {b.ratio:g}:1 above {b.threshold_db:+g} dB"
+                      + (f" after {b.pregain_db:+g} dB"
+                         if b.pregain_db else ""))
+    return what, detail
+
+
 def _vendor_apo_not_reproduced_finding(apo) -> Finding | None:
-    """What an applied vendor layer leaves out, for a listener comparing it
-    with Windows. Detail only: nothing on this machine can add it."""
-    if not apo.notes:
+    """The stages an applied vendor layer leaves out, by name, for a
+    listener comparing it with Windows. Detail only: nothing on this
+    machine can add them. Their reasons print on the stage lines above."""
+    missing = [s.name for s in apo.stages
+               if s.status == apo_layer.NOT_REPRODUCED]
+    if not missing:
         return None
     return Finding(
         slug="vendor-apo-not-reproduced",
         # "Nothing to do" leads: at the end it came only after the whole
         # list. "The rest is in the presets" read as contradicting "Left out",
         # and is EasyEffects wording on a PipeWire run (vendor-apo review).
-        detail=f"Nothing to do. Left out of the vendor tuning, {apo.label}: "
-               + "; ".join(apo.notes) + ".",
+        detail="Nothing to do. Left out of the preset: "
+               + ", ".join(missing) + ".",
         kind="ask")
 
 

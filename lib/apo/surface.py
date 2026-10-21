@@ -22,12 +22,13 @@ Only the `R/EFX` chain is read:
 - The `VolumeDepMBDRC` block becomes a multiband compressor, at volume
   state 0.
 - The `Crystal` blocks become one multiband limiter, with one band per
-  resonance, when they fit one 8-band stage. Otherwise the stage goes in
-  `ApoLayer.skipped`.
-- Everything else that changes the audio is listed in `ApoLayer.notes`: the
-  volume-dependent EQs, hold times, per-band output limits, the
-  `OutputLimiter`, and any block this module doesn't know. `VolumeControl`
-  is the system volume itself, so it is not listed.
+  resonance, when they fit one 8-band stage. Otherwise the stage is listed
+  as not reproduced.
+- `ApoLayer.stages` lists each of these in file order, with what each
+  leaves out (hold times, per-band output limits, other volume states),
+  and everything else that changes the audio: the volume-dependent EQs,
+  the `OutputLimiter`, and any block this module doesn't know.
+  `VolumeControl` is the system volume itself, so it is not listed.
 
 Stdlib-only, like `lib/apo/layer.py`.
 """
@@ -39,7 +40,8 @@ import math
 import re
 from pathlib import Path
 
-from lib.apo.layer import (ApoLayer, BandDynamics, Biquad, DynBand,
+from lib.apo.layer import (APPROXIMATED, BUILT, NOT_REPRODUCED, ApoLayer,
+                           BandDynamics, Biquad, DynBand, Stage,
                            UnsupportedApoConfig)
 
 LABEL = "Microsoft Surface APO"
@@ -371,70 +373,102 @@ def _layer(config: Path, doc, inf: Path, hwid: str) -> ApoLayer | None:
             config, f"no {_SAMPLE_RATE // 1000} kHz R/EFX render chain")
 
     live = {n: b for n, b in chain.items() if _enabled(b)}
-    notes: list[str] = []
-    eq_left, eq_right = _main_eq(
-        config, [(n, b) for n, b in live.items() if _MAIN_EQ_RE.fullmatch(n)])
+    # (the stage's first block, the stage), sorted into file order below.
+    stages: list[tuple[str, Stage]] = []
+    main_eqs = [n for n in live if _MAIN_EQ_RE.fullmatch(n)]
+    eq_left, eq_right = _main_eq(config, [(n, live[n]) for n in main_eqs])
+    if eq_left or eq_right:
+        stages.append((main_eqs[0], Stage(
+            f"EQ ({'/'.join(main_eqs)})", BUILT, builds="eq",
+            evidence=_RESEARCH)))
     drcs = [n for n in live if _DRC_RE.fullmatch(n)]
     crystals = [n for n in live if _CRYSTAL_RE.fullmatch(n)]
     dynamics = []
-    translated = []
-    skipped: list[tuple[str, str]] = []
     if drcs:
-        dynamics.append(_drc(config, drcs[0], live[drcs[0]], notes))
-        translated.append(drcs[0])
+        drc, gaps = _drc(config, drcs[0], live[drcs[0]])
+        dynamics.append(drc)
+        stages.append((drcs[0], _dynamics_stage(
+            f"compressor ({drcs[0]})", "drc",
+            gaps + _hold([live[drcs[0]]]))))
     if crystals:
-        stage = _crystal(config, {n: live[n] for n in crystals}, skipped)
-        if stage:
-            dynamics.append(stage)
-            translated += crystals
+        names = "/".join(crystals)
+        crystal, why_not = _crystal(config, {n: live[n] for n in crystals})
+        if crystal:
+            dynamics.append(crystal)
+            gaps = (["overlapping resonance bands split side by side"]
+                    if _overlaps(crystal) else [])
+            stages.append((crystals[0], _dynamics_stage(
+                f"resonance limiter ({names})", "crystal",
+                gaps + _hold([live[n] for n in crystals]))))
+        elif why_not:
+            stages.append((crystals[0], Stage(
+                f"resonance limiter ({names})", NOT_REPRODUCED, why_not,
+                evidence=_RESEARCH)))
     if not (eq_left or eq_right or dynamics):
         return None
-    # Hold times: neither LSP stage has one, so every block's go into one note.
-    held = [n for n in translated
-            if any(h for h in live[n].get("HoldTimeMs", []))]
-    if held:
-        notes.append("how long its dynamics hold before letting go, which "
-                     "the compressor stage used has no setting for "
-                     f"({'/'.join(held)} hold times)")
     volume_eqs = [n for n in live if _VOLUME_EQ_RE.fullmatch(n)
                   and not _is_identity(live[n])]
     if volume_eqs:
-        what = ("the bass and treble shelves"
+        what = ("bass and treble shelves"
                 if set(volume_eqs) <= {"VolumeDepLS", "VolumeDepHS"}
-                else "the EQ")
-        notes.append(f"{what} Windows sets by volume, "
-                     "since neither chain this tool builds sees the "
-                     f"speaker's volume ({'/'.join(volume_eqs)})")
+                else "EQ")
+        stages.append((volume_eqs[0], Stage(
+            f"{what} set by volume ({'/'.join(volume_eqs)})", NOT_REPRODUCED,
+            "neither chain this tool builds sees the speaker's volume",
+            evidence=_RESEARCH)))
     limiter = live.get("OutputLimiter")
     if limiter:
         lookahead = _first(limiter, "LookaheadTimeMs", 0.0)
         acts = (_first(limiter, "Ratio", 1.0) != 1.0
                 or _first(limiter, "ThresholdDb", 0.0) < 0.0)
         if acts:
-            notes.append(
-                "its final limiter (threshold "
-                f"{_first(limiter, 'ThresholdDb', 0.0):g} dB, ratio "
-                f"{_first(limiter, 'Ratio', 1.0):g}), which the preset's own "
-                "limiter replaces (OutputLimiter)")
+            why_not = (f"threshold {_first(limiter, 'ThresholdDb', 0.0):g} "
+                       f"dB, ratio {_first(limiter, 'Ratio', 1.0):g}, which "
+                       "the preset's own limiter replaces")
         elif lookahead > 0:
-            notes.append(
-                f"its final limiter's {lookahead:g} ms look-ahead, left out "
-                "so the chain adds no delay (OutputLimiter)")
+            why_not = (f"its {lookahead:g} ms look-ahead, left out so the "
+                       "chain adds no delay")
+        else:
+            why_not = ""
+        if why_not:
+            stages.append(("OutputLimiter", Stage(
+                "final limiter (OutputLimiter)", NOT_REPRODUCED, why_not,
+                evidence=_RESEARCH)))
     known = {"VolumeControl", "OutputLimiter", *drcs[:1], *crystals}
-    unknown = [n for n in live if n not in known
+    stages += [(n, Stage(f"processing this tool doesn't recognise ({n})",
+                         NOT_REPRODUCED))
+               for n in live if n not in known
                and not _MAIN_EQ_RE.fullmatch(n)
                and not _VOLUME_EQ_RE.fullmatch(n)]
-    if unknown:
-        notes.append("processing this tool doesn't recognise "
-                     f"({'/'.join(unknown)})")
+    order = list(live)
     return ApoLayer(
         label=LABEL, config_path=config, inf_path=inf,
         hardware_id=hwid, sample_rate=_SAMPLE_RATE,
         eq_left=eq_left, eq_right=eq_right, dynamics=tuple(dynamics),
-        notes=tuple(notes), skipped=tuple(skipped),
+        stages=tuple(stage for _, stage in sorted(
+            stages, key=lambda pair: order.index(pair[0]))),
         # On by default since the #113 reporter preferred it by ear on a
         # Surface Pro 9 (`r-surface-apo-efx`); no Windows capture yet.
         default_on=True)
+
+
+_RESEARCH = "r-surface-apo-efx"
+
+
+def _dynamics_stage(name: str, builds: str, gaps: list[str]) -> Stage:
+    """A built dynamics stage: approximated when the build differs from
+    the block in *gaps*, one clause each."""
+    return Stage(name, APPROXIMATED if gaps else BUILT, "; ".join(gaps),
+                 builds=builds, evidence=_RESEARCH)
+
+
+def _hold(blocks: list[dict]) -> list[str]:
+    """The gap a hold time leaves, when any of *blocks* sets one: neither
+    LSP stage has a hold."""
+    if any(h for b in blocks for h in b.get("HoldTimeMs", [])):
+        return ["hold time left out: the preset's compressor has no hold "
+                "setting"]
+    return []
 
 
 # `_efx_chain`'s answer for a config with no R/EFX node at all, as the
@@ -522,25 +556,21 @@ def _main_eq(config: Path, blocks: list[tuple[str, dict]]
     return tuple(left), tuple(right)
 
 
-def _state_row(config: Path, block: dict, key: str, bands: int,
-               notes: list[str], name: str) -> list[float]:
-    """The first volume state's row of a per-state, per-band table."""
+def _state_rows(config: Path, block: dict, key: str, bands: int,
+                name: str) -> list[list[float]]:
+    """A per-state, per-band table's rows, one per volume state."""
     values = [_num(v) for v in block[key]]
     if not values or len(values) % bands:
         raise UnsupportedApoConfig(
             config, f"{name}.{key} holds {len(values)} values, not a "
             f"multiple of {bands} bands")
-    rows = [values[i:i + bands] for i in range(0, len(values), bands)]
-    states_note = ("its compressor's settings for other volume states; "
-                   f"state 0, read as full volume, is used ({name})")
-    if any(r != rows[0] for r in rows) and states_note not in notes:
-        notes.append(states_note)
-    return rows[_VOLUME_STATE]
+    return [values[i:i + bands] for i in range(0, len(values), bands)]
 
 
-def _drc(config: Path, name: str, block: dict, notes: list[str]
-         ) -> BandDynamics:
-    """A VolumeDepMBDRC block as a multiband compressor at full volume.
+def _drc(config: Path, name: str, block: dict
+         ) -> tuple[BandDynamics, list[str]]:
+    """A VolumeDepMBDRC block as a multiband compressor at full volume, and
+    what of the block it leaves out.
 
     Its band count is one more than its crossovers. Bands above
     `_AUDIBLE_HZ` are dropped with their crossovers.
@@ -552,10 +582,13 @@ def _drc(config: Path, name: str, block: dict, notes: list[str]
     """
     xovers = [_num(f) for f in block["CrossoverFreqs"]]
     n = len(xovers) + 1
-    threshold = _state_row(config, block, "ThresholdDb", n, notes, name)
-    ratio = _state_row(config, block, "Ratio", n, notes, name)
-    pregain = _state_row(config, block, "PreGainDb", n, notes, name)
-    limit = _state_row(config, block, "OutputLimit", n, notes, name)
+    tables = [_state_rows(config, block, key, n, name) for key in
+              ("ThresholdDb", "Ratio", "PreGainDb", "OutputLimit")]
+    gaps = []
+    if any(r != rows[0] for rows in tables for r in rows):
+        gaps.append("only volume state 0, read as full volume, is used")
+    threshold, ratio, pregain, limit = (rows[_VOLUME_STATE]
+                                        for rows in tables)
     attack = [_num(v) for v in block["AttackTimeMs"]]
     release = [_num(v) for v in block["ReleaseTimeMs"]]
     if xovers != sorted(xovers) or len(attack) < n or len(release) < n:
@@ -581,18 +614,19 @@ def _drc(config: Path, name: str, block: dict, notes: list[str]
             config, f"{name} has {len(bands)} audible bands; the compressor "
             f"stage holds {_MAX_BANDS}")
     if any(v != 0.0 for v in limit[:audible]):
-        notes.append(f"its compressor's per-band output limits ({name})")
+        gaps.append("per-band output limits left out")
     lookahead = [_num(v) for v in block.get("LookaheadTimeMs", [])]
     if any(lookahead[:audible]):
-        notes.append(f"its compressor's look-ahead, left out so the chain "
-                     f"adds no delay ({name})")
+        gaps.append("look-ahead left out, so the chain adds no delay")
     return BandDynamics(name="drc", crossovers_hz=tuple(splits),
-                        bands=tuple(bands), detection="RMS", knee_db=0.0)
+                        bands=tuple(bands), detection="RMS",
+                        knee_db=0.0), gaps
 
 
-def _crystal(config: Path, blocks: dict[str, dict],
-             skipped: list[tuple[str, str]]) -> BandDynamics | None:
-    """Every Crystal block's resonance limiters as one multiband limiter.
+def _crystal(config: Path, blocks: dict[str, dict]
+             ) -> tuple[BandDynamics | None, str]:
+    """Every Crystal block's resonance limiters as one multiband limiter,
+    or None and why not.
 
     Each block limits its first `ActiveLimiterCount` entries (all of them
     when the field is absent). Entries identical in the fields the limiter
@@ -605,8 +639,8 @@ def _crystal(config: Path, blocks: dict[str, dict],
     and a multiband split cannot, so the bands split at the geometric
     midpoints between neighbouring F0s. An inert band sits below the first
     resonance's range and another above the last, so the rest of the
-    spectrum passes untouched. None, with the stage in *skipped*, when the
-    resonances don't fit those bands.
+    spectrum passes untouched. None, with the reason, when the resonances
+    don't fit those bands; None and no reason when there are none.
     """
     entries = []
     for name, block in blocks.items():
@@ -619,21 +653,16 @@ def _crystal(config: Path, blocks: dict[str, dict],
                 f"entries than its {count} limiters")
         entries += zip(*(c[:count] for c in cols))
     res = sorted(set(entries))
-    names = "/".join(blocks)
     f0s = [r[0] for r in res]
     # Two bracket bands plus one per resonance; a shared F0 has no split.
     if len(res) > _MAX_BANDS - 2:
-        skipped.append(("Resonance limiter",
-                        f"its {len(res)} resonances are more than one "
-                        f"limiter stage can split apart ({names})"))
-        return None
+        return None, (f"its {len(res)} resonances are more than one limiter "
+                      "stage can split apart")
     if len(set(f0s)) < len(f0s):
-        skipped.append(("Resonance limiter",
-                        "two of its resonances share a frequency, which a "
-                        f"limiter stage can't split apart ({names})"))
-        return None
+        return None, ("two of its resonances share a frequency, which a "
+                      "limiter stage can't split apart")
     if not res:
-        return None
+        return None, ""
     f0, bw, lim, attack, release = (list(c) for c in zip(*res))
     lows = [max(f - b / 2, 10.0) for f, b in zip(f0, bw)]
     highs = [f + b / 2 for f, b in zip(f0, bw)]
@@ -650,4 +679,12 @@ def _crystal(config: Path, blocks: dict[str, dict],
              [inert])
     return BandDynamics(name="crystal",
                         crossovers_hz=tuple(round(s, 1) for s in splits),
-                        bands=tuple(bands), detection="Peak", knee_db=0.0)
+                        bands=tuple(bands), detection="Peak",
+                        knee_db=0.0), ""
+
+
+def _overlaps(crystal: BandDynamics) -> bool:
+    """Whether two of a resonance limiter's detector ranges overlap, which
+    its side-by-side bands then approximate (`_crystal`)."""
+    ranges = [b.sidechain_hz for b in crystal.bands if b.sidechain_hz]
+    return any(hi > lo for (_, hi), (lo, _) in zip(ranges, ranges[1:]))
