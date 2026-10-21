@@ -91,6 +91,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Changed
 
+- `--enable virtual-bass`: the added bass harmonics now start sooner after each
+  note, closer to Windows, at the same level. One listener heard no difference.
+  Re-run to regenerate. (why in `docs/research/virtual-bass.md`)
+
 - **[AUDIBLE]** Loud held bass notes are no longer distorted by the final
   limiter; they are held slightly quieter instead. Measured on one device, not
   heard. Re-run to regenerate.

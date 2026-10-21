@@ -49,10 +49,12 @@ VBE_SAT_BLEND = -10.0
 
 # LSP filter_stereo enum values (lv2info-verified, lsp-plugins-lv2 1.2.33;
 # same tables as tools/measure_ee/render_vbe_chain.py): brick-wall
-# Butterworth-Chebyshev bilinear at the steepest x16 slope, IIR engine.
+# Butterworth-Chebyshev bilinear, IIR engine. The mix band runs the steepest
+# x16 slope, the arms x8.
 _FT_HIPASS = 1
 _FT_LOPASS = 0
 _FM_BWC_BT = 2
+_SLOPE_X8 = 5
 _SLOPE_X16 = 7
 _MODE_IIR = 0
 
@@ -62,8 +64,10 @@ _MODE_IIR = 0
 _MIX_HP_STAGES = 2
 
 # The arm band-passes' slope. Their group delay sets how late the
-# harmonics arrive after the note (research `r-vbe-dry-wet-timing`).
-_ARM_SLOPE = _SLOPE_X16
+# harmonics arrive after the note: x8 brings them in about 40% sooner than
+# x16 at the same score and guards, and x6 lifts a 100 Hz note by 5 dB
+# (research `r-vbe-dry-wet-timing`).
+_ARM_SLOPE = _SLOPE_X8
 
 
 def _filter_node(name: str, ft: int, freq: float,

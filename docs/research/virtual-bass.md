@@ -9,12 +9,12 @@
   near-fundamental amplitude on a 50 Hz tone ([VBE](#r-dax-virtual-bass)).
 - **Whether DAX engages it** is decided outside any file we read. #44's DAX
   applies none with identical VBE fields ([#44](#r-dax-virtual-bass)).
-- **`--enable virtual-bass`**, opt-in and PipeWire-only, scores S = 4.43 against
+- **`--enable virtual-bass`**, opt-in and PipeWire-only, scores S = 4.46 against
   DAX on one device, the dev X1 Yoga, where emitting nothing scores 10.01
   ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
-- **Its harmonics arrive 100–200 ms after the note**, where DAX's arrive with
-  it. An x8 arm slope cuts the lag by about 40% live, with S within 0.03
-  ([timing](#r-vbe-dry-wet-timing)).
+- **Its harmonics arrive 60–125 ms after the note**, where DAX's arrive with
+  it. The x8 arm slope shipped 2026-10-21 cut that by about 40%, at S 4.46
+  against x16's 4.43 ([timing](#r-vbe-dry-wet-timing)).
 - **The historical Calf BassEnhancer capture** on the dev X1 Yoga scores 18.43,
   worse than doing nothing
   ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
@@ -26,8 +26,6 @@ Open:
 - What enables VBE on one device and not the other: engine generation and
   product tier covary on our two data points. #44's machine on an updated
   driver would be the cleanest discriminator ([#44](#r-dax-virtual-bass)).
-- Whether to ship the x8 arm slope: closer to DAX's timing at the same S on
-  live captures, not told apart by ear ([timing](#r-vbe-dry-wet-timing)).
 - The SoundWire bass-enhancer constants await a SoundWire device's DAX
   bass-burst capture, the test that would falsify them
   ([constants](#r-soundwire-bass-enhancer-constants)).
@@ -543,7 +541,8 @@ read.
 
 ## When the virtual-bass harmonics arrive, against DAX
 
-The shipped chain's harmonics reach half level 100–200 ms after their note, and
+The chain's harmonics reach half level 60–125 ms after their note with the x8
+arm filters shipped 2026-10-21, and 100–200 ms with the x16 ones before them.
 DAX's arrive with it. The cause is the steep arm band-passes, not the 2 ms that
 PipeWire warns about.
 
@@ -567,8 +566,8 @@ band stays at x16.
 | | 3×50 | 5×50 | 3×80 | 5×80 | S | guards |
 |---|---|---|---|---|---|---|
 | DAX | −36 / +27 | +15 / +20 | −44 / +37 | −15 / +15 | — | — |
-| shipped chain, live | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | 4.43 | pass |
-| arms x16, offline (shipped) | +202 / +176 | +183 / +152 | +109 / +97 | +106 / +93 | 4.43 | pass |
+| x16 chain, live (2026-08) | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | 4.43 | pass |
+| arms x16, offline (first shipped) | +202 / +176 | +183 / +152 | +109 / +97 | +106 / +93 | 4.43 | pass |
 | arms x12, offline | +165 / +139 | +143 / +114 | +82 / +78 | +85 / +71 | 4.45 | pass |
 | arms x8, offline | +129 / +104 | +110 / +84 | +74 / +62 | +62 / +50 | 4.46 | pass |
 | arms x6, offline | +109 / +84 | +82 / +60 | +61 / +48 | +52 / +39 | 4.47 | pass |
@@ -599,7 +598,7 @@ from 35 to 280 Hz.
 
 | arms | S, loud | 3×50 | 5×50 | 3×80 | 5×80 | guards, loud and quiet |
 |---|---|---|---|---|---|---|
-| x16 (shipped) | 4.43 | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | pass |
+| x16 (first shipped) | 4.43 | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | pass |
 | x8 | 4.46 | +125 / +100 | +108 / +81 | +67 / +59 | +59 / +46 | pass |
 | x6 | 4.47 | +105 / +82 | +79 / +58 | +57 / +47 | +48 / +34 | pass |
 
@@ -609,7 +608,7 @@ guard does not. Fundamental shift against the chain without the branch:
 
 | arms | 100 Hz | 120 Hz | 35–80 and 140–280 Hz |
 |---|---|---|---|
-| x16 (shipped) | −2.10 dB | 0.00 dB | ≤ 0.01 dB |
+| x16 (first shipped) | −2.10 dB | 0.00 dB | ≤ 0.01 dB |
 | x8 | −0.99 dB | −0.22 dB | ≤ 0.01 dB |
 | x6 | +5.23 dB | +0.54 dB | ≤ 0.01 dB |
 
@@ -622,6 +621,23 @@ The listener picked out the chain without the branch at once: on sustained
 not reliably told apart, with "a bit fuller" on x8 for 80 Hz plucks, unsure. The
 timing difference, 40–75 ms on products 25–30 dB under content, is below what
 this test can resolve, so the pass shows no regression and nothing more.
+
+G5, on the multitone stimulus, compares the 47 Hz tone's products against the
+chain without the branch and against DAX. Levels are dBFS:
+
+| bin | DAX | no branch | x16 | x8 |
+|---|---|---|---|---|
+| 94 Hz | −65.9 | −127.5 | −114.6 | −114.3 |
+| 188 Hz | −58.4 | −138.1 | −137.3 | −137.7 |
+| 282 Hz | −63.2 | −140.9 | −140.8 | −140.8 |
+| 376 Hz | −63.6 | −143.4 | −143.4 | −143.4 |
+
+x8 adds nothing over x16 at the 47 ± 141 Hz products, and both stay far under
+DAX + 6 dB. The stimulus is quiet, −18 dBFS RMS over 20 tones, so loud
+two-note bass is untested.
+
+Verdict: x8 shipped 2026-10-21. It meets the adoption rule (every guard green,
+S within 0.5, the onset closer to DAX), and narrows the 100 Hz soft spot.
 
 ### The 2 ms PipeWire reports
 
@@ -654,9 +670,10 @@ correcting. PipeWire reports the graph's latency as the mean of the two paths,
 
 Open:
 
-- Whether to ship x8. It meets the adoption rule on the meter, and the ear
-  finds no difference.
-- How either slope sounds on music. The listening used test tones only.
+- How x8 sounds on music, and on loud two-note bass. The listening used test
+  tones only.
+- Closing the remaining 60–125 ms. x6 and gentler arms fail at 100–120 Hz, so
+  it needs a different arm design, not a slope.
 - A second device's DAX timing.
 
 <a id="r-soundwire-bass-enhancer-constants"></a>

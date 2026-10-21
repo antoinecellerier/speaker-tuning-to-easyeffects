@@ -3272,7 +3272,8 @@ def test_vbe_control_values_trace_to_metadata(generated):
         if node.get("plugin") == vbe.LSP_FILTER_URI:
             assert node["control"]["mode"] == 0, name    # IIR = zero latency
             assert node["control"]["fm"] == 2, name      # BWC (BT)
-            assert node["control"]["s"] == 7, name       # x16 slope
+            arm = name.startswith("vbe_a")
+            assert node["control"]["s"] == (5 if arm else 7), name  # x8 / x16
             assert node["control"]["enabled"] == 1, name
         if node.get("plugin") == vbe.CALF_SATURATOR_URI:
             assert node["control"]["drive"] == vbe.VBE_SAT_DRIVE, name

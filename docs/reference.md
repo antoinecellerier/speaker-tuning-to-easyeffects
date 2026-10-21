@@ -480,7 +480,7 @@ including the PEQ anti-clipping trim, the SoundWire bass-enhancer constants and
 the fixed dynamics constants, each with the measurement that would validate it.
 
 Capture-scored on one device, opt-in, `--enable virtual-bass`: the wet-branch
-topology, sub-band weights, and unity overall gain score S = 4.43 against the
+topology, sub-band weights, and unity overall gain score S = 4.46 against the
 dev device's DAX bass-burst battery. On that scale 0 = identical to DAX at the
 method's noise floor, and emitting nothing scores 10.0. All cleanliness guards
 are green, with one acoustic on-device confirmation (2026-08-21). It ships
