@@ -31,14 +31,14 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import (console, doctor, driver_package, ee_paths, ee_socket, host,
-                 packages)
+from lib import (console, doctor, driver_package, ee_paths, ee_socket,
+                 packages, tuning_source)
 # Aliased: `discover` is the DAX3 one, read far more often in this file.
 from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
 from lib.apo import sonitude
 from lib.dax import discover, parse
-from lib.hardware import codecs, speakers
+from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
 # result, which would shadow the module for every later line that reads
 # through it.
@@ -73,24 +73,6 @@ TUNING_INPUT_DESCRIPTION = (
     "path nor --windows. It probes the mounted Windows partitions in "
     "/proc/mounts and the current directory."
 )
-
-
-def _hw_id(text: str) -> str:
-    """--hw-id's value, checked and normalised to "[BUS:]CODEC:SUBSYS".
-
-    Takes the IDs as --speaker-info prints them, so a 0x prefix is fine. A
-    string, not a tuple, because dolby_to_pipewire.py forwards it as one."""
-    parts = text.strip().upper().split(":")
-    bus = parts.pop(0) if len(parts) == 3 else None
-    ids = [p.removeprefix("0X") for p in parts]
-    if (len(ids) != 2 or (bus is not None and bus not in sonitude.BUSES)
-            or not all(len(i) == 8 and all(c in "0123456789ABCDEF" for c in i)
-                       for i in ids)):
-        raise argparse.ArgumentTypeError(
-            f"{text!r}: expected CODEC:SUBSYS, 8 hex digits each, such as "
-            "0x10EC0285:0x103C860F, optionally after HDAUDIO: or "
-            "INTELAUDIO:")
-    return ":".join([*([bus] if bus else []), *ids])
 
 
 def add_tuning_input_args(container, *, only=None):
@@ -129,7 +111,7 @@ def add_tuning_input_args(container, *, only=None):
     add(
         "--hw-id",
         default=None,
-        type=_hw_id,
+        type=sonitude.parse_hw_id,
         metavar="[BUS:]CODEC:SUBSYS",
         help="with HP's Bang & Olufsen tuning (a driver download or "
              "SEAPODAT archive in place of the XML), the audio codec and "
@@ -647,90 +629,71 @@ class RunTally:
     leveler_substages: dict[str, None] = field(default_factory=dict)
 
 
-def _vendor_only_layer(source: Path, hw_id: str | None):
-    """The Sonitude layer *source*'s archives hold for this machine, or for
-    the laptop *hw_id* names (see `_hw_id`); raises when none binds it."""
-    src = doctor.tilde(source)
-    if hw_id:
-        *bus, codec, subsys = hw_id.split(":")
-        bus = bus[0] if bus else None
-        ids = [(codec, subsys)]
+def _tuning_source(args, parser) -> tuning_source.TuningSource:
+    """The tuning this run builds from (`lib/tuning_source.py`), with the
+    flags it can't take refused and, for a standalone one, its layer read."""
+    if args.xml_file and args.windows:
+        parser.error("specify either xml_file or --windows, not both")
+    elif args.windows:
+        xml_path = discover.find_tuning_xml(args.windows, best_guess=args.best_guess)
+        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
+        source = tuning_source.dolby(xml_path, args.prefix)
+    # A folder in the XML's place stays on the XML path: only an unpacked
+    # download's tree, below, is looked into for a standalone tuning.
+    elif (args.xml_file and not Path(args.xml_file).is_dir()
+          and (fmt := apo_discover.standalone_for(args.xml_file))):
+        # Said as a missing XML is, rather than as an archive holding no
+        # tuning for this laptop.
+        if not Path(args.xml_file).is_file():
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
+                                    str(args.xml_file))
+        source = tuning_source.standalone(fmt, args.xml_file, args.prefix)
+    elif args.xml_file and driver_package.kind(args.xml_file):
+        # A vendor's driver download in place of the XML: its tuning files
+        # are unpacked into driver-cache/, and this machine's is picked there.
+        tree = driver_package.unpack(args.xml_file)
+        fmt = apo_discover.standalone_for(tree)
+        if fmt is not None and not discover.walk_for_dolby_xml_dirs(tree):
+            source = tuning_source.standalone(fmt, tree, args.prefix)
+        else:
+            # As in `_windows_source`, a Dolby XML for this machine wins.
+            # Only when none matches is the tree's standalone tuning used,
+            # and its own error stands if it doesn't bind this machine
+            # either.
+            try:
+                xml_path = driver_package.pick_xml(
+                    tree, Path(args.xml_file), best_guess=args.best_guess)
+            except driver_package.NoTuningForThisDevice:
+                if fmt is None:
+                    raise
+                source = tuning_source.standalone(fmt, tree, args.prefix)
+            else:
+                source = tuning_source.dolby(xml_path, args.prefix)
+    elif args.xml_file:
+        source = tuning_source.dolby(args.xml_file, args.prefix)
     else:
-        bus = None
-        ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
-               if "HDMI" not in name.upper()
-               and "DISPLAYPORT" not in name.upper()]
-        if not ids:
-            raise RuntimeError(
-                f"{src} holds HP's Bang & Olufsen tunings, but this "
-                "machine's audio codec IDs can't be read to pick one. Pass "
-                "the laptop's with --hw-id, as its --speaker-info prints "
-                "them.")
-    cards = host.path("/proc/asound/cards")
-    try:
-        sof = speakers._card_uses_sof(cards.read_text().splitlines())
-    except OSError:
-        sof = False
-    unreadable: list[Path] = []
-    for codec, subsys in ids:
-        found = sonitude.bindings(source, codec, subsys)
-        unreadable += found.unreadable
-        hits = {b: h for b, h in found.hits.items() if bus in (None, b)}
-        if bus and found.hits and not hits:
-            (other,) = found.hits
-            raise RuntimeError(
-                f"{src} holds a tuning for {codec}:{subsys} in its {other} "
-                f"archive only. Pass --hw-id {other}:{codec}:{subsys}, or "
-                "leave the bus out.")
-        if not hits:
-            continue
-        # A SOF machine runs Intel's DSP, which on Windows is the INTELAUDIO
-        # bus; the other archive is for Windows' standard driver.
-        order = sonitude.BUSES[::-1] if sof else sonitude.BUSES
-        picked = min(hits, key=order.index)
-        layer = sonitude.load(*hits[picked], picked, codec, subsys)
-        other = next((b for b in hits if b != picked), None)
-        if other is None:
-            return layer
-        try:
-            alt = sonitude.load(*hits[other], other, codec, subsys)
-        except apo_layer.UnsupportedApoConfig:
-            return layer
-        if (alt.curve_left_db, alt.curve_right_db) == (
-                layer.curve_left_db, layer.curve_right_db):
-            return layer
-        both = (f"preset {hits[picked][1]} in its {picked} archive and "
-                f"preset {hits[other][1]} in its {other} one")
-        if hw_id:
-            raise RuntimeError(
-                f"{src} holds two different tunings for {codec}:{subsys}: "
-                f"{both}. Pass the bus too, as the speakers' hardware ID "
-                "starts in Windows' Device Manager: --hw-id "
-                f"INTELAUDIO:{codec}:{subsys} or HDAUDIO:{codec}:{subsys}.")
-        runs = "runs" if sof else "doesn't run"
+        # An auto-detection miss/ambiguity is an environment condition, not
+        # CLI misuse. It propagates to the top-level handler, which prints a
+        # clean error (no usage banner) that points at --help. Routing it
+        # through parser.error() would slap the usage synopsis on top and exit
+        # 2, framing it as a syntax error the user can't fix by reading usage.
+        windows_root = discover.autoprobe_dolby_source()
+        xml_path = discover.find_tuning_xml(windows_root, best_guess=args.best_guess)
+        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
+        source = tuning_source.dolby(xml_path, args.prefix)
+
+    refusal = source.refusal(args)
+    if refusal:
+        parser.error(refusal)
+    source = source.resolved(
+        args.hw_id, lambda text: console._cprint_wrapped("warn", text))
+    if source.layer is not None:
+        console.cprint("ok", f"Found {source.layer.label} for "
+                       f"{source.layer.hardware_id}")
         console._cprint_wrapped(
-            "warn", f"{src} holds two different tunings for this laptop: "
-            f"{both}. Using the {picked} one, because this machine {runs} "
-            "Intel's audio DSP driver (SOF). If the speakers' hardware ID in "
-            f"Windows' Device Manager starts with {other}, rebuild with "
-            f"--hw-id {other}:{codec}:{subsys}.")
-        return layer
-    if unreadable:
-        raise RuntimeError(
-            f"{doctor.tilde(unreadable[0])} can't be read as one of HP's "
-            "tuning archives, so whether it holds this laptop's tuning is "
-            "unknown. Try a fresh copy of the download.")
-    said = ", ".join(f"{c}:{s}" for c, s in ids)
-    if hw_id:
-        raise RuntimeError(
-            f"{src} holds no HP Bang & Olufsen tuning for "
-            f"{bus + ':' if bus else ''}{said}. Check the IDs against that "
-            "laptop's --speaker-info, or use its model's driver download.")
-    raise RuntimeError(
-        f"{src} holds HP's Bang & Olufsen tunings, but none for this "
-        f"laptop's audio hardware (codec:subsystem {said}), so it is likely "
-        "another model's download. Use the audio driver download HP lists "
-        "for this model.")
+            "dim", "No Dolby file was given or found, so the presets are built "
+            "from this tuning alone.")
+    return source
 
 
 def main(argv: list[str] | None = None,
@@ -749,10 +712,11 @@ def main(argv: list[str] | None = None,
     is filled with print_troubleshooting's inputs instead of the menu
     printing here, so the caller can render it at its own end.
 
-    ``resolved`` takes what only this function can work out: currently
-    ``xml_path``, which auto-discovery may have found on a mounted Windows
-    partition. The closing block names it as the file to attach, and a
-    caller printing that block on our behalf has no other way to learn it.
+    ``resolved`` takes what only this function can work out: ``xml_path``,
+    which auto-discovery may have found on a mounted Windows partition, and
+    ``source``, the `TuningSource.kind` it read (`lib/tuning_source.py`).
+    The closing block names the XML as the file to attach, and a caller
+    printing that block on our behalf has no other way to learn it.
 
     ``staged`` marks the output dirs as a wrapper's throwaway staging area,
     so the per-file announcements say "Staged", not "Wrote"."""
@@ -795,92 +759,21 @@ def main(argv: list[str] | None = None,
         doctor_run.report_doctor(args)
         return
 
-    # Resolve the XML file path. `vendor_source` is set instead when the
-    # device ships no Dolby file, only HP's Sonitude presets (lib/apo/sonitude.py).
-    vendor_source = None
-    if args.xml_file and args.windows:
-        parser.error("specify either xml_file or --windows, not both")
-    elif args.windows:
-        xml_path = discover.find_tuning_xml(args.windows, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
-    elif args.xml_file and sonitude.is_archive(args.xml_file):
-        vendor_source = Path(args.xml_file)
-        # Said as a missing XML is, rather than as an archive holding no
-        # tuning for this laptop.
-        if not vendor_source.is_file():
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    str(args.xml_file))
-    elif args.xml_file and driver_package.kind(args.xml_file):
-        # A vendor's driver download in place of the XML: its tuning files
-        # are unpacked into driver-cache/, and this machine's is picked there.
-        tree = driver_package.unpack(args.xml_file)
-        if (sonitude.archives_in(tree)
-                and not discover.walk_for_dolby_xml_dirs(tree)):
-            vendor_source = tree
-        else:
-            xml_path = driver_package.pick_xml(tree, Path(args.xml_file),
-                                               best_guess=args.best_guess)
-    elif args.xml_file:
-        xml_path = args.xml_file
-    else:
-        # An auto-detection miss/ambiguity is an environment condition, not
-        # CLI misuse. It propagates to the top-level handler, which prints a
-        # clean error (no usage banner) that points at --help. Routing it
-        # through parser.error() would slap the usage synopsis on top and exit
-        # 2, framing it as a syntax error the user can't fix by reading usage.
-        windows_root = discover.autoprobe_dolby_source()
-        xml_path = discover.find_tuning_xml(windows_root, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
-
-    if args.hw_id and vendor_source is None:
-        parser.error("--hw-id picks among HP's Bang & Olufsen tunings; pass "
-                     "their driver download or SEAPODAT archive with it")
-    if vendor_source is not None:
-        # No Dolby file: no endpoints or profiles to choose among, and the
-        # vendor layer is the whole tuning, so nothing is left to build
-        # without it.
-        for flag, given in (("--list", args.list),
-                            ("--all-profiles", args.all_profiles),
-                            ("--profile", args.profile),
-                            ("--endpoint",
-                             args.endpoint != "internal_speaker"),
-                            ("--mode", args.mode != "normal")):
-            if given:
-                parser.error(f"{flag} reads a Dolby file, and this laptop's "
-                             "tuning is HP's Bang & Olufsen one instead")
-        # Each builds or restores a Dolby stage, and there is none: refused
-        # rather than run and reported as having had no effect.
-        for name in ("autogain", "dialog", "virtual-bass", "level-restore"):
-            if name in args.enable:
-                parser.error(f"--enable {name} acts on a Dolby stage, and "
-                             "this laptop's tuning is HP's Bang & Olufsen "
-                             "one instead")
-        if apo_layer.FLAG in disabled:
-            parser.error(f"--disable {apo_layer.FLAG} would leave nothing to "
-                         "build: HP's Bang & Olufsen tuning is this laptop's "
-                         "only one")
-        try:
-            vendor_layer = _vendor_only_layer(vendor_source, args.hw_id)
-        except apo_layer.UnsupportedApoConfig as exc:
-            target = "--hw-id's IDs" if args.hw_id else "this laptop"
-            raise RuntimeError(f"HP's Bang & Olufsen tuning at "
-                               f"{doctor.tilde(exc.path)} binds {target} "
-                               f"but can't be used: {exc.reason}.") from exc
-        # The archive stands where the XML would: the file the run names.
-        xml_path = vendor_layer.inf_path
-        console.cprint("ok", f"Found {vendor_layer.label} for "
-                       f"{vendor_layer.hardware_id}")
+    # Resolve the tuning source: the XML, or a standalone vendor format when
+    # the device ships no Dolby file (lib/tuning_source.py).
+    source = _tuning_source(args, parser)
+    xml_path = source.xml_path
 
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
     # working from.
-    # None on a vendor-only run: there is no XML to ask for, and a wrapper's
-    # closing would otherwise name the archive as one.
+    # xml_path is None on a standalone run: there is no XML to ask for, and a
+    # wrapper's closing would otherwise name the archive as one.
     if resolved is not None:
-        resolved["xml_path"] = xml_path if vendor_source is None else None
-        resolved["vendor_only"] = vendor_source is not None
+        resolved["xml_path"] = source.closing_file
+        resolved["source"] = source.kind
 
-    is_soundwire = (vendor_source is None
+    is_soundwire = (source.kind == tuning_source.DOLBY
                     and discover.is_soundwire_xml(Path(xml_path).name))
 
     if args.list:
@@ -898,7 +791,7 @@ def main(argv: list[str] | None = None,
     # presets still get built.
     apo_unusable = False
     try:
-        apo = (vendor_layer if vendor_source is not None
+        apo = (source.layer if source.layer is not None
                else apo_discover.find_for_xml(Path(xml_path)))
     except apo_layer.UnsupportedApoConfig as exc:
         apo, apo_unusable = None, True
@@ -925,9 +818,10 @@ def main(argv: list[str] | None = None,
     # of its own. `emit` and `profile` are what pull it in: between them they
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
-    # at the top (console, doctor, driver_package, ee_paths, ee_socket, host,
-    # packages; apo.{discover,layer,sonitude}; dax.{discover,parse};
-    # hardware.{codecs,speakers,sinks}; preset.{autoload,reload};
+    # at the top (console, doctor, driver_package, ee_paths, ee_socket,
+    # packages, tuning_source; apo.{discover,layer,sonitude};
+    # dax.{discover,parse}; hardware.{speakers,sinks};
+    # preset.{autoload,reload};
     # report.{findings,speaker,doctor_run,environment,messages}) reaches no
     # numpy. That is the whole predicate, and it is not "stdlib-only": console
     # owns the optional rich import and still belongs at the top, because rich
@@ -1060,10 +954,7 @@ def main(argv: list[str] | None = None,
         profile_label = profile_type or "default"
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
-        # "Dolby" would mislabel a preset built from HP's own tuning; a
-        # prefix the reader typed stands, "Dolby" included.
-        name_parts = [args.prefix if args.prefix is not None
-                      else "HP-BO" if vendor_source is not None else "Dolby"]
+        name_parts = [source.prefix]
         if args.mode != "normal":
             name_parts.append(args.mode.title())
         if profile_type or args.all_profiles:
@@ -1089,10 +980,9 @@ def main(argv: list[str] | None = None,
         # "(mode=normal)" is suppressed when it is the default: an
         # unexplained internal knob on every run's second line.
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
-        if vendor_source is not None:
-            console.cprint("head", "Internal speakers (the output this "
-                           "preset is for), Music mode")
-            tuning = parse.flat_tuning(sonitude.probe_freqs())
+        if source.kind == tuning_source.STANDALONE:
+            console.cprint("head", source.format.heading)
+            tuning = parse.flat_tuning(source.format.probe_freqs())
         else:
             console.cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
                            "presets are for)")
@@ -1112,7 +1002,7 @@ def main(argv: list[str] | None = None,
             hide_attempted = True
             reload.hide_window_before_writing(args)
 
-        if vendor_source is not None:
+        if source.kind == tuning_source.STANDALONE:
             # The Dolby sections would all describe absent stages; the vendor
             # layer's own section is the whole report.
             profile_findings = report_profile._print_apo_layer(
@@ -1287,14 +1177,10 @@ def main(argv: list[str] | None = None,
                                     "(isolated_band), so there was nothing to "
                                     "drop. The preset is unchanged.")
 
-    # A vendor-only preset is the vendor layer, so the menus' --disable row
-    # and the closing's "on by default" note would offer a run this command
-    # refuses. Both key on the marker. level-restore's --enable row goes too:
-    # the curve only cuts, so the peak it would hand back is a rounding
-    # error, and the flag is refused here.
-    if vendor_source is not None:
-        tally.filters_by_profile.pop(f"{apo_layer.FLAG}-active", None)
-        tally.filters_by_profile.pop("level-restore", None)
+    # The menus and the closing's "on by default" note key on the markers,
+    # so dropping a marker drops its offer (TuningSource.unoffered).
+    for marker in source.unoffered:
+        tally.filters_by_profile.pop(marker, None)
 
     # Environment blockers first within the troubleshooting band: each means
     # the system won't play this correctly whatever the preset says, so there
@@ -1337,7 +1223,7 @@ def main(argv: list[str] | None = None,
 
     # A preset built from HP's tuning alone has been compared with two
     # laptops' Windows recordings, never heard: ask for the comparison.
-    if vendor_source is not None and tally.all_preset_names:
+    if source.kind == tuning_source.STANDALONE and tally.all_preset_names:
         tally.findings.setdefault(
             "vendor-tuning-unconfirmed",
             report_findings._vendor_only_finding(apo.label))
@@ -1422,7 +1308,7 @@ def main(argv: list[str] | None = None,
         # so there is nothing to point at. get_profile_types re-reads the
         # XML, but only here, once, at the very end.
         profile_used = n_modes = None
-        if (vendor_source is None and not args.all_profiles
+        if (source.has_profiles and not args.all_profiles
                 and len(profile_types) == 1):
             profile_used = last_profile_used
             n_modes = len(parse.get_profile_types(xml_path, args.endpoint,
@@ -1468,10 +1354,9 @@ def main(argv: list[str] | None = None,
     if closing is not None:
         closing.extend(scoped)
     if not args.skip_closing:
-        # No XML to ask for on a vendor-only run: the download names it.
+        # No XML to ask for on a standalone run: the download names it.
         report_findings.print_project_asks(
-            scoped, dry_run=args.dry_run,
-            xml_path=None if vendor_source is not None else xml_path)
+            scoped, dry_run=args.dry_run, xml_path=source.closing_file)
 
 
 def run_cli(argv: list[str] | None = None,

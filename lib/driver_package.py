@@ -6,10 +6,11 @@ carrying an archive in its resources (ASUS), a Windows Installer `.msi`
 (Surface) or a `.zip` (Samsung). The archive is listed first. Only the files
 the readers open are kept, at their archive paths, in
 ``driver-cache/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
-tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), HP's Sonitude
-archives, which stand in for one (`lib.apo.sonitude.is_archive`), and what a
-vendor APO finder reads (`lib.apo.discover.wanted_members`). Each reader owns its
-predicate, so a new format adds its own and this module never learns it. A
+tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), the standalone
+vendor tunings that stand in for one (`lib.apo.discover.stands_in_for_xml`),
+and what a vendor APO finder reads (`lib.apo.discover.wanted_members`). Each
+reader owns its predicate, so a new format adds its own and this module never
+learns it. A
 `.msi` is the exception to extracting only those: `msiextract` has no member
 filter, so it is unpacked in full beside the tree and pruned.
 
@@ -49,7 +50,6 @@ from pathlib import Path, PurePosixPath
 
 from lib import console, doctor, packages, tool_env
 from lib.apo import discover as apo_discover
-from lib.apo import sonitude
 from lib.dax import discover
 from lib.hardware import codecs
 from lib.paths import REPO_ROOT
@@ -94,6 +94,12 @@ class PackageError(RuntimeError):
     command."""
 
     next_step = ""
+
+
+class NoTuningForThisDevice(PackageError):
+    """A download whose Dolby XMLs hold none for this machine (`_unmatched`).
+    Its own type, because a download with another format's tuning beside
+    them goes on to that one, and every other refusal stands."""
 
 
 def default_cache_root() -> Path:
@@ -512,10 +518,10 @@ def _missing_tool(key: str, binaries: str, path: Path) -> PackageError:
 
 
 def _is_tuning(name: str) -> bool:
-    """A Dolby tuning XML, or the archive of a vendor-only tuning (HP's
-    Sonitude presets, `lib/apo/sonitude.py`) that ships in place of one."""
+    """A Dolby tuning XML, or a standalone vendor tuning that ships in place
+    of one (`lib/apo/discover.py` `STANDALONE`)."""
     return (discover.is_dolby_tuning_filename(name)
-            or sonitude.is_archive(name))
+            or apo_discover.stands_in_for_xml(name))
 
 
 def _has_tuning(opened: _Opened) -> bool:
@@ -802,7 +808,8 @@ def _speaker_ids_read() -> bool:
                 and codecs.get_pci_audio_subsystem())
 
 
-def _unmatched(download: Path, tree: Path, detail: str = "") -> PackageError:
+def _unmatched(download: Path, tree: Path,
+               detail: str = "") -> NoTuningForThisDevice:
     """None of *tree*'s tunings is this machine's. Only a run that read the
     speaker's IDs can say the download is likely another model's."""
     by_hand = ('pick the XML by hand, as the "Picking the XML by hand" '
@@ -816,8 +823,9 @@ def _unmatched(download: Path, tree: Path, detail: str = "") -> PackageError:
         advice = ("The run couldn't read this laptop's speaker hardware, so "
                   f"it can't tell which is this laptop's: {by_hand}")
     lead = f"{detail}\n" if detail else ""
-    return PackageError(f"{lead}The tuning files from {download.name} are in "
-                        f"{doctor.tilde(tree)}. {advice}")
+    return NoTuningForThisDevice(
+        f"{lead}The tuning files from {download.name} are in "
+        f"{doctor.tilde(tree)}. {advice}")
 
 
 def _quiet_hits(dirs: list[Path], best_guess: bool) -> list[Path]:

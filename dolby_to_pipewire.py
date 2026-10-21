@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
 
         presets = [p for v in variants
                    for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
-        if not presets and resolved.get("vendor_only"):
+        if not presets and resolved.get("source") == "standalone":
             console.cprint("err", f"error: HP's Bang & Olufsen tuning builds "
                           "one voicing, Balanced, so there is no "
                           f"{args.variant.capitalize()} — drop --variant "

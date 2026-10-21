@@ -13,6 +13,7 @@ before the generator's deferred DSP imports.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,6 +101,32 @@ class ApoLayer:
             return None
         return self.curve_hz, (self.curve_left_db if side == "left"
                                else self.curve_right_db)
+
+
+@dataclass(frozen=True)
+class StandaloneFormat:
+    """A vendor format that is a device's whole tuning, in place of the XML.
+
+    One per format, in `lib/apo/discover.py` `STANDALONE`. A device that
+    ships one of these ships no Dolby file, so the run builds from the
+    layer `resolve` returns alone (`lib/tuning_source.py`).
+    """
+    # Whether a file or folder is one this format can stand in for the XML.
+    is_source: Callable[[Path], bool]
+    # The members of a driver download's file list this format reads, which
+    # `lib/driver_package.py` keeps as it keeps a DAX3 XML.
+    wanted_members: Callable[[list[str]], set[str]]
+    # (source, --hw-id or None, warn) → the layer bound to this machine, or
+    # to the IDs given. Raises RuntimeError, saying why, when none is.
+    resolve: Callable[[Path, str | None, Callable[[str], None]], ApoLayer]
+    # The preset-name stem when --prefix is not given.
+    prefix: str
+    # Whose tuning it is, as the refusals of the Dolby-only flags name it.
+    owner: str
+    # The run's heading line, in place of the Dolby endpoint's.
+    heading: str
+    # Where the correction check probes a build from it.
+    probe_freqs: Callable[[], list[int]]
 
 
 class UnsupportedApoConfig(Exception):

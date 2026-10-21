@@ -21,7 +21,8 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, driver_package as dp
+from lib import console, driver_package as dp, tuning_source
+from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
 from lib.apo import sonitude
 from lib.dax import parse
@@ -508,7 +509,7 @@ def test_a_download_with_a_dolby_file_stays_on_the_dolby_path(
     ("intelaudio:10EC0285:103C860F", "INTELAUDIO:10EC0285:103C860F"),
 ])
 def test_hw_id_takes_the_ids_as_speaker_info_prints_them(text, want):
-    assert dolby_to_easyeffects._hw_id(text) == want
+    assert sonitude.parse_hw_id(text) == want
 
 
 @pytest.mark.parametrize("text", ["10EC0285", "10EC0285:103C86GZ",
@@ -516,7 +517,7 @@ def test_hw_id_takes_the_ids_as_speaker_info_prints_them(text, want):
                                   "10EC0285:103C860F:X"])
 def test_hw_id_refuses_what_is_not_two_hex_ids(text):
     with pytest.raises(argparse.ArgumentTypeError):
-        dolby_to_easyeffects._hw_id(text)
+        sonitude.parse_hw_id(text)
 
 
 def _bundle(tmp_path, *archives: Path) -> Path:
@@ -688,7 +689,121 @@ def test_a_vendor_only_run_hands_a_wrapper_no_xml(tmp_path, silence_console):
     dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
                                "--hw-id", "10EC0285:103C860F"],
                               resolved=resolved)
-    assert resolved == {"xml_path": None, "vendor_only": True}
+    assert resolved == {"xml_path": None, "source": "standalone"}
+
+
+# --- the tuning source -------------------------------------------------------
+
+def _args(argv):
+    parser = dolby_to_easyeffects.build_parser(argv)
+    return parser, parser.parse_args(argv)
+
+
+def _source(argv):
+    """The `TuningSource` main() resolves for *argv*."""
+    return dolby_to_easyeffects._tuning_source(*reversed(_args(argv)))
+
+
+def test_the_registry_knows_an_archive_by_name_and_a_folder_by_content(
+        tmp_path):
+    a = _archive(tmp_path / "dl" / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    (tmp_path / "xml").mkdir()
+    xml = write_synthetic_tuning_xml(
+        tmp_path / "xml" / "DEV_0285_SUBSYS_103C860F.xml")
+    assert apo_discover.standalone_for(a) is sonitude.FORMAT
+    # By name alone, so a missing one is said as a missing file.
+    assert (apo_discover.standalone_for(tmp_path / "gone" / _ARCHIVE)
+            is sonitude.FORMAT)
+    assert apo_discover.standalone_for(tmp_path / "dl") is sonitude.FORMAT
+    assert apo_discover.standalone_for(xml) is None
+    assert apo_discover.standalone_for(xml.parent) is None
+    assert apo_discover.stands_in_for_xml(f"src/SR/SNAPO64Ext/{_ARCHIVE}")
+    assert not apo_discover.stands_in_for_xml(
+        "src/Dolby/DEV_0285_SUBSYS_103C860F.xml")
+    assert sonitude.FORMAT.wanted_members(
+        [f"src/{_ARCHIVE}", "src/RTKVHD64.sys"]) == {f"src/{_ARCHIVE}"}
+
+
+def test_a_dolby_xml_is_a_dolby_source(tmp_path):
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_0285_SUBSYS_103C860F.xml")
+    src = _source([str(xml)])
+    assert (src.kind, src.xml_path, src.closing_file, src.prefix,
+            src.layer, src.has_profiles, src.unoffered) == (
+        tuning_source.DOLBY, xml, xml, "Dolby", None, True, ())
+
+
+def test_an_archive_is_a_standalone_source(tmp_path, silence_console):
+    silence_console(console)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    src = _source([str(a), "--hw-id", "10EC0285:103C860F"])
+    assert (src.kind, src.xml_path, src.closing_file, src.prefix,
+            src.origin, src.has_profiles, src.unoffered) == (
+        tuning_source.STANDALONE, None, None, "HP-BO", a, False,
+        ("vendor-apo-active", "level-restore"))
+    assert src.format is sonitude.FORMAT
+    assert src.layer.label == ("HP Bang & Olufsen (Sonitude preset 177, "
+                               "X_Synth)")
+
+
+def test_a_download_of_only_archives_is_a_standalone_source(
+        tmp_path, silence_console):
+    silence_console(console)
+    src = _source([str(_download(tmp_path)), "--hw-id", "10EC0285:103C860F",
+                   "--prefix", "Mine"])
+    assert src.kind == tuning_source.STANDALONE and src.prefix == "Mine"
+    assert src.origin.is_dir() and sonitude.archives_in(src.origin)
+    assert src.layer is not None and src.xml_path is None
+
+
+def test_a_download_with_a_dolby_xml_is_a_dolby_source(
+        tmp_path, silence_console, monkeypatch):
+    silence_console(console)
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_0285_SUBSYS_103C860F.xml")
+    download = _download(tmp_path, {
+        "src/Dolby/DEV_0285_SUBSYS_103C860F.xml": xml.read_bytes()})
+    monkeypatch.setattr(dp, "pick_xml", lambda tree, path, best_guess=False:
+                        next(tree.rglob("DEV_0285_SUBSYS_103C860F.xml")))
+    src = _source([str(download)])
+    assert src.kind == tuning_source.DOLBY and src.layer is None
+    assert src.xml_path.name == "DEV_0285_SUBSYS_103C860F.xml"
+
+
+_REFUSED = "this laptop's tuning is HP's Bang & Olufsen one instead"
+
+
+@pytest.mark.parametrize("flags,text", [
+    (("--list",), f"--list reads a Dolby file, and {_REFUSED}"),
+    (("--all-profiles",),
+     f"--all-profiles reads a Dolby file, and {_REFUSED}"),
+    (("--profile", "music"), f"--profile reads a Dolby file, and {_REFUSED}"),
+    (("--endpoint", "headphone"),
+     f"--endpoint reads a Dolby file, and {_REFUSED}"),
+    (("--mode", "headphone"), f"--mode reads a Dolby file, and {_REFUSED}"),
+    (("--enable", "virtual-bass"),
+     f"--enable virtual-bass acts on a Dolby stage, and {_REFUSED}"),
+    (("--disable", "vendor-apo"),
+     "--disable vendor-apo would leave nothing to build: HP's Bang & "
+     "Olufsen tuning is this laptop's only one"),
+    ((), None),
+])
+def test_a_standalone_source_refuses_what_needs_a_dolby_file(
+        tmp_path, flags, text):
+    a = tmp_path / _ARCHIVE
+    _, args = _args([str(a), *flags])
+    src = tuning_source.standalone(sonitude.FORMAT, a, args.prefix)
+    assert src.refusal(args) == text
+
+
+def test_a_dolby_source_refuses_only_hw_id(tmp_path):
+    xml = tmp_path / "DEV_0285_SUBSYS_103C860F.xml"
+    _, args = _args([str(xml), "--hw-id", "10EC0285:103C860F", "--list"])
+    assert tuning_source.dolby(xml, None).refusal(args) == (
+        "--hw-id picks among HP's Bang & Olufsen tunings; pass their driver "
+        "download or SEAPODAT archive with it")
+    _, args = _args([str(xml), "--list"])
+    assert tuning_source.dolby(xml, None).refusal(args) is None
 
 
 # --- the PipeWire wrapper ----------------------------------------------------

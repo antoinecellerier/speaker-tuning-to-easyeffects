@@ -318,8 +318,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     apo_on = apo_layer.is_active(apo, set(args.enable), disabled)
     # Which curve the correction check grades: with a vendor EQ folded in,
     # the target is both files', floored (fir.design_target_db). A
-    # vendor-only run has no Dolby file, so only the vendor's is asked for.
-    if tuning.vendor_only:
+    # standalone run has no Dolby file, so only the vendor's is asked for.
+    if tuning.source == "standalone":
         asked = "the vendor tuning asks for"
     elif apo_on and (apo.eq_left or apo.eq_right or apo.curve_hz):
         asked = "your tuning file and the vendor tuning ask for"
@@ -350,9 +350,9 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
-            # A vendor-only run builds the one voicing it has a base for;
+            # A standalone run builds the one voicing it has a base for;
             # there is no XML whose missing curve to report.
-            if not tuning.vendor_only:
+            if tuning.source != "standalone":
                 console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
             continue
 

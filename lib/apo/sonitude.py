@@ -31,21 +31,29 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   Everything else in the preset (dynamics, the user equaliser, the other
   content modes) is not read.
 
+`resolve` picks the preset for this machine, by its codec IDs and whether it
+runs Intel's audio DSP driver (SOF), or for `--hw-id`'s IDs. `FORMAT` is this
+format's entry in `lib/apo/discover.py` `STANDALONE`.
+
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), because discovery runs
 before the generator's deferred DSP imports.
 """
 
 from __future__ import annotations
 
+import argparse
 import math
 import re
 import struct
 import zipfile
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from lib.apo.layer import ApoLayer, UnsupportedApoConfig
+from lib import doctor, host
+from lib.apo.layer import ApoLayer, StandaloneFormat, UnsupportedApoConfig
+from lib.hardware import codecs, speakers
 
 # A SEAPODAT archive's name carries the bus and codec it binds, as the
 # Windows hardware ID does (`INTELAUDIO\FUNC_01&VEN_10EC&DEV_0285`). 29 of
@@ -86,6 +94,19 @@ def curve_grid_hz() -> tuple[float, ...]:
 def is_archive(path: Path) -> bool:
     """Whether *path* is named like a Sonitude tuning archive."""
     return bool(_ARCHIVE_RE.fullmatch(Path(path).name))
+
+
+def is_source(path: Path) -> bool:
+    """Whether *path* stands in for the XML: an archive, by its name alone
+    (a missing one is then said as a missing file), or a folder holding one,
+    such as an unpacked driver download."""
+    path = Path(path)
+    return is_archive(path) or (path.is_dir() and bool(archives_in(path)))
+
+
+def wanted_members(paths: list[str]) -> set[str]:
+    """The archives in a driver download's file list."""
+    return {p for p in paths if is_archive(PurePosixPath(p).name)}
 
 
 def archives_in(source: Path) -> list[Path]:
@@ -262,6 +283,12 @@ def _preset_label(names: dict[str, str], number: int) -> str:
 BUSES = ("HDAUDIO", "INTELAUDIO")
 
 
+def _preferred_bus(hits, prefer_intelaudio: bool) -> str:
+    """Which of the buses *hits* binds to use when both do."""
+    order = BUSES[::-1] if prefer_intelaudio else BUSES
+    return min(hits, key=order.index)
+
+
 @dataclass(frozen=True)
 class Bindings:
     """What *source*'s archives hold for one codec and subsystem ID."""
@@ -316,8 +343,7 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
     hits = bindings(source, codec_vendor_id, subsys).hits
     if not hits:
         return None
-    order = BUSES[::-1] if prefer_intelaudio else BUSES
-    bus = min(hits, key=order.index)
+    bus = _preferred_bus(hits, prefer_intelaudio)
     return load(*hits[bus], bus, codec_vendor_id, subsys)
 
 
@@ -389,3 +415,136 @@ def probe_freqs() -> list[int]:
     """The curve's own grid thinned to 1/3 octave, 20 Hz–16 kHz: where the
     correction check probes a vendor-only build."""
     return [round(10.0 * 2.0 ** (m / 3.0)) for m in range(3, 33)]
+
+
+def parse_hw_id(text: str) -> str:
+    """--hw-id's value, checked and normalised to "[BUS:]CODEC:SUBSYS".
+
+    Takes the IDs as --speaker-info prints them, so a 0x prefix is fine. A
+    string, not a tuple, because dolby_to_pipewire.py forwards it as one."""
+    parts = text.strip().upper().split(":")
+    bus = parts.pop(0) if len(parts) == 3 else None
+    ids = [p.removeprefix("0X") for p in parts]
+    if (len(ids) != 2 or (bus is not None and bus not in BUSES)
+            or not all(len(i) == 8 and all(c in "0123456789ABCDEF" for c in i)
+                       for i in ids)):
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: expected CODEC:SUBSYS, 8 hex digits each, such as "
+            "0x10EC0285:0x103C860F, optionally after HDAUDIO: or "
+            "INTELAUDIO:")
+    return ":".join([*([bus] if bus else []), *ids])
+
+
+def resolve(source: Path, hw_id: str | None,
+            warn: Callable[[str], None]) -> ApoLayer:
+    """The layer *source*'s archives hold for this machine, or for the
+    laptop *hw_id* names (see `parse_hw_id`); raises RuntimeError when none
+    binds it or the one that does can't be read.
+
+    Prints nothing: when two archives bind this laptop to different tunings,
+    *warn* gets the sentence saying which was used.
+    """
+    try:
+        return _resolve(source, hw_id, warn)
+    except UnsupportedApoConfig as exc:
+        target = "--hw-id's IDs" if hw_id else "this laptop"
+        raise RuntimeError(f"HP's Bang & Olufsen tuning at "
+                           f"{doctor.tilde(exc.path)} binds {target} "
+                           f"but can't be used: {exc.reason}.") from exc
+
+
+def _resolve(source: Path, hw_id: str | None,
+             warn: Callable[[str], None]) -> ApoLayer:
+    src = doctor.tilde(source)
+    if hw_id:
+        *bus, codec, subsys = hw_id.split(":")
+        bus = bus[0] if bus else None
+        ids = [(codec, subsys)]
+    else:
+        bus = None
+        ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
+               if "HDMI" not in name.upper()
+               and "DISPLAYPORT" not in name.upper()]
+        if not ids:
+            raise RuntimeError(
+                f"{src} holds HP's Bang & Olufsen tunings, but this "
+                "machine's audio codec IDs can't be read to pick one. Pass "
+                "the laptop's with --hw-id, as its --speaker-info prints "
+                "them.")
+    cards = host.path("/proc/asound/cards")
+    try:
+        sof = speakers._card_uses_sof(cards.read_text().splitlines())
+    except OSError:
+        sof = False
+    unreadable: list[Path] = []
+    for codec, subsys in ids:
+        found = bindings(source, codec, subsys)
+        unreadable += found.unreadable
+        hits = {b: h for b, h in found.hits.items() if bus in (None, b)}
+        if bus and found.hits and not hits:
+            (other,) = found.hits
+            raise RuntimeError(
+                f"{src} holds a tuning for {codec}:{subsys} in its {other} "
+                f"archive only. Pass --hw-id {other}:{codec}:{subsys}, or "
+                "leave the bus out.")
+        if not hits:
+            continue
+        # A SOF machine runs Intel's DSP, which on Windows is the INTELAUDIO
+        # bus; the other archive is for Windows' standard driver.
+        picked = _preferred_bus(hits, sof)
+        layer = load(*hits[picked], picked, codec, subsys)
+        other = next((b for b in hits if b != picked), None)
+        if other is None:
+            return layer
+        try:
+            alt = load(*hits[other], other, codec, subsys)
+        except UnsupportedApoConfig:
+            return layer
+        if (alt.curve_left_db, alt.curve_right_db) == (
+                layer.curve_left_db, layer.curve_right_db):
+            return layer
+        both = (f"preset {hits[picked][1]} in its {picked} archive and "
+                f"preset {hits[other][1]} in its {other} one")
+        if hw_id:
+            raise RuntimeError(
+                f"{src} holds two different tunings for {codec}:{subsys}: "
+                f"{both}. Pass the bus too, as the speakers' hardware ID "
+                "starts in Windows' Device Manager: --hw-id "
+                f"INTELAUDIO:{codec}:{subsys} or HDAUDIO:{codec}:{subsys}.")
+        runs = "runs" if sof else "doesn't run"
+        warn(f"{src} holds two different tunings for this laptop: "
+             f"{both}. Using the {picked} one, because this machine {runs} "
+             "Intel's audio DSP driver (SOF). If the speakers' hardware ID in "
+             f"Windows' Device Manager starts with {other}, rebuild with "
+             f"--hw-id {other}:{codec}:{subsys}.")
+        return layer
+    if unreadable:
+        raise RuntimeError(
+            f"{doctor.tilde(unreadable[0])} can't be read as one of HP's "
+            "tuning archives, so whether it holds this laptop's tuning is "
+            "unknown. Try a fresh copy of the download.")
+    said = ", ".join(f"{c}:{s}" for c, s in ids)
+    if hw_id:
+        raise RuntimeError(
+            f"{src} holds no HP Bang & Olufsen tuning for "
+            f"{bus + ':' if bus else ''}{said}. Check the IDs against that "
+            "laptop's --speaker-info, or use its model's driver download.")
+    raise RuntimeError(
+        f"{src} holds HP's Bang & Olufsen tunings, but none for this "
+        f"laptop's audio hardware (codec:subsystem {said}), so it is likely "
+        "another model's download. Use the audio driver download HP lists "
+        "for this model.")
+
+
+# This format's entry in `lib/apo/discover.py` `STANDALONE`.
+FORMAT = StandaloneFormat(
+    is_source=is_source,
+    wanted_members=wanted_members,
+    resolve=resolve,
+    # "Dolby" would mislabel a preset built from HP's own tuning.
+    prefix="HP-BO",
+    owner="HP's Bang & Olufsen",
+    # The speaker preset read is the "Music" one (`SPEAKER_PRESET`).
+    heading="Internal speakers (the output this preset is for), Music mode",
+    probe_freqs=probe_freqs,
+)
