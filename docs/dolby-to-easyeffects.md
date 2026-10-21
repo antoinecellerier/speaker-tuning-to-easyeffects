@@ -18,17 +18,14 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `driver-cache/`. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows
-  directory, by matching the audio codec subsystem ID from `/proc/asound`
+  directory, by matching the audio codec subsystem ID from `/proc/asound`.
+  When no Dolby file there matches, it uses a Sonitude tuning in the same
+  DriverStore.
 - `--best-guess` — on a SoundWire machine, if auto-detection finds no exact
   hardware match, fall back to the only internal-speaker tuning whose
   manufacturer is present. When more than one qualifies, it lists the candidates
   to pick one with the positional XML path. Reach for it when a SoundWire device
   reports "No matching DAX3 tuning XML found".
-- `--hw-id [BUS:]CODEC:SUBSYS` — with HP's Bang & Olufsen tuning (its driver
-  download or a `SEAPODAT` archive in place of the XML), pick the preset for
-  another laptop, from the IDs its `--speaker-info` prints. `BUS`, `HDAUDIO`
-  or `INTELAUDIO`, picks between two archives that both hold them.
-  Experimental.
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
@@ -53,8 +50,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   selected endpoint/mode
 
 **Output**
-- `--prefix NAME` — change preset name prefix (default: `Dolby` →
-  `Dolby-Balanced`, etc.; `HP-BO` for HP's Bang & Olufsen tuning)
+- `--prefix NAME` — change preset name prefix (default: `Dolby` or
+  `Sonitude`, as in `Dolby-Balanced` or `Sonitude-Music`)
 - `--output-dir DIR` — EasyEffects preset directory (default:
   `~/.local/share/easyeffects/output/`)
 - `--irs-dir DIR` — impulse response directory (default:

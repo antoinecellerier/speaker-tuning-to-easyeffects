@@ -63,7 +63,8 @@ _WRAPPER_HELP = {
                     "endpoint/mode, each as its own sink. The profile name "
                     "is part of each sink name. Needs --target-sink ''.",
     "prefix": "prefix for the generated sink and conf names "
-              "(default: Dolby → Dolby_Balanced, etc.)",
+              "(default: Dolby or Sonitude, as in Dolby_Balanced or "
+              "Sonitude_Music)",
     "disable": (("from the generated preset", "from the generated chain"),),
     "enable": (("the preset leaves off", "the chain leaves off"),
                ("if the preset sounds right", "if the chain sounds right"),
@@ -321,10 +322,11 @@ def main(argv: list[str] | None = None) -> int:
     # the [3/3] steps. Printed at [1/3], it would tell the reader what to
     # re-run before setup had even finished (round 4).
     troubleshooting: dict = {}
-    # The XML may have been auto-discovered on a mounted Windows partition, so
-    # only the generator knows which file this run actually read. The closing
-    # block names it as the thing to attach to a report; without it the reader
-    # is told to attach their tuning XML and never shown which one.
+    # The tuning file may have been auto-discovered on a mounted Windows
+    # partition, so only the generator knows which file this run actually
+    # read. The closing block names it as the thing to attach to a report;
+    # without it the reader is told to attach their tuning file and never
+    # shown which one.
     resolved: dict = {}
     with tempfile.TemporaryDirectory(prefix="dolby_to_pipewire-") as tmp:
         # Not "no EasyEffects files are installed": the reader picked this
@@ -518,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run)
     report_findings.print_project_asks(
         closing, dry_run=args.dry_run, pipewire_native=True,
-        xml_path=resolved.get("xml_path"))
+        tuning_file=resolved.get("tuning_file"))
     return rc
 
 

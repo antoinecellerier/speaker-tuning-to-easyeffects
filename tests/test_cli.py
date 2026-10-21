@@ -2701,17 +2701,17 @@ def test_xml_path_prints_for_every_ask(silence_console, capsys):
         slug="peak-level", kind="ask", detail="x",
         ask="Send us the XML and we can confirm it.")
 
-    report_findings.print_project_asks([wants], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([wants], tuning_file="/tmp/DEV_X.xml")
     assert "'/tmp/DEV_X.xml'" in capsys.readouterr().out
 
     # Asks that never mention the file still get it named.
     other = report_findings._experimental_finding("type-3 high-shelf",
                                                        ["high-shelf"])
-    report_findings.print_project_asks([other], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([other], tuning_file="/tmp/DEV_X.xml")
     assert "'/tmp/DEV_X.xml'" in capsys.readouterr().out
 
     # No asks at all → no path dumped.
-    report_findings.print_project_asks([], xml_path="/tmp/DEV_X.xml")
+    report_findings.print_project_asks([], tuning_file="/tmp/DEV_X.xml")
     assert "/tmp/DEV_X.xml" not in capsys.readouterr().out
 
 

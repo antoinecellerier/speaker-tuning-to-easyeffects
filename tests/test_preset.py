@@ -2409,6 +2409,21 @@ def test_loaded_preset_bypass_off_the_speakers_passes_naming_the_autoload():
     assert "Load a Dolby-* preset" not in r.detail
 
 
+@pytest.mark.parametrize("generated,named", [
+    (["Sonitude-Music", BYPASS_PRESET_NAME], "'Sonitude-Music'"),
+    ([BYPASS_PRESET_NAME], "one of this tool's presets")])
+def test_a_preset_of_someone_elses_names_one_of_ours_to_load(generated, named):
+    """The remedy names a preset this tool wrote, whichever tuning it was
+    built from, never a Dolby-* glob."""
+    rc = {"last_output_preset": "MyOwn", "fallback_preset": "",
+          "uses_fallback": False}
+    r = loaded_preset_status(rc, generated)
+    assert r.status == DOCTOR_WARN
+    assert r.detail.endswith(f"didn't generate — load {named} in "
+                             "EasyEffects.")
+    assert "Dolby" not in r.detail
+
+
 def test_loaded_preset_bypass_off_the_speakers_without_autoload_is_unknown():
     """Nothing points the speakers anywhere, so the check could not be made.
     UNKNOWN, not PASS: a green line would claim the speakers are fine when

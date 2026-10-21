@@ -27,15 +27,9 @@ from lib.apo.layer import ApoLayer, StandaloneFormat
 DOLBY = "dolby"
 STANDALONE = "standalone"
 
-# --hw-id picks among one standalone format's presets (`lib/apo/sonitude.py`
-# `parse_hw_id`), so a Dolby file leaves it nothing to pick.
-_HW_ID_WITHOUT_SOURCE = (
-    "--hw-id picks among Sonitude tunings; pass the driver download or "
-    "SEAPODAT archive that holds them with it")
-
-# Each builds or restores a Dolby stage, and a standalone source has none:
+# Each builds a Dolby stage, and a standalone source has none:
 # refused rather than run and reported as having had no effect.
-_DOLBY_STAGE_FLAGS = ("autogain", "dialog", "virtual-bass", "level-restore")
+_DOLBY_STAGE_FLAGS = ("autogain", "dialog", "virtual-bass")
 
 
 @dataclass(frozen=True)
@@ -44,14 +38,14 @@ class TuningSource:
     # DOLBY or STANDALONE.
     kind: str
     # The Dolby file the run reads, which the closing also asks for. None
-    # for a standalone source: there is no XML to ask for, and the download
-    # names the vendor's file.
+    # for a standalone source, whose closing asks for its archive instead
+    # (`closing_file`).
     xml_path: Path | None
     # The preset-name stem: --prefix when given, "Dolby" or the standalone
     # format's own otherwise.
     prefix: str
-    # Standalone only: its format, and the archive or unpacked download it
-    # was found in.
+    # Standalone only: its format, and the archive, unpacked download or
+    # DriverStore folder it was found in.
     format: StandaloneFormat | None = None
     origin: Path | None = None
     # Standalone only, once `resolved`: profile name → the layer that is that
@@ -88,8 +82,14 @@ class TuningSource:
 
     @property
     def closing_file(self) -> Path | None:
-        """The tuning file the closing asks a report to attach."""
-        return self.xml_path
+        """The tuning file the closing asks a report to attach: the XML, or
+        on a standalone source once `resolved`, the archive its default
+        profile was read from. In a driver download that is the archive as
+        unpacked, which holds this device's tuning without the rest of the
+        download."""
+        if self.kind == DOLBY:
+            return self.xml_path
+        return self.layer.inf_path if self.layer is not None else None
 
     @property
     def unoffered(self) -> tuple[str, ...]:
@@ -109,37 +109,53 @@ class TuningSource:
         """The error for the first flag in *args* this source can't take,
         or None."""
         if self.kind == DOLBY:
-            return _HW_ID_WITHOUT_SOURCE if args.hw_id else None
+            return None
         # No Dolby file: the tuning's profiles are its content modes, all for
         # the internal speakers, so there is no other endpoint or operating
-        # mode to pick. The vendor layer is the whole tuning, so nothing is
-        # left to build without it.
+        # mode to pick, and no Dolby file to fall back to. The vendor layer
+        # is the whole tuning, so nothing is left to build without it.
+        # Given means "not the default", as argparse sets them in
+        # dolby_to_easyeffects.py.
         for flag, given in (("--endpoint",
                              args.endpoint != "internal_speaker"),
-                            ("--mode", args.mode != "normal")):
+                            ("--mode", args.mode != "normal"),
+                            ("--best-guess", args.best_guess)):
             if given:
-                return f"{flag} reads a Dolby file, and this tuning has none"
+                return (f"{flag} reads a Dolby file, and this tuning has "
+                        "none — drop it")
+        if args.volmax_slot != "input-gain":
+            return ("--volmax-slot acts on a Dolby stage, and this tuning "
+                    "has none — drop it")
         for name in _DOLBY_STAGE_FLAGS:
             if name in args.enable:
                 return (f"--enable {name} acts on a Dolby stage, and this "
-                        "tuning has none")
+                        "tuning has none — drop it")
+        # Not a Dolby stage: it hands back the FIR's peak normalisation, and
+        # a cuts-only curve's peak sits at about 0 dB (`unoffered`).
+        if "level-restore" in args.enable:
+            return ("--enable level-restore gives back level the filter's "
+                    "peak scaling removed, and this tuning's filter loses "
+                    "next to none — drop it")
+        # Every --disable name but the vendor layer's own drops a Dolby stage.
+        for name in args.disable:
+            if name != apo_layer.FLAG:
+                return (f"--disable {name} acts on a Dolby stage, and this "
+                        "tuning has none — drop it")
         if apo_layer.FLAG in args.disable:
             return (f"--disable {apo_layer.FLAG} would leave nothing to "
-                    f"build: the {self.format.owner} tuning is this device's "
-                    "only one")
+                    f"build: the {self.format.owner} tuning is this run's "
+                    "only one — drop it")
         return None
 
-    def resolved(self, hw_id: str | None,
-                 warn: Callable[[str], None]) -> TuningSource:
+    def resolved(self, warn: Callable[[str], None]) -> TuningSource:
         """This source with its profiles' layers read; a Dolby source as it
         is.
 
         Raises RuntimeError, from the format, when no layer binds this
-        machine or *hw_id*'s IDs."""
+        machine."""
         if self.kind == DOLBY:
             return self
-        return replace(self, profiles=self.format.resolve(self.origin, hw_id,
-                                                          warn))
+        return replace(self, profiles=self.format.resolve(self.origin, warn))
 
 
 def dolby(xml_path: Path, prefix: str | None) -> TuningSource:

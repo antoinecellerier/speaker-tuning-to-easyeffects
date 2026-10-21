@@ -36,7 +36,6 @@ from lib import (console, doctor, driver_package, ee_paths, ee_socket,
 # Aliased: `discover` is the DAX3 one, read far more often in this file.
 from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
-from lib.apo import sonitude
 from lib.dax import discover, parse
 from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
@@ -93,9 +92,9 @@ def add_tuning_input_args(container, *, only=None):
         type=Path,
         default=None,
         metavar="DIR",
-        help="auto-discover the tuning XML from a mounted Windows directory, "
-             "such as /mnt/windows/Windows. It matches the audio codec "
-             "subsystem ID from /proc/asound.",
+        help="auto-discover this device's tuning from a mounted Windows "
+             "directory, such as /mnt/windows/Windows. It matches the audio "
+             "codec subsystem ID from /proc/asound.",
     )
     add(
         "--best-guess",
@@ -107,18 +106,6 @@ def add_tuning_input_args(container, *, only=None):
              "device id. With several such candidates it lists them, so you "
              "can pass one as the positional XML path. No effect when an "
              "exact match is found.",
-    )
-    add(
-        "--hw-id",
-        default=None,
-        type=sonitude.parse_hw_id,
-        metavar="[BUS:]CODEC:SUBSYS",
-        help="with a Sonitude tuning (a driver download or SEAPODAT "
-             "archive in place of the XML), the audio codec and "
-             "subsystem ID to pick the preset for, as --speaker-info "
-             "prints them on that device, instead of this machine's. BUS, "
-             "HDAUDIO or INTELAUDIO, picks between the two archives when "
-             "both hold the ID. Experimental.",
     )
     return added
 
@@ -629,15 +616,51 @@ class RunTally:
     leveler_substages: dict[str, None] = field(default_factory=dict)
 
 
+def _print_format_warning(text: str) -> None:
+    """A standalone format's warning: its sentence wrapped, and each line
+    after it, such as a path to copy, as it is (`StandaloneFormat.resolve`)."""
+    sentence, *lines = text.split("\n")
+    console._cprint_wrapped("warn", sentence)
+    for line in lines:
+        console.cprint("warn", line)
+
+
+def _windows_source(root: Path, args) -> tuning_source.TuningSource:
+    """The tuning a Windows install or extracted DriverStore at *root* holds
+    for this machine: the Dolby XML that matches it, or when none does, a
+    standalone format's newest package there."""
+    # An extracted DriverStore holding no Dolby package is one the Dolby
+    # lookup doesn't resolve, and is itself the folder to look in.
+    store = discover._resolve_driver_store(Path(root)) or Path(root)
+    packages = apo_discover.standalone_in_driver_store(store)
+    try:
+        xml_path = discover.find_tuning_xml(root, best_guess=args.best_guess)
+    except FileNotFoundError:
+        if packages is None:
+            raise
+        fmt, folders = packages
+        newest = (f" (the newest of the {len(folders)} {fmt.owner} driver "
+                  "versions there)" if len(folders) > 1 else "")
+        console.cprint("ok", f"Auto-detected: {doctor.tilde(folders[0])}"
+                       + newest)
+        return tuning_source.standalone(fmt, folders[0], args.prefix)
+    console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
+    if packages is not None:
+        fmt, folders = packages
+        # Unwrapped: wrapping would split the path.
+        console.cprint("dim", f"A {fmt.owner} tuning is there too "
+                       f"({doctor.tilde(folders[0])}); using the Dolby "
+                       "file.")
+    return tuning_source.dolby(xml_path, args.prefix)
+
+
 def _tuning_source(args, parser) -> tuning_source.TuningSource:
     """The tuning this run builds from (`lib/tuning_source.py`), with the
     flags it can't take refused and, for a standalone one, its layer read."""
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
     elif args.windows:
-        xml_path = discover.find_tuning_xml(args.windows, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
-        source = tuning_source.dolby(xml_path, args.prefix)
+        source = _windows_source(args.windows, args)
     # A folder in the XML's place stays on the XML path: only an unpacked
     # download's tree, below, is looked into for a standalone tuning.
     elif (args.xml_file and not Path(args.xml_file).is_dir()
@@ -677,16 +700,15 @@ def _tuning_source(args, parser) -> tuning_source.TuningSource:
         # clean error (no usage banner) that points at --help. Routing it
         # through parser.error() would slap the usage synopsis on top and exit
         # 2, framing it as a syntax error the user can't fix by reading usage.
-        windows_root = discover.autoprobe_dolby_source()
-        xml_path = discover.find_tuning_xml(windows_root, best_guess=args.best_guess)
-        console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
-        source = tuning_source.dolby(xml_path, args.prefix)
+        windows_root = discover.autoprobe_dolby_source(
+            also=lambda store: (apo_discover.standalone_in_driver_store(store)
+                                is not None))
+        source = _windows_source(windows_root, args)
 
     refusal = source.refusal(args)
     if refusal:
         parser.error(refusal)
-    source = source.resolved(
-        args.hw_id, lambda text: console._cprint_wrapped("warn", text))
+    source = source.resolved(_print_format_warning)
     if source.layer is not None:
         console.cprint("ok", f"Found {source.layer.label} for "
                        f"{source.layer.hardware_id}")
@@ -712,11 +734,12 @@ def main(argv: list[str] | None = None,
     is filled with print_troubleshooting's inputs instead of the menu
     printing here, so the caller can render it at its own end.
 
-    ``resolved`` takes what only this function can work out: ``xml_path``,
-    which auto-discovery may have found on a mounted Windows partition, and
-    ``source``, the `TuningSource.kind` it read (`lib/tuning_source.py`).
-    The closing block names the XML as the file to attach, and a caller
-    printing that block on our behalf has no other way to learn it.
+    ``resolved`` takes what only this function can work out:
+    ``tuning_file``, the XML or archive the closing block names as the file
+    to attach (`TuningSource.closing_file`), which auto-discovery may have
+    found on a mounted Windows partition, and ``source``, the
+    `TuningSource.kind` it read (`lib/tuning_source.py`). A caller printing
+    that block on our behalf has no other way to learn either.
 
     ``staged`` marks the output dirs as a wrapper's throwaway staging area,
     so the per-file announcements say "Staged", not "Wrote"."""
@@ -767,10 +790,8 @@ def main(argv: list[str] | None = None,
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
     # working from.
-    # xml_path is None on a standalone run: there is no XML to ask for, and a
-    # wrapper's closing would otherwise name the archive as one.
     if resolved is not None:
-        resolved["xml_path"] = source.closing_file
+        resolved["tuning_file"] = source.closing_file
         resolved["source"] = source.kind
 
     is_soundwire = (source.kind == tuning_source.DOLBY
@@ -836,7 +857,7 @@ def main(argv: list[str] | None = None,
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
     # at the top (console, doctor, driver_package, ee_paths, ee_socket,
-    # packages, tuning_source; apo.{discover,layer,sonitude};
+    # packages, tuning_source; apo.{discover,layer};
     # dax.{discover,parse}; hardware.{speakers,sinks};
     # preset.{autoload,reload};
     # report.{findings,speaker,doctor_run,environment,messages}) reaches no
@@ -1402,9 +1423,8 @@ def main(argv: list[str] | None = None,
     if closing is not None:
         closing.extend(scoped)
     if not args.skip_closing:
-        # No XML to ask for on a standalone run: the download names it.
         report_findings.print_project_asks(
-            scoped, dry_run=args.dry_run, xml_path=source.closing_file)
+            scoped, dry_run=args.dry_run, tuning_file=source.closing_file)
 
 
 def run_cli(argv: list[str] | None = None,

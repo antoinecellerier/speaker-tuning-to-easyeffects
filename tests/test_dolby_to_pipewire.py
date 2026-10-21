@@ -168,7 +168,7 @@ def recorders(monkeypatch):
         if resolved is not None:
             # Only the generator resolves the XML (auto-discovery), and the
             # wrapper prints the closing block that names it.
-            resolved["xml_path"] = "/tmp/tuning.xml"
+            resolved["tuning_file"] = "/tmp/tuning.xml"
         if closing is not None:
             # The real generator hands its findings back for the wrapper to
             # render at the end; one is enough to exercise that path.

@@ -30,6 +30,7 @@ import fnmatch
 import os
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
 
 from lib import console, doctor, host
@@ -389,14 +390,17 @@ def autoprobe_all_dolby_xmls() -> list[Path]:
     return found
 
 
-def autoprobe_dolby_source() -> Path:
+def autoprobe_dolby_source(
+        also: Callable[[Path], bool] | None = None) -> Path:
     """Find a single Dolby tuning source without user input.
 
     Tries, in order:
 
     1. **Mount probe**: enumerate NTFS-family mountpoints from
        ``/proc/mounts`` and keep any whose DriverStore contains at least one
-       ``dax3_ext_*.inf_*`` subdir.
+       ``dax3_ext_*.inf_*`` subdir, or for which *also* says the DriverStore
+       holds another tuning the run reads, such as a standalone vendor
+       format's package (`lib/apo/discover.py`).
     2. **CWD probe**, only if the mount probe finds nothing: bounded walk
        of the current working directory for any directory that directly
        contains a Dolby-shaped XML. Covers the ``innoextract`` default
@@ -414,7 +418,8 @@ def autoprobe_dolby_source() -> Path:
         if driver_store is None:
             continue
         try:
-            if any(driver_store.glob(_INF_WRAPPER_GLOB)):
+            if (any(driver_store.glob(_INF_WRAPPER_GLOB))
+                    or (also is not None and also(driver_store))):
                 mount_candidates.append(mp)
         except OSError:
             continue
@@ -473,7 +478,8 @@ def autoprobe_dolby_source() -> Path:
         raise FileNotFoundError(
             f"Auto-detection failed: {mount_desc}; {cwd_desc}. "
             "Pass --windows DIR (e.g. a mounted Windows partition or an "
-            "extracted DriverStore) or a positional XML path explicitly."
+            "extracted DriverStore), or the tuning file or the audio driver "
+            "download as the positional path."
         )
 
     # Narrow the listing to whatever is most actionable: the

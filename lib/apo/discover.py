@@ -8,7 +8,8 @@ before its deferred DSP imports, so this stays stdlib-only.
 A device that ships no Dolby file has its whole tuning in a standalone
 format instead, listed in `STANDALONE` (`lib/apo/layer.py`
 `StandaloneFormat`). `lib/tuning_source.py` asks it which, if any, a path
-the run was given is.
+the run was given is, and the generator which one an installed Windows
+holds (`standalone_in_driver_store`).
 """
 
 from __future__ import annotations
@@ -36,6 +37,18 @@ STANDALONE = (sonitude.FORMAT,)
 def standalone_for(path: Path) -> StandaloneFormat | None:
     """The first standalone format *path* is a source of, or None."""
     return next((f for f in STANDALONE if f.is_source(Path(path))), None)
+
+
+def standalone_in_driver_store(
+        store: Path) -> tuple[StandaloneFormat, list[Path]] | None:
+    """The first standalone format with a package in an installed Windows'
+    DriverStore folder *store*, and its package folders, newest first; None
+    when none has one."""
+    for fmt in STANDALONE:
+        folders = fmt.driver_store_packages(Path(store))
+        if folders:
+            return fmt, folders
+    return None
 
 
 def stands_in_for_xml(name: str) -> bool:

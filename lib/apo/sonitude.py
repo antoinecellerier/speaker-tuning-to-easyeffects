@@ -1,6 +1,6 @@
 """HP's Bang & Olufsen speaker tuning: Sonitude (formerly Sound Research) presets.
 
-HP ships no Dolby file on these laptops. The speaker voicing is the Sonitude
+Some HP laptops ship no Dolby file. Their speaker voicing is the Sonitude
 APO's per-model preset, packed in `SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip`
 archives inside HP's Realtek driver download (`SNAPO64Ext`). An archive maps
 each subsystem ID to a numbered preset (`SSIDMAP.bin`), and each preset holds
@@ -36,8 +36,8 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   read.
 
 `resolve` picks the preset for this machine, by its codec IDs and whether it
-runs Intel's audio DSP driver (SOF), or for `--hw-id`'s IDs. `FORMAT` is this
-format's entry in `lib/apo/discover.py` `STANDALONE`.
+runs Intel's audio DSP driver (SOF). `FORMAT` is this format's entry in
+`lib/apo/discover.py` `STANDALONE`.
 
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), because discovery runs
 before the generator's deferred DSP imports.
@@ -45,7 +45,7 @@ before the generator's deferred DSP imports.
 
 from __future__ import annotations
 
-import argparse
+import datetime
 import math
 import re
 import struct
@@ -131,6 +131,61 @@ def archives_in(source: Path) -> list[Path]:
                   and is_archive(p))
 
 
+# An installed Windows keeps each version of the SNAPO64Ext package in its own
+# DriverStore folder, `snapo64ext.inf_amd64_<hash>`, and the package's INF
+# copies its archives into that folder (DestinationDirs 13), so the folder
+# holds them directly.
+_PACKAGE_RE = re.compile(r"snapo64ext\.inf_amd64_.+", re.IGNORECASE)
+_DRIVER_VER_RE = re.compile(r"^\s*DriverVer\s*=\s*(\d{1,2})/(\d{1,2})/(\d{4})"
+                            r"\s*(?:,\s*([\d.]+))?", re.IGNORECASE | re.MULTILINE)
+
+
+def driver_store_packages(store: Path) -> list[Path]:
+    """The package folders directly in DriverStore folder *store* that hold
+    an archive, newest first (`_driver_version`)."""
+    try:
+        folders = [p for p in Path(store).iterdir()
+                   if _PACKAGE_RE.fullmatch(p.name) and p.is_dir()
+                   and archives_in(p)]
+    except OSError:
+        return []
+    return sorted(folders, key=_driver_version, reverse=True)
+
+
+def _driver_version(folder: Path) -> tuple:
+    """How new the driver version in *folder* is, to sort by: its INF's
+    DriverVer date and version, the stamp the vendor gives each version.
+    A folder whose INF is missing or says no date falls back to the date of
+    its last change, which a copied tree resets, so the stamp comes first."""
+    for inf in folder.glob("*"):
+        if inf.suffix.lower() != ".inf" or not inf.is_file():
+            continue
+        try:
+            with inf.open("rb") as f:
+                raw = f.read(MAX_MEMBER_BYTES)
+        except OSError:
+            continue
+        # INF files are UTF-16 when they start with its byte-order mark.
+        text = (raw.decode("utf-16", "replace")
+                if raw[:2] in (b"\xff\xfe", b"\xfe\xff")
+                else raw.decode("latin-1"))
+        m = _DRIVER_VER_RE.search(text)
+        if m:
+            month, day, year = (int(g) for g in m.groups()[:3])
+            try:
+                date = datetime.date(year, month, day)
+            except ValueError:
+                continue
+            version = tuple(int(n) for n in (m.group(4) or "").split(".")
+                            if n)
+            return date, version
+    try:
+        mtime = folder.stat().st_mtime
+    except OSError:
+        return datetime.date.min, ()
+    return datetime.date.fromtimestamp(mtime), ()
+
+
 def read_ssidmap(data: bytes) -> dict[str, int]:
     """Subsystem ID ("103C860F") → preset number, from an `SSIDMAP.bin`."""
     if len(data) < 16:
@@ -189,15 +244,21 @@ BREAK_STEP_DB = 6.0
 _GRID_STEP = 2.0 ** (1.0 / 24.0)
 
 
-def _apply_high_pass(curve, corner_hz: float | None) -> tuple[float, ...]:
+def _apply_high_pass(curve, corner_hz: float | str | None
+                     ) -> tuple[float, ...]:
     """*curve* with its points below *corner_hz* read as a Butterworth-4
-    high-pass there; unchanged when the preset's high-pass is off (None)."""
-    if corner_hz is None:
+    high-pass there; unchanged when the preset's high-pass is off (None) or
+    unread (`UNREAD`)."""
+    if corner_hz is None or corner_hz is UNREAD:
         return tuple(curve)
     hz = curve_grid_hz()
     edge = corner_hz * (1.0 + 1e-9)
     n = sum(1 for f in hz if f <= edge)
-    k = next((i for i in range(len(curve) - 1)
+    # The search starts at the last point below the corner: a rise further
+    # down is inside the replaced segment, and a step there would hide the
+    # one at the corner. A rise from that point is the step at the corner
+    # itself, which leaves nothing above it to replace.
+    k = next((i for i in range(max(n - 1, 0), len(curve) - 1)
               if curve[i + 1] - curve[i] > BREAK_STEP_DB), None)
     if k is not None and k >= n and hz[k] <= edge * _GRID_STEP:
         n = k + 1
@@ -252,12 +313,20 @@ def stage_values(data: bytes) -> dict[tuple[int, int], bytes]:
 # run 40–250 Hz in the download read.
 HIGH_PASS_KEYS = (19, 20)
 
+# A channel whose high-pass field is missing or of another length: built as
+# off, since nothing gives a corner, but not said to be off. Every speaker
+# preset in the one download read holds both fields at five bytes.
+UNREAD = "unread"
 
-def _high_pass_hz(values: dict, key: int) -> float | None:
-    """The corner of channel *key*'s high-pass in Hz; None when off or
-    absent. Raises ValueError for a corner no tuning uses."""
+
+def _high_pass_hz(values: dict, key: int) -> float | str | None:
+    """The corner of channel *key*'s high-pass in Hz; None when off, and
+    `UNREAD` when the field can't be read. Raises ValueError for a corner no
+    tuning uses."""
     payload = values.get((5, key))
-    if payload is None or len(payload) != 5 or not payload[0] & 1:
+    if payload is None or len(payload) != 5:
+        return UNREAD
+    if not payload[0] & 1:
         return None
     (corner,) = struct.unpack_from("<f", payload, 1)
     if not (math.isfinite(corner) and 10.0 <= corner <= 1000.0):
@@ -452,66 +521,58 @@ def probe_freqs() -> list[int]:
     return [round(10.0 * 2.0 ** (m / 3.0)) for m in range(3, 33)]
 
 
-def parse_hw_id(text: str) -> str:
-    """--hw-id's value, checked and normalised to "[BUS:]CODEC:SUBSYS".
-
-    Takes the IDs as --speaker-info prints them, so a 0x prefix is fine. A
-    string, not a tuple, because dolby_to_pipewire.py forwards it as one."""
-    parts = text.strip().upper().split(":")
-    bus = parts.pop(0) if len(parts) == 3 else None
-    ids = [p.removeprefix("0X") for p in parts]
-    if (len(ids) != 2 or (bus is not None and bus not in BUSES)
-            or not all(len(i) == 8 and all(c in "0123456789ABCDEF" for c in i)
-                       for i in ids)):
-        raise argparse.ArgumentTypeError(
-            f"{text!r}: expected CODEC:SUBSYS, 8 hex digits each, such as "
-            "0x10EC0285:0x103C860F, optionally after HDAUDIO: or "
-            "INTELAUDIO:")
-    return ":".join([*([bus] if bus else []), *ids])
-
-
-def resolve(source: Path, hw_id: str | None,
+def resolve(source: Path,
             warn: Callable[[str], None]) -> dict[str, ApoLayer]:
-    """The layer per profile *source*'s archives hold for this machine, or
-    for the device *hw_id* names (see `parse_hw_id`), the default profile
-    first (`load_profiles`); raises RuntimeError when none binds it or the
-    preset that does can't be read.
+    """The layer per profile *source*'s archives hold for this machine, the
+    default profile first (`load_profiles`); raises RuntimeError when none
+    binds it or the preset that does can't be read.
 
     Prints nothing: when two archives bind this device to different tunings,
-    *warn* gets the sentence saying which was used.
+    *warn* gets the sentence saying which was used, and on its own line the
+    other archive's path, which wrapped prose would split.
     """
     try:
-        return _resolve(source, hw_id, warn)
+        return _resolve(source, warn)
     except UnsupportedApoConfig as exc:
-        target = "--hw-id's IDs" if hw_id else "this device"
         raise RuntimeError(f"The Sonitude tuning at "
-                           f"{doctor.tilde(exc.path)} binds {target} "
+                           f"{doctor.tilde(exc.path)} binds this device "
                            f"but can't be used: {exc.reason}.") from exc
 
 
-def _curves(layers: dict[str, ApoLayer]) -> dict:
-    """Each profile's two curves, to tell two archives' presets apart."""
-    return {p: (layer.curve_left_db, layer.curve_right_db)
-            for p, layer in layers.items()}
+# Two presets whose curves agree this closely are the same tuning: the
+# fleet's two-bus pairs that differ at all mostly differ by float rounding.
+_SAME_CURVE_DB = 0.01
 
 
-def _resolve(source: Path, hw_id: str | None,
+def _same_tuning(a: dict[str, ApoLayer], b: dict[str, ApoLayer]) -> bool:
+    """Whether two archives' presets hold the same curves in every
+    profile."""
+    if a.keys() != b.keys():
+        return False
+    for p in a:
+        for x, y in ((a[p].curve_left_db, b[p].curve_left_db),
+                     (a[p].curve_right_db, b[p].curve_right_db)):
+            if len(x) != len(y) or any(abs(u - v) > _SAME_CURVE_DB
+                                       for u, v in zip(x, y)):
+                return False
+    return True
+
+
+def _resolve(source: Path,
              warn: Callable[[str], None]) -> dict[str, ApoLayer]:
     src = doctor.tilde(source)
-    if hw_id:
-        *bus, codec, subsys = hw_id.split(":")
-        bus = bus[0] if bus else None
-        ids = [(codec, subsys)]
-    else:
-        bus = None
-        ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
-               if "HDMI" not in name.upper()
-               and "DISPLAYPORT" not in name.upper()]
-        if not ids:
-            raise RuntimeError(
-                f"{src} holds Sonitude tunings, but this machine's audio "
-                "codec IDs can't be read to pick one. Pass the device's with "
-                "--hw-id, as its --speaker-info prints them.")
+    ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
+           if "HDMI" not in name.upper()
+           and "DISPLAYPORT" not in name.upper()]
+    # Not "run this on the device": a SoundWire machine can be on it and
+    # still show no HDA codec but a display's, and the archives keyed by
+    # other IDs aren't read (`_ARCHIVE_RE`).
+    if not ids:
+        raise RuntimeError(
+            f"{src} holds Sonitude tunings, picked by an HDA audio codec's "
+            "IDs, and none can be read here. On the device the tuning is "
+            "for, that means its audio isn't on an HDA codec this tool "
+            "reads, so it can't pick that device's tuning.")
     cards = host.path("/proc/asound/cards")
     try:
         sof = speakers._card_uses_sof(cards.read_text().splitlines())
@@ -521,13 +582,7 @@ def _resolve(source: Path, hw_id: str | None,
     for codec, subsys in ids:
         found = bindings(source, codec, subsys)
         unreadable += found.unreadable
-        hits = {b: h for b, h in found.hits.items() if bus in (None, b)}
-        if bus and found.hits and not hits:
-            (other,) = found.hits
-            raise RuntimeError(
-                f"{src} holds a tuning for {codec}:{subsys} in its {other} "
-                f"archive only. Pass --hw-id {other}:{codec}:{subsys}, or "
-                "leave the bus out.")
+        hits = found.hits
         if not hits:
             continue
         # A SOF machine runs Intel's DSP, which on Windows is the INTELAUDIO
@@ -541,22 +596,19 @@ def _resolve(source: Path, hw_id: str | None,
             alt = load_profiles(*hits[other], other, codec, subsys)
         except UnsupportedApoConfig:
             return layers
-        if _curves(alt) == _curves(layers):
+        if _same_tuning(alt, layers):
             return layers
         both = (f"preset {hits[picked][1]} in its {picked} archive and "
                 f"preset {hits[other][1]} in its {other} one")
-        if hw_id:
-            raise RuntimeError(
-                f"{src} holds two different tunings for {codec}:{subsys}: "
-                f"{both}. Pass the bus too, as the speakers' hardware ID "
-                "starts in Windows' Device Manager: --hw-id "
-                f"INTELAUDIO:{codec}:{subsys} or HDAUDIO:{codec}:{subsys}.")
         runs = "runs" if sof else "doesn't run"
+        # The archive alone as the input holds one bus, so it is the one
+        # read (`archives_in`).
         warn(f"{src} holds two different tunings for this device: "
              f"{both}. Using the {picked} one, because this machine {runs} "
              "Intel's audio DSP driver (SOF). If the speakers' hardware ID in "
-             f"Windows' Device Manager starts with {other}, rebuild with "
-             f"--hw-id {other}:{codec}:{subsys}.")
+             f"Windows' Device Manager starts with {other}, rebuild with that "
+             "archive alone as the input:\n"
+             f"  {doctor.tilde(hits[other][0])}")
         return layers
     if unreadable:
         raise RuntimeError(
@@ -564,11 +616,13 @@ def _resolve(source: Path, hw_id: str | None,
             "tuning archive, so whether it holds this device's tuning is "
             "unknown. Try a fresh copy of the download.")
     said = ", ".join(f"{c}:{s}" for c, s in ids)
-    if hw_id:
+    # One archive holds one bus and codec, so the right download's other
+    # archive may be the one that maps this device.
+    if source.is_file():
         raise RuntimeError(
-            f"{src} holds no Sonitude tuning for "
-            f"{bus + ':' if bus else ''}{said}. Check the IDs against that "
-            "device's --speaker-info, or use its model's driver download.")
+            f"{src} maps no preset to this device's audio hardware "
+            f"(codec:subsystem {said}). If it came from this model's "
+            "download, pass the whole download instead.")
     raise RuntimeError(
         f"{src} holds Sonitude tunings, but none for this device's audio "
         f"hardware (codec:subsystem {said}), so it is likely another "
@@ -580,6 +634,7 @@ def _resolve(source: Path, hw_id: str | None,
 FORMAT = StandaloneFormat(
     is_source=is_source,
     wanted_members=wanted_members,
+    driver_store_packages=driver_store_packages,
     resolve=resolve,
     # "Dolby" would mislabel a preset built from another engine's tuning.
     prefix="Sonitude",

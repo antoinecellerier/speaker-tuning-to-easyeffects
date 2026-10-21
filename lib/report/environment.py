@@ -620,7 +620,7 @@ def loaded_preset_status(rc_data: dict, generated_names,
             f"EasyEffects last loaded '{matched}'.")
     return CheckResult(DOCTOR_WARN, "Selected preset",
         f"EasyEffects' selected output preset is '{loaded or fallback}', which "
-        "this script didn't generate — load a Dolby-* preset in EasyEffects.")
+        f"this script didn't generate — load {example} in EasyEffects.")
 
 
 def ee_unanswered_status(names) -> CheckResult:

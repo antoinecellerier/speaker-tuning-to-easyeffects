@@ -540,7 +540,7 @@ def _print_ask(style: str, finding: Finding) -> None:
             console.cprint(style, line)
 
 
-def _print_attach_lines(xml_path) -> None:
+def _print_attach_lines(tuning_file) -> None:
     """The what-to-send lines, shared by both closing branches.
 
     cta, not dim: this is the one concrete task the report needs, and dim
@@ -551,25 +551,32 @@ def _print_attach_lines(xml_path) -> None:
     driver-package link identifies the exact tuning build and carries every
     sibling XML for the device; "(if you know it)" because a reader who found
     the file on their Windows partition has no download to link (round 8).
+    A tuning that ships no Dolby file is an archive inside the download, and
+    the link alone identifies it, so only the link is asked for.
     """
-    if xml_path is None:
+    if tuning_file is None:
         return
     print()
+    if Path(tuning_file).suffix.lower() != ".xml":
+        console._cprint_wrapped("cta", "  If you report, include a link to "
+                               "your device's audio-driver download, if you "
+                               "know it.", indent="  ")
+        return
     console._cprint_wrapped("cta", "  If you report, best is a link to "
                            "your device's audio-driver download "
-                           "(if you know it) — or just attach the "
-                           "XML file:",
+                           "(if you know it) — or just attach the XML file:",
                     indent="  ")
     # Absolute and quoted. Dolby's own directory names contain '$'
     # (…/code$GetExtractPath$/…), so an unquoted relative path is
     # eaten by the shell the moment anyone types ls on it and the
     # file looks missing. Same cta as its instruction: the copy
     # target must not be the faintest line in the block.
-    console.cprint("cta", f"    '{Path(xml_path).resolve()}'")
+    console.cprint("cta", f"    '{Path(tuning_file).resolve()}'")
 
 
 def print_project_asks(findings: list[Finding], dry_run: bool = False,
-                       xml_path=None, pipewire_native: bool = False) -> None:
+                       tuning_file=None,
+                       pipewire_native: bool = False) -> None:
     """Print the closing block: what the project needs, then the one ask.
 
     Always prints. Most people run this script once, on one machine, and
@@ -623,7 +630,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         # (round 6): the file helps triage whatever the report is about,
         # and a wording-sniffing gate would be one rewording away from
         # silently switching the path off.
-        _print_attach_lines(xml_path)
+        _print_attach_lines(tuning_file)
         print()
     elif tagged:
         # No ask fired, but something upstream still carries a tag. Say it is
@@ -634,7 +641,7 @@ def print_project_asks(findings: list[Finding], dry_run: bool = False,
         console.cprint("head", "=" * 60)
         console._cprint_wrapped("dim", "Saw a [tag] above? Quote it if you report — "
                                "it tells us which finding you mean.")
-        _print_attach_lines(xml_path)
+        _print_attach_lines(tuning_file)
         print()
 
     # Stages this tuning has that we drop. They carry no ask, because there is

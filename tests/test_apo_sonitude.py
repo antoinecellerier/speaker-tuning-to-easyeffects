@@ -25,8 +25,10 @@ from lib import console, driver_package as dp, tuning_source
 from lib.apo import discover as apo_discover
 from lib.apo import layer as apo_layer
 from lib.apo import sonitude
+from lib.dax import discover as dax_discover
 from lib.dax import parse
 from lib.preset import emit, fir
+from lib.report import messages
 from tests.conftest import write_synthetic_tuning_xml
 
 _ARCHIVE = "SEAPODAT.INTELAUDIO.FUNC_01-VEN_10EC-DEV_0285.zip"
@@ -62,7 +64,7 @@ def _preset_bin(left: list[float], right: list[float] | None = None,
     """A Preset.bin in the stage/key layout: a header the parser skips, a
     section table pointing at the body, an empty stage, then stage 5 with
     the two curves (keys 13, 14) and the high-pass corners (keys 19, 20;
-    None = off)."""
+    None = off, bytes = that payload as it is)."""
     def rec(payload: bytes) -> bytes:
         return struct.pack("<I", len(payload)) + payload
 
@@ -71,6 +73,8 @@ def _preset_bin(left: list[float], right: list[float] | None = None,
                 + b"\0\0")
 
     def corner(hz):
+        if isinstance(hz, bytes):
+            return rec(hz)
         return rec(struct.pack("<Bf", 0 if hz is None else 1, hz or 0.0))
 
     keys = {13: rec(curve(left)),
@@ -407,6 +411,18 @@ def test_a_step_just_above_the_corner_leaves_no_notch(bottom, step, replaced):
     assert out[replaced:] == tuple(curve[replaced:])
 
 
+def test_a_rise_in_the_replaced_segment_hides_no_step_above_the_corner():
+    """A step of more than BREAK_STEP_DB far below the corner is replaced
+    anyway; the step one grid point above it still takes its bottom point."""
+    curve = ([-40.0] * 11 + [-20.0] * 63
+             + [-13.9] * (sonitude.CURVE_POINTS - 74))
+    out = sonitude._apply_high_pass(curve, 80.0)
+    hz = sonitude.curve_grid_hz()
+    assert np.allclose(out[:74], _butterworth4_db(80.0, np.array(hz[:74])),
+                       atol=1e-9)
+    assert out[74:] == tuple(curve[74:])
+
+
 def test_each_channel_takes_its_own_high_pass(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 1},
                  {1: _preset_bin(_curve(), _ramp(), high_pass=(80.0, None))})
@@ -417,6 +433,17 @@ def test_each_channel_takes_its_own_high_pass(tmp_path):
 
 # --- the run -----------------------------------------------------------------
 
+def _this_machine(fake_host, sof=True, subsys="103c860f"):
+    """This machine as a device with codec 10EC0285 and *subsys*, on SOF or
+    not, as `lib/apo/sonitude.py` `resolve` reads it."""
+    fake_host("/proc/asound/card0/codec#0",
+              "Codec: Realtek ALC285\nVendor Id: 0x10ec0285\n"
+              f"Subsystem Id: 0x{subsys}\n")
+    fake_host("/proc/asound/cards",
+              " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp\n" if sof
+              else " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n")
+
+
 def _run(tmp_path, capsys, source, *flags):
     out_dir, irs_dir = tmp_path / "out", tmp_path / "irs"
     dolby_to_easyeffects.main([
@@ -426,11 +453,12 @@ def _run(tmp_path, capsys, source, *flags):
 
 
 def test_a_vendor_only_run_builds_one_preset_from_the_curve(
-        tmp_path, silence_console, capsys):
+        tmp_path, fake_host, silence_console, capsys):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / "dl" / _ARCHIVE, {"103C860F": 177},
                  {177: _three_modes()})
-    out, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F")
+    out, out_dir = _run(tmp_path, capsys, a)
     presets = sorted(out_dir.glob("*.json"))
     assert [p.name for p in presets] == ["Sonitude-Music.json"]
     order = json.loads(presets[0].read_text())["output"]["plugins_order"]
@@ -445,6 +473,10 @@ def test_a_vendor_only_run_builds_one_preset_from_the_curve(
     # Nothing that refers to a Dolby file or offers a refused flag.
     assert "--disable vendor-apo" not in out
     assert "attach the XML" not in out
+    # The closing asks for the download link, and for no file to attach.
+    assert ("If you report, include a link to your device's audio-driver "
+            "download, if you know it.") in out
+    assert "attach" not in out
     assert "Dolby's default voicing" not in out
 
 
@@ -458,11 +490,11 @@ def _kernel_db(irs_dir: Path, stem: str) -> np.ndarray:
 
 
 def test_profile_movie_builds_the_movie_preset_from_its_own_curve(
-        tmp_path, silence_console, capsys):
+        tmp_path, fake_host, silence_console, capsys):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
-    out, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F",
-                        "--profile", "movie")
+    out, out_dir = _run(tmp_path, capsys, a, "--profile", "movie")
     assert [p.name for p in out_dir.glob("*.json")] == ["Sonitude-Movie.json"]
     assert "Profile: movie " in out
     assert "/177/0/EFX/AnyOutput/Movie/Preset.bin), applied" in out
@@ -472,18 +504,18 @@ def test_profile_movie_builds_the_movie_preset_from_its_own_curve(
             "each preset is scaled to its own peak.") in out
     # Its own high-pass, 120 Hz: a 4th-order cut there, not music's 80 Hz.
     movie = _kernel_db(tmp_path / "irs", "Sonitude-Movie")
-    out, _ = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F")
+    out, _ = _run(tmp_path, capsys, a)
     music = _kernel_db(tmp_path / "irs", "Sonitude-Music")
     at_80 = int(np.argmin(np.abs(_PIN_HZ - 80)))
     assert movie[at_80] < music[at_80] - 6
 
 
-def test_all_profiles_builds_one_preset_per_mode(tmp_path, silence_console,
-                                                 capsys):
+def test_all_profiles_builds_one_preset_per_mode(tmp_path, fake_host,
+                                                 silence_console, capsys):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
-    out, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F",
-                        "--all-profiles")
+    out, out_dir = _run(tmp_path, capsys, a, "--all-profiles")
     assert sorted(p.name for p in out_dir.glob("*.json")) == [
         "Sonitude-Movie.json", "Sonitude-Music.json", "Sonitude-Voice.json"]
     assert len(list((tmp_path / "irs").glob("*.irs"))) == 3
@@ -503,11 +535,12 @@ def test_all_profiles_builds_one_preset_per_mode(tmp_path, silence_console,
     assert not np.allclose(kernels[0], kernels[2], atol=0.5)
 
 
-def test_list_names_the_modes_as_profiles(tmp_path, silence_console, capsys):
+def test_list_names_the_modes_as_profiles(tmp_path, fake_host,
+                                          silence_console, capsys):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
-    out, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F",
-                        "--list")
+    out, out_dir = _run(tmp_path, capsys, a, "--list")
     assert out.endswith(
         f"Endpoints and profiles in {a}: endpoint: internal_speaker "
         "(operating_mode=normal) profile: music profile: movie "
@@ -515,13 +548,14 @@ def test_list_names_the_modes_as_profiles(tmp_path, silence_console, capsys):
     assert not out_dir.exists()
 
 
-def test_an_unknown_profile_names_the_three(tmp_path, silence_console):
+def test_an_unknown_profile_names_the_three(tmp_path, fake_host,
+                                            silence_console):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
     with pytest.raises(ValueError, match="Profile 'game' not found. "
                        "Available: music, movie, voice"):
         dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C860F",
                                    "--profile", "game"])
 
 
@@ -540,31 +574,22 @@ def test_a_vendor_only_run_reads_this_machines_codec(tmp_path, fake_host,
 
 
 def test_no_preset_for_this_machine_says_which_ids_it_tried(
-        tmp_path, silence_console):
+        tmp_path, fake_host, silence_console):
     silence_console(console)
+    _this_machine(fake_host, subsys="103c8600")
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     with pytest.raises(RuntimeError, match="10EC0285:103C8600"):
-        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C8600"])
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"])
 
 
 def test_disabling_the_only_tuning_is_refused(tmp_path, capsys):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     with pytest.raises(SystemExit):
-        dolby_to_easyeffects.main([str(a), "--hw-id", "10EC0285:103C860F",
-                                   "--disable", "vendor-apo"])
-    assert ("the Sonitude tuning is this device's only one"
+        dolby_to_easyeffects.main([str(a), "--disable", "vendor-apo"])
+    assert ("the Sonitude tuning is this run's only one"
             in capsys.readouterr().err)
-
-
-def test_hw_id_without_a_vendor_tuning_is_refused(tmp_path, capsys):
-    xml = tmp_path / "DEV_0285_SUBSYS_103C860F.xml"
-    xml.write_text("<x/>")
-    with pytest.raises(SystemExit):
-        dolby_to_easyeffects.main([str(xml), "--hw-id", "10EC0285:103C860F"])
-    assert "--hw-id" in capsys.readouterr().err
 
 
 def test_a_download_holding_only_the_archives_unpacks_them(tmp_path):
@@ -593,12 +618,13 @@ def _download(tmp_path, extra: dict[str, bytes] | None = None) -> Path:
 
 
 def test_a_download_of_only_the_archives_builds_the_vendor_preset(
-        tmp_path, silence_console, capsys):
+        tmp_path, fake_host, silence_console, capsys):
     silence_console(console)
-    out, out_dir = _run(tmp_path, capsys, _download(tmp_path),
-                        "--hw-id", "10EC0285:103C860F")
+    _this_machine(fake_host)
+    out, out_dir = _run(tmp_path, capsys, _download(tmp_path))
     assert "Found Sonitude speaker tuning (preset 177, X_Synth)" in out
     assert [p.name for p in out_dir.glob("*.json")] == ["Sonitude-Music.json"]
+    assert "include a link to your device's audio-driver download" in out
 
 
 def test_a_download_with_a_dolby_file_stays_on_the_dolby_path(
@@ -618,25 +644,52 @@ def test_a_download_with_a_dolby_file_stays_on_the_dolby_path(
     assert picked and "Sonitude speaker tuning" not in out
 
 
+def _with_another_devices_dolby_file(tmp_path) -> Path:
+    """A download holding the archive and a Dolby XML for another codec and
+    subsystem."""
+    other = "DEV_0236_SUBSYS_17AA0000.xml"
+    xml = write_synthetic_tuning_xml(tmp_path / other)
+    return _download(tmp_path, {f"src/Dolby/{other}": xml.read_bytes()})
+
+
+def test_a_download_whose_dolby_file_is_another_devices_builds_the_archive(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    out, _ = _run(tmp_path, capsys,
+                  _with_another_devices_dolby_file(tmp_path), "--dry-run")
+    assert "Found Sonitude speaker tuning (preset 177, X_Synth)" in out
+
+
+def test_a_download_matching_neither_tuning_says_so_as_the_archive_does(
+        tmp_path, fake_host, silence_console):
+    silence_console(console)
+    _this_machine(fake_host, subsys="103c8600")
+    with pytest.raises(RuntimeError, match="holds Sonitude tunings, but none "
+                       "for this device's audio hardware"):
+        dolby_to_easyeffects.main([
+            str(_with_another_devices_dolby_file(tmp_path)), "--dry-run",
+            "--skip-ee-check"])
+
+
+def test_a_download_with_dolby_files_it_cant_choose_between_still_says_so(
+        tmp_path, fake_host, silence_console, monkeypatch):
+    """Only "none is this device's" goes on to the archive: a choice the
+    user has to make stays theirs."""
+    silence_console(console)
+    _this_machine(fake_host)
+
+    def pick(tree, path, best_guess=False):
+        raise dp.PackageError("holds matching tunings in 2 folders")
+
+    monkeypatch.setattr(dp, "pick_xml", pick)
+    with pytest.raises(dp.PackageError, match="in 2 folders"):
+        dolby_to_easyeffects.main([
+            str(_with_another_devices_dolby_file(tmp_path)), "--dry-run",
+            "--skip-ee-check"])
+
+
 # --- choosing the preset -----------------------------------------------------
-
-@pytest.mark.parametrize("text,want", [
-    ("10EC0285:103C860F", "10EC0285:103C860F"),
-    # As --speaker-info prints them.
-    ("0x10ec0285:0x103c860f", "10EC0285:103C860F"),
-    ("intelaudio:10EC0285:103C860F", "INTELAUDIO:10EC0285:103C860F"),
-])
-def test_hw_id_takes_the_ids_as_speaker_info_prints_them(text, want):
-    assert sonitude.parse_hw_id(text) == want
-
-
-@pytest.mark.parametrize("text", ["10EC0285", "10EC0285:103C86GZ",
-                                  "10EC285:103C860F", "PCI:10EC0285:103C860F",
-                                  "10EC0285:103C860F:X"])
-def test_hw_id_refuses_what_is_not_two_hex_ids(text):
-    with pytest.raises(argparse.ArgumentTypeError):
-        sonitude.parse_hw_id(text)
-
 
 def _bundle(tmp_path, *archives: Path) -> Path:
     """A driver download holding *archives*."""
@@ -659,56 +712,36 @@ def _two_buses(tmp_path, same=False):
                                  else _curve(step_at=90))}))
 
 
-def test_two_tunings_for_one_id_need_the_bus_with_hw_id(
-        tmp_path, silence_console):
-    silence_console(console)
-    with pytest.raises(RuntimeError, match="--hw-id INTELAUDIO:10EC0285"):
-        dolby_to_easyeffects.main([str(_two_buses(tmp_path)), "--dry-run",
-                                   "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C860F"])
-
-
 @pytest.mark.parametrize("bus,preset", [("INTELAUDIO", 1), ("HDAUDIO", 2)])
-def test_the_bus_in_hw_id_picks_its_archive(tmp_path, silence_console,
-                                            capsys, bus, preset):
+def test_an_archive_alone_is_the_only_one_read(tmp_path, fake_host,
+                                               silence_console, capsys, bus,
+                                               preset):
+    """The two-tunings warning's remedy: either archive passed alone builds
+    its own preset, whichever bus this machine runs."""
     silence_console(console)
-    out, _ = _run(tmp_path, capsys, _two_buses(tmp_path), "--dry-run",
-                  "--hw-id", f"{bus}:10EC0285:103C860F")
+    _this_machine(fake_host, True)
+    _two_buses(tmp_path)
+    archive = tmp_path / "src" / (_ARCHIVE if bus == "INTELAUDIO"
+                                  else _HDA_ARCHIVE)
+    out, _ = _run(tmp_path, capsys, archive, "--dry-run")
     assert f"(preset {preset}," in out
     assert "two different tunings" not in out
 
 
-def test_a_bus_without_the_id_names_the_bus_with_it(tmp_path,
-                                                    silence_console):
-    silence_console(console)
-    download = _bundle(tmp_path, _archive(
-        tmp_path / "src" / _HDA_ARCHIVE, {"103C860F": 2},
-        {2: _preset_bin(_curve())}))
-    with pytest.raises(RuntimeError, match="HDAUDIO archive only"):
-        dolby_to_easyeffects.main([str(download), "--dry-run",
-                                   "--skip-ee-check", "--hw-id",
-                                   "INTELAUDIO:10EC0285:103C860F"])
-
-
-def _this_machine(fake_host, sof):
-    fake_host("/proc/asound/card0/codec#0",
-              "Codec: Realtek ALC285\nVendor Id: 0x10ec0285\n"
-              "Subsystem Id: 0x103c860f\n")
-    fake_host("/proc/asound/cards",
-              " 0 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp\n" if sof
-              else " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n")
-
-
 @pytest.mark.parametrize("sof,preset,other", [(True, 1, "HDAUDIO"),
                                               (False, 2, "INTELAUDIO")])
-def test_two_tunings_for_this_laptop_say_which_was_used_and_why(
+def test_two_tunings_for_this_device_say_which_was_used_and_why(
         tmp_path, fake_host, silence_console, capsys, sof, preset, other):
     silence_console(console)
     _this_machine(fake_host, sof)
     out, _ = _run(tmp_path, capsys, _two_buses(tmp_path), "--dry-run")
     assert f"(preset {preset}," in out
     assert "two different tunings for this device" in out
-    assert f"--hw-id {other}:10EC0285:103C860F" in out
+    # The other archive, as unpacked from the download, to pass alone.
+    assert (f"starts with {other}, rebuild with that archive alone as the "
+            "input: ") in out
+    assert f"SEAPODAT.{other}.FUNC_01-VEN_10EC-DEV_0285.zip" in out
+    assert "--hw-id" not in out
 
 
 def test_one_tuning_under_two_buses_is_not_a_choice(
@@ -721,38 +754,58 @@ def test_one_tuning_under_two_buses_is_not_a_choice(
     assert "two different tunings" not in out
 
 
+def test_curves_apart_by_rounding_are_one_tuning(
+        tmp_path, fake_host, silence_console, capsys):
+    """Most two-bus pairs that differ at all differ by float rounding."""
+    silence_console(console)
+    _this_machine(fake_host, True)
+    _bundle(tmp_path,
+            _archive(tmp_path / "src" / _ARCHIVE, {"103C860F": 1},
+                     {1: _preset_bin(_curve())}),
+            _archive(tmp_path / "src" / _HDA_ARCHIVE, {"103C860F": 2},
+                     {2: _preset_bin([v + 0.001 for v in _curve()])}))
+    out, _ = _run(tmp_path, capsys, tmp_path / "sp000001.zip", "--dry-run")
+    assert "(preset 1," in out
+    assert "two different tunings" not in out
+
+
 # --- what a failed lookup says -----------------------------------------------
 
 def test_a_missing_archive_is_said_as_a_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         dolby_to_easyeffects.main([str(tmp_path / _ARCHIVE), "--dry-run",
-                                   "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C860F"])
+                                   "--skip-ee-check"])
 
 
 def test_a_damaged_archive_is_said_as_unreadable_not_as_another_model(
-        tmp_path, silence_console):
+        tmp_path, fake_host, silence_console):
     silence_console(console)
+    _this_machine(fake_host)
     (tmp_path / _ARCHIVE).write_bytes(b"PK\x03\x04 not a zip")
     with pytest.raises(RuntimeError, match="can't be read") as exc:
         dolby_to_easyeffects.main([str(tmp_path / _ARCHIVE), "--dry-run",
-                                   "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C860F"])
+                                   "--skip-ee-check"])
     assert "another model" not in str(exc.value)
 
 
-def test_a_miss_with_hw_id_does_not_suggest_hw_id(tmp_path, silence_console):
+def test_unreadable_codec_ids_say_what_that_means_on_the_device(
+        tmp_path, silence_console):
+    """A SoundWire machine reads no HDA codec on the device itself, so the
+    error can't tell its reader to go and run it there."""
     silence_console(console)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
-    with pytest.raises(RuntimeError) as exc:
-        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
-                                   "--hw-id", "10EC0285:103C8600"])
-    assert "with --hw-id" not in str(exc.value)
-    assert "--speaker-info" in str(exc.value)
+    with pytest.raises(RuntimeError, match="picked by an HDA audio codec's "
+                       "IDs, and none can be read here. On the device the "
+                       "tuning is for, that means its audio isn't on an HDA "
+                       "codec") as exc:
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"])
+    assert "Run this on the device" not in str(exc.value)
+    assert "--hw-id" not in str(exc.value)
+    assert "--speaker-info" not in str(exc.value)
 
 
-def test_a_miss_on_this_laptop_points_at_the_download(
+def test_a_miss_on_this_device_points_at_the_download(
         tmp_path, fake_host, silence_console):
     silence_console(console)
     _this_machine(fake_host, True)
@@ -762,53 +815,180 @@ def test_a_miss_on_this_laptop_points_at_the_download(
         dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"])
 
 
+def test_a_miss_in_one_archive_points_at_the_whole_download(
+        tmp_path, fake_host, silence_console):
+    """One archive holds one bus, so the right download's other archive may
+    be the one that binds: not "another model's download"."""
+    silence_console(console)
+    _this_machine(fake_host, True)
+    a = _archive(tmp_path / _ARCHIVE, {"103C8600": 177},
+                 {177: _preset_bin(_curve())})
+    with pytest.raises(RuntimeError) as exc:
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"])
+    assert "maps no preset to this device's audio hardware" in str(exc.value)
+    assert "pass the whole download instead" in str(exc.value)
+    assert "another model" not in str(exc.value)
+
+
 # --- flags with nothing to act on --------------------------------------------
 
 @pytest.mark.parametrize("flags", [
     ("--enable", "autogain"), ("--enable", "dialog"),
-    ("--enable", "virtual-bass"), ("--enable", "level-restore"),
-    ("--mode", "headphone"), ("--endpoint", "headphone")])
+    ("--enable", "virtual-bass"),
+    ("--mode", "headphone"), ("--endpoint", "headphone"), ("--best-guess",),
+    ("--volmax-slot", "output-gain"), ("--disable", "mbc")])
 def test_flags_for_a_dolby_stage_are_refused(tmp_path, flags, capsys):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     with pytest.raises(SystemExit):
-        dolby_to_easyeffects.main([str(a), "--hw-id", "10EC0285:103C860F",
-                                   *flags])
+        dolby_to_easyeffects.main([str(a), *flags])
     assert "and this tuning has none" in capsys.readouterr().err
 
 
-def test_level_restore_is_not_offered_on_a_curve_that_only_cuts(
-        tmp_path, silence_console, capsys):
-    silence_console(console)
+def test_level_restore_is_refused_with_its_own_reason(tmp_path, capsys):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
-    out, _ = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F")
+    with pytest.raises(SystemExit):
+        dolby_to_easyeffects.main([str(a), "--enable", "level-restore"])
+    assert ("--enable level-restore gives back level the filter's peak "
+            "scaling removed, and this tuning's filter loses next to none"
+            ) in capsys.readouterr().err
+
+
+def test_level_restore_is_not_offered_on_a_curve_that_only_cuts(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
+                 {177: _preset_bin(_curve())})
+    out, _ = _run(tmp_path, capsys, a)
     assert "level-restore" not in out
 
 
 @pytest.mark.parametrize("prefix,stem", [(None, "Sonitude"), ("Dolby", "Dolby"),
                                          ("Mine", "Mine")])
-def test_a_typed_prefix_stands(tmp_path, silence_console, capsys, prefix,
-                               stem):
+def test_a_typed_prefix_stands(tmp_path, fake_host, silence_console, capsys,
+                               prefix, stem):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
-    _, out_dir = _run(tmp_path, capsys, a, "--hw-id", "10EC0285:103C860F",
+    _, out_dir = _run(tmp_path, capsys, a,
                       *(["--prefix", prefix] if prefix else []))
     assert [p.name for p in out_dir.glob("*.json")] == [
         f"{stem}-Music.json"]
 
 
-def test_a_vendor_only_run_hands_a_wrapper_no_xml(tmp_path, silence_console):
+def test_a_vendor_only_run_hands_a_wrapper_its_archive(tmp_path, fake_host,
+                                                       silence_console):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     resolved = {}
-    dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
-                               "--hw-id", "10EC0285:103C860F"],
+    dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check"],
                               resolved=resolved)
-    assert resolved == {"xml_path": None, "source": "standalone",
+    assert resolved == {"tuning_file": a, "source": "standalone",
                         "presets": ["Sonitude-Music"], "experimental": []}
+
+
+# --- an installed Windows ---------------------------------------------------
+
+_STORE = Path("Windows/System32/DriverStore/FileRepository")
+
+
+def _package(root: Path, name: str = "snapo64ext.inf_amd64_0123abcd",
+             driver_ver: str | None = "07/08/2025,17.29.53.8400",
+             step_at: int = 72) -> Path:
+    """A SNAPO64Ext DriverStore folder under *root*'s Windows, holding the
+    archive and, unless *driver_ver* is None, the INF that dates it."""
+    folder = root / _STORE / name
+    _archive(folder / _ARCHIVE, {"103C860F": 177},
+             {177: _preset_bin(_curve(step_at=step_at))})
+    if driver_ver is not None:
+        (folder / "SNAPO64Ext.inf").write_text(
+            f"[Version]\nSignature=\"$Windows NT$\"\nDriverVer={driver_ver}\n")
+    return folder
+
+
+def _windows(tmp_path) -> str:
+    """--windows on `_package`'s install, as one argument for `_run`."""
+    return f"--windows={tmp_path / 'c' / 'Windows'}"
+
+
+def test_a_windows_install_with_only_the_archives_builds_from_them(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    folder = _package(tmp_path / "c")
+    out, out_dir = _run(tmp_path, capsys, _windows(tmp_path))
+    assert f"Auto-detected: {folder}" in out
+    assert "Found Sonitude speaker tuning (preset 177, X_Synth)" in out
+    assert [p.name for p in out_dir.glob("*.json")] == ["Sonitude-Music.json"]
+    # The archive the run read, in the DriverStore, is the file to attach.
+    assert f"{folder / _ARCHIVE}/177/" in out
+
+
+def test_a_matching_dolby_file_wins_and_the_other_tuning_is_named(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    folder = _package(tmp_path / "c")
+    dax = tmp_path / "c" / _STORE / "dax3_ext_rtk.inf_amd64_4567"
+    dax.mkdir(parents=True)
+    xml = write_synthetic_tuning_xml(dax / "DEV_0285_SUBSYS_103C860F.xml")
+    out, out_dir = _run(tmp_path, capsys, _windows(tmp_path), "--dry-run")
+    assert f"Auto-detected: {xml}" in out
+    assert (f"A Sonitude tuning is there too ({folder}); using the Dolby "
+            "file.") in out
+    assert "Sonitude speaker tuning (preset" not in out
+    assert "Dolby-Balanced" in out
+
+
+def test_several_driver_versions_build_from_the_newest_and_say_so(
+        tmp_path, fake_host, silence_console, capsys):
+    """By DriverVer date, whatever the folder names' order."""
+    silence_console(console)
+    _this_machine(fake_host)
+    _package(tmp_path / "c", "snapo64ext.inf_amd64_ffff",
+             "01/02/2024,17.0.0.1", step_at=90)
+    newest = _package(tmp_path / "c", "SNAPO64Ext.inf_amd64_0000",
+                      "07/08/2025,17.29.53.8400")
+    out, _ = _run(tmp_path, capsys, _windows(tmp_path), "--dry-run")
+    assert (f"Auto-detected: {newest} (the newest of the 2 Sonitude driver "
+            "versions there)") in out
+    assert f"{newest / _ARCHIVE}/177/" in out
+
+
+def test_driver_versions_are_ordered_by_date_then_version_then_mtime(
+        tmp_path):
+    store = tmp_path / _STORE
+    older = _package(tmp_path, "snapo64ext.inf_amd64_a", "07/08/2025,17.1")
+    newer = _package(tmp_path, "snapo64ext.inf_amd64_b", "07/08/2025,17.2")
+    # No INF: its folder's date, here long before either stamp.
+    undated = _package(tmp_path, "snapo64ext.inf_amd64_c", None)
+    os.utime(undated, (0, 0))
+    (store / "snapo64ext.inf_amd64_empty").mkdir()
+    (store / "dax3_ext_rtk.inf_amd64_d").mkdir()
+    assert sonitude.driver_store_packages(store) == [newer, older, undated]
+    # A UTF-16 INF, as some packages ship.
+    (older / "SNAPO64Ext.inf").write_bytes(
+        "\ufeff[Version]\r\nDriverVer = 12/31/2025, 1.0\r\n"
+        .encode("utf-16-le"))
+    assert sonitude.driver_store_packages(store)[0] == older
+
+
+def test_a_mounted_windows_with_only_the_archives_is_auto_detected(
+        tmp_path, fake_host, silence_console, capsys, monkeypatch):
+    silence_console(console)
+    _this_machine(fake_host)
+    folder = _package(tmp_path / "c")
+    monkeypatch.setattr(dax_discover, "_ntfs_family_mountpoints",
+                        lambda: [tmp_path / "c"])
+    out, _ = _run(tmp_path, capsys, "--dry-run")
+    assert f"Auto-detected Windows mount: {tmp_path / 'c'}" in out
+    assert f"Auto-detected: {folder}" in out
+    assert "Found Sonitude speaker tuning (preset 177, X_Synth)" in out
 
 
 # --- the tuning source -------------------------------------------------------
@@ -853,14 +1033,16 @@ def test_a_dolby_xml_is_a_dolby_source(tmp_path):
     assert not src.experimental("music")
 
 
-def test_an_archive_is_a_standalone_source(tmp_path, silence_console):
+def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
+                                           silence_console):
     silence_console(console)
+    _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _three_modes()})
-    src = _source([str(a), "--hw-id", "10EC0285:103C860F"])
+    src = _source([str(a)])
     assert (src.kind, src.xml_path, src.closing_file, src.prefix,
             src.origin, src.unoffered) == (
-        tuning_source.STANDALONE, None, None, "Sonitude", a,
+        tuning_source.STANDALONE, None, a, "Sonitude", a,
         ("vendor-apo-active", "level-restore"))
     assert src.format is sonitude.FORMAT
     assert list(src.profiles) == ["music", "movie", "voice"]
@@ -875,13 +1057,17 @@ def test_an_archive_is_a_standalone_source(tmp_path, silence_console):
 
 
 def test_a_download_of_only_archives_is_a_standalone_source(
-        tmp_path, silence_console):
+        tmp_path, fake_host, silence_console):
     silence_console(console)
-    src = _source([str(_download(tmp_path)), "--hw-id", "10EC0285:103C860F",
-                   "--prefix", "Mine"])
+    _this_machine(fake_host)
+    src = _source([str(_download(tmp_path)), "--prefix", "Mine"])
     assert src.kind == tuning_source.STANDALONE and src.prefix == "Mine"
     assert src.origin.is_dir() and sonitude.archives_in(src.origin)
     assert src.layer is not None and src.xml_path is None
+    # The archive in the unpacked download that holds this device's tuning.
+    assert src.closing_file == src.layer.inf_path
+    assert src.closing_file.name == _ARCHIVE
+    assert src.closing_file.is_relative_to(src.origin)
 
 
 def test_a_download_with_a_dolby_xml_is_a_dolby_source(
@@ -897,17 +1083,25 @@ def test_a_download_with_a_dolby_xml_is_a_dolby_source(
     assert src.xml_path.name == "DEV_0285_SUBSYS_103C860F.xml"
 
 
-_NO_DOLBY = "reads a Dolby file, and this tuning has none"
+_NO_DOLBY = "reads a Dolby file, and this tuning has none — drop it"
 
 
 @pytest.mark.parametrize("flags,text", [
     (("--endpoint", "headphone"), f"--endpoint {_NO_DOLBY}"),
     (("--mode", "headphone"), f"--mode {_NO_DOLBY}"),
+    (("--best-guess",), f"--best-guess {_NO_DOLBY}"),
     (("--enable", "virtual-bass"),
-     "--enable virtual-bass acts on a Dolby stage, and this tuning has none"),
+     "--enable virtual-bass acts on a Dolby stage, and this tuning has none "
+     "— drop it"),
+    (("--volmax-slot", "output-gain"),
+     "--volmax-slot acts on a Dolby stage, and this tuning has none — "
+     "drop it"),
+    # The default, typed: indistinguishable from not typing it, and as
+    # harmless.
+    (("--volmax-slot", "input-gain"), None),
     (("--disable", "vendor-apo"),
      "--disable vendor-apo would leave nothing to build: the Sonitude tuning "
-     "is this device's only one"),
+     "is this run's only one — drop it"),
     # The tuning's content modes are its profiles.
     (("--list",), None),
     (("--all-profiles",), None),
@@ -922,13 +1116,22 @@ def test_a_standalone_source_refuses_what_needs_a_dolby_file(
     assert src.refusal(args) == text
 
 
-def test_a_dolby_source_refuses_only_hw_id(tmp_path):
+@pytest.mark.parametrize("name", [n for n in messages.DISABLEABLE_FILTERS
+                                  if n != apo_layer.FLAG])
+def test_every_dolby_stage_disable_is_refused(tmp_path, name):
+    a = tmp_path / _ARCHIVE
+    _, args = _args([str(a), "--disable", name])
+    src = tuning_source.standalone(sonitude.FORMAT, a, args.prefix)
+    assert src.refusal(args) == (f"--disable {name} acts on a Dolby stage, "
+                                 "and this tuning has none — drop it")
+
+
+@pytest.mark.parametrize("flags", [
+    ("--list",), ("--best-guess",), ("--volmax-slot", "output-gain"),
+    ("--disable", "mbc"), ("--enable", "dialog"), ("--mode", "headphone")])
+def test_a_dolby_source_refuses_none_of_its_own_flags(tmp_path, flags):
     xml = tmp_path / "DEV_0285_SUBSYS_103C860F.xml"
-    _, args = _args([str(xml), "--hw-id", "10EC0285:103C860F", "--list"])
-    assert tuning_source.dolby(xml, None).refusal(args) == (
-        "--hw-id picks among Sonitude tunings; pass the driver download or "
-        "SEAPODAT archive that holds them with it")
-    _, args = _args([str(xml), "--list"])
+    _, args = _args([str(xml), *flags])
     assert tuning_source.dolby(xml, None).refusal(args) is None
 
 
@@ -936,11 +1139,11 @@ def test_a_dolby_source_refuses_only_hw_id(tmp_path):
 
 def _wrapper(tmp_path, *flags, source: Path | None = None):
     """The wrapper run on *source*, by default a Sonitude archive with all
-    three modes for --hw-id's IDs."""
+    three modes for the device `_this_machine` fakes: the child reads it
+    through the environment `fake_host` set."""
     if source is None:
         source = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                           {177: _three_modes()})
-        flags = ("--hw-id", "10EC0285:103C860F", *flags)
     home = tmp_path / "home"
     home.mkdir()
     env = {k: v for k, v in os.environ.items()
@@ -953,7 +1156,8 @@ def _wrapper(tmp_path, *flags, source: Path | None = None):
         env={**env, "HOME": str(home)})
 
 
-def test_the_wrapper_converts_the_default_profile(tmp_path):
+def test_the_wrapper_converts_the_default_profile(tmp_path, fake_host):
+    _this_machine(fake_host)
     result = _wrapper(tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
     assert sorted(p.name for p in (tmp_path / "confs").iterdir()) == [
@@ -963,7 +1167,8 @@ def test_the_wrapper_converts_the_default_profile(tmp_path):
     assert "experimental:" not in result.stdout.split("[2/3]")[1]
 
 
-def test_the_wrapper_converts_every_profile_under_all_profiles(tmp_path):
+def test_the_wrapper_converts_every_profile_under_all_profiles(tmp_path, fake_host):
+    _this_machine(fake_host)
     result = _wrapper(tmp_path, "--all-profiles", "--target-object",
                       "alsa_output.speakers")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -979,7 +1184,8 @@ def test_the_wrapper_converts_every_profile_under_all_profiles(tmp_path):
         "mode yet)"]
 
 
-def test_the_wrapper_refuses_a_voicing_on_a_tuning_without_any(tmp_path):
+def test_the_wrapper_refuses_a_voicing_on_a_tuning_without_any(tmp_path, fake_host):
+    _this_machine(fake_host)
     result = _wrapper(tmp_path, "--variant", "warm")
     assert result.returncode == 1
     assert ("error: --variant picks among a Dolby tuning's voicings, and "

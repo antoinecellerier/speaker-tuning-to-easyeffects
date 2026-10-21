@@ -244,12 +244,11 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `driver-cache/`. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover the tuning XML from a mounted Windows
-  directory, by matching the audio codec subsystem ID from `/proc/asound`
+  directory, by matching the audio codec subsystem ID from `/proc/asound`.
+  When no Dolby file there matches, it uses a Sonitude tuning in the same
+  DriverStore.
 - `--best-guess` — on a SoundWire machine, fall back to a manufacturer-matched
   tuning when auto-detection finds no exact hardware match
-- `--hw-id [BUS:]CODEC:SUBSYS` — with HP's Bang & Olufsen tuning in place of
-  the XML, pick the preset for another laptop, from the IDs its
-  `--speaker-info` prints. Experimental.
 
 **Inspection**
 - `--list` — show available endpoints and profiles in the XML, then exit
@@ -280,8 +279,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   installing more than one sink.
 
 **Output**
-- `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` →
-  `Dolby_Balanced`, etc.; `HP-BO` for HP's Bang & Olufsen tuning)
+- `--prefix PREFIX` — prefix for preset/sink names (default: `Dolby` or
+  `Sonitude`, as in `Dolby_Balanced` or `Sonitude_Music`)
 - `--output-dir DIR` — directory for the generated `.conf` and `.irs` copy
   (default: `~/.config/pipewire/pipewire.conf.d`)
 - `--force` — overwrite existing conf and `.irs` files
