@@ -103,10 +103,11 @@ class ApoLayer:
     biquads (`lib/preset/fir.py` `design_target_db`). Empty when the format
     has none.
 
-    `standalone` marks a layer that is the device's whole tuning: no Dolby
-    file ships beside it, so nothing is stacked under it.
+    `whole_tuning` marks a layer that is the device's whole tuning: no
+    Dolby file ships beside it, so nothing is stacked under it, and each
+    profile has a layer of its own.
 
-    `changes_nothing` marks a standalone layer whose build would leave the
+    `changes_nothing` marks a whole-tuning layer whose build would leave the
     sound as it is, such as a placeholder preset's flat curve. A run builds
     no preset from it (`lib/tuning_source.py`).
     """
@@ -120,7 +121,7 @@ class ApoLayer:
     dynamics: tuple[BandDynamics, ...]
     stages: tuple[Stage, ...]
     default_on: bool = False
-    standalone: bool = False
+    whole_tuning: bool = False
     curve_hz: tuple[float, ...] = ()
     curve_left_db: tuple[float, ...] = ()
     curve_right_db: tuple[float, ...] = ()

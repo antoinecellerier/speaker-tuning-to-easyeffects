@@ -217,11 +217,11 @@ class ParsedTuning:
     # when the family is absent or malformed. Corpus-frozen, so it feeds
     # only the opt-in --enable virtual-bass path (issue #14).
     virtual_bass: dict | None = None
-    # The `TuningSource.kind` this came from (`lib/tuning_source.py`):
-    # "standalone" for the flat stand-in `flat_tuning` builds when the device
-    # ships no Dolby file. Every field above is then neutral, and the vendor
-    # layer is the whole tuning.
-    source: str = "dolby"
+    # Whether the presets come in Dolby's voicings, one per IEQ curve. False
+    # for the flat stand-in `flat_tuning` builds when the device ships no
+    # Dolby file: every field above is then neutral, and the vendor layer is
+    # the whole tuning.
+    voicings: bool = True
 
 
 def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
@@ -239,7 +239,7 @@ def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
         ao_left=list(flat), ao_right=list(flat), peq_filters=[],
         vol_leveler=None, dialog_enhancer=None, surround=None, mb_comp=None,
         regulator=None, volmax_boost=0.0, ao_enabled=False,
-        ieq_enabled=False, profile_used=profile, source="standalone")
+        ieq_enabled=False, profile_used=profile, voicings=False)
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point

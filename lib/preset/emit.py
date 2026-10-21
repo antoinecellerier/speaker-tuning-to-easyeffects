@@ -313,9 +313,9 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
     ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
 
-    # A standalone tuning has no voicings, only its flat stand-in curve, so
-    # its one preset per profile is named for the profile alone.
-    if tuning.source == "standalone":
+    # A tuning without voicings has only its flat stand-in curve, so its one
+    # preset per profile is named for the profile alone.
+    if not tuning.voicings:
         ieq_presets = {name_base: next(iter(curves))}
     else:
         ieq_presets = {f"{name_base}-{label}": key
@@ -323,9 +323,10 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
 
     apo_on = apo_layer.is_active(apo, set(args.enable), disabled)
     # Which curve the correction check grades: with a vendor EQ folded in,
-    # the target is both files', floored (fir.design_target_db). A
-    # standalone run has no Dolby file, so only the vendor's is asked for.
-    if tuning.source == "standalone":
+    # the target is both files', floored (fir.design_target_db). A layer
+    # that is the whole tuning has no Dolby file beside it, so only the
+    # vendor's is asked for.
+    if apo is not None and apo.whole_tuning:
         asked = "the vendor tuning asks for"
     elif apo_on and (apo.eq_left or apo.eq_right or apo.curve_hz):
         asked = "your tuning file and the vendor tuning ask for"

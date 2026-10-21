@@ -148,7 +148,7 @@ def test_find_binds_the_subsystem_and_reads_the_speaker_curve(tmp_path):
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     layer = sonitude.find(a, "10EC0285", "103c860f", prefer_intelaudio=True)
-    assert layer is not None and layer.standalone and layer.default_on
+    assert layer is not None and layer.whole_tuning and layer.default_on
     assert layer.label == "Sonitude speaker tuning (preset 177, X_Synth)"
     assert layer.hardware_id == ("INTELAUDIO\\FUNC_01&VEN_10EC&DEV_0285"
                                  "&SUBSYS_103C860F")

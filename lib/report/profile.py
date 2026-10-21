@@ -182,7 +182,7 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     """
     if apo is None:
         return []
-    if shown and not apo.standalone:
+    if shown and not apo.whole_tuning:
         finding = (_vendor_apo_not_reproduced_finding(apo) if apo_on
                    else None)
         return [finding] if finding else []
@@ -197,7 +197,7 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
             "on top (experimental, issue #113).", indent="    ")
         return []
     print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
-    if apo.standalone:
+    if apo.whole_tuning:
         # The run said it builds from this alone where it found the tuning
         # (dolby_to_easyeffects.py `_tuning_source`).
         if experimental:
