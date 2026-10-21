@@ -112,9 +112,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 ### Added
 
 - Laptops that ship no Dolby file but tune their speakers with the Sonitude APO
-  get an experimental `Sonitude-Music` preset from that tuning, read from the
-  driver download or a mounted Windows; `--all-profiles` adds Movie and Voice,
-  which nobody has listened to.
+  get experimental presets from that tuning, read from the driver download or a
+  mounted Windows: `Sonitude-Music` first, and Movie and Voice with
+  `--all-profiles`, which nobody has listened to.
   ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140);
   how to run it in `docs/sonitude.md`)
 - Mark additional tested devices: ThinkPad P53 (20QQ)

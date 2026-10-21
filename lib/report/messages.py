@@ -210,6 +210,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    profile_used: str | None = None,
                    n_modes: int = 0,
                    default_unknown: bool = False,
+                   modes_skipped: bool = False,
+                   default_moved: bool = False,
                    autogain_off: bool = False,
                    menu_printed: bool = False,
                    declared_default: str | None = None,
@@ -231,7 +233,10 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     only this one. --all-profiles is the answer, and it was never
     mentioned anywhere a user reads). ``default_unknown`` adds the guess
     caveat to that line (round 6: the caveat lived only at the top banner,
-    which a Done-stopper never rereads). ``autogain_off`` adds the one
+    which a Done-stopper never rereads). ``modes_skipped`` says a standalone
+    tuning has modes that change nothing, which no run builds, and
+    ``default_moved`` that the first-listed mode is one, so ``profile_used``
+    is the first that changes the sound. ``autogain_off`` adds the one
     guaranteed audible difference from Windows, the tuning's leveler
     shipping off, for the same reason: it never reached the last screen
     (round 6).
@@ -343,6 +348,18 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     voicing_hint = f" ({', '.join(hints)})" if hints else ""
     # A standalone tuning builds one preset per sound mode and no voicings.
     these = "These voice" if len(preset_names) > 1 else "It voices"
+    # A standalone tuning's mode that changes nothing is never built, so
+    # --all-profiles builds only those that do, and a default that moved
+    # past one is not the Windows default this run would otherwise assume.
+    modes_note = ""
+    if profile_used and n_modes > 1:
+        caveat = (" (the first one that changes the sound)" if default_moved
+                  else " (we assume it is your Windows default)"
+                  if default_unknown else "")
+        every = ("every mode that changes the sound" if modes_skipped
+                 else "every mode")
+        modes_note = (f"  {these} the '{profile_used}' sound mode "
+                      f"only{caveat} — --all-profiles builds {every}.")
     others_are = ("voicings" if any(n.endswith(f"-{v}") for n in preset_names
                                     for v in VOICING_CURVES)
                   else "presets")
@@ -380,13 +397,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "doesn't. (Or add --autoload and it loads "
                                "itself for your speakers.)",
                         indent="  ")
-        if profile_used and n_modes > 1:
-            caveat = (" (we assume it is your Windows default)"
-                      if default_unknown else "")
-            console._cprint_wrapped("dim", f"  {these} the '{profile_used}' "
-                                   f"sound mode only{caveat} — "
-                                   "--all-profiles builds every mode.",
-                            indent="  ")
+        if modes_note:
+            console._cprint_wrapped("dim", modes_note, indent="  ")
         if mismatch_note:
             console._cprint_wrapped("dim", mismatch_note, indent="  ")
         if autogain_off:
@@ -445,12 +457,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                                "Or re-run with "
                                "--autoload to have it load itself for your "
                                "speakers.", indent="  ")
-    if profile_used and n_modes > 1:
-        caveat = (" (we assume it is your Windows default)"
-                  if default_unknown else "")
-        console._cprint_wrapped("dim", f"  {these} the '{profile_used}' sound "
-                               f"mode only{caveat} — --all-profiles builds "
-                               "every mode.", indent="  ")
+    if modes_note:
+        console._cprint_wrapped("dim", modes_note, indent="  ")
     if mismatch_note:
         console._cprint_wrapped("dim", mismatch_note, indent="  ")
     if autogain_off:

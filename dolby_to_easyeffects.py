@@ -804,8 +804,11 @@ def main(argv: list[str] | None = None,
                        f"{doctor.tilde(source.layer.inf_path)}:")
         print("  endpoint: internal_speaker (operating_mode=normal)")
         for name in source.profiles:
-            print(f"    profile: {name}"
-                  + (" (experimental)" if source.experimental(name) else ""))
+            mark = (" (changes nothing in this tuning)"
+                    if name in source.unbuildable
+                    else " (experimental)" if source.experimental(name)
+                    else "")
+            print(f"    profile: {name}{mark}")
         return
     if args.list:
         console.cprint("head", f"Endpoints and profiles in {doctor.tilde(xml_path)}:")
@@ -839,6 +842,18 @@ def main(argv: list[str] | None = None,
             console.cprint("head", "Generating presets for all "
                            f"{len(profile_types)} profiles: "
                            f"{', '.join(profile_types)}")
+        # Said once, before the first preset, so a mode missing from the
+        # list reads as the tuning's doing. Not under --profile, which built
+        # the one mode it named.
+        skipped = [p.title() for p in source.unbuildable]
+        if skipped and args.profile is None:
+            modes, verb, pron = ((f"{skipped[0]} mode", "changes", "it")
+                                 if len(skipped) == 1 else
+                                 (f"{' and '.join(skipped)} modes", "change",
+                                  "them"))
+            console._cprint_wrapped("head", f"The tuning's {modes} {verb} "
+                                    f"nothing, so no preset is built for "
+                                    f"{pron}.")
     elif args.all_profiles:
         profile_types = parse.get_profile_types(xml_path, args.endpoint, args.mode)
         if not profile_types:
@@ -1025,12 +1040,22 @@ def main(argv: list[str] | None = None,
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
         if source.kind == tuning_source.STANDALONE:
             console.cprint("head", source.format.heading)
-            # The Dolby banner's wording, from the tuning's own profiles.
-            n_profiles = len(source.profiles)
+            # The Dolby banner's wording, from the tuning's own profiles. A
+            # mode that changes nothing is never built, so when the first
+            # one is such, the pick is the first that changes the sound.
+            n_profiles, n_built = (len(source.profiles),
+                                   len(source.buildable))
             if args.profile or args.all_profiles:
                 shown = profile_type
             elif n_profiles == 1:
                 shown = f"{profile_type} (this speaker's only sound mode)"
+            elif n_built == 1:
+                shown = (f"{profile_type} (the only one of this speaker's "
+                         f"{n_profiles} sound modes that changes the sound)")
+            elif profile_type != next(iter(source.profiles)):
+                shown = (f"{profile_type} (the first-listed of the "
+                         f"{n_built} sound modes that change this speaker's "
+                         "sound — --list names them; --profile picks)")
             else:
                 shown = (f"{profile_type} (the first-listed of this "
                          f"speaker's {n_profiles} sound modes — --list names "
@@ -1374,10 +1399,14 @@ def main(argv: list[str] | None = None,
         # Single-mode runs only: under --all-profiles every mode was built,
         # so there is nothing to point at. get_profile_types re-reads the
         # XML, but only here, once, at the very end.
+        # A standalone mode that changes nothing is never built, so it is
+        # not one of the modes --all-profiles would add.
         profile_used = n_modes = None
+        unbuilt = (source.unbuildable
+                   if source.kind == tuning_source.STANDALONE else [])
         if not args.all_profiles and len(profile_types) == 1:
             profile_used = last_profile_used
-            n_modes = (len(source.profiles)
+            n_modes = (len(source.buildable)
                        if source.kind == tuning_source.STANDALONE
                        else len(parse.get_profile_types(
                            xml_path, args.endpoint, args.mode)))
@@ -1386,6 +1415,10 @@ def main(argv: list[str] | None = None,
                        profile_used=profile_used, n_modes=n_modes or 0,
                        default_unknown=(args.profile is None
                                         and default_profile is None),
+                       modes_skipped=bool(unbuilt),
+                       default_moved=(args.profile is None
+                                      and next(iter(source.profiles), None)
+                                      in unbuilt),
                        # "autogain" marker = leveler present but bypassed
                        # (the --enable-menu state); -active = running.
                        autogain_off=("autogain" in tally.filters_by_profile

@@ -421,10 +421,13 @@ Each content mode is a profile:
 | `movie` | `Movie` | `Sonitude-Movie`, marked experimental |
 | `voice` | `Voice` | `Sonitude-Voice`, marked experimental |
 
-`--all-profiles` builds every mode the archive holds, and `--list` names them.
-A mode the archive lacks is left out, except `music`, which the run requires.
-Each preset's FIR is normalised so its loudest point sits at 0 dB. The level
-difference between modes is therefore not reproduced.
+`--all-profiles` builds every mode the archive holds, and `--list` names them. A
+mode the archive lacks is left out, except `music`, which the run requires. A
+mode whose built curves are flat within 0.05 dB, with its high-pass off, changes
+nothing, so no run builds it: the default becomes the first mode that changes
+the sound, and `--list` marks it. Each preset's FIR is normalised so its loudest
+point sits at 0 dB. The level difference between modes is therefore not
+reproduced.
 
 The run reports each stage on one line, as `built`, `approximated` (built,
 knowingly not as the file states it) or `not reproduced`. A Sonitude preset

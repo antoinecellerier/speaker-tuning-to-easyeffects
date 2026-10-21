@@ -20,7 +20,9 @@ The run builds `Sonitude-Music`, from the tuning's Music sound mode.
 `--all-profiles` also builds `Sonitude-Movie` and `Sonitude-Voice`, and
 `--profile movie` builds one of them alone. `--list` names the sound modes the
 tuning holds. Each preset is scaled to its own peak, not to Windows' loudness
-between sound modes.
+between sound modes. A sound mode that changes nothing in the tuning is never
+built: the run says so and starts from the first mode that changes the sound,
+and `--list` marks it.
 
 The tuning has no Dolby stages, so the run refuses the flags that act on one:
 every `--disable` name, `--enable autogain`, `dialog` and `virtual-bass`, and

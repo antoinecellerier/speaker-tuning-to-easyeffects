@@ -32,6 +32,14 @@ STANDALONE = "standalone"
 _DOLBY_STAGE_FLAGS = ("autogain", "dialog", "virtual-bass")
 
 
+def _ends_on_its_reason(exc: ValueError) -> ValueError:
+    """*exc*, marked as `lib/console.py` `no_next_step` marks one, which this
+    stdlib-only module can't import: its message says what is left to do,
+    and no flag in --help makes a tuning change anything."""
+    exc.next_step = ""
+    return exc
+
+
 @dataclass(frozen=True)
 class TuningSource:
     """The tuning a run builds from, as main() reads it."""
@@ -49,13 +57,15 @@ class TuningSource:
     format: StandaloneFormat | None = None
     origin: Path | None = None
     # Standalone only, once `resolved`: profile name → the layer that is that
-    # profile's whole tuning, the one a run without --profile builds first.
+    # profile's whole tuning. A run without --profile builds the first that
+    # changes the sound (`buildable`).
     profiles: dict[str, ApoLayer] = field(default_factory=dict)
 
     @property
     def layer(self) -> ApoLayer | None:
-        """Standalone only: the default profile's layer, which names the
-        tuning for the device as a whole."""
+        """Standalone only: the first-listed profile's layer, which names
+        the tuning for the device as a whole: every profile's is read from
+        the same preset."""
         return next(iter(self.profiles.values()), None)
 
     def experimental(self, profile: str | None) -> bool:
@@ -63,21 +73,44 @@ class TuningSource:
         return (self.kind == STANDALONE
                 and profile in self.format.experimental)
 
+    @property
+    def buildable(self) -> list[str]:
+        """Standalone only: the profiles whose layer changes the sound, in
+        order. A preset of one that changes nothing would be of no use."""
+        return [p for p, layer in self.profiles.items()
+                if not layer.changes_nothing]
+
+    @property
+    def unbuildable(self) -> list[str]:
+        """Standalone only: the profiles whose layer changes nothing."""
+        return [p for p in self.profiles if p not in self.buildable]
+
     def profiles_to_build(self, profile: str | None,
                           all_profiles: bool) -> list[str]:
         """Standalone only: the profiles this run builds, as --profile and
-        --all-profiles pick them; the default one when neither is given.
+        --all-profiles pick them; the first buildable one when neither is
+        given.
 
         Raises ValueError, as the Dolby file's own lookup does, for a
-        profile the tuning doesn't hold."""
-        names = list(self.profiles)
-        if all_profiles:
-            return names
-        if profile is None:
-            return names[:1]
-        if profile.lower() not in self.profiles:
+        profile the tuning doesn't hold or one that changes nothing, and
+        when no profile changes anything."""
+        names, buildable = list(self.profiles), self.buildable
+        if profile is not None and profile.lower() not in self.profiles:
             raise ValueError(f"Profile '{profile}' not found. Available: "
                              f"{', '.join(names)}")
+        if not buildable:
+            raise _ends_on_its_reason(ValueError(
+                "This tuning changes nothing in any of its sound modes "
+                f"({', '.join(names)}), so there is no preset to build."))
+        if all_profiles:
+            return buildable
+        if profile is None:
+            return buildable[:1]
+        if profile.lower() not in buildable:
+            raise _ends_on_its_reason(ValueError(
+                f"Profile '{profile}' changes nothing in this tuning, so "
+                "there is no preset to build for it. Profiles that change "
+                f"the sound: {', '.join(buildable)}"))
         return [profile.lower()]
 
     @property

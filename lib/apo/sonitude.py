@@ -85,7 +85,8 @@ _READ_ERRORS = (OSError, EOFError, zipfile.BadZipFile, zlib.error,
 
 # The speaker presets: endpoint 0, the endpoint effect on any output, one per
 # content mode. The run's profile name → the mode's folder, the default
-# first: a run without --profile builds it. The archive's manifest names the
+# first: a run without --profile builds it, unless it changes nothing
+# (`ApoLayer.changes_nothing`). The archive's manifest names the
 # AnyContent file "<model> Music" on the one device checked (#140).
 PROFILES = {"music": "AnyContent", "movie": "Movie", "voice": "Voice"}
 
@@ -431,6 +432,13 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
     return load(*hits[bus], bus, codec_vendor_id, subsys)
 
 
+# How close to 0 dB a built curve stays to count as flat. In the one download
+# read, the mapped speaker presets that are flat in a sound mode sit within
+# 0.0013 dB of it there, and every other one cuts by 4.3 dB or more
+# somewhere; 0.05 dB is well clear of both.
+FLAT_DB = 0.05
+
+
 def load(path: Path, number: int, bus: str, codec_vendor_id: str,
          subsys: str, profile: str = "music") -> ApoLayer:
     """Preset *number*'s speaker layer for *profile* (`PROFILES`), from the
@@ -468,6 +476,11 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
     left = tuple(min(v, 0.0) for v in shaped[0])
     right = (tuple(min(v, 0.0) for v in shaped[1])
              if len(curves) > 1 else left)
+    # The FIR is built from these two curves alone, so flat ones and no
+    # high-pass build a preset that changes nothing.
+    changes_nothing = (all(abs(v) <= FLAT_DB for v in left + right)
+                       and all(c is None or c is UNREAD
+                               for c in corners[:len(shaped)]))
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(
         label=f"Sonitude speaker tuning ({name})",
@@ -484,6 +497,7 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
         curve_hz=curve_grid_hz(),
         curve_left_db=left,
         curve_right_db=right,
+        changes_nothing=changes_nothing,
     )
 
 

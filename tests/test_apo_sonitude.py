@@ -586,6 +586,139 @@ def test_an_unknown_profile_names_the_three(tmp_path, fake_host,
                                    "--profile", "game"])
 
 
+# A placeholder preset: flat, with its high-pass off.
+_FLAT = _preset_bin([0.0] * sonitude.CURVE_POINTS, high_pass=(None, None))
+
+
+def _flat_music() -> dict[str, bytes]:
+    """`_three_modes` with a Music mode that changes nothing."""
+    return {**_three_modes(), "music": _FLAT}
+
+
+def test_a_flat_mode_without_a_high_pass_changes_nothing(tmp_path):
+    """Flat within `FLAT_DB` and no high-pass: the build would leave the
+    sound as it is. A high-pass alone, or a cut only just past the
+    tolerance, still changes it."""
+    flat = [0.0] * sonitude.CURVE_POINTS
+    near = [-sonitude.FLAT_DB / 2] * sonitude.CURVE_POINTS
+    dip = [0.0] * 100 + [-2 * sonitude.FLAT_DB] + [0.0] * 164
+    boosts = [3.0] * sonitude.CURVE_POINTS  # cuts only: built flat
+    cases = {1: (_FLAT, True),
+             2: (_preset_bin(near, high_pass=(None, None)), True),
+             3: (_preset_bin(boosts, high_pass=(None, None)), True),
+             4: (_preset_bin(flat, high_pass=(80.0, 80.0)), False),
+             5: (_preset_bin(dip, high_pass=(None, None)), False),
+             6: (_preset_bin(flat, high_pass=(None, 80.0)), False),
+             7: (_preset_bin(_curve()), False)}
+    a = _archive(tmp_path / _ARCHIVE, {f"103C86{n:02X}": n for n in cases},
+                 {n: blob for n, (blob, _) in cases.items()})
+    for n, (_, expected) in cases.items():
+        layer = sonitude.find(a, "10EC0285", f"103C86{n:02X}", True)
+        assert layer.changes_nothing is expected, n
+
+
+def test_a_mode_that_changes_nothing_is_not_built_by_default(
+        tmp_path, fake_host, silence_console, capsys):
+    """The first mode that changes the sound is the default, and the run
+    says why the first-listed one is missing, without calling the one it
+    built the Windows default."""
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
+    out, out_dir = _run(tmp_path, capsys, a)
+    assert [p.name for p in out_dir.glob("*.json")] == ["Sonitude-Movie.json"]
+    assert out.count("The tuning's Music mode changes nothing, so no preset "
+                     "is built for it.") == 1
+    assert ("Profile: movie (the first-listed of the 2 sound modes that "
+            "change this speaker's sound — --list names them; --profile "
+            "picks)") in out
+    assert ("It voices the 'movie' sound mode only (the first one that "
+            "changes the sound) — --all-profiles builds every mode that "
+            "changes the sound.") in out
+    assert "Windows default" not in out
+
+
+def test_all_profiles_builds_only_the_modes_that_change_the_sound(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
+    out, out_dir = _run(tmp_path, capsys, a, "--all-profiles")
+    assert sorted(p.name for p in out_dir.glob("*.json")) == [
+        "Sonitude-Movie.json", "Sonitude-Voice.json"]
+    assert "Generating presets for all 2 profiles: movie, voice" in out
+    assert out.count("The tuning's Music mode changes nothing") == 1
+
+
+def test_the_only_mode_that_changes_the_sound_is_named_so(
+        tmp_path, fake_host, silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75},
+                 {75: {**_flat_music(), "voice": _FLAT}})
+    out, out_dir = _run(tmp_path, capsys, a, "--dry-run")
+    assert ("The tuning's Music and Voice modes change nothing, so no "
+            "preset is built for them.") in out
+    assert ("Profile: movie (the only one of this speaker's 3 sound modes "
+            "that changes the sound)") in out
+    # Nothing else to build, so no pointer to --all-profiles.
+    assert "--all-profiles builds" not in out
+
+
+def test_a_profile_that_changes_nothing_is_refused_with_the_reason(
+        tmp_path, fake_host, silence_console):
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
+    with pytest.raises(ValueError, match="Profile 'music' changes nothing in "
+                       "this tuning, so there is no preset to build for it. "
+                       "Profiles that change the sound: movie, voice") as e:
+        dolby_to_easyeffects.main([str(a), "--dry-run", "--skip-ee-check",
+                                   "--profile", "music"])
+    # The sentence ends on what to do, so no --help pointer follows it.
+    assert e.value.next_step == ""
+
+
+def test_list_marks_a_mode_that_changes_nothing(tmp_path, fake_host,
+                                                silence_console, capsys):
+    silence_console(console)
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
+    out, _ = _run(tmp_path, capsys, a, "--list")
+    assert out.endswith(
+        "profile: music (changes nothing in this tuning) profile: movie "
+        "(experimental) profile: voice (experimental)")
+
+
+def test_a_tuning_that_changes_nothing_anywhere_is_a_clean_error(
+        tmp_path, fake_host, capsys):
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75},
+                 {75: {p: _FLAT for p in sonitude.PROFILES}})
+    for flags in ([], ["--all-profiles"], ["--profile", "movie"]):
+        rc = dolby_to_easyeffects.run_cli(
+            [str(a), "--dry-run", "--skip-ee-check", "--no-color", *flags])
+        out = " ".join(capsys.readouterr().out.split())
+        assert rc == 1
+        assert out.endswith(
+            "Error: This tuning changes nothing in any of its sound modes "
+            "(music, movie, voice), so there is no preset to build."), flags
+
+
+def test_the_wrapper_skips_a_mode_that_changes_nothing(tmp_path, fake_host):
+    """The wrapper converts what the generator built, so the flat mode never
+    reaches it."""
+    _this_machine(fake_host)
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
+    result = _wrapper(tmp_path, "--all-profiles", "--target-object",
+                      "alsa_output.speakers", source=a)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(p.name for p in (tmp_path / "confs").iterdir()) == sorted(
+        f"Sonitude_{m}.{ext}" for m in ("Movie", "Voice")
+        for ext in ("conf", "irs"))
+    assert "The tuning's Music mode changes nothing" in result.stdout
+
+
 def test_a_vendor_only_run_reads_this_machines_codec(tmp_path, fake_host,
                                                     silence_console, capsys):
     silence_console(console)

@@ -105,6 +105,10 @@ class ApoLayer:
 
     `standalone` marks a layer that is the device's whole tuning: no Dolby
     file ships beside it, so nothing is stacked under it.
+
+    `changes_nothing` marks a standalone layer whose build would leave the
+    sound as it is, such as a placeholder preset's flat curve. A run builds
+    no preset from it (`lib/tuning_source.py`).
     """
     label: str
     config_path: Path
@@ -120,6 +124,7 @@ class ApoLayer:
     curve_hz: tuple[float, ...] = ()
     curve_left_db: tuple[float, ...] = ()
     curve_right_db: tuple[float, ...] = ()
+    changes_nothing: bool = False
 
     def curve(self, side: str):
         """``(hz, db)`` for *side* ("left" or "right"), or None."""
@@ -145,8 +150,8 @@ class StandaloneFormat:
     # The folders in an installed Windows' DriverStore (FileRepository) that
     # hold this format's tuning, one per driver version, newest first.
     driver_store_packages: Callable[[Path], list[Path]]
-    # (source, warn) → profile name → the layer bound to this machine, the
-    # profile a run without --profile builds first. Raises RuntimeError,
+    # (source, warn) → profile name → the layer bound to this machine, in
+    # the order a run without --profile picks from. Raises RuntimeError,
     # saying why, when none is. *warn* takes a sentence, then after a newline
     # each, lines the run prints unwrapped, such as a path to copy.
     resolve: Callable[[Path, Callable[[str], None]], dict[str, ApoLayer]]
