@@ -21,6 +21,9 @@ arms whose subgain is above the schema's -192 "off" floor. The mix band is
 `mix-freqs` verbatim. The double HP at the mix-band edge keeps arm
 fundamentals out of the sum (guard G1 in the `r-dax-virtual-bass` evidence).
 Everything is IIR with no look-ahead, so the branch adds zero latency.
+PipeWire's "unaligned latency" warning counts only the dry path's declared
+look-ahead. The arm filters' group delay is what puts the harmonics late
+(research `r-vbe-dry-wet-timing`).
 
 `wrap_chain` sandwiches the translated stages: a copy fan-out becomes the
 graph input and the dry+wet mixer becomes the graph output. So
@@ -58,8 +61,13 @@ _MODE_IIR = 0
 # (`r-dax-virtual-bass`, G1).
 _MIX_HP_STAGES = 2
 
+# The arm band-passes' slope. Their group delay sets how late the
+# harmonics arrive after the note (research `r-vbe-dry-wet-timing`).
+_ARM_SLOPE = _SLOPE_X16
 
-def _filter_node(name: str, ft: int, freq: float) -> dict:
+
+def _filter_node(name: str, ft: int, freq: float,
+                 slope: int = _SLOPE_X16) -> dict:
     return {
         "type": "lv2",
         "name": name,
@@ -69,7 +77,7 @@ def _filter_node(name: str, ft: int, freq: float) -> dict:
             "mode": _MODE_IIR,
             "ft": ft,
             "fm": _FM_BWC_BT,
-            "s": _SLOPE_X16,
+            "s": slope,
             "f": round(freq, 4),
         },
     }
@@ -156,8 +164,8 @@ def wrap_chain(stages: list[Stage],
         hp = f"vbe_a{i}f1"
         lp = f"vbe_a{i}f2"
         sat = f"vbe_a{i}sat"
-        nodes.append(_filter_node(hp, _FT_HIPASS, edges[i]))
-        nodes.append(_filter_node(lp, _FT_LOPASS, edges[i + 1]))
+        nodes.append(_filter_node(hp, _FT_HIPASS, edges[i], _ARM_SLOPE))
+        nodes.append(_filter_node(lp, _FT_LOPASS, edges[i + 1], _ARM_SLOPE))
         nodes.append(_saturator_node(sat))
         link("vbe_in_l:Out", f"{hp}:in_l")
         link("vbe_in_r:Out", f"{hp}:in_r")

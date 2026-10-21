@@ -14,7 +14,7 @@ import pytest
 
 from tools.measure_ee.analyze_vbe_chain import Stimulus
 from tools.measure_ee.score_vbe_chain import (
-    FLOOR, CellBank, guards, score,
+    FLOOR, CellBank, guards, score, timing_lags,
 )
 
 SR = 48000
@@ -28,7 +28,7 @@ def stim(tmp_path: Path) -> Stimulus:
         "sample_rate_hz": SR,
         "tone_freqs_hz": TONES,
         "tone_duration_s": 1.0,
-        "gap_duration_s": 0.2,
+        "gap_duration_s": 0.5,
         "pre_silence_s": 0.1,
     }))
     return Stimulus(sidecar)
@@ -106,3 +106,63 @@ def test_dirty_180_source_fails_g2(stim):
     leaky[3].append((360.0, 0.01))        # 2nd harmonic of the 180 Hz tone
     capture = CellBank(synth(stim, leaky), stim)
     assert "G2 180-source dirty (360 Hz)" in guards(capture, dax, dry=None)
+
+
+def _burst(stim: Stimulus, tone_idx: int, comps: list[tuple[float, float,
+           float, float]]) -> np.ndarray:
+    """Sines (freq_hz, amplitude, start_s, stop_s), times relative to the
+    tone's slot, so a product can start or stop off the note's edges."""
+    total = int(round((stim.pre_s + len(stim.tones)
+                       * (stim.tone_s + stim.gap_s)) * stim.sr))
+    x = np.zeros(total)
+    slot = stim.pre_s + tone_idx * (stim.tone_s + stim.gap_s)
+    for freq, amp, t0, t1 in comps:
+        a, b = (int(round((slot + t) * stim.sr)) for t in (t0, t1))
+        t = np.arange(b - a) / stim.sr
+        x[a:b] += amp * np.sin(2 * np.pi * freq * t)
+    return x
+
+
+def test_timing_lags_recover_a_known_delay(stim):
+    """A 150 Hz product that starts 100 ms after its 50 Hz note and stops
+    60 ms after it: the lags come back as those offsets."""
+    x = _burst(stim, 0, [(50.0, 0.1, 0.0, 1.0), (150.0, 0.01, 0.1, 1.06)])
+    onset, release = timing_lags(x, stim, 50.0, 3)
+    assert onset == pytest.approx(100.0, abs=10.0)
+    assert release == pytest.approx(60.0, abs=10.0)
+
+
+def test_timing_lags_read_zero_for_a_product_on_the_note(stim):
+    x = _burst(stim, 1, [(80.0, 0.1, 0.0, 1.0), (240.0, 0.01, 0.0, 1.0)])
+    onset, release = timing_lags(x, stim, 80.0, 3)
+    assert onset == pytest.approx(0.0, abs=10.0)
+    assert release == pytest.approx(0.0, abs=10.0)
+
+
+def test_timing_lags_skip_a_product_under_the_floor(stim):
+    x = _burst(stim, 0, [(50.0, 0.1, 0.0, 1.0)])
+    assert timing_lags(x, stim, 50.0, 3) is None
+
+
+def test_timing_lags_ignore_a_dip_before_the_note_ends(stim):
+    """A product that drops out briefly 0.2 s before the note ends still
+    releases with the note, not at the dip."""
+    x = _burst(stim, 0, [(50.0, 0.1, 0.0, 1.0), (150.0, 0.01, 0.0, 0.75),
+                         (150.0, 0.01, 0.85, 1.0)])
+    _, release = timing_lags(x, stim, 50.0, 3)
+    assert release == pytest.approx(0.0, abs=10.0)
+
+
+def test_timing_lags_give_no_reading_for_a_product_that_never_holds(stim):
+    """A product beating on and off every 100 ms never stays above half for
+    the hold time, so it has no onset rather than one at the window start."""
+    comps = [(50.0, 0.1, 0.0, 1.0)]
+    comps += [(150.0, 0.01, t, t + 0.05) for t in np.arange(0.0, 1.0, 0.1)]
+    assert timing_lags(_burst(stim, 0, comps), stim, 50.0, 3) is None
+
+
+def test_timing_lags_give_no_reading_for_a_product_outlasting_the_window(stim):
+    """A product still sounding when the next slot begins has no release."""
+    x = _burst(stim, 0, [(50.0, 0.1, 0.0, 1.0),
+                         (150.0, 0.01, 0.0, stim.tone_s + stim.gap_s + 0.3)])
+    assert timing_lags(x, stim, 50.0, 3) is None

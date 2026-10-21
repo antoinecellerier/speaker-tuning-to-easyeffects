@@ -34,6 +34,11 @@ What remains: G1 summed-fundamental preservation (vs --dry-capture),
 G2 the 180 Hz source stays clean at 360 Hz, G3 mud cells ≤ DAX +6 dB and
 the 200–469 Hz integral ≤ DAX +3 dB.
 
+Timing, printed per capture but not scored: how many ms after its note
+each odd product of the 50 and 80 Hz tones reaches half its steady level,
+and how long it outlasts the note. S cannot see either, because its
+windows skip each tone's edges.
+
 Offline renders are a pre-screen; captures through a live chain are the
 signal this scores (never adopt on offline numbers — CLAUDE.md).
 """
@@ -49,7 +54,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 from tools.measure_ee.analyze_vbe_chain import (  # noqa: E402
-    Stimulus, align, load_mono,
+    EDGE_SKIP_S, Stimulus, align, load_mono,
 )
 
 # The corpus-frozen XML mix band (`virtual-bass-mix-freqs` = "94,469", one
@@ -141,6 +146,75 @@ def guards(bank: CellBank, dax: CellBank,
     return fails
 
 
+# Timing cells, reported beside S rather than scored: the steady-state
+# windows above skip 0.3 s at each tone edge, so S is blind to when a
+# product arrives. Odd harmonics of the in-source tones, where DAX's
+# products clear the floor (research `r-vbe-dry-wet-timing`).
+LAG_CELLS = ((50, 3), (50, 5), (80, 3), (80, 5))
+LAG_BW_HZ = 10.0        # half-width of each envelope's band
+LAG_HOLD_S = 0.15       # an onset counts once the envelope stays up this long
+LAG_PRE_S = 0.2         # envelope context kept before each tone and
+                        # before the next one
+
+
+def _envelope(x: np.ndarray, freq: float, sr: int) -> np.ndarray:
+    """Zero-phase band envelope, so the filter adds no lag of its own.
+    The analytic-signal magnitude has no ripple at twice the band's
+    frequency, which a short RMS window would at 50 Hz."""
+    from scipy.signal import butter, hilbert, sosfiltfilt
+    sos = butter(4, [freq - LAG_BW_HZ, freq + LAG_BW_HZ], "bandpass",
+                 fs=sr, output="sos")
+    return np.abs(hilbert(sosfiltfilt(sos, x)))
+
+
+def _half_points(env: np.ndarray, stim: Stimulus,
+                 pre: int) -> tuple[int, int] | None:
+    """(onset, release) sample indices where the envelope crosses half its
+    steady level: the first point it stays above for LAG_HOLD_S, and the
+    last point it is above before falling for good. A dip mid-note is not a
+    release. `pre` is where the tone starts in `env`. None under the floor,
+    when it never holds above half, or when it outlasts the segment."""
+    skip = int(EDGE_SKIP_S * stim.sr)
+    tone = int(stim.tone_s * stim.sr)
+    steady = float(np.median(env[pre + skip:pre + tone - skip]))
+    if steady <= 0 or 20 * np.log10(steady) <= FLOOR:
+        return None
+    above = env > steady / 2
+    hold = int(LAG_HOLD_S * stim.sr)
+    held = np.flatnonzero(np.convolve(above.astype(int), np.ones(hold, int),
+                                      "valid") == hold)
+    if held.size == 0 or above[-1]:
+        return None
+    return int(held[0]), int(np.flatnonzero(above)[-1]) + 1
+
+
+def timing_lags(signal: np.ndarray, stim: Stimulus, tone: float,
+                h: int) -> tuple[float, float] | None:
+    """(onset, release) lag in ms of harmonic `h` behind the fundamental
+    of `tone`, both at their half-level points in the same aligned
+    capture. Positive means the product arrives, or lingers, after the
+    note. None when either envelope gives no clean reading."""
+    idx = stim.tones.index(tone)
+    slot = int(round((stim.pre_s + idx * (stim.tone_s + stim.gap_s))
+                     * stim.sr))
+    pre = min(int(LAG_PRE_S * stim.sr), slot)
+    end = slot + int(round((stim.tone_s + stim.gap_s) * stim.sr))
+    # The zero-phase filter smears both ways: it sags at its window's edge
+    # and pulls the next tone's onset back into the gap. So read only up to
+    # LAG_PRE_S before the next tone, and filter through to it.
+    ext = signal[slot - pre:end]
+    keep = len(ext) - int(LAG_PRE_S * stim.sr)
+
+    def points(freq: float) -> tuple[int, int] | None:
+        return _half_points(_envelope(ext, freq, stim.sr)[:keep], stim, pre)
+
+    base, prod = points(tone), points(h * tone)
+    if base is None or prod is None:
+        return None
+    to_ms = 1000.0 / stim.sr
+    return (prod[0] - base[0]) * to_ms, (prod[1] - base[1]) * to_ms
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Score bass-burst captures against a measured DAX "
@@ -169,16 +243,31 @@ def main() -> None:
                  "(generate with tools/measure_dax/make_stimulus.py)")
     stim = Stimulus(args.stimulus_json)
 
-    def bank_of(path: Path) -> CellBank:
-        return CellBank(align(load_mono(path, stim.sr), stim), stim)
+    def aligned(path: Path) -> np.ndarray:
+        return align(load_mono(path, stim.sr), stim)
 
-    dax = bank_of(args.dax_capture)
+    def bank_of(path: Path) -> CellBank:
+        return CellBank(aligned(path), stim)
+
+    def print_timing(label: str, signal: np.ndarray) -> None:
+        cells = []
+        for tone, h in LAG_CELLS:
+            lags = timing_lags(signal, stim, float(tone), h)
+            cells.append(f"{h}x{tone} " + ("no reading" if lags is None
+                         else f"{lags[0]:+.0f}/{lags[1]:+.0f}"))
+        print(f"  timing {label}, onset/release ms after the note: "
+              + ", ".join(cells))
+
+    dax_signal = aligned(args.dax_capture)
+    dax = CellBank(dax_signal, stim)
     dry = bank_of(args.dry_capture) if args.dry_capture else None
 
     print("S = macro-averaged |error| vs the DAX capture over "
           f"{len(SCORE_CELLS)} harmonic cells (dB, floor {FLOOR:g}, "
           f"overshoot >={MUD_LO:g} Hz x2). Dev-device anchors: DAX-self "
           "0.07, doing nothing 10.01, shipped chain ~4.4.")
+    print()
+    print_timing("DAX", dax_signal)
     if dry is not None:
         s, flat = score(dry, dax)
         print(f"\ndry (doing nothing): S = {s:.2f}  (flat {flat:.2f})")
@@ -187,9 +276,11 @@ def main() -> None:
         label, _, path = spec.partition("=")
         if not path:
             sys.exit(f"--capture wants LABEL=PATH, got: {spec}")
-        bank = bank_of(Path(path))
+        signal = aligned(Path(path))
+        bank = CellBank(signal, stim)
         s, flat = score(bank, dax)
         print(f"\n{label}: S = {s:.2f}  (flat {flat:.2f})")
+        print_timing(label, signal)
         print(f"  {'cell':>7} {'Hz':>4} | {label:>8} {'DAX':>8} {'err':>6}")
         for tone, h in SCORE_CELLS:
             want = max(dax.cell_db(tone, h), FLOOR)

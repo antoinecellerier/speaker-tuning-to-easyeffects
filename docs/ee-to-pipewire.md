@@ -655,6 +655,9 @@ activation step's sink check and `--doctor`'s "Chains loaded" report that.
   look-ahead, and the mixers/copies are builtin pass-throughs, so the branch
   adds zero latency. Evidence and the measured score are in
   the [DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass).
+  PipeWire logs `graph has unaligned latency` for these chains. That is
+  expected: it counts only the 2 ms of look-ahead in the regulator and limiter
+  ([timing](research/virtual-bass.md#r-vbe-dry-wet-timing)).
 - **Not alongside EasyEffects.** The chain is a replacement for the EasyEffects
   preset, not an add-on. In smart-filter mode EasyEffects' own output plays into
   the very sink the chain attaches to. Everything then carries the EE preset

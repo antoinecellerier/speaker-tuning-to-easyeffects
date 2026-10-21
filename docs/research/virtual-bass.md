@@ -12,6 +12,9 @@
 - **`--enable virtual-bass`**, opt-in and PipeWire-only, scores S = 4.43 against
   DAX on one device, the dev X1 Yoga, where emitting nothing scores 10.01
   ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
+- **Its harmonics arrive 100–200 ms after the note**, where DAX's arrive with
+  it. An x8 arm slope cuts the lag by about 40% live, with S within 0.03
+  ([timing](#r-vbe-dry-wet-timing)).
 - **The historical Calf BassEnhancer capture** on the dev X1 Yoga scores 18.43,
   worse than doing nothing
   ([phase 2](#phase-2-2026-08-decoding-virtual-bass-subgains-and-scoring-a-chain)).
@@ -23,6 +26,8 @@ Open:
 - What enables VBE on one device and not the other: engine generation and
   product tier covary on our two data points. #44's machine on an updated
   driver would be the cleanest discriminator ([#44](#r-dax-virtual-bass)).
+- Whether to ship the x8 arm slope: closer to DAX's timing at the same S on
+  live captures, not told apart by ear ([timing](#r-vbe-dry-wet-timing)).
 - The SoundWire bass-enhancer constants await a SoundWire device's DAX
   bass-burst capture, the test that would falsify them
   ([constants](#r-soundwire-bass-enhancer-constants)).
@@ -533,6 +538,126 @@ packages still list at that tier, so #44's machine on an updated driver would be
 the cleanest discriminator. Until then the finding's conclusion stands,
 strengthened: whatever enables VBE is not in any file or registry value we can
 read.
+
+<a id="r-vbe-dry-wet-timing"></a>
+
+## When the virtual-bass harmonics arrive, against DAX
+
+The shipped chain's harmonics reach half level 100–200 ms after their note, and
+DAX's arrive with it. The cause is the steep arm band-passes, not the 2 ms that
+PipeWire warns about.
+
+Conditions: dev X1 Yoga Gen 7. The captures are the DAX `Dynamic` bass-burst
+and the shipped-path capture of 2026-08-21 that scores S = 4.43 above. Measured
+2026-10-21 with PipeWire 1.6.9 and the LSP and Calf plugins installed there,
+during the issue
+[#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144)
+investigation.
+
+### Onset and release
+
+Each cell is a product's onset / release, in ms after its note. The method is
+`timing_lags` in `tools/measure_ee/score_vbe_chain.py`: a zero-phase ±10 Hz
+envelope per band, read at half its steady level: onset where it first stays
+above for 150 ms, release where it last falls below. A cell with no clean
+crossing gives no reading. The offline rows are `lv2apply` renders of the
+wet branch at each arm slope, summed with the live dry capture. The mix
+band stays at x16.
+
+| | 3×50 | 5×50 | 3×80 | 5×80 | S | guards |
+|---|---|---|---|---|---|---|
+| DAX | −36 / +27 | +15 / +20 | −44 / +37 | −15 / +15 | — | — |
+| shipped chain, live | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | 4.43 | pass |
+| arms x16, offline (shipped) | +202 / +176 | +183 / +152 | +109 / +97 | +106 / +93 | 4.43 | pass |
+| arms x12, offline | +165 / +139 | +143 / +114 | +82 / +78 | +85 / +71 | 4.45 | pass |
+| arms x8, offline | +129 / +104 | +110 / +84 | +74 / +62 | +62 / +50 | 4.46 | pass |
+| arms x6, offline | +109 / +84 | +82 / +60 | +61 / +48 | +52 / +39 | 4.47 | pass |
+| arms x4, offline | +92 / +68 | +78 / +34 | +50 / +40 | +41 / +27 | 4.64 | G1 @120 |
+| arms x2, offline | +63 / +51 | +57 / +39 | −33 / +30 | +30 / +14 | 7.65 | G1, G3 @120 |
+
+The offline x16 row reproduces the live capture: the same S, and lags within
+4 ms. G1 tolerates a 1.0 dB shift of a fundamental. At 120 Hz, x8 moves it by
++0.21 dB and x6 by −0.59 dB, the arm skirts letting that tone into the
+saturator.
+
+S scores steady-state windows that skip 0.3 s at each tone edge, so it never saw
+this. The lag fits the filters. An x16 filter's rendered group delay matches an
+order-32 Butterworth's, 14–83 ms across the mix band, and an order-32 model puts
+the arms at 144 and 88 ms at the 50 and 80 Hz fundamentals. A saturator's
+higher-order products also rise more slowly than its input level.
+
+### Live arm-slope captures
+
+x8 holds S and every guard live, and brings the products in about 40% sooner. x6
+is rejected: it lifts a 100 Hz note by 5.2 dB.
+
+Conditions: dev X1 Yoga Gen 7, 2026-10-21. The chain is the dev tuning's
+`dynamic` Balanced preset with `--enable virtual-bass`, captured through
+`tools/measure_pw/` with only `_ARM_SLOPE` in `lib/pipewire/vbe.py` changed.
+The stimuli are the loud and quiet bass bursts, plus a dense burst of 11 tones
+from 35 to 280 Hz.
+
+| arms | S, loud | 3×50 | 5×50 | 3×80 | 5×80 | guards, loud and quiet |
+|---|---|---|---|---|---|---|
+| x16 (shipped) | 4.43 | +198 / +172 | +179 / +148 | +106 / +94 | +102 / +89 | pass |
+| x8 | 4.46 | +125 / +100 | +108 / +81 | +67 / +59 | +59 / +46 | pass |
+| x6 | 4.47 | +105 / +82 | +79 / +58 | +57 / +47 | +48 / +34 | pass |
+
+On the quiet burst every cell of every variant falls under the −80 dBFS floor,
+as DAX's do, so S is 0.00 throughout. The dense burst samples tones the G1
+guard does not. Fundamental shift against the chain without the branch:
+
+| arms | 100 Hz | 120 Hz | 35–80 and 140–280 Hz |
+|---|---|---|---|
+| x16 (shipped) | −2.10 dB | 0.00 dB | ≤ 0.01 dB |
+| x8 | −0.99 dB | −0.22 dB | ≤ 0.01 dB |
+| x6 | +5.23 dB | +0.54 dB | ≤ 0.01 dB |
+
+The 100 Hz shift is the "sources near the 94 Hz boundary" soft spot above. x8
+narrows it, and x6 turns it into a boost.
+
+Listening: a blind A/B/C (no branch, x16, x8) on the same machine's speakers.
+The listener picked out the chain without the branch at once: on sustained
+50 and 80 Hz notes it plays only each note's start and stop. x8 against x16 was
+not reliably told apart, with "a bit fuller" on x8 for 80 Hz plucks, unsure. The
+timing difference, 40–75 ms on products 25–30 dB under content, is below what
+this test can resolve, so the pass shows no regression and nothing more.
+
+### The 2 ms PipeWire reports
+
+PipeWire logs `graph has unaligned latency min:0 max:96` for every chain with
+the branch. The filter-graph sums the latency each node declares along each
+path, and only warns when the outputs disagree
+(`spa/plugins/filter-graph/filter-graph.c`, 1.6.9 and master).
+
+| node | declared latency, 48 kHz | 44.1 kHz |
+|---|---|---|
+| regulator (`mb_compressor_stereo`, 1 ms look-ahead) | 48 | 44 |
+| `limiter#0` (`limiter_stereo`, 1 ms look-ahead) | 48 | 44 |
+| every other node, the wet branch included | 0 | 0 |
+
+The values were read from each plugin's `out_latency` port. The MB compressor
+reports the largest look-ahead among its enabled bands. Against a wet branch
+already 100–200 ms late, the dry path's 2 ms is not a misalignment worth
+correcting. PipeWire reports the graph's latency as the mean of the two paths,
+48 samples, where the dry path takes 96. That is a 1 ms under-report.
+
+- Rejected: delaying the wet branch by the dry path's declared latency. It
+  would silence the warning at 48 kHz but not at 44.1 kHz, where the builtin
+  `delay` applies 88 samples yet declares 88.2. It also needs per-plugin
+  latency knowledge, and it moves the wet branch further behind, not closer.
+- Rejected: PipeWire aligning the paths itself. Neither 1.6.9 nor master
+  compensates.
+- Rejected: linking the plugins' `out_latency` ports into the `delay` node.
+  Those ports count samples and `delay` takes seconds, so the link needs the
+  graph rate, which a conf cannot know.
+
+Open:
+
+- Whether to ship x8. It meets the adoption rule on the meter, and the ear
+  finds no difference.
+- How either slope sounds on music. The listening used test tones only.
+- A second device's DAX timing.
 
 <a id="r-soundwire-bass-enhancer-constants"></a>
 
