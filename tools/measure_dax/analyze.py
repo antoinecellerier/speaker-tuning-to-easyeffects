@@ -193,6 +193,112 @@ def analyze_sweep(loopback: np.ndarray, sr: int, inverse: np.ndarray,
     )
 
 
+# ----- sweep harmonic separation -----
+#
+# An exponential sweep's k-th harmonic is the same sweep advanced by
+# Δt_k = L·ln(k), with L = T / ln(f1/f0). Deconvolution therefore lands each
+# harmonic as its own IR at −Δt_k before the linear one, which
+# `_farina_deconvolve` trims away.
+
+@dataclass
+class HarmonicIR:
+    order: int                 # 1 = linear, k = k-th harmonic
+    ir: np.ndarray             # tapered window of the deconvolution
+    peak_idx: int              # predicted peak position within `ir`
+    start: int                 # window start in the full deconvolution
+    mag_db: np.ndarray         # |H_k(k·f)| on the excitation axis, dB re
+                               # the linear response's in-band peak
+    rel_db: np.ndarray         # mag_db minus the linear mag_db: level re
+                               # the fundamental at the same excitation f
+
+
+@dataclass
+class SweepHarmonics:
+    f: np.ndarray              # excitation-frequency axis (Hz)
+    orders: dict[int, HarmonicIR]  # keyed by order, 1 = linear
+
+
+def separated_harmonics(recording: np.ndarray, inverse: np.ndarray, sr: int,
+                        stim_meta: dict, orders: tuple[int, ...] = (2, 3, 4, 5),
+                        pre_peak_s: float = 0.02, pre_gap_frac: float = 0.1,
+                        n_fft: int | None = None) -> SweepHarmonics:
+    """Split a one-channel sweep recording into its linear and harmonic IRs.
+
+    `stim_meta` is the sidecar's `stimulus_meta` for the sweep. Its
+    `active_seconds`, `f0_hz` and `f1_hz` place each harmonic. Every IR's
+    magnitude is mapped onto the excitation frequency: order k's curve at f
+    reads its deconvolved spectrum at k·f, the output frequency that f's
+    k-th harmonic lands on. Bins outside the excited band, or whose k·f
+    passes Nyquist, are NaN.
+
+    Each window opens `pre_peak_s` before its predicted peak, or
+    `pre_gap_frac` of the gap to order k+1 if that is smaller. A processing
+    chain's IR can ring before its peak, and a linear-phase FIR does. The
+    window closes where order k−1's window opens, so neighbours never
+    overlap. The linear window takes order 2's post-peak length.
+    """
+    if any(int(k) != k or k < 2 for k in orders):
+        raise ValueError(f"harmonic orders must be integers >= 2: {orders}")
+    f0 = float(stim_meta["f0_hz"])
+    f1 = float(stim_meta["f1_hz"])
+    sweep_L = float(stim_meta["active_seconds"]) / np.log(f1 / f0)
+
+    full = fftconvolve(recording.astype(np.float64), inverse, mode="full")
+    peak = int(np.argmax(np.abs(full)))
+
+    def centre(k: int) -> int:
+        return peak - int(round(sweep_L * np.log(k) * sr))
+
+    def pre(k: int) -> int:
+        gap_s = sweep_L * np.log((k + 1) / k)
+        return int(round(min(pre_peak_s, pre_gap_frac * gap_s) * sr))
+
+    def opens(k: int) -> int:
+        return centre(k) - pre(k)
+
+    windows: dict[int, tuple[int, int]] = {}
+    for k in sorted({1, *orders}):
+        if k == 1:
+            end = centre(1) + (opens(1) - centre(2))
+        else:
+            end = opens(k - 1)
+        if centre(k) < 0:
+            raise ValueError(
+                f"harmonic {k} falls before the deconvolution's start: the "
+                f"recording or inverse is shorter than the sweep metadata")
+        windows[k] = (max(0, opens(k)), min(full.size, end))
+
+    n_fft = n_fft or max(16384, 1 << int(np.ceil(np.log2(
+        max(e - s for s, e in windows.values())))))
+    f = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+
+    irs: dict[int, tuple[np.ndarray, int, int]] = {}
+    mags: dict[int, np.ndarray] = {}
+    for k, (s, e) in windows.items():
+        y = full[s:e].copy()
+        # Half the pre-peak margin fades in, so the window edge does not
+        # leak into the spectrum and the ringing just before the peak is
+        # kept. The tail fade mirrors _windowed_mag_db's.
+        n_in = max(1, (centre(k) - s) // 2)
+        y[:n_in] *= 0.5 * (1.0 - np.cos(np.pi * np.arange(n_in) / n_in))
+        n_out = max(16, y.size // 10)
+        y[-n_out:] *= 0.5 * (1.0 + np.cos(np.pi * np.arange(n_out) / n_out))
+        irs[k] = (y, centre(k) - s, s)
+        mag_out = np.abs(np.fft.rfft(y, n=n_fft))
+        mag = np.interp(k * f, f, mag_out, right=np.nan)
+        mag[(f < f0) | (f > f1) | (k * f > sr / 2.0)] = np.nan
+        mags[k] = mag
+
+    ref = float(np.nanmax(mags[1]))
+    lin_db = 20.0 * np.log10(mags[1] / ref + 1e-30)
+    result: dict[int, HarmonicIR] = {}
+    for k, (y, pk, s) in irs.items():
+        mag_db = 20.0 * np.log10(mags[k] / ref + 1e-30)
+        result[k] = HarmonicIR(order=k, ir=y, peak_idx=pk, start=s,
+                               mag_db=mag_db, rel_db=mag_db - lin_db)
+    return SweepHarmonics(f=f, orders=result)
+
+
 # ----- pink-noise analysis (averaged spectrum) -----
 
 @dataclass

@@ -374,3 +374,103 @@ def test_dynamics_only_writes_just_the_two_probes(tmp_path, monkeypatch):
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "stimulus_levels.json", "stimulus_levels.wav",
         "stimulus_levelstep.json", "stimulus_levelstep.wav"]
+
+
+# ----- sweep deconvolution and harmonic separation -----
+
+def test_farina_deconvolve_keeps_its_window_layout():
+    """The linear IR stays a SWEEP_IR_LENGTH slice of the full
+    deconvolution with SWEEP_IR_PRE samples before the peak, shifted only
+    when the peak sits too near either end."""
+    rng = np.random.default_rng(3)
+    inverse = rng.standard_normal(4000)
+    n = 30000
+    for peak_at, want_off in ((15000, analyze.SWEEP_IR_PRE),
+                              (500, None), (n - 100, None)):
+        loopback = np.zeros(n)
+        loopback[peak_at] = 1.0
+        loopback[peak_at - 50:peak_at + 50] += 1e-3 * rng.standard_normal(100)
+        full = np.convolve(loopback, inverse)
+        peak = int(np.argmax(np.abs(full)))
+        start = max(0, peak - analyze.SWEEP_IR_PRE)
+        start = min(start, full.size - analyze.SWEEP_IR_LENGTH)
+        ir, off = analyze._farina_deconvolve(loopback, inverse)
+        assert ir.size == analyze.SWEEP_IR_LENGTH
+        assert off == peak - start
+        if want_off is not None:
+            assert off == want_off
+        np.testing.assert_allclose(
+            ir, full[start:start + analyze.SWEEP_IR_LENGTH], atol=1e-9)
+
+
+def _polynomial_sweep(a2: float, a3: float) -> tuple[np.ndarray, dict, float]:
+    """The project's −18 dBFS sweep through y = x + a2·x² + a3·x³, behind
+    a short capture latency and followed by its tail."""
+    stereo, meta = ms.make_sweep(level_dbfs_peak=-18.0)
+    x = stereo[:, 0].astype(np.float64)
+    y = x + a2 * x ** 2 + a3 * x ** 3
+    return np.concatenate([np.zeros(300), y]), meta, float(np.max(np.abs(x)))
+
+
+@pytest.fixture(scope="module")
+def sweep_inverse() -> np.ndarray:
+    return ms._sweep_inverse(ms._sweep_signal())
+
+
+def test_separated_harmonics_reads_a_polynomial_back(sweep_inverse):
+    a2, a3 = 0.1, 0.5
+    rec, meta, amp = _polynomial_sweep(a2, a3)
+    res = analyze.separated_harmonics(rec, sweep_inverse, ms.SR, meta)
+    f = res.f
+    lin = res.orders[1].mag_db[(f >= 200) & (f <= 10000)]
+    assert float(np.max(lin) - np.min(lin)) < 0.05
+    # x³ on A·sin θ puts A³/4 on 3θ and adds 3A³/4 to θ; x² puts A²/2 on 2θ.
+    fund = amp + 0.75 * a3 * amp ** 3
+    mid = (f >= 200) & (f <= 4000)   # 5·f stays below Nyquist
+    for k, level in ((2, a2 * amp ** 2 / 2.0), (3, a3 * amp ** 3 / 4.0)):
+        np.testing.assert_allclose(res.orders[k].rel_db[mid],
+                                   20.0 * np.log10(level / fund), atol=0.5)
+    for k in (4, 5):
+        assert float(np.max(res.orders[k].rel_db[mid])) < -80.0
+
+
+def test_separated_harmonics_of_a_linear_system_are_far_down(sweep_inverse):
+    rec, meta, _ = _polynomial_sweep(0.0, 0.0)
+    res = analyze.separated_harmonics(rec, sweep_inverse, ms.SR, meta)
+    mid = (res.f >= 200) & (res.f <= 4000)
+    for k in (2, 3, 4, 5):
+        assert float(np.max(res.orders[k].rel_db[mid])) < -80.0
+
+
+def test_separated_harmonic_windows_never_overlap(sweep_inverse):
+    """Each window opens its pre-peak margin before its peak, and closes
+    where the next-lower order's opens."""
+    rec, meta, _ = _polynomial_sweep(0.0, 0.0)
+    res = analyze.separated_harmonics(rec, sweep_inverse, ms.SR, meta,
+                                      orders=(2, 3, 4, 5))
+    pre = int(round(0.02 * ms.SR))
+    for k in (2, 3, 4, 5):
+        hi, lo = res.orders[k], res.orders[k - 1]
+        assert hi.peak_idx == pre
+        assert hi.start + hi.ir.size == lo.start
+    with pytest.raises(ValueError):
+        analyze.separated_harmonics(rec, sweep_inverse, ms.SR, meta,
+                                    orders=(1,))
+
+
+def test_separated_harmonics_index_by_the_excitation_frequency(sweep_inverse):
+    """A lowpass after the cubic weights the 3rd harmonic of f by the
+    filter's gain at 3·f. Reading it at f instead would leave a flat
+    curve, which the memoryless case cannot tell apart."""
+    from scipy.signal import butter, freqz, lfilter
+    a3 = 0.5
+    rec, meta, amp = _polynomial_sweep(0.0, a3)
+    b, a = butter(1, 1000.0, fs=ms.SR)
+    res = analyze.separated_harmonics(lfilter(b, a, rec), sweep_inverse,
+                                      ms.SR, meta)
+    f = res.f
+    mid = (f >= 200) & (f <= 4000)
+    gain_db = lambda hz: 20.0 * np.log10(np.abs(freqz(b, a, hz, fs=ms.SR)[1]))
+    want = (20.0 * np.log10(a3 * amp ** 2 / 4.0 / (1.0 + 0.75 * a3 * amp ** 2))
+            + gain_db(3.0 * f[mid]) - gain_db(f[mid]))
+    np.testing.assert_allclose(res.orders[3].rel_db[mid], want, atol=0.5)
