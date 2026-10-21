@@ -45,3 +45,11 @@ listening tests after any change to the output path.
 test suite with `pytest tests/` from the same venv as the
 [README](../README.md#install)'s Install section. pytest won't start without
 xdist 3.2 or newer, because `pyproject.toml` passes `-n auto --dist worksteal`.
+
+The `git-hooks/` directory holds this repository's git hooks. `commit-msg`
+rejects a `Claude-Session:` trailer in a commit message. Install them once per
+clone:
+
+```bash
+git config core.hooksPath git-hooks
+```

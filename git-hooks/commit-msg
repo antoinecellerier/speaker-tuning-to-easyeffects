@@ -1,0 +1,8 @@
+#!/bin/sh
+# Commit-msg hook: reject a `Claude-Session:` trailer (a claude.ai session link)
+# in the commit message. Co-Authored-By trailers are fine.
+
+if grep -qi '^Claude-Session:' "$1"; then
+    echo "commit-msg: remove the 'Claude-Session:' trailer from the commit message." >&2
+    exit 1
+fi
