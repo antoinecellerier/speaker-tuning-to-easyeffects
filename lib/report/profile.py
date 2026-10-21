@@ -161,7 +161,8 @@ def _print_audio_optimizer(tuning, ao_db_left, ao_db_right, verbose,
 
 
 def _print_apo_layer(apo, apo_on: bool, verbose: bool,
-                     shown: bool = False) -> list[Finding]:
+                     shown: bool = False,
+                     experimental: bool = False) -> list[Finding]:
     """The vendor APO layer bound to this device: what it adds, or that it
     is there to add.
 
@@ -174,11 +175,13 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
 
     The layer belongs to the device, not to a profile, so under
     --all-profiles the section prints once: *shown* returns its finding,
-    still raised in every profile, without printing it again.
+    still raised in every profile, without printing it again. A standalone
+    tuning is the exception: each profile has its own layer, so each prints
+    its file and tone, and *experimental* marks one no listener has heard.
     """
     if apo is None:
         return []
-    if shown:
+    if shown and not apo.standalone:
         finding = (_vendor_apo_not_reproduced_finding(apo) if apo_on
                    else None)
         return [finding] if finding else []
@@ -194,12 +197,12 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
         return []
     print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
     if apo.standalone:
-        # No Dolby file ships for this device, so this layer is the whole
-        # preset and there is nothing to switch it off back to.
-        console._cprint_wrapped(
-            "", "  The only speaker tuning this laptop ships: no Dolby file "
-            "comes with it, so the preset is built from this alone. "
-            "Experimental (issue #140).", indent="    ")
+        # The run said it builds from this alone where it found the tuning
+        # (dolby_to_easyeffects.py `_tuning_source`).
+        if experimental:
+            console._cprint_wrapped(
+                "", "  Nobody has listened to this sound mode yet.",
+                indent="    ")
     elif apo.default_on:
         # Nobody typed a flag for it, so the section says why it is here and
         # how to skip it. The wrapper prints no closing note, so this line is
@@ -296,7 +299,8 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     finding = _vendor_apo_not_reproduced_finding(apo)
     if finding is None:
         return []
-    _print_finding_detail(finding)
+    if not shown:
+        _print_finding_detail(finding)
     return [finding]
 
 
@@ -310,7 +314,7 @@ def _vendor_apo_not_reproduced_finding(apo) -> Finding | None:
         # "Nothing to do" leads: at the end it came only after the whole
         # list. "The rest is in the presets" read as contradicting "Left out",
         # and is EasyEffects wording on a PipeWire run (vendor-apo review).
-        detail=f"Nothing to do. Left out of the {apo.label} tuning: "
+        detail=f"Nothing to do. Left out of the vendor tuning, {apo.label}: "
                + "; ".join(apo.notes) + ".",
         kind="ask")
 

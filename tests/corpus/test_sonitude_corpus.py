@@ -58,9 +58,9 @@ def test_every_mapped_speaker_preset_yields_its_curves(archive):
                     "ATMOS_CORPUS_DIR")
 @pytest.mark.parametrize("archive", ARCHIVES, ids=[a.name for a in ARCHIVES])
 def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
-    """`bindings` then `load`, the converter's path, reads every subsystem the
-    map names into a cuts-only layer, or refuses it as unsupported; never a
-    crash."""
+    """`bindings` then `load_profiles`, the converter's path, reads every
+    subsystem the map names into a cuts-only layer per profile, or refuses
+    it as unsupported; never a crash."""
     bus, ven, dev = sonitude._ARCHIVE_RE.fullmatch(archive.name).groups()
     bus = bus.upper()
     with zipfile.ZipFile(archive) as z:
@@ -72,12 +72,15 @@ def test_every_mapped_id_binds_through_the_lookup_the_run_uses(archive):
         assert found.unreadable == () and found.codec_seen
         assert list(found.hits) == [bus]
         try:
-            layer = sonitude.load(*found.hits[bus], bus, ven + dev, subsys)
+            layers = sonitude.load_profiles(*found.hits[bus], bus,
+                                            ven + dev, subsys)
         except UnsupportedApoConfig:
             continue
-        for db in (layer.curve_left_db, layer.curve_right_db):
-            assert all(math.isfinite(v) and v <= 0 for v in db)
-        assert len(layer.curve_hz) == sonitude.CURVE_POINTS
+        assert next(iter(layers)) == "music"
+        for layer in layers.values():
+            for db in (layer.curve_left_db, layer.curve_right_db):
+                assert all(math.isfinite(v) and v <= 0 for v in db)
+            assert len(layer.curve_hz) == sonitude.CURVE_POINTS
         built += 1
     assert built, f"{archive.name}: no mapped ID built a layer"
 

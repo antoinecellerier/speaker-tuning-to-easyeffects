@@ -108,17 +108,19 @@ class StandaloneFormat:
     """A vendor format that is a device's whole tuning, in place of the XML.
 
     One per format, in `lib/apo/discover.py` `STANDALONE`. A device that
-    ships one of these ships no Dolby file, so the run builds from the
-    layer `resolve` returns alone (`lib/tuning_source.py`).
+    ships one of these ships no Dolby file, so the run builds each profile
+    from the layer `resolve` returns for it alone (`lib/tuning_source.py`).
     """
     # Whether a file or folder is one this format can stand in for the XML.
     is_source: Callable[[Path], bool]
     # The members of a driver download's file list this format reads, which
     # `lib/driver_package.py` keeps as it keeps a DAX3 XML.
     wanted_members: Callable[[list[str]], set[str]]
-    # (source, --hw-id or None, warn) → the layer bound to this machine, or
-    # to the IDs given. Raises RuntimeError, saying why, when none is.
-    resolve: Callable[[Path, str | None, Callable[[str], None]], ApoLayer]
+    # (source, --hw-id or None, warn) → profile name → the layer bound to
+    # this machine, or to the IDs given, the profile a run without
+    # --profile builds first. Raises RuntimeError, saying why, when none is.
+    resolve: Callable[[Path, str | None, Callable[[str], None]],
+                      dict[str, ApoLayer]]
     # The preset-name stem when --prefix is not given.
     prefix: str
     # Whose tuning it is, as the refusals of the Dolby-only flags name it.
@@ -127,6 +129,9 @@ class StandaloneFormat:
     heading: str
     # Where the correction check probes a build from it.
     probe_freqs: Callable[[], list[int]]
+    # The profiles no listener has heard yet: the run marks their presets
+    # experimental wherever it lists them.
+    experimental: tuple[str, ...] = ()
 
 
 class UnsupportedApoConfig(Exception):

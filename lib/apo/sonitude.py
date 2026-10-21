@@ -4,9 +4,11 @@ HP ships no Dolby file on these laptops. The speaker voicing is the Sonitude
 APO's per-model preset, packed in `SEAPODAT.<bus>.FUNC_01-VEN_<v>-DEV_<d>.zip`
 archives inside HP's Realtek driver download (`SNAPO64Ext`). An archive maps
 each subsystem ID to a numbered preset (`SSIDMAP.bin`), and each preset holds
-one `Preset.bin` per endpoint, output and content mode. This module reads the
-speaker preset's 265-point EQ curve into an `ApoLayer` that stands in for the
-whole tuning, because there is no Dolby chain under it.
+one `Preset.bin` per endpoint, output and content mode. This module reads each
+content mode's speaker preset, its 265-point EQ curve and high-pass, into an
+`ApoLayer` that stands in for the whole tuning, because there is no Dolby chain
+under it. The content modes are the tuning's profiles (`PROFILES`), as a Dolby
+file's music, movie and voice profiles are.
 
 What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
 
@@ -26,10 +28,12 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   there, 50–160 Hz.
 - The rest of `Preset.bin` is read as stage blocks of keyed values
   (`stage_values`); of those, only the high-pass is used.
-- Endpoint 0, `EFX/AnyOutput/AnyContent` is read as the speaker's "Music"
-  preset: the archive's own manifest names that file "<model> Music".
-  Everything else in the preset (dynamics, the user equaliser, the other
-  content modes) is not read.
+- Endpoint 0, `EFX/AnyOutput/<content mode>` is read as the speaker's preset
+  for that mode. `AnyContent` is read as "Music": the archive's own manifest
+  names that file "<model> Music". Every speaker preset in the one download
+  read holds `Movie` and `Voice` beside it. Everything else in the preset
+  (dynamics, the user equaliser, the headphone and posture modes) is not
+  read.
 
 `resolve` picks the preset for this machine, by its codec IDs and whether it
 runs Intel's audio DSP driver (SOF), or for `--hw-id`'s IDs. `FORMAT` is this
@@ -78,10 +82,19 @@ MAX_CURVE_DB = 120.0
 _READ_ERRORS = (OSError, EOFError, zipfile.BadZipFile, zlib.error,
                 RuntimeError, NotImplementedError, ValueError)
 
-# The speaker preset: endpoint 0, the endpoint effect on any output, the
-# default content mode. The archive's manifest names this file "<model>
-# Music" on the one device checked (#140).
-SPEAKER_PRESET = "0/EFX/AnyOutput/AnyContent/Preset.bin"
+# The speaker presets: endpoint 0, the endpoint effect on any output, one per
+# content mode. The run's profile name → the mode's folder, the default
+# first: a run without --profile builds it. The archive's manifest names the
+# AnyContent file "<model> Music" on the one device checked (#140).
+PROFILES = {"music": "AnyContent", "movie": "Movie", "voice": "Voice"}
+
+
+def speaker_preset(profile: str) -> str:
+    """*profile*'s speaker preset, as its path below the preset number."""
+    return f"0/EFX/AnyOutput/{PROFILES[profile]}/Preset.bin"
+
+
+SPEAKER_PRESET = speaker_preset("music")
 
 CURVE_POINTS = 265
 
@@ -334,7 +347,8 @@ def bindings(source: Path, codec_vendor_id: str, subsys: str) -> Bindings:
 
 def find(source: Path, codec_vendor_id: str, subsys: str,
          prefer_intelaudio: bool) -> ApoLayer | None:
-    """The speaker layer *source*'s archives hold for this codec and ID.
+    """The default profile's speaker layer *source*'s archives hold for this
+    codec and ID.
 
     When both buses bind the device, *prefer_intelaudio* picks between them.
     Returns None when no archive binds it; raises `UnsupportedApoConfig`
@@ -348,14 +362,15 @@ def find(source: Path, codec_vendor_id: str, subsys: str,
 
 
 def load(path: Path, number: int, bus: str, codec_vendor_id: str,
-         subsys: str) -> ApoLayer:
-    """Preset *number*'s speaker layer, from the archive at *path*.
+         subsys: str, profile: str = "music") -> ApoLayer:
+    """Preset *number*'s speaker layer for *profile* (`PROFILES`), from the
+    archive at *path*.
 
     Raises `UnsupportedApoConfig` when the preset can't be read.
     """
     vendor, device = codec_vendor_id[:4].upper(), codec_vendor_id[4:].upper()
     subsys = subsys.upper()
-    member = f"{number}/{SPEAKER_PRESET}"
+    member = f"{number}/{speaker_preset(profile)}"
     try:
         with zipfile.ZipFile(path) as z:
             names = _members(z)
@@ -386,7 +401,7 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
              if len(curves) > 1 else left)
     name = f"preset {number}" + (f", {codename}" if codename else "")
     return ApoLayer(
-        label=f"HP Bang & Olufsen (Sonitude {name})",
+        label=f"Sonitude speaker tuning ({name})",
         config_path=path / member,
         inf_path=path,
         hardware_id=(f"{bus}\\FUNC_01&VEN_{vendor}&DEV_{device}"
@@ -397,11 +412,10 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
             "the compressor and limiter stages (not read yet)",
             "the psychoacoustic bass stage, which adds harmonics to the "
             "deepest bass (not read yet)",
-            "the B&O Audio Control equaliser, flat in the preset",
-            "the Movie and Voice modes",
+            "the user equaliser, flat in the preset",
             "on one laptop, a fixed EQ that stays on with Windows' audio "
-            "enhancements off, measured on Windows (issue #140) and found "
-            "in no file read",
+            "enhancements off, measured on Windows and found in no file "
+            "read",
         ),
         default_on=True,
         standalone=True,
@@ -409,6 +423,27 @@ def load(path: Path, number: int, bus: str, codec_vendor_id: str,
         curve_left_db=left,
         curve_right_db=right,
     )
+
+
+def load_profiles(path: Path, number: int, bus: str, codec_vendor_id: str,
+                  subsys: str) -> dict[str, ApoLayer]:
+    """Preset *number*'s layer for each profile its archive holds, the
+    default first.
+
+    The default profile's file is required, so its absence raises
+    `UnsupportedApoConfig` as `load` does; another mode's is left out when
+    the archive has no file for it.
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = _members(z)
+    except _READ_ERRORS as exc:
+        raise UnsupportedApoConfig(path, f"its preset {number} can't be "
+                                   f"read ({exc})") from exc
+    return {profile: load(path, number, bus, codec_vendor_id, subsys, profile)
+            for i, profile in enumerate(PROFILES)
+            if i == 0
+            or f"{number}/{speaker_preset(profile)}".lower() in names}
 
 
 def probe_freqs() -> list[int]:
@@ -436,25 +471,32 @@ def parse_hw_id(text: str) -> str:
 
 
 def resolve(source: Path, hw_id: str | None,
-            warn: Callable[[str], None]) -> ApoLayer:
-    """The layer *source*'s archives hold for this machine, or for the
-    laptop *hw_id* names (see `parse_hw_id`); raises RuntimeError when none
-    binds it or the one that does can't be read.
+            warn: Callable[[str], None]) -> dict[str, ApoLayer]:
+    """The layer per profile *source*'s archives hold for this machine, or
+    for the device *hw_id* names (see `parse_hw_id`), the default profile
+    first (`load_profiles`); raises RuntimeError when none binds it or the
+    preset that does can't be read.
 
-    Prints nothing: when two archives bind this laptop to different tunings,
+    Prints nothing: when two archives bind this device to different tunings,
     *warn* gets the sentence saying which was used.
     """
     try:
         return _resolve(source, hw_id, warn)
     except UnsupportedApoConfig as exc:
-        target = "--hw-id's IDs" if hw_id else "this laptop"
-        raise RuntimeError(f"HP's Bang & Olufsen tuning at "
+        target = "--hw-id's IDs" if hw_id else "this device"
+        raise RuntimeError(f"The Sonitude tuning at "
                            f"{doctor.tilde(exc.path)} binds {target} "
                            f"but can't be used: {exc.reason}.") from exc
 
 
+def _curves(layers: dict[str, ApoLayer]) -> dict:
+    """Each profile's two curves, to tell two archives' presets apart."""
+    return {p: (layer.curve_left_db, layer.curve_right_db)
+            for p, layer in layers.items()}
+
+
 def _resolve(source: Path, hw_id: str | None,
-             warn: Callable[[str], None]) -> ApoLayer:
+             warn: Callable[[str], None]) -> dict[str, ApoLayer]:
     src = doctor.tilde(source)
     if hw_id:
         *bus, codec, subsys = hw_id.split(":")
@@ -467,10 +509,9 @@ def _resolve(source: Path, hw_id: str | None,
                and "DISPLAYPORT" not in name.upper()]
         if not ids:
             raise RuntimeError(
-                f"{src} holds HP's Bang & Olufsen tunings, but this "
-                "machine's audio codec IDs can't be read to pick one. Pass "
-                "the laptop's with --hw-id, as its --speaker-info prints "
-                "them.")
+                f"{src} holds Sonitude tunings, but this machine's audio "
+                "codec IDs can't be read to pick one. Pass the device's with "
+                "--hw-id, as its --speaker-info prints them.")
     cards = host.path("/proc/asound/cards")
     try:
         sof = speakers._card_uses_sof(cards.read_text().splitlines())
@@ -492,17 +533,16 @@ def _resolve(source: Path, hw_id: str | None,
         # A SOF machine runs Intel's DSP, which on Windows is the INTELAUDIO
         # bus; the other archive is for Windows' standard driver.
         picked = _preferred_bus(hits, sof)
-        layer = load(*hits[picked], picked, codec, subsys)
+        layers = load_profiles(*hits[picked], picked, codec, subsys)
         other = next((b for b in hits if b != picked), None)
         if other is None:
-            return layer
+            return layers
         try:
-            alt = load(*hits[other], other, codec, subsys)
+            alt = load_profiles(*hits[other], other, codec, subsys)
         except UnsupportedApoConfig:
-            return layer
-        if (alt.curve_left_db, alt.curve_right_db) == (
-                layer.curve_left_db, layer.curve_right_db):
-            return layer
+            return layers
+        if _curves(alt) == _curves(layers):
+            return layers
         both = (f"preset {hits[picked][1]} in its {picked} archive and "
                 f"preset {hits[other][1]} in its {other} one")
         if hw_id:
@@ -512,28 +552,28 @@ def _resolve(source: Path, hw_id: str | None,
                 "starts in Windows' Device Manager: --hw-id "
                 f"INTELAUDIO:{codec}:{subsys} or HDAUDIO:{codec}:{subsys}.")
         runs = "runs" if sof else "doesn't run"
-        warn(f"{src} holds two different tunings for this laptop: "
+        warn(f"{src} holds two different tunings for this device: "
              f"{both}. Using the {picked} one, because this machine {runs} "
              "Intel's audio DSP driver (SOF). If the speakers' hardware ID in "
              f"Windows' Device Manager starts with {other}, rebuild with "
              f"--hw-id {other}:{codec}:{subsys}.")
-        return layer
+        return layers
     if unreadable:
         raise RuntimeError(
-            f"{doctor.tilde(unreadable[0])} can't be read as one of HP's "
-            "tuning archives, so whether it holds this laptop's tuning is "
+            f"{doctor.tilde(unreadable[0])} can't be read as a Sonitude "
+            "tuning archive, so whether it holds this device's tuning is "
             "unknown. Try a fresh copy of the download.")
     said = ", ".join(f"{c}:{s}" for c, s in ids)
     if hw_id:
         raise RuntimeError(
-            f"{src} holds no HP Bang & Olufsen tuning for "
+            f"{src} holds no Sonitude tuning for "
             f"{bus + ':' if bus else ''}{said}. Check the IDs against that "
-            "laptop's --speaker-info, or use its model's driver download.")
+            "device's --speaker-info, or use its model's driver download.")
     raise RuntimeError(
-        f"{src} holds HP's Bang & Olufsen tunings, but none for this "
-        f"laptop's audio hardware (codec:subsystem {said}), so it is likely "
-        "another model's download. Use the audio driver download HP lists "
-        "for this model.")
+        f"{src} holds Sonitude tunings, but none for this device's audio "
+        f"hardware (codec:subsystem {said}), so it is likely another "
+        "model's download. Use the audio driver download its manufacturer "
+        "lists for this model.")
 
 
 # This format's entry in `lib/apo/discover.py` `STANDALONE`.
@@ -541,10 +581,12 @@ FORMAT = StandaloneFormat(
     is_source=is_source,
     wanted_members=wanted_members,
     resolve=resolve,
-    # "Dolby" would mislabel a preset built from HP's own tuning.
-    prefix="HP-BO",
-    owner="HP's Bang & Olufsen",
-    # The speaker preset read is the "Music" one (`SPEAKER_PRESET`).
-    heading="Internal speakers (the output this preset is for), Music mode",
+    # "Dolby" would mislabel a preset built from another engine's tuning.
+    prefix="Sonitude",
+    owner="Sonitude",
+    heading="Internal speakers (the output this preset is for)",
     probe_freqs=probe_freqs,
+    # Built as music is, the one mode a listener has heard (research
+    # `r-sonitude-apo-presets`).
+    experimental=("movie", "voice"),
 )

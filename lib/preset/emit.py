@@ -279,7 +279,8 @@ def _worst_shape_error(taps, combined, offset_db, freqs, fft_freqs, *,
 def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
                       kernel_by_preset, warned: bool = False, apo=None):
-    """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile.
+    """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile,
+    or a standalone tuning's one preset for it, named *name_base*.
 
     Builds each combined FIR, writes the .irs + .json, prints the
     verification table, and records emitted filters. Mutates
@@ -312,8 +313,13 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
     ao_db_left = np.array(tuning.ao_left) / parse.DB_FIXED_POINT_SCALE
     ao_db_right = np.array(tuning.ao_right) / parse.DB_FIXED_POINT_SCALE
 
-    ieq_presets = {f"{name_base}-{label}": key
-                   for label, key in messages.VOICING_CURVES.items()}
+    # A standalone tuning has no voicings, only its flat stand-in curve, so
+    # its one preset per profile is named for the profile alone.
+    if tuning.source == "standalone":
+        ieq_presets = {name_base: next(iter(curves))}
+    else:
+        ieq_presets = {f"{name_base}-{label}": key
+                       for label, key in messages.VOICING_CURVES.items()}
 
     apo_on = apo_layer.is_active(apo, set(args.enable), disabled)
     # Which curve the correction check grades: with a vendor EQ folded in,
@@ -350,10 +356,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
-            # A standalone run builds the one voicing it has a base for;
-            # there is no XML whose missing curve to report.
-            if tuning.source != "standalone":
-                console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+            console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
             continue
 
         gains_raw = curves[curve_key]

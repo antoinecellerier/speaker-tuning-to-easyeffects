@@ -224,13 +224,14 @@ class ParsedTuning:
     source: str = "dolby"
 
 
-def flat_tuning(freqs: list[int]) -> ParsedTuning:
-    """A neutral `ParsedTuning` for a device with no Dolby file.
+def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
+    """A neutral `ParsedTuning` for one profile of a device with no Dolby
+    file.
 
-    The Balanced voicing curve is the only one, flat, so the emit loop builds
-    one preset; every Dolby stage is absent and the standalone vendor layer
-    is the whole tuning (`lib/apo/discover.py` `STANDALONE`). *freqs* is
-    where the correction check probes the build.
+    One flat curve stands in for the voicings, so the emit loop builds one
+    preset; every Dolby stage is absent and the standalone vendor layer is
+    the whole tuning (`lib/apo/discover.py` `STANDALONE`). *freqs* is where
+    the correction check probes the build.
     """
     flat = [0] * len(freqs)
     return ParsedTuning(
@@ -238,7 +239,7 @@ def flat_tuning(freqs: list[int]) -> ParsedTuning:
         ao_left=list(flat), ao_right=list(flat), peq_filters=[],
         vol_leveler=None, dialog_enhancer=None, surround=None, mb_comp=None,
         regulator=None, volmax_boost=0.0, ao_enabled=False,
-        ieq_enabled=False, source="standalone")
+        ieq_enabled=False, profile_used=profile, source="standalone")
 
 
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point

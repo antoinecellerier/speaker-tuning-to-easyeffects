@@ -6,7 +6,8 @@ Most devices ship a DAX3 XML, and a vendor APO layer may stack on it
 its whole tuning in a standalone vendor format instead (`STANDALONE` there).
 main() resolves which once, from the parsed arguments, and reads every
 difference between the two kinds of run off the `TuningSource`: the preset
-names, the flags that can't apply, and the file the closing asks for.
+names, the profiles a standalone tuning holds, the flags that can't apply, and
+the file the closing asks for.
 
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), and it prints nothing:
 the run reports what it returns. Finding the XML itself, by auto-detection
@@ -16,7 +17,7 @@ or in a driver download, prints as it goes, so that stays in main().
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.apo import layer as apo_layer
@@ -29,8 +30,8 @@ STANDALONE = "standalone"
 # --hw-id picks among one standalone format's presets (`lib/apo/sonitude.py`
 # `parse_hw_id`), so a Dolby file leaves it nothing to pick.
 _HW_ID_WITHOUT_SOURCE = (
-    "--hw-id picks among HP's Bang & Olufsen tunings; pass their driver "
-    "download or SEAPODAT archive with it")
+    "--hw-id picks among Sonitude tunings; pass the driver download or "
+    "SEAPODAT archive that holds them with it")
 
 # Each builds or restores a Dolby stage, and a standalone source has none:
 # refused rather than run and reported as having had no effect.
@@ -53,13 +54,37 @@ class TuningSource:
     # was found in.
     format: StandaloneFormat | None = None
     origin: Path | None = None
-    # Standalone only, once `resolved`: the layer that is the whole tuning.
-    layer: ApoLayer | None = None
+    # Standalone only, once `resolved`: profile name → the layer that is that
+    # profile's whole tuning, the one a run without --profile builds first.
+    profiles: dict[str, ApoLayer] = field(default_factory=dict)
 
     @property
-    def has_profiles(self) -> bool:
-        """Whether the source has endpoints and profiles to choose among."""
-        return self.kind == DOLBY
+    def layer(self) -> ApoLayer | None:
+        """Standalone only: the default profile's layer, which names the
+        tuning for the device as a whole."""
+        return next(iter(self.profiles.values()), None)
+
+    def experimental(self, profile: str | None) -> bool:
+        """Whether no listener has heard *profile*'s tuning yet."""
+        return (self.kind == STANDALONE
+                and profile in self.format.experimental)
+
+    def profiles_to_build(self, profile: str | None,
+                          all_profiles: bool) -> list[str]:
+        """Standalone only: the profiles this run builds, as --profile and
+        --all-profiles pick them; the default one when neither is given.
+
+        Raises ValueError, as the Dolby file's own lookup does, for a
+        profile the tuning doesn't hold."""
+        names = list(self.profiles)
+        if all_profiles:
+            return names
+        if profile is None:
+            return names[:1]
+        if profile.lower() not in self.profiles:
+            raise ValueError(f"Profile '{profile}' not found. Available: "
+                             f"{', '.join(names)}")
+        return [profile.lower()]
 
     @property
     def closing_file(self) -> Path | None:
@@ -85,38 +110,36 @@ class TuningSource:
         or None."""
         if self.kind == DOLBY:
             return _HW_ID_WITHOUT_SOURCE if args.hw_id else None
-        owner = self.format.owner
-        # No Dolby file: no endpoints or profiles to choose among, and the
-        # vendor layer is the whole tuning, so nothing is left to build
-        # without it.
-        for flag, given in (("--list", args.list),
-                            ("--all-profiles", args.all_profiles),
-                            ("--profile", args.profile),
-                            ("--endpoint",
+        # No Dolby file: the tuning's profiles are its content modes, all for
+        # the internal speakers, so there is no other endpoint or operating
+        # mode to pick. The vendor layer is the whole tuning, so nothing is
+        # left to build without it.
+        for flag, given in (("--endpoint",
                              args.endpoint != "internal_speaker"),
                             ("--mode", args.mode != "normal")):
             if given:
-                return (f"{flag} reads a Dolby file, and this laptop's "
-                        f"tuning is {owner} one instead")
+                return f"{flag} reads a Dolby file, and this tuning has none"
         for name in _DOLBY_STAGE_FLAGS:
             if name in args.enable:
                 return (f"--enable {name} acts on a Dolby stage, and this "
-                        f"laptop's tuning is {owner} one instead")
+                        "tuning has none")
         if apo_layer.FLAG in args.disable:
             return (f"--disable {apo_layer.FLAG} would leave nothing to "
-                    f"build: {owner} tuning is this laptop's only one")
+                    f"build: the {self.format.owner} tuning is this device's "
+                    "only one")
         return None
 
     def resolved(self, hw_id: str | None,
                  warn: Callable[[str], None]) -> TuningSource:
-        """This source with its layer read; a Dolby source as it is.
+        """This source with its profiles' layers read; a Dolby source as it
+        is.
 
         Raises RuntimeError, from the format, when no layer binds this
         machine or *hw_id*'s IDs."""
         if self.kind == DOLBY:
             return self
-        return replace(self, layer=self.format.resolve(self.origin, hw_id,
-                                                       warn))
+        return replace(self, profiles=self.format.resolve(self.origin, hw_id,
+                                                          warn))
 
 
 def dolby(xml_path: Path, prefix: str | None) -> TuningSource:

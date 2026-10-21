@@ -113,10 +113,10 @@ def add_tuning_input_args(container, *, only=None):
         default=None,
         type=sonitude.parse_hw_id,
         metavar="[BUS:]CODEC:SUBSYS",
-        help="with HP's Bang & Olufsen tuning (a driver download or "
-             "SEAPODAT archive in place of the XML), the audio codec and "
+        help="with a Sonitude tuning (a driver download or SEAPODAT "
+             "archive in place of the XML), the audio codec and "
              "subsystem ID to pick the preset for, as --speaker-info "
-             "prints them on that laptop, instead of this machine's. BUS, "
+             "prints them on that device, instead of this machine's. BUS, "
              "HDAUDIO or INTELAUDIO, picks between the two archives when "
              "both hold the ID. Experimental.",
     )
@@ -231,8 +231,8 @@ def add_output_args(container, *, only=None):
     add(
         "--prefix",
         default=None,
-        help="prefix for preset names (default: Dolby → Dolby-Balanced, "
-             "etc.; HP-BO for HP's Bang & Olufsen tuning)",
+        help="prefix for preset names (default: Dolby or Sonitude, as in "
+             "Dolby-Balanced or Sonitude-Music)",
     )
     add(
         "--output-dir",
@@ -643,7 +643,7 @@ def _tuning_source(args, parser) -> tuning_source.TuningSource:
     elif (args.xml_file and not Path(args.xml_file).is_dir()
           and (fmt := apo_discover.standalone_for(args.xml_file))):
         # Said as a missing XML is, rather than as an archive holding no
-        # tuning for this laptop.
+        # tuning for this device.
         if not Path(args.xml_file).is_file():
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
                                     str(args.xml_file))
@@ -776,6 +776,16 @@ def main(argv: list[str] | None = None,
     is_soundwire = (source.kind == tuning_source.DOLBY
                     and discover.is_soundwire_xml(Path(xml_path).name))
 
+    if args.list and source.kind == tuning_source.STANDALONE:
+        # The Dolby listing's shape: the profiles are the tuning's content
+        # modes, all for the one output a standalone tuning is read for.
+        console.cprint("head", "Endpoints and profiles in "
+                       f"{doctor.tilde(source.layer.inf_path)}:")
+        print("  endpoint: internal_speaker (operating_mode=normal)")
+        for name in source.profiles:
+            print(f"    profile: {name}"
+                  + (" (experimental)" if source.experimental(name) else ""))
+        return
     if args.list:
         console.cprint("head", f"Endpoints and profiles in {doctor.tilde(xml_path)}:")
         parse.list_endpoints(xml_path)
@@ -801,7 +811,14 @@ def main(argv: list[str] | None = None,
                                 "from the Dolby file alone.")
 
     # Determine which profiles to process
-    if args.all_profiles:
+    if source.kind == tuning_source.STANDALONE:
+        profile_types = source.profiles_to_build(args.profile,
+                                                 args.all_profiles)
+        if args.all_profiles:
+            console.cprint("head", "Generating presets for all "
+                           f"{len(profile_types)} profiles: "
+                           f"{', '.join(profile_types)}")
+    elif args.all_profiles:
         profile_types = parse.get_profile_types(xml_path, args.endpoint, args.mode)
         if not profile_types:
             console.cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
@@ -949,15 +966,20 @@ def main(argv: list[str] | None = None,
     # The vendor layer's section belongs to the device: printed with the
     # first profile only (lib/report/profile.py _print_apo_layer).
     apo_shown = False
+    experimental_presets: list[str] = []
 
     for profile_type in profile_types:
         profile_label = profile_type or "default"
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
+        # A standalone tuning has no voicings to tell its presets apart, so
+        # its preset names always carry the profile: Sonitude-Music.
         name_parts = [source.prefix]
         if args.mode != "normal":
             name_parts.append(args.mode.title())
-        if profile_type or args.all_profiles:
+        if source.kind == tuning_source.STANDALONE:
+            name_parts.append(profile_type.title())
+        elif profile_type or args.all_profiles:
             safe_profile = parse.sanitize_profile_type(profile_type or "default")
             if profile_type and safe_profile != profile_type:
                 console.warn(f"sanitizing profile name {profile_type!r} -> {safe_profile!r} for use in filenames")
@@ -982,7 +1004,19 @@ def main(argv: list[str] | None = None,
         mode = "" if args.mode == "normal" else f" (mode={args.mode})"
         if source.kind == tuning_source.STANDALONE:
             console.cprint("head", source.format.heading)
-            tuning = parse.flat_tuning(source.format.probe_freqs())
+            # The Dolby banner's wording, from the tuning's own profiles.
+            n_profiles = len(source.profiles)
+            if args.profile or args.all_profiles:
+                shown = profile_type
+            elif n_profiles == 1:
+                shown = f"{profile_type} (this speaker's only sound mode)"
+            else:
+                shown = (f"{profile_type} (the first-listed of this "
+                         f"speaker's {n_profiles} sound modes — --list names "
+                         "them; --profile picks)")
+            console.cprint("head", f"Profile: {shown}")
+            tuning = parse.flat_tuning(source.format.probe_freqs(),
+                                       profile_type)
         else:
             console.cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
                            "presets are for)")
@@ -1004,9 +1038,12 @@ def main(argv: list[str] | None = None,
 
         if source.kind == tuning_source.STANDALONE:
             # The Dolby sections would all describe absent stages; the vendor
-            # layer's own section is the whole report.
+            # layer's own section is the whole report. Each profile has its
+            # own layer, so each preset is built from its own.
+            apo = source.profiles[profile_type]
             profile_findings = report_profile._print_apo_layer(
-                apo, True, args.verbose, shown=apo_shown)
+                apo, True, args.verbose, shown=apo_shown,
+                experimental=source.experimental(profile_type))
         else:
             profile_findings = report_profile._report_parsed_profile(
                 tuning, disabled,
@@ -1031,6 +1068,10 @@ def main(argv: list[str] | None = None,
                                           for f in [*tuning.findings,
                                                     *profile_findings]),
                                apo=apo)
+        # Built from a profile no listener has heard: every list of presets
+        # marks it, the closing here and the wrapper's conversion step.
+        if source.experimental(profile_type):
+            experimental_presets += tally.all_preset_names[built_before:]
 
         # The closing block, ~120 lines down, wants two scalars off `tuning`.
         # Bound here rather than read off the loop variable down there, so
@@ -1054,6 +1095,10 @@ def main(argv: list[str] | None = None,
     # all point at this preset, and must keep pointing at the same one.
     start = autoload.starting_preset(args.autoload, tally.all_preset_names)
     _configure_autoload(args, start)
+    # What a wrapper converts, and which of it to mark experimental.
+    if resolved is not None:
+        resolved["presets"] = list(tally.all_preset_names)
+        resolved["experimental"] = experimental_presets
 
     # Make it audible without asking: EasyEffects doesn't watch preset files.
     # Beside autoload because both are things this run *did*, not things it
@@ -1221,12 +1266,13 @@ def main(argv: list[str] | None = None,
                 [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
         _print_finding_detail(tally.findings["unconfirmed-by-ear"])
 
-    # A preset built from HP's tuning alone has been compared with two
-    # laptops' Windows recordings, never heard: ask for the comparison.
+    # A preset built from a standalone tuning alone has been compared with
+    # two laptops' Windows recordings and heard by one listener: ask for the
+    # comparison.
     if source.kind == tuning_source.STANDALONE and tally.all_preset_names:
         tally.findings.setdefault(
             "vendor-tuning-unconfirmed",
-            report_findings._vendor_only_finding(apo.label))
+            report_findings._vendor_only_finding())
         _print_finding_detail(tally.findings["vendor-tuning-unconfirmed"])
 
     # --enable level-restore is the one experimental path that HAS been
@@ -1308,11 +1354,12 @@ def main(argv: list[str] | None = None,
         # so there is nothing to point at. get_profile_types re-reads the
         # XML, but only here, once, at the very end.
         profile_used = n_modes = None
-        if (source.has_profiles and not args.all_profiles
-                and len(profile_types) == 1):
+        if not args.all_profiles and len(profile_types) == 1:
             profile_used = last_profile_used
-            n_modes = len(parse.get_profile_types(xml_path, args.endpoint,
-                                                  args.mode))
+            n_modes = (len(source.profiles)
+                       if source.kind == tuning_source.STANDALONE
+                       else len(parse.get_profile_types(
+                           xml_path, args.endpoint, args.mode)))
         messages.print_what_now(tally.all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,
@@ -1341,6 +1388,7 @@ def main(argv: list[str] | None = None,
                                        and not apo_layer.is_active(
                                            apo, set(args.enable), disabled)
                                        else ""),
+                       experimental=experimental_presets,
                        reloaded=reloaded.playing,
                        loaded=reloaded.loaded,
                        reload_slug=(reloaded.finding.slug

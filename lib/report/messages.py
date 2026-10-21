@@ -218,6 +218,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    vendor_apo: str = "",
                    vendor_apo_default: bool = False,
                    vendor_apo_off: str = "",
+                   experimental: list[str] | None = None,
                    reloaded: str = "",
                    loaded: str = "",
                    reload_slug: str = "",
@@ -256,7 +257,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     (autoload.starting_preset); ``declared_default_preset`` the declared
     default profile's preset when --all-profiles built it, so the note that
     a single-profile run makes with ``profile_used`` can name it instead of
-    a rebuild.
+    a rebuild. ``experimental`` names the presets a standalone tuning built
+    from sound modes no listener has heard, which the list marks.
     """
     if not preset_names or autoloaded:
         return
@@ -314,6 +316,22 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         mismatch_note = (f"  Windows ships this device on "
                          f"'{declared_default}' — that's "
                          f"{declared_default_preset} here.")
+    # A standalone tuning's presets built from sound modes no listener has
+    # heard (`StandaloneFormat.experimental`). The loudness clause is
+    # load-bearing: make_fir scales every preset to its own peak, so the
+    # level step between two modes is not the one Windows plays.
+    experimental = experimental or []
+    experimental_note = ""
+    if experimental:
+        names = " and ".join([", ".join(experimental[:-1]),
+                              experimental[-1]] if len(experimental) > 1
+                             else experimental)
+        verb, pron = (("are", "them") if len(experimental) > 1
+                      else ("is", "it"))
+        experimental_note = (f"  {names} {verb} experimental: nobody has "
+                             f"listened to {pron} yet. How loud each plays "
+                             "next to the others may differ from Windows: "
+                             "each preset is scaled to its own peak.")
     # Derived from what was actually built (round 7, user catch): a
     # tuning lacking a voicing curve skips that preset, so the hint must
     # not describe a preset that doesn't exist.
@@ -323,6 +341,11 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if any(n.endswith("-Warm") for n in preset_names):
         hints.append("Warm softer")
     voicing_hint = f" ({', '.join(hints)})" if hints else ""
+    # A standalone tuning builds one preset per sound mode and no voicings.
+    these = "These voice" if len(preset_names) > 1 else "It voices"
+    others_are = ("voicings" if any(n.endswith(f"-{v}") for n in preset_names
+                                    for v in VOICING_CURVES)
+                  else "presets")
     console.cprint("head", f"\n{'=' * 60}")
     if dry_run:
         # cta, not ok: green is this run's "check passed, nothing to do"
@@ -360,7 +383,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         if profile_used and n_modes > 1:
             caveat = (" (we assume it is your Windows default)"
                       if default_unknown else "")
-            console._cprint_wrapped("dim", f"  These voice the '{profile_used}' "
+            console._cprint_wrapped("dim", f"  {these} the '{profile_used}' "
                                    f"sound mode only{caveat} — "
                                    "--all-profiles builds every mode.",
                             indent="  ")
@@ -372,6 +395,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
             console._cprint_wrapped("dim", vbass_note, indent="  ")
         if apo_note:
             console._cprint_wrapped("dim", apo_note, indent="  ")
+        if experimental_note:
+            console._cprint_wrapped("dim", experimental_note, indent="  ")
         return
     # "starting in": each preset is two files and only the .json lands in
     # output_dir. The .irs impulse response goes to --irs-dir, a different
@@ -399,7 +424,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if reloaded or loaded:
         # Only voicings that were built get named (voicing_hint is derived
         # from the list), and only when there is more than one.
-        others = (f" — the other voicings{voicing_hint} are in its Presets menu"
+        others = (f" — the other {others_are}{voicing_hint} are in its "
+                  "Presets menu"
                   if len(preset_names) > 1 else "")
         state = (f"is playing '{reloaded}' now" if reloaded
                  else f"has '{loaded}' loaded")
@@ -422,7 +448,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if profile_used and n_modes > 1:
         caveat = (" (we assume it is your Windows default)"
                   if default_unknown else "")
-        console._cprint_wrapped("dim", f"  These voice the '{profile_used}' sound "
+        console._cprint_wrapped("dim", f"  {these} the '{profile_used}' sound "
                                f"mode only{caveat} — --all-profiles builds "
                                "every mode.", indent="  ")
     if mismatch_note:
@@ -433,6 +459,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         console._cprint_wrapped("dim", vbass_note, indent="  ")
     if apo_note:
         console._cprint_wrapped("dim", apo_note, indent="  ")
+    if experimental_note:
+        console._cprint_wrapped("dim", experimental_note, indent="  ")
     # The one-line map back to the menu (round 7): with the Done block
     # grown, the symptom→flag menu scrolls off a 26-line screen and the
     # reader said they'd never think to scroll. The pointer puts the

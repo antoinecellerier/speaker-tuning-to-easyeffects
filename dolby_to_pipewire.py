@@ -356,14 +356,22 @@ def main(argv: list[str] | None = None) -> int:
         if rc != 0:
             return rc
 
-        presets = [p for v in variants
-                   for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
-        if not presets and resolved.get("source") == "standalone":
-            console.cprint("err", f"error: HP's Bang & Olufsen tuning builds "
-                          "one voicing, Balanced, so there is no "
-                          f"{args.variant.capitalize()} — drop --variant "
-                          f"{args.variant}")
+        # A standalone tuning (lib/tuning_source.py) builds one preset per
+        # profile and no voicings, so every preset it staged is converted,
+        # in the order it built them.
+        standalone = resolved.get("source") == "standalone"
+        if standalone and args.variant != parser.get_default("variant"):
+            console.cprint("err", "error: --variant picks among a Dolby "
+                          "tuning's voicings, and this tuning has none — "
+                          f"drop --variant {args.variant}")
             return 1
+        if standalone:
+            presets = [Path(tmp) / f"{name}.json"
+                       for name in resolved.get("presets", [])]
+        else:
+            presets = [p for v in variants
+                       for p in sorted(Path(tmp).glob(f"*-{v}.json"))]
+        experimental = set(resolved.get("experimental", []))
         if not presets:
             wanted = ", ".join(variants)
             console.cprint("err", f"error: no {wanted} preset was generated — see "
@@ -374,8 +382,8 @@ def main(argv: list[str] | None = None) -> int:
         # voicings as generated. Converting one without saying which, or that
         # the others are reachable, would read as two of them being silently
         # dropped, with no way to try Warm if Balanced sounds wrong. A tuning
-        # with no Dolby file (lib/apo/sonitude.py) builds one preset only,
-        # so there are no other voicings to name.
+        # with no Dolby file (lib/apo/sonitude.py) builds no voicings, so
+        # there are none to name.
         staged_others = [v for v in VARIANT_STEMS.values()
                          if v not in variants
                          and any(Path(tmp).glob(f"*-{v}.json"))]
@@ -390,11 +398,17 @@ def main(argv: list[str] | None = None) -> int:
             # wrong for them.
             if args.variant == "balanced" and staged_others:
                 console.cprint("dim", "      (Balanced is Dolby's default voicing)")
+            if presets[0].stem in experimental:
+                console.cprint("dim", "      (experimental: nobody has "
+                               "listened to this sound mode yet)")
         else:
             console.cprint("head", f"[2/3] Converting {len(presets)} presets to "
                            "PipeWire filter-chain confs")
             for preset in presets:
-                console.cprint("dim", f"      {preset.stem}")
+                console.cprint("dim", f"      {preset.stem}"
+                               + (" (experimental: nobody has listened to "
+                                  "this sound mode yet)"
+                                  if preset.stem in experimental else ""))
             # Each is a separate output you choose in sound settings, not a
             # stage in one chain — the distinction the smart-filter default
             # hides, and the reason this mode needs --target-sink ''.
