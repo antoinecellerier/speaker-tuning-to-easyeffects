@@ -113,7 +113,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ASUS Zenbook 14 (UM3406HA)
   ([#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134)),
   ASUS TUF Gaming A16 (FA607PV)
-  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137)).
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137)),
+  ThinkPad E16 Gen 2 (21MA)
+  ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144)).
 
 ### Fixed
 
