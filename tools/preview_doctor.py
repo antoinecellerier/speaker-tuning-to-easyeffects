@@ -358,6 +358,166 @@ def render(slug: str) -> None:
         doctor_run._print_doctor_report(report)
 
 
+# --- The PipeWire doctor (dolby_to_pipewire.py / ee_to_pipewire.py --doctor) ---
+#
+# The same idea for the other doctor. What it judges is the confs on disk and
+# the graph pw-dump returns, so a scenario stages the first and answers as the
+# second; the checks, the wording and the layout are the shipped
+# `checks.report_pw_doctor`. Hardware and the plugin probe stay real, like the
+# EasyEffects scenarios' kernel and hardware.
+
+_PW_SPEAKER = "alsa_output.pci-0000_00_1f.3.analog-stereo"
+
+# Each chain is (name, mode): "smart" attaches to the speaker sink as a smart
+# filter, "pinned" is a virtual sink whose playback is pinned to it, "loose"
+# a virtual sink with no playback target. ``default`` is the sink selected as
+# the output; ``configured`` the remembered pick, when it differs.
+PW_SCENARIOS: dict[str, dict] = {
+    "pw-healthy": {
+        "why": "one chain attached to the speakers, the speakers selected — "
+               "the default install, healthy",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": _PW_SPEAKER,
+    },
+    "pw-stacked": {
+        "why": "two chains attached to the same speakers by two separate runs, "
+               "so PipeWire runs them one after the other",
+        "chains": [("Dolby_Balanced", "smart"), ("Dolby_Warm", "smart")],
+        "default": _PW_SPEAKER,
+    },
+    "pw-several-virtual-sinks": {
+        "why": "the three voicings installed as separate outputs to compare "
+               "(--variant all --target-sink ''), one of them selected "
+               "(issue #144)",
+        "chains": [("Dolby_Balanced", "pinned"), ("Dolby_Detailed", "pinned"),
+                   ("Dolby_Warm", "pinned")],
+        "default": "effect_input.Dolby_Balanced",
+    },
+    "pw-several-unpinned": {
+        "why": "two virtual-sink chains from separate runs, neither pinned to "
+               "the speakers, one of them selected",
+        "chains": [("Dolby_Balanced", "loose"), ("Dolby_Music_Balanced", "loose")],
+        "default": "effect_input.Dolby_Balanced",
+    },
+    "pw-chain-selected": {
+        "why": "the default install, but the chain itself was picked as the "
+               "output in sound settings (issue #63)",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": "effect_input.Dolby_Balanced",
+    },
+}
+
+
+def _pw_conf_text(name: str, mode: str) -> str:
+    """A conf as installed_confs reads it: the header and the routing props."""
+    from lib import version
+    from lib.pipewire import conf as pw_conf
+    capture = [f'node.name = "effect_input.{name}"', 'media.class = "Audio/Sink"']
+    playback = [f'node.name = "effect_output.{name}"']
+    if mode == "smart":
+        capture += ["filter.smart = true",
+                    f'filter.smart.target = {{ node.name = "{_PW_SPEAKER}" }}']
+    elif mode == "pinned":
+        playback.append(f'target.object = "{_PW_SPEAKER}"')
+    return (f"{pw_conf.CONF_HEADER_MARK} — see\n"
+            f"# version: {version.get_version()}\n"
+            "context.modules = [ { name = \"libpipewire-module-filter-chain\"\n"
+            "  args = {\n"
+            f"    capture.props = {{ {' '.join(capture)} }}\n"
+            f"    playback.props = {{ {' '.join(playback)} }}\n"
+            "  } } ]\n")
+
+
+def _pw_dump(spec: dict) -> list:
+    """The pw-dump a machine in this scenario returns."""
+    def node(name, **props):
+        return {"type": "PipeWire:Interface:Node",
+                "info": {"props": {"node.name": name, **props}}}
+    dump = [node(_PW_SPEAKER, **{"media.class": "Audio/Sink",
+                                 "node.description": "Built-in Audio Speaker"}),
+            {"type": "PipeWire:Interface:Client",
+             "info": {"props": {"wireplumber.daemon": True,
+                                "application.version": "0.5.18"}}}]
+    for name, mode in spec["chains"]:
+        capture = {"media.class": "Audio/Sink"}
+        playback = {"node.passive": True}
+        if mode == "smart":
+            capture.update({"filter.smart": True,
+                            "node.link-group": f"{name}_smart_filter",
+                            "filter.smart.target":
+                                f'{{ node.name = "{_PW_SPEAKER}" }}'})
+            playback["node.link-group"] = f"{name}_smart_filter"
+        elif mode == "pinned":
+            playback["target.object"] = _PW_SPEAKER
+        dump += [node(f"effect_input.{name}", **capture),
+                 node(f"effect_output.{name}", **playback)]
+    entries = [{"subject": 0, "key": key, "type": "Spa:String:JSON",
+                "value": {"name": value}}
+               for key, value in (
+                   ("default.audio.sink", spec["default"]),
+                   ("default.configured.audio.sink",
+                    spec.get("configured", spec["default"])))]
+    dump.append({"type": "PipeWire:Interface:Metadata",
+                 "props": {"metadata.name": "default"}, "metadata": entries})
+    return dump
+
+
+@contextlib.contextmanager
+def _pw_scenario(slug: str):
+    """Stage one PipeWire scenario's confs and graph; restore every probe after.
+
+    The conf directory is a temp dir, so the report would name it. Paths reach
+    the screen only through `doctor.tilde`, so that one function maps the
+    staging dir back to the directory the portrayed run installed into: the
+    rendered rows then name the path a reader's report would."""
+    spec = PW_SCENARIOS[slug]
+    saved = (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+             checks._UNSCANNED_CONF_DIR, doctor.tilde,
+             session.read_settings, session.read_xruns, session.process_age)
+    real_dir, real_tilde = checks.DEFAULT_OUTPUT_DIR, doctor.tilde
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = Path(tmp)
+        for name, mode in spec["chains"]:
+            (staged / f"{name}.conf").write_text(_pw_conf_text(name, mode))
+        dump = _pw_dump(spec)
+
+        def tilde(path):
+            text = str(path)
+            if text.startswith(str(staged)):
+                text = str(real_dir) + text[len(str(staged)):]
+            return real_tilde(text)
+
+        try:
+            checks._pw_dump = lambda: dump
+            checks.DEFAULT_OUTPUT_DIR = staged
+            # filter-chain.conf.d too: its check reads that directory, and the
+            # capture machine's own would add a WARN no scenario describes.
+            checks._UNSCANNED_CONF_DIR = staged / "filter-chain.conf.d"
+            doctor.tilde = tilde
+            # The clock and the five-second dropout window describe the
+            # capture machine's session, not the scenario's: a healthy one.
+            session.read_settings = lambda: session.ClockSettings(
+                rate="48000", quantum="1024", min_quantum="32",
+                max_quantum="2048", force_quantum="0", force_rate="0")
+            session.read_xruns = lambda *a, **kw: session.Dropouts(
+                sink=0, chain=0, chain_node="", sink_recent=0, chain_recent=0,
+                window_s=5.0, playing=True, sink_is_driver=True,
+                running_quantum=1024, running_rate=48000)
+            session.process_age = lambda name: 3 * 3600.0
+            yield
+        finally:
+            (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+             checks._UNSCANNED_CONF_DIR, doctor.tilde,
+             session.read_settings, session.read_xruns,
+             session.process_age) = saved
+
+
+def render_pw(slug: str) -> None:
+    """Print one PipeWire scenario's report, exactly as `--doctor` would."""
+    with _pw_scenario(slug):
+        checks.report_pw_doctor()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -369,18 +529,23 @@ def main(argv=None) -> int:
                          "default: all of them, in registry order)")
     ap.add_argument("--width", type=int, default=80, metavar="COLS",
                     help="terminal width to wrap at (default: 80)")
+    ap.add_argument("--pipewire", action="store_true",
+                    help="render the PipeWire doctor's scenarios "
+                         "(dolby_to_pipewire.py --doctor) instead")
     args = ap.parse_args(argv)
+    registry, draw = ((PW_SCENARIOS, render_pw) if args.pipewire
+                      else (SCENARIOS, render))
 
     if args.list:
-        for slug, spec in SCENARIOS.items():
+        for slug, spec in registry.items():
             print(f"{slug}\n    {spec['why']}")
         return 0
 
-    unknown = [s for s in args.scenario if s not in SCENARIOS]
+    unknown = [s for s in args.scenario if s not in registry]
     if unknown:
         ap.error(f"unknown scenario(s): {', '.join(unknown)} "
                  f"(--list prints them)")
-    slugs = args.scenario or list(SCENARIOS)
+    slugs = args.scenario or list(registry)
 
     # The scripts wrap to the real terminal, and a capture is a pipe — pin
     # the width through the environment, the same lever preview_output.py
@@ -391,8 +556,8 @@ def main(argv=None) -> int:
     # must never reach a reviewer.
     rule = "─" * min(args.width, 100)
     for slug in slugs:
-        print(f"\n{rule}\n### {slug}  —  {SCENARIOS[slug]['why']}\n{rule}")
-        render(slug)
+        print(f"\n{rule}\n### {slug}  —  {registry[slug]['why']}\n{rule}")
+        draw(slug)
     return 0
 
 

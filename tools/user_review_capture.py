@@ -20,6 +20,8 @@ Writes into --out-dir:
     slice_doctor_blocks.txt   every --doctor scenario's report, redacted —
                               states this machine isn't in (see
                               tools/preview_doctor.py --list)
+    slice_pw_doctor_blocks.txt  the same for the PipeWire doctor
+                              (tools/preview_doctor.py --pipewire --list)
     *.color.txt               the same captures with the terminal's colors
                               kept as ⟦color⟧…⟦/⟧ markers naming what the
                               screen shows (⟦yellow⟧, ⟦faint⟧, ⟦bold-cyan⟧…),
@@ -449,6 +451,22 @@ def main(argv=None) -> int:
         failed.append("annotated doctor blocks misaligned with plain — "
                       ".color.txt variant not written")
 
+    # The PipeWire doctor's scenarios, the same way and for the same reason.
+    raw_pw, rc = _pty_capture(
+        [py, "tools/preview_doctor.py", "--pipewire", "--width",
+         str(args.width)], args.width)
+    if rc != 0:
+        failed.append(f"preview_doctor.py --pipewire exited {rc}")
+    pw_doc, pw_doc_ann, pw_doc_headers, _ = _redact_preview(
+        _plain(raw_pw), _annotate(raw_pw), header=DOCTOR_HEADER)
+    written.append(_write(out_dir / "slice_pw_doctor_blocks.txt", pw_doc))
+    if pw_doc_ann is not None:
+        written.append(_write(out_dir / "slice_pw_doctor_blocks.color.txt",
+                              pw_doc_ann))
+    else:
+        failed.append("annotated PipeWire doctor blocks misaligned with plain "
+                      "— .color.txt variant not written")
+
     mode = ("sandbox: fake-home namespace (paths read /home/user/…; EE run "
             "is REAL, wrapper used --no-activate, preview blocks remain "
             "--dry-run by design)" if sandbox else
@@ -469,6 +487,11 @@ def main(argv=None) -> int:
              "sandbox — --doctor reports the machine it runs on):"]
     meta += [f"  DIAGNOSTIC REPORT #{n}: {h}"
              for n, h in enumerate(doc_headers, 1)]
+    meta += ["",
+             "slice_pw_doctor_blocks.txt block map (PipeWire doctor, also "
+             "captured outside the sandbox):"]
+    meta += [f"  DIAGNOSTIC REPORT #{n}: {h}"
+             for n, h in enumerate(pw_doc_headers, 1)]
     meta += ["",
              "patterns with no corpus match (NOT reviewed this round — list "
              "them in the report):"]

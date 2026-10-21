@@ -283,3 +283,107 @@ def test_startup_scenarios_render_their_background_service_status(
     line = next(ln for ln in out.splitlines()
                 if re.match(r"\s*\[.+\]\s+Background service", ln))
     assert tag(status) in line, line
+
+
+# --- The PipeWire doctor's scenarios ----------------------------------------
+#
+# Same contract: each slug must reach its state on the rendered report. The
+# checks asserted here read the staged graph, which the scenario answers as,
+# so they hold with the machine off (no spa-json-dump, so the staged confs
+# read as unparsed; the graph alone decides these lines).
+
+from lib.doctor import DOCTOR_FAIL                       # noqa: E402
+from lib.pipewire import checks, session                 # noqa: E402
+
+# slug -> (check title, status) the report must carry, or None for a slug
+# whose point is that neither multi-chain check fires.
+_PW_EXPECTED = {
+    "pw-healthy": None,
+    "pw-stacked": ("Stacked filter chains", DOCTOR_FAIL),
+    "pw-several-virtual-sinks": ("Several chains as separate outputs", DOCTOR_WARN),
+    "pw-several-unpinned": ("Several chains as separate outputs", DOCTOR_WARN),
+    "pw-chain-selected": ("Default output", DOCTOR_WARN),
+}
+
+
+@pytest.fixture(autouse=True)
+def _staged_confs_parse(monkeypatch):
+    """Read the staged confs' routing the way spa-json-dump would.
+
+    The machine is off in the suite, so the real parse marks every staged conf
+    unreadable, and the checks that only count this tool's own chains would
+    see none. This stands in for the tool on the props the scenarios stage."""
+    real = checks.parse_conf
+
+    def parse(path):
+        conf = real(path)
+        if conf.readable:
+            return conf
+        text = Path(path).read_text()
+        m = re.search(r'node\.name = "(effect_input\.[^"]+)"', text)
+        conf.node_name = m.group(1) if m else ""
+        conf.smart = "filter.smart = true" in text
+        pin = re.search(r'target\.object = "([^"]+)"', text)
+        conf.pinned = pin.group(1) if pin else ""
+        conf.readable, conf.unreadable = True, ""
+        return conf
+    monkeypatch.setattr(checks, "parse_conf", parse)
+
+
+def test_pw_registry_and_expectations_agree():
+    assert set(_PW_EXPECTED) == set(preview_doctor.PW_SCENARIOS)
+
+
+@pytest.mark.parametrize("slug", list(_PW_EXPECTED))
+def test_pw_rendered_block_shows_the_check_the_scenario_is_for(slug, capsys,
+                                                               monkeypatch):
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render_pw(slug)
+    out = capsys.readouterr().out
+    expected = _PW_EXPECTED[slug]
+    assert "=== PipeWire filter-chain doctor ===" in out, "nothing rendered"
+    if expected is None:
+        assert "Stacked filter chains" not in out
+        assert "Several chains as separate outputs" not in out
+        return
+    title, status = expected
+    line = next(ln for ln in out.splitlines()
+                if re.match(rf"\s*\[.+\]\s+{re.escape(title)}", ln))
+    assert tag(status) in line, line
+
+
+def test_pw_unpinned_scenario_carries_the_pin_sentence(capsys, monkeypatch):
+    """The two several-chains scenarios differ only in the pin, and the merged
+    check words that difference: one has the sentence, the other must not."""
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render_pw("pw-several-unpinned")
+    flat = " ".join(capsys.readouterr().out.split())
+    assert "aren't tied to your speakers" in flat
+    preview_doctor.render_pw("pw-several-virtual-sinks")
+    flat = " ".join(capsys.readouterr().out.split())
+    assert "aren't tied to your speakers" not in flat
+
+
+@pytest.mark.parametrize("slug", list(_PW_EXPECTED))
+def test_pw_rendered_block_never_names_the_staging_tree(slug, capsys,
+                                                        monkeypatch):
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render_pw(slug)
+    out = capsys.readouterr().out
+    assert tempfile.gettempdir() not in out
+    assert "/tmp" not in out
+
+
+def test_pw_scenario_restores_every_probe_even_when_the_body_raises():
+    from lib import doctor
+    before = (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+              checks._UNSCANNED_CONF_DIR, doctor.tilde,
+              session.read_settings, session.read_xruns, session.process_age)
+    with pytest.raises(RuntimeError):
+        with preview_doctor._pw_scenario("pw-stacked"):
+            assert checks._pw_dump is not before[0]
+            raise RuntimeError("boom")
+    assert (checks._pw_dump, checks.DEFAULT_OUTPUT_DIR,
+            checks._UNSCANNED_CONF_DIR, doctor.tilde,
+            session.read_settings, session.read_xruns,
+            session.process_age) == before

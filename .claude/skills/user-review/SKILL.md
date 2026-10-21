@@ -68,6 +68,10 @@ The files, in its `--out-dir`:
   sound cards, attached USB devices. That inventory is the maintainer's, and
   it is not what a reviewer is being asked about. It stays in gitignored
   `localresearch/`, so don't paste these blocks anywhere else.
+- `slice_pw_doctor_blocks.txt`: the same for the PipeWire doctor
+  (`dolby_to_pipewire.py --doctor`), from `tools/preview_doctor.py --pipewire`.
+  Its scenarios stage the confs and answer `pw-dump` as the graph would, so
+  a new check there earns a scenario too.
 - `<name>.color.txt`: each capture with the terminal's colors kept as
   `⟦color⟧…⟦/⟧` markers, such as `⟦yellow⟧`, `⟦faint⟧` or `⟦bold-cyan⟧`.
   The markers name what the screen shows, never what we mean by it. The
@@ -148,7 +152,7 @@ reports that everything is clear.
 
 Each prompt below starts with PERSONA and ends with FORMAT, verbatim:
 
-PERSONA (EE variant, for reviewers A and C):
+PERSONA (EE variant, for reviewers A, C and D):
 
 ```
 ROLE-PLAY. You are NOT a developer on this project. Stay in character, and do
@@ -186,8 +190,8 @@ capture notation, not program output: never report them as faults, and
 strip them when quoting THE LINE.
 ```
 
-PERSONA (wrapper variant, for reviewer B): the same, with the second
-paragraph replaced by:
+PERSONA (wrapper variant, for reviewer B and the PipeWire reviewer D): the
+same, with the second paragraph replaced by:
 
 ```
 You own a Linux laptop and wanted better speaker sound. You found
@@ -279,8 +283,11 @@ then FORMAT.
 
 ### Reviewer D: the `--doctor` scenario reports
 
-Dispatch it only when the round changed `--doctor` copy. PERSONA (EE) plus
-the COLOR NOTE, then:
+Dispatch it once for each doctor whose `--doctor` copy the round changed;
+the hardware sections are shared, so copy there reaches both. PERSONA (EE) plus
+the COLOR NOTE, then the prompt below. For the PipeWire doctor, use PERSONA
+(wrapper) without its harness note, the COLOR NOTE, and
+`slice_pw_doctor_blocks.color.txt` in place of the EasyEffects file.
 
 ```
 Some time after your first run, you ran a second command the README mentions
