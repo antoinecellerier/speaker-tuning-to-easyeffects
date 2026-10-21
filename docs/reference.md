@@ -449,6 +449,8 @@ Every mapping here is unvalidated: see
 
 ## Validated vs unvalidated mappings
 
+### Dolby DAX3 XML
+
 Validated against DAX captures:
 
 | Mapping | Evidence |
@@ -487,32 +489,6 @@ saturator constants are measurement-calibrated rather than XML-derived
 ([DAX virtual-bass finding](research/virtual-bass.md#r-dax-virtual-bass), issue
 [#14](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/14)).
 
-Unvalidated, on by default, `--disable vendor-apo`: every Surface APO mapping.
-That covers the biquad layout and sign convention, the DRC's pregain and
-full-volume state, and the Crystal-to-limiter-band reading, the weakest of
-them. One listener, on a Surface Pro 9 (Intel), has heard the layer through the
-PipeWire chain and reported much better tuning. Nobody has listened to the
-EasyEffects preset. No Windows capture exists for any Surface device,
-and the parser has read only the 11 models' configs in
-[the fleet survey](research/vendor-apo.md#r-surface-apo-fleet)
-([Surface APO finding](research/vendor-apo.md#r-surface-apo-efx), issue
-[#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
-
-Unvalidated, on wherever a laptop's only tuning is a Sonitude preset: every
-[Sonitude](#sonitude-input) mapping. That covers the curve's grid, reading the
-curve as the EQ, applying only its cuts, the high-pass at its field's corner,
-and reading `AnyContent` as the Music mode. A 4th-order Butterworth high-pass
-cornered at the curve's own step was pre-registered on one laptop's Voice mode
-and fit within 0.97 dB rms from 50 to 160 Hz. Taking the corner from the field
-came afterwards, and has not been scored on its own there. From 200 Hz to 12.5
-kHz the cuts-only curve is within 1.00 dB rms of what switching the tuning on
-changes in that laptop's Windows recordings, and within 1.61 dB rms of a second
-laptop's published Windows response. One listener has heard the current Music
-preset, on the first laptop: "considerably better… almost like Windows", with
-bass that wants to be "more dense and full". Nobody has heard the Movie or Voice
-preset ([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets), issue
-[#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
-
 Unvalidated, and knowingly so, `isolated_band`: a zone whose `threshold_high` is
 0 dBFS and whose bands are all marked non-isolated joins the limiter at full
 scale, rather than being read as "never triggers". This is on by default since
@@ -529,6 +505,38 @@ level cost at ≤1 dB
 [fixed dynamics constants](research/loudness-and-limiting.md#r-fixed-dynamics-constants)
 (f), issue
 [#44](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/44)).
+
+### Surface APO config
+
+Unvalidated, on by default, `--disable vendor-apo`: every Surface APO mapping.
+That covers the biquad layout and sign convention, the DRC's pregain and
+full-volume state, and the Crystal-to-limiter-band reading, the weakest of
+them. One listener, on a Surface Pro 9 (Intel), has heard the layer through the
+PipeWire chain and reported much better tuning. Nobody has listened to the
+EasyEffects preset. No Windows capture exists for any Surface device,
+and the parser has read only the 11 models' configs in
+[the fleet survey](research/vendor-apo/surface.md#r-surface-apo-fleet)
+([Surface APO finding](research/vendor-apo/surface.md#r-surface-apo-efx), issue
+[#113](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/113)).
+
+### Sonitude preset
+
+Unvalidated, on wherever a laptop's only tuning is a Sonitude preset: every
+[Sonitude](#sonitude-input) mapping. That covers the curve's grid, reading the
+curve as the EQ, applying only its cuts, the high-pass at its field's corner,
+and reading `AnyContent` as the Music mode. A 4th-order Butterworth high-pass
+cornered at the curve's own step was pre-registered on one laptop's Voice mode
+and fit within 0.97 dB rms from 50 to 160 Hz. Taking the corner from the field
+came afterwards, and has not been scored on its own there. From 200 Hz to 12.5
+kHz the cuts-only curve is within 1.00 dB rms of what switching the tuning on
+changes in that laptop's Windows recordings, and within 1.61 dB rms of a second
+laptop's published Windows response. One listener has heard the current Music
+preset, on the first laptop: "considerably better… almost like Windows", with
+bass that wants to be "more dense and full". Nobody has heard the Movie or Voice
+preset
+([Sonitude presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets),
+issue
+[#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
 
 ## Not implemented (and why)
 

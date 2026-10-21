@@ -107,7 +107,7 @@ about that model.
 | `dax3_ext_cirrus` | 5 | `BASW-A4285A20_1063.ZIP` | Galaxy Book6 Pro (Samsung, Cirrus SoundWire) |
 | `dax3_ext_dolbyatmos` | 2 | `SurfaceBook3_Win11_22621_25.013.34389.0.msi` | Surface Book 3 |
 | `dax3_ext_dolbyaudiopremium` | 2 | `SurfaceGo3_Win11_22631_26.080.320.0.msi` | Surface Go 3 |
-| `dax3_ext_rtk` | 496 | `SurfacePro9_Win11_22631_26.091.15297.0.msi` and 19 more Surface `.msi`s, one per model | Surface Pro 9 (Intel), issue #113, and the [Surface fleet survey](research/vendor-apo.md#r-surface-apo-fleet) |
+| `dax3_ext_rtk` | 496 | `SurfacePro9_Win11_22631_26.091.15297.0.msi` and 19 more Surface `.msi`s, one per model | Surface Pro 9 (Intel), issue #113, and the [Surface fleet survey](research/vendor-apo/surface.md#r-surface-apo-fleet) |
 | `ext_22h2_v8.317.1015.13` | 464 | `wplc310fah72yve0.exe` | Yoga Pro 9 14IRP8 |
 | `ext_24h2_v10.307.807.28` | 198 | `wplc2w0fah72yve0.exe` | IdeaPad 3 17ABA7 |
 | `ext_ideapad_AIO_senary_21h2_22h2_v8.920.549.59` | 22 | `rwsa060fjbbg7kf0.exe` | IdeaPad Slim 5x Gen 9 |
@@ -148,12 +148,12 @@ Twelve of the Surface `.msi`s also ship Microsoft's Surface APO configs,
 `SurfaceAPO_*.json`, eleven of them with a speaker chain. They are not counted
 here, since every figure
 on this page counts DAX3 XMLs; the vendor-apo layer reads them
-([Surface fleet](research/vendor-apo.md#r-surface-apo-fleet)).
+([Surface fleet](research/vendor-apo/surface.md#r-surface-apo-fleet)).
 
 The collection also holds HP's `sp161474.exe`, which ships no DAX3 XML and is
 not counted here either. Its 33 Sonitude `SEAPODAT` archives carry the
 speaker presets a laptop with no Dolby file is built from
-([Sonitude presets](research/vendor-apo.md#r-sonitude-apo-presets)).
+([Sonitude presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets)).
 `tests/corpus/test_sonitude_corpus.py` walks the 29 whose name binds a codec,
 one copy of each. Their maps bind 1,341 distinct subsystem IDs to 314 speaker
 presets, and every binding reads into all three content modes. Those counts

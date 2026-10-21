@@ -1,7 +1,7 @@
 ---
 paths:
   - "docs/design-notes.md"
-  - "docs/research/*.md"
+  - "docs/research/**/*.md"
   - "docs/cross-device-findings.md"
   - "docs/corpus.md"
   - "docs/alternative-pipelines.md"
@@ -47,7 +47,8 @@ virtual-bass = VBE and bass enhancer. hardware-and-drivers = kernel, codec,
 pins, amps, firmware. easyeffects-and-pipewire = EasyEffects, PipeWire,
 WirePlumber, Flatpak, paths, rate. measuring-against-windows = capture method,
 metrics, validation bar. vendor-apo = a vendor APO layer's parsing, and every
-lever mapped from it, whichever stage it lands in.
+lever mapped from it, whichever stage it lands in; each vendor's units live in
+`docs/research/vendor-apo/<vendor>.md`.
 
 A device investigation's heading names the mechanism, and its first line gives
 the issue number.
