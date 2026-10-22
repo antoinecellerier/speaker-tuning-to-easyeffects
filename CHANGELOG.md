@@ -122,7 +122,7 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - Laptops that ship no Dolby file but tune their speakers with the Sonitude APO
   get experimental presets from that tuning, read from the driver download or a
   mounted Windows: `Sonitude-Music` first, and Movie and Voice with
-  `--all-profiles`, which nobody has listened to.
+  `--all-profiles`.
   ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140);
   how to run it in `docs/sonitude.md`)
 - The PipeWire route warns when a run leaves two or more chains installed as

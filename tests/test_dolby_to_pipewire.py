@@ -291,6 +291,38 @@ def test_all_profiles_still_names_the_voicings_it_dropped(recorders, capsys):
     assert "Detailed" in out and "Warm" in out
 
 
+def test_a_tuning_without_voicings_marks_the_presets_nobody_heard(
+        recorders, monkeypatch, capsys):
+    """The generator hands back which presets nobody has listened to, and
+    the wrapper marks those where it lists what it converts."""
+    names = ["Sonitude-Music", "Sonitude-Movie", "Sonitude-Voice"]
+
+    def fake_run_cli(argv, closing=None, troubleshooting=None, resolved=None,
+                     staged=False):
+        out = Path(argv[argv.index("--output-dir") + 1])
+        for stem in names:
+            (out / f"{stem}.json").write_text("{}")
+            (out / f"{stem}.irs").write_bytes(b"")
+        resolved.update(tuning_file="/tmp/SEAPODAT.zip", voicings=False,
+                        presets=names, experimental=names[1:])
+        if troubleshooting is not None:
+            troubleshooting.update(findings=[], filters_by_profile={},
+                                   enabled_by_flag=frozenset())
+        return 0
+
+    monkeypatch.setattr(dolby_to_easyeffects, "run_cli", fake_run_cli)
+    assert wrapper_main(["--all-profiles", "--target-sink", "",
+                         "--no-activate"]) == 0
+    converting = capsys.readouterr().out.split("[2/3]")[1].split("\n")
+    assert [line.strip() for line in converting[1:4]] == [
+        "Sonitude-Music",
+        "Sonitude-Movie (experimental: nobody has listened to this sound "
+        "mode yet)",
+        "Sonitude-Voice (experimental: nobody has listened to this sound "
+        "mode yet)"]
+    assert [Path(a[0]).stem for a in recorders.step2] == names
+
+
 # --- One chain per target ---------------------------------------------------
 #
 # Chains sharing a filter.smart.target are run in SERIES by WirePlumber, not

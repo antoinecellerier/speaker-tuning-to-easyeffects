@@ -261,9 +261,9 @@ def _vendor_only_finding() -> Finding:
     """Presets built from a Sonitude tuning alone (issue #140).
 
     The Music preset's EQ was compared against two laptops' Windows
-    recordings and heard by one listener; Movie and Voice are built the same
-    way and nobody has heard them. So the ask names the comparison that
-    tells us whether it holds elsewhere. The figures are research
+    recordings; one listener on the first laptop has heard all three modes.
+    So the ask names the comparison that tells us whether it holds
+    elsewhere. The figures are research
     `r-sonitude-apo-presets`'s, and each keeps its band and its device: the
     1.0 is against what the tuning's on/off switch changes on the first
     laptop, not against everything Windows does there.
@@ -278,8 +278,9 @@ def _vendor_only_finding() -> Finding:
                "response. On the first laptop the tuning also adds harmonics "
                "to the deepest bass, which the presets leave out, and "
                "Windows applies an EQ even with the tuning switched off. "
-               "Movie and Voice are built the same way, but only Music has "
-               "been listened to: by one listener, on that laptop.",
+               "One listener on that laptop has compared all three modes "
+               "with Windows: Movie matched it, and Music and Voice were "
+               "close, with less bass.",
         ask="If this device also runs Windows, compare a preset with it in "
             "the same sound mode: how close is it?")
 

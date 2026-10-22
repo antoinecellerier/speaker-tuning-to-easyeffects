@@ -287,7 +287,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
 | ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
-| HP ZBook 15 G6 <!-- Realtek ALC285, 103C:860F --> | [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140) — experimental, from its [Sonitude tuning](docs/sonitude.md); reporter finds Music close to Windows, with less dense bass |
+| HP ZBook 15 G6 <!-- Realtek ALC285, 103C:860F --> | [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140) — experimental, from its [Sonitude tuning](docs/sonitude.md); reporter finds Movie matching Windows, and Music and Voice close with less bass |
 | Lenovo IdeaPad 3 15ALC6 (82KU) <!-- Realtek ALC257, 17AA:38BC --> | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) |
 | Lenovo IdeaPad Pro 5 14AHP9 (83D3) <!-- Realtek ALC287, 17AA:38D0 --> | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |

@@ -707,7 +707,4 @@ FORMAT = StandaloneFormat(
     owner="Sonitude",
     heading="Internal speakers (the output this preset is for)",
     probe_freqs=probe_freqs,
-    # Built as music is, the one mode a listener has heard (research
-    # `r-sonitude-apo-presets`).
-    experimental=("movie", "voice"),
 )

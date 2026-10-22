@@ -46,10 +46,9 @@ has been checked against Windows.
 
 ## Status
 
-Experimental. One listener has compared the Music preset with Windows, on one
-laptop. They found it close to Windows, with less dense bass, and quieter at the
-same volume setting. Nobody has listened to Movie or Voice. They are built the
-same way as Music.
+Experimental. One listener has compared all three presets with Windows, on one
+laptop. They found Movie matching Windows, and Music and Voice close, with less
+bass. All three played quieter at the same volume setting.
 
 If the preset plays quieter than Windows, allow volume above 100% in your
 desktop environment, as

@@ -113,6 +113,16 @@ def _three_modes() -> dict[str, bytes]:
             "voice": _preset_bin(_ramp(), high_pass=(None, None))}
 
 
+@pytest.fixture
+def unheard_movie_and_voice(monkeypatch):
+    """The Sonitude format with Movie and Voice still unheard, as it shipped
+    before a listener compared them: the marking path's own tests. Every
+    lookup in lib/ reaches a format through `discover.STANDALONE`."""
+    fmt = replace(sonitude.FORMAT, experimental=("movie", "voice"))
+    monkeypatch.setattr(apo_discover, "STANDALONE", (fmt,))
+    return fmt
+
+
 # --- the containers ----------------------------------------------------------
 
 @pytest.mark.parametrize("size", [20, 32])
@@ -514,7 +524,8 @@ def _kernel_db(irs_dir: Path, stem: str) -> np.ndarray:
 
 
 def test_profile_movie_builds_the_movie_preset_from_its_own_curve(
-        tmp_path, fake_host, silence_console, capsys):
+        tmp_path, fake_host, silence_console, capsys,
+        unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
@@ -535,7 +546,8 @@ def test_profile_movie_builds_the_movie_preset_from_its_own_curve(
 
 
 def test_all_profiles_builds_one_preset_per_mode(tmp_path, fake_host,
-                                                 silence_console, capsys):
+                                                 silence_console, capsys,
+        unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
@@ -564,7 +576,8 @@ def test_all_profiles_builds_one_preset_per_mode(tmp_path, fake_host,
 
 
 def test_list_names_the_modes_as_profiles(tmp_path, fake_host,
-                                          silence_console, capsys):
+                                          silence_console, capsys,
+        unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
@@ -574,6 +587,21 @@ def test_list_names_the_modes_as_profiles(tmp_path, fake_host,
         "(operating_mode=normal) profile: music profile: movie "
         "(experimental) profile: voice (experimental)")
     assert not out_dir.exists()
+
+
+def test_every_sonitude_mode_has_been_heard(tmp_path, fake_host,
+                                            silence_console, capsys):
+    """One listener compared Music, Movie and Voice with Windows (#140), so
+    no preset, listing or closing marks one unheard."""
+    silence_console(console)
+    _this_machine(fake_host)
+    assert sonitude.FORMAT.experimental == ()
+    a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
+    out, _ = _run(tmp_path, capsys, a, "--all-profiles")
+    assert "Nobody has listened" not in out
+    assert "nobody has listened" not in out
+    out, _ = _run(tmp_path, capsys, a, "--list")
+    assert out.endswith("profile: music profile: movie profile: voice")
 
 
 def test_an_unknown_profile_names_the_three(tmp_path, fake_host,
@@ -681,7 +709,8 @@ def test_a_profile_that_changes_nothing_is_refused_with_the_reason(
 
 
 def test_list_marks_a_mode_that_changes_nothing(tmp_path, fake_host,
-                                                silence_console, capsys):
+                                                silence_console, capsys,
+        unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 75}, {75: _flat_music()})
@@ -1198,7 +1227,8 @@ def test_a_dolby_xml_is_a_dolby_source(tmp_path):
 
 
 def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
-                                           silence_console):
+                                           silence_console,
+        unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
@@ -1208,7 +1238,7 @@ def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
             src.origin, src.unoffered) == (
         False, None, a, "Sonitude", a,
         ("vendor-apo-active", "level-restore"))
-    assert src.format is sonitude.FORMAT
+    assert src.format is unheard_movie_and_voice
     assert list(src.profiles) == ["music", "movie", "voice"]
     assert src.layer is src.profiles["music"]
     assert src.layer_for("voice") is src.profiles["voice"]
@@ -1258,7 +1288,8 @@ def _source_of(tmp_path, flat: tuple[str, ...],
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
-    return replace(tuning_source.standalone(sonitude.FORMAT, a, None),
+    return replace(tuning_source.standalone(apo_discover.STANDALONE[0], a,
+                                            None),
                    profiles={n: replace(layer, changes_nothing=n in flat)
                              for n in names})
 
@@ -1283,7 +1314,7 @@ def test_the_profile_banner_says_why_this_mode(tmp_path, flat, names,
     assert src.profile_banner(profile, picked) == banner
 
 
-def test_the_listing_marks_each_mode(tmp_path):
+def test_the_listing_marks_each_mode(tmp_path, unheard_movie_and_voice):
     src = _source_of(tmp_path, ("music",))
     assert src.listing() == [
         "  endpoint: internal_speaker (operating_mode=normal)",
@@ -1386,11 +1417,7 @@ def test_the_wrapper_converts_every_profile_under_all_profiles(tmp_path, fake_ho
         for ext in ("conf", "irs"))
     converting = result.stdout.split("[2/3]")[1].split("\n")
     assert [line.strip() for line in converting[1:4]] == [
-        "Sonitude-Music",
-        "Sonitude-Movie (experimental: nobody has listened to this sound "
-        "mode yet)",
-        "Sonitude-Voice (experimental: nobody has listened to this sound "
-        "mode yet)"]
+        "Sonitude-Music", "Sonitude-Movie", "Sonitude-Voice"]
 
 
 def test_the_wrapper_refuses_a_voicing_on_a_tuning_without_any(tmp_path, fake_host):

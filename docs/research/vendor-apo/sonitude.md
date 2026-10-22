@@ -20,6 +20,8 @@ that test, and has not been scored on its own from 50 to 160 Hz. On the ZBook
 Windows adds a layer that stays on with enhancements off, which no file read
 holds. One listener has heard the Music build on the ZBook: "considerably
 better… almost like Windows", with bass that wants to be "more dense and full".
+The same listener found Movie "basically perfect" next to Windows, and Voice
+"almost identical", with "much more treble than bass" than Windows' Voice.
 By ear, Windows plays about 6 dB louder. Conditions: HP softpaq `sp161474.exe`
 (Realtek HD Audio Driver, SHA-256 `a47d4827…`), Sonitude APO 2.1.1.99, codec
 ALC285 on SOF, subsystem `103C860F`; the reporter's Windows 11 loopback
@@ -209,13 +211,12 @@ Rejected:
 
 Open:
 
-- By-ear confirmation of Movie and Voice, which nobody has heard. One
-  listener on the ZBook has heard Music twice. The cuts-only build was close
-  to Windows, with less punch in the bass and quieter at the same slider
-  position. The build with the high-pass was "considerably better… almost
-  like Windows", with bass that wants to be "more dense and full". Windows'
-  50 % is −10.3 dB at the endpoint, where PipeWire's cubic 50 % is −18.1 dB,
-  so the slider positions don't compare.
+- By-ear comparison on a second laptop. On the ZBook, one listener heard
+  Music twice: the cuts-only build was close to Windows, with less punch in
+  the bass and quieter at the same slider position, and the build with the
+  high-pass was "considerably better… almost like Windows". Windows' 50 % is
+  −10.3 dB at the endpoint, where PipeWire's cubic 50 % is −18.1 dB, so the
+  slider positions don't compare.
 - The psychoacoustic bass stage, the likely missing punch. Its fields are
   read above but not built: the converter's virtual-bass branch plays only
   through PipeWire. The second set's stepped tones at 47 and 81 Hz are held

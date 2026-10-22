@@ -458,8 +458,8 @@ Each content mode is a profile:
 | `--profile` | Content mode | Preset |
 |---|---|---|
 | `music`, the default | `AnyContent` | `Sonitude-Music` |
-| `movie` | `Movie` | `Sonitude-Movie`, marked experimental |
-| `voice` | `Voice` | `Sonitude-Voice`, marked experimental |
+| `movie` | `Movie` | `Sonitude-Movie` |
+| `voice` | `Voice` | `Sonitude-Voice` |
 
 `--all-profiles` builds every mode the archive holds, and `--list` names them. A
 mode the archive lacks is left out, except `music`, which the run requires. A
@@ -572,8 +572,8 @@ kHz the cuts-only curve is within 1.00 dB rms of what switching the tuning on
 changes in that laptop's Windows recordings, and within 1.61 dB rms of a second
 laptop's published Windows response. One listener has heard the current Music
 preset, on the first laptop: "considerably better… almost like Windows", with
-bass that wants to be "more dense and full". Nobody has heard the Movie or Voice
-preset
+bass that wants to be "more dense and full". The same listener found Movie
+"basically perfect" next to Windows, and Voice close, with less bass
 ([Sonitude presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets),
 issue
 [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
