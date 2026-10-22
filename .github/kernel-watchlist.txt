@@ -14,7 +14,9 @@
 # record the verdict by editing that hit comment (append a "### Triage" section
 # — the /kernel-watch-triage skill has the format) so unassessed hits stay distinguishable.
 
-# watch: #29 Zenbook S14 — Lunar Lake SoundWire platform, CS35L56 amps
+# watch: standing — Lunar Lake SoundWire platform, CS35L56 amps. Raised by
+# #29 (Zenbook S14 UX5406SA, closed 2026-10-19 when its reporter moved to
+# their own project), our first cs42l43-codec device.
 zenbook
 lunar lake
 lnl
@@ -63,7 +65,8 @@ awinic
 # against a real one.
 tac5xx2
 
-# watch: #39 ROG Xbox Ally X — ALC294 HDA + TAS2781 smart amp; UEFI-calibration
+# watch: standing — ALC294 HDA + TAS2781 smart amp. Raised by #39 (ROG Xbox
+# Ally X, closed 2026-10-22 without a reporter reply): UEFI-calibration
 # dropout quirk (b7e26c8bdae70832d7c4b31ec2995b1812a60169; still in vanilla
 # 6.18-stable) superseded in mainline by TI SineGainI fix (05ac3846ffe5),
 # already carried by SteamOS 6.16/6.18-valve kernels
@@ -72,7 +75,8 @@ alc294
 rog ally
 xbox ally
 
-# watch: #50 Yoga 7 2-in-1 16IML9 — PSREF lists "Smart Amplifier (AMP)" on this
+# watch: standing — Yoga 7 2-in-1 16IML9's unbound smart amp. Raised by #50
+# (closed 2026-10-22 without a reporter reply). PSREF lists "Smart Amplifier (AMP)" on this
 # model, but no amp driver binds and no "Force Firmware Load" control appears;
 # 17aa:38dc has no entry in the ALC269/ALC287 quirk table while its neighbours
 # do (38d5/38d6/38df/38e0 -> TAS2781_I2C, 38d2/38d7/38cf -> YOGA9 bass-spk-pin).
@@ -115,8 +119,9 @@ asus tuf
 ux3405
 um3405
 
-# watch: #67 IdeaPad Pro 5 14AGP11 / XiaoXin Pro 14GT (83SG) — ALC287 codec
-# SSID 17aa:3941 has no entry upstream, so it matches on its PCI SSID
+# watch: standing — IdeaPad Pro 5 14AGP11 / XiaoXin Pro 14GT (83SG) quirk
+# collision. Raised by #67 (closed 2026-10-22 without a reporter reply). ALC287
+# codec SSID 17aa:3941 has no entry upstream, so it matches on its PCI SSID
 # 17aa:38d5 instead, which belongs to another machine's TAS2781 entry ("Yoga
 # S990-16 Pro IMH YC Quad"). Harmless today — the machine has no smart amp and
 # PSREF gives it "Stereo speakers, 2W x2", so its one speaker pin is correct
