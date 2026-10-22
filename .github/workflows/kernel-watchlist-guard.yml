@@ -33,8 +33,10 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           file=.github/kernel-watchlist.txt
-          # Header lines naming #N (word-boundary on the number), minus standing ones.
-          matches=$(grep -E "^#.*#${ISSUE_NUMBER}([^0-9]|$)" "$file" | grep -iv 'standing' || true)
+          # "# watch:" header lines naming #N (word-boundary on the number), minus
+          # standing ones. Continuation lines are skipped: standing sections cite
+          # their originating issue there, which must not count as a tie.
+          matches=$(grep -E "^# watch:.*#${ISSUE_NUMBER}([^0-9]|$)" "$file" | grep -iv 'standing' || true)
           [ -z "$matches" ] && exit 0
           {
             echo "@$OWNER — the kernel sound-tree watchlist (\`$file\`) still ties grep terms to this issue:"
