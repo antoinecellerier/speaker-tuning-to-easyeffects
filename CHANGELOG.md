@@ -140,7 +140,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad E16 Gen 2 (21MA)
   ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144)),
   HP ZBook 15 G6
-  ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
+  ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)),
+  Microsoft Surface Laptop 3
+  ([#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148)).
 
 ### Fixed
 
