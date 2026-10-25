@@ -222,6 +222,10 @@ class ParsedTuning:
     # Dolby file: every field above is then neutral, and the vendor layer is
     # the whole tuning.
     voicings: bool = True
+    # True when the tuning carries only some of Dolby's voicings by design,
+    # so the absent ones are not missing from a file: a DAX2 preset holds
+    # one IEQ curve, built as Balanced (`lib/apo/dax2.py`).
+    partial_voicings: bool = False
 
 
 def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
@@ -245,6 +249,14 @@ def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
 # DAX3 stores most dB-valued fields as integers in 1/16-dB fixed point
 # (gains, thresholds, targets, slope/timbre); divide by this to get dB.
 DB_FIXED_POINT_SCALE = 16.0
+
+# The values a field takes when the tuning leaves it out, in its raw units;
+# the regulator's sit above `_parse_regulator`. Shared with the DAX2 reader
+# (`lib/apo/dax2.py`), which reads the same fields from numbered registry
+# values instead.
+IEQ_AMOUNT_DEFAULT = 10  # innovation-EQ weight when ieq-amount is absent
+VOL_LEVELER_TARGET_DEFAULT = -320  # -320/16 = -20.0 dBFS in/out target
+DIALOG_ENHANCER_AMOUNT_DEFAULT = 5
 
 
 def parse_xml(path: Path, endpoint_type="internal_speaker",
@@ -394,7 +406,7 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
                                   "it)")
 
     # IEQ amount from the selected profile's tuning-cp (or first with IEQ enabled)
-    ieq_amount = 10  # innovation-EQ weight assumed when ieq-amount is absent
+    ieq_amount = IEQ_AMOUNT_DEFAULT
     ieq_enabled = True
     cp = profile.find("tuning-cp")
     if cp is not None:
@@ -533,7 +545,6 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
             vl_amount = cp.find("volume-leveler-amount")
             vl_in = cp.find("volume-leveler-in-target")
             vl_out = cp.find("volume-leveler-out-target")
-            VOL_LEVELER_TARGET_DEFAULT = -320  # -320/16 = -20.0 dBFS in/out target when absent
             vol_leveler = {
                 "enable": _int_attr(vl_enable, default=0),
                 "amount": _int_attr(vl_amount, default=0),
@@ -572,7 +583,8 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
         if de_enable is not None and de_enable.get("value") == "1":
             dialog_enhancer = {
                 # dialog-enhancer-amount: assume 5 when the field is absent
-                "amount": _int_attr(cp.find("dialog-enhancer-amount"), default=5),
+                "amount": _int_attr(cp.find("dialog-enhancer-amount"),
+                                    default=DIALOG_ENHANCER_AMOUNT_DEFAULT),
             }
 
     # Surround virtualizer settings (from tuning-cp)
@@ -680,6 +692,15 @@ def parse_xml(path: Path, endpoint_type="internal_speaker",
     )
 
 
+# The regulator fields' values when the tuning leaves them out, in raw
+# units. Shared with the DAX2 reader (`lib/apo/dax2.py`).
+REGULATOR_STRESS_DEFAULT = (0,) * 8
+REGULATOR_DISTORTION_SLOPE_DEFAULT = 16  # 16/16 = 1.0
+REGULATOR_TIMBRE_DEFAULT = 12  # 12/16 = 0.75
+REGULATOR_OVERDRIVE_DEFAULT = 0
+REGULATOR_RELAXATION_DEFAULT = 96
+
+
 def _parse_regulator(vlldp, constant, freqs, path):
     """Read the regulator settings (per-band limiter from tuning-vlldp).
 
@@ -728,20 +749,20 @@ def _parse_regulator(vlldp, constant, freqs, path):
                     "regulator zone mapping requires one threshold per band."
                 )
             reg_stress_el = vlldp.find("regulator-stress-amount")
-            stress = parse_csv_ints(reg_stress_el.get("value")) if reg_stress_el is not None else [0] * 8
+            stress = parse_csv_ints(reg_stress_el.get("value")) if reg_stress_el is not None else list(REGULATOR_STRESS_DEFAULT)
             reg_slope = vlldp.find("regulator-distortion-slope")
-            slope = _int_attr(reg_slope, default=16) / DB_FIXED_POINT_SCALE   # 16/16 = 1.0
+            slope = _int_attr(reg_slope, default=REGULATOR_DISTORTION_SLOPE_DEFAULT) / DB_FIXED_POINT_SCALE
             reg_timbre = vlldp.find("regulator-timbre-preservation")
-            timbre = _int_attr(reg_timbre, default=12) / DB_FIXED_POINT_SCALE   # 12/16 = 0.75
+            timbre = _int_attr(reg_timbre, default=REGULATOR_TIMBRE_DEFAULT) / DB_FIXED_POINT_SCALE
             # `regulator-overdrive` and `regulator-relaxation-amount` are read
             # for visibility (debug print + watch warn) but not yet mapped to
             # any LSP plugin parameter. The corpus shows them as constants
             # (overdrive=0, relaxation=96 in 1/16-dB units), so we have no
             # signal to disambiguate the right mapping.
             reg_overdrive = vlldp.find("regulator-overdrive")
-            overdrive = _int_attr(reg_overdrive, default=0)
+            overdrive = _int_attr(reg_overdrive, default=REGULATOR_OVERDRIVE_DEFAULT)
             reg_relax = vlldp.find("regulator-relaxation-amount")
-            relaxation = _int_attr(reg_relax, default=96)
+            relaxation = _int_attr(reg_relax, default=REGULATOR_RELAXATION_DEFAULT)
             # `isolated_band` (0/1 per band) feeds the coupled-bands mapping,
             # the default since 2026-08-11 (`--disable coupled-bands` opts
             # out; research `r-fixed-dynamics-constants` (f)). A 0 dBFS zone

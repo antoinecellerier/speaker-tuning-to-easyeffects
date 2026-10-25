@@ -407,8 +407,9 @@ Otherwise the run prints a manual step.
 
 ## Vendor tunings
 
-Two vendor formats are read. Microsoft's Surface APO adds to a Dolby tuning. A
-Sonitude preset stands alone, on a laptop with no Dolby file.
+Three formats besides the DAX3 XML are read. Microsoft's Surface APO adds to a
+Dolby tuning. A Sonitude preset stands alone, on a laptop with no Dolby file. A
+Dolby DAX2 preset is a Dolby tuning in the older form a driver's `.inf` writes.
 
 ### Surface APO
 
@@ -485,6 +486,52 @@ reports:
 Output files are `output/Sonitude-<Profile>.json` and
 `irs/Sonitude-<Profile>-<8 hex>.irs` under `~/.local/share/easyeffects/`.
 Every mapping here is unvalidated: see
+[Validated vs unvalidated mappings](#validated-vs-unvalidated-mappings).
+
+### Dolby DAX2 input
+
+Some drivers write the Dolby tuning into the registry from their `.inf`, as
+numbered values in the older DAX2 format, instead of shipping a DAX3 XML. With
+no Dolby XML for the device, the run reads the DAX2 speaker preset its `.inf`
+binds as the Dolby tuning, and builds the chain above from it. That makes one
+preset, `Dolby-Balanced`, labelled experimental. The preset is one set of
+settings for the speakers, so `--profile`, `--all-profiles`, `--endpoint`,
+`--mode` and `--best-guess` are refused. Every other flag acts as on a DAX3
+tuning, except that no Surface APO layer is looked up beside it.
+
+The run finds the tuning in one of three places:
+
+- **A driver `.inf`**, passed in place of the XML.
+- **A driver download**, passed in place of the XML. The `.inf` files beside
+  Dolby's `DolbyDAX2APO*.dll` are unpacked and read. A Dolby XML in the
+  download that matches the device wins.
+- **An installed Windows**, through auto-detection or `--windows`. A Dolby
+  file there that matches the device wins. Otherwise the run reads the
+  DriverStore package folders holding `DolbyDAX2APO*.dll`. Of several that
+  bind the device, the newest readable one by its INF's `DriverVer` is read.
+
+The codec's hardware ID leads to its install section, and from there to the
+preset its AddReg sections name through `OEMSettingsOverride`. The speaker's is
+the only preset there, or the one whose name says `spk` or `speaker`; otherwise
+the run refuses. A preset with values from index 48 up is DAX3's registry form,
+and is refused rather than read as DAX2.
+
+| DAX2 value | Becomes |
+|---|---|
+| 18, `audio-optimizer-bands` channels 0 and 1 | The speaker correction, as DAX3's `ch_00` and `ch_01` |
+| 13, the IEQ curve on its own 65 Hz–17.3 kHz grid | Built as the Balanced voicing, moved onto the correction's grid linearly in log frequency, then weighted by 12, `ieq-amount`; 10 is `ieq-enable` |
+| 22, `regulator-tuning` | The regulator's thresholds and isolated bands, gated by 24, `regulator-speaker-dist-enable`; 26 is `regulator-timbre-preservation` |
+| 6, 7, 8, 9 | The volume leveler's in and out targets, amount and on/off |
+| 35, 38 | The dialog enhancer's on/off and amount |
+| 2 | `volmax-boost` |
+| 42, 45, 46 | The virtual-bass fields |
+| 25, `regulator-relaxation-amount` | Read and shown with `-v`, unused, as on DAX3 |
+| Every other value | Not read |
+
+A DAX2 preset carries no speaker PEQ and no multiband compressor, so neither
+stage is built. Output files are `output/Dolby-Balanced.json` and
+`irs/Dolby-Balanced-<8 hex>.irs` under `~/.local/share/easyeffects/`. Every
+mapping here is unvalidated: see
 [Validated vs unvalidated mappings](#validated-vs-unvalidated-mappings).
 
 ## Validated vs unvalidated mappings
@@ -577,6 +624,20 @@ bass that wants to be "more dense and full". The same listener found Movie
 ([Sonitude presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets),
 issue
 [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
+
+### Dolby DAX2 preset
+
+Unvalidated, on wherever a device's only Dolby tuning is a DAX2 preset: every
+[DAX2](#dolby-dax2-input) mapping. The arrays are identified by their own
+frequency grids and layout. Five single values, and the leveler's two targets as
+a pair, are named by a DAX3 preset written in the same registry form, whose
+values each match one field of a DAX3 XML. The on/off switches are read as the
+field beside the values they gate. That includes the leveler's, which reads off
+on all 13 presets found. Nobody has listened to a DAX2 build, and no Windows
+capture of a DAX2 device exists
+([DAX2 presets](research/vendor-apo/dolby-dax2.md#r-dolby-registry-preset),
+issue
+[#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148)).
 
 ## Not implemented (and why)
 

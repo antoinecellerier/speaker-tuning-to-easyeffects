@@ -21,7 +21,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from lib.apo import dax2 as dax2_format
 from lib.apo import layer as apo_layer
+from lib.apo.dax2 import Dax2Preset
 from lib.apo.layer import ApoLayer, StandaloneFormat
 
 # Each builds a Dolby stage, and a standalone source has none:
@@ -41,8 +43,8 @@ def _ends_on_its_reason(exc: ValueError) -> ValueError:
 class TuningSource:
     """The tuning a run builds from, as main() reads it."""
     # The Dolby file the run reads, which the closing also asks for. None
-    # for a standalone source, whose closing asks for its archive instead
-    # (`closing_file`).
+    # for a standalone source, whose closing asks for its archive instead,
+    # and for a DAX2 one, whose closing asks for its .inf (`closing_file`).
     xml_path: Path | None
     # The preset-name stem: --prefix when given, "Dolby" or the standalone
     # format's own otherwise.
@@ -55,6 +57,11 @@ class TuningSource:
     # profile's whole tuning. A run without --profile builds the first that
     # changes the sound (`buildable`).
     profiles: dict[str, ApoLayer] = field(default_factory=dict)
+    # DAX2 only: the preset a driver's .inf binds to this device, read as a
+    # Dolby tuning without an XML: one set of speaker settings and one
+    # voicing curve, built through the Dolby stages it carries
+    # (`lib/apo/dax2.py`).
+    dax2: Dax2Preset | None = None
 
     @property
     def layer(self) -> ApoLayer | None:
@@ -65,6 +72,8 @@ class TuningSource:
 
     def experimental(self, profile: str | None) -> bool:
         """Whether no listener has heard *profile*'s tuning yet."""
+        if self.dax2 is not None:
+            return True
         return (self.format is not None
                 and profile in self.format.experimental)
 
@@ -72,8 +81,29 @@ class TuningSource:
     def has_voicings(self) -> bool:
         """Whether each profile's presets come in Dolby's voicings
         (Balanced, Detailed, Warm). A standalone format has one stand-in
-        curve, so its presets are told apart by profile alone."""
+        curve, so its presets are told apart by profile alone. A DAX2 preset
+        carries one IEQ curve, built as the Balanced voicing alone."""
         return self.format is None
+
+    @property
+    def voicings_carried(self) -> tuple[str, ...] | None:
+        """The voicings the source carries when it has only some of Dolby's
+        three, so a wrapper can refuse the others; None for all three."""
+        return (dax2_format.VOICING,) if self.dax2 is not None else None
+
+    @property
+    def mode_count(self) -> int | None:
+        """How many sound modes the source carries itself; None when the
+        Dolby XML holds them."""
+        if self.profiles:
+            return len(self.buildable)
+        return 1 if self.dax2 is not None else None
+
+    @property
+    def level_steps(self) -> bool:
+        """Whether the source has presets whose level differs from one
+        another's: several voicings or modes, built now or by a later run."""
+        return self.dax2 is None
 
     def layer_for(self, profile: str | None) -> ApoLayer | None:
         """The layer that is *profile*'s whole tuning, or None when the
@@ -122,10 +152,14 @@ class TuningSource:
         return [profile.lower()]
 
     def listing(self) -> list[str]:
-        """Standalone only: the --list lines below its header, in the
-        Dolby listing's shape. The profiles are the tuning's content modes,
-        all for the one output a standalone tuning is read for."""
+        """Standalone or DAX2: the --list lines below its header, in the
+        Dolby listing's shape. A standalone tuning's profiles are its content
+        modes, all for the one output it is read for; a DAX2 preset has
+        none."""
         lines = ["  endpoint: internal_speaker (operating_mode=normal)"]
+        if self.dax2 is not None:
+            return lines + [f"    preset: {self.dax2.name} (the only one; "
+                            "experimental)"]
         for name in self.profiles:
             mark = (" (changes nothing in this tuning)"
                     if name in self.unbuildable
@@ -164,6 +198,8 @@ class TuningSource:
         profile was read from. In a driver download that is the archive as
         unpacked, which holds this device's tuning without the rest of the
         download."""
+        if self.dax2 is not None:
+            return self.dax2.inf_path
         if self.format is None:
             return self.xml_path
         return self.layer.inf_path if self.layer is not None else None
@@ -185,6 +221,8 @@ class TuningSource:
     def refusal(self, args) -> str | None:
         """The error for the first flag in *args* this source can't take,
         or None."""
+        if self.dax2 is not None:
+            return self._dax2_refusal(args)
         if self.format is None:
             return None
         # No Dolby file: the tuning's profiles are its content modes, all for
@@ -224,6 +262,29 @@ class TuningSource:
                     "only one — drop it")
         return None
 
+    @staticmethod
+    def _dax2_refusal(args) -> str | None:
+        """A DAX2 preset is one set of settings for the internal speakers,
+        the only one the run reads: there is no other endpoint, operating
+        mode or sound mode to pick, and no Dolby file to guess among."""
+        for flag, given, why in (
+                ("--profile", args.profile is not None,
+                 "picks a sound mode, and this tuning holds one set of "
+                 "settings"),
+                ("--all-profiles", args.all_profiles,
+                 "builds every sound mode, and this tuning holds one set "
+                 "of settings"),
+                ("--endpoint", args.endpoint != "internal_speaker",
+                 "picks an output, and this tuning is for the speakers only"),
+                ("--mode", args.mode != "normal",
+                 "picks an operating mode, and this tuning holds one set "
+                 "of settings"),
+                ("--best-guess", args.best_guess,
+                 "guesses among Dolby XMLs, and this run reads none")):
+            if given:
+                return f"{flag} {why} — drop {flag}"
+        return None
+
     def resolved(self, warn: Callable[[str], None]) -> TuningSource:
         """This source with its profiles' layers read; a Dolby source as it
         is.
@@ -239,6 +300,12 @@ def dolby(xml_path: Path, prefix: str | None) -> TuningSource:
     """A run from the DAX3 XML at *xml_path*."""
     # A prefix the reader typed stands, "Dolby" included.
     return TuningSource(xml_path, "Dolby" if prefix is None else prefix)
+
+
+def dax2(preset: Dax2Preset, prefix: str | None) -> TuningSource:
+    """A run from the DAX2 *preset* a driver's .inf binds to this device."""
+    return TuningSource(None, "Dolby" if prefix is None else prefix,
+                        dax2=preset)
 
 
 def standalone(fmt: StandaloneFormat, origin: Path,

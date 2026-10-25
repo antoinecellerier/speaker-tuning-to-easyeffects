@@ -285,7 +285,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
 
     for preset_name, curve_key in ieq_presets.items():
         if curve_key not in curves:
-            console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
+            if not tuning.partial_voicings:
+                console.cprint("warn", f"  Skipping {preset_name}: curve '{curve_key}' not found in XML")
             continue
 
         gains_raw = curves[curve_key]

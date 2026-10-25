@@ -2406,6 +2406,7 @@ def _every_finding():
                                                    ["high-shelf"]),
         report_findings._level_restore_finding(),
         report_findings._vendor_only_finding(),
+        report_findings._dax2_finding(),
         # One slug, three detail wordings (one site); the ask is shared.
         report_findings._reload_refused_finding("Dolby-Balanced", "Podcast", True),
         report_findings._reload_unanswered_finding("Dolby-Balanced"),

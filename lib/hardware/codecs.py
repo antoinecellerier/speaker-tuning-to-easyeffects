@@ -49,6 +49,14 @@ def get_hda_codec_ids():
     return results
 
 
+def get_hda_codec_ids_without_display():
+    """`get_hda_codec_ids` as (vendor_id, subsystem_id) pairs, without the
+    HDMI/DisplayPort codecs: the ones a speaker tuning can be keyed by."""
+    return [(v, s) for v, s, name in get_hda_codec_ids()
+            if "HDMI" not in name.upper()
+            and "DISPLAYPORT" not in name.upper()]
+
+
 # Where the SoundWire bus lives in sysfs, and the shape of a slave device's
 # name under it: "sdw:L:N:MMMM:PPPP:VV", capturing the manufacturer and part
 # ids the Dolby SOUNDWIRE_MAN_*_FUNC_* filenames key on.

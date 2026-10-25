@@ -124,6 +124,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   `--all-profiles`.
   ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140);
   how to run it in `docs/sonitude.md`)
+- Drivers that keep their Dolby tuning in their `.inf`, in the older DAX2
+  format, get an experimental `Dolby-Balanced` preset from it. So far that is
+  Surface drivers.
+  ([#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148);
+  details in `docs/reference.md`)
 - The PipeWire route warns when a run leaves two or more chains installed as
   separate outputs, and `--doctor` reports it: each can cost CPU even when it
   isn't selected, and enough of them at once can get PipeWire killed.

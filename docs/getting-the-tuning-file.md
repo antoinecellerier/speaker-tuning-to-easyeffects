@@ -16,5 +16,9 @@ When it finds none, the guide for your tuning's kind says where else to look:
   tuning some Surface downloads carry beside the Dolby one.
 - [Sonitude tunings](sonitude.md) covers a laptop whose driver carries no Dolby
   file, but a Sonitude speaker tuning instead. Support for it is experimental.
+- Some drivers carry a Dolby tuning in their `.inf` instead, in the older DAX2
+  format. The run reads it from a mounted Windows, a driver download, or the
+  `.inf` itself. Support for it is experimental
+  ([details](reference.md#dolby-dax2-input)).
 
 Start with the Dolby route if you don't know which your laptop ships.

@@ -257,6 +257,24 @@ def _experimental_finding(named: str, flags: list[str]) -> Finding:
         ask=ask)
 
 
+def _dax2_finding() -> Finding:
+    """A preset built from a Dolby DAX2 tuning (issue #148).
+
+    DAX2 stores its tuning as numbered registry values, which carry no
+    names. The numbers are read as the fields a DAX3 preset in the same
+    registry form matches, and the on/off switches by the fields beside
+    them: research `r-dolby-registry-preset`. Nobody has heard one yet.
+    """
+    return Finding(
+        slug="dax2-tuning-unconfirmed", kind="ask",
+        detail="Experimental. This older Dolby format stores its settings "
+               "without names, so the tool infers what each one is, "
+               "including which stages are on. Nobody has compared a preset "
+               "built this way with Windows, so it may not sound the same.",
+        ask="If this device also runs Windows, compare the preset with Dolby "
+            "switched on there: how close is it?")
+
+
 def _vendor_only_finding() -> Finding:
     """Presets built from a Sonitude tuning alone (issue #140).
 

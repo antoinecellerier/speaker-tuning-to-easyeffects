@@ -1,10 +1,10 @@
 # Dolby Atmos Speaker Tuning to EasyEffects Presets for Linux
 
 Bring your laptop's Windows speaker tuning to Linux. This script converts the
-Dolby Atmos DAX3, Surface or Sonitude tuning shipped inside Windows audio
+Dolby Atmos, Surface or Sonitude speaker tuning shipped inside Windows audio
 drivers into [EasyEffects](https://github.com/wwmm/easyeffects) 8.x output
-presets. Your speakers get the same speaker correction, EQ, and
-dynamics processing as on Windows, at zero added latency.
+presets. Your speakers get the same speaker correction, EQ, and dynamics
+processing as on Windows, at zero added latency.
 
 Confirmed on over 50 laptops from ASUS, Framework, HP, Lenovo and Microsoft: see
 [Supported devices](#supported-devices). Tested yours?
@@ -219,9 +219,10 @@ Each reports what it finds and what to do about it.
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](docs/dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
-- **Re-ran the script but hear no change.** Pick the preset again in
-  EasyEffects' Presets menu. Only releases whose changelog entry is tagged
-  **[AUDIBLE]** change the sound: [Staying up to date](#staying-up-to-date).
+- **Re-ran the script but hear no change.** The run can't reload a Flatpak
+  EasyEffects, so pick the preset again in its Presets menu. Only releases
+  whose changelog entry is tagged **[AUDIBLE]** change the sound:
+  [Staying up to date](#staying-up-to-date).
 
 The [troubleshooting guide](docs/troubleshooting.md) covers more symptoms.
 

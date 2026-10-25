@@ -193,23 +193,17 @@ def _config_name(sections: dict[str, list[str]], install: str) -> str | None:
     sections its `.Interfaces` section adds (the Surface Pro 11 and 12
     packages; `r-surface-apo-fleet`).
     """
-    for suffix in (".nt", ".ntamd64", ""):
-        section = f"{install}{suffix}".lower()
-        targets = [section]
-        for line in sections.get(f"{section}.interfaces", []):
-            key, _, value = line.partition("=")
-            fields = inf.fields(value)
-            # AddInterface = class GUID, reference string, install section
-            if key.strip().lower() == "addinterface" and len(fields) > 2:
-                targets.append(fields[2].lower())
-        for target in targets:
-            for addreg in inf.directive(sections, target, "addreg"):
-                for reg in sections.get(addreg.lower(), []):
-                    f = inf.fields(reg)
-                    if len(f) >= 5 and f[2].lower() == _CONFIG_FILENAME_PKEY:
-                        # The value is a DriverStore path such as
-                        # %13%\SurfaceAPO_1284.json; %13% is the package dir.
-                        return re.split(r"[\\/]", f[4])[-1]
+    section = inf.install_section(sections, install)
+    if section is None:
+        return None
+    for target in [section, *inf.interface_sections(sections, section)]:
+        for addreg in inf.directive(sections, target, "addreg"):
+            for reg in sections.get(addreg.lower(), []):
+                f = inf.fields(reg)
+                if len(f) >= 5 and f[2].lower() == _CONFIG_FILENAME_PKEY:
+                    # The value is a DriverStore path such as
+                    # %13%\SurfaceAPO_1284.json; %13% is the package dir.
+                    return re.split(r"[\\/]", f[4])[-1]
     return None
 
 

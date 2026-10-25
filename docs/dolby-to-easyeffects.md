@@ -14,8 +14,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 `/proc/mounts` and the current directory.
 - `xml_file` — optional positional path to the Dolby DAX3 tuning XML, such as
   `DEV_0287_SUBSYS_*.xml`, or to your laptop's audio driver download (`.exe`,
-  `.msi` or `.zip`). The run unpacks a download's tuning files into
-  `driver-cache/`. See
+  `.msi` or `.zip`), or to a DAX2 driver `.inf`. The run unpacks a
+  download's tuning files into `driver-cache/`. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover this device's tuning from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`

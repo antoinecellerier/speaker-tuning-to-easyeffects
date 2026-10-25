@@ -98,13 +98,13 @@ def bound_installs(sections: dict[str, list[str]], parts: set[str]
 
     *parts* are lowercased hardware-ID parts, such as `dev_0274` and
     `subsys_10ec11b2`; a hardware ID binds the device when it carries them
-    all. Walks [Manufacturer] → its model sections, decorated ones included
-    → each entry's install section, in file order.
+    all. Walks [Manufacturer] → the model sections Windows reads on x64 →
+    each entry's install section, in file order.
     """
     for line in sections.get("manufacturer", []):
         _, _, value = line.partition("=")
         base, *decorations = fields(value)
-        for model in [base] + [f"{base}.{d}" for d in decorations]:
+        for model in models_applied(base, decorations):
             for entry in sections.get(model.lower(), []):
                 _, _, rhs = entry.partition("=")
                 install, *hwids = fields(rhs)
@@ -112,6 +112,44 @@ def bound_installs(sections: dict[str, list[str]], parts: set[str]
                     re.split(r"[\\&]", h.lower()))), None)
                 if hwid:
                     yield hwid, install
+
+
+def models_applied(base: str, decorations: list[str]) -> list[str]:
+    """The model sections Windows reads on x64 for a [Manufacturer] entry:
+    its NTamd64 decorations when it lists any, else its plain NT one, else
+    the undecorated section."""
+    for wanted in (lambda d: d.lower().startswith("ntamd64"),
+                   lambda d: d.lower() == "nt"):
+        picked = [f"{base}.{d}" for d in decorations if wanted(d)]
+        if picked:
+            return picked
+    return [base]
+
+
+def install_section(sections: dict[str, list[str]], install: str
+                    ) -> str | None:
+    """The one decoration of an install section Windows applies on x64, the
+    most specific present, lowercased; None when there is none."""
+    for suffix in (".ntamd64", ".nt", ""):
+        section = f"{install}{suffix}".lower()
+        if section in sections:
+            return section
+    return None
+
+
+def interface_sections(sections: dict[str, list[str]], section: str
+                       ) -> list[str]:
+    """The install sections *section*'s `.Interfaces` section adds through
+    AddInterface, lowercased: where a driver often sets its endpoints'
+    properties instead of on *section* itself."""
+    targets = []
+    for line in sections.get(f"{section}.interfaces", []):
+        key, _, value = line.partition("=")
+        f = fields(value)
+        # AddInterface = class GUID, reference string, install section
+        if key.strip().lower() == "addinterface" and len(f) > 2:
+            targets.append(f[2].lower())
+    return targets
 
 
 def directive(sections: dict[str, list[str]], section: str, key: str

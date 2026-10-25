@@ -627,7 +627,8 @@ def test_a_copy_is_reused_by_content_with_no_tool_installed(tmp_path, cache,
     tree = cache / "s-0123456789ab"
     tree.mkdir(parents=True)
     (tree / dp.PROVENANCE).write_text(
-        f"Source: other.msi\nSHA-256: {dp._sha256(download)}\n\nKept:\n")
+        f"Source: other.msi\nSHA-256: {dp._sha256(download)}\n"
+        f"Rules: {dp._UNPACK_RULES}\n\nKept:\n")
     _no_tools(monkeypatch)
     assert dp.unpack(download, cache_root=cache) == tree
 
@@ -743,3 +744,33 @@ def test_a_display_codec_alone_is_no_verdict_on_the_download(tmp_path, cache,
         dp.pick_xml(tree, download)
     assert "couldn't read this laptop's speaker hardware" in str(exc.value)
     assert "another model" not in str(exc.value)
+
+
+def test_a_tree_kept_under_older_rules_is_unpacked_again(tmp_path, cache):
+    download = tmp_path / "pkg.zip"
+    with zipfile.ZipFile(download, "w") as zf:
+        zf.writestr("Dolby/" + _XML, "<x/>")
+    tree = dp.unpack(download, cache_root=cache)
+    prov = tree / dp.PROVENANCE
+    prov.write_text(prov.read_text().replace("Rules: ", "Rules: old-"))
+    again = dp.unpack(download, cache_root=cache)
+    assert "Rules: " + dp._UNPACK_RULES in (again / dp.PROVENANCE).read_text()
+
+
+def test_a_tree_kept_under_older_rules_outlives_a_failed_unpack(
+        tmp_path, cache, monkeypatch):
+    """A run that can't unpack the download again, such as on a machine
+    without the tool, leaves the tree it would have replaced."""
+    download = tmp_path / "pkg.zip"
+    with zipfile.ZipFile(download, "w") as zf:
+        zf.writestr("Dolby/" + _XML, "<x/>")
+    tree = dp.unpack(download, cache_root=cache)
+    prov = tree / dp.PROVENANCE
+    prov.write_text(prov.read_text().replace("Rules: ", "Rules: old-"))
+
+    def no_tool(path, fmt):
+        raise dp.PackageError("no tool here")
+    monkeypatch.setattr(dp, "_open", no_tool)
+    with pytest.raises(dp.PackageError, match="no tool here"):
+        dp.unpack(download, cache_root=cache)
+    assert (tree / "Dolby" / _XML).is_file()

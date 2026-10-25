@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from lib import console, doctor, packages, tool_env
+from lib.apo import dax2
 from lib.apo import discover as apo_discover
 from lib.dax import discover
 from lib.hardware import codecs
@@ -663,6 +664,7 @@ def _provenance_text(path: Path, st, sha: str, opened: _Opened,
         f"SHA-256: {sha}",
         f"Format: {_FORMAT_LABELS[opened.fmt]}",
         f"Tool: {opened.tool}",
+        f"Rules: {_UNPACK_RULES}",
         f"Unpacked: {datetime.date.today().isoformat()}",
         "",
         "Kept:",
@@ -672,6 +674,19 @@ def _provenance_text(path: Path, st, sha: str, opened: _Opened,
         f"  {opened.full_command}",
     ]
     return "\n".join(lines) + "\n"
+
+
+# Which files the prune keeps, recorded in each tree's provenance: "2" added
+# the .inf files beside Dolby's DAX2 APO. A tree recorded under other rules
+# lacks files a run now reads, so it is unpacked again rather than reused.
+_UNPACK_RULES = "2"
+
+
+def _reusable(prov: dict[str, str]) -> bool:
+    """Whether a tree was kept under this version's rules. A stale one is
+    removed once the unpack that replaces it is in place, so a run that
+    can't unpack again leaves it be (`_unpack_opened`)."""
+    return prov.get("Rules") == _UNPACK_RULES
 
 
 def unpack(path: Path, cache_root: Path | None = None) -> Path:
@@ -689,7 +704,8 @@ def unpack(path: Path, cache_root: Path | None = None) -> Path:
     for tree, prov in _trees(cache):
         if (prov.get("Source") == path.name
                 and prov.get("Size") == str(st.st_size)
-                and prov.get("Modified-ns") == str(st.st_mtime_ns)):
+                and prov.get("Modified-ns") == str(st.st_mtime_ns)
+                and _reusable(prov)):
             console.cprint("dim", "Reusing the tuning files unpacked "
                            f"earlier: {doctor.tilde(tree)}")
             return tree
@@ -701,7 +717,7 @@ def unpack(path: Path, cache_root: Path | None = None) -> Path:
     # reused on a machine that lacks the tool.
     sha = _sha256(path)
     for tree, prov in _trees(cache):
-        if prov.get("SHA-256") == sha:
+        if prov.get("SHA-256") == sha and _reusable(prov):
             console.cprint("dim", "Reusing the tuning files unpacked "
                            f"earlier: {doctor.tilde(tree)}")
             return tree
@@ -721,13 +737,14 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
                            "outside its own folder; not unpacking it.")
     names = [m.path for m in opened.members]
     tuning = [p for p in names if _is_tuning(PurePosixPath(p).name)]
-    if not tuning:
-        raise PackageError(
-            f"{path.name} opened ({label}), but it holds no Dolby or "
-            "Sonitude tuning file, so it is not the download this needs. "
-            "Look for your model's Dolby or audio driver download instead, as "
-            f"{_GUIDE} describes.")
-    wanted = sorted(set(tuning) | apo_discover.wanted_members(names))
+    # A Dolby DAX2 tuning lives inside a driver .inf, told apart for sure
+    # only by its content, so the .inf files beside Dolby's DAX2 APO are
+    # unpacked to be read (`lib/apo/dax2.py` `wanted_members`).
+    infs = sorted(dax2.wanted_members(names))
+    if not tuning and not infs:
+        raise _holds_no_tuning(path, label)
+    wanted = sorted(set(tuning) | set(infs)
+                    | apo_discover.wanted_members(names))
 
     sizes = {m.path: m.size for m in opened.members}
     need = opened.full_size or sum(sizes.get(p) or 0 for p in wanted)
@@ -758,12 +775,19 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
             raise PackageError(f"{path.name} unpacked a link; not using it.")
         kept = sorted(str(p.relative_to(partial).as_posix())
                       for p in partial.rglob("*") if p.is_file())
-        if not any(_is_tuning(PurePosixPath(p).name) for p in kept):
+        if not tuning and not dax2.infs_below(partial, first=True,
+                                              beside_apo=False):
+            raise _holds_no_tuning(path, label)
+        if tuning and not any(_is_tuning(PurePosixPath(p).name)
+                              for p in kept):
             raise PackageError(f"Unpacking {path.name} produced none of the "
                                "tuning files its listing names.")
         (partial / PROVENANCE).write_text(
             _provenance_text(path, st, sha, opened, kept), encoding="utf-8")
         dest = cache / f"{_safe_stem(path)}-{sha[:12]}"
+        for tree, prov in _trees(cache):
+            if prov.get("SHA-256") == sha and not _reusable(prov):
+                shutil.rmtree(tree, ignore_errors=True)
         try:
             os.rename(partial, dest)
         except OSError:
@@ -778,8 +802,20 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
         shutil.rmtree(partial, ignore_errors=True)
         raise
     n = sum(_is_tuning(PurePosixPath(p).name) for p in kept)
-    console.cprint("ok", f"Unpacked {n} tuning files into {doctor.tilde(dest)}")
+    n_dax2 = len(dax2.infs_below(dest, beside_apo=False))
+    infs = f"{n_dax2} driver .inf file{'s' if n_dax2 != 1 else ''}"
+    what = (f"{n} tuning files" if not n_dax2 else infs if not n
+            else f"{n} tuning files and {infs}")
+    console.cprint("ok", f"Unpacked {what} into {doctor.tilde(dest)}")
     return dest
+
+
+def _holds_no_tuning(path: Path, label: str) -> PackageError:
+    return PackageError(
+        f"{path.name} opened ({label}), but it holds no Dolby or Sonitude "
+        "tuning file, so it is not the download this needs. Look for your "
+        "model's Dolby or audio driver download instead, as "
+        f"{_GUIDE} describes.")
 
 
 # --- picking this machine's XML --------------------------------------------
@@ -801,8 +837,7 @@ def _speaker_ids_read() -> bool:
     """Whether the run read IDs a speaker tuning could match: an HDA codec
     other than a display's, or SoundWire devices with the PCI subsystem their
     tunings are named by."""
-    if any("HDMI" not in name.upper() and "DISPLAYPORT" not in name.upper()
-           for _v, _s, name in codecs.get_hda_codec_ids()):
+    if codecs.get_hda_codec_ids_without_display():
         return True
     return bool(codecs.get_soundwire_ids()
                 and codecs.get_pci_audio_subsystem())

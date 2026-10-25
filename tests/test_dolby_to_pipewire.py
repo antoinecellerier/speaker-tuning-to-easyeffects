@@ -316,10 +316,8 @@ def test_a_tuning_without_voicings_marks_the_presets_nobody_heard(
     converting = capsys.readouterr().out.split("[2/3]")[1].split("\n")
     assert [line.strip() for line in converting[1:4]] == [
         "Sonitude-Music",
-        "Sonitude-Movie (experimental: nobody has listened to this sound "
-        "mode yet)",
-        "Sonitude-Voice (experimental: nobody has listened to this sound "
-        "mode yet)"]
+        "Sonitude-Movie (experimental: nobody has listened to it yet)",
+        "Sonitude-Voice (experimental: nobody has listened to it yet)"]
     assert [Path(a[0]).stem for a in recorders.step2] == names
 
 

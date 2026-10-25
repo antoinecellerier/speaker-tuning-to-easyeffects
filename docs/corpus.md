@@ -159,6 +159,18 @@ one copy of each. Their maps bind 1,341 distinct subsystem IDs to 314 speaker
 presets, and every binding reads into all three content modes. Those counts
 come from an ad-hoc query over the test's own archive list, on 2026-10-21.
 
+Surface packages also carry Dolby DAX2 presets, the older form a driver's `.inf`
+writes into the registry. They ship in the Realtek `.inf` of several of the
+`.msi`s above, and of 17 more Surface `.msi`s the collection holds. Those are
+unpacked only as far as their `.inf` files, so the DAX3 XMLs two of them hold,
+the Surface Laptop Go's and Go 2's, are not in the collection. No DAX2 preset
+is counted here. `tests/corpus/test_dax2_corpus.py` walks the 23 distinct
+`.inf` files that carry the DAX2 property set. 14 bind a DAX2 preset, 13
+distinct presets for 18 codec IDs, and the other 9 hold DAX3's registry form
+only. Those counts come from an
+ad-hoc query over the same files, on 2026-10-25
+([DAX2 fleet](research/vendor-apo/dolby-dax2.md#r-dolby-registry-fleet)).
+
 ### The development machine's Windows partition
 
 Nothing is lost by not having this source: Lenovo's downloadable packages carry

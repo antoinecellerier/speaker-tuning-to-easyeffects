@@ -221,6 +221,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
                    vendor_apo_default: bool = False,
                    vendor_apo_off: str = "",
                    experimental: list[str] | None = None,
+                   level_steps: bool = True,
                    reloaded: str = "",
                    loaded: str = "",
                    reload_slug: str = "",
@@ -334,9 +335,13 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         verb, pron = (("are", "them") if len(experimental) > 1
                       else ("is", "it"))
         experimental_note = (f"  {names} {verb} experimental: nobody has "
-                             f"listened to {pron} yet. How loud each plays "
-                             "next to the others may differ from Windows: "
-                             "each preset is scaled to its own peak.")
+                             f"listened to {pron} yet.")
+        # A tuning with one preset to its name has no level step to get
+        # wrong, in this run or a later one (a DAX2 tuning).
+        if level_steps:
+            experimental_note += (" How loud each plays next to the others "
+                                  "may differ from Windows: each preset is "
+                                  "scaled to its own peak.")
     # Derived from what was actually built (round 7, user catch): a
     # tuning lacking a voicing curve skips that preset, so the hint must
     # not describe a preset that doesn't exist.

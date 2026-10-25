@@ -386,6 +386,13 @@ def main(argv: list[str] | None = None) -> int:
                           "tuning's voicings, and this tuning has none — "
                           f"drop --variant {args.variant}")
             return 1
+        carried = resolved.get("voicings_carried")
+        if carried and args.variant != "all" and variants[0] not in carried:
+            console.cprint("err", f"error: --variant {args.variant} isn't "
+                          "available: this tuning has one voicing curve, "
+                          f"built as {' and '.join(carried)}. Run the same "
+                          "command without --variant.")
+            return 1
         if not voicings:
             presets = [Path(tmp) / f"{name}.json"
                        for name in resolved.get("presets", [])]
@@ -421,14 +428,14 @@ def main(argv: list[str] | None = None) -> int:
                 console.cprint("dim", "      (Balanced is Dolby's default voicing)")
             if presets[0].stem in experimental:
                 console.cprint("dim", "      (experimental: nobody has "
-                               "listened to this sound mode yet)")
+                               "listened to it yet)")
         else:
             console.cprint("head", f"[2/3] Converting {len(presets)} presets to "
                            "PipeWire filter-chain confs")
             for preset in presets:
                 console.cprint("dim", f"      {preset.stem}"
                                + (" (experimental: nobody has listened to "
-                                  "this sound mode yet)"
+                                  "it yet)"
                                   if preset.stem in experimental else ""))
             # Each is a separate output you choose in sound settings, not a
             # stage in one chain — the distinction the smart-filter default

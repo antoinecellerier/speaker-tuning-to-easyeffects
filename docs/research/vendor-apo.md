@@ -20,6 +20,16 @@
   curve is within 1.00 dB rms of what the B&O switch changes on the ZBook, and
   1.61 dB rms of an OMEN's published Windows response, from 200 Hz to 12.5 kHz
   ([Sonitude presets](vendor-apo/sonitude.md#r-sonitude-apo-presets)).
+- **Some Dolby drivers write the tuning into the registry** from the driver's
+  `.inf`, as numbered values in the older DAX2 format. Their arrays match DAX3's
+  IEQ, audio-optimizer, regulator and virtual-bass fields by shape, and a DAX3
+  preset in the same form names five single values and a pair. The on/off
+  switches are read by adjacency, and nothing has been heard or captured
+  ([DAX2 presets](vendor-apo/dolby-dax2.md#r-dolby-registry-preset)).
+- **18 Surface codec IDs bind a DAX2 preset**, 13 distinct ones, in the
+  Realtek drivers of Microsoft's Surface packages. None turned up outside
+  Surface, where only DAX3-era drivers were searched
+  ([DAX2 fleet](vendor-apo/dolby-dax2.md#r-dolby-registry-fleet)).
 
 Open:
 
@@ -44,3 +54,7 @@ Open:
   [The Surface fleet: which models ship a Surface APO chain, and its shapes](vendor-apo/surface.md#r-surface-apo-fleet)
 - [vendor-apo/sonitude.md](vendor-apo/sonitude.md):
   [HP's Sonitude presets: the Bang & Olufsen voicing with no Dolby file](vendor-apo/sonitude.md#r-sonitude-apo-presets)
+- [vendor-apo/dolby-dax2.md](vendor-apo/dolby-dax2.md):
+  [Dolby DAX2 registry presets: the tuning a driver .inf writes](vendor-apo/dolby-dax2.md#r-dolby-registry-preset)
+  and
+  [Which drivers ship a DAX2 registry preset](vendor-apo/dolby-dax2.md#r-dolby-registry-fleet)

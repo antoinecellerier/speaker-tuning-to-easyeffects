@@ -627,9 +627,7 @@ def _same_tuning(a: dict[str, ApoLayer], b: dict[str, ApoLayer]) -> bool:
 def _resolve(source: Path,
              warn: Callable[[str], None]) -> dict[str, ApoLayer]:
     src = doctor.tilde(source)
-    ids = [(v, s) for v, s, name in codecs.get_hda_codec_ids()
-           if "HDMI" not in name.upper()
-           and "DISPLAYPORT" not in name.upper()]
+    ids = codecs.get_hda_codec_ids_without_display()
     # Not "run this on the device": a SoundWire machine can be on it and
     # still show no HDA codec but a display's, and the archives keyed by
     # other IDs aren't read (`_ARCHIVE_RE`).
