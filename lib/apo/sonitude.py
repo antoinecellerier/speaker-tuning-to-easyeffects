@@ -36,8 +36,8 @@ What is read, and how sure that reading is (research `r-sonitude-apo-presets`):
   read.
 
 `resolve` picks the preset for this machine, by its codec IDs and whether it
-runs Intel's audio DSP driver (SOF). `FORMAT` is this format's entry in
-`lib/apo/discover.py` `STANDALONE`.
+runs Intel's audio DSP driver (SOF). `lib/tuning_source.py` `Sonitude` is a
+run from it.
 
 Stdlib-only (`tests/test_layout.py` `STDLIB_ONLY`), because discovery runs
 before the generator's deferred DSP imports.
@@ -56,8 +56,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from lib import doctor, host
-from lib.apo.layer import (BUILT, NOT_REPRODUCED, ApoLayer, Stage,
-                           StandaloneFormat, UnsupportedApoConfig)
+from lib.apo.layer import (BUILT, NOT_REPRODUCED, ApoLayer,
+                           BoundButUnreadable, Stage, UnsupportedApoConfig)
 from lib.hardware import codecs, speakers
 
 # A SEAPODAT archive's name carries the bus and codec it binds, as the
@@ -591,7 +591,8 @@ def resolve(source: Path,
             warn: Callable[[str], None]) -> dict[str, ApoLayer]:
     """The layer per profile *source*'s archives hold for this machine, the
     default profile first (`load_profiles`); raises RuntimeError when none
-    binds it or the preset that does can't be read.
+    binds it, and `BoundButUnreadable` when the preset that does can't be
+    read.
 
     Prints nothing: when two archives bind this device to different tunings,
     *warn* gets the sentence saying which was used, and on its own line the
@@ -600,7 +601,7 @@ def resolve(source: Path,
     try:
         return _resolve(source, warn)
     except UnsupportedApoConfig as exc:
-        raise RuntimeError(f"The Sonitude tuning at "
+        raise BoundButUnreadable(f"The Sonitude tuning at "
                            f"{doctor.tilde(exc.path)} binds this device "
                            f"but can't be used: {exc.reason}.") from exc
 
@@ -692,17 +693,3 @@ def _resolve(source: Path,
         f"hardware (codec:subsystem {said}), so it is likely another "
         "model's download. Use the audio driver download its manufacturer "
         "lists for this model.")
-
-
-# This format's entry in `lib/apo/discover.py` `STANDALONE`.
-FORMAT = StandaloneFormat(
-    is_source=is_source,
-    wanted_members=wanted_members,
-    driver_store_packages=driver_store_packages,
-    resolve=resolve,
-    # "Dolby" would mislabel a preset built from another engine's tuning.
-    prefix="Sonitude",
-    owner="Sonitude",
-    heading="Internal speakers (the output this preset is for)",
-    probe_freqs=probe_freqs,
-)

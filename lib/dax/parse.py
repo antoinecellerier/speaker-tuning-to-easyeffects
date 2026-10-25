@@ -51,16 +51,15 @@ def _read_root(path: Path) -> ET.Element:
     return _parsed_root(Path(path).read_bytes())
 
 
-def list_endpoints(path: Path):
-    """Print available endpoints and profiles in the XML."""
-    root = _read_root(path)
-    for ep in root.findall(".//endpoint"):
-        ep_type = ep.get("type")
-        op_mode = ep.get("operating_mode")
-        profiles = [p.get("type") for p in ep.findall("profile")]
-        print(f"  endpoint: {ep_type} (operating_mode={op_mode})")
-        for p in profiles:
-            print(f"    profile: {p}")
+def list_endpoints(path: Path) -> list[str]:
+    """The XML's endpoints and their profiles, as --list prints them."""
+    lines = []
+    for ep in _read_root(path).findall(".//endpoint"):
+        lines.append(f"  endpoint: {ep.get('type')} "
+                     f"(operating_mode={ep.get('operating_mode')})")
+        lines += [f"    profile: {p.get('type')}"
+                  for p in ep.findall("profile")]
+    return lines
 
 
 _SAFE_PROFILE_RE = re.compile(r"[^A-Za-z0-9_-]")
@@ -233,9 +232,9 @@ def flat_tuning(freqs: list[int], profile: str | None = None) -> ParsedTuning:
     file.
 
     One flat curve stands in for the voicings, so the emit loop builds one
-    preset; every Dolby stage is absent and the standalone vendor layer is
-    the whole tuning (`lib/apo/discover.py` `STANDALONE`). *freqs* is where
-    the correction check probes the build.
+    preset; every Dolby stage is absent and the Sonitude layer is the
+    whole tuning (`lib/tuning_source.py` `Sonitude`). *freqs* is where the
+    correction check probes the build.
     """
     flat = [0] * len(freqs)
     return ParsedTuning(

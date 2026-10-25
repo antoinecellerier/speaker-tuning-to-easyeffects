@@ -208,7 +208,7 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                       profile_label, all_preset_names, filters_by_profile,
                       kernel_by_preset, warned: bool = False, apo=None):
     """Generate the Balanced/Detailed/Warm IEQ presets for one parsed profile,
-    or a standalone tuning's one preset for it, named *name_base*.
+    or a Sonitude profile's one preset, named *name_base*.
 
     Builds each combined FIR, writes the .irs + .json, prints the
     verification table, and records emitted filters. Mutates

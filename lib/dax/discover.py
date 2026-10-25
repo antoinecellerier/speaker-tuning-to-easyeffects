@@ -19,9 +19,9 @@ XMLs exactly as the converters do: `walk_for_dolby_xml_dirs`,
 `autoprobe_all_dolby_xmls` is the union form of the first question: every
 XML the same probes can see, for the corpus tier and `tools/corpus_audit.py`.
 
-`main()` reaches a third name, `is_soundwire_xml`, and it is the thing to know
-before editing: the bus is recorded nowhere inside the XML, only in its
-filename, and several emitted parameters key off that answer.
+`lib/tuning_source.py` reaches a third name, `is_soundwire_xml`, and it is
+the thing to know before editing: the bus is recorded nowhere inside the XML,
+only in its filename, and several emitted parameters key off that answer.
 """
 
 from __future__ import annotations
@@ -85,6 +85,12 @@ def is_dolby_tuning_filename(name: str) -> bool:
 # that must not. It is deciding whether an NTFS mount is a Windows install
 # worth offering unprompted, and a wrapper hit is the whole of that test.
 _INF_WRAPPER_GLOB = "dax3_ext_*.inf_*"
+
+
+class TuningChoice(FileNotFoundError):
+    """No tuning matches this machine outright, and the reader has to pick
+    among those that might: said at once, not passed over for another
+    kind of tuning (`lib/tuning_lookup.py`)."""
 
 
 def _is_inf_wrapper(name: str) -> bool:
@@ -324,6 +330,17 @@ def walk_for_dolby_xml_dirs(root: Path, max_depth: int = _CWD_PROBE_MAX_DEPTH) -
     return results
 
 
+def holds_dolby_xmls(driver_store: Path) -> bool:
+    """Whether *driver_store*, as `_resolve_driver_store` returns one, holds
+    the Dolby files `find_tuning_xml` scans: a ``dax3_ext_*.inf_*`` package,
+    or Dolby-shaped XMLs directly in it."""
+    try:
+        return (any(driver_store.glob(_INF_WRAPPER_GLOB))
+                or _has_dolby_xml(driver_store))
+    except OSError:
+        return False
+
+
 def xmls_directly_under(directory: Path) -> list[Path]:
     """Return the DAX3-shaped XML files directly under ``directory``.
 
@@ -399,8 +416,8 @@ def autoprobe_dolby_source(
     1. **Mount probe**: enumerate NTFS-family mountpoints from
        ``/proc/mounts`` and keep any whose DriverStore contains at least one
        ``dax3_ext_*.inf_*`` subdir, or for which *also* says the DriverStore
-       holds another tuning the run reads, such as a standalone vendor
-       format's package (`lib/apo/discover.py`).
+       holds another tuning the run reads, such as a Sonitude or DAX2
+       package (`lib/tuning_lookup.py` `FINDERS`).
     2. **CWD probe**, only if the mount probe finds nothing: bounded walk
        of the current working directory for any directory that directly
        contains a Dolby-shaped XML. Covers the ``innoextract`` default
@@ -784,6 +801,7 @@ def find_tuning_xml(windows_root: Path, best_guess: bool = False):
                     f"(or re-run with --best-guess if there is exactly one):"
                 )
             lines += [f"  {p}   # MAN_{m} SUBSYS_{s}" for p, m, s in guesses]
+            raise TuningChoice("\n".join(lines))
         raise FileNotFoundError("\n".join(lines))
 
     if len(candidates) > 1:

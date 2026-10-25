@@ -410,6 +410,9 @@ Otherwise the run prints a manual step.
 Three formats besides the DAX3 XML are read. Microsoft's Surface APO adds to a
 Dolby tuning. A Sonitude preset stands alone, on a laptop with no Dolby file. A
 Dolby DAX2 preset is a Dolby tuning in the older form a driver's `.inf` writes.
+Where a driver download or a Windows install holds more than one tuning that
+matches the device, the run reads the DAX3 XML first, then the Sonitude
+preset, then the DAX2 one.
 
 ### Surface APO
 

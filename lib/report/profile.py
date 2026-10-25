@@ -176,7 +176,7 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
 
     The layer belongs to the device, not to a profile, so under
     --all-profiles the section prints once: *shown* returns its finding,
-    still raised in every profile, without printing it again. A standalone
+    still raised in every profile, without printing it again. A Sonitude
     tuning is the exception: each profile has its own layer, so each prints
     its file and stages, and *experimental* marks one no listener has heard.
     """
@@ -199,7 +199,7 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
     print(f"\nVendor speaker tuning: {apo.label} ({where}), applied")
     if apo.whole_tuning:
         # The run said it builds from this alone where it found the tuning
-        # (dolby_to_easyeffects.py `_tuning_source`).
+        # (`lib/tuning_lookup.py` `source_for`).
         if experimental:
             console._cprint_wrapped(
                 "", "  Nobody has listened to this sound mode yet.",
@@ -222,7 +222,7 @@ def _print_apo_layer(apo, apo_on: bool, verbose: bool,
                                 indent="    ")
     column = max(map(len, apo_layer.STATUSES)) + 2
     dynamics = {d.name: d for d in apo.dynamics}
-    # A standalone tuning's profiles leave out the same stages
+    # A Sonitude tuning's profiles leave out the same stages
     # (`lib/apo/sonitude.py` `_stages`), so after the first profile those
     # are one line.
     collapse = shown and any(s.status == apo_layer.NOT_REPRODUCED

@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lib.apo import discover as apo_discover
+from lib.apo import stacked
 from lib.apo import layer as apo_layer
 from lib.apo import surface
 from lib.dax.parse import DB_FIXED_POINT_SCALE, parse_xml
@@ -50,7 +50,7 @@ def _bound_pairs() -> list[tuple[Path, object]]:
     seen, pairs = set(), []
     for xml in _beside_a_vendor_package(DISCOVERED):
         try:
-            layer = apo_discover.find_for_xml(xml)
+            layer = stacked.find_for_xml(xml)
         except apo_layer.UnsupportedApoConfig as exc:
             layer = exc
         if layer is None:

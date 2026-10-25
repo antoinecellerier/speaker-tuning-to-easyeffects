@@ -6,11 +6,11 @@ carrying an archive in its resources (ASUS), a Windows Installer `.msi`
 (Surface) or a `.zip` (Samsung). The archive is listed first. Only the files
 the readers open are kept, at their archive paths, in
 ``driver-cache/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
-tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), the standalone
-vendor tunings that stand in for one (`lib.apo.discover.stands_in_for_xml`),
-and what a vendor APO finder reads (`lib.apo.discover.wanted_members`). Each
-reader owns its predicate, so a new format adds its own and this module never
-learns it. A
+tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), Sonitude's
+tuning archives (`lib.apo.sonitude.is_archive`), the `.inf` files beside
+Dolby's DAX2 APO (`lib.apo.dax2.wanted_members`), and what a vendor APO
+finder reads (`lib.apo.stacked.wanted_members`). Each reader owns its
+predicate. A
 `.msi` is the exception to extracting only those: `msiextract` has no member
 filter, so it is unpacked in full beside the tree and pruned.
 
@@ -49,8 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from lib import console, doctor, packages, tool_env
-from lib.apo import dax2
-from lib.apo import discover as apo_discover
+from lib.apo import dax2, sonitude, stacked
 from lib.dax import discover
 from lib.hardware import codecs
 from lib.paths import REPO_ROOT
@@ -519,10 +518,10 @@ def _missing_tool(key: str, binaries: str, path: Path) -> PackageError:
 
 
 def _is_tuning(name: str) -> bool:
-    """A Dolby tuning XML, or a standalone vendor tuning that ships in place
-    of one (`lib/apo/discover.py` `STANDALONE`)."""
+    """A Dolby tuning XML, or a Sonitude tuning archive, which ships in place
+    of one."""
     return (discover.is_dolby_tuning_filename(name)
-            or apo_discover.stands_in_for_xml(name))
+            or sonitude.is_archive(name))
 
 
 def _has_tuning(opened: _Opened) -> bool:
@@ -744,7 +743,7 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
     if not tuning and not infs:
         raise _holds_no_tuning(path, label)
     wanted = sorted(set(tuning) | set(infs)
-                    | apo_discover.wanted_members(names))
+                    | stacked.wanted_members(names))
 
     sizes = {m.path: m.size for m in opened.members}
     need = opened.full_size or sum(sizes.get(p) or 0 for p in wanted)

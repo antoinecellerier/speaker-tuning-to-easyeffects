@@ -22,8 +22,7 @@ import numpy as np
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, driver_package as dp, tuning_source
-from lib.apo import discover as apo_discover
+from lib import console, driver_package as dp, tuning_lookup, tuning_source
 from lib.apo import layer as apo_layer
 from lib.apo import sonitude
 from lib.dax import discover as dax_discover
@@ -115,12 +114,10 @@ def _three_modes() -> dict[str, bytes]:
 
 @pytest.fixture
 def unheard_movie_and_voice(monkeypatch):
-    """The Sonitude format with Movie and Voice still unheard, as it shipped
-    before a listener compared them: the marking path's own tests. Every
-    lookup in lib/ reaches a format through `discover.STANDALONE`."""
-    fmt = replace(sonitude.FORMAT, experimental=("movie", "voice"))
-    monkeypatch.setattr(apo_discover, "STANDALONE", (fmt,))
-    return fmt
+    """Sonitude with Movie and Voice still unheard, as it shipped before a
+    listener compared them: the marking path's own tests."""
+    monkeypatch.setattr(tuning_source.Sonitude, "UNHEARD",
+                        ("movie", "voice"))
 
 
 # --- the containers ----------------------------------------------------------
@@ -595,7 +592,7 @@ def test_every_sonitude_mode_has_been_heard(tmp_path, fake_host,
     no preset, listing or closing marks one unheard."""
     silence_console(console)
     _this_machine(fake_host)
-    assert sonitude.FORMAT.experimental == ()
+    assert tuning_source.Sonitude.UNHEARD == ()
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177}, {177: _three_modes()})
     out, _ = _run(tmp_path, capsys, a, "--all-profiles")
     assert "Nobody has listened" not in out
@@ -851,12 +848,15 @@ def test_a_download_whose_dolby_file_is_another_devices_builds_the_archive(
     assert "Found Sonitude speaker tuning (preset 177, X_Synth)" in out
 
 
-def test_a_download_matching_neither_tuning_says_so_as_the_archive_does(
+def test_a_download_matching_neither_tuning_says_so_as_the_dolby_lookup_does(
         tmp_path, fake_host, silence_console):
+    """Of two kinds that bind nothing, the first read is the one said
+    (`lib/tuning_lookup.py` `_first_bound`): the Dolby lookup's error keeps
+    its route to picking the XML by hand."""
     silence_console(console)
     _this_machine(fake_host, subsys="103c8600")
-    with pytest.raises(RuntimeError, match="holds Sonitude tunings, but none "
-                       "for this device's audio hardware"):
+    with pytest.raises(dp.NoTuningForThisDevice,
+                       match="None matches this laptop's audio hardware"):
         dolby_to_easyeffects.main([
             str(_with_another_devices_dolby_file(tmp_path)), "--dry-run",
             "--skip-ee-check"])
@@ -1190,57 +1190,54 @@ def _args(argv):
 
 def _source(argv):
     """The `TuningSource` main() resolves for *argv*."""
-    return dolby_to_easyeffects._tuning_source(*reversed(_args(argv)))
+    return tuning_lookup.source_for(*reversed(_args(argv)))
 
 
-def test_the_registry_knows_an_archive_by_name_and_a_folder_by_content(
+def test_an_archive_is_known_by_name_and_a_folder_by_content(
         tmp_path):
     a = _archive(tmp_path / "dl" / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     (tmp_path / "xml").mkdir()
     xml = write_synthetic_tuning_xml(
         tmp_path / "xml" / "DEV_0285_SUBSYS_103C860F.xml")
-    assert apo_discover.standalone_for(a) is sonitude.FORMAT
+    assert sonitude.is_source(a)
     # By name alone, so a missing one is said as a missing file.
-    assert (apo_discover.standalone_for(tmp_path / "gone" / _ARCHIVE)
-            is sonitude.FORMAT)
-    assert apo_discover.standalone_for(tmp_path / "dl") is sonitude.FORMAT
-    assert apo_discover.standalone_for(xml) is None
-    assert apo_discover.standalone_for(xml.parent) is None
-    assert apo_discover.stands_in_for_xml(f"src/SR/SNAPO64Ext/{_ARCHIVE}")
-    assert not apo_discover.stands_in_for_xml(
-        "src/Dolby/DEV_0285_SUBSYS_103C860F.xml")
-    assert sonitude.FORMAT.wanted_members(
+    assert sonitude.is_source(tmp_path / "gone" / _ARCHIVE)
+    assert sonitude.is_source(tmp_path / "dl")
+    assert not sonitude.is_source(xml)
+    assert not sonitude.is_source(xml.parent)
+    assert dp._is_tuning(_ARCHIVE)
+    assert sonitude.wanted_members(
         [f"src/{_ARCHIVE}", "src/RTKVHD64.sys"]) == {f"src/{_ARCHIVE}"}
 
 
 def test_a_dolby_xml_is_a_dolby_source(tmp_path):
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_0285_SUBSYS_103C860F.xml")
     src = _source([str(xml)])
-    assert (src.format, src.has_voicings, src.xml_path, src.closing_file,
-            src.prefix, src.layer, src.profiles, src.unoffered) == (
-        None, True, xml, xml, "Dolby", None, {}, ())
+    assert isinstance(src, tuning_source.DolbyXml)
+    assert (src.has_voicings, src.xml_path, src.closing_file,
+            src.prefix, src.vendor_layer(), src.found(), src.profiles,
+            src.unoffered) == (True, xml, xml, "Dolby", None, None, {}, ())
     assert not src.experimental("music")
     # The Dolby file holds every profile, so none is a vendor layer's.
     assert src.layer_for("music") is None and src.layer_for(None) is None
     assert src.buildable == src.unbuildable == []
 
 
-def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
-                                           silence_console,
-        unheard_movie_and_voice):
+def test_an_archive_is_a_sonitude_source(tmp_path, fake_host,
+                                         silence_console,
+                                         unheard_movie_and_voice):
     silence_console(console)
     _this_machine(fake_host)
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _three_modes()})
     src = _source([str(a)])
-    assert (src.has_voicings, src.xml_path, src.closing_file, src.prefix,
-            src.origin, src.unoffered) == (
-        False, None, a, "Sonitude", a,
-        ("vendor-apo-active", "level-restore"))
-    assert src.format is unheard_movie_and_voice
+    assert (src.has_voicings, src.closing_file, src.prefix, src.origin,
+            src.unoffered) == (
+        False, a, "Sonitude", a, ("vendor-apo-active", "level-restore"))
+    assert isinstance(src, tuning_source.Sonitude)
     assert list(src.profiles) == ["music", "movie", "voice"]
-    assert src.layer is src.profiles["music"]
+    assert src.layer is src.vendor_layer() is src.profiles["music"]
     assert src.layer_for("voice") is src.profiles["voice"]
     # A profile the tuning doesn't carry is no layer's; profiles_to_build
     # refuses it before any lookup.
@@ -1249,19 +1246,25 @@ def test_an_archive_is_a_standalone_source(tmp_path, fake_host,
                                "X_Synth)")
     assert [p for p in src.profiles if src.experimental(p)] == [
         "movie", "voice"]
-    assert src.profiles_to_build(None, False) == ["music"]
-    assert src.profiles_to_build("Voice", False) == ["voice"]
-    assert src.profiles_to_build(None, True) == ["music", "movie", "voice"]
+    assert src.found() == (
+        "Found Sonitude speaker tuning (preset 177, X_Synth) for "
+        "INTELAUDIO\\FUNC_01&VEN_10EC&DEV_0285&SUBSYS_103C860F",
+        "No Dolby file was given or found, so the presets are built from "
+        "this tuning alone.")
+    for flags, built in (((), ["music"]), (("--profile", "Voice"), ["voice"]),
+                         (("--all-profiles",), ["music", "movie", "voice"])):
+        _, args = _args([str(a), *flags])
+        assert src.profiles_to_build(args) == built
 
 
-def test_a_download_of_only_archives_is_a_standalone_source(
+def test_a_download_of_only_archives_is_a_sonitude_source(
         tmp_path, fake_host, silence_console):
     silence_console(console)
     _this_machine(fake_host)
     src = _source([str(_download(tmp_path)), "--prefix", "Mine"])
-    assert src.format is sonitude.FORMAT and src.prefix == "Mine"
+    assert isinstance(src, tuning_source.Sonitude) and src.prefix == "Mine"
     assert src.origin.is_dir() and sonitude.archives_in(src.origin)
-    assert src.layer is not None and src.xml_path is None
+    assert src.layer is not None
     # The archive in the unpacked download that holds this device's tuning.
     assert src.closing_file == src.layer.inf_path
     assert src.closing_file.name == _ARCHIVE
@@ -1277,7 +1280,8 @@ def test_a_download_with_a_dolby_xml_is_a_dolby_source(
     monkeypatch.setattr(dp, "pick_xml", lambda tree, path, best_guess=False:
                         next(tree.rglob("DEV_0285_SUBSYS_103C860F.xml")))
     src = _source([str(download)])
-    assert src.format is None and src.has_voicings and src.layer is None
+    assert isinstance(src, tuning_source.DolbyXml)
+    assert src.has_voicings and src.vendor_layer() is None
     assert src.xml_path.name == "DEV_0285_SUBSYS_103C860F.xml"
 
 
@@ -1288,10 +1292,9 @@ def _source_of(tmp_path, flat: tuple[str, ...],
     a = _archive(tmp_path / _ARCHIVE, {"103C860F": 177},
                  {177: _preset_bin(_curve())})
     layer = sonitude.find(a, "10EC0285", "103C860F", True)
-    return replace(tuning_source.standalone(apo_discover.STANDALONE[0], a,
-                                            None),
-                   profiles={n: replace(layer, changes_nothing=n in flat)
-                             for n in names})
+    return tuning_source.Sonitude(
+        "Sonitude", a, {n: replace(layer, changes_nothing=n in flat)
+                        for n in names})
 
 
 @pytest.mark.parametrize("flat,names,profile,picked,banner", [
@@ -1352,7 +1355,7 @@ def test_a_standalone_source_refuses_what_needs_a_dolby_file(
         tmp_path, flags, text):
     a = tmp_path / _ARCHIVE
     _, args = _args([str(a), *flags])
-    src = tuning_source.standalone(sonitude.FORMAT, a, args.prefix)
+    src = tuning_source.Sonitude("Sonitude", a, {})
     assert src.refusal(args) == text
 
 
@@ -1361,7 +1364,7 @@ def test_a_standalone_source_refuses_what_needs_a_dolby_file(
 def test_every_dolby_stage_disable_is_refused(tmp_path, name):
     a = tmp_path / _ARCHIVE
     _, args = _args([str(a), "--disable", name])
-    src = tuning_source.standalone(sonitude.FORMAT, a, args.prefix)
+    src = tuning_source.Sonitude("Sonitude", a, {})
     assert src.refusal(args) == (f"--disable {name} acts on a Dolby stage, "
                                  "and this tuning has none — drop it")
 
@@ -1372,7 +1375,7 @@ def test_every_dolby_stage_disable_is_refused(tmp_path, name):
 def test_a_dolby_source_refuses_none_of_its_own_flags(tmp_path, flags):
     xml = tmp_path / "DEV_0285_SUBSYS_103C860F.xml"
     _, args = _args([str(xml), *flags])
-    assert tuning_source.dolby(xml, None).refusal(args) is None
+    assert tuning_source.DolbyXml.refusal(args) is None
 
 
 # --- the PipeWire wrapper ----------------------------------------------------

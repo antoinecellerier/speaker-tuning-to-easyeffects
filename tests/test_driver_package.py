@@ -17,7 +17,7 @@ import pytest
 
 import dolby_to_easyeffects
 from lib import console, driver_package as dp, packages, tool_env
-from lib.apo import discover as apo_discover
+from lib.apo import stacked
 from tests.conftest import (write_pe, write_surface_package,
                             write_synthetic_tuning_xml)
 
@@ -112,10 +112,10 @@ def test_a_zip_keeps_only_the_tunings_and_the_apo_folder(tmp_path, cache):
 def test_the_filtered_tree_binds_the_same_apo_layer_as_the_full_one(tmp_path,
                                                                    cache):
     download = _surface_zip(tmp_path)
-    full = apo_discover.find_for_xml(
+    full = stacked.find_for_xml(
         tmp_path / "src" / "SurfaceUpdate" / "dax3extrtk" / _XML)
     tree = dp.unpack(download, cache_root=cache)
-    filtered = apo_discover.find_for_xml(
+    filtered = stacked.find_for_xml(
         tree / "SurfaceUpdate" / "dax3extrtk" / _XML)
     assert full is not None and filtered is not None
     assert (filtered.eq_left, filtered.dynamics) == (full.eq_left,

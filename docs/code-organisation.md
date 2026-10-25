@@ -275,11 +275,18 @@ subpackage holds one concern:
 - `data/`: machine-written tables, out of hand-edited code
 - `hardware/`: system probing, with no DAX and no DSP
 - `dax/`: everything that reads Dolby XML
-- `apo/`: everything that reads a vendor APO config shipped beside the XML
+- `apo/`: everything that reads a vendor tuning outside the XML: an APO
+  config stacked on it, a Sonitude tuning or a DAX2 `.inf` preset
 - `preset/`: EasyEffects preset construction
 - `report/`: everything the user reads
 - `pipewire/`: the PipeWire side: filter-chain conf emission, install and the
   PW-side `--doctor`
+
+Two flat modules stand between those readers and `main()`. Each kind of
+tuning a run can build from has a finder in `tuning_lookup.py`, listed in the
+order a place holding several is read. It also has a class in
+`tuning_source.py` that answers what a run from it can do, and reads it. A new
+kind adds one of each, and `main()` never asks which kind it has.
 
 Module lists and sizes are deliberately absent, because they move and `wc -l`
 is the current answer.

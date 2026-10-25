@@ -101,10 +101,10 @@ STDLIB_ONLY = (
     "lib.hardware.speakers",
     # Vendor APO discovery runs before the generator's deferred DSP imports,
     # and none of these modules prints: the run reports what they return.
-    "lib.apo.layer", "lib.apo.inf", "lib.apo.surface", "lib.apo.discover",
+    "lib.apo.layer", "lib.apo.inf", "lib.apo.surface", "lib.apo.stacked",
     "lib.apo.sonitude", "lib.apo.dax2",
-    # Which tuning a run builds from, resolved before those same imports; it
-    # prints nothing either, and main() reports what it returns.
+    # Which tuning a run builds from, resolved before those same imports;
+    # the readers that aren't stdlib-only load inside the members that read.
     "lib.tuning_source",
     # Neither lib.dax module is listed. Both are stdlib-only in the sense the
     # converter's startup cares about — no numpy, no scipy — but both print

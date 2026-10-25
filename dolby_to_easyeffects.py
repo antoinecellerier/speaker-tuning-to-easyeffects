@@ -24,20 +24,15 @@ Output chain:
 from __future__ import annotations
 
 import argparse
-import errno
-import os
 import shlex
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import (console, doctor, driver_package, ee_paths, ee_socket,
-                 packages, tuning_source, uninstall)
-# Aliased: `discover` is the DAX3 one, read far more often in this file.
-from lib.apo import dax2
-from lib.apo import discover as apo_discover
+from lib import (console, doctor, ee_paths, ee_socket, packages,
+                 tuning_lookup, uninstall)
 from lib.apo import layer as apo_layer
-from lib.dax import discover, parse
+from lib.dax import parse
 from lib.hardware import speakers
 # Aliased: _configure_autoload binds a local named `sinks` for the resolver's
 # result, which would shadow the module for every later line that reads
@@ -630,157 +625,6 @@ class RunTally:
     leveler_substages: dict[str, None] = field(default_factory=dict)
 
 
-def _print_format_warning(text: str) -> None:
-    """A standalone format's warning: its sentence wrapped, and each line
-    after it, such as a path to copy, as it is (`StandaloneFormat.resolve`)."""
-    sentence, *lines = text.split("\n")
-    console._cprint_wrapped("warn", sentence)
-    for line in lines:
-        console.cprint("warn", line)
-
-
-def _windows_source(root: Path, args) -> tuning_source.TuningSource:
-    """The tuning a Windows install or extracted DriverStore at *root* holds
-    for this machine: the Dolby XML that matches it, or when none does, the
-    DAX2 tuning a driver .inf binds to it, or a standalone format's newest
-    package there."""
-    # An extracted DriverStore holding no Dolby package is one the Dolby
-    # lookup doesn't resolve, and is itself the folder to look in.
-    store = discover._resolve_driver_store(Path(root)) or Path(root)
-    packages = apo_discover.standalone_in_driver_store(store)
-    try:
-        xml_path = discover.find_tuning_xml(root, best_guess=args.best_guess)
-    except FileNotFoundError:
-        # A DAX2 tuning that binds but can't be read gives way to a
-        # standalone package, and is the error only when there is none.
-        try:
-            preset = dax2.for_this_machine(store)
-        except RuntimeError:
-            if packages is None:
-                raise
-            preset = None
-        if preset is not None:
-            console.cprint("ok", "Auto-detected: "
-                           f"{doctor.tilde(preset.inf_path)}")
-            return tuning_source.dax2(preset, args.prefix)
-        if packages is None:
-            raise
-        fmt, folders = packages
-        newest = (f" (the newest of the {len(folders)} {fmt.owner} driver "
-                  "versions there)" if len(folders) > 1 else "")
-        console.cprint("ok", f"Auto-detected: {doctor.tilde(folders[0])}"
-                       + newest)
-        return tuning_source.standalone(fmt, folders[0], args.prefix)
-    console.cprint("ok", f"Auto-detected: {doctor.tilde(xml_path)}")
-    if packages is not None:
-        fmt, folders = packages
-        # Unwrapped: wrapping would split the path.
-        console.cprint("dim", f"A {fmt.owner} tuning is there too "
-                       f"({doctor.tilde(folders[0])}); using the Dolby "
-                       "file.")
-    return tuning_source.dolby(xml_path, args.prefix)
-
-
-def _tuning_source(args, parser) -> tuning_source.TuningSource:
-    """The tuning this run builds from (`lib/tuning_source.py`), with the
-    flags it can't take refused and, for a standalone one, its layer read."""
-    if args.xml_file and args.windows:
-        parser.error("specify either xml_file or --windows, not both")
-    elif args.windows:
-        source = _windows_source(args.windows, args)
-    # A folder in the XML's place stays on the XML path: only an unpacked
-    # download's tree, below, is looked into for a standalone tuning.
-    elif (args.xml_file and not Path(args.xml_file).is_dir()
-          and (fmt := apo_discover.standalone_for(args.xml_file))):
-        # Said as a missing XML is, rather than as an archive holding no
-        # tuning for this device.
-        if not Path(args.xml_file).is_file():
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT),
-                                    str(args.xml_file))
-        source = tuning_source.standalone(fmt, args.xml_file, args.prefix)
-    # A driver .inf in the XML's place: the DAX2 tuning it binds to this
-    # machine's codec.
-    elif (args.xml_file and Path(args.xml_file).suffix.lower() == ".inf"
-          and Path(args.xml_file).is_file()):
-        inf_path = Path(args.xml_file)
-        if not dax2.mentions_dax2(inf_path):
-            raise dax2.not_a_dax2_inf(inf_path)
-        preset = dax2.for_this_machine(inf_path)
-        if preset is None:
-            raise dax2.none_for_this_machine(inf_path)
-        source = tuning_source.dax2(preset, args.prefix)
-    elif args.xml_file and driver_package.kind(args.xml_file):
-        # A vendor's driver download in place of the XML: its tuning files
-        # are unpacked into driver-cache/, and this machine's is picked there.
-        tree = driver_package.unpack(args.xml_file)
-        fmt = apo_discover.standalone_for(tree)
-        # As in `_windows_source`, a Dolby XML for this machine wins. Only
-        # when none matches is a DAX2 tuning the tree's .inf binds to it
-        # used, then the tree's standalone tuning, whose own error stands if
-        # it doesn't bind this machine either.
-        miss = None
-        source = None
-        if discover.walk_for_dolby_xml_dirs(tree):
-            try:
-                xml_path = driver_package.pick_xml(
-                    tree, Path(args.xml_file), best_guess=args.best_guess)
-            except driver_package.NoTuningForThisDevice as exc:
-                miss = exc
-            else:
-                source = tuning_source.dolby(xml_path, args.prefix)
-        if source is None:
-            # A download's tree holds its .inf files without the APO
-            # beside them (`dax2.wanted_members`).
-            try:
-                preset = dax2.for_this_machine(tree, beside_apo=False)
-            except RuntimeError:
-                if fmt is None:
-                    raise
-                preset = None
-            if preset is not None:
-                source = tuning_source.dax2(preset, args.prefix)
-        if source is None and fmt is not None:
-            source = tuning_source.standalone(fmt, tree, args.prefix)
-        if source is None:
-            if miss is not None:
-                raise miss
-            if dax2.infs_below(tree, first=True, beside_apo=False):
-                raise dax2.none_for_this_machine(Path(args.xml_file))
-            # Neither kind of tuning: the XML lookup's own error says so.
-            source = tuning_source.dolby(driver_package.pick_xml(
-                tree, Path(args.xml_file), best_guess=args.best_guess),
-                args.prefix)
-    elif args.xml_file:
-        source = tuning_source.dolby(args.xml_file, args.prefix)
-    else:
-        # An auto-detection miss/ambiguity is an environment condition, not
-        # CLI misuse. It propagates to the top-level handler, which prints a
-        # clean error (no usage banner) that points at --help. Routing it
-        # through parser.error() would slap the usage synopsis on top and exit
-        # 2, framing it as a syntax error the user can't fix by reading usage.
-        windows_root = discover.autoprobe_dolby_source(
-            also=lambda store: (apo_discover.standalone_in_driver_store(store)
-                                is not None
-                                or dax2.binds_this_machine(store)))
-        source = _windows_source(windows_root, args)
-
-    refusal = source.refusal(args)
-    if refusal:
-        parser.error(refusal)
-    source = source.resolved(_print_format_warning)
-    if source.dax2 is not None:
-        console.cprint("ok", f"Found {source.dax2.label} for "
-                       f"{source.dax2.hardware_id}")
-        console._cprint_wrapped(
-            "dim", "This driver keeps its Dolby tuning in an older format, "
-            "DAX2, so the preset is built from that.")
-    elif source.layer is not None:
-        console.cprint("ok", f"Found {source.layer.label} for "
-                       f"{source.layer.hardware_id}")
-        console._cprint_wrapped(
-            "dim", "No Dolby file was given or found, so the presets are built "
-            "from this tuning alone.")
-    return source
 
 
 def main(argv: list[str] | None = None,
@@ -852,10 +696,9 @@ def main(argv: list[str] | None = None,
         doctor_run.report_doctor(args)
         return
 
-    # Resolve the tuning source: the XML, or a standalone vendor format when
-    # the device ships no Dolby file (lib/tuning_source.py).
-    source = _tuning_source(args, parser)
-    xml_path = source.xml_path
+    # Resolve the tuning source: the XML, or a Sonitude or DAX2 tuning when
+    # the device ships no DAX3 XML (lib/tuning_lookup.py).
+    source = tuning_lookup.source_for(args, parser)
 
     # Handed over the moment it is known, not at the end: a run that fails
     # further down still leaves the caller able to say which file it was
@@ -866,21 +709,13 @@ def main(argv: list[str] | None = None,
         if source.voicings_carried is not None:
             resolved["voicings_carried"] = list(source.voicings_carried)
 
-    is_soundwire = (xml_path is not None
-                    and discover.is_soundwire_xml(Path(xml_path).name))
+    is_soundwire = source.is_soundwire
 
-    if args.list and xml_path is None:
-        # The Dolby listing's shape, for a source with no XML: a standalone
-        # tuning's content modes or a DAX2 preset, all for the one output it
-        # is read for.
+    if args.list:
         console.cprint("head", "Endpoints and profiles in "
                        f"{doctor.tilde(source.closing_file)}:")
         for line in source.listing():
             print(line)
-        return
-    if args.list:
-        console.cprint("head", f"Endpoints and profiles in {doctor.tilde(xml_path)}:")
-        parse.list_endpoints(xml_path)
         return
 
     if args.dry_run:
@@ -893,9 +728,7 @@ def main(argv: list[str] | None = None,
     # presets still get built.
     apo_unusable = False
     try:
-        apo = (source.layer if source.layer is not None
-               else None if xml_path is None
-               else apo_discover.find_for_xml(Path(xml_path)))
+        apo = source.vendor_layer()
     except apo_layer.UnsupportedApoConfig as exc:
         apo, apo_unusable = None, True
         console._cprint_wrapped("warn", f"Vendor speaker tuning at "
@@ -903,35 +736,25 @@ def main(argv: list[str] | None = None,
                                 f"but can't be used: {exc.reason}. Building "
                                 "from the Dolby file alone.")
 
-    # Determine which profiles to process: the source's own when it carries
-    # them, else the Dolby file's.
-    if source.profiles:
-        profile_types = source.profiles_to_build(args.profile,
-                                                 args.all_profiles)
-        if args.all_profiles:
-            console.cprint("head", "Generating presets for all "
-                           f"{len(profile_types)} profiles: "
-                           f"{', '.join(profile_types)}")
-        # Said once, before the first preset, so a mode missing from the
-        # list reads as the tuning's doing. Not under --profile, which built
-        # the one mode it named.
-        skipped = [p.title() for p in source.unbuildable]
-        if skipped and args.profile is None:
-            modes, verb, pron = ((f"{skipped[0]} mode", "changes", "it")
-                                 if len(skipped) == 1 else
-                                 (f"{' and '.join(skipped)} modes", "change",
-                                  "them"))
-            console._cprint_wrapped("head", f"The tuning's {modes} {verb} "
-                                    f"nothing, so no preset is built for "
-                                    f"{pron}.")
-    elif args.all_profiles:
-        profile_types = parse.get_profile_types(xml_path, args.endpoint, args.mode)
-        if not profile_types:
-            console.cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
-            return
+    # The profiles to process; None means "first profile".
+    profile_types = source.profiles_to_build(args)
+    if not profile_types:
+        console.cprint("warn", f"No profiles found for endpoint={args.endpoint} mode={args.mode}")
+        return
+    if args.all_profiles:
         console.cprint("head", f"Generating presets for all {len(profile_types)} profiles: {', '.join(profile_types)}")
-    else:
-        profile_types = [args.profile]  # None means "first profile"
+    # Said once, before the first preset, so a mode missing from the list
+    # reads as the tuning's doing. Not under --profile, which built the one
+    # mode it named.
+    skipped = [p.title() for p in source.unbuildable]
+    if skipped and args.profile is None:
+        modes, verb, pron = ((f"{skipped[0]} mode", "changes", "it")
+                             if len(skipped) == 1 else
+                             (f"{' and '.join(skipped)} modes", "change",
+                              "them"))
+        console._cprint_wrapped("head", f"The tuning's {modes} {verb} "
+                                f"nothing, so no preset is built for "
+                                f"{pron}.")
 
     # The DSP stack is imported here, not at the top of the file. numpy is
     # ~0.35 s of a ~0.5 s start-up, and every path that returns above reaches
@@ -941,9 +764,8 @@ def main(argv: list[str] | None = None,
     # of its own. `emit` and `profile` are what pull it in: between them they
     # reach numpy, scipy and lib.preset.{fir,build,plugins}, so importing
     # either eagerly would undo the deferral. Everything this file does import
-    # at the top (console, doctor, driver_package, ee_paths, ee_socket,
-    # packages, tuning_source; apo.{discover,layer};
-    # dax.{discover,parse}; hardware.{speakers,sinks};
+    # at the top (console, doctor, ee_paths, ee_socket, packages,
+    # tuning_lookup; apo.layer; dax.parse; hardware.{speakers,sinks};
     # preset.{autoload,reload};
     # report.{findings,speaker,doctor_run,environment,messages}) reaches no
     # numpy. That is the whole predicate, and it is not "stdlib-only": console
@@ -1081,7 +903,7 @@ def main(argv: list[str] | None = None,
         whole = source.layer_for(profile_type)
         # Build name base: prefix[-Mode][-Profile]
         # When --all-profiles is used, always include the profile name.
-        # A standalone tuning has no voicings to tell its presets apart, so
+        # A Sonitude tuning has no voicings to tell its presets apart, so
         # its preset names always carry the profile: Sonitude-Music.
         name_parts = [source.prefix]
         if args.mode != "normal":
@@ -1096,44 +918,9 @@ def main(argv: list[str] | None = None,
         name_base = "-".join(name_parts)
 
         console.cprint("head", f"\n{'='*60}")
-        if is_soundwire:
-            # Names the practical difference. An earlier wording, "enhanced
-            # preset generation", told the reader nothing and read as either
-            # good news or a warning (round 2).
-            # "where your tuning enables it": this prints from the filename,
-            # before any profile is parsed, and plenty of profiles disable
-            # the leveler outright (voice, off, most game). A flat "on by
-            # default" would contradict the leveler section four lines
-            # below, which correctly says "switched off in your tuning".
-            console.cprint("head", "SoundWire speaker hardware detected — adds a "
-                           "bass enhancer, and keeps the volume leveler on "
-                           "where your tuning enables it")
-        # "(mode=normal)" is suppressed when it is the default: an
-        # unexplained internal knob on every run's second line.
-        mode = "" if args.mode == "normal" else f" (mode={args.mode})"
-        if whole is not None:
-            console.cprint("head", source.format.heading)
-            banner = source.profile_banner(
-                profile_type, picked=bool(args.profile or args.all_profiles))
-            console.cprint("head", f"Profile: {banner}")
-            tuning = parse.flat_tuning(source.format.probe_freqs(),
-                                       profile_type)
-        elif source.dax2 is not None:
-            console.cprint("head", f"Endpoint: {args.endpoint} (the output "
-                           "these presets are for)")
-            console.cprint("head", f"Tuning: {source.dax2.name} (Dolby "
-                           "DAX2, the only one)")
-            tuning = dax2.tuning(source.dax2)
-        else:
-            console.cprint("head", f"Endpoint: {args.endpoint}{mode} (the output these "
-                           "presets are for)")
-            tuning = parse.parse_xml(
-                xml_path,
-                endpoint_type=args.endpoint,
-                operating_mode=args.mode,
-                profile_type=profile_type,
-                announce_profile=True,
-            )
+        for line in source.headings(profile_type, args):
+            console.cprint("head", line)
+        tuning = source.tuning(profile_type, args)
 
         # Before any write, because the Convolver page crashes EasyEffects on
         # the impulse-file writes (issue #95) and nothing says which page is
@@ -1373,18 +1160,11 @@ def main(argv: list[str] | None = None,
                 [k for k in fired if k in messages.DISABLEABLE_FILTERS]))
         _print_finding_detail(tally.findings["unconfirmed-by-ear"])
 
-    # A preset built from a standalone tuning alone has been compared with
-    # two laptops' Windows recordings and heard by one listener: ask for the
-    # comparison.
-    if source.layer is not None and tally.all_preset_names:
-        tally.findings.setdefault(
-            "vendor-tuning-unconfirmed",
-            report_findings._vendor_only_finding())
-        _print_finding_detail(tally.findings["vendor-tuning-unconfirmed"])
-    if source.dax2 is not None and tally.all_preset_names:
-        tally.findings.setdefault(
-            "dax2-tuning-unconfirmed", report_findings._dax2_finding())
-        _print_finding_detail(tally.findings["dax2-tuning-unconfirmed"])
+    # A source nobody has compared with Windows yet asks for that.
+    unconfirmed = source.unconfirmed_finding()
+    if unconfirmed is not None and tally.all_preset_names:
+        tally.findings.setdefault(unconfirmed.slug, unconfirmed)
+        _print_finding_detail(tally.findings[unconfirmed.slug])
 
     # --enable level-restore is the one experimental path that HAS been
     # heard (dev device, 2026-08-18: loud speech picked up artifacts), so it
@@ -1462,18 +1242,13 @@ def main(argv: list[str] | None = None,
     # the wrapper's own "nothing was installed" two lines later.
     if not args.skip_closing:
         # Single-mode runs only: under --all-profiles every mode was built,
-        # so there is nothing to point at. get_profile_types re-reads the
-        # XML, but only here, once, at the very end.
-        # A standalone mode that changes nothing is never built, so it is
-        # not one of the modes --all-profiles would add.
+        # so there is nothing to point at. A DAX3 source re-reads the XML
+        # for the count, but only here, once, at the very end.
         profile_used = n_modes = None
         unbuilt = source.unbuildable
         if not args.all_profiles and len(profile_types) == 1:
             profile_used = last_profile_used
-            n_modes = source.mode_count
-            if n_modes is None:
-                n_modes = len(parse.get_profile_types(
-                    xml_path, args.endpoint, args.mode))
+            n_modes = source.mode_count(args)
         messages.print_what_now(tally.all_preset_names, bool(args.autoload), args.dry_run,
                        output_dir=args.output_dir,
                        profile_used=profile_used, n_modes=n_modes or 0,

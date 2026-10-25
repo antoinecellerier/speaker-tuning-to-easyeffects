@@ -13,12 +13,11 @@ before the generator's deferred DSP imports.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 # The one `--enable`/`--disable` name for every vendor format. A device binds
-# at most one layer (`lib/apo/discover.py`), so the run's report, which names
+# at most one layer (`lib/apo/stacked.py`), so the run's report, which names
 # the format, says what the flag switched.
 FLAG = "vendor-apo"
 
@@ -135,40 +134,6 @@ class ApoLayer:
                                else self.curve_right_db)
 
 
-@dataclass(frozen=True)
-class StandaloneFormat:
-    """A vendor format that is a device's whole tuning, in place of the XML.
-
-    One per format, in `lib/apo/discover.py` `STANDALONE`. A device that
-    ships one of these ships no Dolby file, so the run builds each profile
-    from the layer `resolve` returns for it alone (`lib/tuning_source.py`).
-    """
-    # Whether a file or folder is one this format can stand in for the XML.
-    is_source: Callable[[Path], bool]
-    # The members of a driver download's file list this format reads, which
-    # `lib/driver_package.py` keeps as it keeps a DAX3 XML.
-    wanted_members: Callable[[list[str]], set[str]]
-    # The folders in an installed Windows' DriverStore (FileRepository) that
-    # hold this format's tuning, one per driver version, newest first.
-    driver_store_packages: Callable[[Path], list[Path]]
-    # (source, warn) → profile name → the layer bound to this machine, in
-    # the order a run without --profile picks from. Raises RuntimeError,
-    # saying why, when none is. *warn* takes a sentence, then after a newline
-    # each, lines the run prints unwrapped, such as a path to copy.
-    resolve: Callable[[Path, Callable[[str], None]], dict[str, ApoLayer]]
-    # The preset-name stem when --prefix is not given.
-    prefix: str
-    # Whose tuning it is, as the refusals of the Dolby-only flags name it.
-    owner: str
-    # The run's heading line, in place of the Dolby endpoint's.
-    heading: str
-    # Where the correction check probes a build from it.
-    probe_freqs: Callable[[], list[int]]
-    # The profiles no listener has heard yet: the run marks their presets
-    # experimental wherever it lists them.
-    experimental: tuple[str, ...] = ()
-
-
 class UnsupportedApoConfig(Exception):
     """A config bound to this device exists but cannot be translated.
 
@@ -180,6 +145,12 @@ class UnsupportedApoConfig(Exception):
         super().__init__(f"{path}: {reason}")
         self.path = path
         self.reason = reason
+
+
+class BoundButUnreadable(RuntimeError):
+    """A tuning binds this device but can't be read. The run says so over
+    any other kind's "none for this device" (`lib/tuning_lookup.py`), since
+    it names the tuning that is this device's."""
 
 
 def is_active(layer: ApoLayer | None, enabled: set[str],

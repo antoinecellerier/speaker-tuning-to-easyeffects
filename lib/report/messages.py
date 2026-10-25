@@ -160,7 +160,7 @@ ENABLEABLE_FILTERS = {
     "dialog": ("voices are hard to follow over music or effects",
                "boosts the speech band, music included (issue #137)"),
     # Offered only where a vendor APO config binds the device
-    # (lib/apo/discover.py) and its format is opt-in, so the trigger can name
+    # (lib/apo/stacked.py) and its format is opt-in, so the trigger can name
     # what it adds. Surface's is on by default, and there the name is a
     # no-op that keeps older command lines parsing.
     "vendor-apo": ("it sounds flat next to Windows, and the run found "
@@ -234,7 +234,7 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     only this one. --all-profiles is the answer, and it was never
     mentioned anywhere a user reads). ``default_unknown`` adds the guess
     caveat to that line (round 6: the caveat lived only at the top banner,
-    which a Done-stopper never rereads). ``modes_skipped`` says a standalone
+    which a Done-stopper never rereads). ``modes_skipped`` says a Sonitude
     tuning has modes that change nothing, which no run builds, and
     ``default_moved`` that the first-listed mode is one, so ``profile_used``
     is the first that changes the sound. ``autogain_off`` adds the one
@@ -263,8 +263,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     (autoload.starting_preset); ``declared_default_preset`` the declared
     default profile's preset when --all-profiles built it, so the note that
     a single-profile run makes with ``profile_used`` can name it instead of
-    a rebuild. ``experimental`` names the presets a standalone tuning built
-    from sound modes no listener has heard, which the list marks.
+    a rebuild. ``experimental`` names the presets built from a tuning no
+    listener has heard, which the list marks.
     """
     if not preset_names or autoloaded:
         return
@@ -322,8 +322,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
         mismatch_note = (f"  Windows ships this device on "
                          f"'{declared_default}' — that's "
                          f"{declared_default_preset} here.")
-    # A standalone tuning's presets built from sound modes no listener has
-    # heard (`StandaloneFormat.experimental`). The loudness clause is
+    # Presets built from a tuning no listener has heard
+    # (`TuningSource.experimental`). The loudness clause is
     # load-bearing: make_fir scales every preset to its own peak, so the
     # level step between two modes is not the one Windows plays.
     experimental = experimental or []
@@ -351,9 +351,9 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     if any(n.endswith("-Warm") for n in preset_names):
         hints.append("Warm softer")
     voicing_hint = f" ({', '.join(hints)})" if hints else ""
-    # A standalone tuning builds one preset per sound mode and no voicings.
+    # A Sonitude tuning builds one preset per sound mode and no voicings.
     these = "These voice" if len(preset_names) > 1 else "It voices"
-    # A standalone tuning's mode that changes nothing is never built, so
+    # A Sonitude tuning's mode that changes nothing is never built, so
     # --all-profiles builds only those that do, and a default that moved
     # past one is not the Windows default this run would otherwise assume.
     modes_note = ""

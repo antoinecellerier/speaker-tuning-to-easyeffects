@@ -28,7 +28,7 @@ from pathlib import Path
 
 from lib import doctor
 from lib.apo import inf
-from lib.apo.layer import UnsupportedApoConfig
+from lib.apo.layer import BoundButUnreadable, UnsupportedApoConfig
 from lib.hardware import codecs
 
 LABEL = "Dolby DAX2"
@@ -207,13 +207,13 @@ def _find_cached(root: Path, ids: tuple[tuple[str, str], ...],
 def for_this_machine(root: Path, beside_apo: bool = True
                      ) -> Dax2Preset | None:
     """The DAX2 preset an `.inf` at or under *root* binds to this machine's
-    audio codec, or None when none there does. Raises RuntimeError, worded
-    for the run, when one binds but can't be read."""
+    audio codec, or None when none there does. Raises `BoundButUnreadable`,
+    worded for the run, when one binds but can't be read."""
     ids = tuple(codecs.get_hda_codec_ids_without_display())
     try:
         return _find_cached(Path(root), ids, beside_apo)
     except UnsupportedApoConfig as exc:
-        raise RuntimeError(
+        raise BoundButUnreadable(
             f"{doctor.tilde(exc.path)} binds this device's audio hardware to "
             f"a Dolby tuning this tool can't read: {exc.reason}.") from None
 
@@ -225,7 +225,7 @@ def binds_this_machine(store: Path) -> bool:
     which is searched only when no mount qualifies."""
     try:
         return for_this_machine(store) is not None
-    except RuntimeError:
+    except BoundButUnreadable:
         return True  # it binds; the run then says why it can't be read
 
 

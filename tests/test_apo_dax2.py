@@ -579,26 +579,6 @@ def test_another_devices_dax2_on_a_mount_leaves_the_cwd_tree_to_be_found(
 _WRAPPER = Path(dolby_to_easyeffects.__file__).parent / "dolby_to_pipewire.py"
 
 
-def test_a_dax2_tuning_that_cant_be_read_gives_way_to_a_standalone_one(
-        tmp_path, monkeypatch):
-    import types
-    from lib.apo import discover as apo_discover
-    from lib.dax import discover
-    monkeypatch.setattr(discover, "find_tuning_xml", lambda *a, **k: (
-        _ for _ in ()).throw(FileNotFoundError("no XML")))
-
-    def refuse(*a, **k):
-        raise RuntimeError("binds this device's audio hardware to a Dolby "
-                           "tuning this tool can't read")
-    monkeypatch.setattr(dax2, "for_this_machine", refuse)
-    fmt = types.SimpleNamespace(owner="Sonitude", prefix="Sonitude")
-    monkeypatch.setattr(apo_discover, "standalone_in_driver_store",
-                        lambda store: (fmt, [tmp_path / "snapo"]))
-    args = types.SimpleNamespace(best_guess=False, prefix=None)
-    source = dolby_to_easyeffects._windows_source(tmp_path, args)
-    assert source.format is fmt and source.dax2 is None
-
-
 def _wrapper(tmp_path, source, *flags):
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
