@@ -40,6 +40,7 @@ import math
 import re
 from pathlib import Path
 
+from lib.apo import inf
 from lib.apo.layer import (APPROXIMATED, BUILT, NOT_REPRODUCED, ApoLayer,
                            BandDynamics, Biquad, DynBand, Stage,
                            UnsupportedApoConfig)
@@ -86,23 +87,23 @@ def find(xml_path: Path) -> ApoLayer | None:
     parts = {g.lower() for g in m.groups()}
 
     bound = []
-    for inf in _candidate_infs(xml_path):
+    for inf_path in _candidate_infs(xml_path):
         # An .inf that can't be read binds nothing this can follow. Raising
         # would stop every run on the device, with the flag on or off.
         try:
-            hit = _bound_config(inf, parts)
+            hit = _bound_config(inf_path, parts)
             if hit:
-                bound.append((_driver_version(inf), inf) + hit)
+                bound.append((inf.driver_version(inf_path), inf_path) + hit)
         except (OSError, ValueError):
             continue
     if not bound:
         return None
-    _, inf, hwid, config_name = max(bound, key=lambda b: b[0])
-    config = _named(inf.parent, config_name)
+    _, inf_path, hwid, config_name = max(bound, key=lambda b: b[0])
+    config = _named(inf_path.parent, config_name)
     if not config.is_file():
-        raise UnsupportedApoConfig(config, f"{inf.name} binds it, but the "
+        raise UnsupportedApoConfig(config, f"{inf_path.name} binds it, but the "
                                    "file is missing")
-    return parse_config(config, inf, hwid)
+    return parse_config(config, inf_path, hwid)
 
 
 def _named(folder: Path, name: str) -> Path:
@@ -168,97 +169,20 @@ def _infs_in(folder: Path) -> list[Path]:
 
 # --- .inf reading -----------------------------------------------------------
 
-def _read_inf(path: Path) -> dict[str, list[str]]:
-    """An .inf as {lowercased section name: its lines}, comments stripped.
-
-    Windows writes .inf files in UTF-16 as often as in ANSI, so the encoding
-    follows the byte-order mark. `[Strings]` tokens (`%NAME%`) are
-    substituted throughout.
-    """
-    raw = path.read_bytes()
-    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        text = raw.decode("utf-16")
-    else:
-        text = raw.decode("utf-8-sig", errors="replace")
-    sections: dict[str, list[str]] = {}
-    current = None
-    for line in text.splitlines():
-        line = _strip_comment(line).strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = sections.setdefault(line[1:-1].strip().lower(), [])
-        elif current is not None:
-            current.append(line)
-    strings = {}
-    for line in sections.get("strings", []):
-        key, sep, value = line.partition("=")
-        if sep:
-            strings[key.strip().lower()] = value.strip().strip('"')
-
-    def subst(line: str) -> str:
-        # A substituted value keeps its quotes when it holds a comma, as the
-        # PKEY names do ("{guid},0"), so `_fields` still splits it as one.
-        def value(m):
-            v = strings.get(m.group(1).lower())
-            if v is None:
-                return m.group(0)
-            return f'"{v}"' if "," in v else v
-        return re.sub(r"%([^%]+)%", value, line)
-    return {name: [subst(l) for l in lines] for name, lines in sections.items()}
-
-
-def _strip_comment(line: str) -> str:
-    """The line up to its first `;` outside double quotes."""
-    quoted = False
-    for i, ch in enumerate(line):
-        if ch == '"':
-            quoted = not quoted
-        elif ch == ";" and not quoted:
-            return line[:i]
-    return line
-
-
-def _fields(value: str) -> list[str]:
-    """Comma-separated .inf fields, unquoted; a quoted comma stays inside."""
-    fields, current, quoted = [], [], False
-    for ch in value:
-        if ch == '"':
-            quoted = not quoted
-        elif ch == "," and not quoted:
-            fields.append("".join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-    fields.append("".join(current).strip())
-    return fields
-
-
-def _bound_config(inf: Path, parts: set[str]
+def _bound_config(path: Path, parts: set[str]
                   ) -> tuple[str, str] | None:
-    """(hardware ID, config filename) when *inf* binds the device, else None.
+    """(hardware ID, config filename) when *path* binds the device, else None.
 
     *parts* are the lowercased hardware-ID parts the device's XML is named
-    after (`_XML_ID_RES`); a hardware ID binds it when it carries them all.
-    Walks [Manufacturer] → model sections → the install section named for
-    that hardware ID → its AddReg sections (`_config_name`) → the HKR line
-    setting the config-filename property.
+    after (`_XML_ID_RES`). Walks the hardware ID's install section
+    (`inf.bound_installs`) → its AddReg sections (`_config_name`) → the HKR
+    line setting the config-filename property.
     """
-    sections = _read_inf(inf)
-    for line in sections.get("manufacturer", []):
-        _, _, value = line.partition("=")
-        base, *decorations = _fields(value)
-        for model in [base] + [f"{base}.{d}" for d in decorations]:
-            for entry in sections.get(model.lower(), []):
-                _, _, rhs = entry.partition("=")
-                install, *hwids = _fields(rhs)
-                hwid = next((h for h in hwids if parts <= set(
-                    re.split(r"[\\&]", h.lower()))), None)
-                if not hwid:
-                    continue
-                name = _config_name(sections, install)
-                if name:
-                    return hwid, name
+    sections = inf.read(path)
+    for hwid, install in inf.bound_installs(sections, parts):
+        name = _config_name(sections, install)
+        if name:
+            return hwid, name
     return None
 
 
@@ -274,40 +198,19 @@ def _config_name(sections: dict[str, list[str]], install: str) -> str | None:
         targets = [section]
         for line in sections.get(f"{section}.interfaces", []):
             key, _, value = line.partition("=")
-            fields = _fields(value)
+            fields = inf.fields(value)
             # AddInterface = class GUID, reference string, install section
             if key.strip().lower() == "addinterface" and len(fields) > 2:
                 targets.append(fields[2].lower())
         for target in targets:
-            for addreg in _directive(sections, target, "addreg"):
+            for addreg in inf.directive(sections, target, "addreg"):
                 for reg in sections.get(addreg.lower(), []):
-                    f = _fields(reg)
+                    f = inf.fields(reg)
                     if len(f) >= 5 and f[2].lower() == _CONFIG_FILENAME_PKEY:
                         # The value is a DriverStore path such as
                         # %13%\SurfaceAPO_1284.json; %13% is the package dir.
                         return re.split(r"[\\/]", f[4])[-1]
     return None
-
-
-def _directive(sections: dict[str, list[str]], section: str, key: str
-               ) -> list[str]:
-    """Every value a section's *key* lines list, e.g. its AddReg sections."""
-    values = []
-    for line in sections.get(section, []):
-        k, _, value = line.partition("=")
-        if k.strip().lower() == key:
-            values += [v for v in _fields(value) if v]
-    return values
-
-
-def _driver_version(inf: Path) -> tuple[int, ...]:
-    """[Version] DriverVer as a sortable tuple, () when absent."""
-    for line in _read_inf(inf).get("version", []):
-        key, _, value = line.partition("=")
-        if key.strip().lower() == "driverver":
-            ver = _fields(value)[-1]
-            return tuple(int(p) for p in re.findall(r"\d+", ver))
-    return ()
 
 
 # --- config reading ---------------------------------------------------------
