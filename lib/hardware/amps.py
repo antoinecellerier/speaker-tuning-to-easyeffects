@@ -107,14 +107,16 @@ _AMP_FAMILIES = (
     # symptom this project knows from issue #53: "only the tweeters produce
     # sound", in the driver's own words. The cause is the missing driver, not
     # a hidden pin, so nothing in the speaker-pin table catches it.
-    # The whole family loads one aw88NNN_acf.bin; markers from aw88399-lib.c
-    # "request [%s] failed!" (l.1292, no file) and "load [%s] failed!" (l.1309,
-    # bad ACF), the same pair the ASoC siblings print. Not "dev init failed"
-    # (l.1317): too generic to attribute. Derived from upstream source; no
-    # device has been reported on yet.
-    (("aw88",), ("aw88*_acf.bin",), ("aw88",),
-     r"request \[aw88[0-9]*_acf\.bin\] failed"
-     r"|load \[aw88[0-9]*_acf\.bin\] failed"),
+    # The ASoC parts load one aw88NNN_acf.bin. The HDA side codec loads it
+    # under 7.3 only: from 7.4 (3e3a0bdf6a64) it requests a per-machine
+    # awinic/aw88399_acf_<ssid>.bin, so both names are matched. Markers from
+    # aw88399-lib.c "request [%s] failed!" (no file) and "load [%s] failed!"
+    # (bad ACF), the same pair the ASoC siblings print. Not "dev init failed":
+    # too generic to attribute. Derived from upstream source; no device has
+    # been reported on yet.
+    (("aw88",), ("aw88*_acf.bin", "awinic/aw88*"), ("aw88",),
+     r"request \[(?:awinic/)?aw88[0-9]*_acf[^\]/]*\.bin\] failed"
+     r"|load \[(?:awinic/)?aw88[0-9]*_acf[^\]/]*\.bin\] failed"),
     # Maxim DSM smart amps, with no honest firmware-missing tell. Only max98390
     # loads a DSM calibration param, and a missing file falls through silently
     # (max98390.c err path), so we collect its log lines but flag nothing.

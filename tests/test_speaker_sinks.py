@@ -1294,6 +1294,11 @@ def test_amp_families_failure_markers():
     # file, which is what keeps them off the success line below.
     ("aw88399-hda i2c-AWDZ8399:00: request [aw88399_acf.bin] failed!", True),
     ("aw88395 5-0034: load [aw88395_acf.bin] failed!", True),
+    # The HDA side codec's per-machine name from 7.4 on.
+    ("aw88399-hda i2c-AWDZ8399:00: request [awinic/aw88399_acf_17aa3938.bin] "
+     "failed!", True),
+    ("aw88399-hda i2c-AWDZ8399:00: load [awinic/aw88399_acf_17aa3938.bin] "
+     "failed!", True),
     # TAC5XX2 — its firmware name is built per machine, so the markers key on
     # the driver's own wording rather than any filename.
     ("tac5xx2-sdw sdw:0:1:0102:5572:01: firmware with no files", True),
@@ -1317,6 +1322,8 @@ def test_amp_families_failure_markers():
     # The driver names the same file on the way *in*; matching the filename
     # alone would call a healthy load a failure.
     ("snd_hda_scodec_aw88399: loaded aw88399_acf.bin - size: 91234", False),
+    ("aw88399-hda i2c-AWDZ8399:00: Loaded firmware "
+     "awinic/aw88399_acf_17aa3938.bin", False),
     # "dev init failed" is the driver's catch-all after a successful load —
     # too generic to attribute to firmware, so deliberately not a marker.
     ("aw88399-hda i2c-AWDZ8399:00: dev init failed", False),
@@ -1368,6 +1375,17 @@ def test_tas2783_blobs_are_found_by_directory(tmp_path):
     globs, _keywords = amps._amp_firmware_profile("snd_soc_tas2783_sdw")
     assert amps._list_firmware_files(globs, roots=[tmp_path]) == [
         "ti/audio/tas2783/15E2-0-0x8.bin"]
+
+
+def test_aw88399_hda_blobs_are_found_by_directory(tmp_path):
+    """From 7.4 the AW88399 HDA side codec requests a per-machine ACF under
+    awinic/, which a root-level glob alone would report as "none found"."""
+    (tmp_path / "awinic").mkdir()
+    (tmp_path / "awinic" / "aw88399_acf_17aa3938.bin.zst").write_text("x")
+    (tmp_path / "aw88399_acf.bin").write_text("x")
+    globs, _keywords = amps._amp_firmware_profile("snd_hda_scodec_aw88399")
+    assert amps._list_firmware_files(globs, roots=[tmp_path]) == [
+        "aw88399_acf.bin", "awinic/aw88399_acf_17aa3938.bin.zst"]
 
 
 # --- Merged "Speaker amplifier status" section: terse, expand on problems ----
