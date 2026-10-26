@@ -467,11 +467,7 @@ class Dax2(TuningSource):
     def listing(self) -> list[str]:
         """The one preset, for the one output it is read for."""
         return ["  endpoint: internal_speaker (operating_mode=normal)",
-                f"    preset: {self.preset.name} (the only one; "
-                "experimental)"]
-
-    def experimental(self, profile: str | None) -> bool:
-        return True
+                f"    preset: {self.preset.name} (the only one)"]
 
     @property
     def voicings_carried(self) -> tuple[str, ...]:

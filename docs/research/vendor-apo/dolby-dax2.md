@@ -108,6 +108,14 @@ preset holds as its own (13 distinct of 13). The IEQ curve is the same in all
 13, so it isn't the device's own. It matches none of the voicing curves in the
 corpus's DAX3 XMLs, and the run builds it as the Balanced voicing.
 
+One listener has heard the Surface Laptop 3's build, by ear, against the
+Surface Laptop 4's DAX3 XML they had used as a stand-in: "so much better …
+Much fuller sound, better bass response, about on par with Windows from what I
+remember". Conditions: issue #148, the reporter's own Surface Laptop 3 on
+Ubuntu 26.10, master as of `f5d54b8` reading the Surface Laptop 3 driver MSI,
+the two presets played back to back, with no Windows install to compare
+against, 2026-10-26.
+
 Rejected: finding the presets by the `DAX2Tuning_` section prefix. It reached
 3 of the 18 codecs, since most codecs bind presets written under other section
 names. The reader follows the binding instead.
@@ -117,6 +125,8 @@ Open:
 - No Windows capture of a DAX2 device exists, so every mapping above is
   unvalidated, and the *assumed* switches most of all. On all 13 presets
   index 9 is 0, so the leveler reads off on every one.
+- The one listen was from memory, on one of the 13 presets. A side-by-side
+  comparison with Windows, or a second device, would test it.
 - Index 47 (1 or 0) and the other unmapped indices are unread.
 - `10EC120A` binds a DAX2 preset in Realtek 6.0.8828.1 and has a DAX3 XML in
   the Surface Laptop 4 Intel MSI. The two are not a pair to compare: the XML

@@ -417,7 +417,8 @@ def test_an_inf_builds_one_balanced_preset_from_the_dolby_chain(
     assert "Tuning: PresetX_SPK (Dolby DAX2, the only one)" in out
     assert "not found in XML" not in out
     assert "[dax2-tuning-unconfirmed]" in out
-    assert "Dolby-Balanced is experimental: nobody has listened to it yet." in out
+    # Heard on one device (#148), so it isn't marked unheard.
+    assert "nobody has listened" not in out
     assert "How loud each plays" not in out
 
 
@@ -469,7 +470,7 @@ def test_list_names_the_one_preset(tmp_path, fake_host, silence_console,
     dolby_to_easyeffects.main([str(_inf(tmp_path / "x.inf")),
                                "--skip-ee-check", "--list"])
     out = capsys.readouterr().out
-    assert "preset: PresetX_SPK (the only one; experimental)" in out
+    assert "preset: PresetX_SPK (the only one)\n" in out
 
 
 def _download(tmp_path, extra: dict[str, bytes] | None = None,

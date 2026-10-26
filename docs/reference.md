@@ -636,8 +636,9 @@ frequency grids and layout. Five single values, and the leveler's two targets as
 a pair, are named by a DAX3 preset written in the same registry form, whose
 values each match one field of a DAX3 XML. The on/off switches are read as the
 field beside the values they gate. That includes the leveler's, which reads off
-on all 13 presets found. Nobody has listened to a DAX2 build, and no Windows
-capture of a DAX2 device exists
+on all 13 presets found. One listener has heard the Surface Laptop 3's build,
+against Windows from memory: "about on par with Windows". No Windows capture of
+a DAX2 device exists
 ([DAX2 presets](research/vendor-apo/dolby-dax2.md#r-dolby-registry-preset),
 issue
 [#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148)).
