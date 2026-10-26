@@ -89,28 +89,36 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings
+
+The fixed voice boost ships off, for slightly less voice presence and less
+over-emphasis on music. Held loud bass is limited instead of distorting. Laptops
+with a Sonitude tuning or an older Dolby DAX2 tuning get presets for the first
+time, and `--uninstall` removes what the tool installed.
+
 ### Changed
 
-- **[AUDIBLE]** Loud held bass notes are no longer distorted by the final
-  limiter; they are held slightly quieter instead. Measured on one device, not
-  heard. Re-run to regenerate.
-  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
-  why in `docs/research/loudness-and-limiting.md`)
-- **[AUDIBLE]** Loud bass keeps more of each note's start, closer to Windows,
-  because the speaker-protection stage reacts more slowly. Held loud bass
-  distorts less with two of the three tunings measured and more with the third;
-  one listener heard no clear difference. Re-run to regenerate.
-  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
-  why in `docs/research/loudness-and-limiting.md`)
 - **[AUDIBLE]** Slightly less voice presence, and less over-emphasis on music
-  such as piano, as heard on one device: the dialog enhancer's fixed 2.5 kHz
+  such as piano, as heard on one device. The dialog enhancer's fixed 2.5 kHz
   boost now ships off, because Windows was measured boosting voices only while
   someone speaks. `--enable dialog` turns it back on.
   ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
   why in `docs/research/adaptive-processing.md`)
-- `--enable virtual-bass`: the added bass harmonics now start sooner after each
-  note, closer to Windows, at the same level. One listener heard no difference.
-  Re-run to regenerate. (why in `docs/research/virtual-bass.md`)
+- **[AUDIBLE]** Loud held bass notes are held slightly quieter by the final
+  limiter instead of distorting. Measured on one device, not heard. Re-run to
+  regenerate.
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
+  why in `docs/research/loudness-and-limiting.md`)
+- **[AUDIBLE]** Loud bass keeps more of each note's start, closer to Windows:
+  the speaker-protection stage reacts more slowly. Held loud bass distorts less
+  with two of the three tunings measured and more with the third; one listener
+  heard no clear difference. Re-run to regenerate.
+  ([#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137);
+  why in `docs/research/loudness-and-limiting.md`)
+- **[AUDIBLE]** (opt-in) `--enable virtual-bass`: the added bass harmonics start
+  sooner after each note, closer to Windows, at the same level. One listener
+  heard no difference. Re-run to regenerate. (why in
+  `docs/research/virtual-bass.md`)
 
 ### Added
 
@@ -118,19 +126,21 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   v2026.05 on: presets, impulse files, autoload settings or filter-chain confs.
   It lists them and asks first, and moves files to the Trash when it can. (how
   in `docs/dolby-to-easyeffects.md`)
-- Laptops that ship no Dolby file but tune their speakers with the Sonitude APO
-  get experimental presets from that tuning, read from the driver download or a
-  mounted Windows: `Sonitude-Music` first, and Movie and Voice with
-  `--all-profiles`.
+- Laptops with no Dolby file whose speakers are tuned by the Sonitude APO, such
+  as HP's with Bang & Olufsen Audio Control, get experimental presets from that
+  tuning, read from the driver download or a mounted Windows: `Sonitude-Music`,
+  plus Movie and Voice with `--all-profiles`. One listener found them close to
+  Windows, with less bass.
   ([#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140);
   how to run it in `docs/sonitude.md`)
 - Drivers that keep their Dolby tuning in their `.inf`, in the older DAX2
   format, get an experimental `Dolby-Balanced` preset from it. So far that is
-  Surface drivers.
+  Surface drivers; one listener found it about on par with Windows, from
+  memory.
   ([#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148);
   details in `docs/reference.md`)
 - The PipeWire route warns when a run leaves two or more chains installed as
-  separate outputs, and `--doctor` reports it: each can cost CPU even when it
+  separate outputs, and `--doctor` reports it. Each can cost CPU even when it
   isn't selected, and enough of them at once can get PipeWire killed.
   ([#144](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/144);
   why in `docs/research/easyeffects-and-pipewire.md`)
