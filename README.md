@@ -63,8 +63,9 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    python3 dolby_to_easyeffects.py --autoload
    ```
 
-   With no Windows, download your laptop's audio driver from its maker's
-   support site, then pass that file:
+   With no Windows, download your laptop's
+   [audio driver](docs/getting-the-xml.md#from-a-vendor-driver-download) from
+   its maker's support site, then pass that file:
 
    ```bash
    python3 dolby_to_easyeffects.py ~/Downloads/your-audio-driver.exe --autoload
@@ -83,7 +84,8 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
 
 ### Without EasyEffects
 
-1. This route also needs the LSP and Calf LV2 plugins and `lv2info`:
+1. This route also needs the LSP and Calf LV2 plugins, and optionally
+   `lv2info` to check them before the run writes anything:
    [install them](docs/dolby-to-pipewire.md#plugin-dependencies-and-validation)
    first.
 
@@ -94,8 +96,9 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    python3 dolby_to_pipewire.py
    ```
 
-   With no Windows, download your laptop's audio driver from its maker's
-   support site, then pass that file:
+   With no Windows, download your laptop's
+   [audio driver](docs/getting-the-xml.md#from-a-vendor-driver-download) from
+   its maker's support site, then pass that file:
 
    ```bash
    python3 dolby_to_pipewire.py ~/Downloads/your-audio-driver.exe
@@ -215,7 +218,7 @@ Each reports what it finds and what to do about it.
 - **"No matching DAX3 tuning XML found".**
   [Get your tuning file](docs/getting-the-tuning-file.md) another way.
 - **The effect stops after you close EasyEffects or reboot.**
-  [Enable its Background Service](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing).
+  [Enable its Background Service](docs/troubleshooting.md#easyeffects-background-service).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](docs/dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
@@ -266,13 +269,12 @@ page.
 Entries tagged **[AUDIBLE]** change the *sound* of the generated preset. When
 you see one, get the
 [latest release](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/releases/latest)
-or `git pull`, and **re-run the script** with the same flags as before to
-regenerate and reload your preset, or the `dolby_to_pipewire.py` wrapper if you
-use it. The run loads it into a
-running EasyEffects when it can, and says what to pick otherwise. Other entries
-are tooling,
-packaging, docs, or new-device support that doesn't alter existing devices'
-output, so there's nothing to regenerate.
+or `git pull`, and **re-run the script you used**, `dolby_to_easyeffects.py` or
+`dolby_to_pipewire.py`, with the same flags as before, to regenerate your
+preset. The run loads it into a running EasyEffects when it can, and says what
+to pick otherwise. Other entries are tooling, packaging, docs, or new-device
+support that doesn't alter existing devices' output, so there's nothing to
+regenerate.
 
 ## Supported devices
 

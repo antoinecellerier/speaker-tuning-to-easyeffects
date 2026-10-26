@@ -18,9 +18,9 @@ which stages it built.
 
 Add `--disable NAME` to the command you ran before,
 such as `python3 dolby_to_easyeffects.py --autoload --disable volmax`, and
-repeat it as many times as needed. If you use the Flatpak EasyEffects, pick
-the preset again in its Presets menu after each rebuild: the run can't reload
-it.
+repeat it as many times as needed. To undo an `--enable NAME` you passed, leave
+that flag out instead. If you use the Flatpak EasyEffects, pick the preset again
+in its Presets menu after each rebuild: the run can't reload it.
 
 | Name | What to try if you hear... |
 |------|----------------------------|
@@ -43,7 +43,8 @@ it.
 - **`coupled-bands`.** The engaged path has been neither DAX-captured nor heard
   ([docs/reference.md](reference.md)). The per-band limiter covers these
   zones by default.
-- **`autogain`.** `--disable autogain` mirrors `--enable autogain` below.
+- **`autogain`.** Only SoundWire speakers run the volume leveler by default.
+  Elsewhere it runs only with `--enable autogain`, listed below.
 - **`high-shelf`.** The reproduction of the Dolby tuning is numerically
   verified, but not yet audibly validated. Feedback welcome.
   [docs/cross-device-findings.md](cross-device-findings.md#type-3--high-shelf-filter-experimental)

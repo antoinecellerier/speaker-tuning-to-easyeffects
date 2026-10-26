@@ -16,7 +16,7 @@ reports what it finds and what to do about it.
 - **Loud parts distort or sound crushed, the volume pumps, or highs are
   harsh.** [Rebuild the preset without the filter responsible](filters.md).
 - **The effect is gone after I close EasyEffects or reboot.**
-  [Enable its Background Service](#troubleshooting-a-preset-that-sounds-like-nothing).
+  [Enable its Background Service](#easyeffects-background-service).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
@@ -68,10 +68,11 @@ It checks the common causes and prints a pasteable report:
   headset, HDMI or Bluetooth, having `Nothing` selected is the expected
   [bypass fallback](dolby-to-easyeffects.md#autoload), not a fault. `--doctor`
   says so, and reports which preset your speakers autoload instead.
-- **EasyEffects not running in the background.** The preset only processes audio
-  while EasyEffects is active, so it can vanish after you close the window or
-  reboot. In EasyEffects → Preferences → Background Service, shown below, enable
-  *Enable service mode* and *Autostart on login*. `--doctor` reports whether
+- <a id="easyeffects-background-service"></a>**EasyEffects not running in the
+  background.** The preset only processes audio while EasyEffects is active, so
+  it can vanish after you close the window or reboot. In EasyEffects →
+  Preferences → Background Service, shown below, enable *Enable service mode*
+  and *Autostart on login*. `--doctor` reports whether
   both are set, or whether a startup file it reads, such as your compositor's
   config, launches EasyEffects instead.
 
