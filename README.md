@@ -304,6 +304,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | Lenovo Yoga 7 2-in-1 16AKP10 <!-- — --> | [#1](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/1) |
 | Lenovo Yoga 7 16IAH7 (82UF) <!-- Realtek ALC287, 17AA:386A --> | [#53](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/53) — woofers need kernel 7.2, or the `hda_model=` line the tool prints |
 | Lenovo Yoga Pro 7 14APH8 (82Y8) <!-- Realtek ALC287, 17AA:38C6 --> | [#30](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/30) |
+| Lenovo Yoga Pro 7 14ARP8 (83AU) <!-- Realtek ALC287, 17AA:38A0 --> | [#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152) |
 | Lenovo Yoga Pro 7 14ASP9 (83HN) <!-- Realtek ALC287, 17AA:3903 --> | [#51](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/51) |
 | Lenovo Yoga Pro 7 14IMH9 (83E2) <!-- Realtek ALC287, 17AA:38CF --> | [#83](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/83) |
 | Lenovo Yoga Pro 9i 14IRP8 (83BU) <!-- Realtek ALC287, 17AA:38BE --> | [#17](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/17) |

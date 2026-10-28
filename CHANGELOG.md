@@ -89,6 +89,11 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Added
+
+- Mark additional tested devices: Lenovo Yoga Pro 7 14ARP8 (83AU)
+  ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)).
+
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings
 
 The fixed voice boost ships off, for slightly less voice presence and less
