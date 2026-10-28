@@ -850,3 +850,69 @@ def test_the_lv2_marker_matches_what_the_conf_writer_emits():
                   out_l=("peq", "out_l"), out_r=("peq", "out_r"))
     text = pw_conf.format_conf([stage], [], "X", "X")
     assert install._LV2_NODE in text
+
+
+def _install_graph(levels, linked=True):
+    """A graph after install: each chain's sink at its (linear, mute), smart
+    chains attached to the speaker, linked once WirePlumber has handled them."""
+    dump = [{"id": 1, "type": "PipeWire:Interface:Node", "info": {
+        "props": {"node.name": "alsa_output.spk", "media.class": "Audio/Sink"}}}]
+    for i, (name, (linear, mute, smart)) in enumerate(levels.items()):
+        capture = {"node.name": f"effect_input.{name}",
+                   "media.class": "Audio/Sink"}
+        if smart:
+            capture.update({"filter.smart": True,
+                            "filter.smart.target": '{ node.name = "alsa_output.spk" }'})
+        out_id = 100 + i
+        dump += [
+            {"id": 200 + i, "type": "PipeWire:Interface:Node", "info": {
+                "props": capture,
+                "params": {"Props": [{"channelVolumes": [linear, linear],
+                                      "mute": mute}]}}},
+            {"id": out_id, "type": "PipeWire:Interface:Node", "info": {
+                "props": {"node.name": f"effect_output.{name}"}}}]
+        if linked:
+            dump.append({"type": "PipeWire:Interface:Link",
+                         "info": {"output-node-id": out_id, "input-node-id": 1}})
+    return dump
+
+
+def test_install_says_when_a_chain_comes_up_muted(monkeypatch, capsys):
+    """Issue #152: "Sink loaded", then silence — the new sink had come up
+    muted, which a sink takes from whatever WirePlumber restores for its
+    name. The run that installed it is the one place sure to be read, and
+    the symptom leads."""
+    monkeypatch.setattr(checks, "_pw_dump", lambda: _install_graph({
+        "Dolby_Balanced": (1.0, True, True),
+        "Dolby_Music": (1.0, False, True)}))
+    install._warn_chain_levels(["Dolby_Balanced", "Dolby_Music"], timeout=0)
+    out = " ".join(capsys.readouterr().out.split())
+    assert out.startswith("Your speakers will stay silent: "
+                          "effect_input.Dolby_Balanced")
+    assert "pactl set-sink-mute effect_input.Dolby_Balanced 0" in out
+    assert "set-sink-volume" not in out
+    assert "Dolby_Music" not in out
+
+
+def test_install_leaves_a_v1_chains_level_alone(monkeypatch, capsys):
+    """A v1 chain is the reader's own volume control: restored at 40 % is how
+    loud they had it, as --doctor treats it. Its mute is still worth saying."""
+    monkeypatch.setattr(checks, "_pw_dump", lambda: _install_graph({
+        "Quiet": (0.064, False, False), "Muted": (1.0, True, False)}))
+    install._warn_chain_levels(["Quiet", "Muted"], timeout=0)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "effect_input.Quiet" not in out
+    assert "effect_input.Muted, the output this run installed, started muted" in out
+
+
+def test_install_reads_the_level_once_wireplumber_has_linked_the_chain(
+        monkeypatch, capsys):
+    """WirePlumber's restore lands after the node is listed: a read on first
+    sight finds the sink not yet muted and says nothing. The link is the sign
+    it has handled the node, so the read waits for it."""
+    reads = iter([_install_graph({"Dolby_Balanced": (1.0, False, True)}, linked=False),
+                  _install_graph({"Dolby_Balanced": (1.0, True, True)}, linked=False),
+                  _install_graph({"Dolby_Balanced": (1.0, True, True)})])
+    monkeypatch.setattr(checks, "_pw_dump", lambda: next(reads))
+    install._warn_chain_levels(["Dolby_Balanced"], interval=0)
+    assert "started muted" in capsys.readouterr().out

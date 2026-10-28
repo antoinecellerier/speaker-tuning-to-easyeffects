@@ -91,6 +91,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Added
 
+- `--doctor` shows the output's volume and mute in both modes, and warns
+  when that output is muted. A muted PipeWire chain fails "Chain volume", and
+  the PipeWire install says when a chain comes up muted or turned down
+  ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)).
 - Mark additional tested devices: Lenovo Yoga Pro 7 14ARP8 (83AU)
   ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)).
 

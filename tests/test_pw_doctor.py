@@ -18,6 +18,7 @@ import pytest
 
 import ee_to_pipewire
 from lib import console, packages, tool_env
+from lib.hardware import sinks as hw_sinks
 from lib.pipewire import checks, conf, session
 
 
@@ -479,11 +480,16 @@ def test_default_sink_check_is_silent_without_a_daemon():
 # selected. This dev machine sits at 0.064548 — 40 %, -23.8 dB — under a chain
 # reading 100 %.
 
-def _sink_with_volume(name, linear):
+def _sink_with_volume(name, linear, mute=False):
     node = _node(name, **{"media.class": "Audio/Sink"})
-    node["info"]["params"] = {"Props": [{"channelVolumes": [linear, linear]}]}
+    node["info"]["params"] = {"Props": [{"channelVolumes": [linear, linear],
+                                         "mute": mute}]}
     return node
 
+
+def _set_level(node, linear, mute=False):
+    node["info"]["params"] = {"Props": [{"channelVolumes": [linear, linear],
+                                         "mute": mute}]}
 
 def _link(dump, src, dst):
     """A Link joining two nodes already in `dump`, by the ids they were given."""
@@ -498,22 +504,32 @@ def _with_ids(objs):
     return objs
 
 
-def test_sink_volumes_reads_channel_volumes():
-    dump = [_sink_with_volume(SPEAKER, 0.064548), _node("Firefox")]
-    assert checks.sink_volumes(dump) == {SPEAKER: 0.064548}
+def test_sink_levels_reads_channel_volumes_and_mute():
+    dump = [_sink_with_volume(SPEAKER, 0.064548, mute=True), _node("Firefox")]
+    assert hw_sinks.sink_levels(dump) == {
+        SPEAKER: hw_sinks.SinkLevel(0.064548, muted=True)}
 
 
-@pytest.mark.parametrize("linear,expected", [
-    (0.064548, "40 % (-23.8 dB)"),   # this machine, as its settings show it
-    (1.0, "100 % (0.0 dB)"),
-    (0.0, "0 % (silent)"),
+def test_sink_levels_reads_a_missing_mute_as_unmuted():
+    """An older or partial dump without the key is "not muted", the way
+    PipeWire defaults it, and never a guess that the sink is silent."""
+    node = _node(SPEAKER, **{"media.class": "Audio/Sink"})
+    node["info"]["params"] = {"Props": [{"channelVolumes": [0.5, 0.5]}]}
+    assert hw_sinks.sink_levels([node])[SPEAKER].muted is False
+
+
+@pytest.mark.parametrize("linear,muted,expected", [
+    (0.064548, False, "40 % (-23.8 dB)"),   # this machine, as its settings show it
+    (1.0, False, "100 % (0.0 dB)"),
+    (0.0, False, "0 % (silent)"),
+    (1.0, True, "muted (100 % once unmuted)"),
 ])
-def test_volume_reading_speaks_the_readers_units(linear, expected):
+def test_level_reading_speaks_the_readers_units(linear, muted, expected):
     """The percentage is what they recognise from their own settings; the dB is
     how big the problem is. PulseAudio cubes the percentage, so neither can be
-    derived from the other by eye."""
-    assert checks._volume_reading(linear) == expected
-
+    derived from the other by eye. Muted, the slider is what unmuting returns
+    to."""
+    assert hw_sinks.level_reading(hw_sinks.SinkLevel(linear, muted)) == expected
 
 def test_downstream_sink_follows_the_link_not_the_conf():
     """An unpinned v1 chain has no target.object — WirePlumber picks its
@@ -595,6 +611,114 @@ def test_chain_volume_is_silent_without_volume_data_or_daemon():
     dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced")]
     assert checks.check_chain_volume(checks.live_chains(dump), dump) is None
     assert checks.check_chain_volume([], None) is None
+
+
+def test_muted_smart_chain_fails_even_at_full_volume():
+    """Issue #152: the chain sink muted, the speakers and every control the
+    reporter was using reading unmuted. A smart chain sits in front of
+    everything played to its target, so that is silence, not a level."""
+    dump = [_sink_with_volume(SPEAKER, 1.0), *_smart_chain("Dolby_Balanced"),
+            _default_metadata(effective=SPEAKER)]
+    _set_level(dump[1], 1.0, mute=True)
+    result = checks.check_chain_volume(checks.live_chains(dump), dump)
+    assert result.status == DOCTOR_FAIL
+    assert result.label == "Chain volume"
+    assert "muted (100 % once unmuted)" in result.detail
+    commands = [text for style, text in result.steps if style == "cta"]
+    assert commands == ["  pactl set-sink-mute effect_input.Dolby_Balanced 0"]
+
+
+def test_muted_and_turned_down_chain_gets_both_commands_and_leads():
+    dump = [_speaker_sink(), *_smart_chain("A"), *_smart_chain("B")]
+    _set_level(dump[1], 0.5)                 # A: only quieter
+    _set_level(dump[3], 0.125, mute=True)    # B: silent, and quieter beneath
+    result = checks.check_chain_volume(checks.live_chains(dump), dump)
+    assert result.detail.startswith("effect_input.B is muted (50 % once unmuted)")
+    assert "1 more like it" in result.detail
+    commands = [text for style, text in result.steps if style == "cta"]
+    assert commands == ["  pactl set-sink-mute effect_input.B 0",
+                        "  pactl set-sink-volume effect_input.B 100%"]
+
+
+def test_muted_virtual_chain_selected_nowhere_is_a_warning():
+    """Nothing is played to a v1 chain nobody selected, so its mute silences
+    nothing yet — worth saying, not a failure."""
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced"),
+            _default_metadata(effective=SPEAKER)]
+    _set_level(dump[1], 1.0, mute=True)
+    result = checks.check_chain_volume(checks.live_chains(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert "anything played to it is silent" in result.detail
+
+
+def test_selected_chain_is_left_to_the_volume_row():
+    """A selected v1 chain is the reader's own volume control: below full is
+    how loud they want it, and its mute is the muted-output check's."""
+    dump = [_speaker_sink(), *_virtual_chain("Dolby_Balanced"),
+            _default_metadata(effective="effect_input.Dolby_Balanced")]
+    _set_level(dump[1], 0.125, mute=True)
+    assert checks.check_chain_volume(checks.live_chains(dump), dump) is None
+
+
+def test_selected_v1_chain_reports_a_muted_sink_below_it():
+    dump = _with_ids([*_virtual_chain("Dolby_Balanced"),
+                      _sink_with_volume(SPEAKER, 1.0, mute=True)])
+    dump.append(_link(dump, "effect_output.Dolby_Balanced", SPEAKER))
+    result = checks.check_default_sink(
+        checks.live_chains(dump), [],
+        _defaults(effective="effect_input.Dolby_Balanced"),
+        checks.sink_names(dump), dump)
+    assert result.status == DOCTOR_WARN
+    assert "is itself muted (100 % once unmuted)" in result.detail
+    assert "nothing on top of this is heard" in result.detail
+    assert "raise it" not in result.detail
+    commands = [text for style, text in result.steps if style == "cta"]
+    assert commands == [f"  pactl set-sink-mute {SPEAKER} 0"]
+
+
+def test_muted_selected_output_warns_with_a_command_that_needs_no_name():
+    """@DEFAULT_SINK@ stays runnable for a Bluetooth output, whose name the
+    report redacts and so could not print in a command."""
+    level = hw_sinks.SinkLevel(0.5, muted=True)
+    bt = "bluez_output.80_99_E7_E0_8A_23.1"
+    result = checks._check_output_muted([], _defaults(effective=bt), level)
+    assert result.status == DOCTOR_WARN
+    assert result.label == "Output volume"
+    assert "80_99" not in result.detail
+    assert "muted (79 % once unmuted)" in result.detail
+    assert ("cta", "  pactl set-sink-mute @DEFAULT_SINK@ 0") in result.steps
+    assert checks._check_output_muted(
+        [], _defaults(effective=bt), hw_sinks.SinkLevel(0.5)) is None
+    assert checks._check_output_muted([], _defaults(effective=bt), None) is None
+
+
+def test_selected_muted_smart_chain_is_named_not_left_to_default_sink():
+    """"Default output" tells the reader to select their speakers. Run after
+    that, a `set-sink-mute @DEFAULT_SINK@ 0` unmutes the speakers and leaves
+    the chain silencing them, so the fix must name the chain."""
+    dump = [_speaker_sink(), *_smart_chain("Dolby_Balanced"),
+            _default_metadata(effective="effect_input.Dolby_Balanced")]
+    _set_level(dump[1], 1.0, mute=True)
+    chains = checks.live_chains(dump)
+    result = checks.check_chain_volume(chains, dump)
+    assert result.status == DOCTOR_FAIL
+    assert ("cta", "  pactl set-sink-mute effect_input.Dolby_Balanced 0") \
+        in result.steps
+    assert checks._check_output_muted(
+        chains, _defaults(effective="effect_input.Dolby_Balanced"),
+        hw_sinks.SinkLevel(1.0, muted=True)) is None
+
+def test_pipewire_block_reads_the_output_level_under_the_sink():
+    settings = session.ClockSettings(reason="pw-metadata not found")
+    dropouts = session.Dropouts(reason="pw-top not found")
+    lines = checks._pipewire_lines(checks.DefaultSink(effective="alsa_output.spk"),
+                                   settings, dropouts, None,
+                                   volume="muted (slider at 40 %)")
+    assert lines[:2] == ["  Output sink:     alsa_output.spk",
+                         "  Volume:          muted (slider at 40 %)"]
+    unread = checks._pipewire_lines(checks.DefaultSink(effective="alsa_output.spk"),
+                                    settings, dropouts, None)
+    assert not any("Volume:" in ln for ln in unread)
 
 
 # --- Addresses stay out of a block written to be pasted ---------------------

@@ -5038,7 +5038,8 @@ def test_resolve_live_state_absent_daemon_is_not_drift(monkeypatch):
     assert s.unanswered == []
 
 
-def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=()):
+def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=(),
+             levels=()):
     monkeypatch.setattr(
         doctor_run, "_ee_query",
         lambda r: ee_socket.EEReply(
@@ -5048,7 +5049,8 @@ def _resolve(monkeypatch, rc, *, preset="", bypass="", sink="", enumerated=()):
     monkeypatch.setattr(
         sinks, "live_session",
         lambda: (pw_checks.DefaultSink(effective=sink),
-                 session.Version("0.5.15", (0, 5, 15), claim="running")))
+                 session.Version("0.5.15", (0, 5, 15), claim="running"),
+                 dict(levels)))
     # Classifying a sink reaches the graph, so stub the one pw-dump boundary:
     # unpatched these would answer from the developer machine's own audio.
     # The default empty graph classifies everything "unknown".
@@ -5065,6 +5067,92 @@ def test_resolve_live_state_prefers_live_over_the_saved_copy(monkeypatch):
     assert (s.sink, s.sink_source) == ("alsa_output.spk", "live")
     assert (s.bypass, s.bypass_is_live) == (False, True)
 
+
+
+def _gather_with_levels(tmp_path, monkeypatch, rc_text, sink, levels):
+    """The EasyEffects doctor over a stubbed graph: *sink* the default output,
+    *levels* what pw-dump reads at each sink."""
+    from lib.pipewire import checks as pw_checks
+    monkeypatch.setattr(doctor_run, "_ee_query",
+                        lambda r: ee_socket.EEReply(reached=False))
+    monkeypatch.setattr(sinks, "live_session",
+                        lambda: (pw_checks.DefaultSink(effective=sink), None,
+                                 dict(levels)))
+    monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: [])
+    rc = tmp_path / "easyeffectsrc"
+    rc.write_text(rc_text)
+    return doctor_run._gather_doctor_report(tmp_path / "out", tmp_path / "irs",
+                                            rc, custom_dirs=True,
+                                            autoload_dir=tmp_path / "al")
+
+
+def test_ee_doctor_reads_the_output_level_and_warns_when_muted(
+        tmp_path, monkeypatch):
+    report = _gather_with_levels(
+        tmp_path, monkeypatch, "[Window]\n", "alsa_output.spk",
+        {"alsa_output.spk": sinks.SinkLevel(0.064548, muted=True)})
+    assert report.facts["output_volume"] == "muted (40 % once unmuted)"
+    check = next(c for c in report.checks if c.label == "Output volume")
+    assert check.status == DOCTOR_WARN
+    assert check.detail.startswith("Your selected output is muted")
+    assert ("cta", "  pactl set-sink-mute @DEFAULT_SINK@ 0") in check.steps
+    rows = {ln.split(":")[0].strip(): ln
+            for ln in doctor_run._pipewire_lines(report.facts)}
+    assert rows["Volume"].endswith("muted (40 % once unmuted)")
+
+    quiet = _gather_with_levels(
+        tmp_path, monkeypatch, "[Window]\n", "alsa_output.spk",
+        {"alsa_output.spk": sinks.SinkLevel(0.064548)})
+    assert quiet.facts["output_volume"] == "40 % (-23.8 dB)"
+    assert not any(c.label == "Output volume" for c in quiet.checks)
+
+
+def test_ee_doctor_prints_no_command_naming_a_pinned_bluetooth_output(
+        tmp_path, monkeypatch):
+    """Pinned, the muted sink is not @DEFAULT_SINK@, and a Bluetooth name
+    carries an address the report must not print, so the fix stays prose."""
+    bt = "bluez_output.80_99_E7_E0_8A_23.1"
+    report = _gather_with_levels(
+        tmp_path, monkeypatch,
+        f"[StreamOutputs]\nuseDefaultOutputDevice=false\noutputDevice={bt}\n",
+        "alsa_output.spk", {bt: sinks.SinkLevel(1.0, muted=True)})
+    check = next(c for c in report.checks if c.label == "Output volume")
+    assert check.detail.startswith("The output EasyEffects is pinned to")
+    assert "80_99" not in check.detail
+    assert not any(style == "cta" for style, _ in check.steps)
+
+
+def test_ee_sink_mute_is_raised_only_when_easyeffects_applies_it(
+        tmp_path, monkeypatch):
+    """With "Activate monitor channel volumes" off (EE's default), muting
+    easyeffects_sink changes nothing EasyEffects captures."""
+    levels = {"alsa_output.spk": sinks.SinkLevel(1.0),
+              "easyeffects_sink": sinks.SinkLevel(1.0, muted=True)}
+    off = _gather_with_levels(tmp_path, monkeypatch, "[Window]\n",
+                              "alsa_output.spk", levels)
+    assert not any(c.label == "Output volume" for c in off.checks)
+    on = _gather_with_levels(tmp_path, monkeypatch,
+                             "[Audio]\nactivateMonitorChannelVolumes=true\n",
+                             "alsa_output.spk", levels)
+    check = next(c for c in on.checks if c.label == "Output volume")
+    assert check.detail.startswith("EasyEffects' own sink, easyeffects_sink,")
+    assert ("cta", "  pactl set-sink-mute easyeffects_sink 0") in check.steps
+
+
+def test_ee_sink_selected_and_muted_is_judged_by_the_preference_alone(
+        tmp_path, monkeypatch):
+    """EasyEffects' own sink picked as the system output, muted: with the
+    preference off that mute changes nothing heard, so no "selected output"
+    warning; with it on, one warning, not that one and its own."""
+    levels = {"easyeffects_sink": sinks.SinkLevel(1.0, muted=True)}
+    off = _gather_with_levels(tmp_path, monkeypatch, "[Window]\n",
+                              "easyeffects_sink", levels)
+    assert not any(c.label == "Output volume" for c in off.checks)
+    on = _gather_with_levels(tmp_path, monkeypatch,
+                             "[Audio]\nactivateMonitorChannelVolumes=true\n",
+                             "easyeffects_sink", levels)
+    assert [c.detail.split(",")[0] for c in on.checks
+            if c.label == "Output volume"] == ["EasyEffects' own sink"]
 
 def test_resolve_live_state_empty_answer_beats_a_saved_name(monkeypatch):
     """TRAP: an answered request wins even when the preset name is empty —
@@ -5634,7 +5722,8 @@ def test_the_wireplumber_row_prefers_the_daemon_the_graph_names(monkeypatch):
     running = session.Version("0.5.15", (0, 5, 15), claim="running")
     monkeypatch.setattr(
         sinks, "live_session",
-        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), running))
+        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), running,
+                 {}))
     monkeypatch.setattr(sinks, "_enumerate_audio_sinks", lambda: [])
     monkeypatch.setattr(doctor_run, "_ee_query",
                         lambda r: ee_socket.EEReply(reached=False))
@@ -5644,7 +5733,8 @@ def test_the_wireplumber_row_prefers_the_daemon_the_graph_names(monkeypatch):
     # the tag says which fact it is.
     monkeypatch.setattr(
         sinks, "live_session",
-        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), None))
+        lambda: (pw_checks.DefaultSink(effective="alsa_output.spk"), None,
+                 {}))
     assert doctor_run._resolve_live_state({}).wireplumber is None
 
 

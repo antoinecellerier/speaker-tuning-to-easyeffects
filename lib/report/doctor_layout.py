@@ -173,6 +173,18 @@ def output_sink_rows(label: str, node: str, suffix: str, gutter: int,
         + [" " * gutter + node + suffix]
 
 
+
+def volume_rows(reading: str, gutter: int) -> list[str]:
+    """`Volume:`: the output sink's slider and mute, under `Output sink:`.
+
+    A reading, not a judgement: below full is how loud someone wants it, and
+    the checks raise only what they can act on. It is printed anyway because
+    "no sound" and "too quiet" reports are triaged on it: issue #152's
+    reporter found the muted sink behind theirs by hand.
+    *reading* is "" when the sink wasn't read, and then there is no row: the
+    `Output sink:` row above already says why."""
+    return [row("Volume", reading, gutter)] if reading else []
+
 def clock_rows(settings: session.ClockSettings, d: session.Dropouts | None,
                gutter: int) -> list[str]:
     """`Clock:` — the session's clock settings, then on a second line the

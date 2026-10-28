@@ -61,7 +61,25 @@ _EXPECTED = {
     "session-launched": ("speaker", True, DOCTOR_PASS),
     "service-mode-untraced": ("speaker", True, DOCTOR_PASS),
     "compositor-toggle-only": ("speaker", True, DOCTOR_PASS),
+    # The healthy baseline with the speakers muted: what it varies is the
+    # level the graph reads, and the check it reaches is "Output volume".
+    "output-muted": ("speaker", True, DOCTOR_PASS),
 }
+
+
+def test_the_muted_output_scenario_renders_the_warn(capsys, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "80")
+    preview_doctor.render("output-muted")
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "Output volume" in ln)
+    assert tag(DOCTOR_WARN) in line, line
+    assert "  Volume:          muted (40 % once unmuted)" in out.splitlines()
+    # The closing bullet would repeat the finding as a chore.
+    assert "Confirm the volume is up" not in out
+    preview_doctor.render("output-speakers")
+    out = capsys.readouterr().out
+    assert "Output volume" not in out
+    assert "Confirm the volume is up" in out
 
 
 def test_the_stale_version_scenario_renders_the_warn(capsys, monkeypatch):
@@ -303,6 +321,7 @@ _PW_EXPECTED = {
     "pw-several-virtual-sinks": ("Several chains as separate outputs", DOCTOR_WARN),
     "pw-several-unpinned": ("Several chains as separate outputs", DOCTOR_WARN),
     "pw-chain-selected": ("Default output", DOCTOR_WARN),
+    "pw-chain-muted": ("Chain volume", DOCTOR_FAIL),
 }
 
 

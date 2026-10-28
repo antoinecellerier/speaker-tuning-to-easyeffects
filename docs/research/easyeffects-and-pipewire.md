@@ -168,6 +168,72 @@ Shipped from this:
 - a ` (speaker filter)` description suffix in smart-filter mode
 - the install-time copy in both modes
 
+### The chain's own mute (issue #152)
+
+A chain sink can come up muted, and a muted smart chain silences the speakers
+while their own control reads unmuted. Issue #152's reporter hit it on a Yoga
+Pro 7 14ARP8 under Plasma. The install run printed no fault, and the reporter
+found "Dolby-Balanced (speaker filter) [muted]" in Plasma's sound settings by
+hand. That is n=1, and the report does not say how the mute got there.
+
+WirePlumber applies no default mute, so it came from one of two places. Read
+from WirePlumber 0.5.18's `node/state-stream.lua`:
+
+- That script restores `mute`, `volume` and `channelVolumes` onto every new
+  `Audio/*` node with no `device.routes`, which includes a filter-chain sink.
+  It keys them on the first of `application.id`, `application.name`,
+  `media.name` and `node.name` that is set. A chain sets `media.name` to its
+  description, so the key is `Audio/Sink:media.name:<description>`. This
+  machine's `stream-properties` holds entries of that shape.
+- Its fallback for a node with nothing stored, `buildDefaultChannelVolumes`,
+  sets only a volume. So a mute at creation is a stored one, from an earlier
+  sink with the same description, or one set after the node appeared.
+
+Reproduced on the dev device on 2026-10-28 (ALC287 `17AA:22E6`, WirePlumber
+0.5.18, default smart-filter install):
+
+| step | result | n |
+|---|---|---|
+| mute the chain, then uninstall: `stream-properties` entry | `"mute":true` kept | 1 |
+| reinstall under the same description | chain sink came up muted | 2 |
+| unmute, then restart PipeWire | chain stays unmuted | 1 |
+| 440 Hz tone into the chain, speaker monitor peak, muted / unmuted | 0.0 / 0.174 | 2 each |
+| restored mute appears after the node is listed | 0.34–1.06 s | 9 |
+| WirePlumber links the chain's output after the mute lands | 0.48–0.58 s | 5 |
+
+So a muted chain is digital silence on the speaker path, and the mute outlives
+the conf the same way the level does. Reinstalling is not a reset for either.
+The last two rows are why the install reads the level only once WirePlumber has
+linked the chain: read on first sight, it finds the sink not yet muted.
+
+Shipped from this:
+
+- `--doctor` "Chain volume" reads the mute as well as the level. A muted smart
+  chain is a FAIL, and any other muted or turned-down chain is a WARN. A
+  selected v1 chain is the reader's own volume control, so it is left to the
+  next item.
+- Both doctors print a `Volume:` row under `Output sink:`, and an "Output
+  volume" WARN when that output is muted.
+- The install run warns when a chain it just loaded is muted, or is a smart
+  chain turned down.
+
+Open:
+
+- An install run straight after `--uninstall` found no speaker sink: only
+  `auto_null` was in the graph, about 600 ms after the uninstall's PipeWire
+  restart. It fell back to a v1 virtual-sink conf, as its own message said.
+  n=1, on the run above.
+- Setting `state.restore-props = false` on a smart chain's capture node would
+  skip both the restore and the save. A smart chain would then start unmuted
+  at full on every PipeWire start, at the cost of a level someone set on
+  purpose. That changes the emitted conf, so it needs measuring before it is
+  adopted.
+
+Rejected: unmuting a chain the install finds muted. The run that created the
+chain could clear the restored mute itself. Declined, because the tool does not
+change the user's audio state on their behalf: it reports the mute and prints
+the command.
+
 ### Open: does a hand-picked chain suppress Bluetooth auto-switching?
 
 The arithmetic predicts a problem. `find-selected-default-node.lua` scores the

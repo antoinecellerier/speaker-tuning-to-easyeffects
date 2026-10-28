@@ -46,7 +46,6 @@ lines, and a move commit may not re-point what it carries.
 from __future__ import annotations
 
 import json
-import math
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -465,36 +464,6 @@ def default_sinks(dump) -> DefaultSink:
     return found
 
 
-def sink_volumes(dump) -> dict[str, float]:
-    """node.name → the linear volume PipeWire is applying, per Audio/Sink.
-
-    Linear amplitude, not the percentage sound settings show: PulseAudio maps
-    its 0-100 % through a cube, so 40 % is 0.064 and −23.9 dB. Both renderings
-    matter: the percentage is what the reader recognises from their own
-    settings, and the dB is the size of the problem. So this returns the raw
-    value and ``_volume_reading`` formats it.
-    """
-    vols = {}
-    for obj in dump or []:
-        info = obj.get("info") or {}
-        if (info.get("props") or {}).get("media.class") != "Audio/Sink":
-            continue
-        name = (info.get("props") or {}).get("node.name")
-        for param in (info.get("params") or {}).get("Props", []) or []:
-            channels = param.get("channelVolumes")
-            if name and channels:
-                vols[name] = max(float(v) for v in channels)
-    return vols
-
-
-def _volume_reading(linear: float) -> str:
-    """"40 % (-23.8 dB)" — the way the reader's own settings would show it."""
-    percent = round(100 * (linear ** (1 / 3)))
-    if linear <= 0:
-        return "0 % (silent)"
-    return f"{percent} % ({20 * math.log10(linear):.1f} dB)"
-
-
 def downstream_sink(dump, chain_name: str) -> str:
     """The sink a chain's playback is actually linked into, or "".
 
@@ -796,16 +765,8 @@ def check_targets_exist(chains, sinks, dump) -> CheckResult | None:
 
 
 def _runnable(name: str) -> bool:
-    """Whether a sink name may be printed inside a command.
-
-    A Bluetooth name carries the device's address, and `doctor.no_bt_address`
-    takes it out of everything this report prints. But a redacted name is not
-    something a shell can run, and printing the real one in a step would put
-    the address back into the same pasted block the redaction just cleaned.
-    So a check that would name such a sink in a command drops the command and
-    keeps its prose route instead (issue #63 follow-up).
-    """
-    return name == doctor.no_bt_address(name)
+    """`doctor.runnable`: the one rule both doctors print commands by."""
+    return doctor.runnable(name)
 
 
 def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | None:
@@ -838,7 +799,7 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
         return None
     chain_sinks = {f"effect_input.{c.name}": c for c in chains}
     picked = chain_sinks.get(defaults.effective)
-    volumes = sink_volumes(dump)
+    levels = hw_sinks.sink_levels(dump)
 
     # The downstream level is the half of this the reader cannot see: their
     # slider is on the chain, and whatever the sink underneath is set to comes
@@ -846,12 +807,16 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
     # 100 %" is advice, "it is at 40 %, which is -23.8 dB" is a diagnosis.
     def _hidden_attenuation(chain) -> str:
         below = chain.target or chain.pinned or downstream_sink(dump, chain.name)
-        level = volumes.get(below)
-        if not below or level is None or level > 0.99:
+        level = levels.get(below)
+        if not below or level is None or not level.attenuates:
             return ""
-        return (f" The sink it feeds is itself at {_volume_reading(level)}, and "
-                "that comes off everything on top of this — raise it there, or "
-                "you are turning one control down against the other.")
+        if level.muted:
+            return (f" The sink it feeds is itself {hw_sinks.level_reading(level)}, "
+                    "so nothing on top of this is heard — unmute it there.")
+        return (f" The sink it feeds is itself {hw_sinks.level_phrase(level)}, "
+                "and that comes off everything on top of this — raise it "
+                "there, or you are turning one control down against the "
+                "other.")
 
     if picked is not None and picked.smart:
         # The target sink is named by the step below, unwrapped, and by the
@@ -905,12 +870,16 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
         if hidden:
             below = (picked.target or picked.pinned
                      or downstream_sink(dump, picked.name))
-            steps = (("dim", "Put that one back to full and use this chain's "
-                             "own control for volume:"),
-                     ("cta", f"  pactl set-sink-volume {below} 100%")
+            restore = {(True, False): "Unmute that one",
+                       (True, True): "Unmute that one, put it back to full,",
+                       }.get((levels[below].muted, levels[below].turned_down),
+                             "Put that one back to full")
+            steps = (("dim", f"{restore} and use this chain's own control for "
+                             "volume:"),
+                     *hw_sinks.fix_commands(below, levels[below])
                      ) if _runnable(below) else (
-                ("dim", "Put that one back to full in sound settings, and use "
-                        "this chain's own control for volume."),)
+                ("dim", f"{restore} and use this chain's own control for "
+                        "volume, all in sound settings."),)
             return CheckResult(
                 DOCTOR_WARN, "Default output",
                 f"{doctor.no_bt_address(defaults.effective)} is your selected output, which is how "
@@ -999,14 +968,24 @@ def check_default_sink(chains, confs, defaults, sinks, dump) -> CheckResult | No
 
 
 def check_chain_volume(chains, dump) -> CheckResult | None:
-    """A chain sink left turned down — the attenuation nothing points at.
+    """A chain sink left muted or turned down — the attenuation nothing points at.
 
-    A filter-chain sink carries its own volume, and it applies whether or not
-    the chain is the selected output: measured with the speaker selected and
-    the chain at 0.125, the output came back 7.9x down. In smart-filter mode
-    nothing ever puts a reader on that slider: their sound settings move the
-    speaker's. So a chain turned down once, by someone who selected it and
-    then switched back, stays down through reboots with no visible cause.
+    A filter-chain sink carries its own volume and mute, and they apply
+    whether or not the chain is the selected output: measured with the
+    speaker selected and the chain at 0.125, the output came back 7.9x down.
+    In smart-filter mode nothing ever puts a reader on that control: their
+    sound settings and volume keys move the speaker's. So a chain turned down
+    once, by someone who selected it and then switched back, stays down
+    through reboots with no visible cause. Issue #152 is the muted form: the
+    speakers silent, every control the reporter was using reading unmuted.
+
+    A muted smart chain is a FAIL: it silences everything played to the sink
+    it attaches to. Anything else here is a WARN. A selected v1 chain is left
+    to the `=== PipeWire ===` volume row and `_check_output_muted`: it is the
+    control the reader is already on, and a level below full is just how loud
+    they want it. A selected smart chain is not: "Default output" tells the
+    reader to select their speakers instead, after which a fix aimed at the
+    selected output would land on the speakers and leave the chain muted.
 
     Ahead of the graph, too, so it is not only quieter: the tuning's
     compressor and limiter see the attenuated signal
@@ -1014,26 +993,62 @@ def check_chain_volume(chains, dump) -> CheckResult | None:
     """
     if dump is None or not chains:
         return None
-    volumes = sink_volumes(dump)
-    turned_down = sorted(
-        (f"effect_input.{c.name}", volumes[f"effect_input.{c.name}"])
-        for c in chains
-        if volumes.get(f"effect_input.{c.name}", 1.0) <= 0.99)
-    if not turned_down:
+    levels = hw_sinks.sink_levels(dump)
+    selected = default_sinks(dump).effective
+    found = []
+    for c in chains:
+        name = f"effect_input.{c.name}"
+        level = levels.get(name)
+        if (level is not None and level.attenuates
+                and (c.smart or name != selected)):
+            found.append((name, level, c))
+    if not found:
         return None
-    name, level = turned_down[0]
-    more = (f" ({len(turned_down) - 1} more like it.)"
-            if len(turned_down) > 1 else "")
+    # The worst first: a muted chain above a quiet one, then by name.
+    found.sort(key=lambda f: (not f[1].muted, f[0]))
+    name, level, chain = found[0]
+    more = (f" ({len(found) - 1} more like it.)" if len(found) > 1 else "")
+    if level.muted:
+        # The symptom leads: a reader runs this because they hear nothing,
+        # and the mechanism is only worth reading once that is named
+        # (/user-review 2026-10-28).
+        heard = ("nothing played to the sink it attaches to is heard, even "
+                 "with that sink's own control unmuted" if chain.smart
+                 else "anything played to it is silent")
+        return CheckResult(
+            DOCTOR_FAIL if chain.smart else DOCTOR_WARN, "Chain volume",
+            f"{name} is {hw_sinks.level_reading(level)}, so {heard}. This "
+            f"mute belongs to the chain, and your volume keys don't reach "
+            f"it.{more}",
+            (("dim", "Unmute it and put it back to full:" if level.turned_down
+                     else "Unmute it:"), *hw_sinks.fix_commands(name, level)))
     return CheckResult(
         DOCTOR_WARN, "Chain volume",
-        f"{name} is itself at {_volume_reading(level)}. That is the chain's own "
-        "volume, and it comes off everything the chain processes — including "
-        "when your speakers are the selected output and their slider is the one "
-        f"you are moving.{more} Nothing in sound settings will show you this "
+        f"{name} is itself {hw_sinks.level_phrase(level)}. That is the chain's "
+        "own volume, and it comes off everything the chain processes — "
+        "including when your speakers are the selected output and their slider "
+        f"is the one you are moving.{more} Your volume keys don't reach this "
         "one; put it back to full unless you meant it.",
-        (("dim", "Put it back to full:"),
-         ("cta", f"  pactl set-sink-volume {name} 100%")))
+        (("dim", "Put it back to full:"), *hw_sinks.fix_commands(name, level)))
 
+
+
+def _check_output_muted(chains, defaults: DefaultSink,
+                        level: hw_sinks.SinkLevel | None) -> CheckResult | None:
+    """The selected output muted: `doctor.muted_output_check` for this path.
+
+    The command names no sink: ``@DEFAULT_SINK@`` is the one this reads, and
+    it stays runnable for a Bluetooth output whose name the report redacts.
+    A selected smart chain is left to "Chain volume", which names it: the
+    "Default output" fix moves the selection to the speakers, and
+    ``@DEFAULT_SINK@`` would then unmute them instead."""
+    if level is None or not level.muted:
+        return None
+    if any(c.smart and defaults.effective == f"effect_input.{c.name}"
+           for c in chains):
+        return None
+    return doctor.muted_output_check(
+        "Your selected output", hw_sinks.level_reading(level), "@DEFAULT_SINK@")
 
 def check_conf_directory() -> CheckResult | None:
     """Confs in filter-chain.conf.d/, which the running daemon never reads."""
@@ -1326,6 +1341,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     chains = live_chains(dump)
     sinks = sink_names(dump)
     defaults = default_sinks(dump)
+    default_level = hw_sinks.sink_levels(dump).get(defaults.effective)
     # Only the directory the daemon reads. A conf in _UNSCANNED_CONF_DIR is
     # not installed in any meaningful sense. Counting it would inflate
     # "Confs: N" and, because it shares a node name with the real one, let
@@ -1369,6 +1385,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # with, and a turned-down chain is the one that survives getting that
         # answer right.
         check_chain_volume(chains, dump),
+        _check_output_muted(chains, defaults, default_level),
         check_conf_directory(),
         check_wireplumber(wireplumber),
         check_easyeffects_conflict(sinks, chains, dump),
@@ -1409,6 +1426,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # checks never describe two different graphs.
         "default_label": hw_sinks.sink_label(hw_sinks.sinks_from_dump(dump),
                                              defaults.effective),
+        "default_level": default_level,
         "wireplumber_version": wireplumber,
         "pipewire_version": pipewire,
         "version": running,
@@ -1515,7 +1533,8 @@ def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
                     dropouts: session.Dropouts, pw_age: float | None,
                     label: str = "",
                     pipewire: session.Version | None = None,
-                    wireplumber: session.Version | None = None) -> list[str]:
+                    wireplumber: session.Version | None = None,
+                    volume: str = "") -> list[str]:
     """The `=== PipeWire ===` body for this path.
 
     The versions, the default sink, the clock and the dropouts, rendered by
@@ -1527,6 +1546,7 @@ def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
     lines += layout.output_sink_rows(
         label, doctor.no_bt_address(default.effective), "", layout.GUTTER,
         reason=default.reason)
+    lines += layout.volume_rows(volume, layout.GUTTER)
     lines += layout.clock_rows(settings, dropouts, layout.GUTTER)
     lines += layout.dropouts_rows(dropouts, pw_age, None, layout.GUTTER,
                                   app="the filter chain",
@@ -1556,7 +1576,9 @@ def report_pw_doctor() -> int:
         _pipewire_lines(default, *_probe_pipewire(chains, default),
                         label=facts.get("default_label", ""),
                         pipewire=facts.get("pipewire_version"),
-                        wireplumber=facts.get("wireplumber_version")),
+                        wireplumber=facts.get("wireplumber_version"),
+                        volume=(hw_sinks.level_reading(facts["default_level"])
+                                if facts.get("default_level") else "")),
         "=== PipeWire ===")
     layout.print_environment(_environment_lines(confs, chains, facts),
                              "=== PipeWire filter-chain setup ===")

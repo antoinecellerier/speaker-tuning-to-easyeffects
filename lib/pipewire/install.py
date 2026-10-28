@@ -263,9 +263,10 @@ V1_SECOND_VOLUME_HINT = ("it has a volume control of its own, on top of your "
 
 
 def speaker_attenuation() -> str:
-    """Return a reading of the speakers' level when turned down, else "".
+    """Return a reading of the speakers' level when muted or turned down, else "".
 
-    The reading is "your speakers are at 40 % (-23.8 dB) right now".
+    The reading is "your speakers are at 40 % (-23.8 dB) right now", or
+    "… are muted (40 % once unmuted) right now".
 
     Telling someone to leave their speakers at 100 % is advice; telling them
     what those speakers are set to right now is a reading, and it is the half
@@ -276,10 +277,10 @@ def speaker_attenuation() -> str:
     name, _ = _autodetect_speaker_sink()
     if not name:
         return ""
-    level = checks.sink_volumes(checks._pw_dump()).get(name)
-    if level is None or level > 0.99:
+    level = sinks.sink_levels(checks._pw_dump()).get(name)
+    if level is None or not level.attenuates:
         return ""
-    return f"your speakers are at {checks._volume_reading(level)} right now"
+    return f"your speakers are {sinks.level_phrase(level)} right now"
 
 
 def _print_undo(written: list[Path], style: str = "dim") -> None:
@@ -507,8 +508,69 @@ def _activate(node_names: list[str], selectable: bool, confs=()) -> int:
     rc = _verify_sinks(node_names, uses_lv2=_confs_use_lv2(confs))
     if rc == 0:
         _print_selection_step(node_names, selectable)
+        # After, not between: the selection step's first line hangs off
+        # "Sink loaded", and a warning in between read as part of it
+        # (/user-review 2026-10-28).
+        _warn_chain_levels(node_names)
     return rc
 
+
+def _warn_chain_levels(node_names: list[str], timeout: float = 5.0,
+                       interval: float = 0.25) -> None:
+    """Say so when a chain sink that just loaded is muted or turned down.
+
+    "Sink loaded" is otherwise the last word on a chain that can be silent:
+    a new sink's mute and volume are whatever WirePlumber restores for its
+    description, and in issue #152 the chain came up muted with every control
+    the reporter was using reading unmuted. The scope is --doctor's "Chain
+    volume" check's: a smart chain muted or turned down, a v1 chain only
+    muted, because a v1 chain's level is the reader's own volume control.
+
+    The read waits for WirePlumber to link each chain's output, because its
+    restore lands after the node is listed, not with it. Measured on the dev
+    device after a restart: the restored mute appeared 0.34-1.06 s after
+    the node did (n=9), and the link 0.48-0.58 s after the mute, with the
+    mute already in place at every link (n=5). So a fixed wait would be a
+    guess, and the link says WirePlumber has handled the node.
+    (`r-chain-as-system-output`.) Past *timeout* it reads what is there.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        dump = checks._pw_dump()
+        if (all(checks.downstream_sink(dump, n) for n in node_names)
+                or time.monotonic() >= deadline):
+            break
+        time.sleep(interval)
+    levels = sinks.sink_levels(dump)
+    smart = {c.name for c in checks.live_chains(dump) if c.smart}
+    for node_name in node_names:
+        name = f"effect_input.{node_name}"
+        level = levels.get(name)
+        if level is None or not (level.muted or (level.turned_down
+                                                 and node_name in smart)):
+            continue
+        # The symptom leads: a reader who hears nothing is reading for why
+        # (/user-review 2026-10-28).
+        if level.muted and node_name in smart:
+            text = (f"Your speakers will stay silent: {name}, the filter this "
+                    "run put in front of them, started muted. Its mute is "
+                    "separate from your speakers', so your volume keys don't "
+                    "reach it.")
+        elif level.muted:
+            text = (f"{name}, the output this run installed, started muted, "
+                    "so anything played to it is silent.")
+        else:
+            text = (f"Everything you play will be quieter: {name}, the filter "
+                    "this run put in front of your speakers, started at "
+                    f"{sinks.level_reading(level)}. Its volume is separate "
+                    "from your speakers', so your volume keys don't reach it.")
+        console._cprint_wrapped("warn", text)
+        console.cprint("dim", "Unmute it and put it back to full:"
+                       if level.muted and level.turned_down
+                       else "Unmute it:" if level.muted
+                       else "Put it back to full:")
+        for style, step in sinks.fix_commands(name, level):
+            console.cprint(style, step)
 
 def _print_selection_step(node_names: list[str], selectable: bool) -> None:
     """Say what still has to happen for the chain to be in the audio path.

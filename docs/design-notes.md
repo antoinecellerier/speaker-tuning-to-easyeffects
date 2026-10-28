@@ -375,6 +375,7 @@ re-proposed:
 | #140 | an HP laptop with no Dolby file; its Sonitude APO preset, read as cuts only, scored against the reporter's Windows captures and an OMEN's published response; its three modes built as profiles; volume and dynamics captures | [vendor-apo/sonitude.md#r-sonitude-apo-presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets) |
 | #144 | several virtual-sink chains at once: per-chain CPU cost, PipeWire killed by `RLIMIT_RTTIME`; WirePlumber < 0.5.18 ranking the fallback by `priority.session` | [easyeffects-and-pipewire.md#r-virtual-sink-chain-cpu](research/easyeffects-and-pipewire.md#r-virtual-sink-chain-cpu) |
 | #148 | a Surface Laptop 3 with no DAX3 XML; the Dolby DAX2 preset its Realtek `.inf` writes, its numbered values named by shape and by a DAX3 preset in the same registry form; the 18 Surface codec IDs that bind one; one listener's by-ear report | [vendor-apo/dolby-dax2.md#r-dolby-registry-preset](research/vendor-apo/dolby-dax2.md#r-dolby-registry-preset) |
+| #152 | a chain sink that came up muted after install, silencing the speakers while their control read unmuted; WirePlumber's per-description restore | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
 
 ### Moved sections
 

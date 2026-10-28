@@ -177,6 +177,12 @@ class LiveState:
     # WirePlumber's version as the graph reports it, off the same pw-dump the
     # sink came from; None when it wasn't there to read.
     wireplumber: "session.Version | None" = None
+    # `sink`'s slider and mute, off that same dump. None for a `saved` sink
+    # (EasyEffects' cache of an old default) and for one not in the graph.
+    sink_level: "sinks.SinkLevel | None" = None
+    # EasyEffects' own sink's, which apply only with its monitor channel
+    # volumes on (rc `monitor_channel_volumes`).
+    ee_sink_level: "sinks.SinkLevel | None" = None
 
     @property
     def system_output_is_speaker(self) -> bool:
@@ -190,6 +196,11 @@ class LiveState:
         it would drop the line exactly there.
         """
         return self.sink_kind == "speaker" and self.sink_source == "live"
+
+
+# The node.name EasyEffects gives the sink it captures from
+# (`tags::pipewire::ee_sink_name` in its source).
+EE_SINK = "easyeffects_sink"
 
 
 def _resolve_live_state(rc: dict) -> LiveState:
@@ -207,10 +218,11 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if reply.reached:
             state.unanswered.append("loaded preset")
 
-    # One pw-dump answers two rows of the report: which sink PipeWire is
-    # sending to, and which WirePlumber is running. So it is read even for a
-    # pinned output, whose sink comes from the rc.
-    d, state.wireplumber = sinks.live_session()
+    # One pw-dump answers three rows of the report: which sink PipeWire is
+    # sending to, its level, and which WirePlumber is running. So it is read
+    # even for a pinned output, whose sink comes from the rc.
+    d, state.wireplumber, levels = sinks.live_session()
+    state.ee_sink_level = levels.get(EE_SINK)
     # useDefaultOutputDevice defaults ON, in which case EE just follows the
     # system default sink and the rc holds a stale copy of it. Pinned is the
     # opposite: only the GUI writes that key, so the rc is then the truth and
@@ -237,6 +249,9 @@ def _resolve_live_state(rc: dict) -> LiveState:
         if state.sink:
             state.sink_kind, state.sink_label = \
                 sinks.sink_kind_and_label(state.sink)
+
+    if state.sink_source in ("live", "pinned"):
+        state.sink_level = levels.get(state.sink)
 
     # The daemon answers exactly 1 (on) or 2 (off). Parsing strictly means a
     # changed reply format degrades to the config copy instead of being read
@@ -757,6 +772,32 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
     # the rc copy predates any GUI toggle since EE last saved.
     if live.bypass_is_live and live.bypass:
         report.checks.append(environment.global_bypass_status())
+    # A muted output is the first thing to rule out behind "no sound", and
+    # the one reading here that has a fix. The level alone is the Volume row's.
+    # EasyEffects' own sink selected as the output is the next check's: its
+    # mute reaches the audio only with the preference that check reads.
+    output_muted = (live.sink_level is not None and live.sink_level.muted
+                    and live.sink != EE_SINK)
+    if output_muted:
+        live_default = live.sink_source == "live"
+        report.checks.append(doctor.muted_output_check(
+            "Your selected output" if live_default
+            else "The output EasyEffects is pinned to",
+            sinks.level_reading(live.sink_level),
+            "@DEFAULT_SINK@" if live_default
+            else live.sink if doctor.runnable(live.sink) else ""))
+    # EasyEffects' own sink mutes what it processes only with its monitor
+    # channel volumes on: off (the default), it creates the sink with
+    # monitor.channel-volumes=false and captures the monitor ahead of the
+    # sink's own mute (pw_node_manager.cpp in its source). So a muted one is
+    # raised only with the preference on.
+    if (rc.get("monitor_channel_volumes") and live.ee_sink_level is not None
+            and live.ee_sink_level.muted):
+        report.checks.append(doctor.muted_output_check(
+            f"EasyEffects' own sink, {EE_SINK},",
+            sinks.level_reading(live.ee_sink_level), EE_SINK,
+            "Its \"Activate monitor channel volumes\" preference is on, so "
+            "that mute applies to everything EasyEffects processes."))
     # A listening daemon that ignored our request means its protocol moved,
     # not that it is absent. It is surfaced so the fallback below can't
     # quietly become permanent.
@@ -877,6 +918,9 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "output_device_source": live.sink_source,
         "output_is_speaker": live.system_output_is_speaker,
         "output_label": live.sink_label,
+        "output_volume": (sinks.level_reading(live.sink_level)
+                          if live.sink_level is not None else ""),
+        "output_muted": output_muted,
         "output_plugins": rc.get("output_plugins", []),
         "bypass": live.bypass,
         "bypass_is_live": live.bypass_is_live,
@@ -984,6 +1028,7 @@ def _pipewire_lines(f: dict) -> list[str]:
         lines += layout.output_sink_rows(
             f.get("output_label", ""), doctor.no_bt_address(f["output_device"]),
             source, layout.GUTTER)
+        lines += layout.volume_rows(f.get("output_volume", ""), layout.GUTTER)
     elif f.get("output_device_source") == "pinned":
         # A parsed rc that pins no device is a "none", not a failed probe:
         # nothing here went unread, and "not read" would send a triager
@@ -1204,10 +1249,17 @@ def _print_doctor_report(report: environment.DoctorReport) -> None:
     # when that is one of the machine's own speakers there is nothing left for
     # the reader to confirm. The volume half always stays: no level we read
     # tells us what the reader can hear.
-    closing.append(
-        ("dim", "  • Confirm the volume is up.")
-        if report.facts.get("output_is_speaker")
-        else ("dim", "  • Confirm system output is the speaker sink and volume is up."))
+    # Unless the "Output volume" check already said the output is muted: then
+    # the bullet repeats a finding as a chore (/user-review 2026-10-28).
+    muted = report.facts.get("output_muted")
+    if not (muted and report.facts.get("output_is_speaker")):
+        closing.append(
+            ("dim", "  • Confirm the volume is up.")
+            if report.facts.get("output_is_speaker")
+            else ("dim", "  • Confirm system output is the speaker sink.")
+            if muted
+            else ("dim", "  • Confirm system output is the speaker sink and "
+                         "volume is up."))
     layout.print_closing(tuple(closing))
 
 

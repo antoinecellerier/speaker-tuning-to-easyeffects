@@ -244,7 +244,7 @@ The part that outlives the mistake is WirePlumber's memory of it.
 block's `Remembered:` line names a remembered pick the graph lacks. Nothing else
 can show it.
 
-### A chain can still be turned down
+### A chain can still be turned down or muted
 
 Smart-filter routing removes the *reason* to touch the chain's volume, not the
 control. The chain sink keeps one, and it still applies. Measured with the
@@ -258,12 +258,19 @@ sequence issue #63 describes: select the chain, turn it down, switch back to the
 speaker. The level stays, survives reboots, and has no visible cause.
 `--doctor`'s "Chain volume" check reports it.
 
-Deleting the conf does not clear it either. WirePlumber persists a sink's volume
-by `media.name` in `~/.local/state/wireplumber/stream-properties`. It restores
-that volume onto any later node with that name. So a chain reinstalled under the
-same description comes back at the level it was left. Observed: a freshly
-written conf read 50 % before anything had touched it. As with the selected
-output above, reinstalling is not a reset.
+The chain's mute is a second control of the same kind. Issue #152's chain came
+up muted after install, so the speakers stayed silent while their own control
+read unmuted. A muted smart chain fails the "Chain volume" check. The install
+run warns when a chain it just loaded is muted or turned down. Both print the
+`pactl` command that restores it.
+
+Deleting the conf does not clear either control. WirePlumber persists a sink's
+volume and mute by `media.name` in
+`~/.local/state/wireplumber/stream-properties`. It restores them onto any later
+node with that name. So a chain reinstalled under the same description comes
+back at the level and mute it was left at. Observed: a freshly written conf read
+50 % before anything had touched it, and a chain muted before an uninstall came
+back muted. As with the selected output above, reinstalling is not a reset.
 
 ### What a v1 install can and cannot get back
 

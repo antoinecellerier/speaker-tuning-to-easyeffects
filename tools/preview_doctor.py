@@ -103,6 +103,12 @@ SCENARIOS: dict[str, dict] = {
                "preset loaded — the healthy baseline",
         "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
         "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced"},
+    "output-muted": {
+        "why": "playing through the laptop's own speakers with a generated "
+               "preset loaded, but the speakers are muted",
+        "sinks": [_SPEAKER, _HEADSET], "default": _SPEAKER["name"],
+        "autoload": _SPEAKER_AUTOLOAD, "preset": "Dolby-Balanced",
+        "level": (0.064548, True)},
     "bypass-on-speakers": {
         "why": "playing through the laptop's own speakers with the silent "
                "bypass preset loaded — the fault the check exists for",
@@ -228,13 +234,15 @@ def _scenario(slug: str):
     # The fixed-level check reads PipeWire's soft-mixer flag before warning;
     # a capture machine with it set would render no WARN.
     sinks.soft_mixer_in_use = lambda: False
-    # (default sink, running WirePlumber) — the version rides the same probe,
-    # so a scenario with no daemon shows both in their unread forms.
+    # (default sink, running WirePlumber, sink levels) — the version and
+    # levels ride the same probe, so a scenario with no daemon shows all of
+    # them in their unread forms.
     sinks.live_session = lambda: (
-        (checks.DefaultSink(reason=checks.NO_DUMP_REASON), None)
+        (checks.DefaultSink(reason=checks.NO_DUMP_REASON), None, {})
         if spec.get("no_pipewire")
         else (checks.DefaultSink(effective=spec["default"]),
-              session.Version("0.5.15", (0, 5, 15), claim="running")))
+              session.Version("0.5.15", (0, 5, 15), claim="running"),
+              {spec["default"]: sinks.SinkLevel(*spec.get("level", (1.0,)))}))
     # A daemon that isn't answering must not answer anything: the clock, the
     # dropout window, the uptimes and the daemon version all show their
     # unread forms, which is the whole point of that scenario.
@@ -405,6 +413,13 @@ PW_SCENARIOS: dict[str, dict] = {
         "chains": [("Dolby_Balanced", "smart")],
         "default": "effect_input.Dolby_Balanced",
     },
+    "pw-chain-muted": {
+        "why": "the default install, the speakers selected and unmuted, but "
+               "the chain's own sink came up muted (issue #152)",
+        "chains": [("Dolby_Balanced", "smart")],
+        "default": _PW_SPEAKER,
+        "levels": {"effect_input.Dolby_Balanced": (1.0, True)},
+    },
 }
 
 
@@ -431,8 +446,14 @@ def _pw_conf_text(name: str, mode: str) -> str:
 def _pw_dump(spec: dict) -> list:
     """The pw-dump a machine in this scenario returns."""
     def node(name, **props):
-        return {"type": "PipeWire:Interface:Node",
-                "info": {"props": {"node.name": name, **props}}}
+        # Every sink at full and unmuted unless the scenario says otherwise.
+        obj = {"type": "PipeWire:Interface:Node",
+               "info": {"props": {"node.name": name, **props}}}
+        if props.get("media.class") == "Audio/Sink":
+            linear, mute = spec.get("levels", {}).get(name, (1.0, False))
+            obj["info"]["params"] = {"Props": [
+                {"channelVolumes": [linear, linear], "mute": mute}]}
+        return obj
     dump = [node(_PW_SPEAKER, **{"media.class": "Audio/Sink",
                                  "node.description": "Built-in Audio Speaker"}),
             {"type": "PipeWire:Interface:Client",

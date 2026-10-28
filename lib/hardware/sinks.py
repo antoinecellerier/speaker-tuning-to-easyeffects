@@ -23,7 +23,9 @@ without paying for numpy.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
+from dataclasses import dataclass
 
 from lib import console, doctor, packages, tool_env
 
@@ -174,6 +176,87 @@ def sinks_from_dump(data) -> list[dict]:
     return sinks
 
 
+
+@dataclass(frozen=True)
+class SinkLevel:
+    """What PipeWire applies at one sink: its slider and its mute.
+
+    ``linear`` is the amplitude, not the percentage sound settings show:
+    PulseAudio maps its 0-100 % through a cube, so 40 % is 0.064 and
+    -23.8 dB. Both renderings matter: the percentage is what the reader
+    recognises from their own settings, and the dB is the size of the
+    problem. So this keeps the raw value and ``level_reading`` formats it.
+    """
+    linear: float
+    muted: bool = False
+
+    @property
+    def turned_down(self) -> bool:
+        """Below full. 0.99, not 1.0: a slider dragged back to the top can
+        land a hair under it, and that is not a level anyone chose."""
+        return self.linear <= 0.99
+
+    @property
+    def attenuates(self) -> bool:
+        """Muted, or turned down below full."""
+        return self.muted or self.turned_down
+
+
+def sink_levels(data) -> dict[str, SinkLevel]:
+    """node.name → the level PipeWire is applying, per Audio/Sink.
+
+    Read from the ``Props`` param that carries ``channelVolumes``, with the
+    ``mute`` beside it. ``softMute``/``softVolumes`` stay out: on a card
+    with a hardware mixer they hold PipeWire's remainder after the card's
+    own control, so the user's slider and mute are the plain keys. A sink
+    with no volume data is left out, which reads as "not read", never as
+    turned down.
+    """
+    levels = {}
+    for obj in data if isinstance(data, list) else []:
+        props = _info_section(obj, "props")
+        if props.get("media.class") != "Audio/Sink":
+            continue
+        name = props.get("node.name")
+        for param in _info_section(obj, "params").get("Props", []) or []:
+            channels = param.get("channelVolumes")
+            if name and channels:
+                levels[name] = SinkLevel(max(float(v) for v in channels),
+                                         bool(param.get("mute", False)))
+    return levels
+
+
+def _percent(linear: float) -> int:
+    return round(100 * (linear ** (1 / 3)))
+
+
+def level_reading(level: SinkLevel) -> str:
+    """"40 % (-23.8 dB)": the way the reader's own settings would show it.
+
+    A muted sink reads "muted (40 % once unmuted)": the slider is what their
+    settings show beside the mute, and it is what unmuting returns to. Not
+    "muted (slider at 100 %)", which read as a contradiction (/user-review
+    2026-10-28)."""
+    if level.muted:
+        return f"muted ({_percent(level.linear)} % once unmuted)"
+    if level.linear <= 0:
+        return "0 % (silent)"
+    return f"{_percent(level.linear)} % ({20 * math.log10(level.linear):.1f} dB)"
+
+
+def fix_commands(name: str, level: SinkLevel) -> tuple[tuple[str, str], ...]:
+    """The pactl lines that put sink *name* back to unmuted and full, as
+    ``(cprint style, text)`` steps."""
+    return ((("cta", f"  pactl set-sink-mute {name} 0"),) if level.muted else ()) \
+        + ((("cta", f"  pactl set-sink-volume {name} 100%"),)
+           if level.turned_down else ())
+
+
+def level_phrase(level: SinkLevel) -> str:
+    """``level_reading`` as a predicate: "at 40 % (-23.8 dB)", or "muted (…)"."""
+    return level_reading(level) if level.muted else f"at {level_reading(level)}"
+
+
 def _classify_sink(sink: dict) -> str:
     """Classify a sink as 'strict', 'relaxed', or 'excluded'.
 
@@ -269,11 +352,13 @@ def select_speaker_sinks() -> dict:
 
 
 def live_session() -> tuple:
-    """The default sink and running WirePlumber version, from one `pw-dump`.
+    """The default sink, running WirePlumber version and sink levels, from one
+    `pw-dump`.
 
-    Returns `(default sink, WirePlumber's running version or None)`. Both
-    come off the same dump because the doctor prints them a few rows
-    apart, and a second dump could answer for a graph that has since changed.
+    Returns `(default sink, WirePlumber's running version or None,
+    sink_levels)`. All three come off the same dump because the doctor prints
+    them a few rows apart, and a second dump could answer for a graph that
+    has since changed.
     The version is None when the daemon didn't answer or isn't in the graph;
     the caller falls back to the installed binary, which is a different fact
     and says so.
@@ -284,7 +369,8 @@ def live_session() -> tuple:
     """
     from lib.pipewire import checks
     dump = checks._pw_dump()
-    return checks.default_sinks(dump), checks.wireplumber_running_version(dump)
+    return (checks.default_sinks(dump), checks.wireplumber_running_version(dump),
+            sink_levels(dump))
 
 
 def live_default():

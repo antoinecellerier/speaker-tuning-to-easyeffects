@@ -262,6 +262,11 @@ def read_ee_rc(rc_text: str) -> dict:
         # file is authoritative because nothing but the GUI can change it.
         "use_default_output_device": g("StreamOutputs", "useDefaultOutputDevice",
                                        "true").lower() == "true",
+        # [Audio] activateMonitorChannelVolumes, default false (EE 8.2.8+;
+        # earlier releases hard-code it off). Only when true do EE's own
+        # sink's volume and mute reach what it captures.
+        "monitor_channel_volumes": g("Audio", "activateMonitorChannelVolumes",
+                                     "false").lower() == "true",
         # [EffectsPipelines] bypass, default false. Only a fallback for the
         # live get_global_bypass request over EE's local socket
         # (doctor_run._ee_query). A stale copy of this must never raise a

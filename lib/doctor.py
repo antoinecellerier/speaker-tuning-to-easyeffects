@@ -24,9 +24,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["DOCTOR_PASS", "DOCTOR_WARN", "DOCTOR_FAIL", "DOCTOR_UNKNOWN",
-           "tag", "tilde", "dollar_user", "no_bt_address",
+           "tag", "tilde", "dollar_user", "no_bt_address", "runnable",
            "CheckResult", "summarize", "emit_check",
-           "another_version_check",
+           "another_version_check", "muted_output_check",
            "print_summary",
            "print_verdict"]
 
@@ -160,6 +160,19 @@ def no_bt_address(text) -> str:
     return _BT_ADDRESS_RE.sub(r"\1<mac>", str(text))
 
 
+
+def runnable(name: str) -> bool:
+    """Whether a sink name may be printed inside a command.
+
+    A Bluetooth name carries the device's address, and `no_bt_address` takes
+    it out of everything a report prints. But a redacted name is not
+    something a shell can run, and printing the real one in a step would put
+    the address back into the same pasted block the redaction just cleaned.
+    So a check that would name such a sink in a command drops the command and
+    keeps its prose route instead (issue #63 follow-up).
+    """
+    return name == no_bt_address(name)
+
 def tilde(path) -> str:
     """Render a path with no username in it — $HOME as ~, a mount as $USER.
 
@@ -241,6 +254,31 @@ def another_version_check(label: str, noun: str, versions,
         f"audio, {remedy} — a {noun} is a snapshot, it doesn't update "
         "itself.")
 
+
+
+def muted_output_check(role: str, reading: str, target: str,
+                       why: str = "") -> CheckResult:
+    """WARN: a sink every sound leaves through is muted.
+
+    One shape for both doctors, because a muted output is the first thing to
+    rule out behind "no sound", and each doctor knows a different sink by
+    that role: the selected output, the device EasyEffects is pinned to, or
+    EasyEffects' own sink when its mute is live. *role* leads the sentence
+    and names no sink: the `Output sink:` row above does, and a 70-character
+    node name folded mid-name inside wrapped prose stops being copyable.
+    *reading* is the level as the `Volume:` row renders it. *target* is what
+    goes in the command: a name a shell can run, "@DEFAULT_SINK@", or "" to
+    leave the fix in prose, for a Bluetooth name whose address the report
+    must not print. *why* adds the sentence a role needs that the others
+    don't.
+    """
+    steps = ((("dim", "Unmute it in sound settings, or:"),
+              ("cta", f"  pactl set-sink-mute {target} 0")) if target
+             else (("dim", "Unmute it in sound settings."),))
+    return CheckResult(
+        DOCTOR_WARN, "Output volume",
+        f"{role} is {reading}, so nothing plays out of it."
+        + (f" {why}" if why else ""), steps)
 
 def summarize(checks) -> tuple[int, int, int, int]:
     """Count (FAIL, WARN, PASS, UNKNOWN). UNKNOWN is counted so an
