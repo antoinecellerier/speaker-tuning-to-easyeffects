@@ -2252,8 +2252,9 @@ def test_dolby_filename_regex_rejects_non_dax3(filename):
 # The end-of-run CTA points users at a GitHub issue form so "works on my
 # hardware" reports arrive in a consistent shape (device + --speaker-info
 # block). Two cheap locks: the CTA constant must target the form, and the
-# form the URL names must exist, parse, and still require the two fields a
-# report is useless without.
+# form the URL names must exist, parse, and still require the fields a
+# report is useless without: the device, its --speaker-info block, and how
+# it sounds.
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -2296,7 +2297,7 @@ def test_device_report_form_is_valid():
         f["id"] for f in body
         if isinstance(f, dict) and f.get("validations", {}).get("required")
     }
-    assert {"device", "speaker-info"} <= required
+    assert {"device", "speaker-info", "notes"} <= required
 
 
 def test_speaker_info_output_is_version_stamped(monkeypatch, silence_console,

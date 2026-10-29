@@ -63,10 +63,12 @@ body:
   - type: textarea
     id: notes
     attributes:
-      label: How does it sound? Anything else?
+      label: How does it sound?
       description: >-
-        Profiles you used, quality vs. the Windows Dolby app, and any fix you
-        needed, such as a smart-amp firmware gate, manual autoload or distro
-        quirk.
+        Tell us how your speakers sound with the tuning applied, good or bad.
+        If you've heard them under Windows, how do they compare?
+        Anything else you want to tell us is welcome too, for example the
+        profiles you used or any fix you needed, such as a smart-amp firmware
+        gate, manual autoload or distro quirk.
     validations:
-      required: false
+      required: true
