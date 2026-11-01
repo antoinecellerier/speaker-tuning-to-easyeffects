@@ -658,8 +658,10 @@ issue
   that puts level back. On tunings whose peak exceeds it, the preset plays below
   bypass. The experimental `--enable level-restore` flag hands the normalisation
   scalar back to the regulator's gain slot. That scalar is XML-derived: it is
-  `make_fir`'s own `peak_db`. The flag was **heard on one device only**,
-  2026-08-18, where loud speech picked up audible artifacts
+  `make_fir`'s own `peak_db`. The flag was **heard on four devices**. Loud
+  speech picked up audible artifacts on the dev device. Loud bass crackled on
+  #137's, with autogain and `output-gain` also on. #103 and #138 reported none
+  in daily use, without a loud-speech A/B
   ([Giving back what normalisation removed](research/loudness-and-limiting.md#r-level-restore),
   issue
   [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50)).

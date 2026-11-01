@@ -77,8 +77,9 @@ Some filters ship in the preset but inactive. `--enable NAME` switches them on:
   sits at 0 dB, which drops everything else below unity. On tunings whose peak
   exceeds their `volmax-boost`, the result plays below bypass. This flag hands
   that level back. Experimental: it also feeds the peak into the final limiter.
-  On the one device that has listened, loud speech picked up audible artifacts.
-  If yours does too, try `--disable volmax`. Report either way on
+  Of four laptops heard with it, two picked up distortion or crackle on loud
+  content and two reported none in daily use. If you hear it, try
+  `--disable volmax`. Report either way on
   [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50).
 - **`virtual-bass`.** Windows DAX synthesizes harmonics that suggest bass small
   drivers can't physically produce. This flag records the XML's virtual-bass

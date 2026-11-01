@@ -1699,8 +1699,8 @@ def test_level_restore_is_inert_without_the_flag():
 
 
 def test_level_restore_asks_for_a_second_opinion_by_ear(tmp_path, capsys):
-    """The flag has been heard on exactly one device (dev device,
-    2026-08-18), where loud speech picked up artifacts. That is why it left
+    """The flag has been heard on four laptops, two of which picked up
+    distortion or crackle on loud content (`r-level-restore`). That is why it left
     EXPERIMENTAL_MARKERS: the run has to name what was heard and ask the
     next device the same question, not tell that reader nobody has heard it.
     """
@@ -1708,14 +1708,14 @@ def test_level_restore_asks_for_a_second_opinion_by_ear(tmp_path, capsys):
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check",
                                "--enable", "level-restore"])
     on = " ".join(capsys.readouterr().out.split())
-    assert "loud speech picked up audible artifacts" in on
+    assert "two picked up distortion or crackle on loud content" in on
     assert "[level-restore]" in on
 
     # And it is gated on the flag: a default run neither warns nor asks.
     dolby_to_easyeffects.main([str(xml), "--dry-run", "--skip-ee-check"])
     off = " ".join(capsys.readouterr().out.split())
     assert "[level-restore]" not in off
-    assert "picked up audible artifacts" not in off
+    assert "picked up distortion or crackle" not in off
 
 
 def test_level_restore_falls_back_to_the_limiter_without_a_regulator():

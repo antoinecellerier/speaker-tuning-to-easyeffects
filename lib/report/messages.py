@@ -138,14 +138,14 @@ ENABLEABLE_FILTERS = {
     # The distinction is the whole diagnosis: autogain closes a gap against
     # Windows, this one closes a gap against bypass, which is the symptom
     # that identifies a curve whose peak outruns its volmax-boost.
-    # The caveat states what the dev device heard on 2026-08-18: loud speech
-    # picked up audible artifacts. It replaces an earlier "loud content may
-    # distort". Keep the claim pinned to one device, because nothing has been
-    # auditioned anywhere else, but state it as something that happened, not
+    # The caveat states what listeners heard, per `r-level-restore`: two of
+    # four laptops picked up distortion or crackle on loud content (the dev
+    # device's measured SDR drop, #137's crackle), two reported none in
+    # daily use. Keep the counts, and state them as what happened, not as
     # something that might.
     "level-restore": ("it sounds quieter than with the preset switched off",
-                      "experimental; loud speech picked up artifacts on the "
-                      "one device we listened to (issue #50)"),
+                      "experimental; distortion or crackle on loud content "
+                      "on 2 of the 4 laptops heard (issue #50)"),
     # The caveat names the path restriction, not a sound risk: the stage is
     # a parallel graph EasyEffects cannot express, so a standalone EE run
     # gains nothing audible from the flag. Only the PipeWire conf does.

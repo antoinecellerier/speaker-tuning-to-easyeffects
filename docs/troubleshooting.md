@@ -112,14 +112,15 @@ Try these in order:
 - **If it is quieter than with the preset switched off entirely**, not just
   quieter than Windows, re-run with `--enable level-restore`. The flag hands
   back the level the preset loses below bypass. **Experimental**: the restored
-  level also drives the final limiter harder. On the one device that has
-  listened, loud speech picked up audible artifacts. If yours does too, add
-  `--disable volmax` or drop the flag. Report either way on
+  level also drives the final limiter harder. Of four laptops heard with it, two
+  picked up distortion or crackle on loud content and two reported none in daily
+  use. If you hear it, add `--disable volmax` or drop the flag. Report either
+  way on
   [#50](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/50).
   The script's end-of-run menu offers this flag only on tunings where it would
   change the level. The `level-restore` note in
-  [Disabling and enabling filters](filters.md) explains
-  why the preset can play below bypass.
+  [Disabling and enabling filters](filters.md) explains why the preset can play
+  below bypass.
 - **Allow volume above 100%** in your desktop environment. GNOME:
   `gsettings set org.gnome.desktop.sound allow-volume-above-100-percent true`.
   KDE Plasma: volume applet settings → *Raise maximum volume*. Any environment:

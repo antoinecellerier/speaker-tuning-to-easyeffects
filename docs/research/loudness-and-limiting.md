@@ -1929,18 +1929,53 @@ Reports from other devices are still worth having. The restore that closed a
 actually adds varies device to device. A device where it stays clean would say
 the size is the problem rather than the idea.
 
-**Status: opt-in, measured on two devices, heard on one, where loud speech
-costs audible artifacts.** Default output is unchanged and pinned by the
-`level-restore-available-but-off` golden digest. The XML-only bar's
-second-device requirement is met, and the listening gate is answered
-negatively. So the flag stays opt-in, and a default flip is off the table until
-a smaller restore or a mitigation is measured.
+**Status: opt-in, measured on two devices. By ear: audible artifacts on loud
+speech on the dev device, crackle on loud bass on #137 with other flags on, and
+no complaint in daily use on #138's device (below).** Default output is
+unchanged and pinned by the `level-restore-available-but-off` golden digest. The
+XML-only bar's second-device requirement is met, and the listening gate is
+answered negatively. So the flag stays opt-in, and a default flip is off the
+table until a smaller restore or a mitigation is measured.
 
 A second listener heard the flag's cost on #137: crackle on loud bass with
 `--enable autogain --enable level-restore --volmax-slot output-gain`, absent
 from `output-gain` alone. On the EE route the level-restore gain carries the
 out-of-band products: `output-gain` with level-restore raises them to
 −58.2 dBFS without autogain ([#137](#r-low-mid-regulator-vs-dax)).
+
+### In daily use on two more laptops (#103, #138)
+
+Two reporters have used the flag day to day and reported no artifacts. Neither
+ran a loud-speech A/B.
+
+- [#138](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/138),
+  ThinkPad E14 Gen 2 AMD (`17AA507F`, #25's device), 2026-10-15 to 2026-11-01.
+  The flag alone replaced `--enable autogain` and desktop volume above 100%.
+  Verdict: no complaint from the laptop's owner, and the volume is back.
+- [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103),
+  IdeaPad 3 15ALC6 (`17AA38BC`), 2026-09-21 to 2026-10-22, with
+  `--enable autogain` also on. Verdict: "much better", then "all good with the
+  sound" a month later, across a distro switch.
+
+The two restores bracket the dev device's. Source: the regulator's `input-gain`
+in presets rebuilt from each XML with and without the flag. The `17AA38BC` XML
+is the one whose speaker-correction line #103's run printed.
+
+| Tuning | Balanced | Detailed | Warm |
+|---|---|---|---|
+| `17AA507F`, #138 | +13.4 dB | +13.2 dB | +13.1 dB |
+| `17AA22E6`, dev device | +11.3 dB | +11.1 dB | +11.1 dB |
+| `17AA38BC`, #103 | +9.2 dB | +9.5 dB | +9.0 dB |
+
+These are absences of complaint, not clean passes. Content, voicing and volume
+were not recorded, and #103's autogain changes the drive the flag adds. Restore
+size alone does not separate the clean reports from the dev device, since one
+sits above it and one below. The cases also differ in content, listener and
+speakers, and no test has separated those.
+
+Open:
+
+- A loud-speech clip played on `17AA507F` with the flag alone, by ear.
 
 ## Elsewhere
 

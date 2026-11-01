@@ -307,15 +307,17 @@ def _vendor_only_finding() -> Finding:
 
 
 def _level_restore_finding() -> Finding:
-    """--enable level-restore is on, and one device has heard it.
+    """--enable level-restore is on, and four laptops have heard it.
 
     Deliberately not one of the EXPERIMENTAL_MARKERS paths above: those are
-    reproduced-but-never-auditioned, and this one was auditioned on the dev
-    device on 2026-08-18, where loud speech picked up audible artifacts. That
-    is a specific thing to warn about and a specific thing to ask a second
-    device, neither of which the shared "nobody has told us how they sound"
-    wording can carry. The one-device qualifier is load-bearing: it is the
-    whole reason the flag is still worth trying elsewhere.
+    reproduced-but-never-auditioned, and this one has been auditioned. Two
+    laptops picked up distortion or crackle on loud content (the dev device
+    on loud speech, #137 on loud bass with other flags on) and two reported
+    none in daily use (#103, #138), per `r-level-restore`. That split is a
+    specific thing to warn about and to ask the next device, neither of
+    which the shared "nobody has told us how they sound" wording can carry.
+    The counts are load-bearing: the clean reports are why the flag is worth
+    trying, and the distortion is why it is not the default.
     """
     return Finding(
         slug="level-restore", kind="ask",
@@ -325,9 +327,10 @@ def _level_restore_finding() -> Finding:
         # 0 of 3419 corpus XMLs trim by a negative peak, 2026-08-24).
         detail="Restored level is on: the level the correction curve was "
                "trimmed by is handed back as gain, so every band plays "
-               "louder and the final limiter has more to hold back. On the "
-               "one device it has been listened to, loud speech picked up "
-               "audible artifacts.",
+               "louder and the final limiter has more to hold back. Of four "
+               "laptops heard with it, two picked up distortion or crackle "
+               "on loud content and two reported none in daily use. If you "
+               "hear it, re-run without the flag.",
         # No --disable volmax here: the boost-unlimited/loudness-untamed ask
         # owns that remedy's wording, and two phrasings for one fix read as
         # two different fixes.
