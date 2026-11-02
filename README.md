@@ -286,7 +286,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 |---|---|
 | ASUS TUF Gaming A15 (FA507NV) <!-- Realtek ALC256, 1043:14B3 --> | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
 | ASUS TUF Gaming A16 (FA607PV) <!-- Realtek ALC256, 1043:1C93 --> | [#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137) — reporter recommends `--volmax-slot output-gain` |
-| ASUS Zenbook 14 (UM3406HA) <!-- Realtek ALC294, 1043:1C03 --> | [#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134) — reporter recommends enabling autogain |
+| ASUS Zenbook 14 (UM3406HA) <!-- Realtek ALC294, 1043:1C03 --> | [#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134) — reporter recommends `--enable autogain` |
 | ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
 | ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
@@ -294,7 +294,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | Lenovo IdeaPad 3 15ALC6 (82KU) <!-- Realtek ALC257, 17AA:38BC --> | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) — reporter recommends `--enable autogain --enable level-restore` |
 | Lenovo IdeaPad Pro 5 14AHP9 (83D3) <!-- Realtek ALC287, 17AA:38D0 --> | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
 | Lenovo IdeaPad Pro 5 14APH8 (83AM) <!-- Realtek ALC287, 17AA:38C5 --> | [#33](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/33) — reporter confirms working on kernel 7.0, broken on 6.12 |
-| Lenovo IdeaPad Pro 5 14IMH9 (83D2) <!-- Realtek ALC287, 17AA:38CE --> | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends enabling autogain |
+| Lenovo IdeaPad Pro 5 14IMH9 (83D2) <!-- Realtek ALC287, 17AA:38CE --> | [#36](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/36) — reporter recommends `--enable autogain` |
 | Lenovo IdeaPad Slim 3 16ARP10 (83K8) <!-- Realtek ALC257, 17AA:3F88 --> | [#124](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/124) |
 | Lenovo IdeaPad Slim 5 14ARP10 (83HT) <!-- Conexant SN6140, 17AA:3811 --> | [#111](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/111) |
 | Lenovo Legion Y540-15IRH (81SX) <!-- Realtek ALC257, 17AA:3810 --> | [#70](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/70) |
