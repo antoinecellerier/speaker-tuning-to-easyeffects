@@ -81,6 +81,17 @@ def test_the_first_fix_pull_after_a_merge_window_diffs_against_mainline():
     assert pick_base(seen + ["sound-7.3-rc2"], "sound-7.3-rc3") == "sound-7.3-rc2"
 
 
+def test_the_merge_window_fix_pull_diffs_against_the_merge_window_tag():
+    """sound-fix-7.4-rc1 is cut on sound-7.4-rc1 before v7.4-rc1 exists, and
+    v7.4-rc1 then contains it: diffing against the mainline -rc1 gave a 404
+    and would give an empty range once the mirror carries the tag."""
+    seen = ["sound-7.3", "sound-7.4-rc1"]
+    assert pick_base(seen, "sound-fix-7.4-rc1") == "sound-7.4-rc1"
+    assert pick_base(seen, "sound-fix2-7.4-rc1") == "sound-7.4-rc1"
+    # The numbered pull after it still restarts from mainline.
+    assert pick_base(seen + ["sound-fix-7.4-rc1"], "sound-7.4-rc2") == "v7.4-rc1"
+
+
 def test_no_base_when_nothing_has_been_processed():
     assert pick_base([], "sound-7.3-rc1") == ""
 

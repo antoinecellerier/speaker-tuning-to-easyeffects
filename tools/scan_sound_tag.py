@@ -85,6 +85,12 @@ def pick_base(seen: list[str], tag: str) -> str:
     # restarts, so it is the base every post-merge-window pull diffs against.
     major, minor, rc = _VERSION_TAG_RE.match(base).groups()
     if rc == "1":
+        # Except the merge-window fix pull, sound-fix-X.Y-rc1: it is cut on top
+        # of sound-X.Y-rc1 *before* vX.Y-rc1 exists and is merged into it, so
+        # the mainline base gives an empty range at best, and a 404 while the
+        # mirror lacks the tag (sound-fix-7.4-rc1 went unscanned that way).
+        if re.fullmatch(rf"sound-fix\d*-{major}\.{minor}-rc1", tag):
+            return base
         return f"v{major}.{minor}-rc1"
     return base
 
