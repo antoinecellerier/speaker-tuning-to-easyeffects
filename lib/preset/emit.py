@@ -308,31 +308,17 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
                                                 eq_sections=eq_right,
                                                 eq_curve=curve_right)
 
-        # --enable level-restore: hand the chain back the level normalisation
-        # removed. make_fir divides each channel by its own realised peak, so
-        # a curve whose peak outruns its volmax-boost emits a preset quieter
-        # than bypass. The deficit is exactly peak_db - volmax_boost, and it
-        # is what issues #25/#46/#50 describe. The restored amount is the
-        # peak make_fir measured, so nothing here is a tuned offset.
-        #
-        # Re-reference both channels to the louder peak first. Normalising
-        # each channel to its own peak also flattens the L/R level
-        # relationship the two AO curves ask for. The two combined peaks
-        # diverge on 19.1% of the corpus (median 0.93 dB, max 5.56;
-        # re-derived 2026-08-04 over 3051 parsed XMLs). A common reference
-        # keeps that relationship and still leaves every channel at or below
-        # 0 dBFS, so the on-disk peak-normalisation convention holds.
+        # make_fir scales each channel by its own peak, which flattens the L/R
+        # level difference the two curves ask for. Scale both by the louder
+        # peak instead: the difference survives and neither channel exceeds
+        # 0 dB (research `r-channel-peak-reference`).
         fir_peak_db = max(peak_left_db, peak_right_db)
-        # Non-zero only on the flag-on path, and only for the quieter
-        # channel; the correction check below re-references by the same
-        # amount so it keeps grading the filter rather than the re-reference.
-        left_offset_db = 0.0
-        right_offset_db = 0.0
-        if "level-restore" in args.enable:
-            left_offset_db = peak_left_db - fir_peak_db
-            right_offset_db = peak_right_db - fir_peak_db
-            fir_left *= 10.0 ** (left_offset_db / 20.0)
-            fir_right *= 10.0 ** (right_offset_db / 20.0)
+        # Non-zero only for the quieter channel. The correction check below
+        # applies the same offset, so it grades the filter and not this step.
+        left_offset_db = peak_left_db - fir_peak_db
+        right_offset_db = peak_right_db - fir_peak_db
+        fir_left *= 10.0 ** (left_offset_db / 20.0)
+        fir_right *= 10.0 ** (right_offset_db / 20.0)
 
         # Save stereo impulse response, named after its own samples so a
         # changed FIR gets a new kernel name — see kernel_name().
@@ -406,8 +392,8 @@ def _emit_ieq_presets(tuning, name_base, is_soundwire, disabled, args,
         # only decides whether the per-frequency rows print.
         fft_freqs = np.fft.rfftfreq(fir.FIR_LENGTH, d=1.0 / fir.SAMPLE_RATE)
         if args.verbose:
-            console.cprint("dim", "\n  FIR verification (left, normalized to "
-                          "peak=0):")
+            console.cprint("dim", "\n  FIR verification (left, relative to "
+                          "the louder channel's peak):")
         from_hz = max(_curve_resolved_from_hz(curve_left),
                       _curve_resolved_from_hz(curve_right))
         worst_left = _worst_shape_error(fir_left, combined_left,

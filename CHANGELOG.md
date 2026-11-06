@@ -89,6 +89,15 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ## Unreleased
 
+### Changed
+
+- **[AUDIBLE]** Left and right keep the level difference the tuning asks for,
+  closer to Windows on the one device measured, not yet heard. Tunings whose
+  channels peak at different levels shift in balance and play slightly quieter.
+  Re-run to regenerate.
+  ([#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150);
+  why in `docs/research/loudness-and-limiting.md`)
+
 ### Added
 
 - `--doctor` shows the output's volume and mute in both modes, and warns

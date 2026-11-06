@@ -105,7 +105,10 @@ and what each block becomes: [Vendor tunings](#vendor-tunings).
 - **Convolver.** With its loudest band at 0 dB, the stage only ever
   attenuates, and a curve whose peak exceeds `volmax-boost` emits a preset
   quieter than bypass. `--enable level-restore` gives that level back; see
-  below. A profile can ship a correction curve and still set
+  below. Both channels are scaled by the louder channel's peak, which keeps the
+  level difference between their curves
+  ([one peak reference](research/loudness-and-limiting.md#r-channel-peak-reference)).
+  A profile can ship a correction curve and still set
   `audio-optimizer-enable=0`, which drops the curve so only the IEQ voicing
   reaches the FIR. Absent means enabled, as with `speaker-peq-enable`.
 
@@ -637,11 +640,17 @@ a pair, are named by a DAX3 preset written in the same registry form, whose
 values each match one field of a DAX3 XML. The on/off switches are read as the
 field beside the values they gate. That includes the leveler's, which reads off
 on all 13 presets found. One listener has heard the Surface Laptop 3's build,
-against Windows from memory: "about on par with Windows". No Windows capture of
-a DAX2 device exists
+against Windows from memory: "about on par with Windows"
 ([DAX2 presets](research/vendor-apo/dolby-dax2.md#r-dolby-registry-preset),
 issue
 [#148](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/148)).
+
+One Windows capture exists, of that device. The speaker correction matches it in
+shape. It contradicts three readings, none of which the converter has changed:
+the leveler reads off yet gain rises as input falls, the lowest regulator band
+doesn't clamp at 50–80 Hz, and the static boost isn't there at −18 dBFS input
+([capture](research/vendor-apo/dolby-dax2.md#r-registry-preset-capture), issue
+[#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150)).
 
 ## Not implemented (and why)
 

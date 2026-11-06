@@ -25,7 +25,9 @@
   opt-in, gives it back; on the first device heard, loud speech produced audible
   artifacts ([level restore](#r-level-restore)). On #137, with autogain and
   `output-gain` also on, a listener heard crackle on loud bass
-  ([#137](#r-low-mid-regulator-vs-dax)).
+  ([#137](#r-low-mid-regulator-vs-dax)). Both FIR channels share the louder
+  channel's peak, which keeps the left/right level difference Windows plays on
+  the one device measured ([one peak reference](#r-channel-peak-reference)).
 - **The brickwall** holds loud sustained tones with automatic level regulation,
   so it no longer reshapes each cycle of one; on the dev device a held 234 Hz
   tone on `output-gain` went from 9.39 % to 0.15 % THD
@@ -1530,6 +1532,60 @@ in-GUI per-effect bypass already brackets the question: switching off
 curve is confirmed as the cause, the answer is to find what DAX does that we
 don't, not a fudge factor.
 
+<a id="r-channel-peak-reference"></a>
+
+## One peak reference for both FIR channels (issue #150)
+
+Scaling both FIR channels by the louder channel's peak keeps the left/right
+level difference Windows plays. Scaling each by its own peak put the right
+channel 3.02 dB too high on the one device measured. Conditions: Surface Laptop
+3 13.5" Intel, its
+[DAX2 preset](vendor-apo/dolby-dax2.md#r-registry-preset-capture), the
+reporter's Windows captures against live EasyEffects 8.3.0 captures of the same
+stimuli, issue
+[#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150),
+2026-11-06.
+
+| FIR scaling, n=1 device | R−L error vs Windows, 300 Hz–12 kHz | Level vs bypass, −18 dBFS pink, L/R | Shape error vs Windows, RMS, L/R |
+|---|---|---|---|
+| Each channel by its own peak | +3.02 dB (−42 dBFS pink: +3.01) | −6.63 / −4.79 dB | 0.37 / 0.41 dB |
+| Both by the louder peak | +0.03 dB (−42 dBFS pink: +0.02) | −6.61 / −7.76 dB | 0.37 / 0.41 dB |
+| Windows | | +6.15 / +4.52 dB | |
+
+Correlated stereo pink, a separate stimulus, agrees. The side-vs-mid change
+differs from Windows by up to 9.7 dB across seven bands with each channel's own
+peak, and by up to 4.1 dB with the shared peak.
+
+No second device can test this yet. The dev device (`17AA22E6`), #44's
+(`17AA380D`) and #137's (`10431C93`) have matching peaks, so the two scalings
+build byte-identical impulses and presets for them. Their Windows captures track
+the FIR's R−L to 0.13, 0.08 and 0.00 dB RMS.
+
+| Corpus, default profile, Balanced | |
+|---|---|
+| Tunings parsed from this working tree's XMLs | 1472 |
+| Channel peaks differ by more than 0.01 dB | 209 (14.2%) |
+| Difference: median, p90, max | 1.00, 2.38, 5.56 dB |
+| Difference over 1 dB, over 3 dB | 81, 11 |
+
+Source: ad-hoc walk of `make_fir` peaks, 2026-11-06. The
+[level-restore](#r-level-restore) figure of 19.1% came from a larger set.
+
+This shipped as the default below the second-device bar in
+`.claude/rules/xml-derivability.md`, by the maintainer's decision. It reads no
+tuning field differently. It removes a level difference our own normalisation
+added, and a tuning with equal peaks builds the same output. The quieter-peaking
+channel plays lower by the difference, so a device with differing peaks gets
+slightly quieter overall. `--enable level-restore` builds the same impulse and
+adds its gain downstream.
+
+Open:
+
+- A Windows capture of a device with differing peaks. The largest in the corpus
+  are `17AA22C3` and `17AA22B8` (right higher by 5.56 dB) and `10431713` (right
+  higher by 5.06 dB).
+- Nobody has heard the change.
+
 <a id="r-level-restore"></a>
 
 ## Giving back what normalisation removed: `--enable level-restore` (issue #50)
@@ -1618,6 +1674,9 @@ the relationship survives and no channel exceeds full scale. This is a property
 of the *default* path that the flag happens to correct. On its own it is a
 candidate fix independent of the level question, and it has not been heard
 either.
+
+Superseded for the default path:
+[one peak reference](#r-channel-peak-reference).
 
 **The coupled hypothesis — proposed, then measured, then dropped.** The
 2026-08-04 capture battery below falsified it. The idea was that
@@ -1880,7 +1939,8 @@ characterise it on ordinary-level content is therefore measuring silence.
   open.
 - Both tunings also have channels whose combined peaks are equal. So the L/R
   re-referencing path ran with nothing to correct and stays untested on
-  hardware.
+  hardware. Later measured on one device:
+  [one peak reference](#r-channel-peak-reference).
 - The EE−DAX tables rest on the `pink` stimulus at two levels. `multitone` and
   the sweeps carry no absolute data on the DAX side. The `tones`/`ir` npz store
   normalised amplitudes, so `--absolute` skips them by design, not by omission.

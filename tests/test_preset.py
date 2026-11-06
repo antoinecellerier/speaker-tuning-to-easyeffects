@@ -1746,12 +1746,12 @@ def test_level_restore_offered_only_where_it_would_help(
     assert ("level-restore" in emitted) is expect_offer
 
 
-def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
-    """Normalising each channel to its own peak flattens the L/R level
-    relationship the two AO curves ask for (19.1% of corpus files on
-    2026-08-04, up to 5.56 dB; lib/preset/emit.py). Under the flag both
-    channels share the louder peak, so the relationship survives and neither
-    channel exceeds full scale."""
+def test_fir_keeps_the_level_difference_between_the_channels(tmp_path):
+    """Scaling each channel by its own peak would flatten the L/R level
+    difference the two curves ask for (`r-channel-peak-reference`). Both share
+    the louder peak on every run, so the difference survives and neither
+    channel exceeds 0 dB. level-restore only adds gain downstream, so it builds
+    the same impulse."""
     import subprocess
     import sys as _sys
     # ch_00 keeps the fixture's default curve; ch_01 is flat except for one
@@ -1760,7 +1760,7 @@ def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
     xml = write_synthetic_tuning_xml(
         tmp_path / "DEV_0287_SUBSYS_TESTTEST.xml", ao_right=quiet_right)
 
-    def _peaks(*extra):
+    def _impulse(*extra):
         out = tmp_path / f"o{len(extra)}"
         irs = tmp_path / f"i{len(extra)}"
         out.mkdir(); irs.mkdir()
@@ -1773,23 +1773,29 @@ def test_level_restore_re_references_both_channels(tmp_path, monkeypatch):
         name = json.loads((out / "Dolby-Balanced.json").read_text()
                           )["output"]["convolver#0"]["kernel-name"]
         _, _, _, left, right = read_irs_file(irs / f"{name}.irs")
-        # make_fir normalises the frequency response, not the time-domain
-        # impulse, so the peak that matters is |H| — the time-domain sample
-        # peak of a minimum-phase IR is unrelated.
-        return tuple(float(np.max(np.abs(np.fft.rfft(ch, n=FIR_LENGTH))))
-                     for ch in (left, right))
+        return left, right
 
-    off_l, off_r = _peaks()
-    on_l, on_r = _peaks("--enable", "level-restore")
-    # Default: both channels independently normalised to 0 dB, which is
-    # what loses the relationship the two curves ask for.
-    assert off_l == pytest.approx(1.0, rel=1e-4)
-    assert off_r == pytest.approx(1.0, rel=1e-4)
-    # Flag on: the louder channel still sits at 0 dB, the quieter one below
-    # it by the difference between the two curves' peaks — and nothing
-    # exceeds full scale, so the on-disk convention still holds.
-    assert max(on_l, on_r) == pytest.approx(1.0, rel=1e-4)
-    assert min(on_l, on_r) < 0.99
+    left, right = _impulse()
+    # make_fir normalises the frequency response, not the time-domain impulse,
+    # so the peak that matters is |H|: the time-domain sample peak of a
+    # minimum-phase IR is unrelated.
+    mag_l, mag_r = (np.abs(np.fft.rfft(ch, n=FIR_LENGTH))
+                    for ch in (left, right))
+    assert max(mag_l.max(), mag_r.max()) == pytest.approx(1.0, rel=1e-4)
+    # The channels differ by what the curves ask for, not by 0 dB. These are
+    # the fixture's ieq_balanced at ieq-amount 10% plus each channel's AO.
+    ieq = np.array([(i % 5 - 2) * 0.1 for i in range(20)])
+    ao_left = np.array([0.5 * (i % 3 - 1) for i in range(20)])
+    ao_right = np.array([2.0 if i == 5 else 0.0 for i in range(20)])
+    _, want_l_db = make_fir(SYNTHETIC_FREQS_20, ieq + ao_left)
+    _, want_r_db = make_fir(SYNTHETIC_FREQS_20, ieq + ao_right)
+    assert abs(want_r_db - want_l_db) > 0.1  # the fixture did what it claims
+    assert 20 * np.log10(mag_r.max() / mag_l.max()) == pytest.approx(
+        want_r_db - want_l_db, abs=0.01)
+
+    on_left, on_right = _impulse("--enable", "level-restore")
+    assert np.array_equal(left, on_left)
+    assert np.array_equal(right, on_right)
 
 
 # --- --enable virtual-bass (issue #14) ---

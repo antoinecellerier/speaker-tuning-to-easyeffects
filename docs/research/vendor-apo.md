@@ -24,8 +24,11 @@
   `.inf`, as numbered values in the older DAX2 format. Their arrays match DAX3's
   IEQ, audio-optimizer, regulator and virtual-bass fields by shape, and a DAX3
   preset in the same form names five single values and a pair. The on/off
-  switches are read by adjacency, and nothing has been heard or captured
-  ([DAX2 presets](vendor-apo/dolby-dax2.md#r-dolby-registry-preset)).
+  switches are read by adjacency
+  ([DAX2 presets](vendor-apo/dolby-dax2.md#r-dolby-registry-preset)). One
+  device's Windows capture matches the speaker correction, and contradicts the
+  leveler switch, the lowest regulator band and the static boost
+  ([capture](vendor-apo/dolby-dax2.md#r-registry-preset-capture)).
 - **18 Surface codec IDs bind a DAX2 preset**, 13 distinct ones, in the
   Realtek drivers of Microsoft's Surface packages. None turned up outside
   Surface, where only DAX3-era drivers were searched
@@ -55,6 +58,7 @@ Open:
 - [vendor-apo/sonitude.md](vendor-apo/sonitude.md):
   [HP's Sonitude presets: the Bang & Olufsen voicing with no Dolby file](vendor-apo/sonitude.md#r-sonitude-apo-presets)
 - [vendor-apo/dolby-dax2.md](vendor-apo/dolby-dax2.md):
-  [Dolby DAX2 registry presets: the tuning a driver .inf writes](vendor-apo/dolby-dax2.md#r-dolby-registry-preset)
+  [Dolby DAX2 registry presets: the tuning a driver .inf writes](vendor-apo/dolby-dax2.md#r-dolby-registry-preset),
+  [Windows capture of a DAX2 device against our chain](vendor-apo/dolby-dax2.md#r-registry-preset-capture)
   and
   [Which drivers ship a DAX2 registry preset](vendor-apo/dolby-dax2.md#r-dolby-registry-fleet)

@@ -122,9 +122,11 @@ names. The reader follows the binding instead.
 
 Open:
 
-- No Windows capture of a DAX2 device exists, so every mapping above is
-  unvalidated, and the *assumed* switches most of all. On all 13 presets
-  index 9 is 0, so the leveler reads off on every one.
+- One device has a Windows capture
+  ([capture](#r-registry-preset-capture)). It tests the audio-optimizer, the
+  leveler switch, the regulator and virtual bass on that device only, so every
+  mapping above stays unvalidated across presets. On all 13 presets index 9 is
+  0, so the leveler reads off on every one.
 - The one listen was from memory, on one of the 13 presets. A side-by-side
   comparison with Windows, or a second device, would test it.
 - Index 47 (1 or 0) and the other unmapped indices are unread.
@@ -135,6 +137,96 @@ Open:
 - `10EC11CE` binds a DAX3 registry-form *speaker* preset in
   `HDXHAPMRTKWOV.inf` and has no XML anywhere in the corpus. The reader
   refuses that form; reading it would be a separate format.
+
+<a id="r-registry-preset-capture"></a>
+
+## Windows capture of a DAX2 device against our chain
+
+Windows matches our reading of the speaker correction, and contradicts it on the
+leveler switch, the regulator's lowest band and the static boost. Conditions:
+Surface Laptop 3 13.5" Intel (`10EC11B2`), issue
+[#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150),
+Windows 11 build 26300, reporter's WASAPI loopback at endpoint volume 16%,
+against live EasyEffects 8.3.0 null-sink captures of the same 9 stimuli,
+2026-11-06. n=1 device. The sidecars don't record the driver version. The
+package holds no Surface APO config. With Audio enhancements off, the captures
+equal the stimulus at 0.00 dB, so bypass is clean and the endpoint volume isn't
+in the loopback. Figures are L/R, measured on the 6–11 s window, and bursts are
+the steady level 1–3 s into each tone.
+
+| Index | Our reading | Windows | Evidence |
+|---|---|---|---|
+| 18 | The speaker correction | Matches in shape | third-octave, 300 Hz–12 kHz, after offset: 0.37 / 0.41 dB RMS on −18 dBFS pink, 0.39 / 0.42 dB on −42 |
+| 9, 8 | Leveler off | Gain rises as input falls | 0.40 dB per dB of input drop, 100 Hz–10 kHz, L, two levels; our chain 0.00 |
+| 2 | +6 dB static boost | About 1 dB above the tuning's absolute level on −18 dBFS pink | our chain without the boost sits 1.02 / 0.97 dB under Windows; with it, 3.74 / 3.91 dB over |
+| 22, lowest band | Clamp at −54 dB below 81 Hz | No clamp at 50–80 Hz | see the burst table |
+| 22, other bands | Per-band limit | Same direction | see below |
+| 42, 45, 46 | Virtual bass | No harmonics | 50 Hz burst h2–h5 at −53 to −57 dB re fundamental (−5 dBFS input), −43 to −53 dB (−25 dBFS input) |
+| 13 | IEQ at 10% | Fits nearer 3–6%, under about 1 dB of shape | 0.032 ± 0.015 / 0.025 ± 0.016 at −18 dBFS, 0.058 / 0.051 ± 0.04 at −42 |
+
+The capture also has a constant 32.35 ms delay, with group delay within 0.01 ms
+from 60 Hz to 12 kHz: linear phase. Zero added latency stands, so the FIR stays
+minimum-phase.
+
+**The leveler.** The dev device's slope is 0.387–0.471 on the profiles whose XML
+enables its leveler and 0.055 on the one that doesn't, on the same two levels.
+That makes index 9 reading 0 suspect, but other explanations aren't excluded,
+such as another index's meaning or a driver default at runtime. EasyEffects'
+autogain isn't a stand-in. Forced on at the tuning's −20 target, its slope is
+0.999, and it overshoots Windows by 8.6 / 11.8 dB on −42 dBFS pink. With
+`--enable level-restore` it distorts the shape on −18 dBFS pink (3.91 / 4.11 dB
+RMS).
+
+**The static boost.** `--enable level-restore` puts the tuning's absolute level
+back plus the +6 dB, which over-drives the regulator: shape error on −18 dBFS
+pink rises to 1.06 / 1.12 dB. Adding `--disable volmax` returns it to 0.38 /
+0.41 dB. On the −18 dBFS sweep at that level, the extra reduction against −42
+dBFS tracks Windows' from 141 to 328 Hz within 1.5 dB, and falls 3.7–5 dB short
+from 469 to 1031 Hz. That reads Windows against an assumed 13.7 dB baseline for
+its level change.
+
+**The lowest regulator band.** Steady burst level, dBFS, −5 dBFS input. "Band
+off" is a local copy of the `--enable level-restore` preset with that band's
+compressor off. No flag does this.
+
+| Tone | Windows | `level-restore` | `level-restore`, band off |
+|---|---|---|---|
+| 50 Hz | −6.0 / −8.8 | −49.5 / −48.6 | −7.5 / −6.6 |
+| 80 Hz | −3.2 / −6.2 | −22.3 / −23.2 | −3.2 / −4.1 |
+| 120 Hz | −3.0 / −6.1 | −4.2 / −6.5 | −3.3 / −5.7 |
+| 180 Hz | −1.5 / −4.1 | −3.7 / −5.4 | −3.7 / −5.4 |
+
+Windows still cuts deeper bass on the louder input. Level dependence beyond its
+500 Hz figure is 8.8 / 10.0 dB at 25 Hz, 4.6 / 6.1 dB at 31 Hz, 1.6 / 2.8 dB at
+39 Hz and −0.2 / +0.4 dB at 50 Hz. With the band off, our chain passes 25 Hz
+about 14–16 dB above Windows on −18 dBFS pink. So the band's reading is
+contradicted at 50–80 Hz, and dropping it isn't the fix. A leading hypothesis is
+that its limit applies below about 40 Hz rather than 81 Hz.
+
+`--disable regulator` is the nearest flag to that band off. At equal gain, with
+`--disable volmax`, it moves −18 dBFS pink from −32.1 to −24.3 dB at 50 Hz, from
+−17.2 to −13.0 dB at 79 Hz and from −9.6 to −8.0 dB at 99 Hz, all L. From 157 Hz
+up the two are identical on the bands read.
+
+Rejected: forcing autogain as the leveler, on the slope and shape above.
+
+Elsewhere: the left/right level difference this capture exposed is in
+[one peak reference](../loudness-and-limiting.md#r-channel-peak-reference).
+
+Open:
+
+- Only two input levels arrived, and 8 of the 17 requested stimuli didn't,
+  including the pink ladder that would map the leveler's curve.
+- Tones below 50 Hz: no stimulus has them, and they would locate the lowest
+  band's limit.
+- Windows gives decorrelated pink 2.34 / 2.59 dB more than correlated pink at
+  about the same level, where our chain differs by at most 0.18 dB. Unexplained.
+- A second DAX2 device, to separate this preset from the format.
+- The capture tooling needs three fixes. `capture_dax.py`'s similarity check
+  compares at zero lag, so it scored sample-identical audio 0.25. Its Dolby
+  detection reports true from Windows' generic spatial-mode list. `analyze.py`'s
+  linear-phase verdict also fires on bypass. One reporter capture labelled off
+  was in fact Dolby on, and nothing flagged it.
 
 <a id="r-dolby-registry-fleet"></a>
 
