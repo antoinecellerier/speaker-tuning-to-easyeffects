@@ -154,6 +154,8 @@ equal the stimulus at 0.00 dB, so bypass is clean and the endpoint volume isn't
 in the loopback. Figures are L/R, measured on the 6–11 s window, and bursts are
 the steady level 1–3 s into each tone.
 
+![Windows against the EasyEffects builds: frequency response, the shape with level removed, left/right balance, level against input level, and loud bass tones](../../images/150-windows-vs-ours.png)
+
 | Index | Our reading | Windows | Evidence |
 |---|---|---|---|
 | 18 | The speaker correction | Matches in shape | third-octave, 300 Hz–12 kHz, after offset: 0.37 / 0.41 dB RMS on −18 dBFS pink, 0.39 / 0.42 dB on −42 |
