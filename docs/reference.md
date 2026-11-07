@@ -648,7 +648,10 @@ issue
 One Windows capture exists, of that device. The speaker correction matches it in
 shape. It contradicts three readings, none of which the converter has changed:
 the leveler reads off yet gain rises as input falls, the lowest regulator band
-doesn't clamp at 50–80 Hz, and the static boost isn't there at −18 dBFS input
+doesn't clamp at 50–80 Hz, and the static boost isn't there at −18 dBFS input.
+One listener on that device heard `--enable level-restore --disable volmax` as
+closer to Windows and preferred it, with no distortion on their music, which
+wasn't especially loud or bass-heavy
 ([capture](research/vendor-apo/dolby-dax2.md#r-registry-preset-capture), issue
 [#150](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/150)).
 

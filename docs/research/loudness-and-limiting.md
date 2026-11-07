@@ -1579,12 +1579,17 @@ channel plays lower by the difference, so a device with differing peaks gets
 slightly quieter overall. `--enable level-restore` builds the same impulse and
 adds its gain downstream.
 
+One listener heard the change on that device: "After-Balanced is clearly more
+centered. I didn't notice that the channels were skewed to the right until
+hearing After-Balanced." Conditions: the #150 reporter's own laptop, the two
+FIR scalings switched in EasyEffects on the same music, 2026-11-06.
+
 Open:
 
 - A Windows capture of a device with differing peaks. The largest in the corpus
   are `17AA22C3` and `17AA22B8` (right higher by 5.56 dB) and `10431713` (right
   higher by 5.06 dB).
-- Nobody has heard the change.
+- Hearing the change on a second device.
 
 <a id="r-level-restore"></a>
 
@@ -2020,6 +2025,12 @@ ran a loud-speech A/B.
 The two restores bracket the dev device's. Source: the regulator's `input-gain`
 in presets rebuilt from each XML with and without the flag. The `17AA38BC` XML
 is the one whose speaker-correction line #103's run printed.
+
+Elsewhere: #150's listener heard the flag with `--disable volmax`, with no
+distortion on their music, in the
+[DAX2 capture](vendor-apo/dolby-dax2.md#r-registry-preset-capture). That build
+drops the boost the artifacts above were heard with, so it doesn't count toward
+the flag's tally.
 
 | Tuning | Balanced | Detailed | Warm |
 |---|---|---|---|

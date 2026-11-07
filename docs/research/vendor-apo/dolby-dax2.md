@@ -127,8 +127,10 @@ Open:
   leveler switch, the regulator and virtual bass on that device only, so every
   mapping above stays unvalidated across presets. On all 13 presets index 9 is
   0, so the leveler reads off on every one.
-- The one listen was from memory, on one of the 13 presets. A side-by-side
-  comparison with Windows, or a second device, would test it.
+- The #148 listen was from memory, and the
+  [#150 one](#r-registry-preset-capture) doesn't say whether Windows was beside
+  it. Both are on one of the 13 presets. A side-by-side comparison with Windows,
+  or a second device, would test them.
 - Index 47 (1 or 0) and the other unmapped indices are unread.
 - `10EC120A` binds a DAX2 preset in Realtek 6.0.8828.1 and has a DAX3 XML in
   the Surface Laptop 4 Intel MSI. The two are not a pair to compare: the XML
@@ -210,6 +212,20 @@ that its limit applies below about 40 Hz rather than 81 Hz.
 −17.2 to −13.0 dB at 79 Hz and from −9.6 to −8.0 dB at 99 Hz, all L. From 157 Hz
 up the two are identical on the bands read.
 
+**Heard.** One listener tried three comparisons on this device, in EasyEffects
+on the same music. Conditions: the #150 reporter's own laptop, 2026-11-06, no
+Windows capture alongside, and the listener doesn't listen to "extremely
+loud/bass-heavy music".
+
+| Comparison | Their words |
+|---|---|
+| Own-peak FIR against the [shared peak](../loudness-and-limiting.md#r-channel-peak-reference) | "After-Balanced is clearly more centered" |
+| `--enable level-restore --disable volmax` against the default | "definitely closer to Windows", though "I consider Windows a bit too loud for my taste. So I actually prefer the Loud-Balanced preset"; dialogue "seemed fine"; "No crackle/distortion on any of my music" |
+| `--disable volmax --disable regulator` against `--disable volmax` | "I'm not the best person to judge this"; no distortion with their media |
+
+So the bass comparison leaves the lowest band's question open. The level-restore
+build has no loud-speech or loud-bass test behind it.
+
 Rejected: forcing autogain as the leveler, on the slope and shape above.
 
 Elsewhere: the left/right level difference this capture exposed is in
@@ -224,6 +240,8 @@ Open:
 - Windows gives decorrelated pink 2.34 / 2.59 dB more than correlated pink at
   about the same level, where our chain differs by at most 0.18 dB. Unexplained.
 - A second DAX2 device, to separate this preset from the format.
+- Whether `--enable level-restore --disable volmax` should be the DAX2 default:
+  one capture and one listener favour it, on one preset.
 - The capture tooling needs three fixes. `capture_dax.py`'s similarity check
   compares at zero lag, so it scored sample-identical audio 0.25. Its Dolby
   detection reports true from Windows' generic spatial-mode list. `analyze.py`'s
