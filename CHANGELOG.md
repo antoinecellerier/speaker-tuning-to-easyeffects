@@ -109,7 +109,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   Lenovo Yoga Slim 7 14IMH9 (83CV)
   ([#155](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/155)),
   ASUS Vivobook Pro 15 (N6506MJ)
-  ([#158](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/158)).
+  ([#158](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/158)),
+  ThinkPad T14 Gen 3 (21AJ)
+  ([#157](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/157)).
 
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings
 
