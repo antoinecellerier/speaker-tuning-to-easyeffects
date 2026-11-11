@@ -94,6 +94,7 @@ _SPEAKER_ROUTE_QUIRKS = {
     (0x1028, 0x07B0): RouteQuirk("alc295-disable-dac3", pin="0x17", sources="0x02 0x03", since="6.11", codec_only=False, commit="aa143ad39a52"),
     (0x1028, 0x097D): RouteQuirk("", pin="0x17", sources="0x02", since="6.11", codec_only=False, commit="e79c22695abd"),
     (0x1028, 0x097E): RouteQuirk("", pin="0x17", sources="0x02", since="6.11", codec_only=False, commit="aa143ad39a52"),
+    (0x1028, 0x09D1): RouteQuirk("", pin="0x17", sources="0x02", since="", codec_only=False, commit="eb296114d5ba"),
     (0x1028, 0x0A61): RouteQuirk("", pin="0x17", sources="0x02", since="6.11", codec_only=False, commit="da94692001ea"),
     (0x1028, 0x0A62): RouteQuirk("", pin="0x17", sources="0x02", since="6.11", codec_only=False, commit="eb676622846b"),
     (0x1028, 0x0B19): RouteQuirk("", pin="0x17", sources="0x02", since="6.11", codec_only=False, commit="15dad62f4bdb"),

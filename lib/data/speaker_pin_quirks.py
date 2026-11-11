@@ -94,6 +94,7 @@ _SPEAKER_PIN_QUIRKS = {
     (0x1028, 0x0798): PinQuirk("dell-inspiron-7559", pins="0x1b", since="6.10", codec_only=False, commit="493de342748c"),
     (0x1028, 0x097D): PinQuirk("", pins="0x17", since="6.11", codec_only=False, commit="e79c22695abd"),
     (0x1028, 0x097E): PinQuirk("", pins="0x17", since="6.11", codec_only=False, commit="aa143ad39a52"),
+    (0x1028, 0x09D1): PinQuirk("", pins="0x17", since="", codec_only=False, commit="eb296114d5ba"),
     (0x1028, 0x0A61): PinQuirk("", pins="0x17", since="6.11", codec_only=False, commit="da94692001ea"),
     (0x1028, 0x0A62): PinQuirk("", pins="0x17", since="6.11", codec_only=False, commit="eb676622846b"),
     (0x1028, 0x0B19): PinQuirk("", pins="0x17", since="6.11", codec_only=False, commit="15dad62f4bdb"),
