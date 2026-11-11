@@ -113,7 +113,9 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   ThinkPad T14 Gen 3 (21AJ)
   ([#157](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/157)),
   ASUS Zenbook 15 UM3504DA
-  ([#161](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/161)).
+  ([#161](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/161)),
+  ASUS Vivobook Pro 15 (M6500QC)
+  ([#163](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/163)).
 
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings
 

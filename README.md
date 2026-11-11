@@ -286,6 +286,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 |---|---|
 | ASUS TUF Gaming A15 (FA507NV) <!-- Realtek ALC256, 1043:14B3 --> | [#34](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/34) |
 | ASUS TUF Gaming A16 (FA607PV) <!-- Realtek ALC256, 1043:1C93 --> | [#137](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/137) — reporter recommends `--volmax-slot output-gain` |
+| ASUS Vivobook Pro 15 (M6500QC) <!-- Realtek ALC294, 1043:11D3 --> | [#163](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/163) |
 | ASUS Vivobook Pro 15 (N6506MJ) <!-- Realtek ALC294, 1043:1D43 --> | [#158](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/158) |
 | ASUS Zenbook 14 (UM3406HA) <!-- Realtek ALC294, 1043:1C03 --> | [#134](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/134) — reporter recommends `--enable autogain` |
 | ASUS Zenbook 14 UX3405CA, UX3405MA <!-- Realtek ALC294, 1043:1A63 --> | [#19](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/19), [#24](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/24) |
