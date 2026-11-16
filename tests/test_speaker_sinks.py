@@ -1232,6 +1232,12 @@ def test_detector_is_a_no_op_without_a_soundwire_bus(tmp_path, monkeypatch):
     ("snd_soc_tas2783_sdw", True, "tas2"),  # its SoundWire sibling
     ("max98373", False, "max98"),         # Maxim DSM — no separate fw blob
     ("rt1318", False, "rt13"),            # Realtek SoundWire — no separate fw blob
+    ("snd_soc_rt1316_sdw", False, "rt13"),
+    # RT1320 loads its MCU patch from realtek/rt1320/ on every init. Both the
+    # module and the bound SoundWire driver name must reach its own row,
+    # ahead of the blob-less rt13 one.
+    ("snd_soc_rt1320_sdw", True, "rt13"),
+    ("rt1320-sdca", True, "rt13"),
     # Awinic AW88399 woofer amp, HDA side codec on 2025 Lenovo Legion (7.3).
     ("snd_hda_scodec_aw88399", True, "aw88"),
     ("snd_soc_aw88395", True, "aw88"),    # ASoC sibling, same aw88NNN_acf.bin
@@ -1264,13 +1270,15 @@ def test_amp_families_failure_markers():
     # source-verified tell, and Maxim deliberately carries none (its missing DSM
     # param is silent/non-fatal — we must not invent a marker for it).
     markers = {fam[0][0]: fam[3] for fam in amps._AMP_FAMILIES}
-    assert (markers["cs35l"] and markers["tas2"] and markers["rt13"]
+    assert (markers["cs35l"] and markers["tas2"] and markers["rt1320"]
             and markers["aw88"])
     # Qualcomm loads no blob, so like Maxim it carries no honest tell — and an
     # empty marker must not reach the OR-join below.
     assert markers["wsa88"] == ""
     assert markers["tac5"]
     assert markers["max98373"] == ""
+    # rt1316/rt1318 never call request_firmware; the rt1320 tells are its own.
+    assert markers["rt13"] == ""
     # The compiled union must be exactly the non-empty family markers, OR-joined.
     assert amps._AMP_LOG_ERROR_RE.pattern == "|".join(
         m for m in markers.values() if m)
@@ -1386,6 +1394,24 @@ def test_aw88399_hda_blobs_are_found_by_directory(tmp_path):
     globs, _keywords = amps._amp_firmware_profile("snd_hda_scodec_aw88399")
     assert amps._list_firmware_files(globs, roots=[tmp_path]) == [
         "aw88399_acf.bin", "awinic/aw88399_acf_17aa3938.bin.zst"]
+
+
+def test_rt1320_blobs_are_found_by_directory(tmp_path):
+    """RT1320's always-requested MCU patch and its per-machine DSP program
+    share realtek/rt1320/, under names no part-prefix glob reaches; the
+    dspfw-name fallback sits at the root. All three are found, compressed or
+    not, and a register-only rt1316 gets no globs to search with."""
+    blob_dir = tmp_path / "realtek" / "rt1320"
+    blob_dir.mkdir(parents=True)
+    (blob_dir / "rt1320-patch-code-vc.bin.zst").write_text("x")
+    (blob_dir / "rt1320_LG_16Z95U_SKU1.dat").write_text("x")
+    (tmp_path / "rt1320_custom.dat.xz").write_text("x")
+    globs, _keywords = amps._amp_firmware_profile("snd_soc_rt1320_sdw")
+    assert amps._list_firmware_files(globs, roots=[tmp_path]) == [
+        "realtek/rt1320/rt1320-patch-code-vc.bin.zst",
+        "realtek/rt1320/rt1320_LG_16Z95U_SKU1.dat",
+        "rt1320_custom.dat.xz"]
+    assert amps._amp_firmware_profile("snd_soc_rt1316_sdw")[0] == []
 
 
 # --- Merged "Speaker amplifier status" section: terse, expand on problems ----

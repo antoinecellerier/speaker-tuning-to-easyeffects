@@ -96,12 +96,26 @@ _AMP_FAMILIES = (
      r"|failed to read fallback fw binary|firmware size mismatch with header"
      r"|fw with no files|error playback without fw download"
      r"|firmware request failed for uid|fw request, wait_event timeout"),
-    # Realtek SoundWire amps. Only rt1320 loads a firmware patch (rt1316/rt1318
-    # are register-only). Markers from rt1320-sdw.c: "Failed to load … firmware",
-    # "FW file doesn't match to device", "Can't find proper FW file name".
-    (("rt13", "rt_amp"), (), ("rt13",),
+    # Realtek RT1320, the one Realtek SoundWire amp that loads firmware; its
+    # driver also runs the RT1321. Ahead of the rt13 row, since the first
+    # matching row wins. Device init requests an MCU patch-code blob from
+    # realtek/rt1320/ on every part but the RT1321 VA2. linux-firmware ships
+    # those generically, so "none found" there is a real gap. The same directory holds the per-machine DSP
+    # program and RAE preset, rt1320_[RAE_]<vendor>_<product>_<sku>.dat (or
+    # rt1320_<dspfw-name>.dat at the root when DMI is incomplete). Those load
+    # only when user space sets the "DSP FW Update" / "RAE Update" controls,
+    # and a missing one logs nothing of its own, so their absence is no tell.
+    # The LG gram 16Z95U's still-silent RT1320 (sound-7.4-rc3, e92fb7ab0e38) is
+    # a machine whose Windows driver loads both and Linux has neither.
+    # Markers from rt1320-sdw.c as of sound-7.4-rc3: "Failed to load %s
+    # firmware" (l.1822, the patch code), "FW file doesn't match to device"
+    # (l.2257), "Can't find proper FW file name" (l.2154).
+    (("rt1320",), ("realtek/rt1320/*", "rt1320_*.dat*"), ("rt13",),
      r"failed to load .* firmware|fw file doesn't match to device"
      r"|can't find proper fw file name"),
+    # Realtek rt1316/rt1318 SoundWire amps: register-only, no request_firmware
+    # call in either driver, so no blob and no firmware tell.
+    (("rt13", "rt_amp"), (), ("rt13",), ""),
     # Awinic AW88399, the woofer amp on 2025 Lenovo Legion laptops (upstream
     # 7.3, ALC287 + AWDZ8399 over I2C). Its HDA side codec arrived with the
     # symptom this project knows from issue #53: "only the tweeters produce
