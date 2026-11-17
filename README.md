@@ -293,6 +293,7 @@ devices whose Windows driver ships a Dolby DAX3 tuning, or, experimentally, a
 | ASUS Zenbook 15 UM3504DA <!-- Realtek ALC294, 1043:18D3 --> | [#161](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/161) |
 | ASUS Zenbook Pro 16X OLED UX7602BZ <!-- Realtek ALC285, 1043:16F3 --> | [#117](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/117) |
 | Framework Laptop 13 Pro (Intel Core Ultra Series 3) <!-- Realtek ALC285, F111:000F --> | [#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73) |
+| HP EliteBook 845 G9 <!-- Realtek ALC245, 103C:8991 --> | [#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165) — experimental, from its [Sonitude tuning](docs/sonitude.md) |
 | HP ZBook 15 G6 <!-- Realtek ALC285, 103C:860F --> | [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140) — experimental, from its [Sonitude tuning](docs/sonitude.md); reporter finds Movie matching Windows, and Music and Voice close with less bass |
 | Lenovo IdeaPad 3 15ALC6 (82KU) <!-- Realtek ALC257, 17AA:38BC --> | [#103](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/103) — reporter recommends `--enable autogain --enable level-restore` |
 | Lenovo IdeaPad Pro 5 14AHP9 (83D3) <!-- Realtek ALC287, 17AA:38D0 --> | [#18](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/18) |
