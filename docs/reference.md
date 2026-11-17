@@ -630,6 +630,9 @@ bass that wants to be "more dense and full". The same listener found Movie
 ([Sonitude presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets),
 issue
 [#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)).
+A second listener has heard the build on an HP EliteBook 845 G9, without
+comparing it with Windows
+([#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165)).
 
 ### Dolby DAX2 preset
 

@@ -379,6 +379,7 @@ re-proposed:
 | #148 | a Surface Laptop 3 with no DAX3 XML; the Dolby DAX2 preset its Realtek `.inf` writes, its numbered values named by shape and by a DAX3 preset in the same registry form; the 18 Surface codec IDs that bind one; one listener's by-ear report | [vendor-apo/dolby-dax2.md#r-dolby-registry-preset](research/vendor-apo/dolby-dax2.md#r-dolby-registry-preset) |
 | #150 | the first Windows capture of a DAX2 device, against live EasyEffects; the speaker correction matches, and the leveler switch, lowest regulator band and static boost don't; the left/right level difference our normalisation flattened; one listener's by-ear report | [vendor-apo/dolby-dax2.md#r-registry-preset-capture](research/vendor-apo/dolby-dax2.md#r-registry-preset-capture), [loudness-and-limiting.md#r-channel-peak-reference](research/loudness-and-limiting.md#r-channel-peak-reference) |
 | #152 | a chain sink that came up muted after install, silencing the speakers while their control read unmuted; WirePlumber's per-description restore | [easyeffects-and-pipewire.md#r-chain-as-system-output](research/easyeffects-and-pipewire.md#r-chain-as-system-output) |
+| #165 | a second HP laptop heard on its Sonitude preset, with no Windows comparison; its preset's boosts, which the cuts-only reading drops | [vendor-apo/sonitude.md#r-sonitude-apo-presets](research/vendor-apo/sonitude.md#r-sonitude-apo-presets) |
 
 ### Moved sections
 

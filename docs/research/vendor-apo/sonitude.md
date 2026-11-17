@@ -216,7 +216,9 @@ Open:
   the bass and quieter at the same slider position, and the build with the
   high-pass was "considerably better… almost like Windows". Windows' 50 % is
   −10.3 dB at the endpoint, where PipeWire's cubic 50 % is −18.1 dB, so the
-  slider positions don't compare.
+  slider positions don't compare. A second listener has heard the build on
+  an HP EliteBook 845 G9 (#165, ALC245, `103C8991`), without a Windows
+  comparison.
 - The psychoacoustic bass stage, the likely missing punch. Its fields are
   read above but not built: the converter's virtual-bass branch plays only
   through PipeWire. The second set's stepped tones at 47 and 81 Hz are held
@@ -236,7 +238,16 @@ Open:
   70 Hz corner, where it keeps the stored curve above the corner. No capture
   covers any of them.
 - A third device, ideally one whose curve boosts the treble, for the
-  cuts-only reading.
+  cuts-only reading. Only the OMEN separates the cuts from the stored curve
+  so far: from 200 Hz to 12.5 kHz the ZBook's Music curve peaks at +0.1 dB,
+  so there both readings are the same. In `sp161474.exe`, the EliteBook 845
+  G9's `103C8991` binds preset 210 ("2022 800 Warpath 14 AICCPA"), in the
+  `HDAUDIO` archive only. Its Music curve boosts 56 of the 143 points in that
+  band, by up to +12.3 dB, most of it in a shelf from its 175 Hz high-pass
+  corner to about 360 Hz; treble boosts reach +5.6 dB. A Windows comparison
+  on that laptop would test the reading, starting with the lower mids.
+  Whether that laptop's own driver download binds the same preset is
+  unconfirmed.
 - The dynamics stages are unread. B&O's small effect at the quiet end and
   Movie's 2.3 dB level step over Music are unexplained.
 - Which archive Windows reads when both an `INTELAUDIO` and an `HDAUDIO` one

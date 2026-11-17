@@ -3,11 +3,11 @@
 [README](../README.md) · [All docs](README.md)
 
 Some laptops ship no Dolby file. Their Windows speaker tuning is a preset for
-the Sonitude audio processing object (APO), formerly Sound Research, which
-comes in the laptop's audio driver. The converter builds its presets from that
-preset instead. This is experimental: one laptop has been heard. On some
-laptops the OEM's audio app calls this tuning by a speaker brand's name, such
-as HP's Bang & Olufsen Audio Control.
+the Sonitude audio processing object (APO), formerly Sound Research, which comes
+in the laptop's audio driver. The converter builds its presets from that preset
+instead. This is experimental: two laptops have been heard, one of them next to
+Windows. On some laptops the OEM's audio app calls this tuning by a speaker
+brand's name, such as HP's Bang & Olufsen Audio Control.
 
 ## Running it
 
@@ -48,7 +48,9 @@ has been checked against Windows.
 
 Experimental. One listener has compared all three presets with Windows, on one
 laptop. They found Movie matching Windows, and Music and Voice close, with less
-bass. All three played quieter at the same volume setting.
+bass. All three played quieter at the same volume setting. A second listener
+has heard the build on another laptop, without comparing it with Windows, and
+found it "much clearer" and "controlled".
 
 If the preset plays quieter than Windows, allow volume above 100% in your
 desktop environment, as
@@ -61,5 +63,7 @@ them here.
 Open a
 [device report](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/new?template=device-report.yml),
 say which sound mode you compared with Windows, and give the link to your
-laptop's audio driver download. The laptop heard so far is in
-[#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140).
+laptop's audio driver download. The laptops heard so far are in
+[#140](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/140)
+and
+[#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165).
