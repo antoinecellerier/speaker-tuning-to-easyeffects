@@ -45,7 +45,12 @@ name: Mark confirmed device as tested
 # the earlier hardening moved away from. A third shape is a model-name Family
 # with a bare code in Product: Motorola's motobook is Lenovo-built and reads
 # Vendor "MOTOROLA" / Family "motobook 60 14IRH10R" / Product "83J7" (#121),
-# so step 4 names it like a Lenovo consumer row under the Vendor brand.
+# so step 4 names it like a Lenovo consumer row under the Vendor brand. HP
+# puts a platform code before the brand in Family ("103C_5336AN HP
+# EliteBook") and the full name in Product ("HP EliteBook 845 14 inch G9
+# Notebook PC"), so step 4 names it from Product with the form-factor words
+# dropped (#140, #165). The charset gate applies to the derived name, not the
+# raw lines: #165's run blocked on the `_` in a Family code the name drops.
 #
 # The prompt also says outright that the push and the PR need no
 # confirmation. The first run under those rules (#73) derived the name,
@@ -248,6 +253,14 @@ jobs:
                       brands (Motorola's motobook) and theirs carry a Lenovo
                       machine type there — trim it to four characters as in
                       step 3; any other code goes in whole.
+                   d. `Product` leads with the brand and `Family` puts a code
+                      before it (HP: Family "103C_5336AN HP EliteBook",
+                      Product "HP EliteBook 845 14 inch G9 Notebook PC"):
+                      `Product` is the branding and already carries the
+                      brand, so the name is `Product` alone, minus a
+                      trailing "Notebook PC" or "Laptop PC" and a screen
+                      size ("14 inch"), with no code appended. Say in the
+                      PR body what you dropped.
                    Anything else, stop and report `blocked`.
                  The brand is the `Vendor` line (runs newer than v2026.08
                  print it), even on a Lenovo-built rebrand: the table names
@@ -286,6 +299,10 @@ jobs:
               -> ASUS Zenbook UX7602BZ</example>
             <example>Vendor "MOTOROLA" + Family "motobook 60 14IRH10R" + Product "83J7"
               -> Motorola motobook 60 14IRH10R (83J7)</example>
+            <example>Vendor "HP" + Family "103C_5336AN HP ZBook" + Product "HP ZBook 15 G6"
+              -> HP ZBook 15 G6</example>
+            <example>Vendor "HP" + Family "103C_5336AN HP EliteBook" + Product "HP EliteBook 845 14 inch G9 Notebook PC"
+              -> HP EliteBook 845 G9</example>
             </examples>
 
             SHELL SAFETY: single-quote every argument you pass to `git` and
@@ -294,9 +311,11 @@ jobs:
             unattended: a command the permission layer cannot parse is denied
             outright and there is nobody to approve it. The device name reaches
             `git commit -m` and `gh pr create --title`, so it must hold only
-            letters, digits, spaces and ( ) , . - . If a `Family` or `Product`
-            line carries anything else, stop and report `blocked` quoting the
-            raw line, rather than escaping around it.
+            letters, digits, spaces and ( ) , . - . If the name you derived
+            would carry anything else, stop and report `blocked` quoting the
+            raw line, rather than escaping around it. A character only in a
+            part of a line the name leaves out, such as the `_` in HP's
+            "103C_5336AN" Family code or an ASUS `_` repeat, is no obstacle.
 
             First, idempotency check — this label can be applied more than once.
             Look for this device in the "Supported devices" table in README.md
@@ -350,6 +369,9 @@ jobs:
                  `| ThinkPad X1 Yoga Gen 7 (21CD) <!-- Realtek ALC287, 17AA:22E6 --> | author |`
                The comment is hidden on GitHub but required:
                tests/test_readme_devices_order.py fails a row without one.
+               If the report says the run built `Sonitude` presets, the
+               second cell carries the same note as the other Sonitude rows:
+                 `[#N](…/issues/N) — experimental, from its [Sonitude tuning](docs/sonitude.md)`
 
                The codec comment comes from the `=== HDA codecs ===` block of
                the `--speaker-info` output, from the ANALOG codec line — the
