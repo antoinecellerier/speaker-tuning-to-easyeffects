@@ -569,13 +569,20 @@ naming a plugin `lv2info` will not resolve, and 2 when the check could not run
 at all.
 
 The same pass decides whether the conf is written at all. `lv2info` and the
-filter-chain both resolve plugins through lilv. So a URI `lv2info` exits
-non-zero for is one the daemon will not load either, because the plugin is
-missing or its TTL won't parse. Those URIs come back in `Report.unloadable`, and
+filter-chain both resolve plugins through lilv, and `lv2info` runs with the
+running daemon's `LV2_PATH`. So a URI `lv2info` exits non-zero for is one the
+daemon will not load either, because the plugin is missing or its TTL won't
+parse. Those URIs come back in `Report.unloadable`, and
 the status is `ERRORS`. The run then names the package instead of writing a conf
 that cannot work. An exec that never *answered*, such as a timeout or a fork
 that failed, is the opposite case and stays a warning. It says nothing about the
 plugin, so that plugin's ports simply go unchecked.
+
+The daemon's `LV2_PATH` is read from the environment of this user's main
+`pipewire` process (`session.daemon_lv2_env`). NixOS is where it differs from a
+login shell's by default: its PipeWire service loads plugins from
+`services.pipewire.extraLv2Packages` alone. With no daemon to read, `lv2info`
+keeps the caller's environment.
 
 `lilv-utils` is not required. PipeWire needs the lilv library, not the command,
 so demanding it would block a machine whose LSP and Calf are correctly

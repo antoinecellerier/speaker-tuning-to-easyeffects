@@ -115,8 +115,8 @@ PYTHON_KEYS = (NUMPY, SCIPY, RICH, RICH_ARGPARSE)
 # The keys a `nix-shell` genuinely satisfies: the things *this process* runs —
 # its own interpreter's modules, and the CLIs it execs. The rest are what the
 # PipeWire daemon or the user's desktop has to find, and those live outside
-# any shell this tool could suggest, so on NixOS they get a note about
-# `environment.systemPackages` instead of a command. The distinction only
+# any shell this tool could suggest, so on NixOS they get a note naming the
+# configuration option instead of a command. The distinction only
 # matters there; every other family installs into the system either way.
 NIX_SHELL_KEYS = PYTHON_KEYS + (LV2INFO, ALSA_UTILS, INNOEXTRACT, SEVENZIP,
                                 MSITOOLS)
@@ -220,11 +220,15 @@ COMPLETE_KEYS = (LSP_LV2, LV2INFO, ALSA_UTILS, EASYEFFECTS, NUMPY, SCIPY,
 # Phrased so the verb agrees whichever way it is filled in: one of these
 # rows names a single tool and the other names two.
 _PW_OWN = "the pipewire package itself carries {}"
-_NIX_SYSTEM = (
-    "add {} to environment.systemPackages and run nixos-rebuild switch — a "
-    "nix-shell doesn't reach the PipeWire daemon")
-_NIX_PLAIN = (
-    "add {} to environment.systemPackages and run nixos-rebuild switch")
+# An LV2 plugin goes where the PipeWire daemon looks: its user service's
+# LV2_PATH is built from services.pipewire.extraLv2Packages alone, so
+# environment.systemPackages never reaches it. The lv2info checks search the
+# daemon's LV2_PATH too (`session.daemon_lv2_env`), so one option serves both.
+_NIX_LV2_BODY = "add {} to services.pipewire.extraLv2Packages"
+_NIX_PLAIN_BODY = "add {} to environment.systemPackages"
+# Said after the instruction, so it reads as the reason no shell is offered.
+_NIX_LV2_WHY = "; a nix-shell doesn't reach the PipeWire daemon"
+_NIX_REBUILD = ", then run nixos-rebuild switch"
 
 UNPACKAGED = {
     (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — add the "
@@ -254,10 +258,11 @@ LV2_LOADER_GENERIC = (
 UNPACKAGED.update({(PW_LV2_LOADER, fam): LV2_LOADER_GENERIC
                    for fam in (SUSE, NIXOS)})
 
-# What NixOS installs system-wide rather than into a shell, by attribute.
-# These are the things the PipeWire daemon or the desktop has to find, and a
-# `nix-shell` never reaches either. Kept as its own table because the answer
-# is one declarative instruction for however many packages were asked for.
+# What NixOS installs through its configuration rather than into a shell, by
+# attribute. These are the things the PipeWire daemon or the desktop has to
+# find, and a `nix-shell` never reaches either. Kept as its own table because
+# the answer is one declarative instruction for however many packages were
+# asked for.
 # Rendered per key, three missing plugins would repeat the same long sentence
 # three times. `UNPACKAGED` is filled from it so a cell is still *spoken* when
 # the fallback lists every family one by one.
@@ -273,11 +278,29 @@ _NIXOS_SYSTEM = {
 # ordinary reason, not because of PipeWire.
 _NIXOS_DAEMON_KEYS = (LSP_LV2, CALF_LV2)
 
-UNPACKAGED.update({
-    (key, NIXOS): (_NIX_SYSTEM if key in _NIXOS_DAEMON_KEYS
-                   else _NIX_PLAIN).format(attr)
-    for key, attr in _NIXOS_SYSTEM.items()
-})
+
+
+def _nixos_bodies(keys, rebuild: str = "") -> list[str]:
+    """The NixOS instructions for `keys`, one per destination.
+
+    Plugins first, in one sentence, then EasyEffects in its own, so neither is
+    told to go where only the other belongs. `rebuild` goes before the
+    plugins' nix-shell reason, which holds for them alone.
+    """
+    out = []
+    for body, why, wanted in ((_NIX_LV2_BODY, _NIX_LV2_WHY, True),
+                              (_NIX_PLAIN_BODY, "", False)):
+        group = [k for k in keys if (k in _NIXOS_DAEMON_KEYS) == wanted]
+        if group:
+            out.append(body.format(" and ".join(_NIXOS_SYSTEM[k]
+                                                for k in group))
+                       + rebuild + why)
+    return out
+
+
+UNPACKAGED.update({(key, NIXOS): _nixos_bodies([key], _NIX_REBUILD)[0]
+                   for key in _NIXOS_SYSTEM})
+
 
 # A name that resolves, and a command that still leaves the reader without the
 # thing. Gentoo builds these behind USE flags that are not on by default, so
@@ -656,21 +679,16 @@ def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
             if key not in covered:
                 out.append(("dim", f"({UNPACKAGED.get((key, fam), key)})"))
         if declarative:
-            # One instruction for all of them, and the rebuild on its own line
-            # so it stays pasteable.
-            attrs = " and ".join(_NIXOS_SYSTEM[k] for k in declarative)
-            # The reason only where it holds: an LV2 plugin has to be visible
-            # to the daemon, which is why a nix-shell is no use for it. Saying
-            # that about EasyEffects, which the reader launches themselves,
-            # would be a reason that isn't one.
-            why = (", since a nix-shell doesn't reach the PipeWire daemon"
-                   if any(k in _NIXOS_DAEMON_KEYS for k in declarative) else "")
+            # One instruction per destination, and the rebuild on its own line
+            # so it stays pasteable. Plugins and EasyEffects go to different
+            # options: the daemon's plugin list is no place for an
+            # application the reader launches themselves.
             # Not "NixOS installs these": the reader is on NixOS, since this
             # line only prints once os-release has placed them, and "these" is
             # wrong whenever the list holds one package.
-            out.append(("dim", f"(a configuration change, not an install{why}"
-                               f" — add {attrs} to "
-                               "environment.systemPackages)"))
+            for body in _nixos_bodies(declarative):
+                out.append(("dim", "(a configuration change, not an install"
+                                   f" — {body})"))
             out.append(("cta", "sudo nixos-rebuild switch"))
         if out:
             return tuple((style, f"{indent}{text}") for style, text in out)
@@ -691,14 +709,9 @@ def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
     for gap_fam in FAMILIES:
         declarative = [k for k in keys if gap_fam == NIXOS
                        and k in _NIXOS_SYSTEM and (k, gap_fam) in UNPACKAGED]
-        if declarative:
-            attrs = " and ".join(_NIXOS_SYSTEM[k] for k in declarative)
-            # Gated like the placed path above, and for the same reason:
-            # the daemon is why a nix-shell is no use for an LV2 plugin, and
-            # is not why EasyEffects wants to be in the environment.
-            note((_NIX_SYSTEM if any(k in _NIXOS_DAEMON_KEYS
-                                     for k in declarative)
-                  else _NIX_PLAIN).format(attrs), LABELS[gap_fam])
+        # Split like the placed path above, and for the same reason.
+        for body in _nixos_bodies(declarative, _NIX_REBUILD):
+            note(body, LABELS[gap_fam])
         for key in keys:
             if key in declarative:
                 continue

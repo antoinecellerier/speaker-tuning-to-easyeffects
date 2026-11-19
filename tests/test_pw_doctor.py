@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -745,6 +746,8 @@ def test_plugin_presence_covers_every_uri_the_converter_can_emit(monkeypatch):
 
     monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(tool_env, "run", fake_run)
+    # Only lv2info is under test; the daemon lookup would call `run` too.
+    monkeypatch.setattr(session, "daemon_lv2_env", lambda: None)
 
     lines = checks._plugin_presence()
     expected = {plugins.LSP_PEQ_URI, plugins.LSP_MBC_URI, plugins.LSP_LIM_URI,
@@ -761,6 +764,7 @@ def test_plugin_presence_says_missing_when_lv2info_says_no(monkeypatch):
     the exception path too: `lv2info` that cannot run at all must not read as
     a plugin that is there."""
     monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(session, "daemon_lv2_env", lambda: None)
     monkeypatch.setattr(tool_env, "run",
                         lambda cmd, **kw: SimpleNamespace(returncode=255))
     assert all(line.endswith(": MISSING")
@@ -840,6 +844,82 @@ def test_a_plugin_no_conf_asks_for_is_not_a_fault(monkeypatch):
     # have thrown the check away rather than aimed it.
     assert checks.check_plugins_present(
         _probe(**{"LSP MBC": False}), [lsp_only]).status == DOCTOR_FAIL
+
+
+def test_the_plugin_probe_asks_lv2info_with_the_daemons_path(monkeypatch):
+    """"Present" has to mean the daemon can load it.
+
+    Asked with the shell's environment, lv2info on NixOS finds plugins in
+    `environment.systemPackages`, which the PipeWire service never sees, and
+    misses ones in `services.pipewire.extraLv2Packages`, which it loads.
+    """
+    seen = []
+
+    def fake_run(argv, env_extra=None, **kwargs):
+        seen.append(env_extra)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(tool_env, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}")
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(session, "daemon_lv2_env",
+                        lambda: {"LV2_PATH": "/nix/store/x/lib/lv2"})
+    probe = checks._probe_plugins()
+    assert seen and all(e == {"LV2_PATH": "/nix/store/x/lib/lv2"}
+                        for e in seen), seen
+    assert all(present for _l, _u, present in probe.entries)
+
+
+def test_the_daemon_lv2_path_comes_from_the_main_pipewire_process(
+        monkeypatch, fake_host):
+    """The main daemon reads our confs; a `-c` instance reads its own.
+
+    Debian runs a second `pipewire -c filter-chain.conf` beside the main one,
+    so the lookup skips any instance with a config argument. An unset
+    LV2_PATH is an answer too, `None`, which unsets it for lv2info so both
+    fall back to lilv's built-in path. No readable daemon is no answer.
+    """
+    pgrep = ("100 /usr/bin/pipewire\n"
+             "200 /usr/bin/pipewire -c filter-chain.conf\n")
+    monkeypatch.setattr(tool_env, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        tool_env, "run",
+        lambda argv, **k: subprocess.CompletedProcess(argv, 0, pgrep, ""))
+    fake_host("/proc/100/environ",
+              "HOME=/home/u\0LV2_PATH=/nix/store/x/lib/lv2\0")
+    fake_host("/proc/200/environ", "LV2_PATH=/somewhere/else\0")
+    assert session.daemon_lv2_env() == {"LV2_PATH": "/nix/store/x/lib/lv2"}
+
+    session.forget_daemon_lv2_env()
+    fake_host("/proc/100/environ", "HOME=/home/u\0")
+    assert session.daemon_lv2_env() == {"LV2_PATH": None}
+
+    session.forget_daemon_lv2_env()
+    pgrep = ""
+    assert session.daemon_lv2_env() is None
+
+
+def test_the_daemon_lv2_path_skips_what_it_cannot_read(monkeypatch,
+                                                       fake_host):
+    """One unreadable pid is not the answer; a container is no answer at all.
+
+    A pid can exit between pgrep and the read, so another main daemon still
+    answers. Inside toolbox or distrobox the host's daemon is visible, but
+    its LV2_PATH names host paths the container's lv2info can't see.
+    """
+    pgrep = "100 /usr/bin/pipewire\n101 /usr/bin/pipewire\n"
+    monkeypatch.setattr(tool_env, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        tool_env, "run",
+        lambda argv, **k: subprocess.CompletedProcess(argv, 0, pgrep, ""))
+    fake_host("/proc/101/environ", "LV2_PATH=/nix/store/x/lib/lv2\0")
+    assert session.daemon_lv2_env() == {"LV2_PATH": "/nix/store/x/lib/lv2"}
+
+    session.forget_daemon_lv2_env()
+    fake_host("/run/.containerenv", "")
+    assert session.daemon_lv2_env() is None
 
 
 def test_nothing_to_judge_is_not_a_verdict(monkeypatch):

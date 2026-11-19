@@ -115,8 +115,10 @@ def fresh_lv2_loader_probe():
     later test's, whatever it stubs."""
     from lib.pipewire import session
     session.forget_lv2_loader()
+    session.forget_daemon_lv2_env()
     yield
     session.forget_lv2_loader()
+    session.forget_daemon_lv2_env()
 
 
 @pytest.fixture(autouse=True)

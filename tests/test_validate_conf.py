@@ -169,6 +169,41 @@ def _one_peq_conf(monkeypatch):
                         lambda name, *a, **k: f"/usr/bin/{name}")
     monkeypatch.setattr(validate, "parse_conf", lambda text: [
         {"type": "lv2", "name": "peq", "plugin": LSP_PEQ_URI, "control": {}}])
+    # No daemon to read: these tests count lv2info execs, and the daemon
+    # lookup's pgrep would land in the same `run` stub.
+    from lib.pipewire import session
+    monkeypatch.setattr(session, "daemon_lv2_env", lambda: None)
+
+
+def test_lv2info_searches_the_running_daemons_plugin_path(monkeypatch):
+    """lv2info's "no" stands for the daemon's only if both search one path.
+
+    A systemd user service never sees the login shell's environment, and on
+    NixOS the PipeWire service's LV2_PATH is built from
+    `services.pipewire.extraLv2Packages` alone. So `run` hands lv2info the
+    daemon's LV2_PATH, and says whether it could, for the caller's wording.
+    """
+    from lib.pipewire import session
+    seen = []
+
+    def fake_run(argv, env_extra=None, **kwargs):
+        seen.append(env_extra)
+        return subprocess.CompletedProcess(argv, 1, "", "Plugin not found.")
+
+    _one_peq_conf(monkeypatch)
+    monkeypatch.setattr(tool_env, "run", fake_run)
+    monkeypatch.setattr(session, "daemon_lv2_env",
+                        lambda: {"LV2_PATH": "/nix/store/x/lib/lv2"})
+    report = validate.run("")
+    assert seen == [{"LV2_PATH": "/nix/store/x/lib/lv2"}]
+    assert report.daemon_lv2 is True
+    assert report.unloadable == (LSP_PEQ_URI,)
+
+    seen.clear()
+    monkeypatch.setattr(session, "daemon_lv2_env", lambda: None)
+    report = validate.run("")
+    assert seen == [None]
+    assert report.daemon_lv2 is False
 
 
 def test_a_failed_lv2info_exec_degrades_to_a_warning(monkeypatch):

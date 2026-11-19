@@ -1513,6 +1513,38 @@ def test_main_refuses_a_conf_naming_a_plugin_that_cannot_load(generated,
     )
 
 
+@pytest.mark.parametrize("daemon_lv2,who", [(True, "PipeWire"),
+                                             (False, "lv2info")])
+def test_on_nixos_the_refusal_names_whoever_answered(
+        generated, tmp_path, monkeypatch, capsys, daemon_lv2, who):
+    """On NixOS, lv2info's "no" is PipeWire's only on the daemon's path.
+
+    Asked with the running daemon's LV2_PATH, it is the daemon's answer. With
+    no daemon to read, lv2info searched the shell's environment, which NixOS's
+    PipeWire service does not share: "PipeWire cannot load" would be false
+    for a plugin in `services.pipewire.extraLv2Packages`, so the refusal
+    names lv2info and says how to get the daemon's answer instead.
+    """
+    from lib import packages
+    from lib.pipewire import validate
+    monkeypatch.setattr(
+        validate, "run",
+        lambda conf: validate.Report(validate.ERRORS,
+                                     unloadable=(LSP_PEQ_URI,),
+                                     daemon_lv2=daemon_lv2))
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.NIXOS)
+
+    preset, irs_path = generated
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text(json.dumps(preset))
+    assert ee2pw_main([str(preset_path), "--irs-dir", str(irs_path.parent),
+                       "--dry-run"]) == 1
+    out = capsys.readouterr().out
+    assert f"error: {who} cannot load" in out, out
+    assert ("start PipeWire and run this again" in out) is (not daemon_lv2)
+    assert "services.pipewire.extraLv2Packages" in out, out
+
+
 def test_a_schema_error_survives_a_missing_package_in_the_same_run(
         generated, tmp_path, monkeypatch, capsys):
     """Both defects have to reach the reader, or the second costs a round trip.

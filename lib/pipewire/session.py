@@ -547,6 +547,98 @@ def forget_lv2_loader() -> None:
     _lv2_loader_answer = None
 
 
+# The daemon's LV2 search path, for the `lv2info` checks. `lv2info` and the
+# daemon resolve plugins through the same lilv, but each with its own
+# environment: a systemd user service never sees the login shell's. NixOS is
+# where the two differ by default, since its PipeWire service sets LV2_PATH to
+# a tree built from services.pipewire.extraLv2Packages alone. Asked with the
+# daemon's value, `lv2info`'s answer is the daemon's answer.
+_LV2_PATH = "LV2_PATH"
+
+
+def main_daemon_pids(pgrep_a: str) -> list[str]:
+    """The pids in `pgrep -a -x pipewire` output that run the main daemon.
+
+    A `-c`/`--config` argument marks another instance of the same binary,
+    such as the filter-chain service, which reads a different conf. The confs
+    this project installs are read by the main one.
+    """
+    pids = []
+    for line in pgrep_a.splitlines():
+        pid, *argv = line.split()
+        if not pid.isdigit():
+            continue
+        if any(a in ("-c", "--config") or a.startswith("--config=")
+               for a in argv[1:]):
+            continue
+        pids.append(pid)
+    return pids
+
+
+def lv2_path_from_environ(raw: bytes) -> str | None:
+    """LV2_PATH from a `/proc/<pid>/environ` blob, or None when it is unset."""
+    for entry in raw.split(b"\0"):
+        name, sep, value = entry.partition(b"=")
+        if sep and name == _LV2_PATH.encode():
+            return value.decode(errors="surrogateescape")
+    return None
+
+
+def _probe_daemon_lv2_env() -> dict[str, str | None] | None:
+    """`daemon_lv2_env`'s answer, asked of this machine."""
+    try:
+        if host.path("/run/.containerenv").exists():
+            # Toolbox and distrobox see the host's daemon, whose LV2_PATH
+            # names host paths, while lv2info runs on the container's tree.
+            return None
+    except OSError:
+        pass
+    if tool_env.which("pgrep") is None:
+        return None
+    out = _run(["pgrep", "-a", "-x", "-u", str(os.getuid()), "pipewire"],
+               timeout=2)
+    values = set()
+    for pid in main_daemon_pids(out or ""):
+        try:
+            raw = host.path(f"/proc/{pid}/environ").read_bytes()
+        except OSError:
+            # Exited since pgrep, or not ours to read: another may answer.
+            continue
+        values.add(lv2_path_from_environ(raw))
+    # None, rather than a guess, unless exactly one answer: no daemon, or two
+    # main daemons that disagree, leave lv2info with its own environment.
+    if len(values) != 1:
+        return None
+    return {_LV2_PATH: values.pop()}
+
+
+_daemon_lv2_answer: dict[str, str | None] | None = None
+
+
+def daemon_lv2_env() -> dict[str, str | None] | None:
+    """The running PipeWire daemon's LV2_PATH, as an `env_extra` for lv2info.
+
+    `{"LV2_PATH": value}`, or `{"LV2_PATH": None}` when the daemon has none,
+    which unsets it so lv2info falls back to lilv's built-in path as the
+    daemon does. None when no single main daemon of this user's could be read,
+    or inside a container; lv2info then keeps the caller's environment, the
+    best guess left.
+    Cached once answered, as `lv2_loader` is: the converter and the doctor ask
+    for every plugin, and a restart within one run keeps the unit's
+    environment.
+    """
+    global _daemon_lv2_answer
+    if _daemon_lv2_answer is None:
+        _daemon_lv2_answer = _probe_daemon_lv2_env()
+    return _daemon_lv2_answer
+
+
+def forget_daemon_lv2_env() -> None:
+    """Drop the cached answer (tests, which stub the probe per case)."""
+    global _daemon_lv2_answer
+    _daemon_lv2_answer = None
+
+
 def process_age(name: str) -> float | None:
     """Seconds since the oldest process called *name* started, or None."""
     if tool_env.which("pgrep") is None:

@@ -119,6 +119,14 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   HP EliteBook 845 G9
   ([#165](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/165)).
 
+### Fixed
+
+- The PipeWire scripts' plugin check and `--doctor` search where the running
+  PipeWire loads LV2 plugins from, so they agree with it on every
+  distribution. On NixOS, the missing-plugin hint names
+  `services.pipewire.extraLv2Packages`, where PipeWire looks
+  ([#167](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/167)).
+
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings
 
 The fixed voice boost ships off, for slightly less voice presence and less

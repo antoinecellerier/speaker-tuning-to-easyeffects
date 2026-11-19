@@ -331,7 +331,8 @@ def _vendor_labels(keys, fam: str) -> list[str]:
 
 
 def _print_missing_plugins(uris: tuple[str, ...],
-                           detail: tuple[str, ...] = ()) -> None:
+                           detail: tuple[str, ...] = (), *,
+                           daemon_lv2: bool) -> None:
     """Say which packages to install for the plugins lv2info would not load.
 
     Grouped by vendor rather than listed one URI per line: the reader installs
@@ -362,12 +363,24 @@ def _print_missing_plugins(uris: tuple[str, ...],
             groups.setdefault("no package known for", []).append(uri)
     count = ("an LV2 plugin" if len(uris) == 1
              else f"{len(uris)} of the LV2 plugins")
-    console.cprint("err", f"error: PipeWire cannot load {count} this chain "
+    # lv2info's "no" is the daemon's when it searched the daemon's LV2_PATH
+    # (`daemon_lv2`). Without that, it rests on this shell's environment
+    # matching the daemon's, which NixOS's does not: its PipeWire service
+    # loads plugins from services.pipewire.extraLv2Packages alone. There the
+    # refusal names the tool that answered, and says why.
+    shell_only = fam == packages.NIXOS and not daemon_lv2
+    who = "lv2info" if shell_only else "PipeWire"
+    console.cprint("err", f"error: {who} cannot load {count} this chain "
                    "needs; conf not written")
     for label, plugin_names in groups.items():
         console.cprint("err", f"  {label}: {', '.join(sorted(plugin_names))}")
     for line in detail:
         console.cprint("dim", f"  {line}")
+    if shell_only:
+        console.cprint("dim", "  (no running PipeWire daemon could be read, "
+                       "so lv2info searched its own path, not PipeWire's; if "
+                       "the plugins are in services.pipewire.extraLv2Packages, "
+                       "start PipeWire and run this again)")
     # The command, not just the package names. Three first-time readers in a
     # row stopped here and guessed their own package manager, and two of them
     # guessed `apt` on a machine we had not asked about: the names alone are
@@ -732,7 +745,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
                     # package, not a value, and the lines above are lv2info's
                     # own words about a URI — neither names what to install.
                     _print_missing_plugins(report.unloadable,
-                                           report.unloadable_notes)
+                                           report.unloadable_notes,
+                                           daemon_lv2=report.daemon_lv2)
                 else:
                     console.cprint("err", "error: schema validation failed; conf "
                                    "not written")

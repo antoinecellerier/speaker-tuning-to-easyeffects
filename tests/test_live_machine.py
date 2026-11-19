@@ -174,6 +174,16 @@ def test_pgrep_still_answers_for_a_running_process():
     assert unpatched_ee_probe() in (True, False)
 
 
+def test_the_pipewire_daemons_environment_still_reads():
+    """`daemon_lv2_env` finds the main daemon with pgrep and reads its
+    `/proc/<pid>/environ`; a None here means either stopped working."""
+    _need("pgrep")
+    _need_pipewire()
+    session.forget_daemon_lv2_env()
+    env = session.daemon_lv2_env()
+    assert env is not None and set(env) == {"LV2_PATH"}, env
+
+
 def test_amixer_still_prints_the_shapes_the_parsers_read():
     _need("amixer")
     if not Path("/proc/asound/card0").exists():
@@ -581,6 +591,7 @@ _HOST_LOCATIONS = {
     "/lib/firmware": "test_module_and_firmware_trees_are_still_where_they_are_read",
     "/lib/firmware/updates": "test_module_and_firmware_trees_are_still_where_they_are_read",
     "/proc//stat": "test_pgrep_still_answers_for_a_running_process (process_age)",
+    "/proc//environ": "test_the_pipewire_daemons_environment_still_reads",
     "/proc/uptime": "test_pgrep_still_answers_for_a_running_process (process_age)",
     "/etc/xdg": "test_xdg_autostart_still_finds_an_easyeffects_entry",
     "/etc/sway/config": "exempt: a shipped compositor config, parsed by the same readers the user-file tests cover",

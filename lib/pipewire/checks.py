@@ -1152,11 +1152,15 @@ def _probe_plugins() -> PluginProbe:
     """
     if tool_env.which("lv2info") is None:
         return PluginProbe(has_lv2info=False)
+    # The daemon's LV2_PATH, so "present" means the daemon can load it, not
+    # just that this shell's environment can (`session.daemon_lv2_env`).
+    env = session.daemon_lv2_env()
     entries = []
     for label, uri in _PLUGIN_URIS:
         try:
-            rc = tool_env.run(["lv2info", uri], capture_output=True,
-                              text=True, timeout=10).returncode
+            rc = tool_env.run(["lv2info", uri], env_extra=env,
+                              capture_output=True, text=True,
+                              timeout=10).returncode
         except (subprocess.SubprocessError, OSError):
             # An lv2info that cannot run at all is not a plugin that is there.
             rc = 1

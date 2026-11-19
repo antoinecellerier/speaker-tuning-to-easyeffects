@@ -24,7 +24,9 @@ lives in `tools/measure_pw/validate_conf.py`, which owns the CLI prose and the
 
 Needs `lv2info` (package names per distribution in `lib/packages.py`) and
 `spa-json-dump` (ships with PipeWire) on PATH. Both are tiny, sub-millisecond
-CLIs, and no PipeWire daemon is required.
+CLIs, and no PipeWire daemon is required. With one running, `lv2info` is asked
+with the daemon's LV2_PATH (`session.daemon_lv2_env`), so it searches where
+the daemon does.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ import time
 from dataclasses import dataclass
 
 from lib import tool_env
+from lib.pipewire import session
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +184,9 @@ class Lv2infoUnavailable(RuntimeError):
     """
 
 
-def lv2info_schema(uri: str) -> dict[str, Port]:
+def lv2info_schema(uri: str,
+                   env_extra: dict[str, str | None] | None = None,
+                   ) -> dict[str, Port]:
     """The port metadata `lv2info` reports for one plugin URI.
 
     Every way the exec itself can fail arrives as one `RuntimeError` naming the
@@ -193,7 +198,8 @@ def lv2info_schema(uri: str) -> dict[str, Port]:
     """
     try:
         rc = tool_env.run(
-            ["lv2info", uri], capture_output=True, text=True, timeout=10,
+            ["lv2info", uri], env_extra=env_extra, capture_output=True,
+            text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError) as e:
         # subprocess.TimeoutExpired is a SubprocessError, so it lands here.
@@ -429,6 +435,10 @@ class Report:
     # second time can name a different tool than the one that stopped the
     # check, and the two probes are what a reader would have to reconcile.
     missing_tools: tuple[str, ...] = ()
+    # Whether `lv2info` searched the running daemon's LV2_PATH. False when no
+    # daemon could be read, so its answers rest on the caller's environment
+    # matching the daemon's, which NixOS's does not.
+    daemon_lv2: bool = False
 
 
 # The budget for the whole check, not for each `lv2info` inside it. The check
@@ -510,6 +520,7 @@ def run(conf_text: str, *,
     # unchecked, and the two lines are about the same plugin. A URI it
     # answered *no* for takes the other list — see `unloadable` below.
     tool_warnings: list[str] = []
+    daemon_env = session.daemon_lv2_env()
     unloadable_notes: list[str] = []
     unloadable: list[str] = []
     memo = {} if schemas is None else schemas
@@ -525,7 +536,7 @@ def run(conf_text: str, *,
                                      f"{_BUDGET_S}s validation budget ran out")
                 continue
             try:
-                memo[uri] = (lv2info_schema(uri), "")
+                memo[uri] = (lv2info_schema(uri, daemon_env), "")
             except Lv2infoUnavailable as e:
                 # Not memoized, for the same reason as the budget above: an
                 # exec that never reached a verdict is a property of this run.
@@ -550,7 +561,9 @@ def run(conf_text: str, *,
             # than annotating it. `lv2info` and PipeWire's filter-chain load
             # plugins through the same lilv; a URI lilv will not resolve here
             # is one the daemon will not resolve either, whether the plugin is
-            # missing or its TTL won't parse. Writing the conf anyway leaves a
+            # missing or its TTL won't parse. That rests on lv2info searching
+            # the daemon's LV2_PATH, which `daemon_env` gives it whenever a
+            # daemon could be read. Writing the conf anyway leaves a
             # chain that cannot load, which the reader discovers after
             # restarting their sound server. Re-emitted on every hit, not just
             # the exec that produced it.
@@ -564,4 +577,5 @@ def run(conf_text: str, *,
                   errors=tuple(errors),
                   warnings=tuple(tool_warnings + warnings),
                   unloadable=tuple(sorted(unloadable)),
-                  unloadable_notes=tuple(sorted(unloadable_notes)))
+                  unloadable_notes=tuple(sorted(unloadable_notes)),
+                  daemon_lv2=daemon_env is not None)

@@ -166,8 +166,8 @@ distribution. Install the **LV2 builds**, because the base `lsp-plugins` and
   sudo emerge media-libs/lsp-plugins media-plugins/calf
   ```
 - **NixOS:** add `pkgs.lsp-plugins` and `pkgs.calf` to
-  `services.pipewire.extraLv2Packages`, then run `nixos-rebuild switch`. A `nix-shell`
-  won't do, since PipeWire runs outside it
+  `services.pipewire.extraLv2Packages`, then run `nixos-rebuild switch`. A
+  `nix-shell` won't do, since PipeWire runs outside it
 
 Add your distribution's `lv2info` if you want the converter to check the plugin
 set before it writes anything:
@@ -210,7 +210,8 @@ distribution it can't place, it lists them all and points back here.
 Before writing the conf, the converter runs `lv2info` to validate it against
 installed plugin metadata. If `lv2info` can't load a plugin, the run **refuses
 to write the conf** and names the package to install. PipeWire couldn't load
-that plugin either, because both resolve plugins through the same library.
+that plugin either, because both resolve plugins through the same library, and
+the converter runs `lv2info` with your running PipeWire's plugin search path.
 `lv2info` itself is optional. PipeWire needs the lilv *library*, not the
 command. Without it, nothing checks the plugin set before the conf is written.
 A missing package then shows up only as a sink that never appears after the

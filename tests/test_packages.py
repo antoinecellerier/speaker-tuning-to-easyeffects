@@ -293,7 +293,7 @@ def test_nixos_gets_a_shell_for_python_and_a_note_for_the_daemon(monkeypatch):
     LV2 plugin installed into that same shell is invisible to the daemon that
     has to load it, so a command there would be confidently wrong — worse than
     the silence this module refuses elsewhere, because it looks like it worked.
-    Those keys get the attribute name and `environment.systemPackages` instead,
+    Those keys get the attribute name and the option to add it to instead,
     and the only command printed beside them is the `nixos-rebuild switch` that
     makes that edit take effect — never a `nix-shell` carrying the plugin.
     """
@@ -313,8 +313,44 @@ def test_nixos_gets_a_shell_for_python_and_a_note_for_the_daemon(monkeypatch):
         lambda style, text="": lines.append((style, text)))
     assert [t for s, t in lines if s == "cta"] == ["  sudo nixos-rebuild switch"]
     assert not any("nix-shell" in t for s, t in lines if s == "cta"), lines
-    assert any("environment.systemPackages" in t
+    assert any("services.pipewire.extraLv2Packages" in t
                for s, t in lines if s == "dim"), lines
+
+
+def test_a_nixos_plugin_goes_where_the_daemon_looks(monkeypatch):
+    """An LV2 plugin and EasyEffects go to different NixOS options.
+
+    The PipeWire user service's LV2_PATH is built from
+    `services.pipewire.extraLv2Packages` alone, so the daemon never sees a
+    plugin in `environment.systemPackages`, and the lv2info checks search the
+    daemon's path too. EasyEffects is an application, so the daemon's plugin
+    list is no place for it, even when one request asks for both.
+    """
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.NIXOS)
+    lines: list[tuple[str, str]] = []
+    packages.print_install_hint(
+        [packages.LSP_LV2, packages.EASYEFFECTS],
+        lambda style, text="": lines.append((style, text)))
+    dims = [t for s, t in lines if s == "dim"]
+    plugin = [t for t in dims if "pkgs.lsp-plugins" in t]
+    app = [t for t in dims if "pkgs.easyeffects" in t]
+    assert len(plugin) == 1 and len(app) == 1, dims
+    assert "services.pipewire.extraLv2Packages" in plugin[0], dims
+    assert "environment.systemPackages" not in plugin[0], dims
+    assert "environment.systemPackages" in app[0], dims
+    assert "extraLv2Packages" not in app[0], dims
+
+    # The unplaced fallback says the same per destination.
+    monkeypatch.setattr(packages, "family", lambda *a, **k: "")
+    lines.clear()
+    packages.print_install_hint(
+        [packages.LSP_LV2, packages.EASYEFFECTS],
+        lambda style, text="": lines.append((style, text)))
+    dims = [t for s, t in lines if s == "dim"]
+    assert any("extraLv2Packages" in t and "pkgs.lsp-plugins" in t
+               and "pkgs.easyeffects" not in t for t in dims), dims
+    assert any("pkgs.easyeffects" in t and "extraLv2Packages" not in t
+               for t in dims), dims
 
 
 def test_the_daemon_reason_is_given_only_where_it_is_the_reason():
@@ -335,6 +371,7 @@ def test_the_daemon_reason_is_given_only_where_it_is_the_reason():
             [packages.LSP_LV2],
             lambda style, text="": lines.append((style, text)))
         assert any("PipeWire daemon" in t for _s, t in lines), lines
+        assert any("a nix-shell doesn't reach" in t for _s, t in lines), lines
 
         lines.clear()
         packages.print_install_hint(
@@ -342,6 +379,7 @@ def test_the_daemon_reason_is_given_only_where_it_is_the_reason():
             lambda style, text="": lines.append((style, text)))
         assert any("environment.systemPackages" in t for _s, t in lines), lines
         assert not any("PipeWire daemon" in t for _s, t in lines), lines
+        assert not any("nix-shell" in t for _s, t in lines), lines
     finally:
         packages.family = orig
 
@@ -422,7 +460,7 @@ def test_print_install_hint_falls_back_to_every_family(monkeypatch):
     assert len(commands) == len(packages.COMMAND_FAMILIES)
     assert any("zypper" in c for c in commands)
     assert not any(packages.LABELS[packages.NIXOS] in c for c in commands)
-    assert any("environment.systemPackages" in t
+    assert any("services.pipewire.extraLv2Packages" in t
                for s, t in lines if s == "dim"), lines
 
     lines.clear()

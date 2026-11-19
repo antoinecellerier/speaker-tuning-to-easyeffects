@@ -49,7 +49,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from lib.pipewire import validate  # noqa: E402
+from lib.pipewire import session, validate  # noqa: E402
 
 
 def main() -> int:
@@ -102,9 +102,11 @@ def main() -> int:
             if n["type"] == "lv2" and n.get("plugin")}
     schemas: dict[str, dict[str, validate.Port]] = {}
     unloadable: list[str] = []
+    # The daemon's LV2_PATH, as `validate.run` uses, so both reach one verdict.
+    daemon_env = session.daemon_lv2_env()
     for uri in sorted(uris):
         try:
-            schemas[uri] = validate.lv2info_schema(uri)
+            schemas[uri] = validate.lv2info_schema(uri, daemon_env)
         except validate.Lv2infoUnavailable as e:
             print(f"warning: {e}", file=sys.stderr)
         except RuntimeError as e:
