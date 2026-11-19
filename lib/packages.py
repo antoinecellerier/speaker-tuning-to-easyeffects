@@ -229,6 +229,11 @@ _NIX_PLAIN_BODY = "add {} to environment.systemPackages"
 # Said after the instruction, so it reads as the reason no shell is offered.
 _NIX_LV2_WHY = "; a nix-shell doesn't reach the PipeWire daemon"
 _NIX_REBUILD = ", then run nixos-rebuild switch"
+# The running daemon keeps the LV2_PATH it started with until PipeWire
+# restarts. switch-to-configuration-ng's source restarts changed user units
+# only since nixpkgs 2ff37e40e0 (on nixos-26.05), so an older system goes on
+# loading, and reporting, the old plugin set. Harmless where the switch did it.
+_NIX_RESTART = " and restart PipeWire"
 
 UNPACKAGED = {
     (CALF_LV2, SUSE): "Calf is not in openSUSE's own repositories — add the "
@@ -288,13 +293,14 @@ def _nixos_bodies(keys, rebuild: str = "") -> list[str]:
     plugins' nix-shell reason, which holds for them alone.
     """
     out = []
-    for body, why, wanted in ((_NIX_LV2_BODY, _NIX_LV2_WHY, True),
-                              (_NIX_PLAIN_BODY, "", False)):
+    for body, restart, why, wanted in (
+            (_NIX_LV2_BODY, _NIX_RESTART, _NIX_LV2_WHY, True),
+            (_NIX_PLAIN_BODY, "", "", False)):
         group = [k for k in keys if (k in _NIXOS_DAEMON_KEYS) == wanted]
         if group:
             out.append(body.format(" and ".join(_NIXOS_SYSTEM[k]
                                                 for k in group))
-                       + rebuild + why)
+                       + (rebuild + restart if rebuild else "") + why)
     return out
 
 
@@ -626,8 +632,8 @@ PLUGINS_SECTION = ('the "Plugin dependencies and validation" section of '
 README_INSTALL_SECTION = "the README's Install section"
 
 
-def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
-                  ) -> tuple[tuple[str, str], ...]:
+def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = "",
+                  restart: str = "") -> tuple[tuple[str, str], ...]:
     """How to install `keys` here, as ``(cprint style, text)`` pairs.
 
     Unindented: each consumer owns its own margin — ``print_install_hint``
@@ -650,6 +656,11 @@ def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
     and who still wants these lines to sit *under* a lead-in ("Install
     them:") rather than beside it. Left to the caller because the margin is a
     property of where the remedy is being printed, not of the remedy.
+
+    ``restart`` is the PipeWire restart command, from a caller whose own
+    lines don't end on one. On NixOS a plugin change reaches the running
+    daemon only after it, so it follows the rebuild there; elsewhere, and for
+    a caller that prints its own restart, it stays out.
     """
     out: list[tuple[str, str]] = []
     fam = family()
@@ -690,6 +701,10 @@ def install_steps(keys, see: str = PLUGINS_SECTION, indent: str = ""
                 out.append(("dim", "(a configuration change, not an install"
                                    f" — {body})"))
             out.append(("cta", "sudo nixos-rebuild switch"))
+            # Only for a caller whose own lines don't restart PipeWire: a
+            # plugin change reaches the daemon after that (`_NIX_RESTART`).
+            if restart and any(k in _NIXOS_DAEMON_KEYS for k in declarative):
+                out.append(("cta", restart))
         if out:
             return tuple((style, f"{indent}{text}") for style, text in out)
     for label, alt in install_commands(keys):
@@ -795,12 +810,13 @@ def lv2_loader_steps(built_without: bool = False, indent: str = "",
                               for style, text in then)
 
 
-def print_install_hint(keys, cprint, see: str = PLUGINS_SECTION) -> None:
+def print_install_hint(keys, cprint, see: str = PLUGINS_SECTION,
+                       restart: str = "") -> None:
     """Print `install_steps` at this project's two-space message margin.
 
     Takes the caller's `cprint` for the reason `lib.doctor`'s printers do —
     this module is stdlib-only and imported by both PipeWire scripts, and an
     `import console` here would close a cycle.
     """
-    for style, text in install_steps(keys, see):
+    for style, text in install_steps(keys, see, restart=restart):
         cprint(style, f"  {text}")

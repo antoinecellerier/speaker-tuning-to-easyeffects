@@ -317,6 +317,29 @@ def test_nixos_gets_a_shell_for_python_and_a_note_for_the_daemon(monkeypatch):
                for s, t in lines if s == "dim"), lines
 
 
+def test_a_nixos_plugin_change_ends_on_the_restart_its_caller_asks_for(
+        monkeypatch):
+    """The running daemon keeps its LV2_PATH until PipeWire restarts, so a
+    caller whose own lines don't restart it passes `restart`. On NixOS it
+    follows the rebuild, for plugins only; elsewhere it isn't printed."""
+    restart = "systemctl --user restart pipewire pipewire-pulse"
+    lines: list[tuple[str, str]] = []
+    note = lambda style, text="": lines.append((style, text))
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.NIXOS)
+    packages.print_install_hint([packages.LSP_LV2], note, restart=restart)
+    assert [t for s, t in lines if s == "cta"] == [
+        "  sudo nixos-rebuild switch", f"  {restart}"], lines
+
+    lines.clear()
+    packages.print_install_hint([packages.EASYEFFECTS], note, restart=restart)
+    assert not any(restart in t for _s, t in lines), lines
+
+    lines.clear()
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.DEBIAN)
+    packages.print_install_hint([packages.LSP_LV2], note, restart=restart)
+    assert not any(restart in t for _s, t in lines), lines
+
+
 def test_a_nixos_plugin_goes_where_the_daemon_looks(monkeypatch):
     """An LV2 plugin and EasyEffects go to different NixOS options.
 
@@ -339,6 +362,9 @@ def test_a_nixos_plugin_goes_where_the_daemon_looks(monkeypatch):
     assert "environment.systemPackages" not in plugin[0], dims
     assert "environment.systemPackages" in app[0], dims
     assert "extraLv2Packages" not in app[0], dims
+    # One rebuild for both destinations.
+    assert [t for s, t in lines if s == "cta"] == [
+        "  sudo nixos-rebuild switch"], lines
 
     # The unplaced fallback says the same per destination.
     monkeypatch.setattr(packages, "family", lambda *a, **k: "")
@@ -380,6 +406,7 @@ def test_the_daemon_reason_is_given_only_where_it_is_the_reason():
         assert any("environment.systemPackages" in t for _s, t in lines), lines
         assert not any("PipeWire daemon" in t for _s, t in lines), lines
         assert not any("nix-shell" in t for _s, t in lines), lines
+        assert not any("restart pipewire" in t for _s, t in lines), lines
     finally:
         packages.family = orig
 

@@ -840,6 +840,28 @@ def test_a_chain_without_lv2_is_not_blamed_on_the_lv2_loader(monkeypatch,
     assert "can't load LV2 plugins" not in capsys.readouterr().out
 
 
+def test_a_missing_chain_on_nixos_names_the_restart_once(monkeypatch, capsys):
+    """This step ends on its own "Then retry: <restart>", so it doesn't ask
+    the plugin hint for one too: on NixOS that would print the same command
+    twice in a row."""
+    from lib import packages
+    from lib.pipewire import session
+    from lib.pipewire.conf import PIPEWIRE_RESTART_CMD
+    monkeypatch.setattr(packages, "family", lambda *a, **k: packages.NIXOS)
+    monkeypatch.setattr(tool_env, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        tool_env, "run",
+        lambda cmd, **kwargs: SimpleNamespace(
+            returncode=0, stdout="id 33, type PipeWire:Interface:Node/3\n"))
+    monkeypatch.setattr(session, "lv2_loader",
+                        lambda: session.Lv2Loader(present=True))
+    _instant_polling(monkeypatch)
+    assert install._verify_sinks(["Dolby"], uses_lv2=True) == 1
+    out = capsys.readouterr().out
+    assert "services.pipewire.extraLv2Packages" in out, out
+    assert out.count(PIPEWIRE_RESTART_CMD) == 1, out
+
+
 def test_the_lv2_marker_matches_what_the_conf_writer_emits():
     """`_confs_use_lv2` reads the confs this run wrote by their text, so it
     must match the writer's own rendering of an LV2 node."""

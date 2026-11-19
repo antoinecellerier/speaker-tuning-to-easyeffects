@@ -1543,6 +1543,9 @@ def test_on_nixos_the_refusal_names_whoever_answered(
     assert f"error: {who} cannot load" in out, out
     assert ("start PipeWire and run this again" in out) is (not daemon_lv2)
     assert "services.pipewire.extraLv2Packages" in out, out
+    # The running daemon keeps its plugin path until PipeWire restarts.
+    from lib.pipewire.conf import PIPEWIRE_RESTART_CMD
+    assert PIPEWIRE_RESTART_CMD in out, out
 
 
 def test_a_schema_error_survives_a_missing_package_in_the_same_run(

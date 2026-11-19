@@ -124,7 +124,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 - The PipeWire scripts' plugin check and `--doctor` search where the running
   PipeWire loads LV2 plugins from, so they agree with it on every
   distribution. On NixOS, the missing-plugin hint names
-  `services.pipewire.extraLv2Packages`, where PipeWire looks
+  `services.pipewire.extraLv2Packages`, where PipeWire looks, and the
+  PipeWire restart the new plugins need
   ([#167](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/pull/167)).
 
 ## v2026.10.1 — Less Voice Boost, Gentler Loud Bass, New Tunings

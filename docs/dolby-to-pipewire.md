@@ -166,8 +166,9 @@ distribution. Install the **LV2 builds**, because the base `lsp-plugins` and
   sudo emerge media-libs/lsp-plugins media-plugins/calf
   ```
 - **NixOS:** add `pkgs.lsp-plugins` and `pkgs.calf` to
-  `services.pipewire.extraLv2Packages`, then run `nixos-rebuild switch`. A
-  `nix-shell` won't do, since PipeWire runs outside it
+  `services.pipewire.extraLv2Packages`, then run `nixos-rebuild switch` and
+  `systemctl --user restart pipewire pipewire-pulse`. A `nix-shell` won't do,
+  since PipeWire runs outside it
 
 Add your distribution's `lv2info` if you want the converter to check the plugin
 set before it writes anything:
