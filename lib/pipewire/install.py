@@ -39,7 +39,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from lib import console, doctor, packages, tool_env, uninstall
+from lib import console, doctor, packages, tool_env
 from lib.hardware import sinks
 from lib.pipewire import checks, session
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
@@ -284,12 +284,18 @@ def speaker_attenuation() -> str:
 
 
 def _print_undo(written: list[Path], style: str = "dim") -> None:
-    """Print how to get back: delete the written files, restart PipeWire.
+    """Print how to get back: ``--uninstall``, or this run's files by hand.
 
     Everything else here asks the reader to restart their sound server with a
     config file they can't read, and without this nothing would say what to
-    do if the result is worse. Deleting the conf and restarting is the whole
+    do if the result is worse. Removing the conf and restarting is the whole
     answer; it just has to be written down.
+
+    ``--uninstall`` leads when it would remove exactly what this run wrote:
+    one command, which lists the files, asks, and restarts PipeWire. With
+    other chains of ours where it looks, it would take those too, so the
+    by-hand ``rm`` of this run's files leads and ``--uninstall`` is offered
+    as the wider option, not a synonym.
 
     `style` is "dim" on a run that worked, where the way back is a footnote.
     On a run that did not, it is the most useful line on screen, and a
@@ -297,26 +303,29 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
     # Only files that exist: the .irs copy is skipped when the source
     # already sits at the target, and an rm over a missing file aborts the
     # pasted command halfway.
-    # Absolute, alone among the lines a run prints: the quoting below is what
-    # survives a Dolby-shaped path, and POSIX does not expand ~ inside quotes,
-    # so a collapsed path here would delete nothing and say it did.
     paths = [p for p in written if p.exists()]
     if not paths:
         return
+    out_dir = paths[0].parent
+    default = out_dir == checks.DEFAULT_OUTPUT_DIR.expanduser()
+    # Where the printed --uninstall will look: every live directory without
+    # --output-dir (lib/pipewire/uninstall.py `_dirs`), else that one folder.
+    searched = checks.live_conf_dirs() if default else (out_dir,)
+    mine = {p.resolve() for p in paths}
+    others = [c for c in checks.generated_conf_paths(*searched)
+              if c.resolve() not in mine]
+    if not others:
+        console.cprint(style, "  To undo: " + checks.uninstall_command(out_dir))
+        return
+    # Absolute, alone among the lines a run prints: the quoting below is what
+    # survives a Dolby-shaped path, and POSIX does not expand ~ inside quotes,
+    # so a collapsed path here would delete nothing and say it did.
     files = " ".join(f"'{p}'" for p in paths)
     console.cprint(style, "  To undo: rm " + files)
     console.cprint(style, f"           {PIPEWIRE_RESTART_CMD}")
-    # The rm line is this run's files only; this one is every chain, earlier
-    # runs' included, so it is offered as the wider option, not a synonym.
-    # With --output-dir the uninstall must be told the same directory, or it
-    # looks in the default one and finds nothing.
-    out_dir = paths[0].parent
-    extra = (() if out_dir == checks.DEFAULT_OUTPUT_DIR.expanduser()
-             else ("--output-dir", str(out_dir)))
-    where = "" if not extra else " there"
+    where = "" if default else " there"
     console.cprint(style, f"  Or remove every chain this tool installed{where}: "
-                   + uninstall.command("dolby_to_pipewire.py", "--uninstall",
-                                       *extra))
+                   + checks.uninstall_command(out_dir))
 
 
 def _print_manual_activation(node_names: list[str],

@@ -978,10 +978,37 @@ def test_the_fallback_clause_needs_the_fallback_on(tree):
 
 def test_a_custom_dir_footnote_says_there(tmp_path, capsys):
     from lib.pipewire import install
-    conf = tmp_path / "Dolby_Balanced.conf"
-    conf.write_text("x")
+    conf = _conf(tmp_path, "Dolby_Balanced")
+    _conf(tmp_path, "Dolby_Warm")       # an earlier run's, so rm leads
     install._print_undo([conf])
     assert "Or remove every chain this tool installed there:" in capsys.readouterr().out
+
+
+def test_undo_leads_with_uninstall_only_when_it_removes_just_this_run(
+        tmp_path, capsys):
+    """--uninstall removes every chain of ours where it looks. Alone, that is
+    exactly this run's files, and the one command (which lists, asks and
+    restarts) is the way back. Beside an earlier run's chain it would take
+    that too, so this run's own rm leads — with the .irs copied beside the
+    conf, which undo used to strand (round-3 review)."""
+    from lib.pipewire import install
+    conf = _conf(tmp_path, "Dolby_Balanced")
+    irs = tmp_path / "Dolby_Balanced.irs"
+    irs.write_bytes(b"")
+    install._print_undo([conf, irs])
+    out = capsys.readouterr().out
+    assert out.startswith("  To undo: ") and "--uninstall" in out, out
+    assert f"--output-dir {tmp_path}" in out
+    assert "rm '" not in out
+
+    _conf(tmp_path, "Dolby_Warm")
+    install._print_undo([conf, irs])
+    out = capsys.readouterr().out
+    rm_line = next(ln for ln in out.splitlines() if "To undo:" in ln)
+    assert rm_line.startswith("  To undo: rm ")
+    assert f"'{conf}'" in rm_line and f"'{irs}'" in rm_line
+    assert "Dolby_Warm" not in rm_line
+    assert "Or remove every chain this tool installed there:" in out
 
 
 def test_every_prompt_shares_one_tty_rule():

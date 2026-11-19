@@ -795,7 +795,7 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
         # here because no speaker sink was detected is this conf's to count.
         checks.warn_if_crowded(1 + len(checks.virtual_sink_confs(
             output_path.parent, exclude=[output_path])))
-    checks.warn_if_easyeffects_running()
+    checks.warn_if_easyeffects_running(conf_dir=output_path.parent)
     if args.skip_next_steps:
         # Checklist suppressed, but a freshly written conf must never go
         # unmentioned as inactive — keep the one action that makes it live.

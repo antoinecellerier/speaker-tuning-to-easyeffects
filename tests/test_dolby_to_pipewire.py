@@ -560,9 +560,9 @@ def test_undo_is_a_footnote_when_it_worked_and_a_step_when_it_did_not(
     install._print_undo([conf])
     install._print_undo([conf], style="cta")
 
-    undo = [s for s, t in styles if "To undo: rm" in t]
+    undo = [s for s, t in styles if "To undo:" in t]
     assert undo == ["dim", "cta"], undo
-    assert str(conf) in "".join(t for _, t in styles)
+    assert str(tmp_path) in "".join(t for _, t in styles)
 
 
 def test_routing_unreadable_graph_is_not_diagnosed_as_a_dead_chain(
@@ -758,14 +758,14 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     result, _home, out = _run_e2e(tmp_path)
     assert result.returncode == 0, result.stderr
     report = result.stdout
-    assert "To undo: rm" in report
-    # It must name the file it actually wrote, not a generic path.
-    assert str(out) in report
-    # ...and the .irs copied beside the conf — undo used to strand one
-    # stray file per variant (round-3 review).
-    undo_line = next(ln for ln in report.splitlines() if "To undo: rm" in ln)
-    assert ".irs'" in undo_line
-    assert report.index("To undo: rm") > report.index("Restart PipeWire:")
+    # Alone in its folder, this run's chain is all --uninstall would remove,
+    # so the one command leads — told the folder it was written to, or it
+    # would look in the default one and find nothing.
+    undo_line = next(ln for ln in report.splitlines() if "To undo:" in ln)
+    assert "--uninstall --output-dir" in undo_line, undo_line
+    assert str(out) in undo_line
+    assert "rm '" not in report
+    assert report.index("To undo:") > report.index("Restart PipeWire:")
 
 
 def test_e2e_report_cta_is_printed_once_and_last(tmp_path):

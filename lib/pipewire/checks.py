@@ -51,7 +51,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import console, doctor, ee_socket, packages, tool_env, version, xdg
+from lib import (console, doctor, ee_socket, packages, tool_env, uninstall,
+                 version, xdg)
 from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -541,10 +542,14 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
         f"{len(names)} chains ({', '.join(names)}) attach to the same sink, so "
         "PipeWire runs them one after another instead of offering a choice — "
         "every stage is applied that many times over. ")
+    steps = ()
     if files:
-        detail += (f"Keep one of {files} and delete the others, then restart "
-                   "PipeWire; the PipeWire filter-chain setup block above "
-                   "gives the full path of each conf this tool installed.")
+        detail += (f"Keep one of {files} and delete the others; the PipeWire "
+                   "filter-chain setup block above gives the full path of "
+                   "each conf this tool installed.")
+        # The command in steps, where it can't wrap: the closing block offers
+        # only --uninstall, which removes the one to keep as well.
+        steps = _RESTART_STEPS
     else:
         # Every one of them is somebody else's. There is no file of ours to
         # name, and telling a reader to delete one would name a file we made
@@ -556,7 +561,11 @@ def check_stacked_chains(chains, confs) -> CheckResult | None:
         detail += (f" The count includes {len(foreign)} other smart filter(s) "
                    f"on the same speakers ({', '.join(foreign)}) that this "
                    "tool didn't install and can't name a file for.")
-    return CheckResult(DOCTOR_FAIL, "Stacked filter chains", detail)
+    return CheckResult(DOCTOR_FAIL, "Stacked filter chains", detail, steps)
+
+
+_RESTART_STEPS = (("dim", "Then restart PipeWire:"),
+                  ("cta", f"  {PIPEWIRE_RESTART_CMD}"))
 
 
 def check_crowded_chains(chains, confs) -> CheckResult | None:
@@ -603,13 +612,12 @@ def check_crowded_chains(chains, confs) -> CheckResult | None:
             "selecting one sends the others' sound through it.")
     detail += (f" If your audio ever cuts out like that, delete the .conf "
                f"and .irs of the ones you don't use from "
-               f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} ({', '.join(ours)}), "
-               "then restart PipeWire.")
+               f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} ({', '.join(ours)}).")
     # One remedy only: re-running without --target-sink '' would depend on how
     # the conf went v1 and on WirePlumber 0.5+, so it stays out of a check
     # whose fix is keeping one.
     return CheckResult(DOCTOR_WARN, "Several chains as separate outputs",
-                       detail)
+                       detail, _RESTART_STEPS)
 
 
 def check_confs_loaded(confs, chains, dump) -> CheckResult | None:
@@ -1587,12 +1595,31 @@ def report_pw_doctor() -> int:
     layout.print_environment(_environment_lines(confs, chains, facts),
                              "=== PipeWire filter-chain setup ===")
     layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
+    # --uninstall only: the checks whose fix is keeping one chain (stacked,
+    # several outputs) print their own delete step inline, and a by-hand line
+    # here too read as a second, competing route. No --output-dir: with none
+    # it searches every directory PipeWire reads, which covers the one this
+    # report lists.
     layout.print_closing((
-        ("dim", "To remove a chain: delete its .conf (and matching .irs), "
-                "then restart PipeWire:"),
-        ("cta", f"  {PIPEWIRE_RESTART_CMD}"),
+        ("dim", "To remove every chain this tool installed (it asks first):"),
+        ("cta", f"  {uninstall_command()}"),
     ))
     return 0
+
+
+def uninstall_command(conf_dir: Path | None = None) -> str:
+    """The pasteable ``dolby_to_pipewire.py --uninstall`` line for chains
+    in *conf_dir*.
+
+    ``--output-dir`` only when *conf_dir* is off the default: ``--uninstall``
+    looks only where it is told, so a line without it would find nothing
+    there. ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py``
+    because it also restarts PipeWire, which unloads what it removed."""
+    extra = ()
+    if (conf_dir is not None
+            and Path(conf_dir).expanduser() != DEFAULT_OUTPUT_DIR.expanduser()):
+        extra = ("--output-dir", str(conf_dir))
+    return uninstall.command("dolby_to_pipewire.py", "--uninstall", *extra)
 
 
 def warn_if_stacked(output_path: Path, target_sink: str | None) -> None:
@@ -1685,7 +1712,8 @@ def warn_if_crowded(total: int, dry_run: bool = False) -> None:
         indent="   ")
 
 
-def warn_if_easyeffects_running(running: bool | None = None) -> None:
+def warn_if_easyeffects_running(running: bool | None = None,
+                                conf_dir: Path | None = None) -> None:
     """Warn when EasyEffects is up as a chain conf lands.
 
     The likeliest reader is an EasyEffects user crossing over for a
@@ -1695,7 +1723,8 @@ def warn_if_easyeffects_running(running: bool | None = None) -> None:
     attaches to, so everything gets the EE preset *and* the chain, in
     series; nothing in the run or the audio says so. Same shape as
     ``warn_if_stacked`` above: caught at the moment it happens instead of
-    left for someone to notice the sound is wrong.
+    left for someone to notice the sound is wrong. ``conf_dir`` is where the
+    conf landed, so the way back names the folder ``--uninstall`` must search.
     """
     if running is None:
         running = ee_socket.easyeffects_running()
@@ -1705,7 +1734,9 @@ def warn_if_easyeffects_running(running: bool | None = None) -> None:
     console.cprint("warn", "⚠  EasyEffects is running. This chain replaces an "
                    "EasyEffects preset —")
     console.cprint("warn", "   running both can process your audio twice.")
+    # --uninstall removes every chain, not only this one: switching back to
+    # EasyEffects wants none left, and it restarts PipeWire on the way out.
     console.cprint("dim", "   Quit EasyEffects while you use the chain. To switch "
-                  "back later: delete")
-    console.cprint("dim", "   the conf (and its .irs), restart PipeWire, start "
-                  "EasyEffects again.")
+                  "back later, remove")
+    console.cprint("dim", "   the chains, then start EasyEffects again:")
+    console.cprint("dim", f"     {uninstall_command(conf_dir)}")

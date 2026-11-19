@@ -231,6 +231,9 @@ def test_crowded_chains_name_our_confs_and_their_folder(tmp_path):
     assert "pipewire.conf.d" in result.detail
     # One remedy: a second, conditional fix path read as a competing one.
     assert "--target-sink" not in result.detail
+    # The restart that finishes the delete is a runnable step: the closing
+    # block offers only --uninstall, which would remove the one kept too.
+    assert ("cta", f"  {conf.PIPEWIRE_RESTART_CMD}") in result.steps
 
 
 # --- Default output: which sink is selected --------------------------------
@@ -446,6 +449,7 @@ def test_delete_the_others_never_names_a_filter_we_did_not_install(tmp_path):
     assert result.status == DOCTOR_FAIL
     assert "someone_elses_eq.conf" not in result.detail
     assert "Keep one of Dolby_Balanced.conf" in result.detail
+    assert ("cta", f"  {conf.PIPEWIRE_RESTART_CMD}") in result.steps
     assert "other smart filter(s) on the same speakers" in result.detail
     assert "someone_elses_eq" in result.detail
 
@@ -459,6 +463,7 @@ def test_a_stack_of_nothing_of_ours_offers_no_file_to_delete():
     assert "Keep one of" not in result.detail
     assert "nothing of ours to delete" in result.detail
     assert ".conf" not in result.detail
+    assert result.steps == ()     # nothing deleted, so nothing to restart for
 
 
 def test_selected_smart_filter_outranks_an_unselected_virtual_one():
@@ -1536,6 +1541,10 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_OUTPUT_DIR", tmp_path)
     monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+    # Ours, as read back, so the check has a file to name and a delete to
+    # finish. Stubbed: with the machine off, spa-json-dump reads no node name.
+    ours = [_installed(tmp_path, n) for n in ("Dolby_Balanced", "Dolby_Warm")]
+    monkeypatch.setattr(checks, "installed_confs", lambda *dirs: ours)
     silence_console(console)
 
     assert checks.report_pw_doctor() == 0
@@ -1543,7 +1552,12 @@ def test_doctor_reports_a_stacked_pair(tmp_path, monkeypatch, silence_console,
     out = captured.out
     assert "Stacked filter chains" in out
     assert "No blocking problems detected." not in out
-    assert "systemctl --user restart pipewire" in out
+    # The check's own step, not the closing block's: that offers only
+    # --uninstall, which would take the chain to keep with it.
+    assert (out.index("Stacked filter chains")
+            < out.index("Then restart PipeWire:")
+            < out.index("systemctl --user restart pipewire")
+            < out.index("Summary:"))
     # The paste block is the point of running this before filing an issue.
     assert "=== PipeWire filter-chain setup ===" in out
     assert "Paste everything above into an issue" in out
@@ -1592,14 +1606,17 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
             < out.index("=== PipeWire filter-chain doctor ===")
             < out.index("Stacked filter chains")
             < out.index("Summary:")
-            < out.index("systemctl --user restart pipewire")
+            < out.index("dolby_to_pipewire.py --uninstall")
             < out.index(report_findings._REPORT_FORM_URL))
+    # The way out is --uninstall alone: keeping one chain is the stacked
+    # check's own inline step, not a second route in the closing block.
+    assert "To remove only one" not in out
 
     # The bottom line has to survive one screen — 26 lines is what
     # tools/user_review_capture.py treats as a terminal's worth.
     tail = "\n".join(out.splitlines()[-26:])
     assert "Summary:" in tail
-    assert "systemctl --user restart pipewire" in tail
+    assert "dolby_to_pipewire.py --uninstall" in tail
     # A FAIL suppresses the verdict line (lib/doctor.py), so the summary and the
     # remedy are what carry the bottom line here.
     assert out.rstrip().endswith(report_findings._REPORT_FORM_URL)
@@ -1853,8 +1870,19 @@ def test_easyeffects_running_warns_it_processes_twice(silence_console, capsys):
     assert "EasyEffects is running" in out
     assert "twice" in out
     assert "Quit EasyEffects" in out
-    # The switch-back story, delivered at the moment both chains coexist.
-    assert "restart PipeWire" in out
+    # The switch-back story, delivered at the moment both chains coexist, as
+    # a command: --uninstall removes the chains and restarts PipeWire.
+    assert "dolby_to_pipewire.py --uninstall" in out
+    assert "--output-dir" not in out
+
+
+def test_easyeffects_switch_back_names_a_non_default_conf_dir(
+        silence_console, capsys, tmp_path):
+    """--uninstall looks only where it is told: a conf written elsewhere
+    needs its folder on the line, or the command finds nothing."""
+    silence_console(console)
+    checks.warn_if_easyeffects_running(running=True, conf_dir=tmp_path)
+    assert f"--uninstall --output-dir {tmp_path}" in capsys.readouterr().out
 
 
 def test_no_easyeffects_process_stays_silent(silence_console, capsys,

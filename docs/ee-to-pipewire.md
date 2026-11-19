@@ -690,9 +690,8 @@ activation step's sink check and `--doctor`'s "Chains loaded" report that.
   *and* the chain in series, because filters sharing a target run in series, as
   measured in "One smart filter per target sink". The converter warns at
   conf-write time when an `easyeffects` process is up. To switch back to
-  EasyEffects, delete the conf and its `.irs` from
-  `~/.config/pipewire/pipewire.conf.d/`, restart PipeWire and start EasyEffects
-  again.
+  EasyEffects, [remove the filter](dolby-to-pipewire.md#remove-the-filter), then
+  start EasyEffects again.
 - **No `--launch` flag on this script.** PipeWire's standard reload path is
   `systemctl --user restart pipewire pipewire-pulse`. The converter prints it in
   its next-steps checklist and lets the user run it. Activation lives one layer
