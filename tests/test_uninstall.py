@@ -922,7 +922,8 @@ def test_printed_commands_follow_how_the_script_was_typed(monkeypatch):
 
 @pytest.fixture
 def installed_layout(monkeypatch, tmp_path):
-    """The code running from site-packages/: no pyproject.toml beside lib/."""
+    """The code running from its package folder under site-packages/: no
+    pyproject.toml beside lib/."""
     from lib import paths
     monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
 

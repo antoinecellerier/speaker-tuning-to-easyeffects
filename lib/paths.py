@@ -19,9 +19,10 @@ because they also insert the result into ``sys.path`` before any ``lib``
 import can happen: docs/code-organisation.md "The rules that keep provenance".
 
 The root is not always a checkout. Installed as a package (pip, pipx, Nix),
-``lib/`` sits in ``site-packages/`` and this resolves there: nothing of ours to
-write beside it, and a ``git describe`` would describe whatever repository
-happens to enclose the environment. `is_checkout` tells the two apart.
+``lib/`` sits in ``site-packages/speaker_tuning_to_easyeffects/`` and this
+resolves there: nothing of ours to write beside it, and a ``git describe``
+would describe whatever repository happens to enclose the environment.
+`is_checkout` tells the two apart.
 """
 
 from pathlib import Path
@@ -33,8 +34,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def is_checkout() -> bool:
-    """Whether `REPO_ROOT` is a clone or source archive of this project,
-    rather than the ``site-packages/`` an installed package lands in.
+    """Whether `REPO_ROOT` is a clone or source archive of this project, rather
+    than the folder in ``site-packages/`` an installed package lands in.
 
     ``pyproject.toml`` is the mark: every clone and every GitHub source
     archive has it beside ``lib/``, and installing never copies it.

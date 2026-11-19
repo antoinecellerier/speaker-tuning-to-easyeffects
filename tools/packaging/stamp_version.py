@@ -30,6 +30,7 @@ stamped.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -88,12 +89,29 @@ def stamp(copy: Path, root: Path) -> bool:
 
 
 class BuildPy(build_py):
-    """``build_py``, then the wheel's copy of lib/version.py stamped."""
+    """``build_py`` into an emptied ``build_lib``, then the wheel's copy of
+    lib/version.py stamped.
+
+    Emptied first because setuptools never removes a file from
+    ``build/lib`` once its source is gone, and the wheel packs whatever is
+    there: a clone rebuilt after a pull would ship every module deleted or
+    moved since its first build. pip builds a local folder in place, so a
+    ``pipx install .`` from a clone reuses that ``build/``.
+    """
+
+    # Where the wheel holds lib/: pyproject.toml's package-dir maps the repo
+    # root to this package. tests/test_packaging.py keeps the two in step.
+    # Not ``package``: build_py already has an attribute of that name.
+    PACKAGE = "speaker_tuning_to_easyeffects"
 
     def run(self) -> None:
+        editable = getattr(self, "editable_mode", False)
+        if not editable:
+            shutil.rmtree(self.build_lib, ignore_errors=True)
         super().run()
-        if not getattr(self, "editable_mode", False):
-            stamp(Path(self.build_lib) / _VERSION_FILE, Path.cwd())
+        if not editable:
+            stamp(Path(self.build_lib) / self.PACKAGE / _VERSION_FILE,
+                  Path.cwd())
 
 
 class Sdist(sdist):

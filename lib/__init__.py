@@ -6,11 +6,14 @@ far outside the code — the README, the issue template, the argcomplete
 registration line, the ``_generator`` stamp every emitted preset carries — so
 they stay put, and everything they lean on lives here instead.
 
-This package sits at the repo root rather than under ``src/`` because nothing
-here is ever installed. The repo root is already on ``sys.path`` everywhere
-that matters (a script's own directory, ``tests/conftest.py``, the
-``tools/measure_*`` harnesses), so ``import lib.version`` resolves with no
-path juggling at any of those call sites.
+This package sits at the repo root rather than under ``src/`` because a clone
+runs it in place. An installed package carries it as
+``speaker_tuning_to_easyeffects/lib/`` (pyproject.toml), and `lib.launch` puts
+that folder on ``sys.path`` to the same end. The repo root is already on
+``sys.path`` everywhere that matters (a script's own directory,
+``tests/conftest.py``, the ``tools/measure_*`` harnesses), so
+``import lib.version`` resolves with no path juggling at any of those call
+sites.
 
 Deliberately empty of code: importing ``lib`` must cost nothing and must not
 be able to introduce an import cycle, so submodules are imported by name

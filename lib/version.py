@@ -2,17 +2,17 @@
 
 Resolved in this order: the stamp git substituted into this file when it built
 a source archive, then ``git describe`` in a checkout, then an installed
-package's version marked ``+unstamped``, then ``"unknown"``. The
-archive stamp comes first because a substituted value proves we are *not* in a
-checkout -- which also keeps an archive unpacked inside some unrelated git repo
-from reporting that repo's version. ``git describe`` runs only where
+package's version marked ``+unstamped``, then ``"unknown"``. The archive stamp
+comes first because a substituted value proves we are *not* in a checkout --
+which also keeps an archive unpacked inside some unrelated git repo from
+reporting that repo's version. ``git describe`` runs only where
 `lib.paths.is_checkout` holds, for the same reason: an installed package's
-``site-packages/`` can sit inside some other repository too. A package built
-from a clone carries the same stamp an archive does, written by its build
-(tools/packaging/stamp_version.py). One built with no git to ask, such as
-from a tree with no ``.git``, falls back to pyproject.toml's ``version``,
-bumped only at a release, so ``+unstamped`` says the exact commit is not
-known: any commit from that release on.
+folder under ``site-packages/`` can sit inside some other repository too. A
+package built from a clone carries the same stamp an archive does, written by
+its build (tools/packaging/stamp_version.py). One built with no git to ask,
+such as from a tree with no ``.git``, falls back to pyproject.toml's
+``version``, bumped only at a release, so ``+unstamped`` says the exact commit
+is not known: any commit from that release on.
 
 Stdlib-only on purpose: ``ee_to_pipewire.py`` imports this for ``--version``
 and must not pull numpy/scipy into its startup path just to read a version.

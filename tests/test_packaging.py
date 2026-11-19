@@ -43,13 +43,44 @@ def test_requirements_txt_and_pyproject_list_the_same_packages():
     assert listed == declared
 
 
-def test_every_entry_script_is_installed_as_a_command():
-    scripts = PROJECT["project"]["scripts"]
-    assert set(scripts) == set(ROOT_MODULES)
-    for name, target in scripts.items():
-        assert target == f"{name}:run_cli"
-    assert set(PROJECT["tool"]["setuptools"]["py-modules"]) == set(ROOT_MODULES)
+# The one top-level package an install puts in site-packages/.
+PACKAGE = "speaker_tuning_to_easyeffects"
 
+
+def test_every_entry_script_is_installed_as_a_command():
+    """Each command runs through lib/launch.py, which has one entry point
+    per root script."""
+    from lib import launch
+    scripts = PROJECT["project"]["scripts"]
+    assert scripts == {name: f"{PACKAGE}.lib.launch:{name}"
+                       for name in ROOT_MODULES}
+    assert set(launch.__all__) == set(ROOT_MODULES)
+
+
+@pytest.mark.parametrize("script", ROOT_MODULES)
+def test_each_command_runs_its_own_script_from_the_packages_folder(
+        script, monkeypatch):
+    """Installed, the scripts and lib/ sit in one folder under
+    site-packages/: it goes first on sys.path, even when already present
+    further back, and the script's run_cli decides the exit status."""
+    from lib import launch
+    import sys
+    monkeypatch.setattr("sys.path", ["/elsewhere", str(ROOT)])
+    asked = []
+
+    class Script:
+        @staticmethod
+        def run_cli():
+            return 7
+
+    def import_module(name):
+        asked.append(name)
+        return Script
+
+    monkeypatch.setattr(launch.importlib, "import_module", import_module)
+    assert getattr(launch, script)() == 7
+    assert asked == [script]
+    assert sys.path == [str(ROOT), "/elsewhere"]
 
 
 def test_pip_refuses_the_pythons_the_code_refuses():
@@ -57,15 +88,23 @@ def test_pip_refuses_the_pythons_the_code_refuses():
     floor = ".".join(map(str, packages.MIN_PYTHON))
     assert PROJECT["project"]["requires-python"] == f">={floor}"
 
-def test_every_lib_package_is_a_regular_package():
-    """`packages.find` skips a folder with no __init__.py, so its modules
-    would be missing from the install while every checkout test passes."""
-    assert PROJECT["tool"]["setuptools"]["packages"]["find"]["include"] == [
-        "lib", "lib.*"]
-    for folder in [ROOT / "lib", *(ROOT / "lib").rglob("*")]:
-        if folder.is_dir() and folder.name != "__pycache__" and any(
-                folder.glob("*.py")):
-            assert (folder / "__init__.py").is_file(), folder
+
+def test_every_lib_package_is_listed_under_the_one_top_level_package():
+    """The subpackages are listed by hand (the finder can't add the
+    prefix): one left out would be missing from every install while every
+    checkout test passes. A folder with no __init__.py would be skipped the
+    same way."""
+    setuptools = PROJECT["tool"]["setuptools"]
+    assert setuptools["package-dir"] == {PACKAGE: ".", f"{PACKAGE}.lib": "lib"}
+    assert setuptools["include-package-data"] is False
+    folders = [ROOT / "lib", *(ROOT / "lib").rglob("*")]
+    with_code = [f for f in folders if f.is_dir()
+                 and f.name != "__pycache__" and any(f.glob("*.py"))]
+    for folder in with_code:
+        assert (folder / "__init__.py").is_file(), folder
+    expected = {PACKAGE} | {
+        ".".join((PACKAGE, *f.relative_to(ROOT).parts)) for f in with_code}
+    assert set(setuptools["packages"]) == expected
 
 
 def test_lib_holds_only_python():
@@ -100,7 +139,13 @@ def stamper():
     return module
 
 
-def test_the_build_hook_is_wired_and_carried_into_an_sdist():
+def test_the_build_hook_is_wired_and_carried_into_an_sdist(stamper):
+    """Wired by name, and stamping the package pyproject.toml maps the repo
+    root to: a rename on either side would ship an unstamped wheel."""
+    root_package = [name for name, folder in
+                    PROJECT["tool"]["setuptools"]["package-dir"].items()
+                    if folder == "."]
+    assert root_package == [stamper.BuildPy.PACKAGE]
     cmdclass = PROJECT["tool"]["setuptools"]["cmdclass"]
     assert cmdclass == {"build_py": "tools.packaging.stamp_version.BuildPy",
                         "sdist": "tools.packaging.stamp_version.Sdist"}

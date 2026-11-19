@@ -217,7 +217,8 @@ def test_an_installed_command_missing_a_dependency_says_where_to_install_it(
     from tests.conftest import write_synthetic_tuning_xml
 
     xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
-    # An installed command, run from site-packages/: no pyproject.toml.
+    # An installed command, run from its package folder under
+    # site-packages/: no pyproject.toml.
     launch = ("import sys, pathlib; "
               "sys.argv[0] = '/venv/bin/dolby_to_easyeffects'; "
               "from lib import paths; "

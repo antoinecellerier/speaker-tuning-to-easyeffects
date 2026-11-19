@@ -308,7 +308,8 @@ def test_a_read_only_cache_in_a_writable_checkout_moves_it_too(cache_home):
 
 
 def test_an_installed_package_keeps_the_cache_under_xdg(cache_home):
-    """Installed, the root is site-packages/: no pyproject.toml there."""
+    """Installed, the root is the package's folder under site-packages/:
+    no pyproject.toml there."""
     checkout, xdg_cache = cache_home
     (checkout.parent / "pyproject.toml").unlink()
     assert dp.default_cache_root() == xdg_cache

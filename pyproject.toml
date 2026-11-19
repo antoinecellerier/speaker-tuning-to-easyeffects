@@ -1,12 +1,12 @@
-# Installs the three entry scripts as commands of the same names without
-# ".py", for pip, pipx and Nix's buildPythonApplication. The top-level package
-# is `lib`, a name another distribution could also claim, so install it in an
-# environment of its own (pipx, a venv, a Nix application), never beside
-# other packages. `version` is bumped when a release is cut, and release.yml
-# fails on a tag it doesn't match. The runtime --version comes from
-# lib/version.py instead, which also knows the commits since the tag: the
-# build stamps it (below), and a build with no git to ask reports this
-# `version` marked "+unstamped".
+# Installs the three entry scripts as commands of the same names without ".py",
+# for pip, pipx and Nix's buildPythonApplication. Everything installs under one
+# package, speaker_tuning_to_easyeffects/, holding the scripts and lib/, so no
+# generic top-level `lib` can collide with another distribution's;
+# lib/launch.py puts that folder on sys.path so the code imports as in a clone.
+# `version` is bumped when a release is cut, and release.yml fails on a tag it
+# doesn't match. The runtime --version comes from lib/version.py instead, which
+# also knows the commits since the tag: the build stamps it (below), and a
+# build with no git to ask reports this `version` marked "+unstamped".
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
@@ -33,15 +33,32 @@ test = ["pytest", "pytest-xdist>=3.2"]
 Homepage = "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
 
 [project.scripts]
-dolby_to_easyeffects = "dolby_to_easyeffects:run_cli"
-dolby_to_pipewire = "dolby_to_pipewire:run_cli"
-ee_to_pipewire = "ee_to_pipewire:run_cli"
+dolby_to_easyeffects = "speaker_tuning_to_easyeffects.lib.launch:dolby_to_easyeffects"
+dolby_to_pipewire = "speaker_tuning_to_easyeffects.lib.launch:dolby_to_pipewire"
+ee_to_pipewire = "speaker_tuning_to_easyeffects.lib.launch:ee_to_pipewire"
 
+# The repo root maps to the package, so the package holds the three scripts
+# (the root's only .py files, tests/test_layout.py) and lib/. The subpackages
+# are listed by hand, because the package finder can't add the prefix;
+# tests/test_packaging.py fails on one missing. No package data: mapping the
+# root would otherwise sweep README, tests/ and tools/ into the wheel.
 [tool.setuptools]
-py-modules = ["dolby_to_easyeffects", "dolby_to_pipewire", "ee_to_pipewire"]
+include-package-data = false
+packages = [
+    "speaker_tuning_to_easyeffects",
+    "speaker_tuning_to_easyeffects.lib",
+    "speaker_tuning_to_easyeffects.lib.apo",
+    "speaker_tuning_to_easyeffects.lib.data",
+    "speaker_tuning_to_easyeffects.lib.dax",
+    "speaker_tuning_to_easyeffects.lib.hardware",
+    "speaker_tuning_to_easyeffects.lib.pipewire",
+    "speaker_tuning_to_easyeffects.lib.preset",
+    "speaker_tuning_to_easyeffects.lib.report",
+]
 
-[tool.setuptools.packages.find]
-include = ["lib", "lib.*"]
+[tool.setuptools.package-dir]
+"speaker_tuning_to_easyeffects" = "."
+"speaker_tuning_to_easyeffects.lib" = "lib"
 
 # Stamps `git describe` into the built copy of lib/version.py, so an install
 # from a clone reports its commit: tools/packaging/stamp_version.py. Resolved

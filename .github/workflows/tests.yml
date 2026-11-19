@@ -23,8 +23,17 @@ jobs:
       # the checkout, the way pip/pipx/Nix users run it.
       - name: Install as a package and convert from outside the checkout
         run: |
+          # pip builds a local folder in place and setuptools never prunes
+          # build/lib, so seed the leftovers a reused clone carries: an old
+          # top-level lib/ and a module since deleted. Neither may ship.
+          mkdir -p build/lib/lib build/lib/speaker_tuning_to_easyeffects/lib
+          touch build/lib/lib/__init__.py build/lib/speaker_tuning_to_easyeffects/lib/zz_deleted.py
           python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install .
+          site=$("$RUNNER_TEMP/venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          if [ -e "$site/lib" ] || [ -e "$site/speaker_tuning_to_easyeffects/lib/zz_deleted.py" ]; then
+            echo "::error::the wheel shipped files left in build/ by an earlier build"; exit 1
+          fi
           xml="$RUNNER_TEMP/DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml"
           python -c 'import sys; from pathlib import Path; from tests.conftest import write_synthetic_tuning_xml as w; w(Path(sys.argv[1]))' "$xml"
           cd "$RUNNER_TEMP"

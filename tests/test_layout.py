@@ -79,6 +79,9 @@ STDLIB_ONLY = (
     "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
     # Names a script the way the run was started; the conf writer asks it.
     "lib.invocation",
+    # The installed commands' entry point, ahead of everything the script
+    # itself imports.
+    "lib.launch",
     # The two doors to the machine — its tools and its /proc, /sys, /etc —
     # which stdlib-only modules above and below reach.
     "lib.tool_env", "lib.host",
