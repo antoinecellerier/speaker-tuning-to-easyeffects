@@ -26,7 +26,7 @@ import json
 import re
 from pathlib import Path
 
-from lib import version
+from lib import invocation, version
 from lib.pipewire.plugins import ChainResult, EE_KEY_DISPATCH, Stage
 
 
@@ -376,7 +376,8 @@ def format_conf(stages: list[Stage], links: list[dict],
         "#\n"
         "# IRS file paths are absolute. By default the converter copies\n"
         "# the .irs next to this conf, so the chain is self-contained;\n"
-        "# re-run ee_to_pipewire.py to refresh after updating the source\n"
+        f"# re-run {invocation.script('ee_to_pipewire.py')} to refresh after "
+        "updating the source\n"
         "# EasyEffects preset.\n\n"
         "context.modules = [\n"
     )

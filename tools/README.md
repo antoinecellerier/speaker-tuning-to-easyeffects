@@ -129,6 +129,14 @@ directory stages that capability until it lands. It is not a permanent
 "user-facing tools" bucket. Full usage:
 [`fetch_driver/README.md`](fetch_driver/README.md).
 
+## packaging/ — the build's version stamp
+
+[`packaging/stamp_version.py`](packaging/stamp_version.py) keeps `--version`
+right in an installed package. setuptools runs it at build time, named by
+`[tool.setuptools.cmdclass]` in `pyproject.toml`, and it writes
+`git describe` into the build's copy of `lib/version.py`. Nobody runs it by
+hand. `tests/test_packaging.py` guards it.
+
 ## Three files that look misplaced
 
 "This is obviously in the wrong place" is the first thought every reader has

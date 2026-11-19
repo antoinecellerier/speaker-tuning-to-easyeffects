@@ -17,3 +17,25 @@ jobs:
           cache-dependency-path: requirements.txt
       - run: pip install -r requirements.txt
       - run: pytest tests/
+      # Every test above imports from the checkout, so none of them sees a
+      # broken install: a lib/ folder left out, or a command that doesn't
+      # start. Run a conversion through the installed command, from outside
+      # the checkout, the way pip/pipx/Nix users run it.
+      - name: Install as a package and convert from outside the checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install .
+          xml="$RUNNER_TEMP/DEV_0287_SUBSYS_17AA22E6_PCI_SUBSYS_22E617AA.xml"
+          python -c 'import sys; from pathlib import Path; from tests.conftest import write_synthetic_tuning_xml as w; w(Path(sys.argv[1]))' "$xml"
+          cd "$RUNNER_TEMP"
+          # The build stamps git's answer into lib/version.py
+          # (tools/packaging/stamp_version.py). A shallow checkout has no
+          # tags, so that is a bare commit hash, but never the fallbacks.
+          got=$(venv/bin/dolby_to_easyeffects --version)
+          echo "$got"
+          case "$got" in
+            *unknown|*+unstamped) echo "::error::the installed package carries no version stamp"; exit 1 ;;
+          esac
+          venv/bin/dolby_to_easyeffects --no-color --dry-run --output-dir out --irs-dir out "$xml"
+          venv/bin/ee_to_pipewire --help > /dev/null
+          venv/bin/dolby_to_pipewire --help > /dev/null

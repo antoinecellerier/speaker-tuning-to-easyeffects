@@ -1,4 +1,4 @@
-"""The two XDG base directories, resolved the way the apps we write for do.
+"""The XDG base directories we use, resolved the way the apps we write for do.
 
 Stdlib-only on purpose, like ``ee_paths.py`` and ``ee_socket.py``: both
 converters import this at startup to build argparse defaults, and neither may
@@ -39,12 +39,16 @@ XDG variables inside the sandbox to point at ``~/.var/app/<app id>/``
 host-side spelling of its tree is rooted at ``$HOME``, not at these. The one
 Flatpak path that *is* an XDG path is the per-user *install* root,
 ``$XDG_DATA_HOME/flatpak`` (``man flatpak``, ``FLATPAK_USER_DIR``).
+
+``cache_home`` is ours alone: ``lib/driver_package.py`` unpacks driver
+downloads under it when the checkout can't hold them (read-only, or installed
+as a package).
 """
 
 import os
 from pathlib import Path
 
-__all__ = ["data_home", "config_home"]
+__all__ = ["data_home", "config_home", "cache_home"]
 
 
 def _home(variable: str, fallback: str) -> Path:
@@ -67,3 +71,8 @@ def data_home() -> Path:
 def config_home() -> Path:
     """``$XDG_CONFIG_HOME``, or ``~/.config``."""
     return _home("XDG_CONFIG_HOME", ".config")
+
+
+def cache_home() -> Path:
+    """``$XDG_CACHE_HOME``, or ``~/.cache``."""
+    return _home("XDG_CACHE_HOME", ".cache")

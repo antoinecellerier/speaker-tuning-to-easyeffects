@@ -920,6 +920,45 @@ def test_printed_commands_follow_how_the_script_was_typed(monkeypatch):
     assert uninstall.command("dolby_to_pipewire.py") == "python3 dolby_to_pipewire.py"
 
 
+@pytest.fixture
+def installed_layout(monkeypatch, tmp_path):
+    """The code running from site-packages/: no pyproject.toml beside lib/."""
+    from lib import paths
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+
+
+def test_copy_names_a_script_the_way_the_run_was_started(monkeypatch,
+                                                         installed_layout):
+    from lib import invocation
+    monkeypatch.setattr("sys.argv", ["/venv/bin/dolby_to_easyeffects"])
+    assert invocation.script("ee_to_pipewire.py") == "ee_to_pipewire"
+    monkeypatch.setattr("sys.argv", ["./dolby_to_easyeffects.py"])
+    assert invocation.script("ee_to_pipewire.py") == "ee_to_pipewire.py"
+    monkeypatch.setattr("sys.argv", [])
+    assert invocation.script("ee_to_pipewire.py") == "ee_to_pipewire.py"
+
+
+def test_a_checkout_script_under_a_command_name_is_still_a_checkout(
+        monkeypatch):
+    """A ~/bin symlink to the checkout's script has a command's name, but
+    its user still runs the .py: the lines name it as such."""
+    from lib import invocation
+    monkeypatch.setattr("sys.argv", ["/home/u/bin/dolby_to_easyeffects"])
+    assert not invocation.installed()
+    assert invocation.script("ee_to_pipewire.py") == "ee_to_pipewire.py"
+
+
+def test_printed_commands_follow_an_installed_command(monkeypatch,
+                                                      installed_layout):
+    """A pip/pipx/Nix install runs a console script, not the .py: the line
+    names the sibling command, from the same folder, with no python3."""
+    monkeypatch.setattr("sys.argv", ["/venv/bin/dolby_to_easyeffects"])
+    assert uninstall.command("dolby_to_pipewire.py", "--uninstall") == \
+        "/venv/bin/dolby_to_pipewire --uninstall"
+    monkeypatch.setattr("sys.argv", ["ee_to_pipewire"])
+    assert uninstall.command("dolby_to_easyeffects.py") == "dolby_to_easyeffects"
+
+
 def test_a_live_autoload_entry_under_a_custom_dir_says_to_delete_it_by_hand(
         tree, tmp_path):
     """No flag reaches it: --autoload-dir naming EasyEffects' own folder

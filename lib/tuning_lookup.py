@@ -260,7 +260,8 @@ def windows_source(root: Path, args) -> tuning_source.TuningSource:
 
 def _download_source(download: Path, args) -> tuning_source.TuningSource:
     """The tuning a vendor's driver download holds for this machine. Its
-    tuning files are unpacked into driver-cache/, and this machine's is
+    tuning files are unpacked into the download cache
+    (`driver_package.default_cache_root`), and this machine's is
     picked there (`FINDERS`)."""
     tree = driver_package.unpack(download)
 

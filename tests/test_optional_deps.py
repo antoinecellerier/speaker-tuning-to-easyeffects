@@ -209,6 +209,36 @@ def _absent(tmp_path, module: str) -> str:
         p for p in (str(blocker), os.environ.get("PYTHONPATH")) if p)
 
 
+def test_an_installed_command_missing_a_dependency_says_where_to_install_it(
+        tmp_path):
+    """Run as an installed command (pip, pipx, Nix), there is no
+    requirements.txt beside the code and no other Python that could import
+    it: the remedy installs into this command's own environment."""
+    from tests.conftest import write_synthetic_tuning_xml
+
+    xml = write_synthetic_tuning_xml(tmp_path / "DEV_SYNTH_SUBSYS_TEST.xml")
+    # An installed command, run from site-packages/: no pyproject.toml.
+    launch = ("import sys, pathlib; "
+              "sys.argv[0] = '/venv/bin/dolby_to_easyeffects'; "
+              "from lib import paths; "
+              f"paths.REPO_ROOT = pathlib.Path({str(tmp_path)!r}); "
+              "import dolby_to_easyeffects; "
+              "sys.exit(dolby_to_easyeffects.run_cli())")
+    result = subprocess.run(
+        [sys.executable, "-c", launch, "--no-color", str(xml),
+         "--output-dir", str(tmp_path / "presets"),
+         "--irs-dir", str(tmp_path / "irs")],
+        capture_output=True, text=True, timeout=120, cwd=REPO,
+        env={**os.environ, "PYTHONPATH": _absent(tmp_path, "numpy")},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 1 and "Traceback" not in output, output
+    assert ("numpy is not installed in the environment this command was "
+            "installed into") in output, output
+    assert "-m pip install numpy scipy" in output, output
+    assert "requirements.txt" not in output, output
+
+
 @pytest.mark.parametrize("module", ["numpy", "scipy"])
 def test_a_missing_dsp_dependency_names_itself(module, tmp_path):
     """Clone the repo, skip the install step, run it on an XML: the only thing

@@ -6,8 +6,10 @@ Maintainers' release steps:
      the tag and the GitHub Release carry it.
   2. Draft the tagline and summary below, unless the release has no theme.
      Have the maintainer validate both before tagging.
-  3. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
-  4. .github/workflows/release.yml publishes the GitHub Release. It pulls
+  3. Set version = "YYYY.MM" in pyproject.toml, without the v.
+     release.yml refuses a tag it doesn't match.
+  4. Commit, then: git tag vYYYY.MM && git push origin vYYYY.MM
+  5. .github/workflows/release.yml publishes the GitHub Release. It pulls
      the title and notes from this file's matching section.
 
 Release tagline & summary: both or neither; omit both when the release
@@ -104,6 +106,10 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
   when that output is muted. A muted PipeWire chain fails "Chain volume", and
   the PipeWire install says when a chain comes up muted or turned down
   ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)).
+- The scripts install as commands with pip or pipx, via `pyproject.toml`. A
+  read-only or installed copy unpacks driver downloads under `~/.cache`
+  instead of `driver-cache/`
+  ([#73](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/73)).
 - Mark additional tested devices: Lenovo Yoga Pro 7 14ARP8 (83AU)
   ([#152](https://github.com/antoinecellerier/speaker-tuning-to-easyeffects/issues/152)),
   Lenovo Yoga Slim 7 14IMH9 (83CV)

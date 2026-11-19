@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib import (console, doctor, ee_autostart, ee_paths, ee_socket, packages,
-                 tool_env, version)
+                 invocation, tool_env, version)
 from lib.doctor import (
     DOCTOR_FAIL,
     DOCTOR_PASS,
@@ -740,8 +740,8 @@ def _gather_doctor_report(output_dir: Path, irs_dir: Path, rc_path: Path,
         "Presets from another version", "preset",
         [autoload.generator_version(data) for _p, data in dolby_presets],
         version.get_version(),
-        "re-run dolby_to_easyeffects.py on your tuning file or driver "
-        "download, the way you last ran it")
+        f"re-run {invocation.script('dolby_to_easyeffects.py')} on your "
+        "tuning file or driver download, the way you last ran it")
     if stale is not None:
         report.checks.append(stale)
 

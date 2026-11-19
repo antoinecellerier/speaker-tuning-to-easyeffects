@@ -197,6 +197,10 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+To install the scripts as commands, run `pipx install '.[color]'` from the
+project root. Each command drops the `.py`, as in
+`dolby_to_easyeffects --doctor`.
+
 <a id="troubleshooting-a-preset-that-sounds-like-nothing"></a>
 <a id="troubleshooting-correct-but-too-quiet"></a>
 <a id="disabling-and-enabling-filters"></a>

@@ -26,7 +26,7 @@ from pathlib import Path
 # --help, a tab completion and an argparse error cost nothing here either.
 import dolby_to_easyeffects
 import ee_to_pipewire
-from lib import console, doctor, uninstall
+from lib import console, doctor, invocation, uninstall
 from lib.pipewire import checks, conf, install
 from lib.report import findings as report_findings
 from lib.report import messages
@@ -167,10 +167,10 @@ def _compose_parser(argv=None):
         help="stage and convert without touching the system, then report "
              "where each conf would be written. Nothing is written outside "
              "the temporary staging directory, except a driver download's "
-             "tuning files unpacked into driver-cache/, and PipeWire is not "
-             "restarted. To get the confs themselves without installing "
-             "them, use --output-dir DIR --no-activate in place of this "
-             "flag.",
+             "tuning files unpacked into driver-cache/ or the XDG cache, and "
+             "PipeWire is not restarted. To get the confs themselves "
+             "without installing them, use --output-dir DIR --no-activate "
+             "in place of this flag.",
     )
     step2_actions += ee_to_pipewire.add_general_args(
         group, only={"--no-validate"})
@@ -365,9 +365,14 @@ def main(argv: list[str] | None = None) -> int:
         # the line wouldn't be runnable as shown. Hardcoding an interpreter
         # would invent a different command from the one that was typed: the
         # scripts are executable, so ./dolby_to_pipewire.py is equally
-        # likely. argv[0] keeps the path the reader used.
+        # likely. argv[0] keeps the path the reader used. An installed
+        # command (pyproject.toml [project.scripts]) is echoed without the
+        # interpreter: its argv[0] is the command's path, no .py, and a
+        # packager's wrapper may be a shell script the interpreter can't run.
+        typed = (sys.argv if invocation.installed()
+                 else [sys.executable, *sys.argv])
         console.cprint("dim", "      (your command: "
-                      + shlex.join([sys.executable, *sys.argv]) + ")")
+                      + shlex.join(typed) + ")")
         rc = _run_generator(step1_common
                             + ["--output-dir", tmp, "--irs-dir", tmp],
                             closing=closing,

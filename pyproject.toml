@@ -1,3 +1,56 @@
+# Installs the three entry scripts as commands of the same names without
+# ".py", for pip, pipx and Nix's buildPythonApplication. The top-level package
+# is `lib`, a name another distribution could also claim, so install it in an
+# environment of its own (pipx, a venv, a Nix application), never beside
+# other packages. `version` is bumped when a release is cut, and release.yml
+# fails on a tag it doesn't match. The runtime --version comes from
+# lib/version.py instead, which also knows the commits since the tag: the
+# build stamps it (below), and a build with no git to ask reports this
+# `version` marked "+unstamped".
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speaker-tuning-to-easyeffects"
+version = "2026.10.1"
+description = "Convert the speaker tuning in Windows audio drivers (Dolby, Surface, Sonitude) into EasyEffects presets or a PipeWire filter chain"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+# lib/packages.py MIN_PYTHON; tests/test_packaging.py keeps the two in step.
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy"]
+
+[project.optional-dependencies]
+# What requirements.txt marks optional; tests/test_packaging.py keeps the two
+# lists in step.
+color = ["rich", "rich-argparse"]
+completion = ["argcomplete"]
+test = ["pytest", "pytest-xdist>=3.2"]
+
+[project.urls]
+Homepage = "https://github.com/antoinecellerier/speaker-tuning-to-easyeffects"
+
+[project.scripts]
+dolby_to_easyeffects = "dolby_to_easyeffects:run_cli"
+dolby_to_pipewire = "dolby_to_pipewire:run_cli"
+ee_to_pipewire = "ee_to_pipewire:run_cli"
+
+[tool.setuptools]
+py-modules = ["dolby_to_easyeffects", "dolby_to_pipewire", "ee_to_pipewire"]
+
+[tool.setuptools.packages.find]
+include = ["lib", "lib.*"]
+
+# Stamps `git describe` into the built copy of lib/version.py, so an install
+# from a clone reports its commit: tools/packaging/stamp_version.py. Resolved
+# by file path from this directory, so tools/ needn't be importable or
+# installed; MANIFEST.in carries the file into an sdist.
+[tool.setuptools.cmdclass]
+build_py = "tools.packaging.stamp_version.BuildPy"
+sdist = "tools.packaging.stamp_version.Sdist"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

@@ -31,7 +31,8 @@ import shutil
 import sys
 from pathlib import Path
 
-from lib import console, doctor, ee_paths, packages, tool_env, uninstall
+from lib import (console, doctor, ee_paths, invocation, packages, tool_env,
+                 uninstall)
 from lib.hardware import sinks
 from lib.pipewire import checks, install, session, validate, vbe
 # Aliased: main() binds a local named `conf` for the rendered conf text, which
@@ -205,8 +206,8 @@ def add_general_args(container, *, only=None):
              "PipeWire, verify the sink and quit EasyEffects. When this "
              "converter runs standalone, a one-line activation pointer "
              "replaces it. "
-             "dolby_to_pipewire.py passes this flag automatically and prints "
-             "its own steps instead.",
+             f"{invocation.script('dolby_to_pipewire.py')} passes this flag "
+             "automatically and prints its own steps instead.",
     )
     console.add_color_and_version_args(add)
     return added
@@ -228,7 +229,7 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
         type=Path,
         nargs="?",
         help="path to the EasyEffects preset JSON that "
-             "dolby_to_easyeffects.py writes, such as "
+             f"{invocation.script('dolby_to_easyeffects.py')} writes, such as "
              "~/.local/share/easyeffects/output/Dolby-Balanced.json",
     )
     group = parser.add_argument_group("inspection")
@@ -830,8 +831,9 @@ def point_to_easyeffects_uninstall() -> None:
     if ee_uninstall.ours_present():
         print()
         console._cprint_wrapped(
-            "dim", "EasyEffects presets from dolby_to_easyeffects.py are "
-            "installed too. This leaves them; to remove them as well:")
+            "dim", "EasyEffects presets from "
+            f"{invocation.script('dolby_to_easyeffects.py')} are installed "
+            "too. This leaves them; to remove them as well:")
         console.cprint("dim", "  " + uninstall.command(
             "dolby_to_easyeffects.py", "--uninstall"))
 

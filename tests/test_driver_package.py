@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 import dolby_to_easyeffects
-from lib import console, driver_package as dp, packages, tool_env
+from lib import console, driver_package as dp, packages, paths, tool_env
 from lib.apo import stacked
 from tests.conftest import (write_pe, write_surface_package,
                             write_synthetic_tuning_xml)
@@ -260,8 +260,102 @@ def test_the_cache_defaults_to_the_environment_override(monkeypatch,
                                                          tmp_path):
     monkeypatch.setenv(dp.CACHE_ENV, str(tmp_path / "c"))
     assert dp.default_cache_root() == tmp_path / "c"
+
+
+@pytest.fixture
+def cache_home(monkeypatch, tmp_path):
+    """No override, a checkout at ``repo/`` and ``$XDG_CACHE_HOME`` at
+    ``xdg/``: returns (checkout cache, XDG cache)."""
     monkeypatch.delenv(dp.CACHE_ENV)
-    assert dp.default_cache_root() == Path(dp.REPO_ROOT) / "driver-cache"
+    repo = tmp_path / "repo"
+    (repo / "lib").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("")
+    monkeypatch.setattr(paths, "REPO_ROOT", repo)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    return (repo / "driver-cache",
+            tmp_path / "xdg" / "speaker-tuning-to-easyeffects" / "driver-cache")
+
+
+needs_permissions = pytest.mark.skipif(
+    os.geteuid() == 0, reason="root writes through a read-only mode")
+
+
+def test_a_writable_checkout_keeps_the_cache_beside_the_code(cache_home):
+    checkout, _ = cache_home
+    assert dp.default_cache_root() == checkout
+
+
+@needs_permissions
+def test_a_read_only_checkout_moves_the_cache_to_xdg(cache_home):
+    """A Nix source is read-only: unpacking beside it would fail."""
+    checkout, xdg_cache = cache_home
+    checkout.parent.chmod(0o555)
+    try:
+        assert dp.default_cache_root() == xdg_cache
+    finally:
+        checkout.parent.chmod(0o755)
+
+
+@needs_permissions
+def test_a_read_only_cache_in_a_writable_checkout_moves_it_too(cache_home):
+    checkout, xdg_cache = cache_home
+    checkout.mkdir()
+    checkout.chmod(0o555)
+    try:
+        assert dp.default_cache_root() == xdg_cache
+    finally:
+        checkout.chmod(0o755)
+
+
+def test_an_installed_package_keeps_the_cache_under_xdg(cache_home):
+    """Installed, the root is site-packages/: no pyproject.toml there."""
+    checkout, xdg_cache = cache_home
+    (checkout.parent / "pyproject.toml").unlink()
+    assert dp.default_cache_root() == xdg_cache
+
+
+def test_a_relative_xdg_cache_home_is_ignored(cache_home, monkeypatch,
+                                              tmp_path):
+    checkout, _ = cache_home
+    (checkout.parent / "pyproject.toml").unlink()
+    monkeypatch.setenv("XDG_CACHE_HOME", "relative/cache")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert dp.default_cache_root() == (
+        tmp_path / "home" / ".cache" / "speaker-tuning-to-easyeffects"
+        / "driver-cache")
+
+
+@needs_permissions
+def test_an_unwritable_xdg_cache_names_the_folder_and_the_variable(
+        cache_home, tmp_path):
+    checkout, xdg_cache = cache_home
+    (checkout.parent / "pyproject.toml").unlink()
+    download = _surface_zip(tmp_path)
+    (tmp_path / "xdg").mkdir(mode=0o555)
+    try:
+        with pytest.raises(dp.PackageError) as err:
+            dp.unpack(download)
+    finally:
+        (tmp_path / "xdg").chmod(0o755)
+    message = str(err.value)
+    assert "Can't write the download cache" in message
+    assert xdg_cache.name in message and "XDG_CACHE_HOME" in message
+    assert not xdg_cache.exists()
+
+
+def test_a_cache_path_blocked_by_a_file_says_so_not_permissions(
+        cache_home, tmp_path):
+    """A file where the cache folder should be is not a permissions
+    problem: setting XDG_CACHE_HOME elsewhere would only hide it."""
+    checkout, xdg_cache = cache_home
+    (checkout.parent / "pyproject.toml").unlink()
+    xdg_cache.parent.mkdir(parents=True)
+    xdg_cache.write_text("")
+    with pytest.raises(dp.PackageError) as err:
+        dp.unpack(_surface_zip(tmp_path))
+    message = str(err.value)
+    assert "Can't write the download cache" in message
+    assert "XDG_CACHE_HOME" not in message and "writable" not in message
 
 
 # --- the tools, stood in for --------------------------------------------------

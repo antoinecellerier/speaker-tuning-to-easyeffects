@@ -36,7 +36,7 @@ a printer that reaches the console through `lib.console` at call time.
 
 from __future__ import annotations
 
-from lib import console, doctor
+from lib import console, doctor, invocation
 from lib.report.findings import Finding, _print_ask
 
 
@@ -286,8 +286,8 @@ def print_what_now(preset_names: list[str], autoloaded: bool,
     # can't express. And it is a stage, not a "fix".
     vbass_note = ("  The virtual-bass stage you enabled is one EasyEffects "
                   "can't play — these presets only record its values; "
-                  "dolby_to_pipewire.py builds it into a PipeWire chain "
-                  "instead.")
+                  f"{invocation.script('dolby_to_pipewire.py')} builds it into "
+                  "a PipeWire chain instead.")
     # The one place a Done-stopper learns the vendor tuning is in the
     # presets, or that a found one was left out: the report section saying so
     # has scrolled off by now, and so has the hint's ask (vendor-apo review,

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from lib import tool_env, version
+from lib import paths, tool_env, version
 from lib.version import get_version
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +64,78 @@ def test_in_repo_returns_describe_string(no_archive_stamp):
     described = get_version(ROOT)
     assert described
     assert described != "unknown"
+
+
+def _default_call_describes(monkeypatch, tmp_path, *, checkout: bool):
+    """`get_version()`'s default call with REPO_ROOT at *tmp_path*, and the
+    folder git was asked to describe (None when it wasn't asked)."""
+    if checkout:
+        (tmp_path / "pyproject.toml").write_text("")
+    monkeypatch.setattr(paths, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(version, "_CACHE", None)
+    asked = []
+
+    def describe(cmd, **kwargs):
+        asked.append(Path(cmd[2]))
+        return subprocess.CompletedProcess(cmd, 0, stdout="v1.2-3-gabc\n")
+
+    monkeypatch.setattr(tool_env, "run", describe)
+    return version.get_version(), (asked[0] if asked else None)
+
+
+def test_an_installed_package_never_describes_the_repo_around_it(
+        tmp_path, monkeypatch, no_archive_stamp):
+    """site-packages/ can sit inside some other git repository, whose
+    version this would otherwise report."""
+    def no_package(name):
+        raise version.metadata.PackageNotFoundError(name)
+    monkeypatch.setattr(version.metadata, "version", no_package)
+    got, asked = _default_call_describes(monkeypatch, tmp_path,
+                                         checkout=False)
+    assert (got, asked) == ("unknown", None)
+
+
+def test_a_checkout_describes_its_own_root(tmp_path, monkeypatch,
+                                           no_archive_stamp):
+    got, asked = _default_call_describes(monkeypatch, tmp_path,
+                                         checkout=True)
+    assert (got, asked) == ("v1.2-3-gabc", tmp_path)
+
+
+def test_an_unstamped_install_reports_its_package_version_marked(
+        tmp_path, monkeypatch, no_archive_stamp):
+    """Built with no git to ask, the package's own version is all there is.
+    It is bumped only at a release, so it is marked as not naming a commit,
+    in one token the conf header's version parse reads back whole."""
+    monkeypatch.setattr(version.metadata, "version",
+                        lambda name: {"speaker-tuning-to-easyeffects":
+                                      "2026.10.1"}[name])
+    got, asked = _default_call_describes(monkeypatch, tmp_path,
+                                         checkout=False)
+    assert (got, asked) == ("v2026.10.1+unstamped", None)
+    assert version._PLAUSIBLE_STAMP.match(got)
+
+
+@pytest.mark.parametrize("package, tag", [
+    ("2027.1", "v2027.01+unstamped"),       # normalised from "2027.01"
+    ("2026.10.1", "v2026.10.1+unstamped"),
+    ("2026.4.2", "v2026.04.2+unstamped"),
+])
+def test_an_unstamped_version_is_spelled_as_its_tag(package, tag,
+                                                    monkeypatch):
+    """Packaging drops the month's zero; the tags keep it, so a version
+    that names a release names it the way its tag does."""
+    monkeypatch.setattr(version.metadata, "version", lambda name: package)
+    assert version._package_version() == tag
+
+
+def test_a_checkout_never_reports_an_installed_packages_version(
+        tmp_path, monkeypatch, no_archive_stamp):
+    """An editable install leaves package metadata behind; the checkout's
+    own git answer is the true one."""
+    monkeypatch.setattr(version.metadata, "version", lambda name: "0.0.1")
+    got, _ = _default_call_describes(monkeypatch, tmp_path, checkout=True)
+    assert got == "v1.2-3-gabc"
 
 
 def test_archive_stamp_wins_over_git(monkeypatch):

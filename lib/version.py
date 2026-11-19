@@ -1,10 +1,18 @@
 """Best-effort version string, shared by both converters.
 
 Resolved in this order: the stamp git substituted into this file when it built
-a source archive, then ``git describe`` in a checkout, then ``"unknown"``. The
+a source archive, then ``git describe`` in a checkout, then an installed
+package's version marked ``+unstamped``, then ``"unknown"``. The
 archive stamp comes first because a substituted value proves we are *not* in a
 checkout -- which also keeps an archive unpacked inside some unrelated git repo
-from reporting that repo's version.
+from reporting that repo's version. ``git describe`` runs only where
+`lib.paths.is_checkout` holds, for the same reason: an installed package's
+``site-packages/`` can sit inside some other repository too. A package built
+from a clone carries the same stamp an archive does, written by its build
+(tools/packaging/stamp_version.py). One built with no git to ask, such as
+from a tree with no ``.git``, falls back to pyproject.toml's ``version``,
+bumped only at a release, so ``+unstamped`` says the exact commit is not
+known: any commit from that release on.
 
 Stdlib-only on purpose: ``ee_to_pipewire.py`` imports this for ``--version``
 and must not pull numpy/scipy into its startup path just to read a version.
@@ -14,9 +22,10 @@ from __future__ import annotations
 
 import re
 import subprocess
+from importlib import metadata
 from pathlib import Path
 
-from lib import tool_env
+from lib import paths, tool_env
 
 __all__ = ["get_version"]
 
@@ -74,13 +83,35 @@ def _git_describe(base: Path) -> str | None:
     return None
 
 
+# pyproject.toml's [project] name, the installed package's metadata key.
+_DISTRIBUTION = "speaker-tuning-to-easyeffects"
+# Packaging normalises 2027.01 to 2027.1; the tags pad the month.
+_CALVER = re.compile(r"\A(\d{4})\.(\d{1,2})((?:\.\d+)*)\Z")
+
+
+def _package_version() -> str | None:
+    """The installed package's version, spelled as its tag and marked
+    ``+unstamped``, or None when this code was not installed as a package.
+
+    One token, no spaces: the PipeWire doctor reads a conf's version back
+    with ``\\S+`` (lib/pipewire/checks.py)."""
+    try:
+        raw = metadata.version(_DISTRIBUTION)
+    except metadata.PackageNotFoundError:
+        return None
+    m = _CALVER.match(raw)
+    tag = f"{m[1]}.{int(m[2]):02d}{m[3]}" if m else raw
+    return f"v{tag}+unstamped"
+
+
 def get_version(repo_dir: Path | None = None) -> str:
     """Return an archive stamp or a ``git describe`` string, or ``"unknown"``.
 
     Never raises. Falls back to ``"unknown"`` when this is neither a stamped
-    archive nor a git checkout git can read (e.g. files copied out of one, or
-    a system with no git CLI). With no tags yet, ``--always`` yields the short
-    commit hash; a dirty tree gets a ``-dirty`` suffix.
+    archive, a git checkout git can read, nor an installed package (e.g.
+    files copied out of a checkout, or a system with no git CLI). With no
+    tags yet, ``--always`` yields the short commit hash; a dirty tree gets a
+    ``-dirty`` suffix.
 
     ``repo_dir`` redirects only the ``git describe`` lookup, and exists mainly
     so tests can point it at a temporary non-repo directory; it does not
@@ -91,8 +122,14 @@ def get_version(repo_dir: Path | None = None) -> str:
     if repo_dir is None and _CACHE is not None:
         return _CACHE
 
-    base = repo_dir if repo_dir is not None else Path(__file__).resolve().parent
-    version = _archive_version() or _git_describe(base) or "unknown"
+    version = _archive_version()
+    if not version and repo_dir is not None:
+        version = _git_describe(repo_dir)
+    elif not version and paths.is_checkout():
+        version = _git_describe(paths.REPO_ROOT)
+    elif not version:
+        version = _package_version()
+    version = version or "unknown"
 
     if repo_dir is None:
         _CACHE = version

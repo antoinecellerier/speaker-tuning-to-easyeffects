@@ -5,7 +5,7 @@ Setup `.exe` (Lenovo), a 7-Zip self-extractor (Framework), a signed `.exe`
 carrying an archive in its resources (ASUS), a Windows Installer `.msi`
 (Surface) or a `.zip` (Samsung). The archive is listed first. Only the files
 the readers open are kept, at their archive paths, in
-``driver-cache/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
+``<cache>/<name>-<sha256 prefix>/`` beside a ``PROVENANCE.txt``: the DAX3
 tuning XMLs (`lib.dax.discover.is_dolby_tuning_filename`), Sonitude's
 tuning archives (`lib.apo.sonitude.is_archive`), the `.inf` files beside
 Dolby's DAX2 APO (`lib.apo.dax2.wanted_members`), and what a vendor APO
@@ -27,12 +27,18 @@ tree is written to a hidden ``.partial-*`` directory and renamed into place
 once its ``PROVENANCE.txt`` is written, so a tree without one is never ours:
 it is neither reused nor removed. A ``.partial-*`` directory over an hour old
 is from a killed run, and the next unpack removes it.
+
+The cache is the checkout's ``driver-cache/`` (`lib/paths.py` says why), or,
+when the code doesn't run from a checkout it can write to (a read-only Nix
+source, an installed package), ``$XDG_CACHE_HOME/<project>/driver-cache/``:
+`default_cache_root`.
 """
 
 from __future__ import annotations
 
 import contextlib
 import datetime
+import errno
 import hashlib
 import io
 import mmap
@@ -48,11 +54,10 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from lib import console, doctor, packages, tool_env
+from lib import console, doctor, packages, paths, tool_env, xdg
 from lib.apo import dax2, sonitude, stacked
 from lib.dax import discover
 from lib.hardware import codecs
-from lib.paths import REPO_ROOT
 
 # Set by the test suite, so no test writes into the checkout's driver-cache/,
 # which bare runs and the corpus tier walk.
@@ -102,8 +107,52 @@ class NoTuningForThisDevice(PackageError):
     them goes on to that one, and every other refusal stands."""
 
 
+# The project's name, as the folder under $XDG_CACHE_HOME.
+_XDG_LEAF = "speaker-tuning-to-easyeffects"
+
+
 def default_cache_root() -> Path:
-    return Path(os.environ.get(CACHE_ENV) or REPO_ROOT / "driver-cache")
+    """Where downloads unpack: the checkout's ``driver-cache/`` when this
+    runs from a checkout that can hold it, else under ``$XDG_CACHE_HOME``.
+
+    Writability is asked of the cache if it exists, else of the folder it
+    would be made in: ``os.access`` reports a read-only mount, such as the
+    Nix store, as unwritable even to root.
+    """
+    if os.environ.get(CACHE_ENV):
+        return Path(os.environ[CACHE_ENV])
+    checkout = paths.REPO_ROOT / "driver-cache"
+    if paths.is_checkout() and os.access(
+            checkout if checkout.exists() else paths.REPO_ROOT, os.W_OK):
+        return checkout
+    return xdg.cache_home() / _XDG_LEAF / "driver-cache"
+
+
+# The errors a writable folder elsewhere fixes. Any other, such as a file
+# where a folder should be or a full disk, prints as itself.
+_UNWRITABLE = {errno.EACCES, errno.EPERM, errno.EROFS}
+
+
+def _make_cache(cache: Path) -> None:
+    """Create *cache*, or raise a `PackageError` naming it and the fix.
+
+    Only the XDG location's fix names ``XDG_CACHE_HOME``, because setting it
+    is what moves that one."""
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        if not os.access(cache, os.W_OK):
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+    except OSError as exc:
+        why = exc.strerror or str(exc)
+        if exc.errno not in _UNWRITABLE:
+            fix = "Fix that and run the same command again."
+        elif _XDG_LEAF in cache.parts:
+            fix = ("Set XDG_CACHE_HOME to a folder you can write to and run "
+                   "the same command again.")
+        else:
+            fix = "Make it writable and run the same command again."
+        raise PackageError(f"Can't write the download cache at "
+                           f"{doctor.tilde(cache)} ({why}). {fix}") from exc
 
 
 def kind(path: Path) -> str | None:
@@ -751,7 +800,7 @@ def _unpack_opened(path: Path, st, sha: str, cache: Path,
         raise PackageError(f"{path.name}'s tuning files claim {need} bytes, "
                            "more than a driver download holds; not unpacking "
                            "it.")
-    cache.mkdir(parents=True, exist_ok=True)
+    _make_cache(cache)
     _sweep_stale_partials(cache)
     free = shutil.disk_usage(cache).free
     # A margin over the listed sizes, for the filesystem's own overhead.

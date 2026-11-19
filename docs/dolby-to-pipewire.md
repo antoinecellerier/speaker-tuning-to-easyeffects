@@ -251,7 +251,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `xml_file` — optional positional path to the Dolby DAX3 tuning XML, such as
   `DEV_0287_SUBSYS_*.xml`, or to your laptop's audio driver download (`.exe`,
   `.msi` or `.zip`), or to a DAX2 driver `.inf`. The run unpacks a
-  download's tuning files into `driver-cache/`. See
+  download's tuning files into `driver-cache/`, or into the XDG cache
+  (`~/.cache`) when the checkout can't hold it. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover this device's tuning from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`
@@ -317,7 +318,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   as `dolby_to_easyeffects.py`
 - `--dry-run` — report where each conf would be written without installing it.
   Nothing is written outside the staging directory, except a driver download's
-  tuning files unpacked into `driver-cache/`, and PipeWire is not restarted.
+  tuning files unpacked into `driver-cache/` or the XDG cache, and PipeWire
+  is not restarted.
   To keep the confs, use `--output-dir DIR --no-activate` instead.
 - `--no-validate` — skip the pre-write checks: the `lv2info` schema self-check
   and PipeWire's own LV2 support

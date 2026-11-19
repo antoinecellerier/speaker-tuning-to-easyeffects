@@ -1,0 +1,3 @@
+# pyproject.toml's [tool.setuptools.cmdclass] names this build hook, so a
+# wheel built from an sdist needs it there too.
+include tools/packaging/stamp_version.py

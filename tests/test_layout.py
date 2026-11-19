@@ -77,10 +77,12 @@ FORBIDDEN = ("numpy", "scipy", "rich", "rich_argparse")
 
 STDLIB_ONLY = (
     "lib.version", "lib.ee_paths", "lib.doctor", "lib.paths",
+    # Names a script the way the run was started; the conf writer asks it.
+    "lib.invocation",
     # The two doors to the machine — its tools and its /proc, /sys, /etc —
     # which stdlib-only modules above and below reach.
     "lib.tool_env", "lib.host",
-    # The two XDG base directories, read from the environment. Reached at
+    # The XDG base directories, read from the environment. Reached at
     # startup by everything that resolves a path default.
     "lib.xdg",
     # Its own docstring promises this, and nothing enforced it: the module is

@@ -186,7 +186,7 @@ def _enum(table: dict[str, int], label: str, fallback: int,
         return table[label]
     msg = (f"{ctx}: unknown enum label {label!r}; using fallback "
            f"{fallback}. Update the matching EE_* table in "
-           "ee_to_pipewire.py.")
+           "lib/pipewire/plugins.py.")
     if msg not in warnings:
         warnings.append(msg)
     return fallback

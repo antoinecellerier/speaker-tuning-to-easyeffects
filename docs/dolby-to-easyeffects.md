@@ -15,7 +15,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `xml_file` — optional positional path to the Dolby DAX3 tuning XML, such as
   `DEV_0287_SUBSYS_*.xml`, or to your laptop's audio driver download (`.exe`,
   `.msi` or `.zip`), or to a DAX2 driver `.inf`. The run unpacks a
-  download's tuning files into `driver-cache/`. See
+  download's tuning files into `driver-cache/`, or into the XDG cache
+  (`~/.cache`) when the checkout can't hold it. See
   [Extracting the XML](getting-the-xml.md#from-a-vendor-driver-download).
 - `--windows DIR` — auto-discover this device's tuning from a mounted Windows
   directory, by matching the audio codec subsystem ID from `/proc/asound`
@@ -98,7 +99,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--verbose` (alias `-v`) — print the full frequency tables, hidden by default.
   Include a `-v` log when reporting a sound problem.
 - `--dry-run` — run without writing presets, IRs or autoload config. A driver
-  download passed in place of the XML is still unpacked into `driver-cache/`.
+  download passed in place of the XML is still unpacked into `driver-cache/`
+  or the XDG cache.
   Useful for debugging script execution and output.
 - `--no-reload` — don't ask a running EasyEffects to load the preset when the
   run finishes. Presets are still written. No effect under `--dry-run`, or when

@@ -36,7 +36,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from lib import console, doctor, host, packages
+from lib import console, doctor, host, invocation, packages
 from lib.data import kernel_releases
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -313,8 +313,9 @@ def graph_rate_message(rate: int, verb: str = "runs at") -> str:
             f"intends{hedge}. If it sounds distorted, that is the first thing "
             "to rule out. Making the change permanent depends on where the "
             "rate was set in the first place; if you chose it for other "
-            "hardware, this tool's other script (ee_to_pipewire.py) builds a "
-            "version of the same tuning that isn't affected.")
+            "hardware, this tool's other script "
+            f"({invocation.script('ee_to_pipewire.py')}) builds a version of "
+            "the same tuning that isn't affected.")
 
 
 def graph_rate_steps(forced_rate: str = "0") -> tuple[tuple[str, str], ...]:

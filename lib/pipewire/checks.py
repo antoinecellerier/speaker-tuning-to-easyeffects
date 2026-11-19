@@ -51,8 +51,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lib import (console, doctor, ee_socket, packages, tool_env, uninstall,
-                 version, xdg)
+from lib import (console, doctor, ee_socket, invocation, packages, tool_env,
+                 uninstall, version, xdg)
 from lib.hardware import sinks as hw_sinks
 from lib.doctor import (
     DOCTOR_FAIL,
@@ -1413,9 +1413,10 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         checks.insert(0, CheckResult(
             DOCTOR_WARN, "Installed confs",
             f"no filter-chain conf from this tool in "
-            f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run dolby_to_pipewire.py on your "
-            "tuning file or driver download (or ee_to_pipewire.py on a "
-            "preset) first; confs written elsewhere with --output aren't "
+            f"{doctor.tilde(DEFAULT_OUTPUT_DIR)} — run "
+            f"{invocation.script('dolby_to_pipewire.py')} on your tuning file "
+            f"or driver download (or {invocation.script('ee_to_pipewire.py')} "
+            "on a preset) first; confs written elsewhere with --output aren't "
             "checked."))
     if dump is None:
         checks.append(CheckResult(

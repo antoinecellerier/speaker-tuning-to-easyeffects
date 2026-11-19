@@ -69,6 +69,10 @@ one, it keeps and applies that too. The folder's `PROVENANCE.txt` names the
 download and lists the files kept. A later run with the same download reuses
 the folder.
 
+A read-only or installed copy unpacks under
+`~/.cache/speaker-tuning-to-easyeffects/` instead, or under `$XDG_CACHE_HOME`
+if set. To reuse that folder, pass the download again.
+
 If the download holds no tuning file, the run says so and writes nothing. If it
 reports several matching folders, run the same command again with the
 `--windows` line it lists in place of the download.

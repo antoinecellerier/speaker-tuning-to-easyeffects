@@ -25,28 +25,29 @@ from __future__ import annotations
 import argparse
 import shlex
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from lib import console, doctor, tool_env
+from lib import console, doctor, invocation, tool_env
 
 
-# The three entry points, for spelling a sibling the way this one was run.
-_ENTRY_SCRIPTS = {"dolby_to_easyeffects.py", "ee_to_pipewire.py",
-                  "dolby_to_pipewire.py"}
-
-
-def command(script: str, *args: str) -> str:
+def command(script_name: str, *args: str) -> str:
     """A pasteable command line for one of the entry scripts.
 
     ``python3`` plus the script's path as the reader typed this run's (a
-    sibling of ``sys.argv[0]``), so the line runs from where they are; a
-    bare name when this run wasn't started as an entry script."""
-    typed = Path(sys.argv[0]) if sys.argv and sys.argv[0] else Path()
-    path = (typed.with_name(script) if typed.name in _ENTRY_SCRIPTS
-            else Path(script))
+    sibling of ``sys.argv[0]``), so the line runs from where they are. When
+    this run is an installed command, the sibling command beside it, with no
+    ``python3``: a console script is no ``.py``, and a packager's wrapper may
+    be a shell script ``python3`` can't run. ``sys.argv[0]`` is the path the
+    shell resolved, so the line names the command's full path. A bare name
+    when this run wasn't started as either."""
+    typed = invocation.typed()
+    if invocation.installed():
+        return shlex.join([str(typed.with_name(
+            invocation.script(script_name))), *args])
+    path = (typed.with_name(script_name)
+            if typed.name in invocation.ENTRY_SCRIPTS else Path(script_name))
     return shlex.join(["python3", str(path), *args])
 
 

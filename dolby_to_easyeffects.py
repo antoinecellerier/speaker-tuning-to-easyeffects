@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from lib import (console, doctor, ee_paths, ee_socket, packages,
+from lib import (console, doctor, ee_paths, ee_socket, invocation, packages,
                  tuning_lookup, uninstall)
 from lib.apo import layer as apo_layer
 from lib.dax import parse
@@ -81,7 +81,8 @@ def add_tuning_input_args(container, *, only=None):
         help="path to the Dolby DAX3 tuning XML, such as "
              "DEV_0287_SUBSYS_*.xml, or to your laptop's audio driver "
              "download (.exe, .msi or .zip), whose tuning files the run "
-             "unpacks into driver-cache/, or to a DAX2 driver .inf",
+             "unpacks into driver-cache/, or into the XDG cache (~/.cache) "
+             "when the checkout can't hold it, or to a DAX2 driver .inf",
     )
     add(
         "--windows",
@@ -204,7 +205,8 @@ def add_autoload_args(container, *, only=None):
              "audio-speakers device icon. Find the name with "
              "'pw-dump | grep node.name'. A run with --autoload also names "
              "the sink it picked, and lists the candidates when it isn't "
-             "sure. This flag mirrors ee_to_pipewire.py's --target-sink.",
+             "sure. This flag mirrors "
+             f"{invocation.script('ee_to_pipewire.py')}'s --target-sink.",
     )
     add(
         "--no-autoload-bypass",
@@ -323,8 +325,9 @@ def add_general_args(container, *, only=None):
         action="store_true",
         help="run without writing presets, IRs or autoload config. A "
              "driver download passed in place of the XML is still unpacked "
-             "into driver-cache/. Useful for debugging script execution and "
-             "output.",
+             "into driver-cache/ or the XDG cache. Useful for debugging "
+             "script "
+             "execution and output.",
     )
     add(
         "--no-reload",
@@ -341,7 +344,8 @@ def add_general_args(container, *, only=None):
              "workflows that don't target an EasyEffects install. The check "
              "warns about the EasyEffects version, its install location and "
              "the PipeWire graph's sample rate. "
-             "dolby_to_pipewire.py passes this flag automatically.",
+             f"{invocation.script('dolby_to_pipewire.py')} passes this flag "
+             "automatically.",
     )
     add(
         "--skip-closing",
@@ -816,6 +820,28 @@ def main(argv: list[str] | None = None,
         # empty string exists for a sentence that already ends on the thing to
         # do. This one hands over the thing to do itself, and the generic
         # --help pointer still never appears.
+        if invocation.installed():
+            # An installed command (pip, pipx, Nix) runs from its own
+            # environment, so neither remedy below fits: another Python
+            # can't import this package, and there is no requirements.txt
+            # beside an installed copy. The dependencies go into the
+            # environment the command was installed into, which
+            # sys.executable names; `-m pip` works in a pipx venv too, through
+            # pipx's shared pip.
+            failure = RuntimeError(
+                f"{exc.name} is not installed in the environment this "
+                "command was installed into, and generating a preset needs "
+                "it.")
+            failure.next_step = (
+                ("cta", "Install the dependencies there:"),
+                ("cta", "  " + shlex.join([sys.executable, "-m", "pip",
+                                           "install", "numpy", "scipy"])),
+                # A Nix store path is read-only to pip: the derivation is
+                # where the dependency is missing.
+                ("dim", "or, for a Nix or distribution package, add numpy "
+                        "and scipy to its dependencies"),
+            )
+            raise failure from exc
         if packages.system_python_has(("numpy", "scipy")):
             # Installed, but for another interpreter: Homebrew's `python3`
             # ahead of /usr/bin on PATH is how #111 got here. The install
@@ -1047,16 +1073,17 @@ def main(argv: list[str] | None = None,
                 # use the same would-style as the rest of the dry-run copy.
                 console._cprint_wrapped("", "--enable virtual-bass: the real "
                                         "run's presets would carry it for "
-                                        "dolby_to_pipewire.py, which builds "
-                                        "the audible stage into a PipeWire "
-                                        "chain — EasyEffects itself can't "
-                                        "express it.")
+                                        f"{invocation.script('dolby_to_pipewire.py')}, "
+                                        "which builds the audible stage into "
+                                        "a PipeWire chain — EasyEffects "
+                                        "itself can't express it.")
             else:
                 console._cprint_wrapped("", "--enable virtual-bass: recorded "
                                         "for the PipeWire converter. "
                                         "EasyEffects itself can't express "
                                         "this stage — run "
-                                        "dolby_to_pipewire.py to hear it.")
+                                        f"{invocation.script('dolby_to_pipewire.py')} "
+                                        "to hear it.")
         else:
             print()
             if is_soundwire and "bass-enhancer" in args.disable:
