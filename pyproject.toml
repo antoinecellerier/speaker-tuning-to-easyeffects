@@ -20,13 +20,16 @@ license = "MIT"
 license-files = ["LICENSE"]
 # lib/packages.py MIN_PYTHON; tests/test_packaging.py keeps the two in step.
 requires-python = ">=3.9"
-dependencies = ["numpy", "scipy"]
+# rich, rich-argparse (color) and argcomplete (tab completion) install by
+# default, though the code only soft-imports them (lib/console.py and the entry
+# scripts) and runs monochrome without completion when they're absent. Extras
+# are opt-in only, so leaving these out is the opt-out: a packager can drop
+# them from its derivation, or `pip install --no-deps` with numpy and scipy
+# alone.
+# tests/test_packaging.py keeps these lists in step with requirements.txt.
+dependencies = ["numpy", "scipy", "rich", "rich-argparse", "argcomplete"]
 
 [project.optional-dependencies]
-# What requirements.txt marks optional; tests/test_packaging.py keeps the two
-# lists in step.
-color = ["rich", "rich-argparse"]
-completion = ["argcomplete"]
 test = ["pytest", "pytest-xdist>=3.2"]
 
 [project.urls]
