@@ -307,7 +307,10 @@ def emit_check(check: CheckResult, cprint, width: int) -> None:
     check's prose belongs in the detail and its commands in the steps.
     """
     cprint(_STYLE.get(check.status, "dim"), f"  {tag(check.status)} {check.label}")
-    for line in textwrap.wrap(check.detail, width=width - 9):
+    # Not at hyphens, as every other wrap here: a flag or a path split there
+    # can't be copied back.
+    for line in textwrap.wrap(check.detail, width=width - 9,
+                              break_on_hyphens=False):
         cprint("dim", f"         {line}")
     for style, text in check.steps:
         # A blank step is a paragraph break; indenting it would leave trailing

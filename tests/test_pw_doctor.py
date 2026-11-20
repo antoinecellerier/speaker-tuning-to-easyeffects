@@ -2733,3 +2733,17 @@ def test_doctor_looks_for_the_hook_in_the_wireplumber_dirs(monkeypatch,
     checks.gather_pw_doctor(tmp_path / "pkg", wp)
     checks.gather_pw_doctor(tmp_path / "pkg")
     assert asked == [True, False]
+
+
+def test_check_detail_never_splits_a_flag_at_its_hyphens():
+    """A flag folded at a hyphen can't be copied back: `--pipewire-` on one
+    line and `confd-dir` on the next is what the wrap did before."""
+    from lib.doctor import CheckResult, emit_check
+    lines = []
+    check = CheckResult(DOCTOR_WARN, "Installed confs",
+                        "no filter-chain conf from this tool in the folder "
+                        "given to --pipewire-confd-dir — run it again")
+    for width in range(40, 90):
+        lines.clear()
+        emit_check(check, lambda style, text: lines.append(text), width)
+        assert any("--pipewire-confd-dir" in ln for ln in lines), (width, lines)
