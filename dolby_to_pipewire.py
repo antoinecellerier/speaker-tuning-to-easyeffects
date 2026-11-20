@@ -27,7 +27,7 @@ from pathlib import Path
 import dolby_to_easyeffects
 import ee_to_pipewire
 from lib import console, doctor, invocation, uninstall
-from lib.pipewire import checks, conf, install
+from lib.pipewire import checks, conf, install, port_hook
 from lib.report import findings as report_findings
 from lib.report import messages
 
@@ -133,7 +133,8 @@ def _compose_parser(argv=None):
     step1_actions += dolby_to_easyeffects.add_output_args(
         group, only={"--prefix"})
     step2_actions += ee_to_pipewire.add_output_args(
-        group, only={"--pipewire-confd-dir", "--force"})
+        group, only={"--pipewire-confd-dir", "--wireplumber-scripts-dir",
+                     "--wireplumber-confd-dir", "--force"})
     # The flag's earlier spelling, kept working for scripts and packages that
     # pass it. Hidden: one name per folder in --help and the docs. Off both
     # action lists, like --version: the shared action carries the value to
@@ -234,8 +235,10 @@ def _uninstall(args) -> int:
     """``--uninstall``: the chains, restarted away unless --no-activate, as
     installing them is; then the EasyEffects pointer the converter prints."""
     from lib.pipewire import uninstall as pw_uninstall
-    rc = pw_uninstall.run(args.pipewire_confd_dir, dry_run=args.dry_run,
-                       assume_yes=args.yes, restart=not args.no_activate)
+    rc = pw_uninstall.run(args.pipewire_confd_dir,
+                          hook_dirs=ee_to_pipewire.wireplumber_dirs(args),
+                          dry_run=args.dry_run, assume_yes=args.yes,
+                          restart=not args.no_activate)
     ee_to_pipewire.point_to_easyeffects_uninstall()
     return rc
 
@@ -250,20 +253,32 @@ def main(argv: list[str] | None = None) -> int:
         ee_to_pipewire._attach_completers(parser)
         dolby_to_easyeffects.argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
+    ee_to_pipewire.check_wireplumber_dirs(parser, args)
     if args.no_color:
         console._disable_color()
     # Ahead of the child runs, which carry the same guard: the wrapper's own
     # is the one that fires, so the refusal is rendered once, here.
     console.refuse_root()
 
-    if uninstall.requested(parser, args,
-                           {"pipewire_confd_dir", "no_activate"}):
+    if uninstall.requested(parser, args, {
+            "pipewire_confd_dir", "wireplumber_scripts_dir",
+            "wireplumber_confd_dir", "no_activate"}):
         return _uninstall(args)
 
     # Pre-check the one cross-flag rule the generator enforces post-parse,
     # so the error is framed by the wrapper instead of mid-run by the child.
     if args.xml_file and args.windows:
         parser.error("specify either xml_file or --windows, not both")
+    # The child refuses this too, but only after step 1's DSP has run. With
+    # `on` the outcome is known now; `auto` learns it from the graph there.
+    if (args.speaker_port_hook == "on" and args.target_sink != ""
+            and ee_to_pipewire.wireplumber_dirs(args) is None
+            and not checks.is_live_conf_dir(
+                ee_to_pipewire.confd_dir(args.pipewire_confd_dir))):
+        parser.error("--speaker-port-hook on with a --pipewire-confd-dir "
+                     "outside PipeWire's own folders needs "
+                     "--wireplumber-scripts-dir and --wireplumber-confd-dir "
+                     "for the hook's two WirePlumber files")
 
     # Chains that share a filter.smart.target are run in SERIES by
     # WirePlumber, not offered as alternatives: get_filter_from_target
@@ -517,6 +532,13 @@ def main(argv: list[str] | None = None) -> int:
                                                             exclude=written)),
             dry_run=args.dry_run)
 
+    # The undo line names the WirePlumber folders only where a hook went: a
+    # run whose conf got none would otherwise print flags the undo doesn't
+    # need.
+    hook_dirs = ee_to_pipewire.wireplumber_dirs(args)
+    if hook_dirs is not None and not port_hook.installed(hook_dirs):
+        hook_dirs = None
+
     if args.dry_run:
         # "installed", not "written": staging really does write the presets,
         # to the tempdir named at [1/3], which is why "Wrote /tmp/…" lines
@@ -525,8 +547,9 @@ def main(argv: list[str] | None = None) -> int:
                        "--dry-run to install and activate")
         rc = 0
     elif args.no_activate:
-        install._print_manual_activation(node_names, written,
-                                         selectable=args.target_sink == "")
+        install._print_manual_activation(
+            node_names, written, selectable=args.target_sink == "",
+            hook_dirs=hook_dirs)
         rc = 0
     else:
         rc = install._activate(node_names, selectable=args.target_sink == "",
@@ -535,7 +558,8 @@ def main(argv: list[str] | None = None) -> int:
         # knowing the way back matters most — and on a failure it stops being
         # a footnote: removing the conf is the next thing the reader does.
         print()
-        install._print_undo(written, style="dim" if rc == 0 else "cta")
+        install._print_undo(
+            written, style="dim" if rc == 0 else "cta", hook_dirs=hook_dirs)
 
     # The generator's closing output, held back from [1/3] so it lands here,
     # last on screen, whichever of the three ways this run ended. Menu before

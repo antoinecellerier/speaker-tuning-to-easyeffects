@@ -66,11 +66,13 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
   `python3 dolby_to_pipewire.py --uninstall`. It lists every conf this tool
   installed in PipeWire's config folders, plus the `.irs` copied beside each. It
   asks before removing them, then restarts PipeWire. If you installed with
-  `--pipewire-confd-dir`, pass the same flag again; it restarts nothing when
-  that folder is one PipeWire doesn't read. Add `--dry-run` to see the list
-  only, or `--no-activate` to skip the restart. Files of your own are kept.
-  Removed files go to the Trash when `gio` is installed. To remove only one
-  run's files, run the two lines that run printed after "To undo".
+  `--pipewire-confd-dir` or the WirePlumber folder flags, pass the same flags
+  again; it
+  restarts nothing when that folder is one PipeWire doesn't read. Add
+  `--dry-run` to see the list only, or `--no-activate` to skip the restart.
+  Files of your own are kept. Removed files go to the Trash when `gio` is
+  installed. To remove only one run's files, run the two lines that run printed
+  after "To undo".
 
 ## Which should I use?
 
@@ -300,6 +302,14 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
   `Sonitude`, as in `Dolby_Balanced` or `Sonitude_Music`)
 - `--pipewire-confd-dir DIR` — folder for the generated `.conf` and `.irs`
   copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
+  script, such as a package's `share/wireplumber/scripts` (default:
+  `~/.local/share/wireplumber/scripts`)
+- `--wireplumber-confd-dir DIR` — folder for the config that loads it, such
+  as a package's `share/wireplumber/wireplumber.conf.d` (default:
+  `~/.config/wireplumber/wireplumber.conf.d`). The hook needs both
+  WirePlumber folders when `--pipewire-confd-dir` is not one of PipeWire's
+  own folders.
 - `--force` — overwrite existing conf and `.irs` files
 
 **Activation**
@@ -365,6 +375,14 @@ and `dolby_to_pipewire.py` runs it for you.
 **Output**
 - `--pipewire-confd-dir DIR` — folder for `<node-name>.conf` and its `.irs`
   copy, such as a package's (default: `~/.config/pipewire/pipewire.conf.d`)
+- `--wireplumber-scripts-dir DIR` — folder for the speaker-port hook's
+  script, such as a package's `share/wireplumber/scripts` (default:
+  `~/.local/share/wireplumber/scripts`)
+- `--wireplumber-confd-dir DIR` — folder for the config that loads it, such
+  as a package's `share/wireplumber/wireplumber.conf.d` (default:
+  `~/.config/wireplumber/wireplumber.conf.d`). The hook needs both
+  WirePlumber folders when `--pipewire-confd-dir` is not one of PipeWire's
+  own folders.
 - `--node-name NAME` / `--node-description DESC` — override the sink's node name
   and human-readable label (default: derived from the preset filename stem).
   Converting several presets then yields distinct sinks.
@@ -382,8 +400,8 @@ and `dolby_to_pipewire.py` runs it for you.
 **Uninstall**
 - `--uninstall` — remove the filter-chain confs and `.irs` copies this tool
   installed, after listing them and asking. Your own files are kept. It prints
-  the PipeWire restart rather than running it. With `--pipewire-confd-dir`, it
-  looks in that folder.
+  the PipeWire restart rather than running it. With `--pipewire-confd-dir` or
+  the WirePlumber folder flags, it looks in those folders.
 - `--yes` — with `--uninstall`, don't ask first
 
 **General**

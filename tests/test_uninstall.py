@@ -1063,6 +1063,11 @@ def test_every_prompt_shares_one_tty_rule():
 
 # --- Speaker-port hook (issue #73) ------------------------------------------
 
+def _wp(tmp_path):
+    """A package's two WirePlumber folders, as the flags name them."""
+    return (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
+
+
 def _marked_conf(d: Path, name: str) -> Path:
     from lib.pipewire import port_hook
     path = _conf(d, name)
@@ -1070,12 +1075,33 @@ def _marked_conf(d: Path, name: str) -> Path:
     return path
 
 
-def test_pw_removes_the_staged_hook_with_its_last_conf(tree, tmp_path):
+def test_pw_removes_the_hook_from_its_wireplumber_dirs(tree, tmp_path):
     from lib.pipewire import port_hook
-    out = tmp_path / "staged"
+    out, wp = tmp_path / "confs", _wp(tmp_path)
     conf = _marked_conf(out, "Dolby_Balanced")
-    hook = set(port_hook.write(out))
-    assert _planned(pw_uninstall.plan(out)) == {conf} | hook
+    hook = set(port_hook.write(wp))
+    assert _planned(pw_uninstall.plan(out, wp)) == {conf} | hook
+
+
+def test_pw_keeps_the_hook_while_a_marked_conf_stays(tree, tmp_path):
+    from lib.pipewire import port_hook
+    out, wp = tmp_path / "confs", _wp(tmp_path)
+    _marked_conf(out, "Dolby_Balanced")
+    port_hook.write(wp)
+    # One hook serves every chain beside it: with the marked conf staying
+    # (nothing being removed), the hook stays too.
+    assert pw_uninstall._hook_steps(out, wp, removing=set()) == []
+
+
+def test_pw_finds_no_hook_for_a_folder_of_your_own_without_its_dir(
+        tree, tmp_path):
+    """Without the WirePlumber folders a conf of the reader's own had no hook
+    written for it, so there is nowhere to look."""
+    from lib.pipewire import port_hook
+    out = tmp_path / "confs"
+    conf = _marked_conf(out, "Dolby_Balanced")
+    port_hook.write(_wp(tmp_path))
+    assert _planned(pw_uninstall.plan(out)) == {conf}
 
 
 def test_pw_removes_the_live_hook_from_the_xdg_homes(tree, tmp_path, monkeypatch):
@@ -1089,13 +1115,13 @@ def test_pw_removes_the_live_hook_from_the_xdg_homes(tree, tmp_path, monkeypatch
 
 def test_pw_leaves_a_foreign_file_in_the_hooks_place(tree, tmp_path):
     from lib.pipewire import port_hook
-    out = tmp_path / "staged"
+    out, wp = tmp_path / "confs", _wp(tmp_path)
     conf = _marked_conf(out, "Dolby_Balanced")
-    script, fragment = port_hook.paths(out)
+    script, fragment = port_hook.paths(wp)
     for p in (script, fragment):
         p.parent.mkdir(parents=True)
         p.write_text("mine\n")
-    assert _planned(pw_uninstall.plan(out)) == {conf}
+    assert _planned(pw_uninstall.plan(out, wp)) == {conf}
 
 
 def test_pw_removes_the_live_hook_when_output_dir_names_a_live_folder(

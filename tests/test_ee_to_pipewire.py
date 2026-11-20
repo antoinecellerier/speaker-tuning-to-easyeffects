@@ -3532,9 +3532,28 @@ def test_port_hook_fragment_cannot_stop_wireplumber():
     assert port_hook.MARKER in port_hook.SCRIPT
 
 
-def _hook_files(out_path):
+def _hook_dir(tmp_path):
+    return tmp_path / "wp"
+
+
+def _hook_dirs(tmp_path):
+    """A package's two WirePlumber folders, as the flags name them."""
+    return (_hook_dir(tmp_path) / "scripts",
+            _hook_dir(tmp_path) / "wireplumber.conf.d")
+
+
+def _hook_files(tmp_path):
     from lib.pipewire import port_hook
-    return port_hook.paths(out_path.parent)
+    return port_hook.paths(_hook_dirs(tmp_path))
+
+
+def _run_hooked(generated, tmp_path, *extra):
+    """`_run_main` with the WirePlumber folders, which a conf outside
+    PipeWire's own folders needs before it may carry the hook."""
+    scripts, confd = _hook_dirs(tmp_path)
+    return _run_main(generated, tmp_path, "--wireplumber-scripts-dir",
+                     str(scripts), "--wireplumber-confd-dir", str(confd),
+                     *extra)
 
 
 def test_auto_installs_the_hook_for_a_sink_with_a_headphone_port(
@@ -3543,29 +3562,41 @@ def test_auto_installs_the_hook_for_a_sink_with_a_headphone_port(
     from lib.pipewire import port_hook
     sink = _shared_sink()
     monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
-    rc, out_path, _ = _run_main(generated, tmp_path,
-                                "--target-sink", sink["name"])
+    rc, out_path, _ = _run_hooked(generated, tmp_path,
+                                  "--target-sink", sink["name"])
     assert rc == 0
     assert f"{port_hook.MARKER} = true" in out_path.read_text()
-    script, fragment = _hook_files(out_path)
+    script, fragment = _hook_files(tmp_path)
+    assert script == _hook_dir(tmp_path) / "scripts" / port_hook.SCRIPT_NAME
+    assert fragment == (_hook_dir(tmp_path) / "wireplumber.conf.d"
+                        / port_hook.FRAGMENT_NAME)
     assert script.read_text() == port_hook.SCRIPT
     assert fragment.read_text() == port_hook.FRAGMENT
+    # Nothing beside the conf: PipeWire's folder is not WirePlumber's.
+    assert not (out_path.parent / "wireplumber").exists()
     out = capsys.readouterr().out
     assert "share this output with: Headphones" in " ".join(out.split())
     assert "--speaker-port-hook off" in out
 
 
 def test_auto_installs_no_hook_for_a_speaker_only_sink(
-        generated, tmp_path, monkeypatch):
+        generated, tmp_path, monkeypatch, capsys):
+    """And says the WirePlumber folders it was given went unused, so a
+    reproducible build doesn't silently ship without the hook it asked
+    a folder for."""
     from lib.hardware import sinks as hw
     from lib.pipewire import port_hook
     sink = _shared_sink(headphones=False)
     monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
-    rc, out_path, _ = _run_main(generated, tmp_path,
-                                "--target-sink", sink["name"])
+    rc, out_path, _ = _run_hooked(generated, tmp_path,
+                                  "--target-sink", sink["name"])
     assert rc == 0
     assert port_hook.MARKER not in out_path.read_text()
-    assert not any(p.exists() for p in _hook_files(out_path))
+    assert not any(p.exists() for p in _hook_files(tmp_path))
+    out = " ".join(capsys.readouterr().out.split())
+    # With the reason: a packager deciding whether to force `on` needs it.
+    assert ("doesn't have both a speaker port and another output port), so "
+            "the WirePlumber folders given are unused") in out
 
 
 def test_auto_names_the_flag_when_the_sink_is_not_in_the_graph(
@@ -3582,23 +3613,25 @@ def test_auto_names_the_flag_when_the_sink_is_not_in_the_graph(
 
 def test_on_installs_the_hook_without_a_graph(generated, tmp_path):
     from lib.pipewire import port_hook
-    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
-                                "elsewhere", "--speaker-port-hook", "on")
+    rc, out_path, _ = _run_hooked(generated, tmp_path, "--target-sink",
+                                  "elsewhere", "--speaker-port-hook", "on")
     assert rc == 0
     assert f"{port_hook.MARKER} = true" in out_path.read_text()
-    assert all(port_hook.is_ours(p) for p in _hook_files(out_path))
+    assert all(port_hook.is_ours(p) for p in _hook_files(tmp_path))
 
 
-def test_off_never_installs_the_hook(generated, tmp_path, monkeypatch):
+def test_off_never_installs_the_hook(generated, tmp_path, monkeypatch, capsys):
     from lib.hardware import sinks as hw
     from lib.pipewire import port_hook
     sink = _shared_sink()
     monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
-    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
-                                sink["name"], "--speaker-port-hook", "off")
+    rc, out_path, _ = _run_hooked(generated, tmp_path, "--target-sink",
+                                  sink["name"], "--speaker-port-hook", "off")
     assert rc == 0
     assert port_hook.MARKER not in out_path.read_text()
-    assert not any(p.exists() for p in _hook_files(out_path))
+    assert not any(p.exists() for p in _hook_files(tmp_path))
+    # Off was asked for: an unused folder is no news.
+    assert "unused" not in capsys.readouterr().out
 
 
 def test_on_without_smart_routing_is_ignored_aloud(generated, tmp_path, capsys):
@@ -3611,25 +3644,68 @@ def test_on_without_smart_routing_is_ignored_aloud(generated, tmp_path, capsys):
 
 
 def test_dry_run_names_the_hook_files_and_writes_none(generated, tmp_path, capsys):
-    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
-                                "elsewhere", "--speaker-port-hook", "on",
-                                "--dry-run")
+    rc, out_path, _ = _run_hooked(generated, tmp_path, "--target-sink",
+                                  "elsewhere", "--speaker-port-hook", "on",
+                                  "--dry-run")
     assert rc == 0
-    assert "Would write WirePlumber hook script" in capsys.readouterr().out
-    assert not any(p.exists() for p in _hook_files(out_path))
+    out = capsys.readouterr().out
+    assert "Would write WirePlumber hook script" in out
+    assert str(_hook_dir(tmp_path) / "scripts") in out
+    assert not any(p.exists() for p in _hook_files(tmp_path))
 
 
 def test_a_foreign_file_in_the_hooks_place_stops_the_run(generated, tmp_path, capsys):
-    out_dir = tmp_path / "out"
-    from lib.pipewire import port_hook
-    script, _fragment = port_hook.paths(out_dir)
+    script, _fragment = _hook_files(tmp_path)
     script.parent.mkdir(parents=True)
     script.write_text("-- someone else's\n")
-    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
-                                "elsewhere", "--speaker-port-hook", "on")
+    rc, out_path, _ = _run_hooked(generated, tmp_path, "--target-sink",
+                                  "elsewhere", "--speaker-port-hook", "on")
     assert rc == 1
     assert not out_path.exists()
     assert script.read_text() == "-- someone else's\n"
+
+
+@pytest.mark.parametrize("extra", [(), ("--dry-run",)])
+def test_a_hook_for_a_conf_of_your_own_needs_a_wireplumber_dirs(
+        generated, tmp_path, capsys, extra):
+    """A conf outside PipeWire's own folders has no default for the hook's
+    files: guessing the per-user folders would hook a machine the conf may
+    never be installed on, and beside the conf nothing loads them. The run
+    stops before writing anything, under --dry-run too, and names both ways
+    out."""
+    rc, out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                "elsewhere", "--speaker-port-hook", "on",
+                                *extra)
+    assert rc == 1
+    assert not out_path.parent.exists()
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--wireplumber-scripts-dir and --wireplumber-confd-dir" in out
+    assert "--speaker-port-hook off" in out
+
+
+def test_auto_hook_for_a_conf_of_your_own_needs_a_wireplumber_dirs(
+        generated, tmp_path, monkeypatch, capsys):
+    from lib.hardware import sinks as hw
+    sink = _shared_sink()
+    monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
+    rc, out_path, _ = _run_main(generated, tmp_path,
+                                "--target-sink", sink["name"])
+    assert rc == 1
+    assert not out_path.exists()
+
+
+def test_a_live_conf_gets_the_per_user_hook(generated, tmp_path, monkeypatch):
+    """A conf in the folder PipeWire reads defaults its hook to the per-user
+    WirePlumber folders, as a plain install always has."""
+    from lib.pipewire import checks, port_hook
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "out")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    rc, _out_path, _ = _run_main(generated, tmp_path, "--target-sink",
+                                 "elsewhere", "--speaker-port-hook", "on")
+    assert rc == 0
+    assert all(port_hook.is_ours(p) for p in port_hook.paths())
+    assert port_hook.paths()[0].is_relative_to(tmp_path / "data")
 
 
 def test_live_hook_paths_follow_the_xdg_homes(monkeypatch, tmp_path):
@@ -3654,7 +3730,7 @@ def test_auto_warns_where_wireplumber_may_load_the_hook_late(
     monkeypatch.setattr(hw, "_enumerate_audio_sinks", lambda: [sink])
     monkeypatch.setattr(session, "wireplumber_version", lambda: session.Version(
         text=".".join(map(str, version)), parts=version, claim="installed"))
-    rc, _out, _ = _run_main(generated, tmp_path, "--target-sink", sink["name"])
+    rc, _out, _ = _run_hooked(generated, tmp_path, "--target-sink", sink["name"])
     assert rc == 0
     assert ("may start the script too late" in " ".join(
         capsys.readouterr().out.split())) is warned

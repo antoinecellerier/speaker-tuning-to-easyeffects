@@ -642,6 +642,67 @@ def test_confd_dir_is_forwarded_under_its_current_name(recorders, flag):
     assert "--output" not in step2
 
 
+def test_wireplumber_dir_is_forwarded(recorders):
+    assert wrapper_main(["--pipewire-confd-dir", "confs",
+                         "--wireplumber-scripts-dir", "wps",
+                         "--wireplumber-confd-dir", "wpc", "--no-activate"]) == 0
+    (step2,) = recorders.step2
+    assert step2[step2.index("--wireplumber-scripts-dir") + 1] == "wps"
+    assert step2[step2.index("--wireplumber-confd-dir") + 1] == "wpc"
+
+
+@pytest.mark.parametrize("flag", ["--wireplumber-scripts-dir",
+                                  "--wireplumber-confd-dir"])
+def test_one_wireplumber_folder_without_the_other_is_refused(
+        recorders, capsys, flag):
+    """The hook would land half where the reader said and half in their
+    home folder."""
+    with pytest.raises(SystemExit) as exc:
+        wrapper_main([flag, "wp", "--no-activate"])
+    assert exc.value.code == 2
+    assert "go together" in capsys.readouterr().err
+    assert recorders.step1 == []
+
+
+def test_hook_on_for_a_folder_of_your_own_is_refused_before_step_1(
+        recorders, capsys):
+    """The child would refuse it too, but only after the generator's DSP
+    had run; with `on` the outcome is already known."""
+    with pytest.raises(SystemExit) as exc:
+        wrapper_main(["--pipewire-confd-dir", "confs", "--target-sink", "x",
+                      "--speaker-port-hook", "on", "--no-activate"])
+    assert exc.value.code == 2
+    err = " ".join(capsys.readouterr().err.split())
+    assert "--wireplumber-scripts-dir and --wireplumber-confd-dir" in err
+    assert recorders.step1 == []
+
+
+def test_undo_names_the_wireplumber_dir_a_hook_went_to(
+        recorders, monkeypatch, tmp_path, capsys):
+    """--uninstall looks for the hook only where it is told, so the way back
+    carries the folder the hook went to."""
+    from lib.pipewire import port_hook
+    confs = tmp_path / "confs"
+    confs.mkdir()
+    (confs / "Dolby_Balanced.conf").write_text("")
+    wp = (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
+    monkeypatch.setattr(port_hook, "installed", lambda d=None: d == wp)
+    assert wrapper_main(["--pipewire-confd-dir", str(confs),
+                         "--wireplumber-scripts-dir", str(wp[0]),
+                         "--wireplumber-confd-dir", str(wp[1]),
+                         "--no-activate"]) == 0
+    undo_line = next(ln for ln in capsys.readouterr().out.splitlines()
+                     if "To undo:" in ln)
+    assert (f"--wireplumber-scripts-dir {wp[0]} "
+            f"--wireplumber-confd-dir {wp[1]}") in undo_line, undo_line
+
+
+def test_hook_on_for_the_live_folder_needs_no_wireplumber_dirs(recorders):
+    assert wrapper_main(["--target-sink", "x", "--speaker-port-hook", "on",
+                         "--no-activate"]) == 0
+    assert recorders.step1
+
+
 def test_a_relative_confd_dir_resolves_absolute(tmp_path, monkeypatch):
     """A relative folder must become absolute before the conf is written, or
     the conf would embed a relative IRS path PipeWire resolves against its
@@ -775,6 +836,19 @@ def test_e2e_no_activate_says_how_to_undo(tmp_path):
     assert str(out) in undo_line
     assert "rm '" not in report
     assert report.index("To undo:") > report.index("Restart PipeWire:")
+
+
+def test_e2e_undo_leaves_out_a_wireplumber_dir_no_hook_went_to(tmp_path):
+    """The e2e run is a v1 conf, which gets no hook: the way back needs no
+    folder for one."""
+    wp = (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
+    result, _home, _out = _run_e2e(tmp_path, "--wireplumber-scripts-dir",
+                                   str(wp[0]), "--wireplumber-confd-dir",
+                                   str(wp[1]))
+    assert result.returncode == 0, result.stderr
+    undo_line = next(ln for ln in result.stdout.splitlines()
+                     if "To undo:" in ln)
+    assert "--wireplumber-" not in undo_line, undo_line
 
 
 def test_e2e_report_cta_is_printed_once_and_last(tmp_path):

@@ -41,7 +41,7 @@ from pathlib import Path
 
 from lib import console, doctor, packages, tool_env
 from lib.hardware import sinks
-from lib.pipewire import checks, port_hook, session
+from lib.pipewire import checks, session
 from lib.pipewire.conf import PIPEWIRE_RESTART_CMD, _sanitize_name
 
 
@@ -155,29 +155,12 @@ def _print_results(conf_path: Path, irs_path: Path | None,
                            f"{doctor.tilde(irs_path)}")
 
 
-def _print_port_hook(paths: tuple[Path, Path], *, staged: bool,
-                     dry_run: bool) -> None:
-    """Report the WirePlumber hook's two files beside `_print_results`.
-
-    ``staged`` is a conf written to a folder of the reader's own: the files
-    sit under it and load from nowhere, so the line names where WirePlumber
-    reads them from."""
+def _print_port_hook(paths: tuple[Path, Path], *, dry_run: bool) -> None:
+    """Report the WirePlumber hook's two files beside `_print_results`."""
     verb = "Would write" if dry_run else "Wrote"
     for label, path in zip(("WirePlumber hook script", "WirePlumber hook "
                             "config"), paths):
         console.cprint("ok", f"{verb} {label}: {doctor.tilde(path)}")
-    if staged:
-        # Lines of its own, not an aside: beside the conf nothing loads
-        # these, and a reader who skips the copy gets no bypass.
-        live = port_hook.paths()
-        console._cprint_wrapped(
-            "warn", "Those two WirePlumber files are not installed yet: "
-            "nothing loads them from beside the conf. Before restarting "
-            "PipeWire, copy them where WirePlumber reads them, here or in "
-            "the same folders under a system WirePlumber directory:",
-            indent="  ")
-        console.cprint("warn", f"  the script → {doctor.tilde(live[0].parent)}/")
-        console.cprint("warn", f"  the config → {doctor.tilde(live[1].parent)}/")
 
 
 def _grep_expectation(tail: str = "") -> str:
@@ -308,7 +291,8 @@ def speaker_attenuation() -> str:
     return f"your speakers are {sinks.level_phrase(level)} right now"
 
 
-def _print_undo(written: list[Path], style: str = "dim") -> None:
+def _print_undo(written: list[Path], style: str = "dim",
+                hook_dirs: tuple[Path, Path] | None = None) -> None:
     """Print how to get back: ``--uninstall``, or this run's files by hand.
 
     Everything else here asks the reader to restart their sound server with a
@@ -324,7 +308,10 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
 
     `style` is "dim" on a run that worked, where the way back is a footnote.
     On a run that did not, it is the most useful line on screen, and a
-    footnote is the wrong shape for it."""
+    footnote is the wrong shape for it.
+
+    `hook_dirs` is the run's WirePlumber folders, which the ``--uninstall``
+    line needs to find a speaker-port hook written there."""
     # Only files that exist: the .irs copy is skipped when the source
     # already sits at the target, and an rm over a missing file aborts the
     # pasted command halfway.
@@ -341,7 +328,8 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
     others = [c for c in checks.generated_conf_paths(*searched)
               if c.resolve() not in mine]
     if not others:
-        console.cprint(style, "  To undo: " + checks.uninstall_command(out_dir))
+        console.cprint(style, "  To undo: "
+                       + checks.uninstall_command(out_dir, hook_dirs))
         return
     # Absolute, alone among the lines a run prints: the quoting below is what
     # survives a Dolby-shaped path, and POSIX does not expand ~ inside quotes,
@@ -351,12 +339,14 @@ def _print_undo(written: list[Path], style: str = "dim") -> None:
     console.cprint(style, f"           {PIPEWIRE_RESTART_CMD}")
     where = "" if default else " there"
     console.cprint(style, f"  Or remove every chain this tool installed{where}: "
-                   + checks.uninstall_command(out_dir))
+                   + checks.uninstall_command(out_dir, hook_dirs))
 
 
 def _print_manual_activation(node_names: list[str],
                              written: list[Path],
-                             selectable: bool = False) -> None:
+                             selectable: bool = False,
+                             hook_dirs: tuple[Path, Path] | None = None,
+                             ) -> None:
     # The EasyEffects caveat is a footnote, not a numbered step (round
     # 10): this script's reader chose it to avoid EasyEffects, and seeing
     # EE in the critical path made them doubt they had.
@@ -383,7 +373,7 @@ def _print_manual_activation(node_names: list[str],
         console.cprint("dim", f"  Note: {V1_SECOND_VOLUME_HINT}.")
     console.cprint("dim", f"  Note: {QUIT_EE_HINT}.")
     print()
-    _print_undo(written)
+    _print_undo(written, hook_dirs=hook_dirs)
 
 
 # How `conf.format_conf` writes an LV2 node; a conf without it is builtins only

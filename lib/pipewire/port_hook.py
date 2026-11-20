@@ -261,20 +261,26 @@ SimpleEventHook {{
 ORDERED_LOAD = (0, 5, 6)
 
 
-def paths(staging: Path | None = None) -> tuple[Path, Path]:
+# The (scripts, conf.d) folders --wireplumber-scripts-dir and
+# --wireplumber-confd-dir name. Two, not one WirePlumber folder: per user,
+# WirePlumber reads scripts from the data home and config fragments from the
+# config home, and no one folder serves both (man wireplumber, Locations).
+HookDirs = tuple[Path, Path]
+
+
+def paths(hook_dirs: HookDirs | None = None) -> tuple[Path, Path]:
     """Where the (script, fragment) pair goes.
 
     ``None`` is the live install: the per-user directories WirePlumber reads
-    (its "Locations" page). A ``staging`` directory, the folder of a conf
-    written with ``--output``, gets the same layout under ``wireplumber/``
-    for whoever installs the files from there."""
-    if staging is None:
+    (its "Locations" page). ``hook_dirs`` is the folders the reader named,
+    such as a package's ``share/wireplumber/scripts`` and
+    ``share/wireplumber/wireplumber.conf.d``."""
+    if hook_dirs is None:
         return (xdg.data_home() / "wireplumber" / "scripts" / SCRIPT_NAME,
                 xdg.config_home() / "wireplumber" / "wireplumber.conf.d"
                 / FRAGMENT_NAME)
-    root = staging / "wireplumber"
-    return (root / "scripts" / SCRIPT_NAME,
-            root / "wireplumber.conf.d" / FRAGMENT_NAME)
+    scripts, confd = hook_dirs
+    return scripts / SCRIPT_NAME, confd / FRAGMENT_NAME
 
 
 def is_ours(path: Path) -> bool:
@@ -286,24 +292,24 @@ def is_ours(path: Path) -> bool:
         return False
 
 
-def installed(staging: Path | None = None) -> bool:
+def installed(hook_dirs: HookDirs | None = None) -> bool:
     """Whether both hook files are in place."""
-    return all(is_ours(p) for p in paths(staging))
+    return all(is_ours(p) for p in paths(hook_dirs))
 
 
-def foreign(staging: Path | None = None) -> list[Path]:
+def foreign(hook_dirs: HookDirs | None = None) -> list[Path]:
     """Files in the hook's places that this tool didn't write, which
     `write` refuses to replace."""
-    return [p for p in paths(staging) if p.exists() and not is_ours(p)]
+    return [p for p in paths(hook_dirs) if p.exists() and not is_ours(p)]
 
 
-def write(staging: Path | None = None) -> tuple[Path, Path]:
+def write(hook_dirs: HookDirs | None = None) -> tuple[Path, Path]:
     """Write both files and return their paths.
 
     Rewrites its own files unasked: the text is the same for every chain, so
     a second chain's install must not need ``--force`` for it. The caller
     checks `foreign` first."""
-    script, fragment = paths(staging)
+    script, fragment = paths(hook_dirs)
     for path, text in ((script, SCRIPT), (fragment, FRAGMENT)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)

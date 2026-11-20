@@ -53,9 +53,12 @@ def _named_by(irs: Path, conf_path: Path, parsed: list[Path]) -> bool:
     return irs.resolve() in {p.resolve() for p in named}
 
 
-def plan(output_dir: Path | None) -> Plan:
+def plan(output_dir: Path | None,
+         hook_dirs: tuple[Path, Path] | None = None) -> Plan:
     """What ``--uninstall`` would remove from ``output_dir``, or from both
-    directories a conf is live from, doing none of it."""
+    directories a conf is live from, doing none of it. ``hook_dirs`` is
+    where a speaker-port hook was written with ``--wireplumber-scripts-dir``
+    and ``--wireplumber-confd-dir``."""
     dirs = _dirs(output_dir)
     found = checks.installed_confs(*dirs)
     removing = {c.path for c in found}
@@ -88,7 +91,8 @@ def plan(output_dir: Path | None) -> Plan:
                 result.left.append((other, (
                     f"named by {c.path.name}, but not a copy this tool made "
                     "beside it")))
-    result.steps = confs + copies + _hook_steps(output_dir, removing)
+    result.steps = (confs + copies
+                    + _hook_steps(output_dir, hook_dirs, removing))
     result.where = where(output_dir)
     return result
 
@@ -101,25 +105,28 @@ def _marked_confs(dirs, exclude=()) -> list[Path]:
             and port_hook.MARKER in checks._conf_text(p)]
 
 
-def _hook_steps(output_dir: Path | None, removing) -> list[Step]:
+def _hook_steps(output_dir: Path | None, hook_dirs: tuple[Path, Path] | None,
+                removing) -> list[Step]:
     """The speaker-port hook's two files, once no conf that stays uses them.
 
     One hook serves every chain installed beside it, so it goes with the
     last of them. Which pair is decided as the install decides it
-    (``ee_to_pipewire.py``): a conf in a directory PipeWire reads has the
-    per-user pair, whichever flag named that directory, and a folder of the
-    reader's own has the pair staged under it."""
+    (``ee_to_pipewire.py``): the WirePlumber folders when given, else the
+    per-user pair for a conf in a directory PipeWire reads. A folder of the
+    reader's own without it has no hook to remove."""
     dirs = _dirs(output_dir)
-    live = {d.expanduser().resolve() for d in checks.live_conf_dirs()}
-    is_live = output_dir is None or dirs[0] in live
+    is_live = output_dir is None or checks.is_live_conf_dir(dirs[0])
+    if hook_dirs is None and not is_live:
+        return []
     scan = checks.live_conf_dirs() if is_live else dirs
     if _marked_confs(scan, exclude=removing):
         return []
-    staging = None if is_live else dirs[0]
+    hook_dirs = (None if hook_dirs is None
+                 else tuple(d.expanduser().resolve() for d in hook_dirs))
     return [Step("Speaker-port hook (WirePlumber files)", path,
                  recheck=lambda p=path: port_hook.is_ours(p)
                  and not _marked_confs(scan))
-            for path in port_hook.paths(staging) if port_hook.is_ours(path)]
+            for path in port_hook.paths(hook_dirs) if port_hook.is_ours(path)]
 
 
 def touches_filter_chain_service(p: Plan) -> bool:
@@ -167,8 +174,8 @@ def where(output_dir: Path | None) -> str:
     return " or ".join(doctor.tilde(d) for d in _dirs(output_dir))
 
 
-def run(output_dir: Path | None, *, dry_run: bool, assume_yes: bool,
-        restart: bool) -> int:
+def run(output_dir: Path | None, *, hook_dirs: tuple[Path, Path] | None = None,
+        dry_run: bool, assume_yes: bool, restart: bool) -> int:
     """List, ask, remove, then unload what was removed.
 
     ``restart`` is the wrapper's activation default: it restarts PipeWire
@@ -176,7 +183,7 @@ def run(output_dir: Path | None, *, dry_run: bool, assume_yes: bool,
     (``ee_to_pipewire.py``, or ``--no-activate``) prints the command
     instead, the same split as on install.
     """
-    p = plan(output_dir)
+    p = plan(output_dir, hook_dirs)
     service = touches_filter_chain_service(p) and filter_chain_service_active()
     commands = [pw_conf.PIPEWIRE_RESTART_CMD] + (
         [FILTER_CHAIN_RESTART_CMD] if service else [])

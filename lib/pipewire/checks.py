@@ -116,6 +116,14 @@ def live_conf_dirs() -> tuple[Path, Path]:
     can repoint either directory."""
     return (DEFAULT_PW_CONFD_DIR, _UNSCANNED_CONF_DIR)
 
+
+def is_live_conf_dir(conf_dir: Path) -> bool:
+    """Whether *conf_dir* is one of `live_conf_dirs`, compared resolved so a
+    relative path or a symlink names the same folder. Only a conf there may
+    default its speaker-port hook to the per-user WirePlumber folders."""
+    return Path(conf_dir).expanduser().resolve() in {
+        d.expanduser().resolve() for d in live_conf_dirs()}
+
 # effect_input.X and effect_output.X are the two halves of chain X. In
 # smart-filter mode node.link-group joins them; the v1 virtual-sink conf sets
 # no link group, so the name is the only thing that does.
@@ -1731,18 +1739,24 @@ def report_pw_doctor() -> int:
     return 0
 
 
-def uninstall_command(conf_dir: Path | None = None) -> str:
+def uninstall_command(conf_dir: Path | None = None,
+                      hook_dirs: tuple[Path, Path] | None = None) -> str:
     """The pasteable ``dolby_to_pipewire.py --uninstall`` line for chains
     in *conf_dir*.
 
     ``--pipewire-confd-dir`` only when *conf_dir* is off the default:
     ``--uninstall`` looks only where it is told, so a line without it would
-    find nothing there. ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py``
-    because it also restarts PipeWire, which unloads what it removed."""
-    extra = ()
+    find nothing there. The two WirePlumber folder flags likewise, for a
+    speaker-port hook written outside the per-user WirePlumber folders.
+    ``dolby_to_pipewire.py`` rather than ``ee_to_pipewire.py`` because it
+    also restarts PipeWire, which unloads what it removed."""
+    extra: tuple[str, ...] = ()
     if (conf_dir is not None and Path(conf_dir).expanduser()
             != DEFAULT_PW_CONFD_DIR.expanduser()):
         extra = ("--pipewire-confd-dir", str(conf_dir))
+    if hook_dirs is not None:
+        extra += ("--wireplumber-scripts-dir", str(hook_dirs[0]),
+                  "--wireplumber-confd-dir", str(hook_dirs[1]))
     return uninstall.command("dolby_to_pipewire.py", "--uninstall", *extra)
 
 
@@ -1837,7 +1851,9 @@ def warn_if_crowded(total: int, dry_run: bool = False) -> None:
 
 
 def warn_if_easyeffects_running(running: bool | None = None,
-                                conf_dir: Path | None = None) -> None:
+                                conf_dir: Path | None = None,
+                                hook_dirs: tuple[Path, Path] | None = None,
+                                ) -> None:
     """Warn when EasyEffects is up as a chain conf lands.
 
     The likeliest reader is an EasyEffects user crossing over for a
@@ -1863,4 +1879,4 @@ def warn_if_easyeffects_running(running: bool | None = None,
     console.cprint("dim", "   Quit EasyEffects while you use the chain. To switch "
                   "back later, remove")
     console.cprint("dim", "   the chains, then start EasyEffects again:")
-    console.cprint("dim", f"     {uninstall_command(conf_dir)}")
+    console.cprint("dim", f"     {uninstall_command(conf_dir, hook_dirs)}")
