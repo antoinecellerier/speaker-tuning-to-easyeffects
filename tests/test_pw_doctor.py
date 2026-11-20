@@ -1593,6 +1593,12 @@ def test_doctor_ends_on_the_diagnosis_not_the_inventory(tmp_path, monkeypatch,
     monkeypatch.setattr(checks.gen, "_gather_speaker_info", lambda: None)
     monkeypatch.setattr(checks.gen, "_print_speaker_info",
                         lambda info: print("=== HARDWARE STUB ==="))
+    # The confs behind the two live chains, so the closing has an install to
+    # offer the removal of.
+    ours = [_installed(tmp_path, n) for n in ("Dolby_Balanced", "Dolby_Warm")]
+    monkeypatch.setattr(checks, "installed_confs", lambda *dirs: ours)
+    monkeypatch.setattr(checks, "generated_conf_paths",
+                        lambda *dirs: [c.path for c in ours])
     silence_console(console)
 
     assert checks.report_pw_doctor() == 0
@@ -2718,8 +2724,12 @@ def test_doctor_reads_the_folder_it_is_given(monkeypatch, tmp_path):
 
 def test_doctor_no_confs_names_the_folder_and_the_flag(monkeypatch, tmp_path):
     _quiet_gather(monkeypatch, tmp_path)
-    detail = next(c.detail for c in checks.gather_pw_doctor()[0]
-                  if c.label == "Installed confs")
+    found = next(c for c in checks.gather_pw_doctor()[0]
+                 if c.label == "Installed confs")
+    # FAIL: nothing installed means nothing from this tool processes sound,
+    # and a WARN closed the report on "Nothing failed outright".
+    assert found.status == DOCTOR_FAIL
+    detail = found.detail
     assert str(tmp_path / "default") in detail
     assert "If you installed with --pipewire-confd-dir" in detail
     # Told a folder already: the remedy keeps that folder, since re-running
@@ -2758,3 +2768,79 @@ def test_check_detail_never_splits_a_flag_at_its_hyphens():
         lines.clear()
         emit_check(check, lambda style, text: lines.append(text), width)
         assert any("--pipewire-confd-dir" in ln for ln in lines), (width, lines)
+
+
+def test_doctor_offers_no_removal_when_nothing_is_installed(
+        monkeypatch, tmp_path, capsys, silence_console):
+    """The closing would offer to remove what the check above just said
+    isn't there."""
+    _quiet_gather(monkeypatch, tmp_path)
+    monkeypatch.setattr(checks.gen, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(checks.gen, "_print_speaker_info", lambda info: None)
+    silence_console(console)
+    checks.report_pw_doctor()
+    out = capsys.readouterr().out
+    assert "Installed confs" in out
+    assert "--uninstall" not in out
+    assert out.rstrip().endswith(report_findings._REPORT_FORM_URL)
+
+
+def test_no_confs_here_but_a_chain_loaded_is_a_warning_naming_the_flag(
+        monkeypatch, tmp_path):
+    """A system or package install loads from a folder this report didn't
+    read: not "nothing installed", and the way to read it is the flag."""
+    _quiet_gather(monkeypatch, tmp_path)
+    monkeypatch.setattr(checks, "_pw_dump",
+                        lambda: [_speaker_sink(), *_smart_chain("Dolby_Balanced")])
+    found = next(c for c in checks.gather_pw_doctor()[0]
+                 if c.label == "Installed confs")
+    assert found.status == DOCTOR_WARN
+    assert "pass that folder with --pipewire-confd-dir" in found.detail
+
+
+def test_no_graph_cannot_fail_installed_confs(monkeypatch, tmp_path):
+    _quiet_gather(monkeypatch, tmp_path)
+    monkeypatch.setattr(checks, "_pw_dump", lambda: None)
+    found = next(c for c in checks.gather_pw_doctor()[0]
+                 if c.label == "Installed confs")
+    assert found.status == DOCTOR_WARN
+
+
+def test_closing_offers_removal_of_confs_only_filter_chain_service_reads(
+        monkeypatch, tmp_path, capsys, silence_console):
+    """--uninstall searches filter-chain.conf.d too, which the report's own
+    conf list leaves out; the closing offers what --uninstall would find."""
+    _quiet_gather(monkeypatch, tmp_path)
+    monkeypatch.setattr(checks.gen, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(checks.gen, "_print_speaker_info", lambda info: None)
+    unscanned = tmp_path / "fc"
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", unscanned)
+    monkeypatch.setattr(checks, "generated_conf_paths",
+                        lambda *dirs: [unscanned / "Dolby_Balanced.conf"]
+                        if unscanned in dirs else [])
+    silence_console(console)
+    checks.report_pw_doctor()
+    assert "dolby_to_pipewire.py --uninstall" in capsys.readouterr().out
+
+
+def test_doctor_says_a_folder_given_does_not_exist(monkeypatch, tmp_path):
+    """A typo in the folder would otherwise read like an empty install."""
+    _quiet_gather(monkeypatch, tmp_path)
+    detail = next(c.detail for c in checks.gather_pw_doctor(tmp_path / "typo")[0]
+                  if c.label == "Installed confs")
+    assert "--pipewire-confd-dir, which doesn't exist" in detail
+
+
+def test_doctor_uninstall_line_names_the_folder_resolved(
+        monkeypatch, tmp_path, capsys, silence_console):
+    """Pasted from another folder, a relative one would name nothing."""
+    _quiet_gather(monkeypatch, tmp_path)
+    monkeypatch.setattr(checks.gen, "_gather_speaker_info", lambda: None)
+    monkeypatch.setattr(checks.gen, "_print_speaker_info", lambda info: None)
+    pkg = tmp_path / "pkg"
+    ours = [_installed(pkg, "Dolby_Balanced")]
+    monkeypatch.setattr(checks, "installed_confs", lambda *dirs: ours)
+    monkeypatch.chdir(tmp_path)
+    silence_console(console)
+    checks.report_pw_doctor(Path("pkg"))
+    assert f"--pipewire-confd-dir {pkg}" in capsys.readouterr().out

@@ -1562,19 +1562,36 @@ def gather_pw_doctor(
         run = (f"run {invocation.script('dolby_to_pipewire.py')} on your "
                "tuning file or driver download (or "
                f"{invocation.script('ee_to_pipewire.py')} on a preset)")
-        if custom_dir:
-            # The flag, not the path: the Confs line above names it, and
-            # wrapped prose splits a long path at its hyphens. Re-running
-            # without the flag would install somewhere else.
-            detail = ("no filter-chain conf from this tool in the folder "
-                      f"given to --pipewire-confd-dir — {run} with that same "
-                      "--pipewire-confd-dir first.")
+        # The flag, not the path, for a folder the reader named: the Confs
+        # line above names it, and wrapped prose splits a long path.
+        where = ("the folder given to --pipewire-confd-dir" if custom_dir
+                 else doctor.tilde(conf_dir))
+        # A typo in the folder reads like an empty install otherwise.
+        if custom_dir and not conf_dir.is_dir():
+            where += ", which doesn't exist"
+        if chains:
+            # "if it is this tool's": live_chains matches every
+            # module-filter-chain, a reader's own equaliser included.
+            detail = (f"no filter-chain conf from this tool in {where}, but "
+                      "a filter chain is loaded. If it is this tool's, its "
+                      "conf is in a folder this report didn't read: pass that "
+                      "folder with --pipewire-confd-dir.")
+        elif custom_dir:
+            # Re-running without the flag would install somewhere else.
+            detail = (f"no filter-chain conf from this tool in {where} — "
+                      f"{run} with that same --pipewire-confd-dir first.")
         else:
-            detail = (f"no filter-chain conf from this tool in "
-                      f"{doctor.tilde(conf_dir)} — {run} first. If you "
-                      "installed with --pipewire-confd-dir, pass the same "
-                      "flag to --doctor.")
-        checks.insert(0, CheckResult(DOCTOR_WARN, "Installed confs", detail))
+            detail = (f"no filter-chain conf from this tool in {where} — "
+                      f"{run} first. If you installed with "
+                      "--pipewire-confd-dir, pass the same flag to --doctor.")
+        # FAIL only when the graph shows no filter chain either: then nothing
+        # is processing sound, the whole answer to "it sounds the same", and
+        # the verdict has to say so. A loaded chain may be ours from a folder
+        # this report didn't read (a system or package one), and an unread
+        # graph can't tell.
+        status = (DOCTOR_FAIL if dump is not None and not chains
+                  else DOCTOR_WARN)
+        checks.insert(0, CheckResult(status, "Installed confs", detail))
     if dump is None:
         checks.append(CheckResult(
             DOCTOR_UNKNOWN, "PipeWire",
@@ -1761,10 +1778,19 @@ def report_pw_doctor(conf_dir: Path | None = None,
     # read ride along, since --uninstall looks only where it is told; with
     # none it searches every directory PipeWire reads, which covers the
     # default one.
+    # Only when --uninstall would find something: told a folder it looks only
+    # there, else in every live folder, filter-chain.conf.d included, which
+    # the report's own conf list leaves out. Offered for nothing, the line
+    # contradicts the check that said nothing is installed.
+    removable = (confs if conf_dir is not None
+                 else generated_conf_paths(*live_conf_dirs()))
     layout.print_closing((
         ("dim", "To remove every chain this tool installed (it asks first):"),
-        ("cta", f"  {uninstall_command(conf_dir, hook_dirs)}"),
-    ))
+        # The folder as read, resolved: pasted elsewhere, a relative one
+        # names nothing.
+        ("cta", "  " + uninstall_command(
+            facts["conf_dir"] if conf_dir is not None else None, hook_dirs)),
+    ) if removable else ())
     return 0
 
 

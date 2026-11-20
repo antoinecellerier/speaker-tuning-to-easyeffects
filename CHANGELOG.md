@@ -140,6 +140,8 @@ Versions are date-based (`vYYYY.MM`). Watch this repository on GitHub
 
 ### Fixed
 
+- The PipeWire `--doctor` fails "Installed confs" when no chain is installed,
+  instead of ending on "Nothing failed outright".
 - The PipeWire scripts' plugin check and `--doctor` search where the running
   PipeWire loads LV2 plugins from, so they agree with it on every
   distribution. On NixOS, the missing-plugin hint names
