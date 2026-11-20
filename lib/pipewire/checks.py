@@ -619,9 +619,12 @@ def check_crowded_chains(chains, confs) -> CheckResult | None:
         detail += (
             f" {', '.join(sorted(loose))} aren't tied to your speakers, so "
             "selecting one sends the others' sound through it.")
+    # The folder the doctor read them from, which --pipewire-confd-dir may
+    # have pointed away from the default.
+    folder = confs[0].path.parent if confs else DEFAULT_PW_CONFD_DIR
     detail += (f" If your audio ever cuts out like that, delete the .conf "
                f"and .irs of the ones you don't use from "
-               f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} ({', '.join(ours)}).")
+               f"{doctor.tilde(folder)} ({', '.join(ours)}).")
     # One remedy only: re-running without --target-sink '' would depend on how
     # the conf went v1 and on WirePlumber 0.5+, so it stays out of a check
     # whose fix is keeping one.
@@ -1476,8 +1479,16 @@ def check_plugins_present(probe, confs=()) -> CheckResult | None:
         steps=packages.install_steps([key for _name, key in vendors]))
 
 
-def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict]:
-    """Probe everything once, then judge. Returns (checks, confs, chains, facts)."""
+def gather_pw_doctor(
+        conf_dir: Path | None = None,
+        hook_dirs: tuple[Path, Path] | None = None,
+) -> tuple[list, list[InstalledConf], list[LiveChain], dict]:
+    """Probe everything once, then judge.
+
+    Returns (checks, confs, chains, facts). ``conf_dir`` and ``hook_dirs`` are
+    the run's ``--pipewire-confd-dir`` and WirePlumber folders: an install
+    outside the per-user folders, such as a package's, is read where it is.
+    Only that folder, as ``--uninstall`` looks only where it is told."""
     dump = _pw_dump()
     chains = live_chains(dump)
     sinks = sink_names(dump)
@@ -1488,7 +1499,14 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
     # "Confs: N" and, because it shares a node name with the real one, let
     # "Chains loaded" pass for a file that had loaded for nobody
     # (test_unread_directory_confs_are_not_counted_as_installed).
-    confs = installed_confs(DEFAULT_PW_CONFD_DIR.expanduser())
+    # The default is read here, not in the signature, so a test that points
+    # the constant at a temporary tree reaches it.
+    custom_dir = conf_dir is not None
+    conf_dir = (Path(conf_dir).expanduser().resolve() if custom_dir
+                else DEFAULT_PW_CONFD_DIR.expanduser())
+    hook_dirs = (None if hook_dirs is None
+                 else tuple(Path(d).expanduser().resolve() for d in hook_dirs))
+    confs = installed_confs(conf_dir)
     running = version.get_version()
     wireplumber = (wireplumber_running_version(dump)
                    or session.wireplumber_version())
@@ -1519,7 +1537,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         check_irs_present(confs),
         check_targets_exist(chains, sinks, dump),
         check_speaker_port(chains, confs, dump, defaults,
-                           port_hook.installed()),
+                           port_hook.installed(hook_dirs)),
         # After the target check, so the block reads in the order a reader
         # debugs in: does the chain exist → did it load → are its files there →
         # is its target there → is it, or should it be, the selected output.
@@ -1541,14 +1559,22 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
         # something else. And the directory is the whole of what was looked
         # at: a conf someone put in another folder is not absent, just
         # unread.
-        checks.insert(0, CheckResult(
-            DOCTOR_WARN, "Installed confs",
-            f"no filter-chain conf from this tool in "
-            f"{doctor.tilde(DEFAULT_PW_CONFD_DIR)} — run "
-            f"{invocation.script('dolby_to_pipewire.py')} on your tuning file "
-            f"or driver download (or {invocation.script('ee_to_pipewire.py')} "
-            "on a preset) first; confs written to another folder aren't "
-            "checked."))
+        run = (f"run {invocation.script('dolby_to_pipewire.py')} on your "
+               "tuning file or driver download (or "
+               f"{invocation.script('ee_to_pipewire.py')} on a preset)")
+        if custom_dir:
+            # The flag, not the path: the Confs line above names it, and
+            # wrapped prose splits a long path at its hyphens. Re-running
+            # without the flag would install somewhere else.
+            detail = ("no filter-chain conf from this tool in the folder "
+                      f"given to --pipewire-confd-dir — {run} with that same "
+                      "--pipewire-confd-dir first.")
+        else:
+            detail = (f"no filter-chain conf from this tool in "
+                      f"{doctor.tilde(conf_dir)} — {run} first. If you "
+                      "installed with --pipewire-confd-dir, pass the same "
+                      "flag to --doctor.")
+        checks.insert(0, CheckResult(DOCTOR_WARN, "Installed confs", detail))
     if dump is None:
         checks.append(CheckResult(
             DOCTOR_UNKNOWN, "PipeWire",
@@ -1561,6 +1587,7 @@ def gather_pw_doctor() -> tuple[list, list[InstalledConf], list[LiveChain], dict
             "above."))
 
     facts = {
+        "conf_dir": conf_dir,
         "confs": confs,
         "chains": chains,
         "sinks": sorted(sinks),
@@ -1588,9 +1615,9 @@ def _environment_lines(confs, chains, facts) -> list[str]:
     doctor prints, and the per-conf and per-sink lines hang under it. No
     `Tool:` row: the report's first line already carries the version."""
     hang = " " * layout.GUTTER
+    conf_dir = facts.get("conf_dir", DEFAULT_PW_CONFD_DIR)
     lines = [
-        layout.row("Confs",
-                   f"{len(confs)} in {doctor.tilde(DEFAULT_PW_CONFD_DIR)}",
+        layout.row("Confs", f"{len(confs)} in {doctor.tilde(conf_dir)}",
                    layout.GUTTER),
     ]
     for c in confs:
@@ -1700,14 +1727,15 @@ def _pipewire_lines(default: DefaultSink, settings: session.ClockSettings,
     return lines
 
 
-def report_pw_doctor() -> int:
+def report_pw_doctor(conf_dir: Path | None = None,
+                     hook_dirs: tuple[Path, Path] | None = None) -> int:
     """Print the PipeWire-side diagnostic report. Returns a process exit code.
 
     Every line lands on stdout, console-styled or not, so
     `--doctor > report.txt` captures the whole report. That is the point of
     a block written to be redirected to a file or pasted into an issue.
     """
-    checks, confs, chains, facts = gather_pw_doctor()
+    checks, confs, chains, facts = gather_pw_doctor(conf_dir, hook_dirs)
 
     layout.print_report_header(facts["version"])
     # Probed here rather than in gather_pw_doctor: nothing judges this block,
@@ -1729,12 +1757,13 @@ def report_pw_doctor() -> int:
     layout.print_check_block("=== PipeWire filter-chain doctor ===", checks)
     # --uninstall only: the checks whose fix is keeping one chain (stacked,
     # several outputs) print their own delete step inline, and a by-hand line
-    # here too read as a second, competing route. No --pipewire-confd-dir: with none
-    # it searches every directory PipeWire reads, which covers the one this
-    # report lists.
+    # here too read as a second, competing route. The folders this report
+    # read ride along, since --uninstall looks only where it is told; with
+    # none it searches every directory PipeWire reads, which covers the
+    # default one.
     layout.print_closing((
         ("dim", "To remove every chain this tool installed (it asks first):"),
-        ("cta", f"  {uninstall_command()}"),
+        ("cta", f"  {uninstall_command(conf_dir, hook_dirs)}"),
     ))
     return 0
 

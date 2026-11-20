@@ -301,7 +301,8 @@ def build_parser(argv: list[str] | None = None) -> argparse.ArgumentParser:
              "covers stacked chains, confs that didn't load, a missing "
              "impulse response and a target sink that no longer exists. It "
              "takes no preset, because it inspects what is already "
-             "installed.",
+             "installed. If you installed with --pipewire-confd-dir or "
+             "the WirePlumber folder flags, pass the same flags here too.",
     )
     add_routing_args(parser.add_argument_group("routing"))
     add_output_args(parser.add_argument_group("output"))
@@ -494,7 +495,8 @@ def main(argv: list[str] | None = None, wrapped: bool = False) -> int:
     # Inspection mode: reads the installed state, converts nothing, so the
     # preset positional is optional — and required for everything else.
     if args.doctor:
-        return checks.report_pw_doctor()
+        return checks.report_pw_doctor(args.pipewire_confd_dir,
+                                       wireplumber_dirs(args))
     if args.preset is None:
         parser.error("a preset path is required (or --doctor to inspect what "
                      "is already installed)")

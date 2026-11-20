@@ -228,7 +228,8 @@ def test_crowded_chains_name_our_confs_and_their_folder(tmp_path):
                                   node_name="effect_input.Dolby_Warm")]
     result = checks.check_crowded_chains(checks.live_chains(dump), confs)
     assert "Dolby_Balanced.conf, Dolby_Warm.conf" in result.detail
-    assert "pipewire.conf.d" in result.detail
+    # Where the doctor found them, which --pipewire-confd-dir can move.
+    assert str(tmp_path) in result.detail
     # One remedy: a second, conditional fix path read as a competing one.
     assert "--target-sink" not in result.detail
     # The restart that finishes the delete is a runnable step: the closing
@@ -1652,7 +1653,7 @@ def test_doctor_without_a_daemon_says_so(tmp_path, monkeypatch,
 def test_doctor_needs_no_preset(monkeypatch):
     """--doctor inspects what is installed, so the positional is optional —
     but it stays required for every other mode."""
-    monkeypatch.setattr(checks, "report_pw_doctor", lambda: 0)
+    monkeypatch.setattr(checks, "report_pw_doctor", lambda *_dirs: 0)
     assert ee_to_pipewire.main(["--doctor", "--no-color"]) == 0
     with pytest.raises(SystemExit) as excinfo:
         ee_to_pipewire.main(["--no-color"])
@@ -1946,7 +1947,7 @@ def _pw_check_block(check, monkeypatch, tmp_path, capsys) -> list[str]:
     """
     monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setattr(checks, "gather_pw_doctor",
-                        lambda: ([check], [], [],
+                        lambda *_dirs: ([check], [], [],
                                  {"version": "0.0-test",
                                   "sinks": []}))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
@@ -2014,7 +2015,7 @@ def test_pw_doctor_summary_counts_the_lines_it_printed(tmp_path, monkeypatch,
                CheckResult(DOCTOR_PASS, "Plugins", "fine."),
                CheckResult(DOCTOR_UNKNOWN, "Sink", "could not tell.")]
     monkeypatch.setattr(checks, "gather_pw_doctor",
-                        lambda: (results, [], [], {"version": "0.0-test",
+                        lambda *_dirs: (results, [], [], {"version": "0.0-test",
                                                    "sinks": []}))
     monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
     monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path)
@@ -2675,3 +2676,60 @@ def test_speaker_port_warns_when_bypassed_on_speakers():
     result = _port_check(_shared_card(disabled=True))
     assert result.status == checks.DOCTOR_WARN
     assert "untreated" in result.detail
+
+
+# --- An install outside the per-user folders (--pipewire-confd-dir) ---------
+
+def _quiet_gather(monkeypatch, tmp_path):
+    monkeypatch.setattr(checks, "_pw_dump", lambda: [])
+    monkeypatch.setattr(session, "wireplumber_version",
+                        lambda: session.Version(text="0.5", parts=(0, 5)))
+    monkeypatch.setattr(session, "pipewire_version",
+                        lambda: session.Version(text="1.0", parts=(1, 0)))
+    monkeypatch.setattr(checks, "_probe_plugins", checks.PluginProbe)
+    monkeypatch.setattr(checks, "DEFAULT_PW_CONFD_DIR", tmp_path / "default")
+    monkeypatch.setattr(checks, "_UNSCANNED_CONF_DIR", tmp_path / "nope")
+
+
+def test_doctor_reads_the_folder_it_is_given(monkeypatch, tmp_path):
+    """A package's install is read where it is, and only there, as
+    --uninstall looks only where it is told."""
+    _quiet_gather(monkeypatch, tmp_path)
+    read = []
+    monkeypatch.setattr(checks, "installed_confs",
+                        lambda *dirs: (read.extend(dirs), [])[1])
+    package = tmp_path / "pkg" / "pipewire.conf.d"
+    _checks, _confs, _chains, facts = checks.gather_pw_doctor(package)
+    assert read == [package]
+    rows = "\n".join(checks._environment_lines([], [], facts))
+    assert f"0 in {package}" in rows
+
+
+def test_doctor_no_confs_names_the_folder_and_the_flag(monkeypatch, tmp_path):
+    _quiet_gather(monkeypatch, tmp_path)
+    detail = next(c.detail for c in checks.gather_pw_doctor()[0]
+                  if c.label == "Installed confs")
+    assert str(tmp_path / "default") in detail
+    assert "If you installed with --pipewire-confd-dir" in detail
+    # Told a folder already: the remedy keeps that folder, since re-running
+    # without the flag would install somewhere else. The path stays out of
+    # the prose, where wrapping would split it; the Confs line names it.
+    package = tmp_path / "pkg"
+    detail = next(c.detail for c in checks.gather_pw_doctor(package)[0]
+                  if c.label == "Installed confs")
+    assert str(package) not in detail
+    assert "with that same --pipewire-confd-dir" in detail
+
+
+def test_doctor_looks_for_the_hook_in_the_wireplumber_dirs(monkeypatch,
+                                                          tmp_path):
+    from lib.pipewire import port_hook
+    _quiet_gather(monkeypatch, tmp_path)
+    asked = []
+    monkeypatch.setattr(checks, "check_speaker_port",
+                        lambda *a: asked.append(a[-1]))
+    wp = (tmp_path / "wp" / "scripts", tmp_path / "wp" / "conf.d")
+    port_hook.write(wp)
+    checks.gather_pw_doctor(tmp_path / "pkg", wp)
+    checks.gather_pw_doctor(tmp_path / "pkg")
+    assert asked == [True, False]

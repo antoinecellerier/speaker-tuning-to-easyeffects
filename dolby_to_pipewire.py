@@ -58,7 +58,9 @@ VARIANT_STEMS = {label.lower(): label for label in messages.VOICING_CURVES}
 _WRAPPER_HELP = {
     "doctor": "report the state of the installed PipeWire filter chain and "
               "exit. It covers confs, live chains, plugins, impulse files, "
-              "routing and WirePlumber. Paste the output into an issue.",
+              "routing and WirePlumber. If you installed with "
+              "--pipewire-confd-dir or the WirePlumber folder flags, pass the "
+              "same flags here too. Paste the output into an issue.",
     "all_profiles": "convert every profile except 'off' in the selected "
                     "endpoint/mode, each as its own sink. The profile name "
                     "is part of each sink name. Needs --target-sink ''.",
@@ -317,7 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     # never write to. The hardware sections a reader does need come along
     # with the PipeWire report.
     if args.doctor:
-        return checks.report_pw_doctor()
+        return checks.report_pw_doctor(args.pipewire_confd_dir,
+                                       ee_to_pipewire.wireplumber_dirs(args))
 
     # The rest are straight pass-throughs: no tempdir, no conversion.
     if args.list or args.speaker_info:

@@ -267,7 +267,8 @@ neither an XML path nor `--windows`. It probes the mounted Windows partitions in
 - `--speaker-info` — report detected audio hardware and speaker layout, then
   exit
 - `--doctor` — report the state of the installed PipeWire filter chain, plus
-  your audio hardware, then exit
+  your audio hardware, then exit. If you installed with
+  `--pipewire-confd-dir` or the WirePlumber folder flags, pass the same flags.
 
 **Profile selection**
 - `--endpoint TYPE` — endpoint type from the XML (default: `internal_speaker`)
@@ -360,7 +361,8 @@ and `dolby_to_pipewire.py` runs it for you.
 **Inspection**
 - `--doctor` — report the state of the installed filter chain, then exit. It
   covers stacked chains, confs that didn't load, a missing impulse response and
-  a target sink that no longer exists.
+  a target sink that no longer exists. If you installed with
+  `--pipewire-confd-dir` or the WirePlumber folder flags, pass the same flags.
 
 **Routing**
 - `--target-sink NODE_NAME` — hardware sink the filter attaches to as a

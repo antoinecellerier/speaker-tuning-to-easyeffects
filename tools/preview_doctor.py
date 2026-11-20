@@ -579,7 +579,7 @@ def _pw_scenario(slug: str):
             session.process_age = lambda name: 3 * 3600.0
             # The capture machine's own WirePlumber folders say nothing
             # about the scenario's.
-            port_hook.installed = lambda staging=None: bool(spec.get("hook"))
+            port_hook.installed = lambda hook_dirs=None: bool(spec.get("hook"))
             # The hardware block's port listing reads its own pw-dump.
             sinks.output_port_lines = lambda: sinks.port_lines(
                 sinks.sinks_from_dump(dump))
