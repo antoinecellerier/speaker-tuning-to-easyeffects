@@ -60,7 +60,8 @@ See [Limitations](ee-to-pipewire.md#limitations--known-gaps).
 - **To check it's active later**, after a reboot for example, or if there's no
   sound or it doesn't sound right: `python3 dolby_to_pipewire.py --doctor`
   reports what's installed, what PipeWire is doing with it, and what to do
-  about each problem it finds.
+  about each problem it finds. A report with nothing to fix ends
+  `No blocking problems detected.`
 - <a id="remove-the-filter"></a>**To remove the filter:** run
   `python3 dolby_to_pipewire.py --uninstall`. It lists every conf this tool
   installed in PipeWire's config folders, plus the `.irs` copied beside each. It

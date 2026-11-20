@@ -104,9 +104,11 @@ PipeWire filter-chain, with no GUI and no extra daemon. See
    python3 dolby_to_pipewire.py ~/Downloads/your-audio-driver.exe
    ```
 
-   The filter then applies each time PipeWire starts. The run names any plugin
-   it needs that's missing, and prints how to remove what it installed. Check
-   it later with `python3 dolby_to_pipewire.py --doctor`.
+   The filter then applies each time PipeWire starts, with nothing more to
+   enable. The run names any plugin it needs that's missing, and prints how to
+   remove what it installed. Check it later with
+   `python3 dolby_to_pipewire.py --doctor`. A report with nothing to fix ends
+   `No blocking problems detected.`
 
 ### If the script can't find your tuning
 
@@ -210,9 +212,10 @@ Start with `--doctor`: run `python3 dolby_to_easyeffects.py --doctor`, or
 `python3 dolby_to_pipewire.py --doctor` if you use the PipeWire filter-chain.
 Each reports what it finds and what to do about it.
 
-- **No audible difference.**
-  [Check the EasyEffects setup](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing)
-  before suspecting the preset.
+- **No audible difference.** With EasyEffects,
+  [check its setup](docs/troubleshooting.md#troubleshooting-a-preset-that-sounds-like-nothing)
+  before suspecting the preset. On the PipeWire filter-chain,
+  [check the filter](docs/troubleshooting.md#no-difference-on-the-pipewire-filter-chain).
 - **Right, but quieter than Windows.**
   [Try the loudness options](docs/troubleshooting.md#troubleshooting-correct-but-too-quiet),
   such as `--enable autogain`.
@@ -222,10 +225,13 @@ Each reports what it finds and what to do about it.
   [Get your tuning file](docs/getting-the-tuning-file.md) another way.
 - **The effect stops after you close EasyEffects or reboot.**
   [Enable its Background Service](docs/troubleshooting.md#easyeffects-background-service).
+- **The PipeWire filter is gone after a reboot.**
+  `dolby_to_pipewire.py --doctor` says whether the filter loaded:
+  [check the PipeWire filter](docs/troubleshooting.md#no-difference-on-the-pipewire-filter-chain).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](docs/dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
-- **Without EasyEffects, the tuning plays on wired headphones.**
+- **The PipeWire filter plays on wired headphones.**
   `dolby_to_pipewire.py --doctor` says what to change.
   [Headphones on the speakers' sink](docs/ee-to-pipewire.md#headphones-on-the-speakers-sink).
 - **Re-ran the script but hear no change.** The run can't reload a Flatpak

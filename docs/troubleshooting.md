@@ -8,15 +8,22 @@ reports what it finds and what to do about it.
 
 ## Symptoms
 
-- **I hear no difference from bypass.**
-  [Check the EasyEffects setup](#troubleshooting-a-preset-that-sounds-like-nothing)
-  before suspecting the preset.
+- **I hear no difference from bypass.** With EasyEffects,
+  [check its setup](#troubleshooting-a-preset-that-sounds-like-nothing) before
+  suspecting the preset. On the PipeWire filter-chain,
+  [check the filter](#no-difference-on-the-pipewire-filter-chain).
 - **It sounds right, but quieter than Windows.**
   [Try the loudness options](#troubleshooting-correct-but-too-quiet) in order.
 - **Loud parts distort or sound crushed, the volume pumps, or highs are
   harsh.** [Rebuild the preset without the filter responsible](filters.md).
 - **The effect is gone after I close EasyEffects or reboot.**
   [Enable its Background Service](#easyeffects-background-service).
+- **The PipeWire filter is gone after a reboot.**
+  `dolby_to_pipewire.py --doctor` says whether the filter loaded:
+  [check the PipeWire filter](#no-difference-on-the-pipewire-filter-chain).
+- **The PipeWire filter plays on wired headphones.**
+  `dolby_to_pipewire.py --doctor` says what to change.
+  [Headphones on the speakers' sink](ee-to-pipewire.md#headphones-on-the-speakers-sink).
 - **The Dolby tuning plays on HDMI, Bluetooth or a headset.** `--doctor` says
   what to change.
   [Stop it playing there](dolby-to-easyeffects.md#if-the-dolby-tuning-still-plays-on-other-outputs).
@@ -42,6 +49,10 @@ reports what it finds and what to do about it.
 - **Something else.** [Report it](#reporting-a-problem).
 
 ## Troubleshooting: a preset that sounds like nothing
+
+This section is about the EasyEffects setup. For the PipeWire filter-chain,
+go to
+[No difference on the PipeWire filter-chain](#no-difference-on-the-pipewire-filter-chain).
 
 If you loaded a generated preset in EasyEffects and hear no difference from
 bypass, check the EasyEffects setup before suspecting the preset. Each of the
@@ -86,11 +97,18 @@ version too. To check it in EasyEffects itself, open its About dialog:
 
 ![Checking the EasyEffects version](images/ee-version.jpg)
 
-Everything above is about the EasyEffects setup. On the
-[PipeWire filter-chain](dolby-to-pipewire.md) route,
-run `python3 dolby_to_pipewire.py --doctor` instead. It checks that route's own
-failures: chains stacked on one sink, a conf that didn't load, a PipeWire that
-can't load LV2 plugins, a missing impulse file, and a target sink that's gone.
+### No difference on the PipeWire filter-chain
+
+On the [PipeWire filter-chain](dolby-to-pipewire.md) route, run:
+
+```
+python3 dolby_to_pipewire.py --doctor
+```
+
+It checks that route's own failures: chains stacked on one sink, a conf that
+didn't load, a PipeWire that can't load LV2 plugins, a missing impulse file,
+and a target sink that's gone. A report with nothing to fix ends
+`No blocking problems detected.`
 
 ## Troubleshooting: correct but too quiet
 
@@ -104,11 +122,12 @@ Try these in order:
   leveler ships bypassed by default and carries most of the loudness gap: ~+9 dB
   measured on program material. The trade-off: without Dolby's content analysis,
   it can audibly saturate when loud sound arrives over a quiet background. That
-  is why it isn't the default. If you hear that, drop the flag again. For still
-  more loudness, raise the Autogain *Target* a few dB in the EasyEffects GUI, at
-  increased saturation risk. If you instead enable Autogain by hand on a preset
-  generated before this option existed, also raise its *Silence threshold* to
-  about −50 dB. Otherwise, sounds arriving after silence will crackle.
+  is why it isn't the default. If you hear that, drop the flag again. With
+  EasyEffects, for still more loudness, raise the Autogain *Target* a few dB in
+  its window, at increased saturation risk. If you instead enable Autogain by
+  hand on a preset generated before this option existed, also raise its *Silence
+  threshold* to about −50 dB. Otherwise, sounds arriving after silence will
+  crackle.
 - **If it is quieter than with the preset switched off entirely**, not just
   quieter than Windows, re-run with `--enable level-restore`. The flag hands
   back the level the preset loses below bypass. **Experimental**: the restored
